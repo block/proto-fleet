@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -217,6 +219,106 @@ func TestReconciler_Restoring_ClaimDispatchesUncurtailBatch(t *testing.T) {
 		*store.targetsByEventID[eventID][0].LastBatchUUID,
 		*store.targetsByEventID[eventID][1].LastBatchUUID,
 		"batched Uncurtail targets must share a single batch_uuid")
+}
+
+func TestReconciler_Restoring_ImmediateRestoreClaimsAllPendingTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(0)
+	eventID := int64(31)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		RestoreBatchSize:        0,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m3", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.uncurtailCalls)
+	assert.ElementsMatch(t, []string{"m1", "m2", "m3"}, disp.uncurtailLastIDs)
+	for _, target := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStateDispatched, target.State)
+	}
+}
+
+func TestReconciler_Restoring_ImmediateRestoreIsSafetyLimited(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(0)
+	eventID := int64(31)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		RestoreBatchSize:        0,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	targetCount := int(domainCurtailment.RestoreBatchSizeMax) + 1
+	targets := make([]*models.Target, 0, targetCount)
+	for i := range targetCount {
+		targets = append(targets, &models.Target{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   fmt.Sprintf("m%d", i),
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateActive,
+			BaselinePowerW:     ptrFloat64(3000),
+		})
+	}
+	store.targetsByEventID[eventID] = targets
+
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.uncurtailCalls)
+	assert.Len(t, disp.uncurtailLastIDs, int(domainCurtailment.RestoreBatchSizeMax))
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][domainCurtailment.RestoreBatchSizeMax-1].State)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][domainCurtailment.RestoreBatchSizeMax].State)
+}
+
+func TestReconciler_Restoring_PostCommandStateWriteFailureConsumesRetry(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	eventID := int64(32)
+	store.events = []*models.Event{{
+		ID:        eventID,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 2 && params.State == models.TargetStateDispatched {
+			return errors.New("post-command write failed")
+		}
+		return nil
+	}
+
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "post-command write failed")
 }
 
 func TestReconciler_Restoring_InFlightGateBlocksClaim(t *testing.T) {
@@ -797,7 +899,7 @@ func TestReconciler_Restoring_DispatchedAgesOutToRestoreFailed(t *testing.T) {
 	disp := &fakeDispatcher{}
 
 	r := newReconcilerForTest(store, disp)
-	// Dispatched 10 minutes ago — well past the 5-minute default timeout.
+	// Dispatched 10 minutes ago — well past the 30-second default timeout.
 	lastDispatch := r.now().Add(-10 * time.Minute)
 	eventID := int64(60)
 	store.events = []*models.Event{{
@@ -846,8 +948,8 @@ func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
 	disp := &fakeDispatcher{}
 
 	r := newReconcilerForTest(store, disp)
-	// Dispatched 1 minute ago — well under the 5-minute default timeout.
-	lastDispatch := r.now().Add(-1 * time.Minute)
+	// Dispatched recently — under the 30-second default timeout.
+	lastDispatch := r.now().Add(-10 * time.Second)
 	eventID := int64(61)
 	store.events = []*models.Event{{
 		ID:        eventID,
@@ -950,6 +1052,10 @@ func TestIsRestored(t *testing.T) {
 		{"no_telemetry_not_restored", nil, ptrFloat64(3000), nil, 0.5, false},
 		{"baseline_zero_falls_back_to_hash", ptrFloat64(2000), ptrFloat64(0), ptrFloat64(100), 0.5, true},
 		{"power_present_baseline_nil_hash_nil_not_restored", ptrFloat64(2000), nil, nil, 0.5, false},
+		// Pool-less miner at an idle-draw baseline (#663): power is the only
+		// usable signal because hash stays 0 through the whole lifecycle.
+		{"idle_baseline_wake_draw_restored", ptrFloat64(400), ptrFloat64(400), ptrFloat64(0), 0.5, true},
+		{"idle_baseline_sleep_draw_not_restored", ptrFloat64(30), ptrFloat64(400), ptrFloat64(0), 0.5, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

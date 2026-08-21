@@ -1,9 +1,12 @@
 package maintenance
 
 import (
+	"strconv"
+
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/maintenance/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
 )
 
@@ -11,16 +14,23 @@ import (
 // Proto → Domain
 // ---------------------------------------------------------------
 
-func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) models.CreateParams {
+func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.CreateParams, error) {
+	category, err := checkedEnumValue(int32(req.GetCategory()), 1, 2, "category")
+	if err != nil {
+		return models.CreateParams{}, err
+	}
+	warrantyStatus, err := checkedEnumValue(int32(req.GetWarrantyStatus()), 0, 3, "warranty_status")
+	if err != nil {
+		return models.CreateParams{}, err
+	}
 	params := models.CreateParams{
 		OrgID:          orgID,
-		Category:       models.TicketCategory(req.GetCategory()),
+		Category:       models.TicketCategory(category),
 		Urgent:         req.GetUrgent(),
 		Component:      req.GetComponent(),
-		WarrantyStatus: models.WarrantyStatus(req.GetWarrantyStatus()),
-		DailyImpactUsd: req.GetDailyImpactUsd(),
+		WarrantyStatus: models.WarrantyStatus(warrantyStatus),
 	}
-	if req.Diagnosis != nil {
+	if req.GetDiagnosis() != "" {
 		v := req.GetDiagnosis()
 		params.Diagnosis = &v
 	}
@@ -44,7 +54,7 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) models.Creat
 		v := req.GetBuildingId()
 		params.BuildingID = &v
 	}
-	if req.Zone != nil {
+	if req.GetZone() != "" {
 		v := req.GetZone()
 		params.Zone = &v
 	}
@@ -52,29 +62,33 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) models.Creat
 		v := req.GetRackId()
 		params.RackID = &v
 	}
-	if req.RackLabel != nil {
+	if req.GetRackLabel() != "" {
 		v := req.GetRackLabel()
 		params.RackLabel = &v
 	}
-	if req.GroupLabel != nil {
+	if req.GetGroupLabel() != "" {
 		v := req.GetGroupLabel()
 		params.GroupLabel = &v
 	}
-	if req.Notes != nil {
+	if req.GetNotes() != "" {
 		v := req.GetNotes()
 		params.Notes = &v
 	}
-	return params
+	return params, nil
 }
 
-func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) models.UpdateParams {
+func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.UpdateParams, error) {
 	params := models.UpdateParams{
 		OrgID:         orgID,
 		ID:            req.GetId(),
 		ClearAssignee: req.GetClearAssignee(),
 	}
 	if req.Status != nil {
-		v := models.TicketStatus(req.GetStatus())
+		raw, err := checkedEnumValue(int32(req.GetStatus()), 1, 5, "status")
+		if err != nil {
+			return models.UpdateParams{}, err
+		}
+		v := models.TicketStatus(raw)
 		params.Status = &v
 	}
 	if req.Urgent != nil {
@@ -94,15 +108,27 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) models.Updat
 		params.Diagnosis = &v
 	}
 	if req.WarrantyStatus != nil {
-		v := models.WarrantyStatus(req.GetWarrantyStatus())
+		raw, err := checkedEnumValue(int32(req.GetWarrantyStatus()), 0, 3, "warranty_status")
+		if err != nil {
+			return models.UpdateParams{}, err
+		}
+		v := models.WarrantyStatus(raw)
 		params.WarrantyStatus = &v
 	}
 	if req.Resolution != nil {
-		v := models.TicketResolution(req.GetResolution())
+		raw, err := checkedEnumValue(int32(req.GetResolution()), 0, 4, "resolution")
+		if err != nil {
+			return models.UpdateParams{}, err
+		}
+		v := models.TicketResolution(raw)
 		params.Resolution = &v
 	}
 	if req.RepairLocation != nil {
-		v := models.RepairLocation(req.GetRepairLocation())
+		raw, err := checkedEnumValue(int32(req.GetRepairLocation()), 0, 2, "repair_location")
+		if err != nil {
+			return models.UpdateParams{}, err
+		}
+		v := models.RepairLocation(raw)
 		params.RepairLocation = &v
 	}
 	if req.Notes != nil {
@@ -121,72 +147,110 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) models.Updat
 		t := req.GetRmaEta().AsTime()
 		params.RMAEta = &t
 	}
-	return params
+	return params, nil
 }
 
-func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) models.ListFilter {
+func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFilter, error) {
+	requestFilter := req.GetFilter()
 	filter := models.ListFilter{
 		OrgID:            orgID,
-		UrgentOnly:       req.GetUrgentOnly(),
-		ExcludeCompleted: req.GetExcludeCompleted(),
-		SearchQuery:      req.GetSearchQuery(),
-		Limit:            req.GetLimit(),
+		UrgentOnly:       requestFilter.GetUrgentOnly(),
+		ExcludeCompleted: requestFilter.GetExcludeCompleted(),
+		SearchQuery:      requestFilter.GetSearchQuery(),
+		Limit:            req.GetPageSize(),
 	}
-	if len(req.GetStatuses()) > 0 {
-		filter.Statuses = make([]int16, len(req.GetStatuses()))
-		for i, s := range req.GetStatuses() {
-			filter.Statuses[i] = int16(s)
+	if len(requestFilter.GetStatuses()) > 0 {
+		filter.Statuses = make([]int16, len(requestFilter.GetStatuses()))
+		for i, s := range requestFilter.GetStatuses() {
+			value, err := checkedEnumValue(int32(s), 1, 5, "filter.statuses")
+			if err != nil {
+				return models.ListFilter{}, err
+			}
+			filter.Statuses[i] = value
 		}
 	}
-	if len(req.GetCategories()) > 0 {
-		filter.Categories = make([]int16, len(req.GetCategories()))
-		for i, c := range req.GetCategories() {
-			filter.Categories[i] = int16(c)
+	if len(requestFilter.GetCategories()) > 0 {
+		filter.Categories = make([]int16, len(requestFilter.GetCategories()))
+		for i, c := range requestFilter.GetCategories() {
+			value, err := checkedEnumValue(int32(c), 1, 2, "filter.categories")
+			if err != nil {
+				return models.ListFilter{}, err
+			}
+			filter.Categories[i] = value
 		}
 	}
-	filter.SiteIDs = req.GetSiteIds()
-	filter.BuildingIDs = req.GetBuildingIds()
-	filter.RackIDs = req.GetRackIds()
-	filter.GroupLabels = req.GetGroupLabels()
-	if req.AssigneeUserId != nil {
-		v := req.GetAssigneeUserId()
+	filter.SiteIDs = requestFilter.GetSiteIds()
+	filter.BuildingIDs = requestFilter.GetBuildingIds()
+	filter.RackIDs = requestFilter.GetRackIds()
+	filter.GroupLabels = requestFilter.GetGroupLabels()
+	if requestFilter.AssigneeUserId != nil {
+		v := requestFilter.GetAssigneeUserId()
 		filter.AssigneeUserID = &v
 	}
-	if req.CursorId != nil {
-		v := req.GetCursorId()
-		filter.CursorID = &v
+	if req.GetPageToken() != "" {
+		cursorID, err := parsePageToken(req.GetPageToken())
+		if err != nil {
+			return models.ListFilter{}, err
+		}
+		filter.CursorID = &cursorID
 	}
-	return filter
+	return filter, nil
 }
 
-func toCompletedFilter(req *pb.ListCompletedTicketsRequest, orgID int64) models.CompletedFilter {
+func toCompletedFilter(req *pb.ListCompletedTicketsRequest, orgID int64) (models.CompletedFilter, error) {
 	filter := models.CompletedFilter{
 		OrgID: orgID,
-		Limit: req.GetLimit(),
+		Limit: req.GetPageSize(),
 	}
-	if req.Component != nil {
-		v := req.GetComponent()
+	if req.ComponentFilter != nil {
+		v := req.GetComponentFilter()
 		filter.Component = &v
 	}
-	if req.AssigneeUserId != nil {
-		v := req.GetAssigneeUserId()
+	if req.AssigneeUserIdFilter != nil {
+		v := req.GetAssigneeUserIdFilter()
 		filter.AssigneeUserID = &v
 	}
-	if req.CursorId != nil {
-		v := req.GetCursorId()
-		filter.CursorID = &v
+	if req.GetPageToken() != "" {
+		cursorID, err := parsePageToken(req.GetPageToken())
+		if err != nil {
+			return models.CompletedFilter{}, err
+		}
+		filter.CursorID = &cursorID
 	}
-	return filter
+	return filter, nil
 }
 
-func toBulkCloseParams(req *pb.BulkCloseTicketsRequest, orgID int64) models.BulkCloseParams {
+func parsePageToken(token string) (int64, error) {
+	cursorID, err := strconv.ParseInt(token, 10, 64)
+	if err != nil || cursorID <= 0 {
+		return 0, fleeterror.NewInvalidArgumentError("invalid page_token")
+	}
+	return cursorID, nil
+}
+
+func checkedEnumValue(value, minValue, maxValue int32, field string) (int16, error) {
+	if value < minValue || value > maxValue {
+		return 0, fleeterror.NewInvalidArgumentErrorf("invalid %s", field)
+	}
+	return int16(value), nil //nolint:gosec // explicit range check above proves the conversion is safe
+}
+
+func toBulkCloseParams(req *pb.BulkCloseParams, orgID int64, ticketIDs []int64) (models.BulkCloseParams, error) {
+	resolution, err := checkedEnumValue(int32(req.GetResolution()), 1, 4, "bulk_close.resolution")
+	if err != nil {
+		return models.BulkCloseParams{}, err
+	}
+	repairLocation, err := checkedEnumValue(int32(req.GetRepairLocation()), 0, 2, "bulk_close.repair_location")
+	if err != nil {
+		return models.BulkCloseParams{}, err
+	}
 	params := models.BulkCloseParams{
 		OrgID:          orgID,
-		TicketIDs:      req.GetTicketIds(),
-		Resolution:     models.TicketResolution(req.GetResolution()),
-		RepairLocation: models.RepairLocation(req.GetRepairLocation()),
+		TicketIDs:      ticketIDs,
+		Resolution:     models.TicketResolution(resolution),
+		RepairLocation: models.RepairLocation(repairLocation),
 	}
-	if req.Notes != nil {
+	if req.GetNotes() != "" {
 		v := req.GetNotes()
 		params.Notes = &v
 	}
@@ -199,7 +263,7 @@ func toBulkCloseParams(req *pb.BulkCloseTicketsRequest, orgID int64) models.Bulk
 			}
 		}
 	}
-	return params
+	return params, nil
 }
 
 // ---------------------------------------------------------------
@@ -225,8 +289,7 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		UpdatedAt:      timestamppb.New(t.UpdatedAt),
 	}
 	if t.Diagnosis != nil {
-		v := *t.Diagnosis
-		out.Diagnosis = &v
+		out.Diagnosis = *t.Diagnosis
 	}
 	if t.MinerIdentifier != nil {
 		v := *t.MinerIdentifier
@@ -241,16 +304,13 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		out.AssigneeUserId = &v
 	}
 	if t.Notes != nil {
-		v := *t.Notes
-		out.Notes = &v
+		out.Notes = *t.Notes
 	}
 	if t.RMAVendor != nil {
-		v := *t.RMAVendor
-		out.RmaVendor = &v
+		out.RmaVendor = *t.RMAVendor
 	}
 	if t.RMATracking != nil {
-		v := *t.RMATracking
-		out.RmaTracking = &v
+		out.RmaTracking = *t.RMATracking
 	}
 	if t.RMAEta != nil {
 		out.RmaEta = timestamppb.New(*t.RMAEta)
@@ -264,20 +324,17 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		out.BuildingId = &v
 	}
 	if t.Zone != nil {
-		v := *t.Zone
-		out.Zone = &v
+		out.Zone = *t.Zone
 	}
 	if t.RackID != nil {
 		v := *t.RackID
 		out.RackId = &v
 	}
 	if t.RackLabel != nil {
-		v := *t.RackLabel
-		out.RackLabel = &v
+		out.RackLabel = *t.RackLabel
 	}
 	if t.GroupLabel != nil {
-		v := *t.GroupLabel
-		out.GroupLabel = &v
+		out.GroupLabel = *t.GroupLabel
 	}
 	if t.CompletedAt != nil {
 		out.CompletedAt = timestamppb.New(*t.CompletedAt)
@@ -340,16 +397,16 @@ func toProtoTicketStats(stats *models.TicketStats) *pb.GetTicketStatsResponse {
 	if stats == nil {
 		return nil
 	}
-	countByStatus := make(map[int32]int32, len(stats.CountByStatus))
-	for status, count := range stats.CountByStatus {
-		countByStatus[int32(status)] = count
-	}
 	return &pb.GetTicketStatsResponse{
-		CountByStatus: countByStatus,
-		Unassigned:    stats.Unassigned,
-		Urgent:        stats.Urgent,
-		Overdue:       stats.Overdue,
-		AvgAgeHours:   stats.AvgAgeHours,
+		OpenCount:         stats.CountByStatus[models.TicketStatusOpen],
+		InProgressCount:   stats.CountByStatus[models.TicketStatusInProgress],
+		OnHoldCount:       stats.CountByStatus[models.TicketStatusOnHold],
+		SentToVendorCount: stats.CountByStatus[models.TicketStatusSentToVendor],
+		CompletedCount:    stats.CountByStatus[models.TicketStatusCompleted],
+		UnassignedCount:   stats.Unassigned,
+		UrgentCount:       stats.Urgent,
+		OverdueCount:      stats.Overdue,
+		AvgAgeHours:       stats.AvgAgeHours,
 	}
 }
 
@@ -363,8 +420,9 @@ func toListRepairTicketsResponse(tickets []models.RepairTicketSummary, totalCoun
 		out = append(out, toProtoTicketSummary(&tickets[i]))
 	}
 	return &pb.ListRepairTicketsResponse{
-		Tickets:    out,
-		TotalCount: totalCount,
+		Tickets:       out,
+		NextPageToken: nextPageToken(tickets),
+		TotalCount:    totalCount,
 	}
 }
 
@@ -374,26 +432,15 @@ func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary) *pb.Li
 		out = append(out, toProtoTicketSummary(&tickets[i]))
 	}
 	return &pb.ListCompletedTicketsResponse{
-		Tickets: out,
+		Tickets:       out,
+		NextPageToken: nextPageToken(tickets),
+		TotalCount:    int32(len(tickets)), //nolint:gosec // page size is capped at 100
 	}
 }
 
-func toListTicketsByMinerResponse(tickets []models.RepairTicket) *pb.ListTicketsByMinerResponse {
-	out := make([]*pb.RepairTicket, 0, len(tickets))
-	for i := range tickets {
-		out = append(out, toProtoTicket(&tickets[i]))
+func nextPageToken(tickets []models.RepairTicketSummary) string {
+	if len(tickets) == 0 {
+		return ""
 	}
-	return &pb.ListTicketsByMinerResponse{
-		Tickets: out,
-	}
-}
-
-func toListTicketsByRackResponse(tickets []models.RepairTicket) *pb.ListTicketsByRackResponse {
-	out := make([]*pb.RepairTicket, 0, len(tickets))
-	for i := range tickets {
-		out = append(out, toProtoTicket(&tickets[i]))
-	}
-	return &pb.ListTicketsByRackResponse{
-		Tickets: out,
-	}
+	return strconv.FormatInt(tickets[len(tickets)-1].ID, 10)
 }

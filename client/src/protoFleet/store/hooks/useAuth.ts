@@ -8,6 +8,8 @@ import { useFleetStore } from "../useFleetStore";
 
 export const useSessionExpiry = () => useFleetStore((state) => state.auth.sessionExpiry);
 
+export const useSessionGeneration = () => useFleetStore((state) => state.auth.sessionGeneration);
+
 export const useIsAuthenticated = () => useFleetStore((state) => state.auth.isAuthenticated);
 
 export const useUsername = () => useFleetStore((state) => state.auth.username);
@@ -17,9 +19,10 @@ export const useRole = () => useFleetStore((state) => state.auth.role);
 export const usePermissions = () => useFleetStore((state) => state.auth.permissions);
 
 // useHasPermission is the canonical UI gate for capability checks.
-// Returns true when the caller's session-loaded effective permissions
-// include the requested catalog key. The server enforces every gate
-// regardless; this selector is purely for show/hide decisions.
+// It checks UserInfo.permissions, the caller's default/org-scoped authority.
+// Narrower resource-scoped permissions should use a separate resource-aware
+// surface when that lands. The server still enforces every gate regardless;
+// this selector is purely for show/hide decisions.
 export const useHasPermission = (key: string): boolean =>
   useFleetStore((state) => state.auth.permissions.includes(key));
 

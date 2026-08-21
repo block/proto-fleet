@@ -56,6 +56,21 @@ func (mr *MockSiteStoreMockRecorder) AssignBuildingToSite(ctx, orgID, buildingID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingToSite), ctx, orgID, buildingID, targetSiteID)
 }
 
+// AssignBuildingsToSiteBulk mocks base method.
+func (m *MockSiteStore) AssignBuildingsToSiteBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignBuildingsToSiteBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AssignBuildingsToSiteBulk indicates an expected call of AssignBuildingsToSiteBulk.
+func (mr *MockSiteStoreMockRecorder) AssignBuildingsToSiteBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingsToSiteBulk", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingsToSiteBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
 // AssignDevicesToSite mocks base method.
 func (m *MockSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -69,6 +84,111 @@ func (m *MockSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, ta
 func (mr *MockSiteStoreMockRecorder) AssignDevicesToSite(ctx, orgID, targetSiteID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignDevicesToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignDevicesToSite), ctx, orgID, targetSiteID, deviceIdentifiers)
+}
+
+// CountActiveCurtailmentEventsByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveCurtailmentEventsByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveCurtailmentEventsByInfrastructureDevices indicates an expected call of CountActiveCurtailmentEventsByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountActiveCurtailmentEventsByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveCurtailmentEventsByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountActiveCurtailmentEventsByInfrastructureDevices), ctx, orgID, ids)
+}
+
+// CountBuildingsBySite mocks base method.
+func (m *MockSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountBuildingsBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountBuildingsBySite indicates an expected call of CountBuildingsBySite.
+func (mr *MockSiteStoreMockRecorder) CountBuildingsBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountBuildingsBySite", reflect.TypeOf((*MockSiteStore)(nil).CountBuildingsBySite), ctx, orgID, siteID)
+}
+
+// CountCurtailmentResponseProfilesBySite mocks base method.
+func (m *MockSiteStore) CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountCurtailmentResponseProfilesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountCurtailmentResponseProfilesBySite indicates an expected call of CountCurtailmentResponseProfilesBySite.
+func (mr *MockSiteStoreMockRecorder) CountCurtailmentResponseProfilesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountCurtailmentResponseProfilesBySite", reflect.TypeOf((*MockSiteStore)(nil).CountCurtailmentResponseProfilesBySite), ctx, orgID, siteID)
+}
+
+// CountInfrastructureDevicesBySite mocks base method.
+func (m *MockSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInfrastructureDevicesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInfrastructureDevicesBySite indicates an expected call of CountInfrastructureDevicesBySite.
+func (mr *MockSiteStoreMockRecorder) CountInfrastructureDevicesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInfrastructureDevicesBySite", reflect.TypeOf((*MockSiteStore)(nil).CountInfrastructureDevicesBySite), ctx, orgID, siteID)
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountNonTerminalCurtailmentEventsByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevices indicates an expected call of CountNonTerminalCurtailmentEventsByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountNonTerminalCurtailmentEventsByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountNonTerminalCurtailmentEventsByInfrastructureDevices), ctx, orgID, ids)
+}
+
+// CountRacksBySite mocks base method.
+func (m *MockSiteStore) CountRacksBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRacksBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRacksBySite indicates an expected call of CountRacksBySite.
+func (mr *MockSiteStoreMockRecorder) CountRacksBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRacksBySite", reflect.TypeOf((*MockSiteStore)(nil).CountRacksBySite), ctx, orgID, siteID)
+}
+
+// CountResponseProfilesByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountResponseProfilesByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountResponseProfilesByInfrastructureDevices indicates an expected call of CountResponseProfilesByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountResponseProfilesByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountResponseProfilesByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountResponseProfilesByInfrastructureDevices), ctx, orgID, ids)
 }
 
 // CreateSite mocks base method.
@@ -116,6 +236,51 @@ func (mr *MockSiteStoreMockRecorder) FindDeviceSiteConflicts(ctx, orgID, deviceI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDeviceSiteConflicts", reflect.TypeOf((*MockSiteStore)(nil).FindDeviceSiteConflicts), ctx, orgID, deviceIdentifiers)
 }
 
+// FindDevicesInSiteLessRacks mocks base method.
+func (m *MockSiteStore) FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDevicesInSiteLessRacks", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDevicesInSiteLessRacks indicates an expected call of FindDevicesInSiteLessRacks.
+func (mr *MockSiteStoreMockRecorder) FindDevicesInSiteLessRacks(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesInSiteLessRacks", reflect.TypeOf((*MockSiteStore)(nil).FindDevicesInSiteLessRacks), ctx, orgID, deviceIdentifiers)
+}
+
+// GetDistinctDeviceSiteIDs mocks base method.
+func (m *MockSiteStore) GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDistinctDeviceSiteIDs", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]*int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDistinctDeviceSiteIDs indicates an expected call of GetDistinctDeviceSiteIDs.
+func (mr *MockSiteStoreMockRecorder) GetDistinctDeviceSiteIDs(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDistinctDeviceSiteIDs", reflect.TypeOf((*MockSiteStore)(nil).GetDistinctDeviceSiteIDs), ctx, orgID, deviceIdentifiers)
+}
+
+// GetInfrastructureControlSubnets mocks base method.
+func (m *MockSiteStore) GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInfrastructureControlSubnets", ctx, orgID, siteID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInfrastructureControlSubnets indicates an expected call of GetInfrastructureControlSubnets.
+func (mr *MockSiteStoreMockRecorder) GetInfrastructureControlSubnets(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInfrastructureControlSubnets", reflect.TypeOf((*MockSiteStore)(nil).GetInfrastructureControlSubnets), ctx, orgID, siteID)
+}
+
 // GetSite mocks base method.
 func (m *MockSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Site, error) {
 	m.ctrl.T.Helper()
@@ -129,6 +294,21 @@ func (m *MockSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.S
 func (mr *MockSiteStoreMockRecorder) GetSite(ctx, orgID, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSite", reflect.TypeOf((*MockSiteStore)(nil).GetSite), ctx, orgID, id)
+}
+
+// GetSiteBySlug mocks base method.
+func (m *MockSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSiteBySlug", ctx, orgID, slug)
+	ret0, _ := ret[0].(*models.Site)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSiteBySlug indicates an expected call of GetSiteBySlug.
+func (mr *MockSiteStoreMockRecorder) GetSiteBySlug(ctx, orgID, slug any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSiteBySlug", reflect.TypeOf((*MockSiteStore)(nil).GetSiteBySlug), ctx, orgID, slug)
 }
 
 // ListAllSiteNetworkConfigs mocks base method.
@@ -159,6 +339,21 @@ func (m *MockSiteStore) ListExistingDeviceIdentifiers(ctx context.Context, orgID
 func (mr *MockSiteStoreMockRecorder) ListExistingDeviceIdentifiers(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExistingDeviceIdentifiers", reflect.TypeOf((*MockSiteStore)(nil).ListExistingDeviceIdentifiers), ctx, orgID, deviceIdentifiers)
+}
+
+// ListSiteSlugs mocks base method.
+func (m *MockSiteStore) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSiteSlugs", ctx, orgID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSiteSlugs indicates an expected call of ListSiteSlugs.
+func (mr *MockSiteStoreMockRecorder) ListSiteSlugs(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSiteSlugs", reflect.TypeOf((*MockSiteStore)(nil).ListSiteSlugs), ctx, orgID)
 }
 
 // ListSites mocks base method.
@@ -218,6 +413,21 @@ func (mr *MockSiteStoreMockRecorder) LockDevicesForReassign(ctx, orgID, deviceId
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForReassign", reflect.TypeOf((*MockSiteStore)(nil).LockDevicesForReassign), ctx, orgID, deviceIdentifiers)
 }
 
+// LockInfrastructureDevicesBySiteForWrite mocks base method.
+func (m *MockSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockInfrastructureDevicesBySiteForWrite", ctx, orgID, siteID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockInfrastructureDevicesBySiteForWrite indicates an expected call of LockInfrastructureDevicesBySiteForWrite.
+func (mr *MockSiteStoreMockRecorder) LockInfrastructureDevicesBySiteForWrite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockInfrastructureDevicesBySiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockInfrastructureDevicesBySiteForWrite), ctx, orgID, siteID)
+}
+
 // LockSiteForWrite mocks base method.
 func (m *MockSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
 	m.ctrl.T.Helper()
@@ -247,6 +457,21 @@ func (mr *MockSiteStoreMockRecorder) ReassignDevicesUnderBuilding(ctx, orgID, bu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignDevicesUnderBuilding", reflect.TypeOf((*MockSiteStore)(nil).ReassignDevicesUnderBuilding), ctx, orgID, buildingID, targetSiteID)
 }
 
+// ReassignDevicesUnderBuildingsBulk mocks base method.
+func (m *MockSiteStore) ReassignDevicesUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignDevicesUnderBuildingsBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReassignDevicesUnderBuildingsBulk indicates an expected call of ReassignDevicesUnderBuildingsBulk.
+func (mr *MockSiteStoreMockRecorder) ReassignDevicesUnderBuildingsBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignDevicesUnderBuildingsBulk", reflect.TypeOf((*MockSiteStore)(nil).ReassignDevicesUnderBuildingsBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
 // ReassignRacksUnderBuilding mocks base method.
 func (m *MockSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -260,6 +485,36 @@ func (m *MockSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, b
 func (mr *MockSiteStoreMockRecorder) ReassignRacksUnderBuilding(ctx, orgID, buildingID, targetSiteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignRacksUnderBuilding", reflect.TypeOf((*MockSiteStore)(nil).ReassignRacksUnderBuilding), ctx, orgID, buildingID, targetSiteID)
+}
+
+// ReassignRacksUnderBuildingsBulk mocks base method.
+func (m *MockSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignRacksUnderBuildingsBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReassignRacksUnderBuildingsBulk indicates an expected call of ReassignRacksUnderBuildingsBulk.
+func (mr *MockSiteStoreMockRecorder) ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignRacksUnderBuildingsBulk", reflect.TypeOf((*MockSiteStore)(nil).ReassignRacksUnderBuildingsBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
+// SetInfrastructureControlSubnets mocks base method.
+func (m *MockSiteStore) SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetInfrastructureControlSubnets", ctx, orgID, siteID, canonical)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetInfrastructureControlSubnets indicates an expected call of SetInfrastructureControlSubnets.
+func (mr *MockSiteStoreMockRecorder) SetInfrastructureControlSubnets(ctx, orgID, siteID, canonical any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureControlSubnets", reflect.TypeOf((*MockSiteStore)(nil).SetInfrastructureControlSubnets), ctx, orgID, siteID, canonical)
 }
 
 // SiteBelongsToOrg mocks base method.
@@ -277,6 +532,21 @@ func (mr *MockSiteStoreMockRecorder) SiteBelongsToOrg(ctx, orgID, id any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SiteBelongsToOrg", reflect.TypeOf((*MockSiteStore)(nil).SiteBelongsToOrg), ctx, orgID, id)
 }
 
+// SitesByIDs mocks base method.
+func (m *MockSiteStore) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SitesByIDs", ctx, orgID, ids)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SitesByIDs indicates an expected call of SitesByIDs.
+func (mr *MockSiteStoreMockRecorder) SitesByIDs(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SitesByIDs", reflect.TypeOf((*MockSiteStore)(nil).SitesByIDs), ctx, orgID, ids)
+}
+
 // SoftDeleteBuildingsBySite mocks base method.
 func (m *MockSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -290,6 +560,21 @@ func (m *MockSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, si
 func (mr *MockSiteStoreMockRecorder) SoftDeleteBuildingsBySite(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteBuildingsBySite", reflect.TypeOf((*MockSiteStore)(nil).SoftDeleteBuildingsBySite), ctx, orgID, siteID)
+}
+
+// SoftDeleteInfrastructureDevicesBySite mocks base method.
+func (m *MockSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SoftDeleteInfrastructureDevicesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SoftDeleteInfrastructureDevicesBySite indicates an expected call of SoftDeleteInfrastructureDevicesBySite.
+func (mr *MockSiteStoreMockRecorder) SoftDeleteInfrastructureDevicesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteInfrastructureDevicesBySite", reflect.TypeOf((*MockSiteStore)(nil).SoftDeleteInfrastructureDevicesBySite), ctx, orgID, siteID)
 }
 
 // SoftDeleteSite mocks base method.

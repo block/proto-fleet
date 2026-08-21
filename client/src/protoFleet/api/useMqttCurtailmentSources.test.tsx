@@ -13,12 +13,14 @@ import {
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 
 const {
+  mockCreateMqttCurtailmentSource,
   mockDeleteMqttCurtailmentSource,
   mockHandleAuthErrors,
   mockListMqttCurtailmentSources,
   mockTestMqttCurtailmentSourceConnection,
   mockUpdateMqttCurtailmentSource,
 } = vi.hoisted(() => ({
+  mockCreateMqttCurtailmentSource: vi.fn(),
   mockDeleteMqttCurtailmentSource: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListMqttCurtailmentSources: vi.fn(),
@@ -28,6 +30,7 @@ const {
 
 vi.mock("@/protoFleet/api/clients", () => ({
   curtailmentClient: {
+    createMqttCurtailmentSource: mockCreateMqttCurtailmentSource,
     deleteMqttCurtailmentSource: mockDeleteMqttCurtailmentSource,
     listMqttCurtailmentSources: mockListMqttCurtailmentSources,
     testMqttCurtailmentSourceConnection: mockTestMqttCurtailmentSourceConnection,
@@ -83,11 +86,13 @@ const testSourceFormValues = {
   topic: "curtailment/site-alpha/target",
   username: "fleet",
   password: "secret",
+  stalenessThresholdSec: "300",
 };
 
 describe("useMqttCurtailmentSources", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockCreateMqttCurtailmentSource.mockReset();
     mockDeleteMqttCurtailmentSource.mockReset();
     mockHandleAuthErrors.mockReset();
     mockListMqttCurtailmentSources.mockReset();
@@ -198,6 +203,27 @@ describe("useMqttCurtailmentSources", () => {
     expect(result.current.isTestingConnection).toBe(false);
   });
 
+  it("creates a source with the configured signal timeout", async () => {
+    const created = mqttSource({ stalenessThresholdSec: 300 });
+    mockCreateMqttCurtailmentSource.mockResolvedValueOnce({ source: created });
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await act(async () => {
+      await result.current.createSource(testSourceFormValues);
+    });
+
+    expect(mockCreateMqttCurtailmentSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stalenessThresholdSec: 300,
+      }),
+    );
+    expect(result.current.sources[0]).toMatchObject({
+      id: "1",
+      stalenessThresholdSec: 300,
+    });
+  });
+
   it("rejects when a source connection test returns a failed result", async () => {
     mockTestMqttCurtailmentSourceConnection.mockResolvedValueOnce({
       ok: false,
@@ -236,6 +262,7 @@ describe("useMqttCurtailmentSources", () => {
         topic: "curtailment/site-alpha/target/updated",
         username: "fleet",
         password: "",
+        stalenessThresholdSec: "360",
       });
     });
 
@@ -248,6 +275,7 @@ describe("useMqttCurtailmentSources", () => {
         brokerSecondaryHost: "site-alpha-secondary.broker.test",
         brokerPort: 11883,
         mqttUsername: "fleet",
+        stalenessThresholdSec: 360,
       }),
     );
     expect(mockUpdateMqttCurtailmentSource.mock.calls[0][0]).not.toHaveProperty("mqttPassword");
@@ -255,6 +283,7 @@ describe("useMqttCurtailmentSources", () => {
       id: "1",
       name: "Site Alpha MQTT updated",
       topic: "curtailment/site-alpha/target/updated",
+      stalenessThresholdSec: 240,
     });
   });
 

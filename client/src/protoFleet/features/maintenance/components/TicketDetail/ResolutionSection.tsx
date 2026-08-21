@@ -26,7 +26,7 @@ export const ResolutionSectionContent = ({
         <span className="text-300">{repairLocation}</span>
       </div>
     </div>
-    {partsUsed.length > 0 && (
+    {partsUsed.length > 0 ? (
       <div className="flex flex-col gap-1">
         <span className="text-200 text-text-primary-70">Parts used</span>
         {partsUsed.map((part, i) => (
@@ -35,13 +35,13 @@ export const ResolutionSectionContent = ({
           </span>
         ))}
       </div>
-    )}
-    {notes && (
+    ) : null}
+    {notes ? (
       <div className="flex flex-col gap-1">
         <span className="text-200 text-text-primary-70">Notes</span>
         <span className="text-300">{notes}</span>
       </div>
-    )}
+    ) : null}
   </div>
 );
 

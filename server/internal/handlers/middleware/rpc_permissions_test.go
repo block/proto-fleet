@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
@@ -26,6 +27,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -33,6 +36,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -75,15 +79,22 @@ var registeredServices = []struct {
 	{fleetnodeadminv1connect.FleetNodeAdminServiceName, reflect.TypeOf((*fleetnodeadminv1connect.FleetNodeAdminServiceHandler)(nil)).Elem()},
 	{fleetnodegatewayv1connect.FleetNodeGatewayServiceName, reflect.TypeOf((*fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler)(nil)).Elem()},
 	{foremanimportv1connect.ForemanImportServiceName, reflect.TypeOf((*foremanimportv1connect.ForemanImportServiceHandler)(nil)).Elem()},
+	{infrastructurev1connect.InfrastructureServiceName, reflect.TypeOf((*infrastructurev1connect.InfrastructureServiceHandler)(nil)).Elem()},
 	{minercommandv1connect.MinerCommandServiceName, reflect.TypeOf((*minercommandv1connect.MinerCommandServiceHandler)(nil)).Elem()},
 	{networkinfov1connect.NetworkInfoServiceName, reflect.TypeOf((*networkinfov1connect.NetworkInfoServiceHandler)(nil)).Elem()},
+	{alertsv1connect.ChannelServiceName, reflect.TypeOf((*alertsv1connect.ChannelServiceHandler)(nil)).Elem()},
+	{alertsv1connect.RuleServiceName, reflect.TypeOf((*alertsv1connect.RuleServiceHandler)(nil)).Elem()},
+	{alertsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*alertsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
+	{alertsv1connect.HistoryServiceName, reflect.TypeOf((*alertsv1connect.HistoryServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},
 	{schedulev1connect.ScheduleServiceName, reflect.TypeOf((*schedulev1connect.ScheduleServiceHandler)(nil)).Elem()},
 	{serverlogv1connect.ServerLogServiceName, reflect.TypeOf((*serverlogv1connect.ServerLogServiceHandler)(nil)).Elem()},
+	{sitemapv1connect.SiteMapServiceName, reflect.TypeOf((*sitemapv1connect.SiteMapServiceHandler)(nil)).Elem()},
 	{sitesv1connect.SiteServiceName, reflect.TypeOf((*sitesv1connect.SiteServiceHandler)(nil)).Elem()},
 	{telemetryv1connect.TelemetryServiceName, reflect.TypeOf((*telemetryv1connect.TelemetryServiceHandler)(nil)).Elem()},
+	{instancev1connect.InstanceUpdateServiceName, reflect.TypeOf((*instancev1connect.InstanceUpdateServiceHandler)(nil)).Elem()},
 }
 
 func allRegisteredProcedures() []string {

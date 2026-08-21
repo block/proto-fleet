@@ -100,7 +100,7 @@ export const useInventoryApi = () => {
   );
 
   const updatePart = useCallback(
-    async ({ id, signal, onSuccess, onError, onFinally }: UpdatePartProps) => {
+    async ({ id: _id, signal, onSuccess, onError, onFinally }: UpdatePartProps) => {
       try {
         // TODO: wire to inventoryClient.updateInventoryPart
         if (signal?.aborted) return;
@@ -119,7 +119,7 @@ export const useInventoryApi = () => {
   );
 
   const listPartsBySite = useCallback(
-    async ({ siteId, signal, onSuccess, onError, onFinally }: ListPartsBySiteProps) => {
+    async ({ siteId: _siteId, signal, onSuccess, onError, onFinally }: ListPartsBySiteProps) => {
       try {
         // TODO: wire to inventoryClient.listPartsBySite
         if (signal?.aborted) return;
@@ -138,7 +138,7 @@ export const useInventoryApi = () => {
   );
 
   const importCsv = useCallback(
-    async ({ csvData, signal, onSuccess, onError, onFinally }: ImportCsvProps) => {
+    async ({ csvData: _csvData, signal, onSuccess, onError, onFinally }: ImportCsvProps) => {
       try {
         // TODO: wire to inventoryClient.importInventoryCsv
         if (signal?.aborted) return;
@@ -157,7 +157,7 @@ export const useInventoryApi = () => {
   );
 
   const confirmImport = useCallback(
-    async ({ csvData, signal, onSuccess, onError, onFinally }: ConfirmImportProps) => {
+    async ({ csvData: _csvData, signal, onSuccess, onError, onFinally }: ConfirmImportProps) => {
       try {
         // TODO: wire to inventoryClient.confirmInventoryImport
         if (signal?.aborted) return;

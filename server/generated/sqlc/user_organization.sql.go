@@ -26,7 +26,7 @@ func (q *Queries) CreateUserOrganization(ctx context.Context, arg CreateUserOrga
 }
 
 const getOrganizationsForUser = `-- name: GetOrganizationsForUser :many
-SELECT o.id, o.org_id, o.name, o.miner_auth_private_key, o.created_at, o.updated_at, o.deleted_at
+SELECT o.id, o.org_id, o.name, o.created_at, o.updated_at, o.deleted_at
 FROM organization o
          JOIN user_organization uo ON o.id = uo.organization_id
 WHERE uo.user_id = $1
@@ -45,7 +45,6 @@ func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]
 			&i.ID,
 			&i.OrgID,
 			&i.Name,
-			&i.MinerAuthPrivateKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,

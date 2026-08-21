@@ -9,6 +9,10 @@ export class SettingsPoolsPage extends BasePage {
       .first();
   }
 
+  async validateMiningPoolsSubmenuHidden() {
+    await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]')).toBeHidden();
+  }
+
   async validateMiningPoolsPageOpened() {
     await expect(this.page).toHaveURL(/.*\/mining-pools/);
     await this.validateButtonIsVisible("Add pool");
@@ -47,5 +51,21 @@ export class SettingsPoolsPage extends BasePage {
       await expect(poolRows).toHaveCount(poolCount - 1 - i);
     }
     await expect(poolRows).toHaveCount(0);
+  }
+
+  async deletePoolsByPrefix(prefix: string) {
+    const poolRows = await this.page.getByTestId("pool-row").all();
+    const poolNamesToDelete: string[] = [];
+
+    for (const row of poolRows) {
+      const poolName = (await row.getByTestId("pool-name").textContent())?.trim();
+      if (poolName?.startsWith(prefix)) {
+        poolNamesToDelete.push(poolName);
+      }
+    }
+
+    for (const poolName of poolNamesToDelete) {
+      await this.deletePoolByNameIfVisible(poolName);
+    }
   }
 }

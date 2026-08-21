@@ -153,6 +153,191 @@ func TestSourceWorker_HandleMessageRecordsOffSignalOnly(t *testing.T) {
 	assert.Nil(t, persisted.PendingEdge)
 }
 
+func TestSourceWorker_HandleMessageReassertsFreshRepeatedOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	nextPublishedAt := publishedAt.Add(time.Minute)
+	receivedAt := nextPublishedAt.Add(500 * time.Millisecond)
+	w := newTestSourceWorker(store, src, func() time.Time { return receivedAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOff,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOff,
+		LastProcessedTargets: []Target{TargetOff},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092860}`),
+		receivedAt: receivedAt,
+	})
+
+	require.Equal(t, TargetOff, state.LastTarget)
+	assert.Equal(t, nextPublishedAt, state.LastTargetAt)
+	assert.Equal(t, publishedAt, state.LastEdgeAt)
+	assert.Nil(t, state.PendingEdge)
+	assert.Equal(t, 1, executor.calls)
+	assert.Equal(t, TargetOff, executor.last.Target)
+	assert.Equal(t, EdgeReassertOff, executor.last.Direction)
+
+	persisted := store.state[src.ID]
+	assert.Equal(t, TargetOff, persisted.LastTarget)
+	assert.Equal(t, nextPublishedAt, persisted.LastTargetAt)
+	assert.Nil(t, persisted.PendingEdge)
+}
+
+func TestSourceWorker_HandleMessageSuppressesFrequentRepeatedOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	nextPublishedAt := publishedAt.Add(10 * time.Second)
+	receivedAt := nextPublishedAt.Add(500 * time.Millisecond)
+	w := newTestSourceWorker(store, src, func() time.Time { return receivedAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOff,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOff,
+		LastProcessedTargets: []Target{TargetOff},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092810}`),
+		receivedAt: receivedAt,
+	})
+
+	require.Equal(t, TargetOff, state.LastTarget)
+	assert.Equal(t, publishedAt, state.LastTargetAt)
+	assert.Equal(t, receivedAt, state.LastReceivedAt)
+	assert.Equal(t, publishedAt, state.LastEdgeAt)
+	assert.Nil(t, state.PendingEdge)
+	assert.Equal(t, 0, executor.calls)
+
+	persisted := store.state[src.ID]
+	assert.Equal(t, TargetOff, persisted.LastTarget)
+	assert.Equal(t, publishedAt, persisted.LastTargetAt)
+	assert.Nil(t, persisted.PendingEdge)
+}
+
+func TestSourceWorker_RepeatedOffDoesNotDebounceFollowingOn(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	reassertedAt := publishedAt.Add(time.Minute)
+	onAt := reassertedAt.Add(time.Second)
+	w := newTestSourceWorker(store, src, func() time.Time { return onAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOff,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOff,
+		LastProcessedTargets: []Target{TargetOff},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092860}`),
+		receivedAt: reassertedAt,
+	})
+	require.Equal(t, TargetOff, state.LastTarget)
+	assert.Equal(t, publishedAt, state.LastEdgeAt)
+	assert.Equal(t, 1, executor.calls)
+
+	state = w.handleMessage(context.Background(), state, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":100,"timestamp":1781092861}`),
+		receivedAt: onAt,
+	})
+
+	require.Equal(t, TargetOn, state.LastTarget)
+	assert.Equal(t, onAt, state.LastEdgeAt)
+	assert.Equal(t, 2, executor.calls)
+	assert.Equal(t, TargetOn, executor.last.Target)
+	assert.Equal(t, EdgeOffToOn, executor.last.Direction)
+}
+
+func TestSourceWorker_HandleMessageSuppressesDuplicateRepeatedOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	receivedAt := publishedAt.Add(time.Second)
+	w := newTestSourceWorker(store, src, func() time.Time { return receivedAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOff,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOff,
+		LastProcessedTargets: []Target{TargetOff},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092800}`),
+		receivedAt: receivedAt,
+	})
+
+	require.Equal(t, TargetOff, state.LastTarget)
+	assert.Nil(t, state.PendingEdge)
+	assert.Equal(t, 0, executor.calls)
+
+	persisted := store.state[src.ID]
+	assert.Equal(t, TargetOff, persisted.LastTarget)
+	assert.Nil(t, persisted.PendingEdge)
+}
+
+func TestSourceWorker_SuppressesSameTimestampOffReplayAfterOn(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	receivedAt := publishedAt.Add(2 * time.Second)
+	w := newTestSourceWorker(store, src, func() time.Time { return receivedAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOn,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOn,
+		LastProcessedTargets: []Target{TargetOff, TargetOn},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092800}`),
+		receivedAt: receivedAt,
+	})
+
+	require.Equal(t, TargetOn, state.LastTarget)
+	assert.Nil(t, state.PendingEdge)
+	assert.Equal(t, 0, executor.calls)
+}
+
 func TestSourceWorker_HandleWatchdogRecordsOffWithoutEvent(t *testing.T) {
 	t.Parallel()
 

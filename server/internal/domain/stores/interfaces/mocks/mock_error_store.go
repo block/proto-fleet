@@ -162,6 +162,21 @@ func (mr *MockErrorStoreMockRecorder) QueryErrors(ctx, opts any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryErrors", reflect.TypeOf((*MockErrorStore)(nil).QueryErrors), ctx, opts)
 }
 
+// RefreshOpenErrorsLastSeen mocks base method.
+func (m *MockErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RefreshOpenErrorsLastSeen", ctx, orgID, deviceIdentifier, observedAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RefreshOpenErrorsLastSeen indicates an expected call of RefreshOpenErrorsLastSeen.
+func (mr *MockErrorStoreMockRecorder) RefreshOpenErrorsLastSeen(ctx, orgID, deviceIdentifier, observedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshOpenErrorsLastSeen", reflect.TypeOf((*MockErrorStore)(nil).RefreshOpenErrorsLastSeen), ctx, orgID, deviceIdentifier, observedAt)
+}
+
 // UpsertError mocks base method.
 func (m *MockErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
 	m.ctrl.T.Helper()

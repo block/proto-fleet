@@ -37,6 +37,9 @@ func (f *fakeStatsDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Contex
 func (f *fakeStatsDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, nil
 }
+func (f *fakeStatsDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return nil, nil
+}
 
 type fakeStatsTelemetry struct {
 	metrics map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics

@@ -1,6 +1,8 @@
 import {
   ChangeEvent,
+  cloneElement,
   type CSSProperties,
+  isValidElement,
   type MouseEvent,
   type MutableRefObject,
   ReactNode,
@@ -36,6 +38,7 @@ import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
+import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import {
   ColConfig,
   ColTitles,
@@ -49,11 +52,36 @@ import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Radio from "@/shared/components/Radio";
 import SortIndicator from "@/shared/components/SortIndicator";
+import { INACTIVE_PLACEHOLDER } from "@/shared/constants";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
 const INTERACTIVE_ELEMENT_SELECTOR =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+
+const isStandaloneInactivePlaceholder = (content: ReactNode): boolean => {
+  if (content === INACTIVE_PLACEHOLDER) return true;
+
+  if (!isValidElement<{ children?: ReactNode }>(content)) return false;
+
+  return content.props.children === INACTIVE_PLACEHOLDER;
+};
+
+const renderTableCellContent = (content: ReactNode): ReactNode => {
+  if (content === INACTIVE_PLACEHOLDER) {
+    return <span className="text-text-primary-50">{INACTIVE_PLACEHOLDER}</span>;
+  }
+
+  if (isValidElement<{ children?: ReactNode; className?: string }>(content)) {
+    if (content.props.children === INACTIVE_PLACEHOLDER) {
+      return cloneElement(content, {
+        className: clsx(content.props.className, "text-text-primary-50"),
+      });
+    }
+  }
+
+  return content;
+};
 
 const getCssPixelValue = (variable: string) => {
   const value = window.getComputedStyle(document.body).getPropertyValue(variable);
@@ -156,6 +184,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   initialSelectedItems?: ItemKeyValueType[];
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
+  actionPlaceholder?: (item: ListItem) => ReactNode;
   noDataElement?: ReactNode;
   emptyStateRow?: ReactNode;
   renderActionBar?: (
@@ -166,9 +195,25 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   ) => ReactNode;
   containerClassName?: string;
   tableClassName?: string;
+  /**
+   * Overrides the filter row's default `py-6` vertical padding. The `gap-4`
+   * spacing and the horizontal list padding are always applied; only the
+   * top/bottom padding is replaced. Lets a page-scroll consumer (e.g. the
+   * Miners tab) line its filter row up with sibling tabs that render their
+   * filter row in a `pt-10 … pb-6` container outside the List.
+   */
+  filtersClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   paddingRight?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
+  stickyChromePaddingLeft?: Partial<Record<Breakpoint, string>>;
+  /**
+   * Extra classes for the sticky-left chrome (filter row, count, action bar).
+   * Used in page-scroll mode to give them an explicit viewport width so they
+   * stay pinned while the table scrolls the page horizontally. Left empty for
+   * bounded lists, where the chrome never moves.
+   */
+  stickyChromeClassName?: string;
   stickyBgColor?: string;
   total?: number;
   /**
@@ -184,6 +229,14 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
     singular: string;
     plural: string;
   };
+  /**
+   * Unfiltered total for the current scope. When provided alongside an active
+   * filter set (`hasActiveFilters`), the built-in count line reads "X of Y
+   * nouns" once the filtered `total` diverges from this value; otherwise it
+   * falls back to the plain "X nouns" form. Leave unset for lists that have no
+   * meaningful unfiltered denominator.
+   */
+  totalUnfiltered?: number;
   initialActiveFilters?: ActiveFilters;
   /**
    * When true, suppresses the built-in item count display below the filter bar.
@@ -319,6 +372,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   currentSelectedItems: ItemKeyValueType[];
   activeCols: ColKey[];
   actions: ListAction<ListItem>[];
+  actionPlaceholder?: (item: ListItem) => ReactNode;
   rowDisabled: boolean;
   rowSelectable: boolean;
   columnsExemptFromDisabledStyling?: Set<ColKey>;
@@ -363,6 +417,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   currentSelectedItems,
   activeCols,
   actions,
+  actionPlaceholder,
   rowDisabled,
   rowSelectable,
   columnsExemptFromDisabledStyling,
@@ -390,6 +445,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   onRowClick,
 }: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
   const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
+  const placeholderContent = actionPlaceholder?.(item);
   const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
   const singleVisibleActionTitle = singleVisibleAction
     ? resolveListActionValue(singleVisibleAction.title, item)
@@ -493,6 +549,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           : typeof item === "object" && item !== null && row in item
             ? ((item as Record<string, unknown>)[row as string] as ReactNode)
             : null;
+        const isInactivePlaceholder = isStandaloneInactivePlaceholder(content);
+        const cellContent = renderTableCellContent(content);
         const isDragHandleColumn = rowDragHandleColumn === row && dragHandleProps !== undefined;
 
         return (
@@ -522,6 +580,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                 },
                 {
                   "text-core-primary-50": disabled,
+                  "text-text-primary-50": isInactivePlaceholder,
                 },
               )}
             >
@@ -535,10 +594,10 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                   className="cursor-grab touch-none active:cursor-grabbing"
                   data-testid="reorder-handle"
                 >
-                  {content}
+                  {cellContent}
                 </div>
               ) : (
-                content
+                cellContent
               )}
             </div>
             {columnIndex === activeCols.length - 1 && shouldExtendDividerForDataCell ? (
@@ -597,7 +656,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           data-testid="action"
           data-no-row-click
         >
-          <div className={clsx("w-11", tdPaddingClassList)} />
+          <div className={clsx("flex w-11 justify-center", tdPaddingClassList)}>{placeholderContent}</div>
           {extendRowDividerToContainerEdge ? (
             <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
           ) : null}
@@ -686,6 +745,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   selectionType = "checkbox",
   disabled = false,
   actions = [],
+  actionPlaceholder,
   noDataElement,
   emptyStateRow,
   initialActiveFilters,
@@ -693,11 +753,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   renderActionBar,
   containerClassName = "",
   tableClassName,
+  filtersClassName,
   paddingLeft,
   paddingRight,
   overflowContainer = true,
+  stickyChromePaddingLeft,
+  stickyChromeClassName,
   stickyBgColor = "bg-surface-base",
   total,
+  totalUnfiltered,
   totalDisabled = 0,
   itemName = { singular: "item", plural: "items" },
   itemRef,
@@ -777,6 +841,22 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   }, [customSetSelectedItems, onSelectionModeChange]);
 
   const handleSelectAll = (checked: boolean) => {
+    // Paginated lists pass only the current page as `items`, so the header
+    // checkbox can only see this page. When the parent manages selection
+    // across pages (preserveOffPageSelection), replacing the selection with
+    // just this page would silently drop off-page selections. Instead toggle
+    // only this page's keys into / out of the existing selection.
+    if (preserveOffPageSelection) {
+      const pageKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
+      const next = checked
+        ? Array.from(new Set([...currentSelectedItems, ...pageKeys]))
+        : currentSelectedItems.filter((key) => !pageKeys.includes(key));
+      customSetSelectedItems ? customSetSelectedItems(next) : setSelectedItems(next);
+      const newMode = next.length === 0 ? "none" : "subset";
+      setSelectionMode(newMode);
+      onSelectionModeChange?.(newMode);
+      return;
+    }
     if (checked) {
       // Select only filtered items (respects both client-side and server-side filters)
       const selectableItems = getSelectableItems(filteredItems);
@@ -878,7 +958,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const newMode =
       newSelectedItems.length === 0
         ? "none"
-        : pageScopedSelection
+        : // Paginated lists pass one page as `items`, so "all" here only
+          // means "all of this page". Promoting to "all" mode lets the
+          // sync effect rewrite the controlled selection with just the
+          // current-page keys, dropping off-page selections the parent
+          // holds. Stay in "subset" so cross-page selections survive.
+          pageScopedSelection || preserveOffPageSelection
           ? "subset"
           : allItemsSelected && !hasActiveFilters
             ? "all"
@@ -962,8 +1047,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
     const currentSelected = currentSelectedItems;
 
-    // In "all" mode, ensure all selectable current items are selected (handles Load More)
-    if (currentSelectionMode === "all") {
+    // In "all" mode, ensure all selectable current items are selected (handles Load More).
+    // Skipped under preserveOffPageSelection: there `items` is only the current
+    // page, so rewriting the selection to the page's keys would drop the
+    // parent's off-page selections. Those consumers never enter "all" mode via
+    // the row/header paths, but guard here too in case mode is driven externally.
+    if (currentSelectionMode === "all" && !preserveOffPageSelection) {
       const allSelectableItemKeys = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       const currentSelectedSet = new Set(currentSelected);
       const needsUpdate = allSelectableItemKeys.some((key) => !currentSelectedSet.has(key));
@@ -1050,8 +1139,30 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     return style;
   }, [paddingLeft, paddingRight, stickyBgColor]);
 
+  const resolvedStickyChromePaddingLeft = stickyChromePaddingLeft ?? paddingLeft;
+  const stickyChromePaddingCssVariables = useMemo(() => {
+    const style: Record<string, string> = {};
+    Object.entries(breakpoints).forEach(([, breakpoint]) => {
+      style[`--list-padding-${breakpoint}`] = resolvedStickyChromePaddingLeft?.[breakpoint] || "0px";
+      style[`--list-padding-right-${breakpoint}`] = paddingRight?.[breakpoint] || "0px";
+    });
+    style["--list-sticky-shadow-mask-bg"] = stickyShadowMaskColors[stickyBgColor] ?? "var(--color-surface-base)";
+    return style;
+  }, [resolvedStickyChromePaddingLeft, paddingRight, stickyBgColor]);
+
   const paddingClasses = clsx(
     paddingLeft
+      ? [
+          "phone:pl-(--list-padding-phone)",
+          "tablet:pl-(--list-padding-tablet)",
+          "laptop:pl-(--list-padding-laptop)",
+          "desktop:pl-(--list-padding-desktop)",
+        ]
+      : "",
+  );
+
+  const stickyChromePaddingClasses = clsx(
+    resolvedStickyChromePaddingLeft
       ? [
           "phone:pl-(--list-padding-phone)",
           "tablet:pl-(--list-padding-tablet)",
@@ -1139,11 +1250,17 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
   );
 
+  const hasVisibleRows = filteredItems.length > 0;
+  const shouldRenderNoDataElement = Boolean(noDataElement && !hasVisibleRows && !emptyStateRow);
+  const shouldShowFilterItems =
+    Boolean(filters?.length) && (items.length > 0 || !shouldRenderNoDataElement || hasActiveFilters);
+  const visibleFilters = shouldShowFilterItems ? (filters ?? []) : [];
+
   const filtersElement =
-    filters?.length || headerControls ? (
+    visibleFilters.length || headerControls ? (
       <Filters<ListItem>
-        className={clsx("gap-4 py-6", paddingClasses)}
-        filterItems={filters ?? []}
+        className={clsx("gap-4", filtersClassName ?? "py-6", stickyChromePaddingClasses)}
+        filterItems={visibleFilters}
         filterSize={filterSize}
         items={items}
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
@@ -1175,6 +1292,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const totalColumnCount = activeCols.length + (itemSelectable ? 1 : 0) + (actions.length > 0 ? 1 : 0);
+  const shouldShowTotal = !hideTotal && total !== undefined && !shouldRenderNoDataElement;
+
   const renderRow = (item: ListItem, index: number) => {
     const rowKey = item[itemKey] as ItemKeyValueType;
     const sharedRowProps: StaticListRowProps<ListItem, ItemKeyValueType, ColKey> = {
@@ -1189,6 +1308,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       currentSelectedItems,
       activeCols,
       actions,
+      actionPlaceholder,
       rowDisabled: isRowDisabled?.(item) ?? false,
       rowSelectable: isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false),
       columnsExemptFromDisabledStyling,
@@ -1337,7 +1457,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         {rowDragEnabled ? (
           <SortableContext items={visibleItemKeys as UniqueIdentifier[]} strategy={verticalListSortingStrategy}>
             <tbody data-testid="list-body">
-              {filteredItems.length > 0 ? (
+              {hasVisibleRows ? (
                 filteredItems.map(renderRow)
               ) : emptyStateRow ? (
                 <tr data-testid="list-empty-row">
@@ -1348,7 +1468,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           </SortableContext>
         ) : (
           <tbody data-testid="list-body">
-            {filteredItems.length > 0 ? (
+            {hasVisibleRows ? (
               filteredItems.map(renderRow)
             ) : emptyStateRow ? (
               <tr data-testid="list-empty-row">
@@ -1371,26 +1491,42 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   return (
     <>
-      <div style={paddingCssVariables} className="sticky left-0 z-3">
+      <div style={stickyChromePaddingCssVariables} className={clsx("sticky left-0 z-3", stickyChromeClassName)}>
         {filtersElement}
       </div>
       <div style={paddingCssVariables}>
-        {!hideTotal && total !== undefined ? (
-          <div className="sticky left-0 flex">
-            <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
-              {total} {total === 1 ? itemName.singular : itemName.plural}
+        {shouldShowTotal ? (
+          <div style={stickyChromePaddingCssVariables} className={clsx("sticky left-0 flex", stickyChromeClassName)}>
+            <div
+              className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", stickyChromePaddingClasses)}
+            >
+              {formatListCountLabel(total, {
+                unfilteredTotal: totalUnfiltered,
+                hasActiveFilters,
+                singular: itemName.singular,
+                plural: itemName.plural,
+              })}
             </div>
           </div>
         ) : null}
-        <div className={clsx("flex flex-col", containerClassName)}>
+        <div
+          className={clsx(
+            "flex flex-col",
+            overflowContainer ? "min-w-0" : "phone:min-w-0 tablet-only:min-w-0",
+            containerClassName,
+          )}
+        >
           <div
             ref={setCombinedScrollRef}
             className={clsx({
+              "max-w-full min-w-0": overflowContainer,
               "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
               "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
+              "phone:max-w-full phone:min-w-0 phone:overflow-x-auto phone:overscroll-x-contain tablet-only:max-w-full tablet-only:min-w-0 tablet-only:overflow-x-auto tablet-only:overscroll-x-contain":
+                !overflowContainer,
             })}
           >
-            {!noDataElement || (items && items.length > 0) ? (
+            {!shouldRenderNoDataElement ? (
               rowDragEnabled ? (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
                   {listContent}
@@ -1403,6 +1539,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             )}
           </div>
           {renderActionBar ? (
+            // No sticky/width treatment here: action bars position themselves
+            // (e.g. MinerListActionBar is `fixed`). Wrapping a fixed bar in a
+            // sticky div creates a stacking context that traps its popovers
+            // below the page chrome.
             <div className="w-full">
               {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
             </div>

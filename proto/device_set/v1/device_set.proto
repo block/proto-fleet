@@ -4,7 +4,9 @@ package device_set.v1;
 
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/device_selector.proto";
+import "common/v1/fleet_list_stats.proto";
 import "common/v1/sort.proto";
 import "common/v1/zone.proto";
 import "errors/v1/errors.proto";
@@ -27,11 +29,14 @@ service DeviceSetService {
     // Lists all device sets for the organization
     rpc ListDeviceSets(ListDeviceSetsRequest) returns (ListDeviceSetsResponse);
 
-    // Adds devices to a device set
-    rpc AddDevicesToDeviceSet(AddDevicesToDeviceSetRequest) returns (AddDevicesToDeviceSetResponse);
+    // Adds devices to a group (many-to-many). Rejects non-group targets
+    // with InvalidArgument; use AssignDevicesToRack for racks.
+    rpc AddDevicesToGroup(AddDevicesToGroupRequest) returns (AddDevicesToGroupResponse);
 
-    // Removes devices from a device set
-    rpc RemoveDevicesFromDeviceSet(RemoveDevicesFromDeviceSetRequest) returns (RemoveDevicesFromDeviceSetResponse);
+    // Removes devices from a group. Rejects non-group targets with
+    // InvalidArgument; rack membership is cleared via
+    // AssignDevicesToRack with target_rack_id unset.
+    rpc RemoveDevicesFromGroup(RemoveDevicesFromGroupRequest) returns (RemoveDevicesFromGroupResponse);
 
     // Lists members of a device set
     rpc ListDeviceSetMembers(ListDeviceSetMembersRequest) returns (ListDeviceSetMembersResponse);
@@ -69,6 +74,20 @@ service DeviceSetService {
     // All operations (metadata, membership, slot positions) are applied in a single transaction.
     rpc SaveRack(SaveRackRequest) returns (SaveRackResponse);
 
+    // CreateRacks creates a batch of racks in one transaction: all exist
+    // afterward or none do. No member seeding — a bulk create has no way to
+    // say which miner belongs to which rack.
+    //
+    // Labels are unique per (org, type), NOT per site or building, so the
+    // server owns the collision check; a client holding one building's list
+    // can't pre-check it. Any collision (within the batch or against a live
+    // rack) rejects the request with one `errors` entry per offending index
+    // and creates nothing.
+    //
+    // Placement is per-request, not per-row: the whole batch lands in one
+    // building (or site, or nowhere).
+    rpc CreateRacks(CreateRacksRequest) returns (CreateRacksResponse);
+
     // AssignDevicesToRack atomically moves devices into the target rack
     // in one transaction: removes any existing rack membership for each
     // device, inserts new membership at target_rack_id, and cascades
@@ -76,11 +95,20 @@ service DeviceSetService {
     // device's current site. target_rack_id unset clears rack
     // membership without re-assigning (site/building stay intact).
     //
-    // Closes the orphan window where a client-side
-    // RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
-    // leave devices without rack membership on transport failure between
-    // the two calls, and the cross-rack rename race where the source
-    // rack's id resolution drifts between the resolve and the remove.
+    // Closes the orphan window where a client-side remove + add pair
+    // could leave devices without rack membership on transport failure
+    // between the two calls, and the cross-rack rename race where the
+    // source rack's id resolution drifts between the resolve and the
+    // remove.
+    //
+    // device_selector accepts only the device_list variant. all_devices
+    // is rejected with InvalidArgument because moving every paired
+    // device into a single rack is never the intended operation.
+    //
+    // slot_assignments optionally carries each moved device's slot, so
+    // membership and placement land in one transaction. Prefer this over
+    // SaveRack for every edit — SaveRack replaces the rack's whole member
+    // set, so a stale client snapshot silently drops concurrent additions.
     rpc AssignDevicesToRack(AssignDevicesToRackRequest) returns (AssignDevicesToRackResponse);
 }
 
@@ -122,6 +150,10 @@ message DeviceSet {
         RackInfo rack_info = 8;
         GroupInfo group_info = 9;
     }
+
+    // Parent placement refs for display/filter rows. Populated for
+    // racks; groups leave this unset.
+    common.v1.PlacementRefs placement = 10;
 }
 
 // Order index defining where row/column numbering starts in a rack
@@ -146,8 +178,8 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
-    // building_id is set; cleared (empty) automatically when the rack
+    // Sub-building zone label (e.g. "Room 2", "East Wall"). Optional, even
+    // when building_id is set. Cleared (empty) automatically when the rack
     // crosses a building boundary or moves to direct-under-site placement.
     string zone = 3 [(buf.validate.field).string.max_len = 100];
     // Order index defining where numbering starts
@@ -255,14 +287,12 @@ message UpdateDeviceSetRequest {
 
     // New label (optional, 1-100 characters if provided)
     optional string label = 2 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { min_len: 1, max_len: 100 }
     }];
 
     // New description (optional, max 500 characters if provided).
     // Omit the field to leave unchanged; set to empty string to clear.
     optional string description = 3 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { max_len: 500 }
     }];
 
@@ -342,6 +372,33 @@ message ListDeviceSetsRequest {
     // filters, uses AND logic. Only valid when type is RACK; otherwise
     // returns INVALID_ARGUMENT.
     repeated common.v1.ZoneKey zone_keys = 9;
+
+    // Filter racks or groups by site (OR across IDs). For racks, returns
+    // racks stamped with any of the given site_ids. For groups, returns
+    // groups with at least one member device assigned to any of the given
+    // site_ids; group counts and rollups remain org-wide. When combined
+    // with include_unassigned, rows with site_id IS NULL are also
+    // included. When combined with other filters, uses AND logic. Only
+    // valid when type is RACK or GROUP; otherwise returns INVALID_ARGUMENT.
+    // Each entry must be > 0; capped at 1024 to bound request size
+    // (matches building_ids / zone_keys).
+    repeated int64 site_ids = 10 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+
+    // When true, racks with site_id IS NULL, or groups with at least one
+    // member device whose site_id IS NULL, are included. Independent of
+    // site_ids — set only this for the unassigned bucket alone, set both
+    // to combine specific sites with the no-site bucket. Only valid when
+    // type is RACK or GROUP; otherwise returns INVALID_ARGUMENT.
+    bool include_unassigned = 11;
+
+    // Filter by rolled-up telemetry values for each rack or group.
+    // Multiple ranges are AND'd. Only valid when type is RACK or GROUP.
+    repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 12;
 }
 
 // Response containing device sets
@@ -356,45 +413,42 @@ message ListDeviceSetsResponse {
     int32 total_count = 3;
 }
 
-// Request to add devices to a device set.
-//
-// When the target is a site-stamped rack, the server rewrites
-// device.site_id to match the rack for every added device. The affected
-// count is returned in site_reassigned_count. Groups are exempt.
-message AddDevicesToDeviceSetRequest {
-    // ID of the device set to add devices to
-    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to add devices to a group. Groups have many-to-many device
+// membership: devices may already belong to other groups and to a rack,
+// none of which are touched. Server rejects with InvalidArgument when
+// target_group_id refers to a non-group device set.
+message AddDevicesToGroupRequest {
+    // ID of the group to add devices to. Must reference a device set of
+    // type GROUP; racks are rejected.
+    int64 target_group_id = 1 [(buf.validate.field).int64.gt = 0];
 
-    // Devices to add: specific list or all paired devices
+    // Devices to add: specific list or all paired devices.
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after adding devices to a device set
-message AddDevicesToDeviceSetResponse {
-    // ID of the device set devices were added to
-    int64 device_set_id = 1;
-
-    // Number of devices successfully added
-    // May be less than requested if some devices were already members
-    int32 added_count = 2;
-
-    // Number of devices whose site_id was rewritten by the cascade.
-    int32 site_reassigned_count = 3;
+// Response after adding devices to a group.
+message AddDevicesToGroupResponse {
+    // Number of devices successfully added. May be less than requested
+    // if some devices were already members.
+    int64 added_count = 1;
 }
 
-// Request to remove devices from a device set
-message RemoveDevicesFromDeviceSetRequest {
-    // ID of the device set to remove devices from
-    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to remove devices from a group. Server rejects with
+// InvalidArgument when target_group_id refers to a non-group device set;
+// use AssignDevicesToRack to clear rack membership.
+message RemoveDevicesFromGroupRequest {
+    // ID of the group to remove devices from. Must reference a device
+    // set of type GROUP; racks are rejected.
+    int64 target_group_id = 1 [(buf.validate.field).int64.gt = 0];
 
-    // Devices to remove: specific list or all paired devices
+    // Devices to remove: specific list or all paired devices.
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after removing devices from a device set
-message RemoveDevicesFromDeviceSetResponse {
-    // Number of devices successfully removed
-    int32 removed_count = 1;
+// Response after removing devices from a group.
+message RemoveDevicesFromGroupResponse {
+    // Number of devices successfully removed.
+    int64 removed_count = 1;
 }
 
 // Request to list members of a device set
@@ -407,6 +461,23 @@ message ListDeviceSetMembersRequest {
 
     // Pagination cursor from a previous response
     string page_token = 3;
+
+    // Optional member site filter. Returns only members assigned to any of
+    // the given site_ids. When combined with include_unassigned, members
+    // with site_id IS NULL are also included. Empty site_ids and false
+    // include_unassigned means no site filter. Each entry must be > 0;
+    // capped at 1024 to bound request size.
+    repeated int64 site_ids = 4 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+
+    // When true, members with site_id IS NULL are included. Independent of
+    // site_ids — set only this for the unassigned bucket alone, set both to
+    // combine specific sites with the no-site bucket.
+    bool include_unassigned = 5;
 }
 
 // Response containing device set members
@@ -609,7 +680,6 @@ message ListRackTypesResponse {
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
     optional int64 device_set_id = 1 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         int64: { gt: 0 }
     }];
 
@@ -630,6 +700,14 @@ message SaveRackRequest {
     // Only devices included in device_selector may be assigned slots.
     // Devices not listed here will be members without a slot position.
     repeated RackSlot slot_assignments = 5;
+
+    // When the saved rack is site-less/building-less, any member that
+    // currently has a site or building would have it stripped to stay
+    // consistent with the rack. Defaults false: the server returns
+    // `conflicts` and writes nothing. Set true to proceed and clear the
+    // conflicting members' site (and building) as part of the save. Mirrors
+    // AssignDevicesToRack.force_clear_conflicting_site.
+    optional bool force_clear_conflicting_site = 6;
 }
 
 // Response after saving a rack.
@@ -642,6 +720,79 @@ message SaveRackResponse {
 
     // Number of devices whose site_id was rewritten by the cascade.
     int32 site_reassigned_count = 3;
+
+    // Populated only when force_clear_conflicting_site is false and one or
+    // more members would lose a site/building by joining a site-less rack.
+    // When non-empty, NO write happened — the caller confirms and retries
+    // with force_clear_conflicting_site = true.
+    repeated PerDeviceRackConflict conflicts = 4;
+}
+
+// CreateRacks
+
+// One rack in a bulk-create batch. Placement lives on the request, not here,
+// since a batch is created into one place.
+message NewRack {
+    string label = 1 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+
+    // 1-12, matching validateRackInfoShape.
+    int32 rows = 2 [(buf.validate.field).int32 = {gte: 1, lte: 12}];
+    int32 columns = 3 [(buf.validate.field).int32 = {gte: 1, lte: 12}];
+
+    // Optional sub-building label, as on RackInfo.zone.
+    string zone = 4 [(buf.validate.field).string.max_len = 100];
+
+    // Required (no meaningful zero value), matching validateRackInfoShape.
+    RackOrderIndex order_index = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+    RackCoolingType cooling_type = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+}
+
+message CreateRacksRequest {
+    // Where the whole batch lands; both unset = unassigned. building_id
+    // derives site_id from the parent, as RackInfo does, so a client that
+    // knows the building leaves site_id unset.
+    optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    optional int64 building_id = 2 [(buf.validate.field).int64.gt = 0];
+
+    // The batch, in preview order; responses preserve it so a row maps back
+    // to its line. The 500 cap is a typo guard.
+    repeated NewRack racks = 3 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 500
+    }];
+}
+
+// PerRackCreateErrorReason says why one row of a bulk create was rejected.
+// The whole batch rejects; no racks are created.
+enum PerRackCreateErrorReason {
+    PER_RACK_CREATE_ERROR_REASON_UNSPECIFIED = 0;
+    PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH = 1;
+    // Label taken by a live rack anywhere in the org, not just the target
+    // site/building: the index spans (org_id, type, label), so the collision
+    // may be a rack the caller never listed.
+    PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG = 2;
+}
+
+// PerRackCreateError points at one offending row so the UI can mark it.
+message PerRackCreateError {
+    // Zero-based index into CreateRacksRequest.racks.
+    int32 index = 1;
+    // The rejected label, echoed so the UI can match on index or label.
+    string label = 2;
+    PerRackCreateErrorReason reason = 3;
+}
+
+message CreateRacksResponse {
+    // Created racks, in request order. Empty when errors is set (nothing
+    // created, rolled back).
+    repeated DeviceSet racks = 1;
+    repeated PerRackCreateError errors = 2;
 }
 
 // AssignDevicesToRack
@@ -650,11 +801,35 @@ message AssignDevicesToRackRequest {
     // Unset = clear rack membership without re-assigning. When
     // present, must be > 0.
     optional int64 target_rack_id = 1 [(buf.validate.field).int64.gt = 0];
-    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
-        min_items: 1
-        max_items: 10000
-        items: {string: {min_len: 1, max_len: 256}}
-    }];
+
+    // Devices to assign. Only the device_list variant is accepted; the
+    // all_devices variant is rejected with InvalidArgument because
+    // moving every paired device into a single rack is never the
+    // intended operation. Filter-based selectors are reserved for a
+    // future expansion.
+    common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
+
+    // When adding miners to a site-less (fully-unassigned) rack, any
+    // miner that currently has a site would have that site stripped to
+    // stay consistent with the rack. Defaults false: the server returns
+    // `conflicts` and writes nothing. Set true to proceed and clear the
+    // conflicting miners' site (and building) as part of the move.
+    optional bool force_clear_conflicting_site = 3;
+
+    // Slot placements for the devices being assigned, so membership and
+    // placement land in one transaction. Per entry: `position` set places
+    // the device there, `position` unset CLEARS its slot. A device not
+    // named here is untouched. Empty (the default) writes no slot at all,
+    // so an arriving device starts unplaced.
+    //
+    // Every entry must name a device in device_selector, and no two may
+    // share a device or a position. Positions are bounds checked against
+    // the rack's rows/columns. Requires target_rack_id.
+    //
+    // Capped at 144: the largest rack the server accepts is 12 × 12 (see
+    // maxRackDimension) and membership is capped at the slot count, so a
+    // valid request cannot exceed it.
+    repeated RackSlot slot_assignments = 4 [(buf.validate.field).repeated.max_items = 144];
 }
 
 message AssignDevicesToRackResponse {
@@ -671,4 +846,23 @@ message AssignDevicesToRackResponse {
     // that were in a rack. On a re-assign this counts the prior rack
     // membership rows that were deleted before the new ones inserted.
     int64 removed_count = 3;
+    // Populated only when force_clear_conflicting_site is false and one
+    // or more selected miners would lose a site by joining a site-less
+    // rack. When non-empty, NO write happened — the caller confirms and
+    // retries with force_clear_conflicting_site = true.
+    repeated PerDeviceRackConflict conflicts = 4;
+}
+
+// PerDeviceRackConflictReason enumerates why a device blocked an
+// AssignDevicesToRack batch.
+enum PerDeviceRackConflictReason {
+    PER_DEVICE_RACK_CONFLICT_REASON_UNSPECIFIED = 0;
+    // The target rack has no site, but the device currently has one, so
+    // joining the rack would strip the device's site (and building).
+    PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE = 1;
+}
+
+message PerDeviceRackConflict {
+    string device_identifier = 1;
+    PerDeviceRackConflictReason reason = 2;
 }

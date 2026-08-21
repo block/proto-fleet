@@ -26,6 +26,34 @@ MIGRATION_TABLES=(
 )
 
 # ============================================================================
+# Docker Compose Helpers
+# ============================================================================
+
+# Layered compose interpolation args: host profile file first, operator
+# .env last (last wins). Mirrors refresh_compose_env_args in run-fleet.sh.
+# Requires PROJECT_ROOT and ENV_FILE; populates COMPOSE_ENV_ARGS.
+refresh_compose_env_args() {
+    COMPOSE_ENV_ARGS=()
+    local profile profile_file
+    # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
+    # pipefail callers; tail -1 matches compose's last-wins env semantics.
+    # Normalize whitespace/CR/quotes and case: compose accepts .env syntax
+    # (CRLF edits on WSL, quoted values) that the filename match would reject
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'" | tr '[:upper:]' '[:lower:]' || true)
+    if [ -n "$profile" ]; then
+        profile_file="$PROJECT_ROOT/profiles/${profile}.env"
+        if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
+            COMPOSE_ENV_ARGS+=(--env-file "$profile_file")
+        else
+            echo "Warning: FLEET_PROFILE='$profile' does not match a profile in $PROJECT_ROOT/profiles/; using default configuration." >&2
+        fi
+    fi
+    if [ -f "$ENV_FILE" ]; then
+        COMPOSE_ENV_ARGS+=(--env-file "$ENV_FILE")
+    fi
+}
+
+# ============================================================================
 # Error Handling Helpers
 # ============================================================================
 

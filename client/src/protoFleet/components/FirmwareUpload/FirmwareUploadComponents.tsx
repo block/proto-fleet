@@ -1,7 +1,8 @@
-import type { ChangeEvent, DragEvent } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { Checkmark } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 
@@ -59,16 +60,27 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
   );
 
   const handleClick = useCallback(() => {
+    if (disabled) return;
     fileInputRef.current?.click();
-  }, []);
+  }, [disabled]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+      if (e.key === " ") e.preventDefault();
+      handleClick();
+    },
+    [handleClick],
+  );
 
   const handleFileInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const selected = e.target.files?.[0];
       if (selected) onFileSelect(selected);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [onFileSelect],
+    [disabled, onFileSelect],
   );
 
   const formattedExtensions =
@@ -82,37 +94,38 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         className={clsx(
           "flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl bg-grayscale-gray-5 p-12 transition-colors",
           disabled && "pointer-events-none opacity-50",
-          isDragActive && "ring-border-focus ring-2",
+          isDragActive && "ring-2 ring-border-primary",
         )}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         data-testid="firmware-drop-zone"
         role="button"
-        tabIndex={0}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
       >
         <div className="text-300 text-text-primary">Drag update files here</div>
-        <div className="text-text-secondary text-200">or</div>
-        <button
-          type="button"
+        <div className="text-200 text-text-primary-70">or</div>
+        <Button
+          variant={variants.secondary}
           disabled={disabled}
-          className="hover:bg-surface-secondary rounded-full border border-border-20 bg-surface-elevated-base px-5 py-2 text-300 text-text-primary transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             handleClick();
           }}
-        >
-          Choose file
-        </button>
+          text="Choose file"
+        />
       </div>
-      <div className="text-text-secondary text-200">Supported file types: {formattedExtensions}</div>
+      <div className="text-200 text-text-primary-70">Supported file types: {formattedExtensions}</div>
       <input
         ref={fileInputRef}
         type="file"
         accept={buildAcceptString(extensions)}
         onChange={handleFileInputChange}
+        disabled={disabled}
         className="hidden"
         data-testid="firmware-file-input"
       />
@@ -127,6 +140,33 @@ interface FileProcessingStatusProps {
   uploadProgress: number;
 }
 
+interface FileSelectedStatusProps {
+  fileName: string;
+  fileSize: number;
+  onRemove: () => void;
+}
+
+export function FileSelectedStatus({ fileName, fileSize, onRemove }: FileSelectedStatusProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border-5 p-4">
+      <div className="flex min-w-0 flex-col">
+        <div className="truncate text-300 text-text-primary" title={fileName}>
+          {fileName}
+        </div>
+        <div className="text-200 text-text-primary-70">{formatFileSize(fileSize)}</div>
+      </div>
+      <Button
+        variant={variants.textOnly}
+        textColor="text-core-accent-fill"
+        textOnlyUnderlineOnHover={false}
+        className="shrink-0"
+        onClick={onRemove}
+        text="Remove"
+      />
+    </div>
+  );
+}
+
 export function FileProcessingStatus({ state, fileName, fileSize, uploadProgress }: FileProcessingStatusProps) {
   return (
     <div className="flex items-center gap-4 rounded-lg border border-border-5 p-4">
@@ -137,10 +177,10 @@ export function FileProcessingStatus({ state, fileName, fileSize, uploadProgress
       )}
       <div className="flex flex-col">
         <div className="text-300 text-text-primary">{fileName}</div>
-        <div className="text-text-secondary text-200">
+        <div className="text-200 text-text-primary-70">
           {state === "hashing" ? "Computing checksum..." : null}
           {state === "checking" ? "Checking server..." : null}
-          {state === "uploading" ? `${uploadProgress}% uploaded · ${formatFileSize(fileSize)}` : null}
+          {state === "uploading" ? `${uploadProgress}% uploaded, ${formatFileSize(fileSize)}` : null}
         </div>
       </div>
     </div>
@@ -158,7 +198,7 @@ export function FileReadyStatus({ fileName, fileSize }: FileReadyStatusProps) {
       <Checkmark className="text-intent-success-fill" />
       <div className="flex flex-col">
         <div className="text-300 text-text-primary">{fileName}</div>
-        <div className="text-text-secondary text-200">{formatFileSize(fileSize)} · Ready</div>
+        <div className="text-200 text-text-primary-70">{formatFileSize(fileSize)}, Ready</div>
       </div>
     </div>
   );
@@ -173,9 +213,14 @@ export function FileErrorStatus({ message, onRetry }: FileErrorStatusProps) {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-300 text-intent-warning-fill">{message}</div>
-      <button type="button" className="text-text-link cursor-pointer text-300 underline" onClick={onRetry}>
-        Try again
-      </button>
+      <Button
+        variant={variants.textOnly}
+        textColor="text-core-accent-fill"
+        textOnlyUnderlineOnHover={false}
+        className="w-fit"
+        onClick={onRetry}
+        text="Try again"
+      />
     </div>
   );
 }

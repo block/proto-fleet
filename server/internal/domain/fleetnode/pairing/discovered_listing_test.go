@@ -80,27 +80,34 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:guard-cloud")
 	cloudDev := deviceForDiscovered(t, db, orgID, "mac:guard-cloud")
 	setPairingStatus(t, db, cloudDev, "PAIRED") // cloud-paired: no fleet_node_device
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:guard-default")
+	defaultDev := deviceForDiscovered(t, db, orgID, "mac:guard-default")
+	setPairingStatus(t, db, defaultDev, "DEFAULT_PASSWORD") // cloud-paired-like: no fleet_node_device
 
 	// Act: cloud-dial guard on both devices.
 	boundIsCloud, err := store.DeviceHasActiveCloudPairing(ctx, boundDev, orgID)
 	require.NoError(t, err)
 	cloudIsCloud, err := store.DeviceHasActiveCloudPairing(ctx, cloudDev, orgID)
 	require.NoError(t, err)
+	defaultIsCloud, err := store.DeviceHasActiveCloudPairing(ctx, defaultDev, orgID)
+	require.NoError(t, err)
 
 	// Assert
 	assert.False(t, boundIsCloud, "a node-bound PAIRED device is node-dialed, not cloud-dialed")
 	assert.True(t, cloudIsCloud, "a PAIRED device with no fleet_node_device is cloud-dialed")
+	assert.True(t, defaultIsCloud, "a DEFAULT_PASSWORD device with no fleet_node_device is cloud-dialed")
 
 	// Act: promotion guard. The owning node re-scans both devices.
 	accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{
 		{DeviceIdentifier: "mac:guard-bound", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
 		{DeviceIdentifier: "mac:guard-cloud", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "mac:guard-default", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
 	})
 	require.NoError(t, err)
 
 	// Assert
-	assert.Equal(t, []int{0}, accepted, "own-node PAIRED device refreshes; cloud-paired device is rejected")
-	assert.Equal(t, int64(1), rejected)
+	assert.Equal(t, []int{0}, accepted, "own-node PAIRED device refreshes; cloud paired-like devices are rejected")
+	assert.Equal(t, int64(2), rejected)
 }
 
 func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
@@ -195,6 +202,7 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:keep")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:bound")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cloudpaired")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:clouddefault")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:authneeded")
 
 	boundDev := deviceForDiscovered(t, db, orgID, "mac:bound")
@@ -202,6 +210,8 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 
 	cloudDev := deviceForDiscovered(t, db, orgID, "mac:cloudpaired")
 	setPairingStatus(t, db, cloudDev, "PAIRED")
+	defaultDev := deviceForDiscovered(t, db, orgID, "mac:clouddefault")
+	setPairingStatus(t, db, defaultDev, "DEFAULT_PASSWORD")
 
 	authDev := deviceForDiscovered(t, db, orgID, "mac:authneeded")
 	setPairingStatus(t, db, authDev, "AUTHENTICATION_NEEDED")
@@ -216,6 +226,7 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	assert.Contains(t, ids, "mac:authneeded", "AUTHENTICATION_NEEDED rows must surface for retry")
 	assert.NotContains(t, ids, "mac:bound", "a device bound to the node is already paired")
 	assert.NotContains(t, ids, "mac:cloudpaired", "a cloud-PAIRED device is not offered for fleet-node pairing")
+	assert.NotContains(t, ids, "mac:clouddefault", "a cloud-DEFAULT_PASSWORD device is not offered for fleet-node pairing")
 	for _, d := range got {
 		if d.DeviceIdentifier == "mac:authneeded" {
 			assert.Equal(t, "AUTHENTICATION_NEEDED", d.PairingStatus)

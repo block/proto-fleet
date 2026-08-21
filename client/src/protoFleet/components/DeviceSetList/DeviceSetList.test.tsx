@@ -70,6 +70,27 @@ describe("DeviceSetList", () => {
     expect(onSort).toHaveBeenCalledWith("issues", "desc");
   });
 
+  it("shows controlled row checkboxes when selection props are supplied", () => {
+    const deviceSet = createMockDeviceSet(7n, "Rack A");
+    const stats = createMockStats(7n);
+    const onSelectedIdsChange = vi.fn();
+
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[deviceSet]}
+        statsMap={new Map([[7n, stats]])}
+        selectedIds={[]}
+        onSelectedIdsChange={onSelectedIdsChange}
+      />,
+    );
+
+    const checkbox = screen.getByTestId("list-body").querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["7"]);
+  });
+
   describe("emptyStateRow prop", () => {
     it("renders empty state row when items are empty and emptyStateRow is provided", () => {
       render(

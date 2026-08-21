@@ -17,7 +17,7 @@ interface BulkActionsWidgetProps<ActionType> {
   onCancel: () => void;
   currentAction: SupportedAction | null;
   renderQuickActions?: (onAction: (action: BulkAction<ActionType>) => void) => ReactNode;
-  renderPopover: (onAction: (requiresConfirmation: boolean) => void) => ReactNode;
+  renderPopover: (onAction: (requiresConfirmation: boolean) => void, closePopover: () => void) => ReactNode;
   testId: string;
   unsupportedMinersInfo?: UnsupportedMinersInfo;
   onUnsupportedMinersContinue?: () => void;
@@ -108,7 +108,7 @@ const BulkActionsWidget = <ActionType extends Key>({
       >
         {buttonTitle}
       </Button>
-      {isOpen ? renderPopover(handleAction) : null}
+      {isOpen ? renderPopover(handleAction, () => setIsOpen(false)) : null}
       <UnsupportedMinersModal
         open={onUnsupportedMinersDismiss ? (unsupportedMinersInfo?.visible ?? false) : false}
         unsupportedGroups={unsupportedMinersInfo?.unsupportedGroups ?? []}

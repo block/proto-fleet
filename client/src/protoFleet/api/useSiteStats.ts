@@ -41,8 +41,11 @@ export const useSiteStats = ({ siteId, enabled = true, pollIntervalMs }: UseSite
   const hasLoadedRef = useRef(false);
 
   // Reset on scope change so a stale response from a previous site can't
-  // land. Sync-during-render mirrors useTelemetryMetrics.
-  const scopeKey = `${siteId.toString()}|${enabled ? "on" : "off"}`;
+  // land. Sync-during-render mirrors useTelemetryMetrics. The key is the
+  // siteId only (not `enabled`) so viewport-gated callers can suspend and
+  // resume polling without dropping the last-good stats — matching
+  // useBuildingStats.
+  const scopeKey = siteId.toString();
   const prevScopeRef = useRef(scopeKey);
   if (prevScopeRef.current !== scopeKey) {
     prevScopeRef.current = scopeKey;

@@ -49,12 +49,12 @@ const (
 	// DeviceSetServiceListDeviceSetsProcedure is the fully-qualified name of the DeviceSetService's
 	// ListDeviceSets RPC.
 	DeviceSetServiceListDeviceSetsProcedure = "/device_set.v1.DeviceSetService/ListDeviceSets"
-	// DeviceSetServiceAddDevicesToDeviceSetProcedure is the fully-qualified name of the
-	// DeviceSetService's AddDevicesToDeviceSet RPC.
-	DeviceSetServiceAddDevicesToDeviceSetProcedure = "/device_set.v1.DeviceSetService/AddDevicesToDeviceSet"
-	// DeviceSetServiceRemoveDevicesFromDeviceSetProcedure is the fully-qualified name of the
-	// DeviceSetService's RemoveDevicesFromDeviceSet RPC.
-	DeviceSetServiceRemoveDevicesFromDeviceSetProcedure = "/device_set.v1.DeviceSetService/RemoveDevicesFromDeviceSet"
+	// DeviceSetServiceAddDevicesToGroupProcedure is the fully-qualified name of the DeviceSetService's
+	// AddDevicesToGroup RPC.
+	DeviceSetServiceAddDevicesToGroupProcedure = "/device_set.v1.DeviceSetService/AddDevicesToGroup"
+	// DeviceSetServiceRemoveDevicesFromGroupProcedure is the fully-qualified name of the
+	// DeviceSetService's RemoveDevicesFromGroup RPC.
+	DeviceSetServiceRemoveDevicesFromGroupProcedure = "/device_set.v1.DeviceSetService/RemoveDevicesFromGroup"
 	// DeviceSetServiceListDeviceSetMembersProcedure is the fully-qualified name of the
 	// DeviceSetService's ListDeviceSetMembers RPC.
 	DeviceSetServiceListDeviceSetMembersProcedure = "/device_set.v1.DeviceSetService/ListDeviceSetMembers"
@@ -85,6 +85,9 @@ const (
 	// DeviceSetServiceSaveRackProcedure is the fully-qualified name of the DeviceSetService's SaveRack
 	// RPC.
 	DeviceSetServiceSaveRackProcedure = "/device_set.v1.DeviceSetService/SaveRack"
+	// DeviceSetServiceCreateRacksProcedure is the fully-qualified name of the DeviceSetService's
+	// CreateRacks RPC.
+	DeviceSetServiceCreateRacksProcedure = "/device_set.v1.DeviceSetService/CreateRacks"
 	// DeviceSetServiceAssignDevicesToRackProcedure is the fully-qualified name of the
 	// DeviceSetService's AssignDevicesToRack RPC.
 	DeviceSetServiceAssignDevicesToRackProcedure = "/device_set.v1.DeviceSetService/AssignDevicesToRack"
@@ -102,10 +105,13 @@ type DeviceSetServiceClient interface {
 	DeleteDeviceSet(context.Context, *connect.Request[v1.DeleteDeviceSetRequest]) (*connect.Response[v1.DeleteDeviceSetResponse], error)
 	// Lists all device sets for the organization
 	ListDeviceSets(context.Context, *connect.Request[v1.ListDeviceSetsRequest]) (*connect.Response[v1.ListDeviceSetsResponse], error)
-	// Adds devices to a device set
-	AddDevicesToDeviceSet(context.Context, *connect.Request[v1.AddDevicesToDeviceSetRequest]) (*connect.Response[v1.AddDevicesToDeviceSetResponse], error)
-	// Removes devices from a device set
-	RemoveDevicesFromDeviceSet(context.Context, *connect.Request[v1.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[v1.RemoveDevicesFromDeviceSetResponse], error)
+	// Adds devices to a group (many-to-many). Rejects non-group targets
+	// with InvalidArgument; use AssignDevicesToRack for racks.
+	AddDevicesToGroup(context.Context, *connect.Request[v1.AddDevicesToGroupRequest]) (*connect.Response[v1.AddDevicesToGroupResponse], error)
+	// Removes devices from a group. Rejects non-group targets with
+	// InvalidArgument; rack membership is cleared via
+	// AssignDevicesToRack with target_rack_id unset.
+	RemoveDevicesFromGroup(context.Context, *connect.Request[v1.RemoveDevicesFromGroupRequest]) (*connect.Response[v1.RemoveDevicesFromGroupResponse], error)
 	// Lists members of a device set
 	ListDeviceSetMembers(context.Context, *connect.Request[v1.ListDeviceSetMembersRequest]) (*connect.Response[v1.ListDeviceSetMembersResponse], error)
 	// Gets device sets that a device belongs to
@@ -132,6 +138,19 @@ type DeviceSetServiceClient interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// CreateRacks creates a batch of racks in one transaction: all exist
+	// afterward or none do. No member seeding — a bulk create has no way to
+	// say which miner belongs to which rack.
+	//
+	// Labels are unique per (org, type), NOT per site or building, so the
+	// server owns the collision check; a client holding one building's list
+	// can't pre-check it. Any collision (within the batch or against a live
+	// rack) rejects the request with one `errors` entry per offending index
+	// and creates nothing.
+	//
+	// Placement is per-request, not per-row: the whole batch lands in one
+	// building (or site, or nowhere).
+	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
 	// device, inserts new membership at target_rack_id, and cascades
@@ -139,11 +158,20 @@ type DeviceSetServiceClient interface {
 	// device's current site. target_rack_id unset clears rack
 	// membership without re-assigning (site/building stay intact).
 	//
-	// Closes the orphan window where a client-side
-	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
-	// leave devices without rack membership on transport failure between
-	// the two calls, and the cross-rack rename race where the source
-	// rack's id resolution drifts between the resolve and the remove.
+	// Closes the orphan window where a client-side remove + add pair
+	// could leave devices without rack membership on transport failure
+	// between the two calls, and the cross-rack rename race where the
+	// source rack's id resolution drifts between the resolve and the
+	// remove.
+	//
+	// device_selector accepts only the device_list variant. all_devices
+	// is rejected with InvalidArgument because moving every paired
+	// device into a single rack is never the intended operation.
+	//
+	// slot_assignments optionally carries each moved device's slot, so
+	// membership and placement land in one transaction. Prefer this over
+	// SaveRack for every edit — SaveRack replaces the rack's whole member
+	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 
@@ -182,14 +210,14 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceListDeviceSetsProcedure,
 			opts...,
 		),
-		addDevicesToDeviceSet: connect.NewClient[v1.AddDevicesToDeviceSetRequest, v1.AddDevicesToDeviceSetResponse](
+		addDevicesToGroup: connect.NewClient[v1.AddDevicesToGroupRequest, v1.AddDevicesToGroupResponse](
 			httpClient,
-			baseURL+DeviceSetServiceAddDevicesToDeviceSetProcedure,
+			baseURL+DeviceSetServiceAddDevicesToGroupProcedure,
 			opts...,
 		),
-		removeDevicesFromDeviceSet: connect.NewClient[v1.RemoveDevicesFromDeviceSetRequest, v1.RemoveDevicesFromDeviceSetResponse](
+		removeDevicesFromGroup: connect.NewClient[v1.RemoveDevicesFromGroupRequest, v1.RemoveDevicesFromGroupResponse](
 			httpClient,
-			baseURL+DeviceSetServiceRemoveDevicesFromDeviceSetProcedure,
+			baseURL+DeviceSetServiceRemoveDevicesFromGroupProcedure,
 			opts...,
 		),
 		listDeviceSetMembers: connect.NewClient[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse](
@@ -242,6 +270,11 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceSaveRackProcedure,
 			opts...,
 		),
+		createRacks: connect.NewClient[v1.CreateRacksRequest, v1.CreateRacksResponse](
+			httpClient,
+			baseURL+DeviceSetServiceCreateRacksProcedure,
+			opts...,
+		),
 		assignDevicesToRack: connect.NewClient[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse](
 			httpClient,
 			baseURL+DeviceSetServiceAssignDevicesToRackProcedure,
@@ -252,24 +285,25 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // deviceSetServiceClient implements DeviceSetServiceClient.
 type deviceSetServiceClient struct {
-	createDeviceSet            *connect.Client[v1.CreateDeviceSetRequest, v1.CreateDeviceSetResponse]
-	getDeviceSet               *connect.Client[v1.GetDeviceSetRequest, v1.GetDeviceSetResponse]
-	updateDeviceSet            *connect.Client[v1.UpdateDeviceSetRequest, v1.UpdateDeviceSetResponse]
-	deleteDeviceSet            *connect.Client[v1.DeleteDeviceSetRequest, v1.DeleteDeviceSetResponse]
-	listDeviceSets             *connect.Client[v1.ListDeviceSetsRequest, v1.ListDeviceSetsResponse]
-	addDevicesToDeviceSet      *connect.Client[v1.AddDevicesToDeviceSetRequest, v1.AddDevicesToDeviceSetResponse]
-	removeDevicesFromDeviceSet *connect.Client[v1.RemoveDevicesFromDeviceSetRequest, v1.RemoveDevicesFromDeviceSetResponse]
-	listDeviceSetMembers       *connect.Client[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse]
-	getDeviceDeviceSets        *connect.Client[v1.GetDeviceDeviceSetsRequest, v1.GetDeviceDeviceSetsResponse]
-	setRackSlotPosition        *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
-	clearRackSlotPosition      *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
-	getRackSlots               *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
-	getDeviceSetStats          *connect.Client[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse]
-	listRackZones              *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
-	listRackZoneRefs           *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
-	listRackTypes              *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
-	saveRack                   *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
-	assignDevicesToRack        *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
+	createDeviceSet        *connect.Client[v1.CreateDeviceSetRequest, v1.CreateDeviceSetResponse]
+	getDeviceSet           *connect.Client[v1.GetDeviceSetRequest, v1.GetDeviceSetResponse]
+	updateDeviceSet        *connect.Client[v1.UpdateDeviceSetRequest, v1.UpdateDeviceSetResponse]
+	deleteDeviceSet        *connect.Client[v1.DeleteDeviceSetRequest, v1.DeleteDeviceSetResponse]
+	listDeviceSets         *connect.Client[v1.ListDeviceSetsRequest, v1.ListDeviceSetsResponse]
+	addDevicesToGroup      *connect.Client[v1.AddDevicesToGroupRequest, v1.AddDevicesToGroupResponse]
+	removeDevicesFromGroup *connect.Client[v1.RemoveDevicesFromGroupRequest, v1.RemoveDevicesFromGroupResponse]
+	listDeviceSetMembers   *connect.Client[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse]
+	getDeviceDeviceSets    *connect.Client[v1.GetDeviceDeviceSetsRequest, v1.GetDeviceDeviceSetsResponse]
+	setRackSlotPosition    *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
+	clearRackSlotPosition  *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
+	getRackSlots           *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
+	getDeviceSetStats      *connect.Client[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse]
+	listRackZones          *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
+	listRackZoneRefs       *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
+	listRackTypes          *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
+	saveRack               *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
+	createRacks            *connect.Client[v1.CreateRacksRequest, v1.CreateRacksResponse]
+	assignDevicesToRack    *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
 }
 
 // CreateDeviceSet calls device_set.v1.DeviceSetService.CreateDeviceSet.
@@ -297,14 +331,14 @@ func (c *deviceSetServiceClient) ListDeviceSets(ctx context.Context, req *connec
 	return c.listDeviceSets.CallUnary(ctx, req)
 }
 
-// AddDevicesToDeviceSet calls device_set.v1.DeviceSetService.AddDevicesToDeviceSet.
-func (c *deviceSetServiceClient) AddDevicesToDeviceSet(ctx context.Context, req *connect.Request[v1.AddDevicesToDeviceSetRequest]) (*connect.Response[v1.AddDevicesToDeviceSetResponse], error) {
-	return c.addDevicesToDeviceSet.CallUnary(ctx, req)
+// AddDevicesToGroup calls device_set.v1.DeviceSetService.AddDevicesToGroup.
+func (c *deviceSetServiceClient) AddDevicesToGroup(ctx context.Context, req *connect.Request[v1.AddDevicesToGroupRequest]) (*connect.Response[v1.AddDevicesToGroupResponse], error) {
+	return c.addDevicesToGroup.CallUnary(ctx, req)
 }
 
-// RemoveDevicesFromDeviceSet calls device_set.v1.DeviceSetService.RemoveDevicesFromDeviceSet.
-func (c *deviceSetServiceClient) RemoveDevicesFromDeviceSet(ctx context.Context, req *connect.Request[v1.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[v1.RemoveDevicesFromDeviceSetResponse], error) {
-	return c.removeDevicesFromDeviceSet.CallUnary(ctx, req)
+// RemoveDevicesFromGroup calls device_set.v1.DeviceSetService.RemoveDevicesFromGroup.
+func (c *deviceSetServiceClient) RemoveDevicesFromGroup(ctx context.Context, req *connect.Request[v1.RemoveDevicesFromGroupRequest]) (*connect.Response[v1.RemoveDevicesFromGroupResponse], error) {
+	return c.removeDevicesFromGroup.CallUnary(ctx, req)
 }
 
 // ListDeviceSetMembers calls device_set.v1.DeviceSetService.ListDeviceSetMembers.
@@ -357,6 +391,11 @@ func (c *deviceSetServiceClient) SaveRack(ctx context.Context, req *connect.Requ
 	return c.saveRack.CallUnary(ctx, req)
 }
 
+// CreateRacks calls device_set.v1.DeviceSetService.CreateRacks.
+func (c *deviceSetServiceClient) CreateRacks(ctx context.Context, req *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error) {
+	return c.createRacks.CallUnary(ctx, req)
+}
+
 // AssignDevicesToRack calls device_set.v1.DeviceSetService.AssignDevicesToRack.
 func (c *deviceSetServiceClient) AssignDevicesToRack(ctx context.Context, req *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {
 	return c.assignDevicesToRack.CallUnary(ctx, req)
@@ -374,10 +413,13 @@ type DeviceSetServiceHandler interface {
 	DeleteDeviceSet(context.Context, *connect.Request[v1.DeleteDeviceSetRequest]) (*connect.Response[v1.DeleteDeviceSetResponse], error)
 	// Lists all device sets for the organization
 	ListDeviceSets(context.Context, *connect.Request[v1.ListDeviceSetsRequest]) (*connect.Response[v1.ListDeviceSetsResponse], error)
-	// Adds devices to a device set
-	AddDevicesToDeviceSet(context.Context, *connect.Request[v1.AddDevicesToDeviceSetRequest]) (*connect.Response[v1.AddDevicesToDeviceSetResponse], error)
-	// Removes devices from a device set
-	RemoveDevicesFromDeviceSet(context.Context, *connect.Request[v1.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[v1.RemoveDevicesFromDeviceSetResponse], error)
+	// Adds devices to a group (many-to-many). Rejects non-group targets
+	// with InvalidArgument; use AssignDevicesToRack for racks.
+	AddDevicesToGroup(context.Context, *connect.Request[v1.AddDevicesToGroupRequest]) (*connect.Response[v1.AddDevicesToGroupResponse], error)
+	// Removes devices from a group. Rejects non-group targets with
+	// InvalidArgument; rack membership is cleared via
+	// AssignDevicesToRack with target_rack_id unset.
+	RemoveDevicesFromGroup(context.Context, *connect.Request[v1.RemoveDevicesFromGroupRequest]) (*connect.Response[v1.RemoveDevicesFromGroupResponse], error)
 	// Lists members of a device set
 	ListDeviceSetMembers(context.Context, *connect.Request[v1.ListDeviceSetMembersRequest]) (*connect.Response[v1.ListDeviceSetMembersResponse], error)
 	// Gets device sets that a device belongs to
@@ -404,6 +446,19 @@ type DeviceSetServiceHandler interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// CreateRacks creates a batch of racks in one transaction: all exist
+	// afterward or none do. No member seeding — a bulk create has no way to
+	// say which miner belongs to which rack.
+	//
+	// Labels are unique per (org, type), NOT per site or building, so the
+	// server owns the collision check; a client holding one building's list
+	// can't pre-check it. Any collision (within the batch or against a live
+	// rack) rejects the request with one `errors` entry per offending index
+	// and creates nothing.
+	//
+	// Placement is per-request, not per-row: the whole batch lands in one
+	// building (or site, or nowhere).
+	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
 	// device, inserts new membership at target_rack_id, and cascades
@@ -411,11 +466,20 @@ type DeviceSetServiceHandler interface {
 	// device's current site. target_rack_id unset clears rack
 	// membership without re-assigning (site/building stay intact).
 	//
-	// Closes the orphan window where a client-side
-	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
-	// leave devices without rack membership on transport failure between
-	// the two calls, and the cross-rack rename race where the source
-	// rack's id resolution drifts between the resolve and the remove.
+	// Closes the orphan window where a client-side remove + add pair
+	// could leave devices without rack membership on transport failure
+	// between the two calls, and the cross-rack rename race where the
+	// source rack's id resolution drifts between the resolve and the
+	// remove.
+	//
+	// device_selector accepts only the device_list variant. all_devices
+	// is rejected with InvalidArgument because moving every paired
+	// device into a single rack is never the intended operation.
+	//
+	// slot_assignments optionally carries each moved device's slot, so
+	// membership and placement land in one transaction. Prefer this over
+	// SaveRack for every edit — SaveRack replaces the rack's whole member
+	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 
@@ -450,14 +514,14 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.ListDeviceSets,
 		opts...,
 	)
-	deviceSetServiceAddDevicesToDeviceSetHandler := connect.NewUnaryHandler(
-		DeviceSetServiceAddDevicesToDeviceSetProcedure,
-		svc.AddDevicesToDeviceSet,
+	deviceSetServiceAddDevicesToGroupHandler := connect.NewUnaryHandler(
+		DeviceSetServiceAddDevicesToGroupProcedure,
+		svc.AddDevicesToGroup,
 		opts...,
 	)
-	deviceSetServiceRemoveDevicesFromDeviceSetHandler := connect.NewUnaryHandler(
-		DeviceSetServiceRemoveDevicesFromDeviceSetProcedure,
-		svc.RemoveDevicesFromDeviceSet,
+	deviceSetServiceRemoveDevicesFromGroupHandler := connect.NewUnaryHandler(
+		DeviceSetServiceRemoveDevicesFromGroupProcedure,
+		svc.RemoveDevicesFromGroup,
 		opts...,
 	)
 	deviceSetServiceListDeviceSetMembersHandler := connect.NewUnaryHandler(
@@ -510,6 +574,11 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.SaveRack,
 		opts...,
 	)
+	deviceSetServiceCreateRacksHandler := connect.NewUnaryHandler(
+		DeviceSetServiceCreateRacksProcedure,
+		svc.CreateRacks,
+		opts...,
+	)
 	deviceSetServiceAssignDevicesToRackHandler := connect.NewUnaryHandler(
 		DeviceSetServiceAssignDevicesToRackProcedure,
 		svc.AssignDevicesToRack,
@@ -527,10 +596,10 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceDeleteDeviceSetHandler.ServeHTTP(w, r)
 		case DeviceSetServiceListDeviceSetsProcedure:
 			deviceSetServiceListDeviceSetsHandler.ServeHTTP(w, r)
-		case DeviceSetServiceAddDevicesToDeviceSetProcedure:
-			deviceSetServiceAddDevicesToDeviceSetHandler.ServeHTTP(w, r)
-		case DeviceSetServiceRemoveDevicesFromDeviceSetProcedure:
-			deviceSetServiceRemoveDevicesFromDeviceSetHandler.ServeHTTP(w, r)
+		case DeviceSetServiceAddDevicesToGroupProcedure:
+			deviceSetServiceAddDevicesToGroupHandler.ServeHTTP(w, r)
+		case DeviceSetServiceRemoveDevicesFromGroupProcedure:
+			deviceSetServiceRemoveDevicesFromGroupHandler.ServeHTTP(w, r)
 		case DeviceSetServiceListDeviceSetMembersProcedure:
 			deviceSetServiceListDeviceSetMembersHandler.ServeHTTP(w, r)
 		case DeviceSetServiceGetDeviceDeviceSetsProcedure:
@@ -551,6 +620,8 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceListRackTypesHandler.ServeHTTP(w, r)
 		case DeviceSetServiceSaveRackProcedure:
 			deviceSetServiceSaveRackHandler.ServeHTTP(w, r)
+		case DeviceSetServiceCreateRacksProcedure:
+			deviceSetServiceCreateRacksHandler.ServeHTTP(w, r)
 		case DeviceSetServiceAssignDevicesToRackProcedure:
 			deviceSetServiceAssignDevicesToRackHandler.ServeHTTP(w, r)
 		default:
@@ -582,12 +653,12 @@ func (UnimplementedDeviceSetServiceHandler) ListDeviceSets(context.Context, *con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.ListDeviceSets is not implemented"))
 }
 
-func (UnimplementedDeviceSetServiceHandler) AddDevicesToDeviceSet(context.Context, *connect.Request[v1.AddDevicesToDeviceSetRequest]) (*connect.Response[v1.AddDevicesToDeviceSetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.AddDevicesToDeviceSet is not implemented"))
+func (UnimplementedDeviceSetServiceHandler) AddDevicesToGroup(context.Context, *connect.Request[v1.AddDevicesToGroupRequest]) (*connect.Response[v1.AddDevicesToGroupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.AddDevicesToGroup is not implemented"))
 }
 
-func (UnimplementedDeviceSetServiceHandler) RemoveDevicesFromDeviceSet(context.Context, *connect.Request[v1.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[v1.RemoveDevicesFromDeviceSetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.RemoveDevicesFromDeviceSet is not implemented"))
+func (UnimplementedDeviceSetServiceHandler) RemoveDevicesFromGroup(context.Context, *connect.Request[v1.RemoveDevicesFromGroupRequest]) (*connect.Response[v1.RemoveDevicesFromGroupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.RemoveDevicesFromGroup is not implemented"))
 }
 
 func (UnimplementedDeviceSetServiceHandler) ListDeviceSetMembers(context.Context, *connect.Request[v1.ListDeviceSetMembersRequest]) (*connect.Response[v1.ListDeviceSetMembersResponse], error) {
@@ -628,6 +699,10 @@ func (UnimplementedDeviceSetServiceHandler) ListRackTypes(context.Context, *conn
 
 func (UnimplementedDeviceSetServiceHandler) SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.SaveRack is not implemented"))
+}
+
+func (UnimplementedDeviceSetServiceHandler) CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.CreateRacks is not implemented"))
 }
 
 func (UnimplementedDeviceSetServiceHandler) AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {

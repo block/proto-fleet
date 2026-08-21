@@ -10,7 +10,7 @@ import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generat
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Building modal stack. BuildingSettingsModal can render alone (entry from
-// the /settings/sites or ManageSiteModal buildings tables) or stacked on
+// the ManageSiteModal buildings table) or stacked on
 // top of ManageBuildingModal (entry from /buildings/:id "Edit building"
 // header).
 //
@@ -23,20 +23,28 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // — matching the SiteModals pattern.
 export type BuildingModalState =
   | { kind: "none" }
-  // siteId undefined when opened from the global Buildings-tab CTA — the
-  // modal renders a Site dropdown for the operator to pick. When set
-  // (entry from /sites/:id or a site-scoped row), the dropdown locks to
-  // that site so the parent context is unambiguous.
+  // siteId undefined when opened from the global Buildings-tab CTA with no
+  // scope — the modal renders an empty Site dropdown for the operator to pick.
+  // When set (entry from /sites/:id, a site-scoped row, or a page-header site
+  // scope), the dropdown locks to that site.
   | { kind: "detailsCreate"; siteId?: bigint; siteName?: string; draft: BuildingFormValues }
   | { kind: "detailsEdit"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
   | { kind: "manage"; row: BuildingWithCounts; siteName?: string }
-  | { kind: "manageEditingDetails"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues };
+  | { kind: "manageEditingDetails"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
+  // The racks picker with no ManageBuildingModal behind it: hosts that already
+  // render the building (its detail page) open membership editing directly
+  // rather than putting the whole manage surface on screen uninvited. Carries
+  // the rack ids already in the building so the picker can seed its selection.
+  | { kind: "racksPicker"; row: BuildingWithCounts; currentRackIds: bigint[] };
 
 interface UseBuildingModalsOptions {
   // Refetches the host page's buildings cache. Called after every successful
-  // mutation so /settings/sites and ManageSiteModal stay in sync without the
+  // mutation so ManageSiteModal stays in sync without the
   // host wiring its own refetch into every callback.
   refetchBuildings?: () => void;
+  // Optional host-level follow-up when a successful building mutation also
+  // needs to refresh adjacent page state, like parent-site summary counts.
+  onMutationSuccess?: () => void;
   // Fires when a delete originating from ManageBuildingModal succeeds. The
   // manage modal's anchor is the now-deleted building, so the host page
   // (typically /buildings/:id) needs to navigate elsewhere — this hook
@@ -62,7 +70,18 @@ export interface BuildingModalsApi {
   // a parent-site context — the dropdown inside the modal collects it.
   openDetailsCreate: (siteId?: bigint, siteName?: string) => void;
   openDetailsEdit: (row: BuildingWithCounts, siteName?: string) => void;
-  openManage: (row: BuildingWithCounts, siteName?: string) => void;
+  // unassignedMinerCount surfaces the count-line in ManageBuildingModal when
+  // the building was created from a bulk "New building" action seeded with
+  // loose miners. Omitted by every normal edit caller → no count line.
+  openManage: (row: BuildingWithCounts, siteName?: string, unassignedMinerCount?: number) => void;
+  // Count carried alongside the manage state for the seeded-create flow.
+  manageUnassignedMinerCount: number | undefined;
+  openRacksPicker: (row: BuildingWithCounts, currentRackIds: bigint[]) => void;
+  // Commit-per-modal: the racks picker owns building membership, so its Save
+  // applies the delta via AssignRacksToBuilding right away rather than staging it
+  // for a later save. `added` moves racks into this building; `removed` leaves
+  // them with no building. Resolves true on success.
+  pickerAssignRacks: (delta: { added: bigint[]; removed: bigint[] }) => Promise<boolean>;
   // Closes the topmost modal: drops details if details is stacked on manage,
   // otherwise collapses to none. Mirrors useSiteModals.dismiss.
   dismiss: () => void;
@@ -88,14 +107,22 @@ export interface BuildingModalsApi {
   refreshBuildings: () => void;
 }
 
+// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest.
+const RACKS_PER_RPC = 1000;
+
 const useBuildingModals = ({
   refetchBuildings,
+  onMutationSuccess,
   onDeleteFromManage,
 }: UseBuildingModalsOptions = {}): BuildingModalsApi => {
   const [state, setState] = useState<BuildingModalState>({ kind: "none" });
   const [deleteTarget, setDeleteTarget] = useState<BuildingWithCounts | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Set by openManage; read while the manage modal is open. Stale values
+  // while closed are harmless (the modal isn't rendered), and the next
+  // openManage overwrites — so no explicit reset is needed.
+  const [manageUnassignedMinerCount, setManageUnassignedMinerCount] = useState<number | undefined>(undefined);
 
   // Synchronous in-flight guard so the disabled-prop lag on the button
   // (setState batching) can't slip a double-click past us.
@@ -105,7 +132,28 @@ const useBuildingModals = ({
   // state transitions away (drops details) before the operator confirms.
   const deleteFromManageRef = useRef(false);
 
-  const { createBuilding, updateBuilding, deleteBuilding } = useBuildings();
+  const { createBuilding, updateBuilding, deleteBuilding, assignRacksToBuilding } = useBuildings();
+
+  // Membership writer for the standalone racks picker. `targetBuildingId` unset
+  // leaves the racks with no building. Chunked because AssignRacksToBuildingRequest
+  // caps `racks` at 1000 and the picker can select a whole site's worth; chunks run
+  // sequentially so a mid-chain failure stops the chain.
+  const dispatchAssignRacks = useCallback(
+    async (rackIds: bigint[], targetBuildingId?: bigint) => {
+      for (let i = 0; i < rackIds.length; i += RACKS_PER_RPC) {
+        const chunk = rackIds.slice(i, i + RACKS_PER_RPC);
+        await new Promise<void>((resolve, reject) => {
+          void assignRacksToBuilding({
+            racks: chunk.map((rackId) => ({ rackId })),
+            targetBuildingId,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+      }
+    },
+    [assignRacksToBuilding],
+  );
 
   const openDetailsCreate = useCallback((siteId?: bigint, siteName?: string) => {
     setState({ kind: "detailsCreate", siteId, siteName, draft: emptyBuildingFormValues() });
@@ -115,7 +163,8 @@ const useBuildingModals = ({
     setState({ kind: "detailsEdit", row, siteName, draft: buildingFormValuesFromBuilding(unwrap(row)) });
   }, []);
 
-  const openManage = useCallback((row: BuildingWithCounts, siteName?: string) => {
+  const openManage = useCallback((row: BuildingWithCounts, siteName?: string, unassignedMinerCount?: number) => {
+    setManageUnassignedMinerCount(unassignedMinerCount);
     setState({ kind: "manage", row, siteName });
   }, []);
 
@@ -157,9 +206,10 @@ const useBuildingModals = ({
         void createBuilding({
           values,
           siteId,
-          onSuccess: (building) => {
+          onSuccess: ({ building }) => {
             pushToast({ message: `Building "${building.name}" created`, status: STATUSES.success });
             refetchBuildings?.();
+            onMutationSuccess?.();
             // Functional setState so a mid-flight dismiss can't be overwritten
             // by this success closure.
             setState((prev) => (prev.kind === "detailsCreate" ? { kind: "none" } : prev));
@@ -176,7 +226,7 @@ const useBuildingModals = ({
         });
       });
     },
-    [state, createBuilding, refetchBuildings],
+    [state, createBuilding, refetchBuildings, onMutationSuccess],
   );
 
   const detailsSaveEdit = useCallback(
@@ -198,6 +248,7 @@ const useBuildingModals = ({
           onSuccess: (building) => {
             pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
             refetchBuildings?.();
+            onMutationSuccess?.();
             setState((prev) => {
               if (prev.kind === "detailsEdit") return { kind: "none" };
               if (prev.kind === "manageEditingDetails") {
@@ -221,7 +272,7 @@ const useBuildingModals = ({
         });
       });
     },
-    [state, updateBuilding, refetchBuildings],
+    [state, updateBuilding, refetchBuildings, onMutationSuccess],
   );
 
   const requestDeleteCurrent = useCallback(() => {
@@ -267,6 +318,7 @@ const useBuildingModals = ({
         onSuccess: () => {
           pushToast({ message: `Building "${name}" deleted`, status: STATUSES.success });
           refetchBuildings?.();
+          onMutationSuccess?.();
           setDeleteTarget(null);
           deleteFromManageRef.current = false;
           setState({ kind: "none" });
@@ -288,20 +340,68 @@ const useBuildingModals = ({
         onFinally: () => setDeleting(false),
       });
     });
-  }, [deleteTarget, deleteBuilding, refetchBuildings, onDeleteFromManage]);
+  }, [deleteTarget, deleteBuilding, refetchBuildings, onMutationSuccess, onDeleteFromManage]);
 
+  // The racks picker's create hand-off: the racks are already placed in the
+  // building, so there is no membership write to make, only caches to re-pull.
+  // Both, not just the building record — a created rack changes rack_count and
+  // whatever the host renders from building stats.
   const refreshBuildings = useCallback(() => {
     refetchBuildings?.();
-  }, [refetchBuildings]);
+    onMutationSuccess?.();
+  }, [refetchBuildings, onMutationSuccess]);
+
+  const openRacksPicker = useCallback((row: BuildingWithCounts, currentRackIds: bigint[]) => {
+    setState({ kind: "racksPicker", row, currentRackIds });
+  }, []);
+
+  const pickerAssignRacks = useCallback(
+    async (delta: { added: bigint[]; removed: bigint[] }): Promise<boolean> => {
+      if (savingRef.current) return false;
+      if (state.kind !== "racksPicker") return false;
+      const buildingId = unwrap(state.row).id;
+      savingRef.current = true;
+      setSaving(true);
+      try {
+        // Removals first so they free their grid cells before any newcomer
+        // lands, matching ManageBuildingModal's ordering. Chunked to the proto's
+        // per-request cap.
+        await dispatchAssignRacks(delta.removed, undefined);
+        await dispatchAssignRacks(delta.added, buildingId);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "unknown error";
+        pushToast({ message: `Failed to update racks: ${detail}`, status: STATUSES.error });
+        // Either pass is chunked, and the removals run first, so a failure here
+        // can still have moved racks out of the building. Re-pull rather than
+        // leave the host — and the operator's next look at the picker — on a
+        // membership the server no longer agrees with.
+        refetchBuildings?.();
+        onMutationSuccess?.();
+        return false;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+      // rack_count and the grid change without touching create/update/delete, so
+      // the host's cache only re-pulls if we ask it to.
+      refetchBuildings?.();
+      onMutationSuccess?.();
+      return true;
+    },
+    [state, dispatchAssignRacks, refetchBuildings, onMutationSuccess],
+  );
 
   return {
     state,
     deleteTarget,
     saving,
     deleting,
+    manageUnassignedMinerCount,
     openDetailsCreate,
     openDetailsEdit,
     openManage,
+    openRacksPicker,
+    pickerAssignRacks,
     dismiss,
     dismissDeleteConfirm,
     detailsCreate,

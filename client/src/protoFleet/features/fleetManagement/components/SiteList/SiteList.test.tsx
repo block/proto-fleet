@@ -93,7 +93,15 @@ const PathProbe = () => {
 
 type EditSiteCallback = (site: Site) => void;
 
-const renderList = ({ onEditSite }: { onEditSite?: EditSiteCallback } = {}) =>
+const renderList = ({
+  onEditSite,
+  selectedIds,
+  onSelectedIdsChange,
+}: {
+  onEditSite?: EditSiteCallback;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+} = {}) =>
   render(
     <MemoryRouter initialEntries={["/fleet/sites"]}>
       <Routes>
@@ -101,14 +109,19 @@ const renderList = ({ onEditSite }: { onEditSite?: EditSiteCallback } = {}) =>
           path="/fleet/sites"
           element={
             <>
-              <SiteList sites={[makeSite(7, "North")]} onEditSite={onEditSite} />
+              <SiteList
+                sites={[makeSite(7, "North")]}
+                onEditSite={onEditSite}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={onSelectedIdsChange}
+              />
               <PathProbe />
             </>
           }
         />
         <Route path="/sites/:id" element={<PathProbe />} />
-        <Route path="/racks" element={<PathProbe />} />
-        <Route path="/miners" element={<PathProbe />} />
+        <Route path="/fleet/racks" element={<PathProbe />} />
+        <Route path="/fleet/miners" element={<PathProbe />} />
         <Route path="/fleet/buildings" element={<PathProbe />} />
       </Routes>
     </MemoryRouter>,
@@ -144,11 +157,11 @@ describe("SiteList row actions menu", () => {
     expect(screen.getByTestId("probe-path")).toHaveTextContent("/sites/7");
   });
 
-  it("View miners deep-links to /miners with the site filter param", () => {
+  it("View miners deep-links to /fleet/miners with the site filter param", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View miners"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners?site=7");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/miners?site=7");
   });
 
   it("View buildings deep-links to /fleet/buildings with the site filter param", () => {
@@ -158,11 +171,11 @@ describe("SiteList row actions menu", () => {
     expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings?site=7");
   });
 
-  it("View racks deep-links to /racks with the site filter param", () => {
+  it("View racks deep-links to /fleet/racks with the site filter param", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/racks?site=7");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/racks?site=7");
   });
 
   it("Edit site forwards the row's Site to the host without navigating", () => {
@@ -179,5 +192,15 @@ describe("SiteList row actions menu", () => {
     renderList();
     fireEvent.click(trigger());
     expect(screen.queryByText("Edit site")).not.toBeInTheDocument();
+  });
+
+  it("shows controlled row checkboxes when selection props are supplied", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ selectedIds: [], onSelectedIdsChange });
+
+    const checkbox = screen.getByTestId("list-body").querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["7"]);
   });
 });

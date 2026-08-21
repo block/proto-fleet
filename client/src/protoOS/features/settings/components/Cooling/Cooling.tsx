@@ -55,6 +55,13 @@ const isAirCooledMode = (fanMode: string | undefined) => fanMode === "Auto" || f
 
 const isImmersionMode = (fanMode: string | undefined) => fanMode === "Off";
 
+const coolingModeFromFanMode = (fanMode: string | undefined | null): CoolingMode | undefined => {
+  if (!fanMode) return undefined;
+  if (isAirCooledMode(fanMode)) return COOLING_MODES.air;
+  if (isImmersionMode(fanMode)) return COOLING_MODES.immersion;
+  return undefined;
+};
+
 const disabledClassName = "opacity-50 pointer-events-none";
 
 const isSelected = (
@@ -71,13 +78,15 @@ const isSelected = (
 
 const Cooling = () => {
   const { pending, setCooling } = useCoolingStatus({ poll: true });
-  const [coolingMode, setCoolingMode] = useState<CoolingMode>();
   const isSleeping = useIsSleeping();
   const storeCoolingMode = useCoolingMode();
+  const [coolingMode, setCoolingMode] = useState<CoolingMode | undefined>(() =>
+    coolingModeFromFanMode(storeCoolingMode),
+  );
   const fans = useFansTelemetry();
 
   const [userSelectedCoolingMode, setUserSelectedCoolingMode] = useState<CoolingMode>();
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(() => coolingModeFromFanMode(storeCoolingMode) === undefined);
   const [showImmersionModal, setShowImmersionModal] = useState<boolean>(false);
   const [showLearnMoreModal, setShowLearnMoreModal] = useState<boolean>(false);
   const [showSleepDialog, setShowSleepDialog] = useState<boolean>(false);
@@ -86,14 +95,10 @@ const Cooling = () => {
   const [prevStoreCoolingMode, setPrevStoreCoolingMode] = useState(storeCoolingMode);
   if (prevStoreCoolingMode !== storeCoolingMode) {
     setPrevStoreCoolingMode(storeCoolingMode);
-    if (storeCoolingMode) {
-      if (isAirCooledMode(storeCoolingMode)) {
-        setCoolingMode(COOLING_MODES.air);
-        setLoading(false);
-      } else if (isImmersionMode(storeCoolingMode)) {
-        setCoolingMode(COOLING_MODES.immersion);
-        setLoading(false);
-      }
+    const nextCoolingMode = coolingModeFromFanMode(storeCoolingMode);
+    if (nextCoolingMode) {
+      setCoolingMode(nextCoolingMode);
+      setLoading(false);
     }
   }
 

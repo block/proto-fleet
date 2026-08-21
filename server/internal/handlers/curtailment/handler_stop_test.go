@@ -29,12 +29,12 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
-	activeEvent       *models.Event
-	getActiveErr      error
-	getEventErr       error
-	listTargetsErr    error
-	beginRestoreErr   error
-	beginRestoreCalls int
+	getEventErr           error
+	listTargetsErr        error
+	beginRestoreErr       error
+	beginRestoreCalls     int
+	targetSiteIDs         []int64
+	targetSiteIDsComplete bool
 }
 
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -43,7 +43,13 @@ func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig,
 func (s *stopStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Stop handler tests")
 }
-func (s *stopStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *stopStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by Stop handler tests")
+}
+func (s *stopStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Stop handler tests")
 }
 func (s *stopStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -55,6 +61,30 @@ func (s *stopStubStore) ListCandidates(context.Context, interfaces.ListCandidate
 func (s *stopStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Stop handler tests")
 }
+func (s *stopStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by Stop handler tests")
+}
+func (s *stopStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by Stop handler tests")
+}
+func (s *stopStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {
 	if s.getEventErr != nil {
 		return nil, s.getEventErr
@@ -63,12 +93,6 @@ func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) 
 }
 func (s *stopStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventDetailByUUID not exercised by Stop handler tests")
-}
-func (s *stopStubStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
-	if s.getActiveErr != nil {
-		return nil, s.getActiveErr
-	}
-	return s.activeEvent, nil
 }
 func (s *stopStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Stop handler tests")
@@ -82,6 +106,23 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
+func (s *stopStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	siteIDs := append([]int64(nil), s.targetSiteIDs...)
+	mappedTargetCount := int64(len(siteIDs))
+	targetCount := mappedTargetCount
+	if !s.targetSiteIDsComplete {
+		targetCount++
+	}
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          s.targetSiteIDsComplete,
+		TargetCount:       targetCount,
+		MappedTargetCount: mappedTargetCount,
+	}, nil
+}
+func (s *stopStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Stop handler tests")
 }
@@ -94,13 +135,16 @@ func (s *stopStubStore) UpdateOperatorFields(context.Context, int64, int64, inte
 func (s *stopStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Stop handler tests")
 }
+func (s *stopStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
+	panic("ForceReleaseEvent not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
 	panic("GetEventByIdempotencyKey not exercised by Stop handler tests")
 }
 func (s *stopStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
 	panic("GetEventByExternalReference not exercised by Stop handler tests")
 }
-func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, _ interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	s.beginRestoreCalls++
 	if s.beginRestoreErr != nil {
 		return nil, s.beginRestoreErr
@@ -125,6 +169,9 @@ func (s *stopStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event,
 }
 func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised")
+}
+func (s *stopStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised")
 }
 func (s *stopStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised")
@@ -158,6 +205,7 @@ func newStopStubStore() *stopStubStore {
 			{DeviceIdentifier: "m1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
 			{DeviceIdentifier: "m2", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
 		},
+		targetSiteIDsComplete: true,
 	}
 }
 
@@ -251,6 +299,54 @@ func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
 			store := newStopStubStore()
 			store.event.ScopeType = models.ScopeTypeSite
 			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			h := NewHandler(curtailment.NewService(store))
+
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+				EventUuid: store.event.EventUUID.String(),
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.beginRestoreCalls)
+		})
+	}
+}
+
+func TestHandler_StopCurtailment_AllowsIncompleteTargetSitesForOrgWideManage(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+		wantCalls   int
+	}{
+		{"org permission without site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
+		{"site narrowing without manage denies stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite)}, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStopStubStore()
+			store.event.ScopeType = models.ScopeTypeDeviceList
+			store.targetSiteIDs = nil
+			store.targetSiteIDsComplete = false
 			h := NewHandler(curtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{

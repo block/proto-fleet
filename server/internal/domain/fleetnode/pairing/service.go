@@ -3,15 +3,17 @@ package pairing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 const (
@@ -24,45 +26,65 @@ const (
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
 )
 
-type Store interface {
+var telemetryScheduleTimeout = 5 * time.Second
+
+type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
-	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, identifiers []string, cursorID, limit *int64, excludeAuthNeeded bool) ([]FleetNodeDiscoveredDevice, error)
+	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
+	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
+}
+
+type minerCredentialDeleter interface {
+	DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, deviceID, orgID int64) (int64, error)
+}
+
+type FleetNodeDiscoveredDeviceFilter struct {
+	Identifiers       []string
+	PairingStatuses   []string
+	Models            []string
+	Manufacturers     []string
+	CursorID          *int64
+	Limit             *int64
+	ExcludeAuthNeeded bool
+}
+
+type TelemetryScheduler interface {
+	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
 }
 
 type Service struct {
 	store           Store
 	enrollmentStore enrollment.AgentStore
 	transactor      stores.Transactor
+	telemetry       TelemetryScheduler
 
 	// Optional pair-flow collaborators (set by WithProvisioning); binding and
 	// listing work without them.
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
-	encryptService        *encrypt.Service
 	dispatcher            control.Sender
 
-	invalidateMiner func(context.Context, int64)
+	invalidateMiner    func(context.Context, int64)
+	rigConfigReapplier func(context.Context, int64, int64)
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
 	return &Service{store: store, enrollmentStore: enrollmentStore, transactor: transactor}
 }
 
-// WithProvisioning wires the collaborators the pair-discovered flow needs: the
-// stores + encryptService PersistFleetNodePairResult uses, and the dispatcher
-// PairOnNode sends pair commands through. Returns the service for chaining.
-func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDeviceStore stores.DiscoveredDeviceStore, encryptService *encrypt.Service, dispatcher control.Sender) *Service {
+// WithProvisioning wires the stores PersistFleetNodePairResult uses and the
+// dispatcher PairOnNode sends pair commands through. Returns the service for chaining.
+func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDeviceStore stores.DiscoveredDeviceStore, dispatcher control.Sender) *Service {
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
-	s.encryptService = encryptService
 	s.dispatcher = dispatcher
 	return s
 }
@@ -72,6 +94,18 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 // since the cache lookup short-circuits before the fleet-node check.
 func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) {
 	s.invalidateMiner = invalidate
+}
+
+func (s *Service) WithTelemetryScheduler(telemetry TelemetryScheduler) *Service {
+	s.telemetry = telemetry
+	return s
+}
+
+// WithRigConfigReapplier wires desired-state convergence after pairing and
+// whenever a FleetNode carrying paired devices reconnects.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) *Service {
+	s.rigConfigReapplier = reapply
+	return s
 }
 
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
@@ -91,6 +125,8 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 	if s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
 	}
+	s.scheduleTelemetryBestEffort(ctx, deviceID, orgID)
+	s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy)
 	return nil
 }
 
@@ -123,7 +159,17 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return fleeterror.LogInternal(component, "pair device", clientErrPair, pairErr)
 	}
 	if rows == 0 {
+		sameNode, boundErr := s.deviceBoundToFleetNode(ctx, fleetNodeID, deviceID, orgID)
+		if boundErr != nil {
+			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
+		}
+		if sameNode {
+			return nil
+		}
 		return fleeterror.NewFailedPreconditionError("device already paired; unpair first")
+	}
+	if err := s.deleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID, clientErrPair); err != nil {
+		return err
 	}
 	// Make the paired node the discovery owner so its future reports refresh the row
 	// instead of being rejected by the attribution guard. No-op without a discovered_device.
@@ -133,12 +179,108 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	return nil
 }
 
-func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
-	if _, err := s.store.UnpairDevice(ctx, deviceID, orgID); err != nil {
-		return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error) {
+	pairs, err := s.store.ListFleetNodeDevices(ctx, orgID, &fleetNodeID)
+	if err != nil {
+		return false, err
 	}
-	if s.invalidateMiner != nil {
+	for _, pair := range pairs {
+		if pair.DeviceID == deviceID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Service) scheduleTelemetry(ctx context.Context, deviceID, orgID int64) error {
+	if s.telemetry == nil {
+		return nil
+	}
+	identifier, err := s.store.GetFleetNodePairedDeviceIdentifier(ctx, deviceID, orgID)
+	if err != nil {
+		return fleeterror.LogInternal(component, "lookup paired device identifier", clientErrPair, err)
+	}
+	return s.scheduleTelemetryIdentifier(ctx, telemetrymodels.DeviceIdentifier(identifier))
+}
+
+func (s *Service) scheduleTelemetryIdentifier(ctx context.Context, identifier telemetrymodels.DeviceIdentifier) error {
+	if s.telemetry == nil {
+		return nil
+	}
+	if err := s.telemetry.AddDevices(ctx, identifier); err != nil {
+		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
+	}
+	return nil
+}
+
+func (s *Service) scheduleTelemetryBestEffort(ctx context.Context, deviceID, orgID int64) {
+	s.scheduleTelemetryBestEffortWith(ctx, deviceID, orgID, "", func(ctx context.Context) error {
+		return s.scheduleTelemetry(ctx, deviceID, orgID)
+	})
+}
+
+func (s *Service) scheduleTelemetryIdentifierBestEffort(ctx context.Context, identifier telemetrymodels.DeviceIdentifier, deviceID, orgID int64) {
+	s.scheduleTelemetryBestEffortWith(ctx, deviceID, orgID, identifier, func(ctx context.Context) error {
+		return s.scheduleTelemetryIdentifier(ctx, identifier)
+	})
+}
+
+func (s *Service) scheduleTelemetryBestEffortWith(ctx context.Context, deviceID, orgID int64, identifier telemetrymodels.DeviceIdentifier, schedule func(context.Context) error) {
+	if s.telemetry == nil {
+		return
+	}
+	baseCtx := context.WithoutCancel(ctx)
+	go func() {
+		scheduleCtx, cancel := context.WithTimeout(baseCtx, telemetryScheduleTimeout)
+		defer cancel()
+		if err := schedule(scheduleCtx); err != nil {
+			attrs := []any{"device_id", deviceID, "org_id", orgID, "err", err}
+			if identifier != "" {
+				attrs = append(attrs, "device_identifier", identifier)
+			}
+			slog.Warn("failed to schedule fleet-node telemetry after pairing", attrs...)
+		}
+	}()
+}
+
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, assignedBy *int64) {
+	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 {
+		return
+	}
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, *assignedBy)
+}
+
+func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
+	var rows int64
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		var err error
+		rows, err = s.store.UnpairDevice(ctx, deviceID, orgID)
+		if err != nil {
+			return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+		}
+		if rows == 0 {
+			return nil
+		}
+		if err := s.deleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID, clientErrUnpair); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if rows > 0 && s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
+	}
+	return nil
+}
+
+func (s *Service) deleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, deviceID, orgID int64, clientMessage string) error {
+	store, ok := s.store.(minerCredentialDeleter)
+	if !ok {
+		return fleeterror.NewInternalError("fleet node pairing credential cleanup is not configured")
+	}
+	if _, err := store.DeleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID); err != nil {
+		return fleeterror.LogInternal(component, "clear miner credentials", clientMessage, err)
 	}
 	return nil
 }
@@ -167,7 +309,10 @@ func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgI
 // and more rows may remain.
 func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]FleetNodeDiscoveredDevice, *int64, error) {
 	// The operator listing surfaces AUTHENTICATION_NEEDED rows for display/retry.
-	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID, nil, cursorID, limit, false)
+	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		CursorID: cursorID,
+		Limit:    limit,
+	})
 	if err != nil {
 		return nil, nil, fleeterror.LogInternal(component, "list discovered devices", clientErrList, err)
 	}

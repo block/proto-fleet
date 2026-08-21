@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package sitemap.v1;
+
+service SiteMapService {
+  // ExportSiteMapCsv streams a deterministic, multi-section CSV snapshot of
+  // sites, buildings, racks, and miner placement.
+  rpc ExportSiteMapCsv(ExportSiteMapCsvRequest) returns (stream ExportSiteMapCsvResponse);
+
+  // ImportSiteMapCsv validates and previews a multi-section site-map CSV.
+  // Commit support is intentionally token-gated so the server can revalidate
+  // the exact dry-run plan before applying writes.
+  rpc ImportSiteMapCsv(ImportSiteMapCsvRequest) returns (ImportSiteMapCsvResponse);
+}
+
+message ExportSiteMapCsvRequest {}
+
+message ExportSiteMapCsvResponse {
+  bytes csv_data = 1;
+}
+
+enum OmissionMode {
+  OMISSION_MODE_UNSPECIFIED = 0;
+  OMISSION_MODE_REMOVE_OMITTED = 1;
+  OMISSION_MODE_LEAVE_IN_PLACE = 2;
+}
+
+enum ImportOperation {
+  IMPORT_OPERATION_UNSPECIFIED = 0;
+  IMPORT_OPERATION_CREATE = 1;
+  IMPORT_OPERATION_UPDATE = 2;
+  IMPORT_OPERATION_DELETE = 3;
+  IMPORT_OPERATION_UNASSIGN = 4;
+  IMPORT_OPERATION_MOVE = 5;
+  IMPORT_OPERATION_RENAME = 6;
+}
+
+message ImportSiteMapCsvRequest {
+  bytes csv_data = 1;
+  OmissionMode omission_mode = 2;
+  bool dry_run = 3;
+  string commit_token = 4;
+}
+
+message OmissionCounts {
+  int32 sites = 1;
+  int32 buildings = 2;
+  int32 racks = 3;
+  int32 miners = 4;
+}
+
+message ImportValidationError {
+  int32 row = 1;
+  string section = 2;
+  string message = 3;
+}
+
+message ImportChangeSummary {
+  ImportOperation operation = 1;
+  string entity_type = 2;
+  int32 count = 3;
+  string description = 4;
+}
+
+message ImportSiteMapCsvResponse {
+  bool omission_choice_required = 1;
+  OmissionCounts omission_counts = 2;
+  repeated ImportValidationError errors = 3;
+  repeated string warnings = 4;
+  repeated ImportChangeSummary changes = 5;
+  string commit_token = 6;
+}

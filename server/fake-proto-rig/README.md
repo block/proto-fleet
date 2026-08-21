@@ -17,6 +17,38 @@ This simulator allows the fleet management system to be tested without physical 
 - Error injection via environment variables
 - REST API for both ProtoFleet plugin and ProtoOS dashboard
 
+### Firmware Update Simulation
+
+Firmware uploads move through `downloaded`, `installing`, and `installed`.
+Rebooting after `installed` promotes the staged version to the running version.
+A second upload is rejected while any update is pending.
+
+The simulator detects an uploaded version in this order:
+
+1. A semantic version in the filename, such as `protoos-1.4.4.swu`.
+2. A marker in the first 64 KiB of the file:
+   - `firmware_version=1.4.4`
+   - `{"firmware_version":"1.4.4"}`
+   - A line containing only `1.4.4` or `v1.4.4`
+3. A one-patch increment from the currently running version.
+
+Fake uploads are streamed with a 512 MiB request limit. Only the version scan
+prefix is retained in memory.
+
+Tests can set the one-shot outcome for the next update through the fake-only
+`PUT /fake-api/v1/test/firmware-update/outcome` endpoint. Set
+`FAKE_RIG_ENABLE_TEST_CONTROLS=true` to register this endpoint, then authenticate
+with a bearer token issued by `/api/v1/auth/login`. The endpoint is unavailable
+by default.
+
+```json
+{"outcome":"success"}
+```
+
+Supported outcomes are `success`, `error`, and `attention`. Both failure
+outcomes expose the real API's `error` update state with a deterministic error
+message. This endpoint is not part of the real device API.
+
 ## Usage
 
 ### Running Directly
@@ -39,6 +71,7 @@ docker run -p 8080:8080 fake-proto-rig
 | `HTTP_PORT` | Port to listen on | `8080` |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
+| `FAKE_RIG_ENABLE_TEST_CONTROLS` | Enable authenticated fake-only test control endpoints | `false` |
 
 ### Error Injection
 
@@ -145,6 +178,9 @@ curl -X POST "http://localhost:8080/api/v1/system/locate?enable=false" \
 - `/api/v1/hashboards` - Hashboard hardware info (GET, public)
 - `/api/v1/power-supplies` - PSU telemetry/status (GET, public)
 - `/api/v1/system/locate` - Locator LED control (POST; `led_on_time=0` or negative values persist until `enable=false`)
+- `/api/v1/system/secure` - Secure status (GET, public) and secure override (PUT, auth)
+- `/api/v1/curtailment/config` - Curtailment service configuration (GET, PUT; bearer auth)
+- `/api/v1/curtailment/status` - Latest curtailment status (GET, bearer auth; always reports no status received)
 - `/api/v1/cooling` - Cooling status and control (GET, PUT)
 - `/api/v1/network` - Network configuration (GET, PUT)
 - `/api/v1/telemetry` - Telemetry data (GET)
@@ -227,6 +263,10 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **Telemetry-service status** | GET/PUT `/system/telemetry` return `{"enabled", "message"}` (TelemetryResponse) | bare `{"enabled"}` or a message-only body |
 | **PSU update body** | optional `psu_types` map (slot ID → PSU type enum), validated (422 on bad value/slot) | ignore body or accept unknown PSU types |
 | **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
+| **Pool URL ports** | explicit port or protocol default (`3333` for SV1, `3336` for SV2) | reject a valid pool URL because its port is omitted |
+| **SV2 authority key** | require a valid `v2_authority_pubkey` for remote SV2 pools; allow omission only for loopback | accept an unauthenticated remote SV2 pool |
+| **System status fields** | `{"onboarded", "password_set"}` | including `default_password_active` (removed in MDK-API 1.8.2) |
+| **SecureResponse** | `{"secure", "state": {sshd, nats-service, secureboot, certificate-validity}}` | bare `{"secure"}` (state added in MDK-API 1.8.2) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
 
 ### Cross-Reference with miner-firmware

@@ -22,6 +22,7 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   type MinerStateSnapshot,
@@ -30,12 +31,13 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
-import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
@@ -43,6 +45,8 @@ import {
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
+  UNASSIGNED_FILTER_OPTION,
+  UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import {
@@ -51,7 +55,7 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
-import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
+import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -68,8 +72,9 @@ import {
 } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
-import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
+import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 type FleetCredentials = { username: string; password: string };
 
@@ -99,6 +104,13 @@ type MinerListProps = {
   batchStateVersion?: number;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  /**
+   * When false, the list does not create its own scroll container — the page
+   * scrolls instead and the sticky header pins to the page. The Fleet shell
+   * passes false; embedded usages (modals, panels) keep the default bounded
+   * scroll. See List's `overflowContainer`.
+   */
+  overflowContainer?: boolean;
   onAddMiners: () => void;
   totalMiners?: number;
   /**
@@ -183,6 +195,14 @@ type MinerListProps = {
    */
   availableRacks?: DeviceSet[];
   /**
+   * Available sites for the site filter dropdown.
+   */
+  availableSites?: FilterLabelSource[];
+  /**
+   * Available buildings for the building filter dropdown.
+   */
+  availableBuildings?: FilterLabelSource[];
+  /**
    * Exports the full paired miner list as CSV.
    */
   onExportCsv?: () => void | Promise<void>;
@@ -224,7 +244,9 @@ type ScopedMinerListBodyProps = {
   initialActiveFilters: ActiveFilters;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  overflowContainer?: boolean;
   totalMiners?: number;
+  totalUnfilteredMiners?: number;
   totalDisabledMiners: number;
   totalDisabledMinersFresh: boolean;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
@@ -263,7 +285,9 @@ const ScopedMinerListBody = ({
   initialActiveFilters,
   listClassName,
   paddingLeft,
+  overflowContainer,
   totalMiners,
+  totalUnfilteredMiners,
   totalDisabledMiners,
   totalDisabledMinersFresh,
   itemRef,
@@ -304,6 +328,32 @@ const ScopedMinerListBody = ({
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  const headerActionButtons = useMemo<ResponsiveActionButton[]>(
+    () => [
+      {
+        actionSheetLabel: "Manage columns",
+        ariaHasPopup: "dialog",
+        ariaLabel: "Manage columns",
+        prefixIcon: <Slider width="w-4" />,
+        onClick: onOpenManageColumns,
+        testId: "manage-columns-button",
+        variant: variants.secondary,
+      },
+      {
+        disabled: totalMiners === 0,
+        loading: exportCsvLoading,
+        onClick: onExportCsv,
+        text: "Export CSV",
+        variant: variants.secondary,
+      },
+      {
+        onClick: onAddMiners,
+        text: "Add miners",
+        variant: variants.secondary,
+      },
+    ],
+    [exportCsvLoading, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
+  );
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -347,25 +397,36 @@ const ScopedMinerListBody = ({
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
         headerControls={
-          <div className="flex items-center gap-2">
-            <Button
-              ariaLabel="Manage columns"
-              ariaHasPopup="dialog"
-              variant={variants.secondary}
-              size={sizes.compact}
-              prefixIcon={<Slider width="w-4" />}
-              onClick={onOpenManageColumns}
-              testId="manage-columns-button"
+          <div className="flex min-w-0 items-center justify-end">
+            <div className="hidden items-center gap-2 tablet:flex">
+              <Button
+                ariaLabel="Manage columns"
+                ariaHasPopup="dialog"
+                variant={variants.secondary}
+                size={sizes.compact}
+                prefixIcon={<Slider width="w-4" />}
+                onClick={onOpenManageColumns}
+                testId="manage-columns-button"
+              />
+              <Button
+                text="Export CSV"
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={onExportCsv}
+                loading={exportCsvLoading}
+                disabled={totalMiners === 0}
+              />
+              <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+            </div>
+            <ResponsiveActionGroup
+              buttons={headerActionButtons}
+              buttonSize={sizes.compact}
+              className="tablet:hidden"
+              primaryButtonStrategy="last"
+              primaryTestIdSuffix="mobile"
+              sheetContentTestId="list-header-action-sheet-content"
+              sheetTestId="list-header-action-sheet"
             />
-            <Button
-              text="Export CSV"
-              variant={variants.secondary}
-              size={sizes.compact}
-              onClick={onExportCsv}
-              loading={exportCsvLoading}
-              disabled={totalMiners === 0}
-            />
-            <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
           </div>
         }
         renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
@@ -373,8 +434,9 @@ const ScopedMinerListBody = ({
             <MinerListActionBar
               selectedMiners={selectedItems}
               onClearSelection={clearSelection}
-              onSelectAll={hasActiveFilters ? undefined : handleSelectAllMiners}
-              onSelectNone={hasActiveFilters ? undefined : handleSelectNoneMiners}
+              onSelectAll={handleSelectAllMiners}
+              onSelectNone={handleSelectNoneMiners}
+              filtersActive={hasActiveFilters}
               selectionMode={currentSelectionMode}
               totalCount={totalSelectable}
               currentFilter={currentFilter}
@@ -389,14 +451,20 @@ const ScopedMinerListBody = ({
         )}
         containerClassName={listClassName}
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
+        // Match the sibling fleet tabs (Sites/Buildings/Racks), whose filter
+        // row sits in a pt-6 laptop:pt-10 … pb-6 container. The List default
+        // (py-6) made the Miners filter row start higher than the others.
+        filtersClassName="pt-6 pb-6 laptop:pt-10"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
+        overflowContainer={overflowContainer}
+        stickyChromeClassName={overflowContainer === false ? PAGE_SCROLL_CHROME_WIDTH : undefined}
         applyColumnWidthsToCells
         total={totalMiners}
+        totalUnfiltered={totalUnfilteredMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar
         // copy and confirmation counts cover both paired and auth-needed miners.
         totalDisabled={0}
-        hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
         initialActiveFilters={initialActiveFilters}
@@ -422,10 +490,17 @@ const ScopedMinerListBody = ({
 
       {shouldRenderPagination ? (
         <div
-          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
-            "pb-24": selectionMode !== "none",
-            "pb-6": selectionMode === "none",
-          })}
+          className={clsx(
+            "sticky left-0 flex flex-col items-center gap-4 pt-6",
+            // Under the page's w-max subtree this auto-width sticky bar would
+            // stretch to the table and center Prev/Next off-screen; pin it to
+            // the viewport like the rest of the page-scroll chrome.
+            overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+            {
+              "pb-24": selectionMode !== "none",
+              "pb-6": selectionMode === "none",
+            },
+          )}
           data-testid="miners-pagination"
         >
           <span className="text-300 text-text-primary">
@@ -465,6 +540,7 @@ const MinerList = ({
   batchStateVersion,
   listClassName,
   paddingLeft,
+  overflowContainer,
   onAddMiners,
   totalMiners,
   totalUnfilteredMiners,
@@ -484,6 +560,8 @@ const MinerList = ({
   availableFirmwareVersions = [],
   availableGroups = [],
   availableRacks = [],
+  availableSites = [],
+  availableBuildings = [],
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -499,7 +577,6 @@ const MinerList = ({
   const username = useUsername();
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
-  const viewsState = useMinerViews(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
@@ -633,11 +710,8 @@ const MinerList = ({
     });
   }, []);
 
-  const handleRowClick = useCallback((item: DeviceListItem) => {
-    if (item.miner.url) {
-      window.open(item.miner.url, "_blank", "noopener,noreferrer");
-    }
-  }, []);
+  const openMinerView = useOpenMinerView();
+  const handleRowClick = useCallback((item: DeviceListItem) => openMinerView(item.miner), [openMinerView]);
   const sortColumnFromUrl = useMemo(() => {
     const parsedSort = parseSortFromURL(searchParams);
     return parsedSort ? getColumnForSortField(parsedSort.field) : undefined;
@@ -682,7 +756,19 @@ const MinerList = ({
   const selectionFilterKey = useMemo(() => {
     return encodeActiveFiltersToURL(initialActiveFilters).toString();
   }, [initialActiveFilters]);
-  const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
+  // The SitePicker scope lives in the store, not the URL, so it isn't in
+  // selectionFilterKey. Fold the effective filter's site scope in too, so
+  // switching the active site resets the selection — otherwise the bulk
+  // bar would stay actionable on the prior site's miners after a scope
+  // change (the row data is already protected by useFleet's request-id guard).
+  const siteScopeKey = useMemo(
+    () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
+    [currentFilter],
+  );
+  const selectionScopeKey = useMemo(
+    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}`,
+    [currentPage, selectionFilterKey, siteScopeKey],
+  );
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -764,13 +850,37 @@ const MinerList = ({
     [availableGroups],
   );
 
+  const sitesFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Sites",
+      pluralTitle: "sites",
+      value: "site",
+      options: [...availableSites, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableSites],
+  );
+
+  const buildingsFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Buildings",
+      pluralTitle: "buildings",
+      value: "building",
+      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableBuildings],
+  );
+
   const racksFilter: DropdownFilterItem = useMemo(
     () => ({
       type: "dropdown",
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
+      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
       defaultOptionIds: [],
     }),
     [availableRacks],
@@ -820,9 +930,9 @@ const MinerList = ({
       type: "textareaList",
       title: "Subnet",
       value: "subnet",
-      validate: validateCidrLine,
-      normalize: normalizeCidrLine,
-      placeholder: "255.255.255.0/24\n255.255.0.0/16",
+      validate: validateSubnetLine,
+      normalize: normalizeSubnetLine,
+      placeholder: "255.255.255.0/24\n10.0.0.10-10.0.0.20\n10.0.0.42",
       noun: "subnet",
     }),
     [],
@@ -842,6 +952,8 @@ const MinerList = ({
           { ...issuesFilter, showGroupDivider: true },
           modelFilter,
           { ...firmwareFilter, showGroupDivider: true },
+          sitesFilter,
+          buildingsFilter,
           racksFilter,
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
@@ -858,6 +970,8 @@ const MinerList = ({
       issuesFilter,
       modelFilter,
       groupsFilter,
+      sitesFilter,
+      buildingsFilter,
       racksFilter,
       firmwareFilter,
       zonesFilter,
@@ -933,14 +1047,22 @@ const MinerList = ({
       const rackFilters = filters.dropdownFilters.rack;
       if (rackFilters && rackFilters.length > 0) {
         rackFilters.forEach((id) => {
-          minerFilter.rackIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoRack = true;
+          } else {
+            minerFilter.rackIds.push(BigInt(id));
+          }
         });
       }
 
       const buildingFilters = filters.dropdownFilters.building;
       if (buildingFilters && buildingFilters.length > 0) {
         buildingFilters.forEach((id) => {
-          minerFilter.buildingIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoBuilding = true;
+          } else {
+            minerFilter.buildingIds.push(BigInt(id));
+          }
         });
       }
 
@@ -951,7 +1073,11 @@ const MinerList = ({
       const siteFilters = filters.dropdownFilters.site;
       if (siteFilters && siteFilters.length > 0) {
         siteFilters.forEach((id) => {
-          minerFilter.siteIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeUnassigned = true;
+          } else {
+            minerFilter.siteIds.push(BigInt(id));
+          }
         });
       }
 
@@ -981,9 +1107,19 @@ const MinerList = ({
         minerFilter.numericRanges.push(range);
       });
 
-      const subnetCidrs = filters.textareaListFilters.subnet;
-      if (subnetCidrs && subnetCidrs.length > 0) {
-        minerFilter.ipCidrs.push(...subnetCidrs);
+      const subnetLines = filters.textareaListFilters.subnet;
+      if (subnetLines && subnetLines.length > 0) {
+        // Ranges travel natively on ip_ranges; CIDRs/IPs on ip_cidrs. The
+        // server OR's the two together, so all subnet lines match as one set.
+        subnetLines.forEach((line) => {
+          const entry = classifySubnetLine(line);
+          if (!entry) return;
+          if (entry.kind === "range") {
+            minerFilter.ipRanges.push(create(IpRangeSchema, { startIp: entry.startIp, endIp: entry.endIp }));
+          } else {
+            minerFilter.ipCidrs.push(entry.cidr);
+          }
+        });
       }
 
       // Navigate with URL params instead of calling parent callback.
@@ -1041,7 +1177,7 @@ const MinerList = ({
                 <LogoAlt width="w-[48px]" />
                 <Header
                   title="You haven't paired any miners"
-                  titleSize="text-display-200"
+                  titleSize="text-heading-300 tablet:text-display-200"
                   description="Add miners to your fleet to get started."
                 />
               </div>
@@ -1064,17 +1200,21 @@ const MinerList = ({
 
   return (
     <>
-      <div ref={topRef} className="sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10">
+      {/* Scroll anchor for pagination. When a title is present (standalone
+          /miners) it renders an <h2> with the page's top padding; in the fleet
+          shell there's no title, so it collapses to a zero-height anchor rather
+          than an empty padded band above the filter row (which made the Miners
+          tab sit lower than the other fleet tabs). */}
+      <div
+        ref={topRef}
+        className={clsx(
+          "sticky left-0 px-6 laptop:px-10",
+          title && "pt-6 laptop:pt-10",
+          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         {title ? <h2 className="text-heading-300">{title}</h2> : null}
       </div>
-
-      <div className="sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10">
-        {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
-          ? `${totalMiners} of ${totalUnfilteredMiners} miners`
-          : `${totalMiners ?? 0} miners`}
-      </div>
-
-      <ViewsBar viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
 
       {loading ? (
         <div className="flex justify-center py-20">
@@ -1091,7 +1231,9 @@ const MinerList = ({
           initialActiveFilters={initialActiveFilters}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
+          overflowContainer={overflowContainer}
           totalMiners={totalMiners}
+          totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalDisabledMiners}
           totalDisabledMinersFresh={totalDisabledMinersFresh}
           itemRef={itemRef}
@@ -1171,6 +1313,7 @@ const MinerList = ({
           onClose={closeModalFlow}
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
+          onMergeMiners={onMergeMiners}
         />
       ) : null}
     </>

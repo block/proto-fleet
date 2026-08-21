@@ -10,6 +10,5 @@ type AuthTokenConfig struct {
 }
 
 type Config struct {
-	ClientToken                AuthTokenConfig `embed:"" prefix:"client-" envprefix:"CLIENT_"`
-	MinerTokenExpirationPeriod time.Duration   `help:"Expiration period duration for the miner auth JWT" env:"MINER_EXPIRATION_PERIOD" required:""`
+	ClientToken AuthTokenConfig `embed:"" prefix:"client-" envprefix:"CLIENT_"`
 }

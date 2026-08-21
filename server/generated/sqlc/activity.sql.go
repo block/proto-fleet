@@ -17,28 +17,77 @@ import (
 
 const countActivityLogs = `-- name: CountActivityLogs :one
 SELECT COUNT(*)
-FROM activity_log
-WHERE organization_id = $1
-    AND ($2::text[] IS NULL OR event_category = ANY($2::text[]))
-    AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
-    AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
-    AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
-    AND ($7::timestamptz IS NULL OR created_at >= $7)
-    AND ($8::timestamptz IS NULL OR created_at <= $8)
+FROM activity_log a
+WHERE a.organization_id = $1
+    AND ($2::text[] IS NULL OR a.event_category = ANY($2::text[]))
+    AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
+    AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
+    AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
+    AND (
+        $6::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE $6 ESCAPE '\'
+    )
+    AND ($7::timestamptz IS NULL OR a.created_at >= $7)
+    AND ($8::timestamptz IS NULL OR a.created_at <= $8)
+    AND (
+        (cardinality($9::bigint[]) = 0
+         AND $10::boolean = false)
+
+        OR (a.batch_id IS NULL AND (
+                a.site_id = ANY($9::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY($9::bigint[])
+                ))
+             OR ($10::boolean
+                 AND a.site_id IS NULL
+                 AND NOT a.multi_site
+                 AND a.event_category <> ALL($11::text[]))
+             OR ($10::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
+        ))
+
+        OR (a.batch_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM command_on_device_log codl
+                JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+                WHERE cbl.uuid = a.batch_id
+                  AND (
+                        codl.site_id = ANY($9::bigint[])
+                     OR ($10::boolean AND codl.site_id IS NULL)
+                  )
+        ))
+    )
 `
 
 type CountActivityLogsParams struct {
-	OrgID         sql.NullInt64
-	Categories    []string
-	EventTypes    []string
-	UserIds       []string
-	ScopeTypes    []string
-	SearchPattern sql.NullString
-	StartTime     sql.NullTime
-	EndTime       sql.NullTime
+	OrgID              sql.NullInt64
+	Categories         []string
+	EventTypes         []string
+	UserIds            []string
+	ScopeTypes         []string
+	SearchPattern      sql.NullString
+	StartTime          sql.NullTime
+	EndTime            sql.NullTime
+	SiteIds            []int64
+	IncludeUnassigned  bool
+	OrgLevelCategories []string
 }
 
+// Site filter must stay byte-for-byte identical to ListActivityLogs so the
+// pagination total never disagrees with the rendered feed (or the CSV export,
+// which reuses ListActivityLogs).
 func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsParams) (int64, error) {
 	row := q.queryRow(ctx, q.countActivityLogsStmt, countActivityLogs,
 		arg.OrgID,
@@ -49,6 +98,9 @@ func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsPa
 		arg.SearchPattern,
 		arg.StartTime,
 		arg.EndTime,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		pq.Array(arg.OrgLevelCategories),
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -159,42 +211,76 @@ func (q *Queries) GetDistinctScopeTypes(ctx context.Context, orgID sql.NullInt64
 }
 
 const insertActivityLog = `-- name: InsertActivityLog :exec
-INSERT INTO activity_log (
-    event_id,
-    event_category, event_type, description,
-    result, error_message,
-    scope_type, scope_label, scope_count,
-    actor_type, user_id, username,
-    organization_id, metadata, batch_id,
-    site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+WITH inserted AS (
+    INSERT INTO activity_log (
+        event_id,
+        event_category, event_type, description,
+        result, error_message,
+        scope_type, scope_label, scope_count,
+        actor_type, user_id, username,
+        organization_id, metadata, batch_id,
+        site_id, multi_site
+    ) VALUES (
+        $3,
+        $4, $5, $6,
+        $7, $8,
+        $9, $10, $11,
+        $12, $13, $14,
+        $15, $16, $17,
+        $18, $1
+    )
+    RETURNING id, organization_id
+),
+member_sites AS (
+    INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+    SELECT inserted.id, inserted.organization_id, member.site_id
+    FROM inserted
+    CROSS JOIN unnest($19::bigint[]) AS member(site_id)
+    WHERE $1::boolean
+    RETURNING activity_log_id
 )
+INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+SELECT inserted.id, inserted.organization_id, NULL::bigint
+FROM inserted
+WHERE $1::boolean AND $2::boolean
 `
 
 type InsertActivityLogParams struct {
-	EventID        uuid.UUID
-	EventCategory  string
-	EventType      string
-	Description    string
-	Result         string
-	ErrorMessage   sql.NullString
-	ScopeType      sql.NullString
-	ScopeLabel     sql.NullString
-	ScopeCount     sql.NullInt32
-	ActorType      string
-	UserID         sql.NullString
-	Username       sql.NullString
-	OrganizationID sql.NullInt64
-	Metadata       pqtype.NullRawMessage
-	BatchID        sql.NullString
-	SiteID         sql.NullInt64
+	MultiSite        bool
+	MemberUnassigned bool
+	EventID          uuid.UUID
+	EventCategory    string
+	EventType        string
+	Description      string
+	Result           string
+	ErrorMessage     sql.NullString
+	ScopeType        sql.NullString
+	ScopeLabel       sql.NullString
+	ScopeCount       sql.NullInt32
+	ActorType        string
+	UserID           sql.NullString
+	Username         sql.NullString
+	OrganizationID   sql.NullInt64
+	Metadata         pqtype.NullRawMessage
+	BatchID          sql.NullString
+	SiteID           sql.NullInt64
+	MemberSiteIds    []int64
 }
 
 // The unique partial index on (batch_id, event_type) for '*.completed' event
 // types lets the Go layer detect idempotent re-inserts via pq unique_violation.
+//
+// Single statement so the activity row and its site membership (#538) commit
+// atomically. member_site_ids carries the distinct touched sites for a
+// multi_site event (empty otherwise); member_unassigned adds the NULL-site
+// membership row when the multi-site set also touched site-less devices. Both
+// data-modifying CTEs run to completion regardless of the outer SELECT, and
+// an empty member array unnests to zero rows — so the single-site / org-level
+// path inserts only the activity_log row.
 func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error {
 	_, err := q.exec(ctx, q.insertActivityLogStmt, insertActivityLog,
+		arg.MultiSite,
+		arg.MemberUnassigned,
 		arg.EventID,
 		arg.EventCategory,
 		arg.EventType,
@@ -211,43 +297,100 @@ func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogPa
 		arg.Metadata,
 		arg.BatchID,
 		arg.SiteID,
+		pq.Array(arg.MemberSiteIds),
 	)
 	return err
 }
 
 const listActivityLogs = `-- name: ListActivityLogs :many
 SELECT
-    id, event_id, event_category, event_type, description,
-    result, error_message,
-    scope_type, scope_label, scope_count,
-    actor_type, user_id, username,
-    created_at, metadata, batch_id
-FROM activity_log
-WHERE organization_id = $1
-    AND ($2::text[] IS NULL OR event_category = ANY($2::text[]))
-    AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
-    AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
-    AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
-    AND ($7::timestamptz IS NULL OR created_at >= $7)
-    AND ($8::timestamptz IS NULL OR created_at <= $8)
-    AND ($9::timestamptz IS NULL OR (created_at, id) < ($9::timestamptz, $10::bigint))
-ORDER BY created_at DESC, id DESC
-LIMIT $11
+    a.id, a.event_id, a.event_category, a.event_type, a.description,
+    a.result, a.error_message,
+    a.scope_type, a.scope_label, a.scope_count,
+    a.actor_type, a.user_id, a.username,
+    a.created_at, a.metadata, a.batch_id
+FROM activity_log a
+WHERE a.organization_id = $1
+    AND ($2::text[] IS NULL OR a.event_category = ANY($2::text[]))
+    AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
+    AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
+    AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
+    AND (
+        $6::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE $6 ESCAPE '\'
+    )
+    AND ($7::timestamptz IS NULL OR a.created_at >= $7)
+    AND ($8::timestamptz IS NULL OR a.created_at <= $8)
+    AND ($9::timestamptz IS NULL OR (a.created_at, a.id) < ($9::timestamptz, $10::bigint))
+    AND (
+        -- all-sites: no site filter active
+        (cardinality($11::bigint[]) = 0
+         AND $12::boolean = false)
+
+        -- direct (non-batch) events. Site scope has two representations (#538):
+        -- the scalar a.site_id is the single-site fast path; multi_site events
+        -- carry their full touched-site set in activity_log_site (the two are
+        -- mutually exclusive — multi_site rows have site_id NULL). So a
+        -- cross-site event surfaces under EACH of its sites via the membership
+        -- EXISTS. The unassigned bucket takes a single-slot site-less event
+        -- (site_id NULL, not multi_site, non-org-level) OR a multi-site event
+        -- that also touched site-less devices (its NULL-site membership row).
+        OR (a.batch_id IS NULL AND (
+                a.site_id = ANY($11::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY($11::bigint[])
+                ))
+             OR ($12::boolean
+                 AND a.site_id IS NULL
+                 AND NOT a.multi_site
+                 AND a.event_category <> ALL($13::text[]))
+             OR ($12::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
+        ))
+
+        -- command-batch events: derive touched sites from command_on_device_log
+        OR (a.batch_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM command_on_device_log codl
+                JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+                WHERE cbl.uuid = a.batch_id
+                  AND (
+                        codl.site_id = ANY($11::bigint[])
+                     OR ($12::boolean AND codl.site_id IS NULL)
+                  )
+        ))
+    )
+ORDER BY a.created_at DESC, a.id DESC
+LIMIT $14
 `
 
 type ListActivityLogsParams struct {
-	OrgID         sql.NullInt64
-	Categories    []string
-	EventTypes    []string
-	UserIds       []string
-	ScopeTypes    []string
-	SearchPattern sql.NullString
-	StartTime     sql.NullTime
-	EndTime       sql.NullTime
-	CursorTime    sql.NullTime
-	CursorID      sql.NullInt64
-	PageSize      int32
+	OrgID              sql.NullInt64
+	Categories         []string
+	EventTypes         []string
+	UserIds            []string
+	ScopeTypes         []string
+	SearchPattern      sql.NullString
+	StartTime          sql.NullTime
+	EndTime            sql.NullTime
+	CursorTime         sql.NullTime
+	CursorID           sql.NullInt64
+	SiteIds            []int64
+	IncludeUnassigned  bool
+	OrgLevelCategories []string
+	PageSize           int32
 }
 
 type ListActivityLogsRow struct {
@@ -270,8 +413,14 @@ type ListActivityLogsRow struct {
 }
 
 // Array filter contract: the Go store layer must pass nil (not empty slice)
-// for inactive filters. An empty non-nil array (pq.Array([]string{})) produces
-// '{}' which matches nothing via ANY, leading to zero results.
+// for the narg text[] filters below. An empty non-nil array
+// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
+// to zero results.
+//
+// The site filter (site_ids / include_unassigned / org_level_categories) is an
+// arg, not a narg: the all-sites case is detected via cardinality() = 0, so the
+// Go layer must pass an empty (non-nil) bigint[] when no site filter is active,
+// matching the ListBuildings / ListRacks / ListMiners contract.
 func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsParams) ([]ListActivityLogsRow, error) {
 	rows, err := q.query(ctx, q.listActivityLogsStmt, listActivityLogs,
 		arg.OrgID,
@@ -284,6 +433,9 @@ func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsPara
 		arg.EndTime,
 		arg.CursorTime,
 		arg.CursorID,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		pq.Array(arg.OrgLevelCategories),
 		arg.PageSize,
 	)
 	if err != nil {

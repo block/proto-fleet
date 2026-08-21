@@ -1,14 +1,26 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeFormFields,
+  getCurtailmentScopeSummary,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
+import type {
+  ActiveCurtailmentEvent,
+  ActiveCurtailmentTargetSiteCoverage,
+  ActiveCurtailmentUnavailableReasonCount,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventLiveTargetCount,
   getCurtailmentEventObservedReductionKw,
   getCurtailmentEventScopeLabel,
   getCurtailmentEventSelectedMinerCount,
@@ -20,10 +32,37 @@ import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/
 import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const wattsPerKilowatt = 1000;
+const automationExternalSource = "curtailment_automation";
+const automationSourceLabel = "Curtailment automation";
+const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
+const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
+const unavailableReasonLabels: Record<string, string> = {
+  active_event: "in another event",
+  authentication_needed: "needs authentication",
+  below_candidate_min_power_w: "below power threshold",
+  cooldown: "in cooldown",
+  curtail_full_unsupported: "full curtailment unsupported",
+  maintenance: "in maintenance",
+  missing_status: "missing status",
+  non_actionable_status: "not ready",
+  offline: "offline",
+  pairing: "not paired",
+  phantom_load_no_hash: "not hashing",
+  power_telemetry_unreliable: "unreliable power telemetry",
+  reboot_required: "reboot required",
+  stale_telemetry: "stale telemetry",
+  unreachable_residual_load: "offline",
+  unknown: "reason unknown",
+  updating: "updating",
+};
 
 interface ObservedPowerSummary {
   observedReductionKw: number;
   remainingPowerKw?: number;
+}
+
+interface CurtailmentMapperOptions {
+  siteNameById?: SiteNameById;
 }
 
 export function timestampToIsoString(timestamp?: Timestamp): string | undefined {
@@ -51,56 +90,137 @@ function formatPositiveNumberField(value: number | undefined): string {
   return String(value);
 }
 
+function formatNonNegativeNumberField(value: number | undefined): string {
+  if (value === undefined || value < 0) {
+    return "";
+  }
+
+  return String(value);
+}
+
 function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): CurtailmentMode {
   return event.mode === ProtoCurtailmentMode.FULL_FLEET ? "fullFleet" : "fixedKwReduction";
 }
 
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
-): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "siteId" | "deviceSetIds" | "deviceIdentifiers"> {
+  options: CurtailmentMapperOptions = {},
+):
+  | Pick<
+      CurtailmentSubmitValues,
+      | "scopeType"
+      | "scopeId"
+      | "siteSelection"
+      | "siteId"
+      | "siteIds"
+      | "siteNamesById"
+      | "buildingTargetIds"
+      | "rackTargetIds"
+      | "groupTargetIds"
+      | "deviceSetIds"
+      | "deviceIdentifiers"
+    >
+  | undefined {
+  if (event.scopes.length > 0) {
+    if (event.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return undefined;
+    }
+
+    let scope;
+    try {
+      scope = parseCurtailmentTerminalScopes(event.scopes);
+    } catch {
+      return undefined;
+    }
+    if (scope.type === "building" || scope.type === "rack" || scope.type === "group") {
+      return undefined;
+    }
+    const scopeFields = getCurtailmentScopeFormFields(scope);
+    const siteId = scopeFields.siteIds[0] ?? "";
+    const siteNamesById = Object.fromEntries(
+      scopeFields.siteIds.map((currentSiteId) => [
+        currentSiteId,
+        getSiteDisplayName(currentSiteId, options.siteNameById),
+      ]),
+    );
+    return {
+      ...scopeFields,
+      scopeId:
+        scope.type === "wholeOrg"
+          ? "whole-org"
+          : scope.type === "site" && scope.siteIds.length === 1
+            ? siteNamesById[siteId]
+            : getCurtailmentScopeSummary(scope, { fallbackLabel: "Unknown scope" }),
+      siteSelection: scope.type === "wholeOrg" ? "allSites" : scope.type === "site" ? "site" : "none",
+      siteId,
+      siteNamesById,
+      deviceSetIds: [],
+    };
+  }
+
   switch (event.scope.case) {
-    case "site":
+    case "site": {
+      const siteId = event.scope.value.siteId.toString();
       return {
         scopeType: "site",
-        scopeId: `site-${event.scope.value.siteId.toString()}`,
-        siteId: event.scope.value.siteId.toString(),
+        scopeId: getSiteDisplayName(siteId, options.siteNameById),
+        siteSelection: "site",
+        siteId,
+        siteIds: [siteId],
+        siteNamesById: { [siteId]: getSiteDisplayName(siteId, options.siteNameById) },
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
+    }
     case "deviceIdentifiers":
       return {
         scopeType: "explicitMiners",
         scopeId: "explicit-miners",
+        siteSelection: "none",
         siteId: "",
+        siteIds: [],
+        siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
-      };
-    case "deviceSetIds":
-      return {
-        scopeType: "deviceSet",
-        scopeId: "device-sets",
-        siteId: "",
-        deviceSetIds: [...event.scope.value.deviceSetIds],
-        deviceIdentifiers: [],
       };
     case "wholeOrg":
     default:
       return {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
+        siteSelection: "allSites",
         siteId: "",
+        siteIds: [],
+        siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
   }
 }
 
-export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): CurtailmentSubmitValues {
+export function mapCurtailmentEventToFormValues(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentSubmitValues | undefined {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
+  const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
+  const scopeValues = mapCurtailmentEventScopeToFormValues(event, options);
+  if (!scopeValues) {
+    return undefined;
+  }
 
   return {
-    ...mapCurtailmentEventScopeToFormValues(event),
+    ...scopeValues,
     responseProfileId: "customPlan",
     curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",
@@ -109,12 +229,16 @@ export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): C
     priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
     minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
-    curtailBatchSize: "",
-    curtailBatchIntervalSec: "",
+    curtailBatchSize: hasCurtailBatchSize ? formatPositiveNumberField(event.curtailBatchSize) : "",
+    curtailBatchIntervalSec: hasCurtailBatchSize ? formatNonNegativeNumberField(event.curtailBatchIntervalSec) : "",
     restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
+    facilityFanDeviceIds: event.facilityFanDeviceIds.map((id) => id.toString()),
+    fanOffDelaySec: formatNonNegativeNumberField(event.fanOffDelaySec),
+    fanRestoreDelaySec: formatNonNegativeNumberField(event.fanRestoreDelaySec),
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
+    forceIncludeAllPairedMiners: event.forceIncludeAllPairedMiners,
   };
 }
 
@@ -131,8 +255,55 @@ export function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): Curt
   }
 }
 
-function getSourceLabel(event: ProtoCurtailmentEvent): string {
-  return event.externalSource.trim() || "Manual";
+function isAutomationExternalSource(externalSource: string): boolean {
+  return externalSource === automationExternalSource;
+}
+
+function getSourceLabel(externalSource: string): string {
+  if (isAutomationExternalSource(externalSource)) {
+    return automationSourceLabel;
+  }
+
+  return externalSource || "Manual";
+}
+
+function mapTargetSiteCoverage(event: ProtoCurtailmentEvent): ActiveCurtailmentTargetSiteCoverage | undefined {
+  const coverage = event.targetSiteCoverage;
+  if (!coverage) {
+    return undefined;
+  }
+
+  return {
+    complete: coverage.complete,
+    targetCount: coverage.targetCount,
+    mappedTargetCount: coverage.mappedTargetCount,
+    unknownTargetCount: coverage.unknownTargetCount,
+  };
+}
+
+function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
+  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
+}
+
+export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boolean {
+  return (
+    Boolean(event.targetRollup) ||
+    event.targets.length > 0 ||
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    hasSnapshotNumber(event, selectedCountSnapshotKeys)
+  );
+}
+
+// A live rollup proves target counts but not estimated kW: active-list rows
+// carry rollups while their decision snapshot stays scrubbed, so kW estimates
+// need a snapshot number or hydrated target baselines. Target rows alone are
+// not enough — baseline_power_w is optional (telemetry gaps at selection), so
+// baseline-less targets would sum to a fabricated 0.0 kW estimate.
+export function hasCurtailmentEstimatedReductionKw(event: ProtoCurtailmentEvent): boolean {
+  return (
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    event.targets.some((target) => target.baselinePowerW !== undefined)
+  );
 }
 
 function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductionKw: number): ObservedPowerSummary {
@@ -152,37 +323,95 @@ function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductio
   };
 }
 
-export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveCurtailmentEvent {
+function getUnavailableReasonLabel(reason: string): string {
+  const normalizedReason = reason.trim().toLowerCase();
+  if (!normalizedReason) {
+    return "reason unknown";
+  }
+
+  return unavailableReasonLabels[normalizedReason] ?? normalizedReason.replace(/[_-]+/g, " ");
+}
+
+function getUnavailableReasonCounts(
+  event: ProtoCurtailmentEvent,
+): ActiveCurtailmentUnavailableReasonCount[] | undefined {
+  const unavailableReasons = event.targetRollup?.unavailableReasons;
+  if (!unavailableReasons?.length) {
+    return undefined;
+  }
+
+  return unavailableReasons
+    .filter((reason) => reason.count > 0)
+    .map(({ reason, count }) => ({
+      label: getUnavailableReasonLabel(reason),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+export function mapActiveCurtailmentEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): ActiveCurtailmentEvent {
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
+  const externalSource = event.externalSource.trim();
 
   return {
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
+    scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
+    sourceLabel: getSourceLabel(externalSource),
+    isAutomationOwned: isAutomationExternalSource(externalSource),
+    targetSiteCoverage: mapTargetSiteCoverage(event),
+    createdAt: timestampToIsoString(event.createdAt),
+    scheduledStartAt: timestampToIsoString(event.scheduledStartAt),
+    startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
-    selectedMiners: getCurtailmentEventSelectedMinerCount(event),
+    selectedMiners: getCurtailmentEventLiveTargetCount(event),
     estimatedReductionKw,
     targetKw: getFixedKwTarget(event),
+    hasTargetMetrics: hasCurtailmentTargetMetrics(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
+    facilityFanDeviceCount: event.facilityFanDeviceIds.length,
+    fanOffSentAt: timestampToIsoString(event.fanOffSentAt),
+    fanOnSentAt: timestampToIsoString(event.fanOnSentAt),
+    fanAirflowReopenedAt: timestampToIsoString(event.fanAirflowReopenedAt),
+    fanLastError: event.fanLastError,
+    curtailBatchSize: event.curtailBatchSize,
+    curtailBatchIntervalSec: event.curtailBatchIntervalSec,
+    // Restore displays follow the configured restore_batch_size, which is
+    // what the reconciler's restore claims obey (0 = up to the safety limit
+    // per wave). effective_batch_size is a start-time stamp of the selected
+    // count; all-paired and closed-loop growth leaves it stale, so it must
+    // not masquerade as the restore wave size.
+    restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
+    unavailableReasonCounts: getUnavailableReasonCounts(event),
   };
 }
 
-export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
+export function mapCurtailmentHistoryEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentHistoryEvent {
+  const externalSource = event.externalSource.trim();
+
   return {
     id: event.eventUuid,
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     priority: mapCurtailmentPriority(event.priority),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
+    scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
+    facilityFanDeviceCount: event.facilityFanDeviceIds.length,
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
+    targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
+    estimatedReductionAvailable: hasCurtailmentEstimatedReductionKw(event),
     targetKw: getFixedKwTarget(event),
-    sourceLabel: getSourceLabel(event),
+    sourceLabel: getSourceLabel(externalSource),
     startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     scheduledAt: timestampToIsoString(event.scheduledStartAt),
@@ -190,16 +419,23 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
   };
 }
 
-export function mapActiveCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
-  const historyEvent = mapCurtailmentHistoryEvent(event);
+export function mapActiveCurtailmentHistoryEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentHistoryEvent {
+  const historyEvent = mapCurtailmentHistoryEvent(event, options);
 
   if (!isActiveCurtailmentEventState(historyEvent.state)) {
     return historyEvent;
   }
 
+  // Injected active rows represent live events, so they share the active
+  // card's live target count instead of the snapshot count.
+  const activeEvent = mapActiveCurtailmentEvent(event, options);
   return {
     ...historyEvent,
-    displayState: getActiveCurtailmentDisplayState(mapActiveCurtailmentEvent(event), {
+    selectedMiners: activeEvent.selectedMiners,
+    displayState: getActiveCurtailmentDisplayState(activeEvent, {
       dispatchStartedAsCurtailing: true,
     }),
   };

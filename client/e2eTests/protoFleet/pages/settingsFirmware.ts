@@ -2,6 +2,12 @@ import { expect } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
+type FirmwareUploadMetadata = {
+  manufacturer: string;
+  model: string;
+  firmwareVersion: string;
+};
+
 export class SettingsFirmwarePage extends BasePage {
   async validateFirmwarePageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
@@ -13,24 +19,54 @@ export class SettingsFirmwarePage extends BasePage {
     await this.validateTitleInModal("Upload firmware");
   }
 
-  async uploadFirmwareFile(fileName: string, fileContents: string) {
+  async uploadFirmwareFile(
+    fileName: string,
+    fileContents: string,
+    { manufacturer, model, firmwareVersion }: FirmwareUploadMetadata,
+  ) {
+    const modal = this.page.getByTestId("modal");
+    await modal.getByLabel("Manufacturer").click();
+    await this.page.getByRole("option", { name: manufacturer, exact: true }).click();
+    await modal.getByLabel("Model").click();
+    await this.page.getByRole("option", { name: model, exact: true }).click();
+    await modal.getByLabel("Firmware version").fill(firmwareVersion);
     await this.page.getByTestId("firmware-file-input").setInputFiles({
       name: fileName,
       mimeType: "application/octet-stream",
       buffer: Buffer.from(fileContents),
     });
-  }
-
-  async clickDoneInUploadDialog() {
-    await this.clickIn("Done", "modal");
+    await modal.getByRole("button", { name: "Upload", exact: true }).click();
+    await expect(modal).toBeHidden();
   }
 
   async validateFirmwareFileVisible(fileName: string) {
     await expect(this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName })).toBeVisible();
   }
 
+  async deleteFirmwareFileByName(fileName: string) {
+    const row = this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName }).first();
+
+    if (!(await row.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const directDeleteButton = row.getByRole("button", { name: "Delete", exact: true });
+    if (await directDeleteButton.isVisible().catch(() => false)) {
+      await directDeleteButton.click();
+    } else {
+      await row.getByTestId("overflow-menu-trigger").click();
+      await this.page.getByRole("button", { name: "Delete", exact: true }).click();
+    }
+
+    const dialog = this.page.getByTestId("delete-firmware-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toBeHidden();
+  }
+
   async deleteAllFirmwareFilesIfAny() {
-    const emptyState = this.page.getByText("No firmware files uploaded.", { exact: true });
+    const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");
     const loadingState = this.page.getByText("Loading firmware files...", { exact: true });
     const deleteAllButton = this.page.getByRole("button", { name: "Delete all", exact: true }).first();
@@ -55,7 +91,7 @@ export class SettingsFirmwarePage extends BasePage {
     const deleteAllDialog = this.page.getByTestId("delete-all-firmware-dialog");
     await deleteAllDialog.getByRole("button", { name: "Delete all" }).click();
     await expect(deleteAllDialog).toBeHidden();
-    await expect(deleteAllButton).toBeDisabled();
+    await expect(deleteAllButton).toBeHidden();
     await expect(emptyState).toBeVisible();
   }
 }

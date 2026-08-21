@@ -82,7 +82,6 @@ static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     caps.insert(CAP_PER_CHIP_STATS.into(), false);
     caps.insert(CAP_LOGS_DOWNLOAD.into(), false);
     caps.insert(CAP_OTA_UPDATE.into(), false);
-    caps.insert(CAP_ASYMMETRIC_AUTH.into(), false);
     caps.insert(CAP_FIRMWARE.into(), false);
 
     caps

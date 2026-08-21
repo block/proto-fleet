@@ -1,28 +1,35 @@
 package inventory
 
 import (
+	"strconv"
+
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/inventory/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/inventory/models"
 )
 
-func toListFilter(req *pb.ListPartsRequest, orgID int64) models.ListFilter {
+func toListFilter(req *pb.ListInventoryPartsRequest, orgID int64) (models.ListFilter, error) {
+	filter := req.GetFilter()
 	out := models.ListFilter{
-		OrgID:         orgID,
-		SiteIDs:       req.GetSiteIds(),
-		Types:         req.GetTypes(),
-		LowStockOnly:  req.GetLowStockOnly(),
-		Limit:         req.GetLimit(),
+		OrgID:        orgID,
+		SiteIDs:      filter.GetSiteIds(),
+		Types:        filter.GetTypes(),
+		LowStockOnly: filter.GetLowStockOnly(),
+		Limit:        req.GetPageSize(),
 	}
-	if req.CursorId != nil {
-		v := req.GetCursorId()
-		out.CursorID = &v
+	if req.GetPageToken() != "" {
+		cursorID, err := strconv.ParseInt(req.GetPageToken(), 10, 64)
+		if err != nil || cursorID <= 0 {
+			return models.ListFilter{}, fleeterror.NewInvalidArgumentError("invalid page_token")
+		}
+		out.CursorID = &cursorID
 	}
-	return out
+	return out, nil
 }
 
-func toCreateParams(req *pb.CreatePartRequest, orgID int64) models.CreateParams {
+func toCreateParams(req *pb.CreateInventoryPartRequest, orgID int64) models.CreateParams {
 	out := models.CreateParams{
 		OrgID:        orgID,
 		Name:         req.GetName(),
@@ -30,11 +37,11 @@ func toCreateParams(req *pb.CreatePartRequest, orgID int64) models.CreateParams 
 		OnHand:       req.GetOnHand(),
 		ReorderPoint: req.GetReorderPoint(),
 	}
-	if req.Manufacturer != nil {
+	if req.GetManufacturer() != "" {
 		v := req.GetManufacturer()
 		out.Manufacturer = &v
 	}
-	if req.PartNumber != nil {
+	if req.GetPartNumber() != "" {
 		v := req.GetPartNumber()
 		out.PartNumber = &v
 	}
@@ -42,14 +49,14 @@ func toCreateParams(req *pb.CreatePartRequest, orgID int64) models.CreateParams 
 		v := req.GetSiteId()
 		out.SiteID = &v
 	}
-	if req.BinLocation != nil {
+	if req.GetBinLocation() != "" {
 		v := req.GetBinLocation()
 		out.BinLocation = &v
 	}
 	return out
 }
 
-func toUpdateParams(req *pb.UpdatePartRequest, orgID int64) models.UpdateParams {
+func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) models.UpdateParams {
 	out := models.UpdateParams{
 		ID:    req.GetId(),
 		OrgID: orgID,
@@ -69,7 +76,7 @@ func toUpdateParams(req *pb.UpdatePartRequest, orgID int64) models.UpdateParams 
 		v := req.GetBinLocation()
 		out.BinLocation = &v
 	}
-	if req.Notes != nil {
+	if req.GetNotes() != "" {
 		v := req.GetNotes()
 		out.Notes = &v
 	}
@@ -92,41 +99,44 @@ func toProtoPart(p *models.InventoryPart) *pb.InventoryPart {
 		UpdatedAt:    timestamppb.New(p.UpdatedAt),
 	}
 	if p.Manufacturer != nil {
-		v := *p.Manufacturer
-		out.Manufacturer = &v
+		out.Manufacturer = *p.Manufacturer
 	}
 	if p.PartNumber != nil {
-		v := *p.PartNumber
-		out.PartNumber = &v
+		out.PartNumber = *p.PartNumber
 	}
 	if p.SiteID != nil {
 		v := *p.SiteID
 		out.SiteId = &v
 	}
 	if p.BinLocation != nil {
-		v := *p.BinLocation
-		out.BinLocation = &v
+		out.BinLocation = *p.BinLocation
 	}
 	return out
 }
 
-func toListPartsResponse(rows []models.InventoryPart) *pb.ListPartsResponse {
+func toListPartsResponse(rows []models.InventoryPart) *pb.ListInventoryPartsResponse {
 	out := make([]*pb.InventoryPart, 0, len(rows))
 	for i := range rows {
 		out = append(out, toProtoPart(&rows[i]))
 	}
-	return &pb.ListPartsResponse{Parts: out}
+	response := &pb.ListInventoryPartsResponse{Parts: out}
+	if len(rows) > 0 {
+		response.NextPageToken = strconv.FormatInt(rows[len(rows)-1].ID, 10)
+	}
+	return response
 }
 
-func toGetInsightsResponse(insights *models.InventoryInsights) *pb.GetInsightsResponse {
+func toGetInsightsResponse(insights *models.InventoryInsights) *pb.GetInventoryInsightsResponse {
 	if insights == nil {
-		return &pb.GetInsightsResponse{}
+		return &pb.GetInventoryInsightsResponse{}
 	}
-	return &pb.GetInsightsResponse{
-		TotalOnHand:    insights.TotalOnHand,
-		TotalAllocated: insights.TotalAllocated,
-		LowStockCount:  insights.LowStockCount,
-		SitesCount:     insights.SitesCount,
+	return &pb.GetInventoryInsightsResponse{
+		Insights: &pb.InventoryInsights{
+			TotalOnHand:    insights.TotalOnHand,
+			TotalAllocated: insights.TotalAllocated,
+			LowStockCount:  insights.LowStockCount,
+			SitesCount:     insights.SitesCount,
+		},
 	}
 }
 
@@ -138,40 +148,25 @@ func toListPartsBySiteResponse(rows []models.InventoryPart) *pb.ListPartsBySiteR
 	return &pb.ListPartsBySiteResponse{Parts: out}
 }
 
-func toImportCsvPreviewResponse(rows []models.CsvPreviewRow) *pb.ImportCsvPreviewResponse {
+func toImportCsvPreviewResponse(rows []models.CsvPreviewRow) *pb.ImportInventoryCsvResponse {
 	out := make([]*pb.CsvPreviewRow, 0, len(rows))
+	var validCount int32
+	var errorCount int32
 	for _, row := range rows {
 		out = append(out, &pb.CsvPreviewRow{
-			RowNumber:    int32(row.RowNumber), //nolint:gosec // row numbers are bounded by maxCsvPreviewRows
 			Name:         row.Name,
 			Type:         row.Type,
-			Manufacturer: row.Manufacturer,
-			PartNumber:   row.PartNumber,
 			SiteName:     row.SiteName,
 			OnHand:       row.OnHand,
 			ReorderPoint: row.ReorderPoint,
 			BinLocation:  row.BinLocation,
 			Error:        row.Error,
 		})
+		if row.Error == "" {
+			validCount++
+		} else {
+			errorCount++
+		}
 	}
-	return &pb.ImportCsvPreviewResponse{Rows: out}
-}
-
-func fromProtoPreviewRows(pbRows []*pb.CsvPreviewRow) []models.CsvPreviewRow {
-	out := make([]models.CsvPreviewRow, 0, len(pbRows))
-	for _, r := range pbRows {
-		out = append(out, models.CsvPreviewRow{
-			RowNumber:    int(r.GetRowNumber()),
-			Name:         r.GetName(),
-			Type:         r.GetType(),
-			Manufacturer: r.GetManufacturer(),
-			PartNumber:   r.GetPartNumber(),
-			SiteName:     r.GetSiteName(),
-			OnHand:       r.GetOnHand(),
-			ReorderPoint: r.GetReorderPoint(),
-			BinLocation:  r.GetBinLocation(),
-			Error:        r.GetError(),
-		})
-	}
-	return out
+	return &pb.ImportInventoryCsvResponse{Rows: out, ValidCount: validCount, ErrorCount: errorCount}
 }

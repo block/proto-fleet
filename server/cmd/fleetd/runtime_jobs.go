@@ -1,0 +1,283 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
+)
+
+// backgroundLoop adapts a context-driven loop to the runtime job lifecycle.
+type backgroundLoop struct {
+	mu sync.Mutex
+
+	run    func(context.Context)
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+var _ runtimejobs.Lifecycle = (*backgroundLoop)(nil)
+
+// stopOrderedLifecycle keeps a shared dependency active until the group reaches
+// it in reverse stop order. This lets jobs registered after it finish draining
+// without losing the dependency to the group's broadcast cancellation.
+type stopOrderedLifecycle struct {
+	lifecycle runtimejobs.Lifecycle
+}
+
+var _ runtimejobs.Lifecycle = stopOrderedLifecycle{}
+
+func (l stopOrderedLifecycle) Start(ctx context.Context) error {
+	return l.lifecycle.Start(context.WithoutCancel(ctx))
+}
+
+func (l stopOrderedLifecycle) Stop(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stop ordered lifecycle: %w", err)
+	}
+	return l.lifecycle.Stop(ctx)
+}
+
+func (l stopOrderedLifecycle) Abort() {
+	if aborter, ok := l.lifecycle.(runtimejobs.Aborter); ok {
+		aborter.Abort()
+	}
+}
+
+func newBackgroundLoop(run func(context.Context)) *backgroundLoop {
+	return &backgroundLoop{run: run}
+}
+
+func (l *backgroundLoop) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start background loop: %w", err)
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.cancel != nil {
+		select {
+		case <-l.done:
+			return fmt.Errorf("background loop activation ended before stop")
+		default:
+			return nil
+		}
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	l.cancel = cancel
+	l.done = done
+	go func() {
+		defer close(done)
+		l.run(runCtx)
+	}()
+	return nil
+}
+
+func (l *backgroundLoop) Stop(ctx context.Context) error {
+	l.mu.Lock()
+	if l.cancel == nil {
+		l.mu.Unlock()
+		return nil
+	}
+	cancel := l.cancel
+	done := l.done
+	l.mu.Unlock()
+
+	cancel()
+	select {
+	case <-done:
+		l.mu.Lock()
+		if l.done == done {
+			l.cancel = nil
+			l.done = nil
+		}
+		l.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop background loop: %w", ctx.Err())
+	}
+}
+
+type runtimeJobGroupStopper interface {
+	Stop(ctx context.Context) error
+}
+
+type fleetRuntimeRunner interface {
+	Run(ctx context.Context) error
+}
+
+// serveFleetRuntime starts serving always-on health before runtime activation.
+// If either side exits, it stops the other before returning.
+func serveFleetRuntime(
+	server *http.Server,
+	listener net.Listener,
+	runtime fleetRuntimeRunner,
+	timeout time.Duration,
+) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverResult := make(chan error, 1)
+	go func() {
+		serverResult <- server.Serve(listener)
+	}()
+	runtimeResult := make(chan error, 1)
+	go func() {
+		runtimeResult <- runtime.Run(ctx)
+	}()
+
+	select {
+	case runtimeErr := <-runtimeResult:
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+		shutdownErr := server.Shutdown(shutdownCtx)
+		shutdownCancel()
+		serverErr := <-serverResult
+		if runtimeErr == nil {
+			runtimeErr = errors.New("Fleet runtime stopped unexpectedly")
+		}
+		if shutdownErr != nil {
+			return errors.Join(runtimeErr, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
+		}
+		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+			return errors.Join(runtimeErr, fmt.Errorf("serve HTTP: %w", serverErr))
+		}
+		return runtimeErr
+
+	case serverErr := <-serverResult:
+		cancel()
+		runtimeErr := <-runtimeResult
+		if serverErr == nil || errors.Is(serverErr, http.ErrServerClosed) {
+			return runtimeErr
+		}
+		if runtimeErr != nil {
+			return errors.Join(
+				fmt.Errorf("serve HTTP: %w", serverErr),
+				fmt.Errorf("stop Fleet runtime: %w", runtimeErr),
+			)
+		}
+		return fmt.Errorf("serve HTTP: %w", serverErr)
+	}
+}
+
+// stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.
+func stopRuntimeJobGroupAfterRun(
+	runErr error,
+	group runtimeJobGroupStopper,
+	commandExecution runtimejobs.Lifecycle,
+	timeout time.Duration,
+) {
+	if errors.Is(runErr, ha.ErrRuntimeAborted) {
+		return
+	}
+	stopRuntimeJobGroup(group, commandExecution, timeout)
+}
+
+// stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command
+// execution receives a final independent budget because its activation is
+// detached from group cancellation to preserve shutdown ordering.
+func stopRuntimeJobGroup(group runtimeJobGroupStopper, commandExecution runtimejobs.Lifecycle, timeout time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := group.Stop(shutdownCtx)
+	cancel()
+	if err != nil {
+		slog.Error("failed to stop runtime jobs", "error", err)
+	}
+
+	commandCtx, commandCancel := context.WithTimeout(context.Background(), timeout)
+	err = commandExecution.Stop(commandCtx)
+	commandCancel()
+	if err != nil {
+		slog.Error("failed to stop command execution after runtime jobs", "error", err)
+	}
+}
+
+type runtimeJobLifecycles struct {
+	identityStateCleanup      runtimejobs.Lifecycle
+	commandArtifactCleanup    runtimejobs.Lifecycle
+	diagnosticsErrorCloser    runtimejobs.Lifecycle
+	telemetry                 runtimejobs.Lifecycle
+	ipScanner                 runtimejobs.Lifecycle
+	commandExecution          runtimejobs.Lifecycle
+	scheduleProcessor         runtimejobs.Lifecycle
+	curtailmentReconciler     runtimejobs.Lifecycle
+	curtailmentMQTTSubscriber runtimejobs.Lifecycle
+	curtailmentRigConfig      runtimejobs.Lifecycle
+	curtailmentAlertMetrics   runtimejobs.Lifecycle
+	chunkedUploadCleanup      runtimejobs.Lifecycle
+	systemMonitoring          runtimejobs.Lifecycle
+	haReadiness               runtimejobs.Lifecycle
+	releaseChecker            runtimejobs.Lifecycle
+}
+
+func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
+	var jobs []runtimejobs.Job
+	add := func(name string, lifecycle runtimejobs.Lifecycle) error {
+		job, err := runtimejobs.NewJob(name, lifecycle)
+		if err != nil {
+			return fmt.Errorf("create runtime job %q: %w", name, err)
+		}
+		jobs = append(jobs, job)
+		return nil
+	}
+	commandExecution := lifecycles.commandExecution
+	if commandExecution != nil {
+		commandExecution = stopOrderedLifecycle{lifecycle: commandExecution}
+	}
+
+	required := []struct {
+		name      string
+		lifecycle runtimejobs.Lifecycle
+	}{
+		{name: "identity-state-cleanup", lifecycle: lifecycles.identityStateCleanup},
+		{name: "command-artifact-cleanup", lifecycle: lifecycles.commandArtifactCleanup},
+		{name: "diagnostics-error-closer", lifecycle: lifecycles.diagnosticsErrorCloser},
+		{name: "telemetry", lifecycle: lifecycles.telemetry},
+		{name: "ip-scanner", lifecycle: lifecycles.ipScanner},
+		{name: "command-execution", lifecycle: commandExecution},
+		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
+		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
+		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
+		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
+	}
+	for _, job := range required {
+		if err := add(job.name, job.lifecycle); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.curtailmentAlertMetrics != nil {
+		if err := add("curtailment-alert-metrics", lifecycles.curtailmentAlertMetrics); err != nil {
+			return nil, err
+		}
+	}
+	if err := add("chunked-upload-cleanup", lifecycles.chunkedUploadCleanup); err != nil {
+		return nil, err
+	}
+	if lifecycles.systemMonitoring != nil {
+		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.haReadiness != nil {
+		if err := add("ha-readiness", lifecycles.haReadiness); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.releaseChecker != nil {
+		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
+			return nil, err
+		}
+	}
+
+	return jobs, nil
+}

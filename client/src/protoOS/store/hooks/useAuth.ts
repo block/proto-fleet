@@ -4,6 +4,7 @@ import useMinerStore from "../useMinerStore";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { isDefaultPasswordActiveError } from "@/protoOS/api/defaultPasswordContract";
 import { useRefresh } from "@/protoOS/api/hooks/useRefresh";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 
 // =============================================================================
@@ -70,9 +71,15 @@ export const useAuthErrors = () => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const setDefaultPasswordActive = useMinerStore((state) => state.minerStatus.setDefaultPasswordActive);
   const refresh = useRefresh();
+  const { isFleetHosted } = useMinerHosting();
 
   const handleAuthErrors = useCallback(
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {
+      if (isFleetHosted) {
+        onError?.(error);
+        return;
+      }
+
       // 403 with DEFAULT_PASSWORD_ACTIVE means the device still has its factory
       // password. Surface this in the store so the UI can prompt a password change.
       if (isDefaultPasswordActiveError(error)) {
@@ -111,7 +118,7 @@ export const useAuthErrors = () => {
       }
       onError?.(error);
     },
-    [refresh, logout, setShowLoginModal, setDefaultPasswordActive],
+    [isFleetHosted, refresh, logout, setShowLoginModal, setDefaultPasswordActive],
   );
 
   return useMemo(

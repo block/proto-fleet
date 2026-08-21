@@ -42,8 +42,8 @@ func (d *modelCapabilityDriver) GetCapabilitiesForModel(_ context.Context, manuf
 
 func TestEffectiveCapabilitiesForDeviceUsesDriverCapsWithModelOverrides(t *testing.T) {
 	baseCaps := sdk.Capabilities{
-		sdk.CapabilityCurtailFull:    true,
-		sdk.CapabilityAsymmetricAuth: true,
+		sdk.CapabilityCurtailFull: true,
+		sdk.CapabilityBasicAuth:   true,
 	}
 	driver := &modelCapabilityDriver{
 		modelCaps: sdk.Capabilities{
@@ -63,7 +63,7 @@ func TestEffectiveCapabilitiesForDeviceUsesDriverCapsWithModelOverrides(t *testi
 	assert.Equal(t, "Antminer S21", driver.seenModel)
 	assert.Equal(t, 1, driver.callCount)
 	assert.False(t, caps[sdk.CapabilityCurtailFull])
-	assert.True(t, caps[sdk.CapabilityAsymmetricAuth])
+	assert.True(t, caps[sdk.CapabilityBasicAuth])
 	_, hasCurtailEfficiency := caps[sdk.CapabilityCurtailEfficiency]
 	assert.False(t, hasCurtailEfficiency)
 	assert.True(t, baseCaps[sdk.CapabilityCurtailFull], "base capability map should not be mutated")
@@ -71,8 +71,8 @@ func TestEffectiveCapabilitiesForDeviceUsesDriverCapsWithModelOverrides(t *testi
 
 func TestEffectiveCapabilitiesForDeviceSkipsModelProviderWhenModelUnknown(t *testing.T) {
 	baseCaps := sdk.Capabilities{
-		sdk.CapabilityCurtailFull:    true,
-		sdk.CapabilityAsymmetricAuth: true,
+		sdk.CapabilityCurtailFull: true,
+		sdk.CapabilityBasicAuth:   true,
 	}
 	driver := &modelCapabilityDriver{
 		modelCaps: sdk.Capabilities{
@@ -90,5 +90,5 @@ func TestEffectiveCapabilitiesForDeviceSkipsModelProviderWhenModelUnknown(t *tes
 
 	assert.Equal(t, 0, driver.callCount)
 	assert.True(t, caps[sdk.CapabilityCurtailFull])
-	assert.True(t, caps[sdk.CapabilityAsymmetricAuth])
+	assert.True(t, caps[sdk.CapabilityBasicAuth])
 }

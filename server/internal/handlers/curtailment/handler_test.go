@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"connectrpc.com/authn"
@@ -17,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -37,6 +39,27 @@ func testOrgAssignment(perms ...string) authz.Assignment {
 	}
 }
 
+func TestScopeResourceContextRequirementsTopologyRequiresOrgWide(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{}
+	for name, scope := range map[string]domainCurtailment.Scope{
+		"building": {BuildingIDs: []int64{10}},
+		"rack":     {RackIDs: []int64{20}},
+		"group":    {GroupIDs: []int64{30}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			requirements, err := h.scopeResourceContextRequirements(t.Context(), 42, scope, nil, false)
+
+			require.NoError(t, err)
+			assert.True(t, requirements.requireOrgWide)
+			assert.Empty(t, requirements.siteContexts)
+		})
+	}
+}
+
 func testSiteAssignment(siteID int64, perms ...string) authz.Assignment {
 	return authz.Assignment{
 		AssignmentID: 2,
@@ -51,6 +74,32 @@ func siteScopeJSON(t *testing.T, siteID int64) []byte {
 	out, err := json.Marshal(map[string]int64{"site_id": siteID})
 	require.NoError(t, err)
 	return out
+}
+
+func TestRequestReadLimitOptionRejectsOversizedBody(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		NewHandler(nil),
+		RequestReadLimitOption(),
+	))
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := curtailmentv1connect.NewCurtailmentServiceClient(http.DefaultClient, server.URL)
+	_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+		Scopes: []*pb.CurtailmentScope{{
+			Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+				DeviceIdentifiers: &pb.ScopeDeviceList{
+					DeviceIdentifiers: []string{strings.Repeat("x", requestReadMaxBytes)},
+				},
+			},
+		}},
+	}))
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 }
 
 // Stubbed routes are wired. Ungated/read routes reach CodeUnimplemented
@@ -105,14 +154,6 @@ func TestHandler_StubbedRPCsReturnExpectedAuthOrUnimplemented(t *testing.T) {
 				return err
 			},
 			connect.CodeUnauthenticated,
-		},
-		{
-			"GetActiveCurtailment",
-			func() error {
-				_, err := client.GetActiveCurtailment(t.Context(), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
-				return err
-			},
-			connect.CodeUnimplemented,
 		},
 		{
 			"ListCurtailmentEvents",
@@ -297,9 +338,8 @@ func TestHandler_RequestValidation(t *testing.T) {
 	})
 }
 
-// AdminTerminateEvent gates on PermCurtailmentManage; callers without
-// the permission see PermissionDenied; callers with it fall through to
-// the Unimplemented stub body.
+// AdminTerminateEvent gates on PermCurtailmentManage and Admin role; callers
+// without either are rejected before the Unimplemented stub body.
 func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 	t.Parallel()
 
@@ -312,12 +352,14 @@ func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 
 	cases := []struct {
 		name        string
+		role        string
 		permissions []string
 		wantCode    connect.Code
 	}{
-		{"caller without curtailment:manage is rejected", []string{authz.PermFleetRead}, connect.CodePermissionDenied},
-		{"empty permissions set is rejected", nil, connect.CodePermissionDenied},
-		{"caller with curtailment:manage reaches Unimplemented body", []string{authz.PermCurtailmentManage}, connect.CodeUnimplemented},
+		{"admin without curtailment:manage is rejected", domainAuth.AdminRoleName, []string{authz.PermFleetRead}, connect.CodePermissionDenied},
+		{"admin with empty permissions set is rejected", domainAuth.AdminRoleName, nil, connect.CodePermissionDenied},
+		{"non-admin with curtailment:manage is rejected", "OPERATOR", []string{authz.PermCurtailmentManage}, connect.CodePermissionDenied},
+		{"admin with curtailment:manage reaches Unimplemented body", domainAuth.AdminRoleName, []string{authz.PermCurtailmentManage}, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
@@ -329,7 +371,7 @@ func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 				ScopeType:    authz.ScopeOrg,
 				Permissions:  tc.permissions,
 			}})
-			ctx := authn.SetInfo(t.Context(), &session.Info{})
+			ctx := authn.SetInfo(t.Context(), &session.Info{Role: tc.role})
 			ctx = middleware.WithEffectivePermissions(ctx, eff)
 
 			_, err := h.AdminTerminateEvent(ctx, req)
@@ -519,6 +561,23 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		}))
 		return err
 	}
+	previewWithForceIncludeAllPaired := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scope:                       &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			ForceIncludeAllPairedMiners: true,
+		}))
+		return err
+	}
+	startWithForceIncludeAllPaired := func(ctx context.Context) error {
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
+			Scope:                       &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			Reason:                      "override role-gate test",
+			ForceIncludeAllPairedMiners: true,
+		}))
+		return err
+	}
 
 	cases := []call{
 		// Non-admin role with override field set is rejected regardless of auth method.
@@ -535,6 +594,12 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		// under active physical maintenance.
 		{"Start force_include_maintenance + viewer session", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start force_include_maintenance + viewer API key", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		// force_include_all_paired_miners commands fleet-wide durable
+		// ownership and is admin-gated at both Preview and Start.
+		{"Preview force_include_all_paired + viewer session", previewWithForceIncludeAllPaired, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Preview force_include_all_paired + viewer API key", previewWithForceIncludeAllPaired, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		{"Start force_include_all_paired + viewer session", startWithForceIncludeAllPaired, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start force_include_all_paired + viewer API key", startWithForceIncludeAllPaired, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations
@@ -549,6 +614,10 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Stop force + admin API key", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start force_include_maintenance + admin session", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
 		{"Start force_include_maintenance + admin API key", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Preview force_include_all_paired + admin session", previewWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Preview force_include_all_paired + admin API key", previewWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Start force_include_all_paired + admin session", startWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start force_include_all_paired + admin API key", startWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
@@ -701,6 +770,181 @@ func TestHandler_PreviewAndStartRequireOrgPermissionAndSiteContext(t *testing.T)
 			var fleetErr fleeterror.FleetError
 			require.ErrorAs(t, err, &fleetErr)
 			assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_PreviewAndStartRequireCompositeSiteContexts(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	compositeSiteScope := []*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
+		{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: deniedSite}}},
+	}
+
+	previewForCompositeSites := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scopes: compositeSiteScope,
+			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startForCompositeSites := func(ctx context.Context) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scopes = compositeSiteScope
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"preview", previewForCompositeSites},
+		{"start", startForCompositeSites},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			},
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+				testSiteAssignment(deniedSite),
+			)
+
+			err := tc.call(ctx)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = int64(42)
+		deniedSite = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	deviceScope := []*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
+		}},
+	}
+
+	previewForDeviceScope := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scopes: deviceScope,
+			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startForDeviceScope := func(ctx context.Context) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scopes = deviceScope
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"preview", previewForDeviceScope},
+		{"start", startForDeviceScope},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			},
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(deniedSite),
+			)
+
+			err := tc.call(ctx)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_PreviewAndStartRequireOrgWideForWholeOrg(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+
+	previewWholeOrg := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startWholeOrg := func(ctx context.Context) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scope = &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"preview", previewWholeOrg},
+		{"start", startWholeOrg},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			},
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(narrowedSite),
+			)
+
+			err := tc.call(ctx)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 		})
 	}
 }

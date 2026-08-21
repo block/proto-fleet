@@ -27,7 +27,6 @@ import (
 )
 
 type InfrastructureProvider struct {
-	serviceProvider  *ServiceProvider
 	AuthClient       authv1connect.AuthServiceClient
 	ApiKeyClient     apikeyv1connect.ApiKeyServiceClient
 	PairingClient    pairingv1connect.PairingServiceClient
@@ -54,8 +53,8 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	authHandler := auth.NewHandler(serviceProvider.AuthService)
 	mux.Handle(authv1connect.NewAuthServiceHandler(authHandler, interceptorsOption))
 
-	// nil discovery service: no fleet node fan-out in this test harness.
-	pairingHandler := pairing.NewHandler(serviceProvider.PairingService, nil)
+	// nil fleet node services: no fleet node discovery/pairing fan-out in this test harness.
+	pairingHandler := pairing.NewHandler(serviceProvider.PairingService, nil, nil)
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairingHandler, interceptorsOption))
 
 	onboardingHandler := onboarding.NewHandler(serviceProvider.AuthService, serviceProvider.OnboardingService)
@@ -80,7 +79,6 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	commandClient := minercommandv1connect.NewMinerCommandServiceClient(http.DefaultClient, testServer.URL)
 
 	provider := InfrastructureProvider{
-		serviceProvider:  serviceProvider,
 		AuthClient:       authClient,
 		ApiKeyClient:     apiKeyClient,
 		PairingClient:    pairingClient,
@@ -91,10 +89,7 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 		testServer:       testServer,
 	}
 
-	t.Cleanup(func() {
-		provider.testServer.Close()
-		provider.serviceProvider.ExecutionServiceCancel()
-	})
+	t.Cleanup(provider.testServer.Close)
 
 	return &provider
 }

@@ -116,3 +116,31 @@ func isUniqueViolation(err error) bool {
 	}
 	return false
 }
+
+func isUniqueViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == db.PGUniqueViolation &&
+		pgErr.ConstraintName == constraintName
+}
+
+func isForeignKeyViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == pgErrCodeForeignKeyViolation &&
+		pgErr.ConstraintName == constraintName
+}
+
+// nullInt64sToPtrs converts a slice of sql.NullInt64 (e.g. a DISTINCT
+// nullable-column result) into []*int64, mapping an invalid entry to a
+// nil pointer so callers can distinguish a NULL row from a zero value.
+func nullInt64sToPtrs(in []sql.NullInt64) []*int64 {
+	out := make([]*int64, len(in))
+	for i, n := range in {
+		if n.Valid {
+			v := n.Int64
+			out[i] = &v
+		}
+	}
+	return out
+}

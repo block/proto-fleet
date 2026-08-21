@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
@@ -23,6 +23,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "38 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "source-beta",
@@ -38,6 +39,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "24 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
 ];
 
@@ -50,6 +52,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
   },
   {
     id: "partial-reduction",
@@ -59,6 +62,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 10 min",
+    isExecutionReady: true,
   },
 ];
 
@@ -97,7 +101,7 @@ describe("CurtailmentAutomationsContent", () => {
 
     expect(screen.getByText("Automations")).toBeVisible();
     expect(screen.getByRole("button", { name: "Create automation" })).toBeEnabled();
-    expect(screen.getByRole("columnheader", { name: "Name" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveClass("text-text-primary");
     expect(screen.getByRole("columnheader", { name: "Condition" })).toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Response profile" })).toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Enabled" })).toBeInTheDocument();
@@ -142,9 +146,94 @@ describe("CurtailmentAutomationsContent", () => {
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
+    // The row list re-renders with the new rule a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("High LMP spike");
     const row = getAutomationRow("High LMP spike");
     expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
+  });
+
+  it("includes facility-fan response profiles in automation choices", () => {
+    const facilityFanProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "facility-fan-shed",
+      name: "Facility fan shed",
+      formValues: { facilityFanDeviceIds: ["31"] } as NonNullable<ResponseProfile["formValues"]>,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[facilityFanProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+    expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
+  });
+
+  it("excludes profiles whose target scope is not ready for execution", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isExecutionReady: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[topologyProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+
+    expect(responseProfileSelect).toHaveTextContent("Standard shed");
+    expect(responseProfileSelect).not.toHaveTextContent("Building shed");
+  });
+
+  it("prevents enabling an automation whose response profile is not ready for execution", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isExecutionReady: false,
+    };
+    const topologyRule: AutomationRule = {
+      ...testAutomationRules[0],
+      responseProfileId: topologyProfile.id,
+      enabled: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[topologyRule]}
+        sources={testSources}
+        responseProfiles={[topologyProfile]}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).toBeDisabled();
+  });
+
+  it("allows disabling an enabled automation when its response profile is unavailable", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false);
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
@@ -170,6 +259,9 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
+    // The row list re-renders with the new name a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("ERCOT ERS updated");
     const updatedRow = getAutomationRow("ERCOT ERS updated");
     expect(within(updatedRow).getByText("ERCOT ERS (Emergency Response Service)")).toBeVisible();
     expect(screen.queryByText("ERCOT ERS obligation")).not.toBeInTheDocument();

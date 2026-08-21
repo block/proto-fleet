@@ -155,6 +155,52 @@ npm run storybook
 
 **ProtoFleet** — gRPC-Web with Connect-RPC. Generated TypeScript code in `src/protoFleet/api/generated/` from Protobuf definitions. Supports server-to-client streaming for real-time telemetry. Custom hooks in `src/protoFleet/api/`.
 
+### Observability
+
+Client observability lives in `src/shared/observability/` as a vendor-neutral provider
+registry. Datadog RUM is the first provider; a provider is a complete no-op unless its
+required config is present. When enabled, Datadog RUM captures page/session data, forwards
+React render errors (via the shared `ErrorBoundary`), and injects distributed-tracing
+headers on same-origin `/api-proxy` calls. This is future-ready client plumbing for
+client→server trace correlation; the bundled backend telemetry path does not currently export
+correlated server spans to Datadog.
+
+**Configuration** resolves runtime-first, then build-time:
+
+1. `window.__RUNTIME_CONFIG__[KEY]` — rendered into `config.js` by the deployment nginx
+   image at container start from `DD_*` environment variables. Operators enable Datadog on
+   a prebuilt image by setting these in their `.env` — no rebuild required.
+2. `import.meta.env.VITE_<KEY>` — build-time value for local dev and CI (set in `.env`).
+
+Datadog keys (all read via both mechanisms; runtime `DD_*` / build-time `VITE_DD_*`):
+
+| Key                             | Required                                     | Default                                |
+| ------------------------------- | -------------------------------------------- | -------------------------------------- |
+| `DD_APPLICATION_ID`             | yes                                          | —                                      |
+| `DD_CLIENT_TOKEN`               | yes (public RUM token, not a secret API key) | —                                      |
+| `DD_SITE`                       | no                                           | `datadoghq.com`                        |
+| `DD_SERVICE`                    | no                                           | `proto-fleet-client`                   |
+| `DD_ENV`                        | no                                           | build env (`production`/`development`) |
+| `DD_RUM_SAMPLE_RATE`            | no                                           | `100`                                  |
+| `DD_SESSION_REPLAY_SAMPLE_RATE` | no                                           | `0`                                    |
+| `DD_TRACE_SAMPLE_RATE`          | no                                           | `100`                                  |
+
+Both `DD_APPLICATION_ID` and `DD_CLIENT_TOKEN` must be set to enable; otherwise the client
+runs unchanged with no SDK side effects.
+
+**Data minimization:** RUM sends to the operator's own Datadog org. Session Replay is off by default
+(`DD_SESSION_REPLAY_SAMPLE_RATE=0`) and masks all text/inputs when enabled
+(`defaultPrivacyLevel: "mask"`). A `beforeSend` scrubber removes query strings that RUM does
+not need for route-level analysis; extend it in `providers/datadog.ts` if the UI later surfaces
+sensitive strings in action names or error metadata.
+
+**Adding a provider** (Sentry, PostHog): implement `ObservabilityProvider` under
+`src/shared/observability/providers/`, then add one `registerProvider(...)` call in
+`src/shared/observability/providers.ts`. The entry point, transport, and error boundary are
+provider-agnostic and do not change. End-to-end distributed traces remain follow-up work: the
+backend must deliberately associate the incoming context and export server spans to the same
+observability backend.
+
 ### Import Rules
 
 Use the `@/` path alias for all absolute imports:

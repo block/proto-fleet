@@ -18,6 +18,11 @@ A simulated miner plugin for testing and demonstration purposes. Virtual miners 
 
 4. Pair discovered miners (any credentials work, or use defaults: `virtual`/`virtual`).
 
+Installed deployment bundles also include `virtual-plugin` for stress testing,
+but regular installs do not load it. For deployed fleets, set
+`ENABLE_VIRTUAL_MINERS=true` and `VIRTUAL_MINER_COUNT` in the deployment
+`.env`, then rerun `./run-fleet.sh`.
+
 ## IP Address Range
 
 Virtual miners use the reserved `10.255.x.x` IP range to avoid conflicts with real network devices:
@@ -78,11 +83,21 @@ Generate a fleet of miners with randomized but realistic telemetry:
 }
 ```
 
-- **count**: Number of miners to generate
+- **count**: Number of miners to generate, capped at 50,000 per plugin process
 - **serial_prefix**: Prefix for serial numbers (e.g., "VM" → "VM0001")
 - **ip_start**: First IP address (increments sequentially)
 - **baseline_variance_percent**: Random variance applied to telemetry values (±%)
 - **profiles**: Miner profiles with weighted selection (weights are relative)
+
+Deployment installs can override the generation settings without editing JSON:
+
+```bash
+ENABLE_VIRTUAL_MINERS=true
+VIRTUAL_MINER_COUNT=5000
+VIRTUAL_MINER_IP_START=10.255.0.2
+VIRTUAL_MINER_SERIAL_PREFIX=VM
+VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT=10
+```
 
 ### Manual Configuration
 
@@ -121,12 +136,50 @@ Virtual miners support all standard device capabilities:
 - **Cooling modes**: Air and immersion cooling
 - **Telemetry**: Hashrate, power, temperature, fan speed, efficiency, per-board stats, PSU stats
 
+## Latency Simulation
+
+Virtual miners simulate both network and miner-internal latency. Defaults are:
+
+- Network latency: 5-50ms, with 1% outliers from 250-1000ms
+- Miner-internal latency: 200-500ms, with 1% outliers from 5-8s
+
+You can override latency per profile or miner:
+
+```json
+{
+  "behavior": {
+    "network_latency": {
+      "enabled": true,
+      "min_ms": 5,
+      "max_ms": 50,
+      "outlier_probability": 0.01,
+      "outlier_min_ms": 250,
+      "outlier_max_ms": 1000
+    },
+    "internal_latency": {
+      "enabled": true,
+      "min_ms": 200,
+      "max_ms": 500,
+      "outlier_probability": 0.01,
+      "outlier_min_ms": 5000,
+      "outlier_max_ms": 8000
+    }
+  }
+}
+```
+
 ## Testing Large Fleets
 
-To test with 1000+ miners:
+To test with thousands of miners from a source checkout:
 
-1. Set `"count": 1000` in config.json
+1. Set `"count"` in config.json
 2. Rebuild and restart: `just build-virtual-plugin && cd server && just rebuild-fleet-api`
-3. Use IP List discovery with range: `10.255.0.2` - `10.255.3.234` (for 1000 miners)
+3. Use IP List discovery starting at `10.255.0.2`
 
-Discovery of 1000 miners takes approximately 2-5 minutes depending on system load and timeout settings.
+For an installed deployment, set `ENABLE_VIRTUAL_MINERS=true` and
+`VIRTUAL_MINER_COUNT` in `.env`, then rerun `./run-fleet.sh`. Generation is
+capped at 50,000 miners per plugin process, so curtailment stress tests can
+exercise batches well beyond the default 1000-miner config without allowing
+accidental oversized startup allocations.
+
+Discovery time depends on count, system load, and timeout settings.

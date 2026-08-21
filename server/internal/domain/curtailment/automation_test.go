@@ -30,6 +30,7 @@ func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.NoError(t, err)
@@ -100,6 +101,12 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 		mutate func(*models.ResponseProfile)
 	}{
 		{
+			name: "full fleet automation",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+			},
+		},
+		{
 			name: "force maintenance",
 			mutate: func(profile *models.ResponseProfile) {
 				profile.IncludeMaintenance = true
@@ -125,6 +132,7 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 			t.Parallel()
 
 			h := newAutomationHarness(t)
+			h.profile.Mode = models.ModeFixedKw
 			tc.mutate(h.profile)
 
 			_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
@@ -165,6 +173,190 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	assert.Equal(t, 1, h.rules.createCalls)
 }
 
+func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(*automationHarness) error
+	}{
+		{
+			name: "create",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "update",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "enable",
+			run: func(h *automationHarness) error {
+				h.rule.Enabled = false
+				_, err := h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					true,
+					models.ResponseProfileFanSettings{},
+				)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.SiteID = nil
+			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+
+			err := tt.run(h)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
+			assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+			assert.Equal(t, 0, h.rules.createCalls)
+		})
+	}
+}
+
+func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		run    func(*automationHarness) error
+		actual func(*automationHarness) models.ResponseProfileFanSettings
+	}{
+		{
+			name: "create",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Fan automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:                true,
+					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
+				})
+				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastCreateExpectedFanSettings
+			},
+		},
+		{
+			name: "update",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Fan automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:                true,
+					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
+				})
+				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastUpdateExpectedFanSettings
+			},
+		},
+		{
+			name: "enable",
+			run: func(h *automationHarness) error {
+				h.rule.Enabled = false
+				_, err := h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					true,
+					responseProfileFanSettings(h.profile),
+				)
+				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastSetEnabledExpectedFanSettings
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.FacilityFanDeviceIDs = []int64{31}
+			h.profile.FanOffDelaySec = 45
+			h.profile.FanRestoreDelaySec = 90
+
+			err := tt.run(h)
+
+			require.NoError(t, err)
+			assert.Equal(t, models.ResponseProfileFanSettings{
+				FacilityFanDeviceIDs: []int64{31},
+				FanOffDelaySec:       45,
+				FanRestoreDelaySec:   90,
+			}, tt.actual(h))
+		})
+	}
+}
+
+func TestAutomationService_CreateRejectsStaleFacilityFanSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+
+	_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "Fan automation",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+		CanUseAdminControls:                true,
+		ExpectedResponseProfileFanSettings: models.ResponseProfileFanSettings{},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, 0, h.rules.createCalls)
+}
+
 func TestAutomationService_UpdateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
 	t.Parallel()
 
@@ -201,6 +393,7 @@ func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.Error(t, err)
@@ -215,7 +408,7 @@ func TestAutomationService_SetEnabledRejectsDisableWhenRuleOwnsActiveEvent(t *te
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateRestoring)
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -231,7 +424,7 @@ func TestAutomationService_SetEnabledRejectsAdminOnlyProfileWithoutAdminControls
 	h.profile.IncludeMaintenance = true
 	h.profile.ForceIncludeMaintenance = true
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false)
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false, models.ResponseProfileFanSettings{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
@@ -258,7 +451,7 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateCompleted)
 
-	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
+	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)
@@ -296,6 +489,8 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 		h.curtailments.lastInsertEvent.Reason,
 	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded)
+	assert.Nil(t, h.curtailments.lastInsertEvent.MaxDurationSeconds)
 	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)
 	assert.Equal(t, "9001", *h.curtailments.lastInsertEvent.ExternalReference)
@@ -304,6 +499,174 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"device_identifiers":["miner-a"]}`)
+	h.curtailments.candidatesByOrg[h.orgID] = []*models.Candidate{
+		minerWithEff("miner-a", 3000, 100, 50),
+	}
+	minerSiteID := int64(8)
+	h.profiles.deviceSites["miner-a"] = &minerSiteID
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]*int64{"miner-a": &minerSiteID}, h.curtailments.lastInsertEvent.ExpectedDeviceSites)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, []int64{31}, h.curtailments.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), h.curtailments.lastInsertEvent.FanOffDelaySec)
+	assert.Equal(t, int32(90), h.curtailments.lastInsertEvent.FanRestoreDelaySec)
+	assert.Empty(t, h.rules.executionErrors)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsNonAutomationIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	eventUUID := uuid.New()
+	_, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:              77,
+			EventUUID:       eventUUID,
+			OrgID:           h.orgID,
+			State:           models.EventStateActive,
+			Mode:            h.profile.Mode,
+			Strategy:        h.profile.Strategy,
+			Level:           h.profile.Level,
+			Priority:        h.profile.Priority,
+			SourceActorType: models.SourceActorUser,
+			IdempotencyKey:  &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not owned by this automation rule")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsProfileMismatchedIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
+	eventUUID := uuid.New()
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:                   77,
+			EventUUID:            eventUUID,
+			OrgID:                h.orgID,
+			State:                models.EventStateActive,
+			Mode:                 h.profile.Mode,
+			Strategy:             h.profile.Strategy,
+			Level:                h.profile.Level,
+			Priority:             h.profile.Priority,
+			FacilityFanDeviceIDs: []int64{99},
+			FanOffDelaySec:       h.profile.FanOffDelaySec,
+			FanRestoreDelaySec:   h.profile.FanRestoreDelaySec,
+			SourceActorType:      models.SourceActorAutomation,
+			SourceActorID:        &sourceActorID,
+			ExternalSource:       stringPtr(automationExternalSource),
+			ExternalReference:    &externalReference,
+			IdempotencyKey:       &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no longer matches")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.PostEventCooldownSec = 600
+	h.curtailments.cooldownDevicesByOrg[h.orgID] = []string{"miner-a", "miner-b"}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Zero(t, h.curtailments.cooldownCalls)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
+	assert.Equal(t, models.ModeFullFleet, h.curtailments.lastInsertEvent.Mode)
+	assert.Equal(t, models.LoopTypeClosed, h.curtailments.lastInsertEvent.LoopType)
+	assert.Empty(t, h.curtailments.lastInsertTargets,
+		"closed-loop full_fleet claims per-miner targets at dispatch time")
+}
+
+// TestAutomationService_HandleMQTTSignal_OffForwardsAllPairedPolicyFlag pins
+// the automation execution plumbing: a response profile with the all-paired
+// policy flag must stamp force_include_all_paired_miners on the persisted
+// event and claim its policy targets at insert (the profile-level admin gate
+// does not protect against a broken pass-through here).
+func TestAutomationService_HandleMQTTSignal_OffForwardsAllPairedPolicyFlag(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.ForceIncludeAllPairedMiners = true
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.True(t, h.curtailments.lastInsertEvent.ForceIncludeAllPairedMiners,
+		"automation execution must forward the profile's all-paired flag onto the persisted event")
+	assert.Len(t, h.curtailments.lastInsertTargets, 2,
+		"all-paired automation starts persist policy target rows at insert instead of deferring to dispatch-time claims")
 }
 
 func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t *testing.T) {
@@ -327,6 +690,206 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t 
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRecapturesAfterCancelledEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateCancelled,
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.NotEqual(t, activeEventUUID, *h.rule.ActiveEventUUID)
+	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffDoesNotRecordActiveEventAfterRuleDisabled(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateCancelled,
+	}
+	staleRule := *h.rule
+	h.rule.Enabled = false
+
+	err := h.automation.handleRuleSignal(t.Context(), &staleRule, mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disabled")
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, 1, h.curtailments.forceReleaseCalls)
+	assert.Equal(t, h.curtailments.lastInsertEvent.EventUUID, h.curtailments.lastForceReleaseUUID)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffDoesNotReleaseOnTransientActiveEventRecordFailure(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateCancelled,
+	}
+	h.rules.setActiveErr = assert.AnError
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.forceReleaseCalls)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
+}
+
+func TestAutomationService_HandleMQTTSignal_CoalescesRecentRepeatedOff(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateActive)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, h.rules.recordedSignals)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_RepeatedOffRecurtailsRecentRestoringEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, activeEventUUID, h.curtailments.beginRecurtailLastEventID)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, activeEventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailAfterMaxDuration(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	startedAt := lastSignalAt.Add(-time.Hour)
+	maxDurationSeconds := int32(300)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+	h.curtailments.eventsByUUID[activeEventUUID].StartedAt = &startedAt
+	h.curtailments.eventsByUUID[activeEventUUID].MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_ReplayedOffDoesNotBypassMaxDuration(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	now := time.Date(2026, 6, 11, 21, 0, 0, 0, time.UTC)
+	receivedAt := now.Add(-8 * time.Minute)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := receivedAt.Add(-time.Minute)
+	startedAt := now.Add(-10 * time.Minute)
+	maxDurationSeconds := int32(300)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+	h.curtailments.eventsByUUID[activeEventUUID].StartedAt = &startedAt
+	h.curtailments.eventsByUUID[activeEventUUID].MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: receivedAt,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, receivedAt, *h.rule.LastSignalAt)
 	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
@@ -378,13 +941,19 @@ func TestAutomationService_HandleMQTTSignal_OnRestoresEventWhenActiveStateWasNot
 	assert.Nil(t, h.rule.ActiveEventUUID)
 	require.Equal(t, 1, h.curtailments.insertEventCalls)
 	eventUUID := h.curtailments.lastInsertEvent.EventUUID
-	event := &models.Event{
-		ID:        77,
-		EventUUID: eventUUID,
-		OrgID:     h.orgID,
-		State:     models.EventStateActive,
-	}
 	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	event := &models.Event{
+		ID:                77,
+		EventUUID:         eventUUID,
+		OrgID:             h.orgID,
+		State:             models.EventStateActive,
+		SourceActorType:   models.SourceActorAutomation,
+		SourceActorID:     &sourceActorID,
+		ExternalSource:    stringPtr(automationExternalSource),
+		ExternalReference: &externalReference,
+		IdempotencyKey:    &idempotencyKey,
+	}
 	h.curtailments.eventsByUUID[eventUUID] = event
 	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{idempotencyKey: event}
 	h.curtailments.eventsByExternalRef = map[string]*models.Event{
@@ -564,21 +1133,24 @@ func (h *automationHarness) seedRunnableProfile() {
 }
 
 type automationFakeStore struct {
-	mu                   sync.Mutex
-	nextID               int64
-	rules                []*models.AutomationRule
-	created              *models.AutomationRule
-	createCalls          int
-	recordedSignals      []models.AutomationSignal
-	setActiveCalls       int
-	lastActiveEvent      uuid.UUID
-	lastActiveAt         time.Time
-	setActiveErr         error
-	restoreStartedCalls  int
-	lastRestoreStartedAt time.Time
-	clearActiveCalls     int
-	lastClearedAt        time.Time
-	executionErrors      []string
+	mu                                sync.Mutex
+	nextID                            int64
+	rules                             []*models.AutomationRule
+	created                           *models.AutomationRule
+	createCalls                       int
+	lastCreateExpectedFanSettings     models.ResponseProfileFanSettings
+	lastUpdateExpectedFanSettings     models.ResponseProfileFanSettings
+	lastSetEnabledExpectedFanSettings models.ResponseProfileFanSettings
+	recordedSignals                   []models.AutomationSignal
+	setActiveCalls                    int
+	lastActiveEvent                   uuid.UUID
+	lastActiveAt                      time.Time
+	setActiveErr                      error
+	restoreStartedCalls               int
+	lastRestoreStartedAt              time.Time
+	clearActiveCalls                  int
+	lastClearedAt                     time.Time
+	executionErrors                   []string
 }
 
 func newAutomationFakeStore(rules ...*models.AutomationRule) *automationFakeStore {
@@ -623,10 +1195,11 @@ func (f *automationFakeStore) ListEnabledAutomationRulesByMQTTSource(_ context.C
 	return out, nil
 }
 
-func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.createCalls++
+	f.lastCreateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	if rule.ID == 0 {
 		rule.ID = f.nextID
 		f.nextID++
@@ -636,9 +1209,10 @@ func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule model
 	return &rule, nil
 }
 
-func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastUpdateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for i, existing := range f.rules {
 		if existing.OrgID == rule.OrgID && existing.ID == rule.ID {
 			f.rules[i] = &rule
@@ -648,9 +1222,10 @@ func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule model
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
 }
 
-func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
+func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastSetEnabledExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for _, rule := range f.rules {
 		if rule.OrgID == orgID && rule.ID == ruleID {
 			rule.Enabled = enabled
@@ -658,6 +1233,14 @@ func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID,
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+}
+
+func cloneResponseProfileFanSettings(settings models.ResponseProfileFanSettings) models.ResponseProfileFanSettings {
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), settings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       settings.FanOffDelaySec,
+		FanRestoreDelaySec:   settings.FanRestoreDelaySec,
+	}
 }
 
 func (f *automationFakeStore) DeleteAutomationRule(_ context.Context, orgID, ruleID int64) error {
@@ -699,7 +1282,7 @@ func (f *automationFakeStore) RecordAutomationSignal(_ context.Context, ruleID i
 	return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
 }
 
-func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
+func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID, mqttSourceID int64, eventUUID uuid.UUID, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.setActiveCalls++
@@ -710,6 +1293,10 @@ func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID
 	}
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
+			if !rule.Enabled || rule.MQTTSourceID != mqttSourceID {
+				return fleeterror.NewFailedPreconditionErrorf(
+					"curtailment automation rule %d is disabled or no longer bound to MQTT source %d", ruleID, mqttSourceID)
+			}
 			rule.ActiveEventUUID = &eventUUID
 			rule.LastStartedAt = &at
 			return nil

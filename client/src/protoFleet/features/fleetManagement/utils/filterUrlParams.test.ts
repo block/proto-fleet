@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { encodeFilterToURL, parseFilterFromURL, parseUrlToActiveFilters } from "./filterUrlParams";
+import {
+  encodeFilterToURL,
+  parseFilterFromURL,
+  parseUrlToActiveFilters,
+  UNASSIGNED_URL_VALUE,
+} from "./filterUrlParams";
 import {
   MinerListFilterSchema,
   NumericField,
@@ -291,6 +296,42 @@ describe("filterUrlParams", () => {
     });
   });
 
+  describe("unassigned placement filters", () => {
+    it("encodes include flags as the null URL sentinel", () => {
+      const filter = create(MinerListFilterSchema, {
+        rackIds: [10n],
+        buildingIds: [20n],
+        siteIds: [30n],
+        includeNoRack: true,
+        includeNoBuilding: true,
+        includeUnassigned: true,
+      });
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.getAll("rack")).toEqual(["10", UNASSIGNED_URL_VALUE]);
+      expect(params.getAll("building")).toEqual(["20", UNASSIGNED_URL_VALUE]);
+      expect(params.getAll("site")).toEqual(["30", UNASSIGNED_URL_VALUE]);
+    });
+
+    it("parses the null URL sentinel into include flags and active dropdown values", () => {
+      const params = new URLSearchParams("rack=10&rack=null&building=20&building=null&site=30&site=null");
+
+      const filter = parseFilterFromURL(params);
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(filter?.rackIds).toEqual([10n]);
+      expect(filter?.includeNoRack).toBe(true);
+      expect(filter?.buildingIds).toEqual([20n]);
+      expect(filter?.includeNoBuilding).toBe(true);
+      expect(filter?.siteIds).toEqual([30n]);
+      expect(filter?.includeUnassigned).toBe(true);
+      expect(activeFilters.dropdownFilters.rack).toEqual(["10", UNASSIGNED_URL_VALUE]);
+      expect(activeFilters.dropdownFilters.building).toEqual(["20", UNASSIGNED_URL_VALUE]);
+      expect(activeFilters.dropdownFilters.site).toEqual(["30", UNASSIGNED_URL_VALUE]);
+    });
+  });
+
   describe("firmware versions", () => {
     it("encodes firmware versions as repeated URL params", () => {
       const filter = create(MinerListFilterSchema, {
@@ -429,20 +470,62 @@ describe("filterUrlParams", () => {
       expect(active.textareaListFilters.subnet).toEqual(["192.168.1.0/24"]);
     });
 
-    it("accepts IPv6 CIDRs and bare IPv6 addresses from the URL", () => {
+    it("accepts IPv6 CIDRs and bare IPv6 addresses from the URL (bare IP kept as typed)", () => {
       const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
       const active = parseUrlToActiveFilters(params);
-      expect(active.textareaListFilters.subnet).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+      expect(active.textareaListFilters.subnet).toEqual(["2001:db8::/64", "2001:db8::1"]);
     });
 
     it("parses IPv6 CIDRs and bare IPv6 addresses into the protobuf filter", () => {
       const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
       const filter = parseFilterFromURL(params);
-      expect(filter?.ipCidrs).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+      expect(filter?.ipCidrs).toEqual(["2001:db8::/64", "2001:db8::1"]);
     });
 
     it("silently drops invalid CIDRs from the URL", () => {
       const params = new URLSearchParams("subnet=garbage&subnet=10.0.0.0%2F8&subnet=fe80%3A%3A%2F64");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["10.0.0.0/8"]);
+    });
+
+    it("encodes ip_ranges as full start-end subnet entries, sorted with CIDRs", () => {
+      const filter = create(MinerListFilterSchema, {
+        ipCidrs: ["10.0.0.0/8"],
+        ipRanges: [{ startIp: "192.168.1.10", endIp: "192.168.1.20" }],
+      });
+      expect(encodeFilterToURL(filter).getAll("subnet")).toEqual(["10.0.0.0/8", "192.168.1.10-192.168.1.20"]);
+    });
+
+    it("round-trips a full range into ActiveFilters textareaListFilters.subnet", () => {
+      const params = new URLSearchParams("subnet=10.0.0.10-10.0.0.20");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["10.0.0.10-10.0.0.20"]);
+    });
+
+    it("expands a short range to canonical full form on decode", () => {
+      const params = new URLSearchParams("subnet=10.0.0.10-20");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["10.0.0.10-10.0.0.20"]);
+    });
+
+    it("parses ranges into ip_ranges and CIDRs into ip_cidrs on the protobuf filter", () => {
+      const params = new URLSearchParams("subnet=10.0.0.10-10.0.0.20&subnet=192.168.1.0%2F24");
+      const filter = parseFilterFromURL(params);
+      expect(filter?.ipCidrs).toEqual(["192.168.1.0/24"]);
+      expect(filter?.ipRanges).toEqual([expect.objectContaining({ startIp: "10.0.0.10", endIp: "10.0.0.20" })]);
+    });
+
+    it("survives a proto -> URL -> proto round-trip for a range", () => {
+      const filter = create(MinerListFilterSchema, {
+        ipRanges: [{ startIp: "10.0.0.10", endIp: "10.0.0.20" }],
+      });
+      const reparsed = parseFilterFromURL(encodeFilterToURL(filter));
+      expect(reparsed?.ipRanges).toEqual([expect.objectContaining({ startIp: "10.0.0.10", endIp: "10.0.0.20" })]);
+      expect(reparsed?.ipCidrs).toEqual([]);
+    });
+
+    it("silently drops an invalid range from the URL", () => {
+      const params = new URLSearchParams("subnet=10.0.0.20-10.0.0.10&subnet=10.0.0.0%2F8");
       const active = parseUrlToActiveFilters(params);
       expect(active.textareaListFilters.subnet).toEqual(["10.0.0.0/8"]);
     });

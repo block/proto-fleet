@@ -27,9 +27,20 @@ export interface FleetStore {
 // Custom Multi-Key Storage
 // =============================================================================
 
+const ORG_PERMISSIONS_SCOPE = "org" as const;
+
+type PersistedAuthState = Pick<
+  AuthSlice,
+  "sessionExpiry" | "sessionGeneration" | "isAuthenticated" | "username" | "role" | "permissions"
+> & {
+  // Guards against rehydrating old sessions where permissions meant a flat
+  // "has this anywhere" projection. Current permissions are org/default scope.
+  permissionsScope?: typeof ORG_PERMISSIONS_SCOPE;
+};
+
 // Type for the partial state that we persist
 type PersistedFleetState = {
-  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions">;
+  auth: PersistedAuthState;
   ui: Pick<
     UISlice,
     | "theme"
@@ -38,6 +49,7 @@ type PersistedFleetState = {
     | "bulkRenamePreferences"
     | "bulkWorkerNamePreferences"
     | "racksViewMode"
+    | "buildingsViewMode"
     | "activeSite"
   >;
 };
@@ -94,10 +106,12 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
             state: {
               auth: {
                 sessionExpiry: state.auth.sessionExpiry,
+                sessionGeneration: state.auth.sessionGeneration,
                 isAuthenticated: state.auth.isAuthenticated,
                 username: state.auth.username,
                 role: state.auth.role,
                 permissions: state.auth.permissions,
+                permissionsScope: ORG_PERMISSIONS_SCOPE,
               },
             },
             version: value.version,
@@ -118,6 +132,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
                 bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
                 racksViewMode: state.ui.racksViewMode,
+                buildingsViewMode: state.ui.buildingsViewMode,
               },
             },
             version: value.version,
@@ -170,10 +185,12 @@ export const useFleetStore = create<FleetStore>()(
           partialize: (state) => ({
             auth: {
               sessionExpiry: state.auth.sessionExpiry,
+              sessionGeneration: state.auth.sessionGeneration,
               isAuthenticated: state.auth.isAuthenticated,
               username: state.auth.username,
               role: state.auth.role,
               permissions: state.auth.permissions,
+              permissionsScope: ORG_PERMISSIONS_SCOPE,
             },
             ui: {
               theme: state.ui.theme,
@@ -182,41 +199,53 @@ export const useFleetStore = create<FleetStore>()(
               bulkRenamePreferences: state.ui.bulkRenamePreferences,
               bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
               racksViewMode: state.ui.racksViewMode,
+              buildingsViewMode: state.ui.buildingsViewMode,
               activeSite: state.ui.activeSite,
             },
           }),
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
             const hasPersistedSession = persisted?.auth?.isAuthenticated && persisted?.auth?.sessionExpiry;
-            // Pre-U10a localStorage didn't carry a permissions array.
-            // Rehydrating a stale session would leave the user logged
-            // in with permissions:[], losing every permission-gated UI
-            // surface (nav, schedule pill, settings pages). Drop the
-            // session so the next request triggers a fresh Authenticate
-            // and the new field is populated from UserInfo.permissions.
+            // Pre-org-default localStorage either didn't carry a permissions
+            // array or carried the old flat "has this anywhere" projection.
+            // Drop those sessions so the next Authenticate repopulates
+            // UserInfo.permissions with the current org/default projection.
             const hasPersistedPermissions = Array.isArray(persisted?.auth?.permissions);
-            const sessionIsStalePreU10a = hasPersistedSession && !hasPersistedPermissions;
+            const hasPersistedOrgScopePermissions = persisted?.auth?.permissionsScope === ORG_PERMISSIONS_SCOPE;
+            const sessionIsStalePreOrgDefault =
+              hasPersistedSession && (!hasPersistedPermissions || !hasPersistedOrgScopePermissions);
             const persistedDuration = persisted?.ui?.duration;
+            // Transitional: map persisted pre-rename notification:* keys to alert:* so Alerts UI gates work without a forced re-login.
+            const migratedPermissions = hasPersistedPermissions
+              ? persisted.auth.permissions.map((p: string) => p.replace(/^notification:/, "alert:"))
+              : persisted?.auth?.permissions;
 
             return {
               ...currentState,
               auth: {
                 ...currentState.auth,
-                sessionExpiry: sessionIsStalePreU10a
+                sessionExpiry: sessionIsStalePreOrgDefault
                   ? currentState.auth.sessionExpiry
                   : (persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry),
-                isAuthenticated: sessionIsStalePreU10a
+                sessionGeneration: sessionIsStalePreOrgDefault
+                  ? currentState.auth.sessionGeneration
+                  : (persisted?.auth?.sessionGeneration ?? currentState.auth.sessionGeneration),
+                isAuthenticated: sessionIsStalePreOrgDefault
                   ? false
                   : (persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated),
-                username: sessionIsStalePreU10a
+                username: sessionIsStalePreOrgDefault
                   ? currentState.auth.username
                   : (persisted?.auth?.username ?? currentState.auth.username),
-                role: sessionIsStalePreU10a
+                role: sessionIsStalePreOrgDefault
                   ? currentState.auth.role
                   : (persisted?.auth?.role ?? currentState.auth.role),
-                permissions: hasPersistedPermissions ? persisted.auth.permissions : currentState.auth.permissions,
+                permissions: sessionIsStalePreOrgDefault
+                  ? currentState.auth.permissions
+                  : hasPersistedPermissions
+                    ? migratedPermissions
+                    : currentState.auth.permissions,
                 // If we have persisted session, set loading to false.
-                // Stale pre-U10a sessions also stop loading so the
+                // Stale pre-org-default sessions also stop loading so the
                 // login redirect path engages immediately.
                 authLoading: hasPersistedSession ? false : currentState.auth.authLoading,
               },
@@ -226,6 +255,7 @@ export const useFleetStore = create<FleetStore>()(
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
                 duration: isFleetDuration(persistedDuration) ? persistedDuration : currentState.ui.duration,
                 racksViewMode: persisted?.ui?.racksViewMode ?? currentState.ui.racksViewMode,
+                buildingsViewMode: persisted?.ui?.buildingsViewMode ?? currentState.ui.buildingsViewMode,
                 bulkRenamePreferences: normalizeBulkRenamePreferences(
                   persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,
                 ),

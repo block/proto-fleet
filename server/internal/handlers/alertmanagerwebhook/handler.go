@@ -14,20 +14,29 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	alertsdomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
 const Path = "/internal/alertmanager-webhook"
 
+// deliverTimeout bounds the per-request fan-out so a slow destination can't hold the response open until Grafana times out and retries.
+const deliverTimeout = 25 * time.Second
+
 const authorizationScheme = "Bearer "
 
-const maxBodyBytes = 1 << 20 // 1 MiB
+// maxBodyBytes bounds the request body (guards memory); large enough for a fleet-wide outage
+// batched into one org-grouped notification (~tens of thousands of alerts).
+const maxBodyBytes = 32 << 20 // 32 MiB
 
-const maxAlertsPerRequest = 100
+// maxAlertsPerRequest caps alerts per batch well above any real fleet-wide outage, so a
+// pathological or abusive payload of many tiny alert objects can't drive unbounded row-building,
+// long transactions, or an OOM even within the byte cap.
+const maxAlertsPerRequest = 100_000
 
-const maxRowsPerRequest = 1000
-
-const insertsTimeout = 10 * time.Second
+// insertsTimeout bounds the batch persist; chunked multi-row INSERTs stay well under this even
+// for a very large outage, with headroom for a slow database.
+const insertsTimeout = 30 * time.Second
 
 const (
 	statusFiring   = "firing"
@@ -41,6 +50,7 @@ const (
 	labelSeverity       = "severity"
 	labelRuleGroup      = "rule_group"
 	labelTemplate       = "template"
+	labelRuleUID        = "proto_fleet_rule_uid"
 )
 
 const ruleGroupSelfMonitoring = "proto-fleet-self"
@@ -57,20 +67,28 @@ type alertmanagerAlert struct {
 	StartsAt    time.Time         `json:"startsAt"`
 	EndsAt      time.Time         `json:"endsAt"`
 	Fingerprint string            `json:"fingerprint"`
+	// Grafana's rule-view URL; delivery derives the producing rule's UID from it.
+	GeneratorURL string `json:"generatorURL"`
 }
 
 type OrgLister interface {
 	ListOrganizations(ctx context.Context) ([]sqlc.Organization, error)
 }
 
+// Deliverer fans a parsed alert batch out to each org's channels (implemented by alerts.Deliverer).
+type Deliverer interface {
+	Deliver(ctx context.Context, alerts []alertsdomain.Alert)
+}
+
 type Handler struct {
 	store        notificationhistory.Store
 	webhookToken string
 	orgLister    OrgLister
+	deliverer    Deliverer
 }
 
-func NewHandler(store notificationhistory.Store, webhookToken string, orgLister OrgLister) http.Handler {
-	return &Handler{store: store, webhookToken: webhookToken, orgLister: orgLister}
+func NewHandler(store notificationhistory.Store, webhookToken string, orgLister OrgLister, deliverer Deliverer) http.Handler {
+	return &Handler{store: store, webhookToken: webhookToken, orgLister: orgLister, deliverer: deliverer}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,50 +130,139 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(payload.Alerts) > maxAlertsPerRequest {
-		slog.Warn("alertmanager webhook: alert batch exceeds per-request cap; rejecting",
+		slog.Warn("alertmanager webhook: alert batch exceeds cap; rejecting",
 			"alerts", len(payload.Alerts),
-			"limit", maxAlertsPerRequest,
+			"cap", maxAlertsPerRequest,
 		)
 		writeError(w, http.StatusRequestEntityTooLarge, "alert batch exceeds limit")
 		return
 	}
 
 	orgIDs := h.fanOutOrgIDs(r.Context())
+	rows, overflowed := buildRows(payload.Alerts, orgIDs)
+	if overflowed {
+		slog.Warn("alertmanager webhook: batch expands beyond row cap; rejecting",
+			"alerts", len(payload.Alerts),
+			"cap", maxPersistRows,
+		)
+		writeError(w, http.StatusRequestEntityTooLarge, "alert batch expands beyond limit")
+		return
+	}
 
-	remainingRows := maxRowsPerRequest
-	persisted := 0
-	truncated := false
 	persistCtx, cancel := context.WithTimeout(r.Context(), insertsTimeout)
 	defer cancel()
 
-	for i, alert := range payload.Alerts {
-		if remainingRows <= 0 {
-			slog.Warn("alertmanager webhook: per-request row cap reached; dropping remaining alerts",
-				"limit", maxRowsPerRequest,
-				"dropped_alerts", len(payload.Alerts)-i,
-			)
-			truncated = true
-			break
-		}
-		attempted, written := h.persistAlert(persistCtx, alert, remainingRows, orgIDs)
-		persisted += written
-		remainingRows -= attempted
-	}
-
-	slog.Debug("alertmanager webhook delivered",
-		"alerts", len(payload.Alerts),
-		"persisted", persisted,
-		"truncated", truncated,
-		"status", payload.Status,
-	)
-
-	// Return 5xx so Grafana retries delivery.
-	if persisted == 0 {
+	// One atomic batch: all rows land or none do, so on success every alert is in history and
+	// the whole batch is safe to deliver; on failure we 5xx and Grafana retries the batch.
+	if err := h.store.InsertBatch(persistCtx, rows); err != nil {
+		slog.Error("alertmanager webhook: failed to persist alert batch",
+			"error", err,
+			"alerts", len(payload.Alerts),
+			"rows", len(rows),
+		)
 		writeError(w, http.StatusInternalServerError, "failed to persist alerts")
 		return
 	}
 
+	slog.Debug("alertmanager webhook delivered",
+		"alerts", len(payload.Alerts),
+		"rows", len(rows),
+		"status", payload.Status,
+	)
+
+	// History is stored; fan out the whole batch. Delivery failures are logged inside the
+	// deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
+	h.deliver(r.Context(), payload.Alerts)
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxFanOutOrgs bounds how many orgs a single global self-monitoring alert expands to, so one
+// alert can't fan out to an arbitrarily large org count.
+const maxFanOutOrgs = 2000
+
+// maxPersistRows caps the total rows a batch expands to (after fan-out), so many self-monitoring
+// alerts can't multiply into an unbounded write even under the per-request alert cap. Org-scoped
+// alerts are 1 row each, so a real device outage stays well under this.
+const maxPersistRows = 100_000
+
+// buildRows converts a batch into history rows, expanding a global self-monitoring alert
+// (no organization_id) into one row per active org. Returns overflowed=true if expansion would
+// exceed maxPersistRows, in which case the returned rows are partial and the caller must reject.
+func buildRows(alerts []alertmanagerAlert, orgIDs []int64) (rows []*notificationhistory.Notification, overflowed bool) {
+	rows = make([]*notificationhistory.Notification, 0, len(alerts))
+	add := func(n *notificationhistory.Notification) bool {
+		if len(rows) >= maxPersistRows {
+			return false
+		}
+		rows = append(rows, n)
+		return true
+	}
+	for _, alert := range alerts {
+		row := alertToRow(alert)
+		if row.OrganizationID != nil {
+			if !add(&row) {
+				return rows, true
+			}
+			continue
+		}
+		// Synthetic evaluation failures inherit the self-monitoring rule_group
+		// label too; they stay one org-less operator row, never a tenant fan-out.
+		if !isGlobalSelfMonitoringAlert(alert.Labels) || isSyntheticEvaluationAlert(alert.Labels) || len(orgIDs) == 0 {
+			if !add(&row) {
+				return rows, true
+			}
+			continue
+		}
+		fanOut := orgIDs
+		if len(fanOut) > maxFanOutOrgs {
+			slog.Warn("alertmanager webhook: self-monitoring fan-out capped",
+				"alertname", alert.Labels[labelAlertName],
+				"active_orgs", len(fanOut),
+				"cap", maxFanOutOrgs,
+			)
+			fanOut = fanOut[:maxFanOutOrgs]
+		}
+		for i := range fanOut {
+			scoped := row
+			scoped.OrganizationID = &fanOut[i]
+			if !add(&scoped) {
+				return rows, true
+			}
+		}
+	}
+	return rows, false
+}
+
+func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
+	if h.deliverer == nil {
+		return
+	}
+	// Best-effort: a panic here must not abort the request before the 204, or Grafana retries and re-sends.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("alertmanager webhook: delivery panicked; alerts persisted but not delivered", "panic", r)
+		}
+	}()
+	out := make([]alertsdomain.Alert, 0, len(alerts))
+	for _, a := range alerts {
+		// The server-controlled label is the primary rule identity; generatorURL parsing covers rules compiled before the label existed.
+		ruleUID := a.Labels[labelRuleUID]
+		if ruleUID == "" {
+			ruleUID = alertsdomain.RuleUIDFromGeneratorURL(a.GeneratorURL)
+		}
+		out = append(out, alertsdomain.Alert{
+			Status:      a.Status,
+			Labels:      a.Labels,
+			Annotations: a.Annotations,
+			RuleUID:     ruleUID,
+		})
+	}
+	// Detach from request cancellation so a client disconnect can't abort in-flight sends partway;
+	// deliverTimeout still bounds the fan-out.
+	deliverCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliverTimeout)
+	defer cancel()
+	h.deliverer.Deliver(deliverCtx, out)
 }
 
 // fanOutOrgIDs returns the orgs eligible for self-monitoring fan-out, or
@@ -190,57 +297,15 @@ func (h *Handler) authorized(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(h.webhookToken)) == 1
 }
 
-func (h *Handler) persistAlert(ctx context.Context, alert alertmanagerAlert, budget int, orgIDs []int64) (attempted, persisted int) {
-	if budget <= 0 {
-		return 0, 0
-	}
-	row := alertToRow(alert)
-
-	// Org-scoped alert (the usual case).
-	if row.OrganizationID != nil {
-		return 1, h.insert(ctx, row, alert)
-	}
-
-	// Unscoped + not self-monitoring → keep historic single-row behaviour.
-	if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
-		return 1, h.insert(ctx, row, alert)
-	}
-
-	// Self-monitoring fan-out, capped at the remaining row budget.
-	n := len(orgIDs)
-	if n > budget {
-		slog.Warn("alertmanager webhook: self-monitoring fan-out truncated by per-request row cap",
-			"alertname", alert.Labels[labelAlertName],
-			"fingerprint", alert.Fingerprint,
-			"active_orgs", len(orgIDs),
-			"fan_out_to", budget,
-		)
-		n = budget
-	}
-
-	for i := range n {
-		scoped := row
-		scoped.OrganizationID = &orgIDs[i]
-		persisted += h.insert(ctx, scoped, alert)
-	}
-	return n, persisted
-}
-
-func (h *Handler) insert(ctx context.Context, row notificationhistory.Notification, alert alertmanagerAlert) int {
-	if err := h.store.Insert(ctx, &row); err != nil {
-		// Best-effort within a batch — log and let the caller count successes.
-		slog.Error("alertmanager webhook: failed to insert notification_history row",
-			"error", err,
-			"fingerprint", alert.Fingerprint,
-			"alertname", alert.Labels[labelAlertName],
-		)
-		return 0
-	}
-	return 1
-}
-
 func isGlobalSelfMonitoringAlert(labels map[string]string) bool {
 	return labels[labelRuleGroup] == ruleGroupSelfMonitoring
+}
+
+// Grafana stamps datasource_uid only on its synthetic evaluation-failure
+// alerts; real alerts merely named like them don't carry it.
+func isSyntheticEvaluationAlert(labels map[string]string) bool {
+	name := labels[labelAlertName]
+	return (name == "DatasourceError" || name == "DatasourceNoData") && labels["datasource_uid"] != ""
 }
 
 func alertToRow(alert alertmanagerAlert) notificationhistory.Notification {
@@ -272,6 +337,11 @@ func alertToRow(alert alertmanagerAlert) notificationhistory.Notification {
 	if !alert.EndsAt.IsZero() {
 		t := alert.EndsAt.UTC()
 		row.EndsAt = &t
+	}
+	// Synthetic evaluation failures inherit a user rule's static org label;
+	// persist them org-less so tenants never see them (operator triage only).
+	if isSyntheticEvaluationAlert(alert.Labels) {
+		return row
 	}
 	if orgID, ok := parseOrgID(alert.Labels[labelOrganizationID]); ok {
 		row.OrganizationID = &orgID

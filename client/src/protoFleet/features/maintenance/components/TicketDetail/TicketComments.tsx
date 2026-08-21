@@ -19,8 +19,20 @@ interface ActivityEntry {
 const MOCK_ACTIVITY: ActivityEntry[] = [
   { id: "a1", type: "system", userName: "System", text: "Ticket created", createdAt: "2d ago" },
   { id: "a2", type: "system", userName: "System", text: "Status changed to In Progress", createdAt: "1d ago" },
-  { id: "a3", type: "comment", userName: "Alex K.", text: "Checked the hashboard — confirmed dead. Need replacement part from inventory.", createdAt: "23h ago" },
-  { id: "a4", type: "comment", userName: "Maria S.", text: "Replacement part allocated from Denver B2-01 bin.", createdAt: "18h ago" },
+  {
+    id: "a3",
+    type: "comment",
+    userName: "Alex K.",
+    text: "Checked the hashboard — confirmed dead. Need replacement part from inventory.",
+    createdAt: "23h ago",
+  },
+  {
+    id: "a4",
+    type: "comment",
+    userName: "Maria S.",
+    text: "Replacement part allocated from Denver B2-01 bin.",
+    createdAt: "18h ago",
+  },
 ];
 
 const TicketComments = ({ ticketId }: TicketCommentsProps) => {
@@ -84,15 +96,13 @@ const TicketComments = ({ ticketId }: TicketCommentsProps) => {
                   entry.type === "comment" ? "bg-intent-success-fill" : "bg-border-20"
                 }`}
               />
-              {i < entries.length - 1 && (
-                <div className="w-px flex-1 bg-border-5" />
-              )}
+              {i < entries.length - 1 ? <div className="w-px flex-1 bg-border-5" /> : null}
             </div>
             <div className="flex flex-1 flex-col gap-0.5 pb-1">
               <div className="flex items-center gap-2">
                 <span className="text-emphasis-200 font-medium">{entry.userName}</span>
                 <span className="text-200 text-text-primary-70">{entry.createdAt}</span>
-                {entry.type === "comment" && (
+                {entry.type === "comment" ? (
                   <Button
                     className="ml-auto opacity-0 group-hover:opacity-100"
                     prefixIcon={<DismissTiny />}
@@ -100,7 +110,7 @@ const TicketComments = ({ ticketId }: TicketCommentsProps) => {
                     size={buttonSizes.compact}
                     ariaLabel="Delete comment"
                   />
-                )}
+                ) : null}
               </div>
               <span className="text-300">{entry.text}</span>
             </div>

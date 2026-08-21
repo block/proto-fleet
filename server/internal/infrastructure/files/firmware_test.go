@@ -3,12 +3,17 @@ package files
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,17 +24,32 @@ func checksumOf(content string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func firmwareFileEntries(t *testing.T) []os.DirEntry {
+func testFirmwareMetadata() FirmwareMetadata {
+	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
+}
+
+func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
-	entries, err := os.ReadDir(firmwareDir)
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
+	return entries
+}
+
+func storageDirEntriesExcept(t *testing.T, dir, ignoredName string) []os.DirEntry {
+	t.Helper()
+	entries := storageDirEntries(t, dir)
 	var filtered []os.DirEntry
 	for _, e := range entries {
-		if e.Name() != "staging" {
+		if e.Name() != ignoredName {
 			filtered = append(filtered, e)
 		}
 	}
 	return filtered
+}
+
+func firmwareFileEntries(t *testing.T) []os.DirEntry {
+	t.Helper()
+	return storageDirEntriesExcept(t, firmwareDir, "staging")
 }
 
 func TestValidateFirmwareFile_AcceptsAllowedExtensions(t *testing.T) {
@@ -100,7 +120,7 @@ func TestSaveFirmwareFile_StreamsToDisk(t *testing.T) {
 	content := "fake firmware content"
 	reader := strings.NewReader(content)
 
-	fileID, err := svc.SaveFirmwareFile("firmware-v2.0.swu", reader)
+	fileID, err := svc.SaveFirmwareFile("firmware-v2.0.swu", reader, testFirmwareMetadata())
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, fileID)
@@ -114,10 +134,403 @@ func TestSaveFirmwareFile_StreamsToDisk(t *testing.T) {
 	assert.Equal(t, "firmware-v2.0.swu", filepath.Base(filePath))
 }
 
+func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	metadata, err := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, testFirmwareMetadata(), metadata)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Equal(t, "Proto", files[0].TargetManufacturer)
+	assert.Equal(t, "Rig", files[0].TargetModel)
+
+	publishedEntries := storageDirEntries(t, getFirmwareDirPath(fileID))
+	require.Len(t, publishedEntries, 2)
+	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
+}
+
+func TestLeaseFirmwareMetadata_ReleasesReadLockOnError(t *testing.T) {
+	svc := setupService(t)
+
+	_, release, err := svc.LeaseFirmwareMetadata("not-a-uuid")
+
+	require.Error(t, err)
+	assert.Nil(t, release)
+	require.True(t, svc.firmwareMetadataReuseMu.TryLock(), "metadata lease error must release the lifecycle read lock")
+	svc.firmwareMetadataReuseMu.Unlock()
+}
+
+func TestSaveFirmwareFile_RollsBackPublishedDirectoryWhenParentSyncFails(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware whose publish sync fails"
+
+	var syncedDirs []string
+	svc.syncFirmwareDir = func(dir string) error {
+		syncedDirs = append(syncedDirs, dir)
+		if len(syncedDirs) == 2 {
+			return errors.New("injected firmware directory sync failure")
+		}
+		return nil
+	}
+
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "injected firmware directory sync failure")
+	require.Len(t, syncedDirs, 3)
+	assert.Equal(t, firmwareStagingDir, filepath.Dir(syncedDirs[0]))
+	assert.Equal(t, []string{firmwareDir, firmwareDir}, syncedDirs[1:],
+		"rollback should sync the parent directory after removing the published entry")
+	assert.Empty(t, firmwareFileEntries(t), "failed publish sync should not leave visible firmware behind")
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.False(t, found, "failed publish sync should not leak into the checksum index")
+}
+
+func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware metadata update"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	updated := FirmwareMetadata{
+		TargetManufacturer: " Bitmain ",
+		TargetModel:        " S19 ",
+		FirmwareVersion:    " v3.0.0 ",
+	}
+	result, err := svc.UpdateFirmwareMetadata(fileID, updated)
+	require.NoError(t, err)
+	require.NotNil(t, result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), *result.Previous)
+	assert.Equal(t, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, result.Current)
+
+	metadata, err := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, metadata)
+
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.False(t, found)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), metadata)
+	assert.True(t, found)
+	assert.Equal(t, fileID, foundID)
+
+	entries := storageDirEntries(t, getFirmwareDirPath(fileID))
+	assert.Len(t, entries, 2, "atomic metadata replacement should not leave staging files")
+}
+
+func TestUpdateFirmwareMetadata_ClassifiesCorruptPayloadDirectoryAsInternal(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), "extra.swu"), []byte("extra"), 0600))
+
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
+func TestUpdateFirmwareMetadata_DoesNotIndexMetadataBeforeDirectorySync(t *testing.T) {
+	svc := setupService(t)
+	const content = "indexed firmware"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	svc.syncFirmwareDir = func(string) error {
+		return errors.New("injected directory sync failure")
+	}
+
+	metadata := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	_, err = svc.UpdateFirmwareMetadata(fileID, metadata)
+
+	require.Error(t, err)
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), metadata)
+	assert.False(t, found, "renamed metadata must not become reuse-eligible until its directory entry is durable")
+	cachedChecksum, cached := svc.lookupFirmwareChecksum(fileID)
+	assert.True(t, cached, "failed metadata sync should retain the immutable payload checksum")
+	assert.Equal(t, checksumOf(content), cachedChecksum)
+}
+
+func TestUpdateFirmwareMetadata_RestoresChecksumEligibilityWhenWriteFails(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware with failed metadata write"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	require.NoError(t, os.Remove(firmwareStagingDir))
+	require.NoError(t, os.WriteFile(firmwareStagingDir, []byte("not a directory"), 0600))
+
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+
+	require.Error(t, err)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.True(t, found, "failed metadata write should restore reuse eligibility for the unchanged sidecar")
+	assert.Equal(t, fileID, foundID)
+}
+
+func TestUpdateFirmwareMetadata_SerializesChecksumLookupWithMetadataReplacement(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware with concurrent metadata lookup"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	updated := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	updateAtDirectorySync := make(chan struct{})
+	allowDirectorySync := make(chan struct{})
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir == getFirmwareDirPath(fileID) {
+			close(updateAtDirectorySync)
+			<-allowDirectorySync
+		}
+		return nil
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		_, err := svc.UpdateFirmwareMetadata(fileID, updated)
+		updateDone <- err
+	}()
+	<-updateAtDirectorySync
+
+	type lookupResult struct {
+		fileID string
+		found  bool
+	}
+	lookupStarted := make(chan struct{})
+	lookupDone := make(chan lookupResult, 1)
+	go func() {
+		close(lookupStarted)
+		foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+		lookupDone <- lookupResult{fileID: foundID, found: found}
+	}()
+	<-lookupStarted
+
+	select {
+	case result := <-lookupDone:
+		close(allowDirectorySync)
+		require.NoError(t, <-updateDone)
+		t.Fatalf("checksum lookup returned during metadata replacement: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowDirectorySync)
+	require.NoError(t, <-updateDone)
+
+	result := <-lookupDone
+	assert.False(t, result.found, "lookup must not reuse the artifact for its old target after the edit")
+	assert.Empty(t, result.fileID)
+
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), updated)
+	assert.True(t, found, "lookup should reuse the artifact for its new target after the edit")
+	assert.Equal(t, fileID, foundID)
+}
+
+func TestUpdateFirmwareMetadata_ReturnsAtomicTransitionsForConcurrentEdits(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	firstUpdate := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	secondUpdate := FirmwareMetadata{
+		TargetManufacturer: "MicroBT",
+		TargetModel:        "M60",
+		FirmwareVersion:    "v4.0.0",
+	}
+
+	firstAtDirectorySync := make(chan struct{})
+	allowFirstDirectorySync := make(chan struct{})
+	blockedFirstUpdate := false
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir == getFirmwareDirPath(fileID) && !blockedFirstUpdate {
+			blockedFirstUpdate = true
+			close(firstAtDirectorySync)
+			<-allowFirstDirectorySync
+		}
+		return nil
+	}
+
+	type updateOutcome struct {
+		result FirmwareMetadataUpdateResult
+		err    error
+	}
+	firstDone := make(chan updateOutcome, 1)
+	go func() {
+		result, err := svc.UpdateFirmwareMetadata(fileID, firstUpdate)
+		firstDone <- updateOutcome{result: result, err: err}
+	}()
+	<-firstAtDirectorySync
+
+	secondStarted := make(chan struct{})
+	secondDone := make(chan updateOutcome, 1)
+	go func() {
+		close(secondStarted)
+		result, err := svc.UpdateFirmwareMetadata(fileID, secondUpdate)
+		secondDone <- updateOutcome{result: result, err: err}
+	}()
+	<-secondStarted
+
+	close(allowFirstDirectorySync)
+
+	first := <-firstDone
+	require.NoError(t, first.err)
+	require.NotNil(t, first.result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), *first.result.Previous)
+	assert.Equal(t, firstUpdate, first.result.Current)
+
+	second := <-secondDone
+	require.NoError(t, second.err)
+	require.NotNil(t, second.result.Previous)
+	assert.Equal(t, firstUpdate, *second.result.Previous)
+	assert.Equal(t, secondUpdate, second.result.Current)
+}
+
+func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	before, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, before, 1)
+
+	time.Sleep(10 * time.Millisecond)
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+	require.NoError(t, err)
+
+	after, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+	assert.Equal(t, before[0].UploadedAt, after[0].UploadedAt)
+}
+
+func TestGetFirmwareFilePath_ClassifiesCorruptPayloadDirectoryAsInternal(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), "extra.swu"), []byte("extra"), 0600))
+
+	_, err = svc.GetFirmwareFilePath(fileID)
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
+func TestUpdateFirmwareMetadata_PersistsLegacyUploadTimeFallback(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, firmwareMetadataFilename),
+		[]byte(`{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`),
+		0600,
+	))
+	fallbackTime := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
+	require.NoError(t, os.Chtimes(dir, fallbackTime, fallbackTime))
+
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+	require.NoError(t, err)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.True(t, fallbackTime.Equal(files[0].UploadedAt))
+}
+
+func TestUpdateFirmwareMetadata_AddsMetadataToLegacyPayload(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	const fileID = "11111111-1111-1111-1111-111111111111"
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy.swu"), []byte("legacy"), 0600))
+
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+	result, err := svc.UpdateFirmwareMetadata(fileID, testFirmwareMetadata())
+	require.NoError(t, err)
+	assert.Nil(t, result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), result.Current)
+
+	metadata, err := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, testFirmwareMetadata(), metadata)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf("legacy"), testFirmwareMetadata())
+	assert.True(t, found)
+	assert.Equal(t, fileID, foundID)
+}
+
+func TestUpdateFirmwareMetadata_RejectsIncompleteMetadataWithoutChangingSidecar(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{TargetManufacturer: "Proto"})
+	require.Error(t, err)
+
+	metadata, readErr := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, readErr)
+	assert.Equal(t, testFirmwareMetadata(), metadata)
+}
+
+func TestSaveFirmwareFile_RejectsMissingTargetMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), FirmwareMetadata{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target_manufacturer")
+	assert.Empty(t, firmwareFileEntries(t), "invalid upload should not leave files behind")
+}
+
 func TestSaveFirmwareFile_SanitizesFilename(t *testing.T) {
 	svc := setupService(t)
 
-	fileID, err := svc.SaveFirmwareFile("../../etc/passwd", strings.NewReader("data"))
+	fileID, err := svc.SaveFirmwareFile("../../etc/passwd", strings.NewReader("data"), testFirmwareMetadata())
 
 	require.NoError(t, err)
 
@@ -126,12 +539,29 @@ func TestSaveFirmwareFile_SanitizesFilename(t *testing.T) {
 	assert.Equal(t, "passwd", filepath.Base(filePath))
 }
 
+func TestSaveFirmwareFile_PreservesDotPrefixedFilename(t *testing.T) {
+	svc := setupService(t)
+	require.NoError(t, svc.ValidateFirmwareFilename(".firmware.swu"))
+
+	fileID, err := svc.SaveFirmwareFile(".firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	filePath, err := svc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, ".firmware.swu", filepath.Base(filePath))
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, ".firmware.swu", listed[0].Filename)
+}
+
 func TestSaveFirmwareFile_RejectsOversizedStream(t *testing.T) {
 	svc := setupService(t)
 	svc.maxFirmwareFileSize = 10
 
 	oversizedData := strings.Repeat("x", 20)
-	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(oversizedData))
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(oversizedData), testFirmwareMetadata())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too large")
@@ -143,10 +573,10 @@ func TestSaveFirmwareFile_IdenticalContentGetsDifferentIDs(t *testing.T) {
 	svc := setupService(t)
 
 	content := "identical firmware content"
-	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	assert.NotEqual(t, id1, id2, "each save should produce a unique fileID even for identical content")
@@ -155,10 +585,10 @@ func TestSaveFirmwareFile_IdenticalContentGetsDifferentIDs(t *testing.T) {
 func TestSaveFirmwareFile_DifferentContentGetsDifferentID(t *testing.T) {
 	svc := setupService(t)
 
-	id1, err := svc.SaveFirmwareFile("firmware-a.swu", strings.NewReader("content A"))
+	id1, err := svc.SaveFirmwareFile("firmware-a.swu", strings.NewReader("content A"), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	id2, err := svc.SaveFirmwareFile("firmware-b.swu", strings.NewReader("content B"))
+	id2, err := svc.SaveFirmwareFile("firmware-b.swu", strings.NewReader("content B"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	assert.NotEqual(t, id1, id2, "different content should produce different fileIDs")
@@ -168,10 +598,10 @@ func TestSaveFirmwareFile_EachSaveCreatesOwnDirectory(t *testing.T) {
 	svc := setupService(t)
 
 	content := "same content twice"
-	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	_, err = svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	_, err = svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	assert.Len(t, firmwareFileEntries(t), 2, "each save should create its own directory on disk")
@@ -206,7 +636,7 @@ func TestOpenFirmwareFile_ReturnsReaderAndMetadata(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware binary data here"
-	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content))
+	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	reader, filename, size, err := svc.OpenFirmwareFile(fileID)
@@ -218,6 +648,24 @@ func TestOpenFirmwareFile_ReturnsReaderAndMetadata(t *testing.T) {
 
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)
+	assert.Equal(t, content, string(data))
+}
+
+func TestOpenFirmwareFile_IgnoresMetadataSidecar(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware payload"
+	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	reader, filename, size, err := svc.OpenFirmwareFile(fileID)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, "update.swu", filename)
+	assert.Equal(t, int64(len(content)), size)
 	assert.Equal(t, content, string(data))
 }
 
@@ -242,10 +690,10 @@ func TestFindFirmwareFileByChecksum_ReturnsTrueForExistingFile(t *testing.T) {
 	svc := setupService(t)
 
 	content := "findable firmware content"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.True(t, ok)
 	assert.Equal(t, fileID, foundID)
 }
@@ -253,29 +701,61 @@ func TestFindFirmwareFileByChecksum_ReturnsTrueForExistingFile(t *testing.T) {
 func TestFindFirmwareFileByChecksum_ReturnsFalseForUnknownChecksum(t *testing.T) {
 	svc := setupService(t)
 
-	foundID, ok := svc.FindFirmwareFileByChecksum("0000000000000000000000000000000000000000000000000000000000000000")
+	foundID, ok := svc.FindFirmwareFileByChecksum("0000000000000000000000000000000000000000000000000000000000000000", testFirmwareMetadata())
 	assert.False(t, ok)
 	assert.Empty(t, foundID)
+}
+
+func TestFindFirmwareFileByChecksum_RequiresMatchingTargetMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	content := "same firmware content"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S19"})
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
+
+	foundID, ok = svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.True(t, ok)
+	assert.Equal(t, fileID, foundID)
+}
+
+func TestFindFirmwareFileByChecksum_PreservesInvalidMetadataDirectory(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware with corrupted metadata"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename), []byte(`not json`), 0600))
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+	assert.NotContains(t, svc.firmwareChecksumByID, fileID)
 }
 
 func TestFindFirmwareFileByChecksum_ReturnsFalseAfterDelete(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware to find then delete"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	err = svc.DeleteFirmwareFile(fileID)
 	require.NoError(t, err)
 
-	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.False(t, ok)
 }
 
 func TestDeleteFirmwareFile_RemovesDirectory(t *testing.T) {
 	svc := setupService(t)
 
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"))
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	dir := getFirmwareDirPath(fileID)
@@ -291,7 +771,7 @@ func TestDeleteFirmwareFile_RemovesFromChecksumIndex(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware to delete and re-upload"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	err = svc.DeleteFirmwareFile(fileID)
@@ -299,9 +779,34 @@ func TestDeleteFirmwareFile_RemovesFromChecksumIndex(t *testing.T) {
 
 	assert.Empty(t, svc.checksumIndex, "checksumIndex should be empty after delete")
 
-	newID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	newID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 	assert.NotEqual(t, fileID, newID, "re-upload after delete should get a new fileID")
+}
+
+func TestDeleteFirmwareFile_SerializesWithChecksumLookup(t *testing.T) {
+	svc := setupService(t)
+
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("firmware under lookup"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	svc.firmwareMetadataReuseMu.RLock()
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteDone <- svc.DeleteFirmwareFile(fileID)
+	}()
+
+	select {
+	case err := <-deleteDone:
+		svc.firmwareMetadataReuseMu.RUnlock()
+		t.Fatalf("firmware deletion completed during checksum lookup: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+
+	svc.firmwareMetadataReuseMu.RUnlock()
+	require.NoError(t, <-deleteDone)
+	assert.NoDirExists(t, getFirmwareDirPath(fileID))
 }
 
 func TestDeleteFirmwareFile_ReturnsNotFoundForMissingFile(t *testing.T) {
@@ -350,7 +855,7 @@ func TestNewService_PreservesExistingFirmwareFilesAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	content := "persisted firmware data"
-	fileID, err := svc.SaveFirmwareFile("persisted.swu", strings.NewReader(content))
+	fileID, err := svc.SaveFirmwareFile("persisted.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	restartedSvc, err := NewService(Config{})
@@ -368,6 +873,87 @@ func TestNewService_PreservesExistingFirmwareFilesAcrossRestart(t *testing.T) {
 	assert.Equal(t, content, string(data))
 }
 
+func TestNewService_PreservesLegacyFirmwareDirectoriesWithoutMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111", "legacy.swu"), []byte("legacy"), 0600))
+
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+
+	legacyDir := filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111")
+	assert.DirExists(t, legacyDir)
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Empty(t, listed[0].TargetManufacturer)
+	assert.Empty(t, listed[0].TargetModel)
+	assert.Empty(t, listed[0].FirmwareVersion)
+
+	reader, filename, _, err := svc.OpenFirmwareFile("11111111-1111-1111-1111-111111111111")
+	require.NoError(t, err)
+	defer reader.Close()
+	assert.Equal(t, "legacy.swu", filename)
+	assert.Empty(t, svc.checksumIndex, "legacy firmware must not enter the checksum reuse index")
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf("legacy"), testFirmwareMetadata())
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
+}
+
+func TestNewService_PreservesCorruptFirmwareMetadataDirectories(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	const fileID = "11111111-1111-1111-1111-111111111111"
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "corrupt.swu"), []byte("corrupt"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, firmwareMetadataFilename), []byte("not-json"), 0600))
+
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf("corrupt"), testFirmwareMetadata())
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+}
+
+func TestListFirmwareFiles_PreservesInvalidMetadataDirectories(t *testing.T) {
+	svc := setupService(t)
+
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename), []byte(`{"target_manufacturer":"","target_model":"Rig"}`), 0600))
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Empty(t, files)
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+}
+
+func TestNewService_CleansOrphanedFirmwareStagingFilesAndDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(firmwareStagingDir, "publish-orphan"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "publish-orphan", "payload.swu"), []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "upload-orphan"), []byte("data"), 0600))
+
+	_, err := NewService(Config{})
+	require.NoError(t, err)
+	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
+}
+
 func TestInitChecksumIndex_RebuildsOnRestart(t *testing.T) {
 	tmp := t.TempDir()
 	t.Chdir(tmp)
@@ -376,13 +962,13 @@ func TestInitChecksumIndex_RebuildsOnRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	content := "firmware for restart test"
-	fileID, err := svc1.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := svc1.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	svc2, err := NewService(Config{})
 	require.NoError(t, err)
 
-	foundID, ok := svc2.FindFirmwareFileByChecksum(checksumOf(content))
+	foundID, ok := svc2.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.True(t, ok, "after restart, checksum index should contain the existing file")
 	assert.Equal(t, fileID, foundID)
 }
@@ -390,7 +976,7 @@ func TestInitChecksumIndex_RebuildsOnRestart(t *testing.T) {
 func TestSaveFirmwareFile_RejectsEmptyStream(t *testing.T) {
 	svc := setupService(t)
 
-	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(""))
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(""), testFirmwareMetadata())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
@@ -402,10 +988,10 @@ func TestSaveFirmwareFile_IndependentDeletion(t *testing.T) {
 	svc := setupService(t)
 
 	content := "shared firmware content"
-	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	err = svc.DeleteFirmwareFile(id1)
@@ -423,16 +1009,16 @@ func TestFindFirmwareFileByChecksum_SurvivesPartialDeletion(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware uploaded by two batches"
-	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id1, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	id2, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	err = svc.DeleteFirmwareFile(id2)
 	require.NoError(t, err)
 
-	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.True(t, ok, "checksum lookup should still succeed after deleting one of two identical uploads")
 	assert.Equal(t, id1, foundID)
 }
@@ -481,15 +1067,16 @@ func TestAllowedExtensionsList_IsDeterministic(t *testing.T) {
 	}
 }
 
-func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
+func TestSaveFirmwareUploadFromPath_MovesAndRegistersChecksum(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware via chunked upload"
 	srcPath := filepath.Join(firmwareStagingDir, "test-upload")
 	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0600))
 
-	fileID, err := svc.SaveFirmwareFileFromPath("chunked.swu", srcPath)
+	result, err := svc.SaveFirmwareUploadFromPath("chunked.swu", srcPath, testFirmwareMetadata(), true, "")
 	require.NoError(t, err)
+	fileID := result.FirmwareFileID
 	assert.NotEmpty(t, fileID)
 
 	filePath, err := svc.GetFirmwareFilePath(fileID)
@@ -500,21 +1087,196 @@ func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
 	assert.Equal(t, content, string(data))
 	assert.Equal(t, "chunked.swu", filepath.Base(filePath))
 
-	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
-	assert.True(t, ok, "checksum index should contain the file after SaveFirmwareFileFromPath")
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.True(t, ok, "checksum index should contain the file after SaveFirmwareUploadFromPath")
 	assert.Equal(t, fileID, foundID)
 
 	_, statErr := os.Stat(srcPath)
 	assert.True(t, os.IsNotExist(statErr), "source file should be removed after rename")
 }
 
-func TestSaveFirmwareFileFromPath_RejectsEmptyFile(t *testing.T) {
+func TestSaveFirmwareUploadFromPath_BlocksDeletionUntilPublicationCompletes(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware protected during publication"
+	srcPath := filepath.Join(firmwareStagingDir, "protected-upload")
+	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0600))
+
+	publishedFileID := make(chan string, 1)
+	allowDirectorySync := make(chan struct{})
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir != firmwareDir {
+			return nil
+		}
+		entries, err := os.ReadDir(firmwareDir)
+		if err != nil {
+			return fmt.Errorf("read firmware directory: %w", err)
+		}
+		for _, entry := range entries {
+			if entry.Name() == "staging" {
+				continue
+			}
+			publishedFileID <- entry.Name()
+			<-allowDirectorySync
+			return nil
+		}
+		return errors.New("published firmware directory not found")
+	}
+
+	type saveOutcome struct {
+		result FirmwareUploadSaveResult
+		err    error
+	}
+	saveDone := make(chan saveOutcome, 1)
+	go func() {
+		result, err := svc.SaveFirmwareUploadFromPath(
+			"protected.swu",
+			srcPath,
+			testFirmwareMetadata(),
+			true,
+			checksumOf(content),
+		)
+		saveDone <- saveOutcome{result: result, err: err}
+	}()
+
+	fileID := <-publishedFileID
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+
+	deleteStarted := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	go func() {
+		close(deleteStarted)
+		deleteDone <- svc.DeleteFirmwareFile(fileID)
+	}()
+	<-deleteStarted
+
+	select {
+	case err := <-deleteDone:
+		close(allowDirectorySync)
+		<-saveDone
+		t.Fatalf("firmware deletion completed before publication returned: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowDirectorySync)
+	outcome := <-saveDone
+	require.NoError(t, outcome.err)
+	assert.Equal(t, fileID, outcome.result.FirmwareFileID)
+	require.NoError(t, <-deleteDone)
+}
+
+func TestSaveFirmwareUpload_UsesManualMetadata(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	result, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+
+	require.NoError(t, err)
+	assert.False(t, result.Reused)
+	assert.Equal(t, testFirmwareMetadata(), result.Metadata)
+
+	metadata, err := svc.GetFirmwareMetadata(result.FirmwareFileID)
+	require.NoError(t, err)
+	assert.Equal(t, result.Metadata, metadata)
+}
+
+func TestSaveFirmwareUpload_RejectsMissingMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	_, err := svc.SaveFirmwareUpload("vendor.swu", strings.NewReader("firmware content"), FirmwareMetadata{}, false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target_manufacturer")
+}
+
+func TestSaveFirmwareUpload_ReusesExistingWithSameMetadata(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	first, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	second, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	assert.True(t, second.Reused)
+	assert.Equal(t, first.FirmwareFileID, second.FirmwareFileID)
+	assert.Len(t, firmwareFileEntries(t), 1)
+}
+
+func TestSaveFirmwareUpload_ConcurrentIdenticalUploadsReuseOneFile(t *testing.T) {
+	svc := setupService(t)
+	const uploadCount = 16
+
+	type uploadOutcome struct {
+		result FirmwareUploadSaveResult
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan uploadOutcome, uploadCount)
+	var wg sync.WaitGroup
+	for range uploadCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, err := svc.SaveFirmwareUpload(
+				"proto-rig.swu",
+				strings.NewReader("firmware content"),
+				testFirmwareMetadata(),
+				false,
+			)
+			outcomes <- uploadOutcome{result: result, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+
+	var fileID string
+	newCount := 0
+	reusedCount := 0
+	for outcome := range outcomes {
+		require.NoError(t, outcome.err)
+		if fileID == "" {
+			fileID = outcome.result.FirmwareFileID
+		}
+		assert.Equal(t, fileID, outcome.result.FirmwareFileID)
+		if outcome.result.Reused {
+			reusedCount++
+		} else {
+			newCount++
+		}
+	}
+
+	assert.Equal(t, 1, newCount)
+	assert.Equal(t, uploadCount-1, reusedCount)
+	assert.Len(t, firmwareFileEntries(t), 1)
+	assert.Empty(t, svc.firmwareUploadLocks)
+}
+
+func TestSaveFirmwareUpload_ForceBypassesDedupe(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	first, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	second, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), true)
+	require.NoError(t, err)
+
+	assert.False(t, second.Reused)
+	assert.NotEqual(t, first.FirmwareFileID, second.FirmwareFileID)
+	assert.Len(t, firmwareFileEntries(t), 2)
+}
+
+func TestSaveFirmwareUploadFromPath_RejectsEmptyFile(t *testing.T) {
 	svc := setupService(t)
 
 	srcPath := filepath.Join(firmwareStagingDir, "empty-upload")
 	require.NoError(t, os.WriteFile(srcPath, []byte{}, 0600))
 
-	_, err := svc.SaveFirmwareFileFromPath("empty.swu", srcPath)
+	_, err := svc.SaveFirmwareUploadFromPath("empty.swu", srcPath, testFirmwareMetadata(), true, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
 }
@@ -531,10 +1293,10 @@ func TestListFirmwareFiles_EmptyReturnsEmptySlice(t *testing.T) {
 func TestListFirmwareFiles_ReturnsSavedFiles(t *testing.T) {
 	svc := setupService(t)
 
-	id1, err := svc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha content"))
+	id1, err := svc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha content"), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	id2, err := svc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content here"))
+	id2, err := svc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content here"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	files, err := svc.ListFirmwareFiles()
@@ -563,7 +1325,7 @@ func TestListFirmwareFiles_SkipsStagingDir(t *testing.T) {
 	// Place a file in the staging dir
 	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "orphan"), []byte("data"), 0600))
 
-	_, err := svc.SaveFirmwareFile("real.swu", strings.NewReader("real content"))
+	_, err := svc.SaveFirmwareFile("real.swu", strings.NewReader("real content"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	files, err := svc.ListFirmwareFiles()
@@ -575,10 +1337,10 @@ func TestListFirmwareFiles_SkipsStagingDir(t *testing.T) {
 func TestListFirmwareFiles_SortedByUploadTimeDescending(t *testing.T) {
 	svc := setupService(t)
 
-	_, err := svc.SaveFirmwareFile("first.swu", strings.NewReader("first"))
+	_, err := svc.SaveFirmwareFile("first.swu", strings.NewReader("first"), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	_, err = svc.SaveFirmwareFile("second.swu", strings.NewReader("second"))
+	_, err = svc.SaveFirmwareFile("second.swu", strings.NewReader("second"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	files, err := svc.ListFirmwareFiles()
@@ -591,9 +1353,9 @@ func TestListFirmwareFiles_SortedByUploadTimeDescending(t *testing.T) {
 func TestDeleteAllFirmwareFiles_RemovesAllFiles(t *testing.T) {
 	svc := setupService(t)
 
-	_, err := svc.SaveFirmwareFile("one.swu", strings.NewReader("one"))
+	_, err := svc.SaveFirmwareFile("one.swu", strings.NewReader("one"), testFirmwareMetadata())
 	require.NoError(t, err)
-	_, err = svc.SaveFirmwareFile("two.swu", strings.NewReader("two"))
+	_, err = svc.SaveFirmwareFile("two.swu", strings.NewReader("two"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	deleted, err := svc.DeleteAllFirmwareFiles()
@@ -617,15 +1379,15 @@ func TestDeleteAllFirmwareFiles_CleansChecksumIndex(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware for checksum cleanup test"
-	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	require.True(t, ok, "checksum should be found before delete-all")
 
 	_, err = svc.DeleteAllFirmwareFiles()
 	require.NoError(t, err)
 
-	_, ok = svc.FindFirmwareFileByChecksum(checksumOf(content))
+	_, ok = svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.False(t, ok, "checksum should not be found after delete-all")
 }

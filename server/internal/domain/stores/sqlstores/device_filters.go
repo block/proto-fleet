@@ -18,6 +18,8 @@ type minerFilterParams struct {
 	statusValues              []string
 	modelFilter               sql.NullString
 	modelValues               []string
+	manufacturerFilter        sql.NullString
+	manufacturerValues        []string
 	pairingStatusFilter       sql.NullString
 	pairingStatusValues       []string
 	needsAttentionFilter      bool
@@ -36,8 +38,9 @@ type minerFilterParams struct {
 	siteIDsFilter     sql.NullString
 	siteIDValues      []int64
 	includeUnassigned bool
-	// Building filter: building_ids OR (rack.building_id IS NULL when
-	// includeNoBuilding). includeNoRack widens to devices with no rack
+	// Building filter: building_ids match direct device.building_id and
+	// rack-derived placement. includeNoBuilding matches rack rows with
+	// no building. includeNoRack widens to devices with no rack
 	// membership at all.
 	buildingIDsFilter sql.NullString
 	buildingIDValues  []int64
@@ -59,6 +62,11 @@ type minerFilterParams struct {
 	// ipCIDRValues are pre-stringified prefixes (already normalized by
 	// parseFilter) suitable for pq.Array on a $N::cidr[] parameter.
 	ipCIDRValues []string
+	// ipRangeStarts/ipRangeEnds are pre-stringified inclusive range bounds
+	// (index-aligned), each pair emitting an `ip BETWEEN start AND end`
+	// branch OR'd into the same subnet group as ipCIDRValues.
+	ipRangeStarts []string
+	ipRangeEnds   []string
 	// limit, when > 0, becomes a SQL-level `LIMIT N` on the device-id
 	// query. Threaded through from MinerFilter.Limit so the stats RPCs
 	// can fail-fast on oversize fleets without first materializing every
@@ -92,6 +100,12 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	if len(filter.ModelNames) > 0 {
 		fp.modelFilter = sql.NullString{Valid: true}
 		fp.modelValues = filter.ModelNames
+	}
+
+	// Manufacturer filter
+	if len(filter.ManufacturerNames) > 0 {
+		fp.manufacturerFilter = sql.NullString{Valid: true}
+		fp.manufacturerValues = filter.ManufacturerNames
 	}
 
 	// Pairing status filter
@@ -183,6 +197,17 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		}
 	}
 
+	// IP range filter — pre-stringify bounds so each range emits a
+	// `ip BETWEEN $start::inet AND $end::inet` branch.
+	if len(filter.IPRanges) > 0 {
+		fp.ipRangeStarts = make([]string, len(filter.IPRanges))
+		fp.ipRangeEnds = make([]string, len(filter.IPRanges))
+		for i, r := range filter.IPRanges {
+			fp.ipRangeStarts[i] = r.Start.String()
+			fp.ipRangeEnds[i] = r.End.String()
+		}
+	}
+
 	if filter.Limit > 0 {
 		fp.limit = filter.Limit
 	}
@@ -228,6 +253,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum++
 	}
 
+	if fp.manufacturerFilter.Valid {
+		fmt.Fprintf(sb, " AND discovered_device.manufacturer = ANY($%d::text[])", argNum)
+		args = append(args, pq.Array(fp.manufacturerValues))
+		argNum++
+	}
+
 	if fp.deviceIdentifiersFilter.Valid {
 		fmt.Fprintf(sb, " AND device.device_identifier = ANY($%d::text[])", argNum)
 		args = append(args, pq.Array(fp.deviceIdentifierValues))
@@ -256,25 +287,25 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		if fp.needsAttentionFilter {
 			// Auth-needed (exclude OFFLINE only)
 			sb.WriteString(
-				" OR (device_pairing.pairing_status = 'AUTHENTICATION_NEEDED'" +
+				" OR (device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED')" +
 					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
-			// Devices with actionable errors. Excludes NULL-status paired miners
+			// Devices with actionable errors. Excludes NULL-status paired-like miners
 			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
 				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status = 'PAIRED')"+
+					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
 					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
 				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
 		}
 		if fp.includeNullStatus {
-			// NULL-status paired miners (counted as offline in dashboard).
-			// Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+			// NULL-status paired-like miners (counted as offline in dashboard).
+			// Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
 			sb.WriteString(
 				" OR (device_status.status IS NULL" +
-					" AND device_pairing.pairing_status = 'PAIRED')")
+					" AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 		}
 		// Close outer AND group
 		sb.WriteString(")")
@@ -301,16 +332,44 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum += 2
 	}
 
-	if fp.rackIDsFilter.Valid {
-		fmt.Fprintf(sb,
-			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
-				" WHERE dcm.device_id = device.id"+
-				" AND dcm.org_id = $%d"+
-				" AND dcm.device_set_type = 'rack'"+
-				" AND dcm.device_set_id = ANY($%d::bigint[]))",
-			argNum, argNum+1)
-		args = append(args, orgID, pq.Array(fp.rackIDValues))
-		argNum += 2
+	// Rack membership predicate. rack_ids match an explicit rack; include_no_rack
+	// admits devices with no rack membership. Emitting this as a top-level AND
+	// whenever include_no_rack is set (even with no rack_ids) is what keeps the
+	// assignable-only filter for a NEW rack from leaking miners that sit in
+	// ANOTHER rack in the same building — their direct/rack-derived building
+	// still matches the building predicate below, so "no rack" has to be
+	// enforced here rather than only OR'd inside the building group.
+	if fp.rackIDsFilter.Valid || fp.includeNoRack {
+		sb.WriteString(" AND (")
+		rackFirst := true
+		if fp.rackIDsFilter.Valid {
+			fmt.Fprintf(sb,
+				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND dcm.device_set_id = ANY($%d::bigint[]))",
+				argNum, argNum+1)
+			args = append(args, orgID, pq.Array(fp.rackIDValues))
+			argNum += 2
+			rackFirst = false
+		}
+		if fp.includeNoRack {
+			if !rackFirst {
+				sb.WriteString(" OR ")
+			}
+			fmt.Fprintf(sb,
+				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL)",
+				argNum)
+			args = append(args, orgID)
+			argNum++
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.firmwareVersionsFilter.Valid {
@@ -350,12 +409,32 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
 	}
 
-	if fp.ipCIDRsFilter.Valid {
-		fmt.Fprintf(sb,
-			" AND discovered_device.ip_address_inet <<= ANY($%d::cidr[])",
-			argNum)
-		args = append(args, pq.Array(fp.ipCIDRValues))
-		argNum++
+	// Subnet facet: CIDR containment and inclusive ranges are OR'd together
+	// into a single group (all subnet-box lines match as one OR set) which is
+	// then AND'd with the other facets.
+	if fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 {
+		sb.WriteString(" AND (")
+		first := true
+		if fp.ipCIDRsFilter.Valid {
+			fmt.Fprintf(sb,
+				"discovered_device.ip_address_inet <<= ANY($%d::cidr[])",
+				argNum)
+			args = append(args, pq.Array(fp.ipCIDRValues))
+			argNum++
+			first = false
+		}
+		for i := range fp.ipRangeStarts {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			fmt.Fprintf(sb,
+				"discovered_device.ip_address_inet BETWEEN $%d::inet AND $%d::inet",
+				argNum, argNum+1)
+			args = append(args, fp.ipRangeStarts[i], fp.ipRangeEnds[i])
+			argNum += 2
+			first = false
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.siteIDsFilter.Valid || fp.includeUnassigned {
@@ -376,32 +455,47 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString(")")
 	}
 
-	// Building filter: building_ids and include_no_building are OR'd
-	// together at the top level. Each branch emits its own EXISTS
-	// subquery so the predicate composes cleanly with other filters.
-	// include_no_rack is OR'd on top to widen to devices with no rack
-	// membership row at all. Every emitted predicate carries the
-	// dcm.org_id = $orgID clause — see
+	// Building filter: building_ids, include_no_building, and
+	// include_no_rack are OR'd together at the top level. Explicit
+	// building IDs must match both the direct device FK written by
+	// AssignDevicesToBuilding and rack-derived placement from
+	// device_set_rack. Every emitted rack-membership predicate carries
+	// the dcm.org_id = $orgID clause — see
 	// device_filters_orgid_audit_test.go.
-	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.includeNoRack {
+	// When explicit rack IDs are present, include_no_rack belongs to the
+	// rack bucket above (rack IDs OR no rack). Re-emitting it here would
+	// turn that into "rack ID AND no rack" unless the building filter also
+	// explicitly selected its unassigned bucket.
+	includeNoRackInBuildingFilter := fp.includeNoRack && (!fp.rackIDsFilter.Valid || fp.includeNoBuilding)
+	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || includeNoRackInBuildingFilter {
 		sb.WriteString(" AND (")
 		first := true
 		if fp.buildingIDsFilter.Valid {
 			fmt.Fprintf(sb,
-				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+				"(device.building_id = ANY($%d::bigint[])"+
+					" OR EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
 					" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
 					" WHERE dcm.device_id = device.id"+
 					" AND dcm.org_id = $%d"+
 					" AND dcm.device_set_type = 'rack'"+
 					" AND ds.deleted_at IS NULL"+
-					" AND dsr.building_id = ANY($%d::bigint[]))",
-				argNum, argNum+1)
+					" AND dsr.building_id = ANY($%d::bigint[])))",
+				argNum+1, argNum, argNum+1)
 			args = append(args, orgID, pq.Array(fp.buildingIDValues))
 			argNum += 2
 			first = false
 		}
-		if fp.includeNoBuilding {
+		// include_no_building matches miners whose RACK has no building. That
+		// keeps a target rack's own members visible in the assignable-only
+		// filter (their building-less rack matches). But the assignable-only
+		// filter for a NEW rack carries no rack_ids and sets include_no_rack —
+		// there are no members to preserve, and this branch would instead pull
+		// in the members of OTHER building-less racks. So drop it for that
+		// shape (include_no_rack with no explicit rack filter); the no-rack
+		// branch below still admits rackless miners with no direct building.
+		emitNoBuildingRackBranch := fp.includeNoBuilding && !(fp.includeNoRack && !fp.rackIDsFilter.Valid)
+		if emitNoBuildingRackBranch {
 			if !first {
 				sb.WriteString(" OR ")
 			}
@@ -419,9 +513,27 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum++
 			first = false
 		}
-		if fp.includeNoRack {
+		if includeNoRackInBuildingFilter {
 			if !first {
 				sb.WriteString(" OR ")
+			}
+			// The no-rack branch keeps genuinely-unplaced miners in the
+			// building group (they own no device_set_rack row, so the
+			// building_ids / include_no_building branches above can never
+			// match them). When the caller also constrains building
+			// (explicit IDs or include_no_building — e.g. the assignable-only
+			// miner-selection filter), a rackless miner should only pass if
+			// it is ALSO unplaced at the building level: a rackless miner
+			// with a direct device.building_id in another building is
+			// placed elsewhere, not assignable. Without this, that miner
+			// leaks into the default assignable-only list (issue #702).
+			// When no building predicate is present (e.g. the fleet
+			// "Unassigned" rack bucket with no building facet), this branch
+			// is the sole no-rack predicate and must stay unqualified so
+			// rackless-but-building-placed miners still surface.
+			buildingConstrained := fp.buildingIDsFilter.Valid || fp.includeNoBuilding
+			if buildingConstrained {
+				sb.WriteString("(device.building_id IS NULL AND ")
 			}
 			fmt.Fprintf(sb,
 				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
@@ -431,6 +543,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 					" AND dcm.device_set_type = 'rack'"+
 					" AND ds.deleted_at IS NULL)",
 				argNum)
+			if buildingConstrained {
+				sb.WriteString(")")
+			}
 			args = append(args, orgID)
 			argNum++
 		}

@@ -2,6 +2,18 @@ import { deviceActions, settingsActions, statusColumnLoadingMessages } from "../
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
+const statusChangingBatchActions = new Set<string>([
+  settingsActions.miningPool,
+  deviceActions.shutdown,
+  deviceActions.wakeUp,
+  deviceActions.reboot,
+  deviceActions.firmwareUpdate,
+]);
+
+export function isStatusChangingBatchAction(action: string): boolean {
+  return statusChangingBatchActions.has(action);
+}
+
 /**
  * Check if a device has reached the expected status for a given batch action.
  * This logic is shared between status polling and UI display.

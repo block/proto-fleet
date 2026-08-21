@@ -1,10 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
-import { createElement, lazy, ReactNode } from "react";
-import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-router-dom";
+import { lazy, ReactNode } from "react";
+import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
-import type { PageBackground } from "./hooks/usePageBackground";
 import {
   importActivityPage,
   importAuth,
@@ -16,9 +15,9 @@ import {
   importFleetInfraPage,
   importFleetLayout,
   importFleetSitesPage,
-  importMaintenancePage,
   importGroupOverviewPage,
   importGroupsPage,
+  importMaintenancePage,
   importMiners,
   importMinersPage,
   importOnboardingSettingsPage,
@@ -26,29 +25,39 @@ import {
   importRacksPage,
   importSecurityPage,
   importServerLogsPage,
-  importSettingsApiKeys,
+  importSettingsAlerts,
   importSettingsAuth,
   importSettingsCurtailment,
   importSettingsFirmware,
-  importSettingsGeneral,
+  importSettingsIntegrations,
   importSettingsLayout,
   importSettingsMiningPools,
-  importSettingsRoles,
+  importSettingsNetwork,
+  importSettingsNodes,
+  importSettingsPreferences,
   importSettingsSchedules,
-  importSettingsSitesPage,
   importSettingsTeam,
+  importSettingsUpdates,
   importSiteDetailPage,
-  importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
-import { onboardingClient } from "@/protoFleet/api/clients";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { onboardingClient, sitesClient } from "@/protoFleet/api/clients";
+import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
+import { hideShellHeaderRouteHandle } from "@/protoFleet/routing/routeHandle";
+import {
+  activeSiteFromSegment,
+  appEntryPath,
+  SiteScopeLayout,
+  SiteScopeProvider,
+} from "@/protoFleet/routing/siteScope";
+import { type ActiveSite, sanitizeActiveSite } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -72,25 +81,26 @@ const MinersPage = lazy(importMinersPage);
 const SecurityPage = lazy(importSecurityPage);
 const OnboardingSettingsPage = lazy(importOnboardingSettingsPage);
 const SettingsLayout = lazy(importSettingsLayout);
-const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsNetwork = lazy(importSettingsNetwork);
+const SettingsPreferences = lazy(importSettingsPreferences);
 const SettingsAuth = lazy(importSettingsAuth);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsTeam = lazy(importSettingsTeam);
-const SettingsRoles = lazy(importSettingsRoles);
 const SettingsFirmware = lazy(importSettingsFirmware);
+const SettingsNodes = lazy(importSettingsNodes);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
-const SettingsApiKeys = lazy(importSettingsApiKeys);
+const SettingsAlerts = lazy(importSettingsAlerts);
+const SettingsIntegrations = lazy(importSettingsIntegrations);
+const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
-const SitesPage = lazy(importSitesPage);
-const SettingsSitesPage = lazy(importSettingsSitesPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
-const MaintenancePage = lazy(importMaintenancePage);
 const FleetInfraPage = lazy(importFleetInfraPage);
+const MaintenancePage = lazy(importMaintenancePage);
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -124,98 +134,164 @@ const welcomeLoader = async () => {
   return null;
 };
 
+const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
+
+const settingsRedirectLoader = () => redirect(getSettingsLandingPath(useFleetStore.getState().auth.permissions));
+
+// Group detail is canonical/unscoped, so a scoped URL like
+// /north/groups/team-a redirects to /groups/team-a while preserving the
+// operator's site selection. Site slugs only resolve to an id via the sites
+// list, which a synchronous loader doesn't have — so resolve the slug over
+// the wire (unassigned needs no lookup) and set the store scope before
+// redirecting. An unresolvable segment still lands on the group page (the
+// page is unscoped) rather than bouncing the user to "/".
+const resolveScopeSegment = async (segment: string | undefined, signal: AbortSignal): Promise<ActiveSite | null> => {
+  // Covers "unassigned"; site slugs return null here without a slug map.
+  const local = activeSiteFromSegment(segment);
+  if (local) return local;
+  if (!segment) return null;
+  try {
+    const response = await sitesClient.resolveSiteBySlug({ slug: segment }, { signal });
+    const id = (response.site?.id ?? 0n).toString();
+    if (response.site?.slug && id !== "0") {
+      return { kind: "site", id, slug: response.site.slug };
+    }
+  } catch {
+    // Unknown or unreachable slug (or an aborted request) — fall through.
+  }
+  return null;
+};
+
+const scopedGroupDetailRedirectLoader = async ({ params, request }: LoaderFunctionArgs) => {
+  const scope = await resolveScopeSegment(params.siteScope, request.signal);
+  // The slug lookup is async, so a superseded navigation may have aborted this
+  // loader while it was in flight. Skip the store write + redirect in that case
+  // so a stale route can't leave the picker scoped to the wrong site.
+  if (request.signal.aborted) {
+    return null;
+  }
+  if (scope) {
+    useFleetStore.getState().ui.setActiveSite(scope);
+  }
+  const url = new URL(request.url);
+  const groupLabel = params.groupLabel ? encodeURIComponent(params.groupLabel) : "";
+  return redirect(`/groups/${groupLabel}${url.search}`);
+};
+
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
+  hideShellHeader?: boolean;
   loader?: LoaderFunction;
-  bg?: PageBackground;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
+  ...(options.hideShellHeader && { handle: hideShellHeaderRouteHandle }),
   ...(options.loader && { loader: options.loader }),
-  ...(options.bg && { handle: { bg: options.bg } }),
 });
 
-// Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
-const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
-  if (!route.element) return route;
+const createFleetChildren = () => [
+  { index: true, element: null },
+  { path: "miners", element: <Miners /> },
+  { path: "racks", element: <RacksPage /> },
+  { path: "buildings", element: <FleetBuildingsPage /> },
+  { path: "sites", element: <FleetSitesPage /> },
+  { path: "infrastructure", element: <FleetInfraPage /> },
+];
 
-  const wrappedElement = createElement(SingleMinerWrapper, null, route.element);
+const fleetRouteElement = (
+  <App>
+    <FleetLayout />
+  </App>
+);
 
-  return {
-    ...route,
-    element: wrappedElement,
-  };
+const createFleetRoute = (path: string) => ({
+  path,
+  element: fleetRouteElement,
+  children: createFleetChildren(),
 });
+
+const createScopableRoutes = (absolute: boolean) => [
+  ...(absolute ? [] : [{ index: true, element: <Navigate to="dashboard" replace /> }]),
+  createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />),
+  createFleetRoute(absolute ? "/fleet" : "fleet"),
+  createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
+  createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
+  createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
+];
 
 /**
  * Router configuration - defines actual route tree with React elements
  */
 const router = createBrowserRouter([
-  // Dashboard (Home)
-  createRoute("/", <Dashboard />, { bg: "surface-5" }),
-
-  // FleetLayout wraps tab children through its <Outlet />; nesting under
-  // <App> preserves the global PageHeader and page-background hook.
   {
-    path: "/fleet",
+    path: "/",
+    loader: appEntryLoader,
+  },
+
+  {
     element: (
-      <App>
-        <FleetLayout />
-      </App>
+      <SiteScopeProvider value={{ kind: "all" }}>
+        <Outlet />
+      </SiteScopeProvider>
     ),
-    children: [
-      { index: true, element: null },
-      { path: "miners", element: <Miners /> },
-      { path: "racks", element: <RacksPage /> },
-      { path: "buildings", element: <FleetBuildingsPage /> },
-      { path: "sites", element: <FleetSitesPage /> },
-      { path: "infrastructure", element: <FleetInfraPage /> },
-    ],
+    children: createScopableRoutes(true),
+  },
+  {
+    path: "/:siteScope",
+    element: <SiteScopeLayout />,
+    children: [...createScopableRoutes(false), { path: "groups/:groupLabel", loader: scopedGroupDetailRedirectLoader }],
   },
 
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
 
-  createRoute("/groups", <GroupsPage />),
-  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
+  createRoute("/racks/:rackId", <RackOverviewPage />, { hideShellHeader: true }),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { hideShellHeader: true }),
 
-  createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
+  // /sites redirects into /fleet/sites.
+  { path: "/sites", loader: sitesRedirectLoader },
+  createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
+  createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
 
-  // Sites tab is hidden from /fleet when MULTI_SITE_ENABLED is false, so the
-  // legacy SitesPage stays reachable at /sites for QA/dogfood until the
-  // tracked cleanup in #376. When the flag is on, /sites redirects into
-  // /fleet/sites.
-  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
-  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
-  createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
-
-  // Maintenance
   createRoute("/maintenance", <MaintenancePage />),
 
-  // Energy
-  createRoute("/energy", <EnergyPage />),
-
-  // Activity
-  createRoute("/activity", <ActivityPage />),
-
-  // Single miner (fullscreen - protoOS routes handle layout)
+  // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
+  // wraps the parent Outlet so it stays mounted across tab navigations — the
+  // protoOS tabs redirect via loaders, which would otherwise remount it (and
+  // replay its open animation) on every tab.
   {
-    ...createRoute("/miners/:id", <Outlet />, { fullscreen: true }),
-    children: wrappedMinerRoutes,
+    ...createRoute(
+      "/miners/:id",
+      <SingleMinerWrapper>
+        <Outlet />
+      </SingleMinerWrapper>,
+      { fullscreen: true },
+    ),
+    children: singleMinerRoutes,
   },
 
   // Settings routes
   {
     path: "/settings",
-    loader: () => redirect("/settings/general"),
+    loader: settingsRedirectLoader,
+  },
+  {
+    path: "/settings/general",
+    loader: settingsRedirectLoader,
   },
   createRoute(
-    "/settings/general",
+    "/settings/network",
     <SettingsLayout>
-      <SettingsGeneral />
+      <SettingsNetwork />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/preferences",
+    <SettingsLayout>
+      <SettingsPreferences />
     </SettingsLayout>,
   ),
   createRoute(
@@ -236,16 +312,20 @@ const router = createBrowserRouter([
       <SettingsTeam />
     </SettingsLayout>,
   ),
-  createRoute(
-    "/settings/roles",
-    <SettingsLayout>
-      <SettingsRoles />
-    </SettingsLayout>,
-  ),
+  {
+    path: "/settings/roles",
+    loader: () => redirect("/settings/team?tab=roles"),
+  },
   createRoute(
     "/settings/firmware",
     <SettingsLayout>
       <SettingsFirmware />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/nodes",
+    <SettingsLayout>
+      <SettingsNodes />
     </SettingsLayout>,
   ),
   createRoute(
@@ -261,9 +341,19 @@ const router = createBrowserRouter([
     </SettingsLayout>,
   ),
   createRoute(
-    "/settings/api-keys",
+    "/settings/alerts",
     <SettingsLayout>
-      <SettingsApiKeys />
+      <SettingsAlerts />
+    </SettingsLayout>,
+  ),
+  {
+    path: "/settings/api-keys",
+    loader: () => redirect("/settings/integrations"),
+  },
+  createRoute(
+    "/settings/integrations",
+    <SettingsLayout>
+      <SettingsIntegrations />
     </SettingsLayout>,
   ),
   createRoute(
@@ -272,17 +362,12 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  // Same flag-conditional as /sites — keep the legacy SettingsSitesPage
-  // reachable for QA/dogfood when MULTI_SITE_ENABLED is off.
-  MULTI_SITE_ENABLED
-    ? { path: "/settings/sites", loader: sitesRedirectLoader }
-    : createRoute(
-        "/settings/sites",
-        <SettingsLayout>
-          <SettingsSitesPage />
-        </SettingsLayout>,
-      ),
-
+  createRoute(
+    "/settings/updates",
+    <SettingsLayout>
+      <SettingsUpdates />
+    </SettingsLayout>,
+  ),
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),
   createRoute("/update-password", <UpdatePassword />, { fullscreen: true }),

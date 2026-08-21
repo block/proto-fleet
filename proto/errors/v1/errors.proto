@@ -200,6 +200,15 @@ message SimpleFilter {
   repeated ComponentType component_types = 4;
   repeated MinerError canonical_errors = 5;
   repeated Severity severities = 6;                 // Filter by technical severity
+
+  // Scope to devices assigned to ANY of these sites (OR), by current site
+  // membership. Resolved server-side to device identifiers. AND'd with the
+  // other filters.
+  repeated int64 site_ids = 7;
+
+  // When true, include devices with no site assignment. Independent of
+  // site_ids.
+  bool include_unassigned = 8;
 }
 
 // Complete filter with time range and logic options

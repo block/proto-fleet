@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -184,6 +185,7 @@ type Service struct {
 	probeSemaphore        chan struct{}
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
+	rigConfigReapplier    func(context.Context, int64, int64)
 }
 
 func NewService(
@@ -220,6 +222,11 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 // pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
+}
+
+// WithRigConfigReapplier wires the post-pair desired-state convergence hook.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) {
+	s.rigConfigReapplier = reapply
 }
 
 type NetworkInfo struct {
@@ -1154,14 +1161,7 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 
 	switch x := selector.SelectionType.(type) {
 	case *commandpb.DeviceSelector_AllDevices:
-		filter := x.AllDevices
-		minerFilter := &interfaces.MinerFilter{}
-
-		if filter != nil && len(filter.PairingStatus) > 0 {
-			minerFilter.PairingStatuses = filter.PairingStatus
-		}
-
-		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, minerFilter)
+		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, minerFilterFromPairDeviceFilter(x.AllDevices))
 
 	case *commandpb.DeviceSelector_IncludeDevices:
 		if x.IncludeDevices == nil || len(x.IncludeDevices.DeviceIdentifiers) == 0 {
@@ -1174,7 +1174,61 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 	}
 }
 
+func minerFilterFromPairDeviceFilter(filter *commandpb.DeviceFilter) *interfaces.MinerFilter {
+	minerFilter := &interfaces.MinerFilter{}
+	if filter == nil {
+		return minerFilter
+	}
+	minerFilter.PairingStatuses = filter.PairingStatus
+	minerFilter.ModelNames = filter.Models
+	minerFilter.ManufacturerNames = filter.Manufacturers
+	if len(filter.DeviceStatus) > 0 {
+		minerFilter.DeviceStatusFilter = make([]models.MinerStatus, 0, len(filter.DeviceStatus))
+		for _, status := range filter.DeviceStatus {
+			minerFilter.DeviceStatusFilter = append(minerFilter.DeviceStatusFilter, deviceStatusFilterToMinerStatus(status))
+		}
+	}
+	return minerFilter
+}
+
+func deviceStatusFilterToMinerStatus(status fleetmanagementv1.DeviceStatus) models.MinerStatus {
+	//nolint:exhaustive // Unknown or unspecified device statuses map to UNKNOWN.
+	switch status {
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_ONLINE:
+		return models.MinerStatusActive
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_OFFLINE:
+		return models.MinerStatusOffline
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		return models.MinerStatusMaintenance
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_ERROR:
+		return models.MinerStatusError
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_INACTIVE:
+		return models.MinerStatusInactive
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
+		return models.MinerStatusNeedsMiningPool
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_UPDATING:
+		return models.MinerStatusUpdating
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return models.MinerStatusRebootRequired
+	default:
+		return models.MinerStatusUnknown
+	}
+}
+
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	return s.pairDevices(ctx, r, false)
+}
+
+// PairDevicesAllowAllFailed preserves the normal PairDevices behavior except
+// that a selector with concrete device matches but zero successful pairings
+// returns those failed IDs instead of a unary error. The mixed fleet-node/cloud
+// handler uses this only after at least one remote pairing has already succeeded,
+// so the client receives one partial-success response for the whole request.
+func (s *Service) PairDevicesAllowAllFailed(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	return s.pairDevices(ctx, r, true)
+}
+
+func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFailed bool) (*pb.PairResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -1313,9 +1367,15 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			}
 			return nil, fleeterror.NewCanceledError()
 		}
+		if allowAllFailed {
+			return &pb.PairResponse{
+				FailedDeviceIds: failedIDs,
+			}, nil
+		}
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
+	s.reapplyRigConfigBestEffort(ctx, info.OrganizationID, info.UserID)
 	if len(telemetryDeviceIDs) > 0 {
 		if err := s.listener.AddDevices(ctx, telemetryDeviceIDs...); err != nil {
 			slog.Error("failed to add devices to telemetry scheduler", "error", err)
@@ -1326,6 +1386,13 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	return &pb.PairResponse{
 		FailedDeviceIds: failedIDs,
 	}, nil
+}
+
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
+	if s.rigConfigReapplier == nil {
+		return
+	}
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, userID)
 }
 
 func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {
@@ -1344,7 +1411,7 @@ func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID
 		return false, err
 	}
 
-	if pairingStatus != StatusPaired {
+	if !shouldScheduleTelemetryForPairingStatus(pairingStatus) {
 		slog.Info("skipping telemetry scheduling for device that is not fully paired",
 			"device_identifier", deviceID,
 			"pairing_status", pairingStatus)
@@ -1352,6 +1419,10 @@ func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID
 	}
 
 	return true, nil
+}
+
+func shouldScheduleTelemetryForPairingStatus(pairingStatus string) bool {
+	return pairingStatus == StatusPaired || pairingStatus == StatusDefaultPassword
 }
 
 // isCredentialsRequiredError checks if an error indicates that credentials are required but not provided
@@ -1467,7 +1538,9 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 			if statusErr != nil && !fleeterror.IsNotFoundError(statusErr) {
 				return "", fleeterror.NewInternalErrorf("error getting existing device pairing status: %v", statusErr)
 			}
-			knownPairedDevice = pairingStatus == StatusPaired || pairingStatus == StatusAuthenticationNeeded
+			knownPairedDevice = pairingStatus == StatusPaired ||
+				pairingStatus == StatusAuthenticationNeeded ||
+				pairingStatus == StatusDefaultPassword
 		} else {
 			knownPairedDevice = true
 		}

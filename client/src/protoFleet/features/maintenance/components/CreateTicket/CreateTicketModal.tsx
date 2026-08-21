@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -8,7 +9,6 @@ import Row from "@/shared/components/Row";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
-import { variants } from "@/shared/components/Button";
 
 interface CreateTicketModalProps {
   onDismiss: () => void;
@@ -48,7 +48,9 @@ const ASSIGNEE_OPTIONS = REPAIR_TECHNICIANS.map((t) => ({ value: t, label: t }))
 
 const KNOWN_MINERS = (() => {
   const set = new Set<string>();
-  mockTickets.forEach((t) => { if (t.minerIdentifier) set.add(t.minerIdentifier); });
+  mockTickets.forEach((t) => {
+    if (t.minerIdentifier) set.add(t.minerIdentifier);
+  });
   for (let i = 1; i <= 50; i++) set.add(`M${String(i).padStart(4, "0")}`);
   return [...set].sort();
 })();
@@ -63,7 +65,7 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
   const [site, setSite] = useState(prefill?.siteId ?? "");
   const [assignee, setAssignee] = useState("");
   const [urgent, setUrgent] = useState(false);
-  const [notes, setNotes] = useState("");
+  const [, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
@@ -136,7 +138,7 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
           />
         </div>
 
-        {category === "miner" && (
+        {category === "miner" ? (
           <div className="relative">
             <Input
               id="miner-id"
@@ -146,37 +148,27 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
             />
-            {showSuggestions && filteredMiners.length > 0 && (
+            {showSuggestions && filteredMiners.length > 0 ? (
               <div
                 ref={suggestionsRef}
                 className="absolute top-full right-0 left-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-5 bg-surface-elevated-base shadow-300"
               >
                 {filteredMiners.map((m) => (
                   <div key={m} className="px-2" onMouseDown={(e) => e.preventDefault()}>
-                    <Row compact className="text-emphasis-300" onClick={() => selectMiner(m)}>{m}</Row>
+                    <Row compact className="text-emphasis-300" onClick={() => selectMiner(m)}>
+                      {m}
+                    </Row>
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        <Textarea
-          id="diagnosis"
-          label="Issue description"
-          onChange={(value) => setDiagnosis(value)}
-          rows={3}
-        />
+        <Textarea id="diagnosis" label="Issue description" onChange={(value) => setDiagnosis(value)} rows={3} />
 
         <div className="grid grid-cols-2 gap-3">
-          <Select
-            id="site"
-            label="Site"
-            options={SITE_OPTIONS}
-            value={site}
-            onChange={setSite}
-            forceBelow
-          />
+          <Select id="site" label="Site" options={SITE_OPTIONS} value={site} onChange={setSite} forceBelow />
           <Select
             id="assignee"
             label="Assignee"
@@ -188,19 +180,11 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
         </div>
 
         <label className="flex items-center gap-2 text-300">
-          <Checkbox
-            checked={urgent}
-            onChange={(e) => setUrgent(e.target.checked)}
-          />
+          <Checkbox checked={urgent} onChange={(e) => setUrgent(e.target.checked)} />
           Mark as urgent
         </label>
 
-        <Textarea
-          id="notes"
-          label="Notes (optional)"
-          onChange={(value) => setNotes(value)}
-          rows={2}
-        />
+        <Textarea id="notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
       </div>
     </Modal>
   );

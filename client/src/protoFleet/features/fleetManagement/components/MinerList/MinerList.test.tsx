@@ -14,6 +14,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { SingleMinerRouteState } from "@/protoFleet/components/SingleMinerWrapper/routeState";
 import { useFleetStore } from "@/protoFleet/store";
 
 const { mockMinerListActionBar } = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners,
       selectionMode,
       totalCount,
+      filtersActive,
       selectionIncludesUnauthenticatedMiner,
       onSelectAll,
       onSelectNone,
@@ -29,6 +31,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners: string[];
       selectionMode: string;
       totalCount?: number;
+      filtersActive?: boolean;
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
@@ -47,6 +50,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
           <span data-testid="mock-miner-list-selection-includes-unauth">
             {String(Boolean(selectionIncludesUnauthenticatedMiner))}
           </span>
+          <span data-testid="mock-miner-list-filters-active">{String(Boolean(filtersActive))}</span>
           {onSelectAll ? (
             <button type="button" data-testid="mock-action-bar-select-all" onClick={onSelectAll}>
               Select all
@@ -81,6 +85,33 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/Singl
 
 const mockGetActiveBatches = vi.fn(() => []);
 
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
+
 const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
   create(MinerStateSnapshotSchema, {
     deviceIdentifier,
@@ -96,6 +127,7 @@ const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingSt
     url: "",
     model: "",
     firmwareVersion: "",
+    embeddedWebViewAvailable: false,
   });
 
 /** Auto-generates miners map from minerIds when miners prop is not provided. */
@@ -120,6 +152,8 @@ const renderMinerList = (
   return render(
     <Router {...routerProps}>
       <MinerList {...fullProps} />
+      <PathDisplay />
+      <RouteStateDisplay />
     </Router>,
   );
 };
@@ -128,6 +162,26 @@ const LocationDisplay = () => {
   const location = useLocation();
 
   return <div data-testid="location-display">{location.search}</div>;
+};
+
+const PathDisplay = () => {
+  const location = useLocation();
+
+  return <div data-testid="path-display">{`${location.pathname}${location.search}`}</div>;
+};
+
+const RouteStateDisplay = () => {
+  const location = useLocation();
+  const metadata = (location.state as SingleMinerRouteState | undefined)?.singleMinerMetadata;
+
+  return (
+    <div>
+      <div data-testid="route-state-miner-name">{metadata?.minerName ?? ""}</div>
+      <div data-testid="route-state-ip-address">{metadata?.ipAddress ?? ""}</div>
+      <div data-testid="route-state-mac-address">{metadata?.macAddress ?? ""}</div>
+      <div data-testid="route-state-firmware-version">{metadata?.firmwareVersion ?? ""}</div>
+    </div>
+  );
 };
 
 const isModelColumnVisible = (preferences: { columns: { id: string; visible: boolean }[] }) =>
@@ -170,12 +224,14 @@ describe("MinerList", () => {
 
   describe("miner count subtitle", () => {
     it("shows total miner count", () => {
+      // loading must be false: the count line now renders inside the List
+      // (beneath the filter row), which mounts once the initial load completes.
       renderMinerList({
         title: "Miners",
         minerIds: [],
         totalMiners: 14,
         onAddMiners: vi.fn(),
-        loading: true,
+        loading: false,
       });
 
       expect(screen.getByText("14 miners")).toBeInTheDocument();
@@ -189,7 +245,7 @@ describe("MinerList", () => {
           totalMiners: 5,
           totalUnfilteredMiners: 14,
           onAddMiners: vi.fn(),
-          loading: true,
+          loading: false,
         },
         ["/?status=hashing"],
       );
@@ -205,7 +261,7 @@ describe("MinerList", () => {
           totalMiners: 14,
           totalUnfilteredMiners: 14,
           onAddMiners: vi.fn(),
-          loading: true,
+          loading: false,
         },
         ["/?status=hashing"],
       );
@@ -280,6 +336,9 @@ describe("MinerList", () => {
       expect(
         screen.getByText("Choose which data to display and rearrange columns to match your workflow."),
       ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close dialog" }).closest(".sticky")).toBeTruthy();
+      expect(screen.getByTestId("manage-columns-reset-button").closest(".sticky")).toBeTruthy();
+      expect(screen.getByTestId("manage-columns-save-button").closest(".sticky")).toBeTruthy();
       expect(screen.getByTestId("manage-columns-reorder-model").firstChild).toHaveClass("w-4", "h-4", "shrink-0");
     });
 
@@ -313,7 +372,7 @@ describe("MinerList", () => {
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
       await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).not.toContain("Model");
 
@@ -378,7 +437,7 @@ describe("MinerList", () => {
 
       expect(screen.getByRole("checkbox", { name: "Toggle Model column" })).toBeChecked();
 
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(localStorage.getItem(getMinerTableColumnPreferencesStorageKey("bob"))).toBeNull();
     });
@@ -430,7 +489,7 @@ describe("MinerList", () => {
       });
 
       try {
-        await user.click(screen.getByRole("button", { name: "Save" }));
+        await user.click(screen.getByTestId("manage-columns-save-button"));
       } finally {
         setItemSpy.mockRestore();
       }
@@ -462,7 +521,7 @@ describe("MinerList", () => {
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
       await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).not.toContain("Model");
       expect(screen.getByTestId("location-display").textContent).toBe("");
@@ -595,8 +654,8 @@ describe("MinerList", () => {
       expect(getColumnHeaders()).not.toContain("Model");
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
-      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-reset-button"));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).toContain("Model");
     });
@@ -630,14 +689,14 @@ describe("MinerList", () => {
       });
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
-      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
+      await user.click(screen.getByTestId("manage-columns-reset-button"));
 
       const removeItemSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
         throw new Error("storage denied");
       });
 
       try {
-        await user.click(screen.getByRole("button", { name: "Save" }));
+        await user.click(screen.getByTestId("manage-columns-save-button"));
       } finally {
         removeItemSpy.mockRestore();
       }
@@ -902,7 +961,7 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
     });
 
-    it("hides action-bar select controls when filters are active", async () => {
+    it("exposes action-bar select controls when filters are active", async () => {
       const user = userEvent.setup();
 
       renderMinerList(
@@ -921,10 +980,41 @@ describe("MinerList", () => {
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
       expect(screen.getByTestId("mock-miner-list-action-bar")).toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-none")).not.toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-all")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-none")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
       expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    });
+
+    it("selects the full filtered set (all mode, filtered totalCount) when Select all is clicked with filters active", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1", "m2"],
+          // Filtered total spans more than the visible page.
+          totalMiners: 37,
+          currentPage: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      // "all" mode reports the filtered total, not just the visible rows.
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("37");
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
+
+      // Select none clears the selection, tearing the action bar back down.
+      await user.click(screen.getByTestId("mock-action-bar-select-none"));
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
     it("clears bulk selection when the page changes and does not restore it when returning", async () => {
@@ -1110,45 +1200,88 @@ describe("MinerList", () => {
   });
 
   describe("row click navigation", () => {
-    it("opens miner URL in a new tab when miner has a URL", async () => {
+    it("navigates to the embedded single miner route when the embedded web view is available", async () => {
+      const user = userEvent.setup();
+
+      const snapshot = createMinerSnapshot("m1");
+      snapshot.url = "https://192.168.1.100";
+      snapshot.name = "Rig Alpha";
+      snapshot.model = "Antminer S21";
+      snapshot.ipAddress = "10.0.0.42";
+      snapshot.macAddress = "AA:BB:CC:DD:EE:FF";
+      snapshot.firmwareVersion = "2026.1";
+      snapshot.embeddedWebViewAvailable = true;
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: snapshot },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
+
+      const row = screen.getByTestId("list-row");
+      await user.click(row);
+
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/miners/m1/hashrate");
+      // Matches the list name column (miner.name), not the model.
+      expect(screen.getByTestId("route-state-miner-name")).toHaveTextContent("Rig Alpha");
+      expect(screen.getByTestId("route-state-ip-address")).toHaveTextContent("10.0.0.42");
+      expect(screen.getByTestId("route-state-mac-address")).toHaveTextContent("AA:BB:CC:DD:EE:FF");
+      expect(screen.getByTestId("route-state-firmware-version")).toHaveTextContent("2026.1");
+    });
+
+    it("opens the miner URL when the embedded web view is unavailable", async () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
       const snapshot = createMinerSnapshot("m1");
       snapshot.url = "https://192.168.1.100";
 
-      renderMinerList({
-        title: "Miners",
-        minerIds: ["m1"],
-        miners: { m1: snapshot },
-        totalMiners: 1,
-        onAddMiners: vi.fn(),
-        loading: false,
-      });
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: snapshot },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
 
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
       expect(openSpy).toHaveBeenCalledWith("https://192.168.1.100", "_blank", "noopener,noreferrer");
       openSpy.mockRestore();
     });
 
-    it("does not open a new tab when miner has no URL", async () => {
+    it("does nothing when the embedded web view is unavailable and the row has no URL", async () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-      renderMinerList({
-        title: "Miners",
-        minerIds: ["m1"],
-        miners: { m1: createMinerSnapshot("m1") },
-        totalMiners: 1,
-        onAddMiners: vi.fn(),
-        loading: false,
-      });
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: createMinerSnapshot("m1") },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
 
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
       expect(openSpy).not.toHaveBeenCalled();
       openSpy.mockRestore();
     });
@@ -1166,7 +1299,10 @@ describe("MinerList", () => {
         onAddMiners,
       });
 
-      expect(screen.getByText("You haven't paired any miners")).toBeInTheDocument();
+      expect(screen.getByText("You haven't paired any miners")).toHaveClass(
+        "text-heading-300",
+        "tablet:text-display-200",
+      );
       expect(screen.getByText("Add miners to your fleet to get started.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Get started" })).toBeInTheDocument();
       // List header and "Add miners" button should not be visible when showing null state
@@ -1235,7 +1371,7 @@ describe("MinerList", () => {
       expect(screen.queryByText("You haven't paired any miners")).not.toBeInTheDocument();
       // Regular list view should be shown instead
       expect(screen.getByText("Miners")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add miners" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Add miners" }).length).toBeGreaterThan(0);
     });
 
     it("shows the filtered empty state and clears filters when requested", async () => {

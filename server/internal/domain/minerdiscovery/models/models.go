@@ -23,6 +23,9 @@ type DiscoveredDevice struct {
 	// Non-nil when an agent reported the row; server-local pairing
 	// must not dial these IPs.
 	DiscoveredByFleetNodeID *int64
+	// DefaultPasswordActive comes from the PairDevice response (transient): non-nil
+	// true makes pairing record DEFAULT_PASSWORD instead of PAIRED/ACTIVE.
+	DefaultPasswordActive *bool
 }
 
 // GetDeviceOrgIdentifier returns the device organization identifier

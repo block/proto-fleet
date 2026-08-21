@@ -19,11 +19,21 @@ export class GeneralPage extends BasePage {
 
       try {
         const response = await protoOsWindow.api.getSystemTag();
-        if (typeof response.data === "string") {
-          return response.data.trim() || null;
+        const data = response.data;
+        // Mirror the app's normalizeSystemTag (useSystemTag.ts): accept a raw
+        // string or a { tag } object, and treat an empty/whitespace value as
+        // "no Miner ID set". Without this, a { tag: "" } response (what the rig
+        // returns when unset) reads as a truthy JSON string and diverges from
+        // the UI, which correctly shows the "Add" affordance.
+        let tag: string;
+        if (typeof data === "string") {
+          tag = data;
+        } else if (data && typeof data === "object" && typeof (data as { tag?: unknown }).tag === "string") {
+          tag = (data as { tag: string }).tag;
+        } else {
+          tag = JSON.stringify(data);
         }
-
-        return JSON.stringify(response.data);
+        return tag.trim() || null;
       } catch (error: unknown) {
         if ((error as { status?: number })?.status === 404) {
           return null;

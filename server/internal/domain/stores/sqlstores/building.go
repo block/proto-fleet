@@ -44,8 +44,7 @@ func (s *SQLBuildingStore) CreateBuilding(ctx context.Context, params models.Cre
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to create building: %v", err)
 	}
-	out := buildingFromRow(row)
-	return &out, nil
+	return s.GetBuilding(ctx, params.OrgID, row.ID)
 }
 
 func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*models.Building, error) {
@@ -56,15 +55,19 @@ func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*m
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get building: %v", err)
 	}
-	out := buildingFromRow(row)
+	out := buildingFromGetRow(row)
 	return &out, nil
 }
 
 func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
+	siteIDs := filter.SiteIDs
+	if siteIDs == nil {
+		siteIDs = []int64{}
+	}
 	rows, err := s.GetQueries(ctx).ListBuildingsByOrg(ctx, sqlc.ListBuildingsByOrgParams{
-		OrgID:          filter.OrgID,
-		SiteID:         ptrToNullInt64(filter.SiteID),
-		UnassignedOnly: sql.NullBool{Bool: filter.UnassignedOnly, Valid: filter.UnassignedOnly},
+		OrgID:             filter.OrgID,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: filter.IncludeUnassigned,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list buildings: %v", err)
@@ -76,6 +79,7 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 				ID:                    row.ID,
 				OrgID:                 row.OrgID,
 				SiteID:                nullInt64ToPtr(row.SiteID),
+				SiteLabel:             row.SiteLabel,
 				Name:                  row.Name,
 				Description:           row.Description.String,
 				PowerKw:               floatFromNumeric(row.PowerKw),
@@ -89,10 +93,22 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 				CreatedAt:             row.CreatedAt,
 				UpdatedAt:             row.UpdatedAt,
 			},
-			RackCount: row.RackCount,
+			RackCount:   row.RackCount,
+			DeviceCount: row.DeviceCount,
 		})
 	}
 	return out, nil
+}
+
+func (s *SQLBuildingStore) ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error) {
+	names, err := s.GetQueries(ctx).ListBuildingNamesBySite(ctx, sqlc.ListBuildingNamesBySiteParams{
+		OrgID:  orgID,
+		SiteID: sql.NullInt64{Int64: siteID, Valid: true},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list building names: %v", err)
+	}
+	return names, nil
 }
 
 func (s *SQLBuildingStore) UpdateBuilding(ctx context.Context, params models.UpdateParams) (*models.Building, error) {
@@ -118,12 +134,19 @@ func (s *SQLBuildingStore) UpdateBuilding(ctx context.Context, params models.Upd
 	return s.GetBuilding(ctx, params.OrgID, params.ID)
 }
 
-func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
+// SoftDeleteBuilding marks the building deleted and returns the deleted row's
+// site_id (nil when unassigned) so the caller can stamp the audit row with the
+// site actually deleted, race-free. found is false when no live building
+// matched (missing / already-deleted / cross-org).
+func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error) {
+	site, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
 	}
-	return rowsAffected, nil
+	return nullInt64ToPtr(site), true, nil
 }
 
 func (s *SQLBuildingStore) UnassignRacksFromBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
@@ -202,6 +225,20 @@ func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildin
 	return out, nextPageToken, nil
 }
 
+func (s *SQLBuildingStore) CountRacksInBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	// This method always targets a concrete building, so bind the id
+	// explicitly rather than via zeroToNullInt64 — a 0 mapped to NULL would
+	// silently return a 0 count and bypass the capacity guard.
+	count, err := s.GetQueries(ctx).CountRacksInBuilding(ctx, sqlc.CountRacksInBuildingParams{
+		OrgID:      orgID,
+		BuildingID: sql.NullInt64{Int64: buildingID, Valid: true},
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count racks in building: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
 	rows, err := s.GetQueries(ctx).ListRacksOutsideBuildingBounds(ctx, sqlc.ListRacksOutsideBuildingBoundsParams{
 		OrgID:            orgID,
@@ -237,11 +274,165 @@ func (s *SQLBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, r
 	return nil
 }
 
-func buildingFromRow(row sqlc.Building) models.Building {
+func (s *SQLBuildingStore) SetRackBuildingPositionBulkClear(ctx context.Context, orgID int64, rackIDs []int64) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if err := s.GetQueries(ctx).SetRackBuildingPositionBulkClear(ctx, sqlc.SetRackBuildingPositionBulkClearParams{
+		RackIds: rackIDs,
+		OrgID:   orgID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-clear rack building positions: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLBuildingStore) SetRackBuildingPositionBulkPlace(ctx context.Context, orgID int64, rackIDs []int64, aisleIndexes, positionInAisles []int32) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if len(rackIDs) != len(aisleIndexes) || len(rackIDs) != len(positionInAisles) {
+		return fleeterror.NewInternalErrorf("SetRackBuildingPositionBulkPlace: array length mismatch (rackIDs=%d aisles=%d positions=%d)", len(rackIDs), len(aisleIndexes), len(positionInAisles))
+	}
+	if err := s.GetQueries(ctx).SetRackBuildingPositionBulkPlace(ctx, sqlc.SetRackBuildingPositionBulkPlaceParams{
+		OrgID:            orgID,
+		RackIds:          rackIDs,
+		AisleIndexes:     aisleIndexes,
+		PositionInAisles: positionInAisles,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-place rack building positions: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLBuildingStore) AssignDevicesToBuilding(ctx context.Context, orgID int64, targetBuildingID *int64, deviceIdentifiers []string) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
+		OrgID:             orgID,
+		TargetBuildingID:  ptrToNullInt64(targetBuildingID),
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to reassign devices to building: %w", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLBuildingStore) CascadeDevicesSiteForBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).CascadeDevicesSiteForBuilding(ctx, sqlc.CascadeDevicesSiteForBuildingParams{
+		OrgID:             orgID,
+		TargetSiteID:      ptrToNullInt64(targetSiteID),
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade device sites for building: %w", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLBuildingStore) FindDeviceBuildingConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error) {
+	rows, err := s.GetQueries(ctx).FindDeviceBuildingConflicts(ctx, sqlc.FindDeviceBuildingConflictsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find device building conflicts: %w", err)
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.DeviceIdentifier] = r.ConflictingBuildingID
+	}
+	return out, nil
+}
+
+func (s *SQLBuildingStore) FindDevicesInBuildingLessPlacedRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	if len(deviceIdentifiers) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).FindDevicesInBuildingLessPlacedRacks(ctx, sqlc.FindDevicesInBuildingLessPlacedRacksParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices in building-less placed racks: %w", err)
+	}
+	return rows, nil
+}
+
+func (s *SQLBuildingStore) GetBuildingSiteID(ctx context.Context, orgID, buildingID int64) (*int64, error) {
+	siteID, err := s.GetQueries(ctx).GetBuildingSiteID(ctx, sqlc.GetBuildingSiteIDParams{
+		ID:    buildingID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to read building site id: %w", err)
+	}
+	return nullInt64ToPtr(siteID), nil
+}
+
+func (s *SQLBuildingStore) ClearDeviceBuildingsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsByBuilding(ctx, sqlc.ClearDeviceBuildingsByBuildingParams{
+		OrgID:      orgID,
+		BuildingID: buildingID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings by building: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLBuildingStore) ClearDeviceBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsBySite(ctx, sqlc.ClearDeviceBuildingsBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings by site: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLBuildingStore) CascadeDirectDeviceSitesByBuildings(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeDirectDeviceSitesByBuildings(ctx, sqlc.CascadeDirectDeviceSitesByBuildingsParams{
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade direct device sites by buildings: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLBuildingStore) ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsOnSiteMismatch(ctx, sqlc.ClearDeviceBuildingsOnSiteMismatchParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+		TargetSiteID:      ptrToNullInt64(targetSiteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings on site mismatch: %w", err)
+	}
+	return n, nil
+}
+
+func buildingFromGetRow(row sqlc.GetBuildingRow) models.Building {
 	return models.Building{
 		ID:                    row.ID,
 		OrgID:                 row.OrgID,
 		SiteID:                nullInt64ToPtr(row.SiteID),
+		SiteLabel:             row.SiteLabel,
 		Name:                  row.Name,
 		Description:           row.Description.String,
 		PowerKw:               floatFromNumeric(row.PowerKw),

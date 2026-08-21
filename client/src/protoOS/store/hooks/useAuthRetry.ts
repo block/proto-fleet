@@ -3,8 +3,9 @@ import useMinerStore from "../useMinerStore";
 import { useAuthErrors } from "./useAuth";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { RequestParams } from "@/protoOS/api/generatedApi";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
-type AuthRequestParams = RequestParams & { headers: { Authorization: string } };
+type AuthRequestParams = RequestParams & { headers?: { Authorization?: string } };
 
 interface AuthRetryOptions<T> {
   request: (params: AuthRequestParams) => Promise<T>;
@@ -22,21 +23,24 @@ interface AuthRetryOptions<T> {
  */
 export const useAuthRetry = () => {
   const { handleAuthErrors } = useAuthErrors();
+  const { isFleetHosted } = useMinerHosting();
 
   return useCallback(
     <T>({ request, onSuccess, onError, shouldRetry }: AuthRetryOptions<T>): Promise<void> => {
-      const authRequestParams: AuthRequestParams = {
-        secure: false,
-        headers: {
-          Authorization: `Bearer ${useMinerStore.getState().auth.authTokens.accessToken?.value || ""}`,
-        },
-      };
+      const authRequestParams: AuthRequestParams = isFleetHosted
+        ? { secure: false }
+        : {
+            secure: false,
+            headers: {
+              Authorization: `Bearer ${useMinerStore.getState().auth.authTokens.accessToken?.value || ""}`,
+            },
+          };
 
       const execute = (params: AuthRequestParams, isRetry = false): Promise<void> =>
         request(params)
           .then((result) => onSuccess?.(result))
           .catch((error) => {
-            if (isRetry || (shouldRetry && !shouldRetry(error))) {
+            if (isFleetHosted || isRetry || (shouldRetry && !shouldRetry(error))) {
               onError?.(error);
               return;
             }
@@ -56,6 +60,6 @@ export const useAuthRetry = () => {
 
       return execute(authRequestParams);
     },
-    [handleAuthErrors],
+    [handleAuthErrors, isFleetHosted],
   );
 };

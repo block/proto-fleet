@@ -10,6 +10,8 @@ const (
 	EdgeNone EdgeDirection = iota
 	// EdgeOnToOff records a transition to OFF.
 	EdgeOnToOff
+	// EdgeReassertOff records a fresh OFF assertion while already OFF.
+	EdgeReassertOff
 	// EdgeOffToOn records a transition to ON.
 	EdgeOffToOn
 	// EdgeWatchdogOff records fail-safe OFF because the publisher is stale.
@@ -23,6 +25,8 @@ func (d EdgeDirection) String() string {
 		return "none"
 	case EdgeOnToOff:
 		return "on_to_off"
+	case EdgeReassertOff:
+		return "reassert_off"
 	case EdgeOffToOn:
 		return "off_to_on"
 	case EdgeWatchdogOff:

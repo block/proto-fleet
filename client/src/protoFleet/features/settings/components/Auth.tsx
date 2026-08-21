@@ -4,6 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useUsername } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -235,9 +236,8 @@ const AuthenticationSettings = () => {
   return (
     <>
       <div className="flex flex-col gap-6">
-        <Header
+        <SettingsPageHeader
           title="Security"
-          titleSize="text-heading-300"
           description="Protect your mining fleet by managing system access, miner credentials, and team permissions."
         />
         <div className="flex flex-col gap-4">

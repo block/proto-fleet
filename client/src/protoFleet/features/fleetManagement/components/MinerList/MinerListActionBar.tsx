@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type {
   MinerListFilter,
@@ -17,6 +18,8 @@ interface MinerListActionBarProps {
   onSelectNone?: () => void;
   selectionMode: SelectionMode;
   totalCount?: number;
+  /** Whether a server-side filter is active — drives the "matching filters" count copy in "all" mode. */
+  filtersActive?: boolean;
   currentFilter?: MinerListFilter;
   currentSort?: SortConfig;
   miners?: Record<string, MinerStateSnapshot>;
@@ -33,6 +36,7 @@ const MinerListActionBar = ({
   onSelectNone,
   selectionMode,
   totalCount,
+  filtersActive,
   currentFilter,
   currentSort,
   miners,
@@ -85,12 +89,19 @@ const MinerListActionBar = ({
       </>
     ) : undefined;
 
-  return (
+  // Portal to the body so the bar escapes the app shell's fixed `z-20` scroll
+  // container (a stacking context). Otherwise the bulk-actions menu — which opens
+  // upward into the header band — is trapped below the `z-40` shell header no
+  // matter how high we set the bar's own z-index (#727). z-[45] sits above the
+  // header but below the phone/tablet nav drawer (`z-50`) so the drawer still
+  // covers the bar when open.
+  return createPortal(
     <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
+      className="fixed right-0 bottom-4 left-0 z-[45] laptop:left-16 desktop:left-50"
       selectedItems={selectedMiners}
       selectionMode={selectionMode}
       totalCount={totalCount}
+      filtersActive={filtersActive}
       onClose={onClearSelection}
       selectionControls={selectionControls}
       renderActions={(setHidden) => (
@@ -115,7 +126,8 @@ const MinerListActionBar = ({
           }}
         />
       )}
-    />
+    />,
+    document.body,
   );
 };
 

@@ -1,28 +1,56 @@
+import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
-// Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's
-// TAB_ORDER includes Sites + Buildings under test. CI default is false; the
-// tests below pin behavior to the flag-on path explicitly.
-vi.mock("@/protoFleet/constants/featureFlags", () => ({
-  MULTI_SITE_ENABLED: true,
+vi.mock("@/protoFleet/api/useSiteMapCsv", () => ({
+  default: () => ({
+    exportSiteMapCsv: vi.fn(),
+    isExportingSiteMapCsv: false,
+  }),
+}));
+
+const { completeSetupMock, refreshEntitiesMock } = vi.hoisted(() => ({
+  completeSetupMock: vi.fn(),
+  refreshEntitiesMock: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context", () => ({
+  useFleetCreateFlow: () => ({
+    refreshEntities: refreshEntitiesMock,
+  }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal", () => ({
+  default: ({ open, onImported }: { open: boolean; onImported?: () => void }) =>
+    open ? (
+      <button type="button" data-testid="site-map-import-modal" onClick={onImported}>
+        import
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider", () => ({
+  default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 import FleetLayout from "./FleetLayout";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 // Mock listSites at the hook level so the test stays focused on FleetLayout's
 // redirect logic. The hook returns a callable that resolves with the
 // provided sites via onSuccess — same shape as the real listSites contract.
 const listSitesMock = vi.hoisted(() => vi.fn());
-vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/protoFleet/api/sites")>();
+vi.mock("@/protoFleet/api/sites", () => {
   return {
-    ...actual,
+    buildKnownSiteIds: (sites: SiteWithCounts[] | undefined): Set<string> | undefined => {
+      if (!sites) return undefined;
+      return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
+    },
     useSites: () => ({
       listSites: listSitesMock,
       // The other useSites members are unused in FleetLayout but the type
@@ -52,13 +80,44 @@ const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string): boolean =
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (key: string) => hasPermissionMock.current(key),
   useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
+  useUsername: () => "alice",
 }));
+
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
 
 // CompleteSetup renders inside FleetLayout's chrome but isn't under test
 // here — stub it so we don't pull in onboarding's RPC/zustand surface area.
 // The sentinel lets us assert the miner:read gate keeps it from mounting.
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
-  default: () => <div data-testid="complete-setup-mock" />,
+  default: (props: { minersChangedAt?: number }) => {
+    completeSetupMock(props);
+    return <div data-testid="complete-setup-mock" data-miners-changed-at={props.minersChangedAt ?? 0} />;
+  },
 }));
 
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
@@ -76,18 +135,24 @@ const LocationProbe = () => {
 
 const renderAt = (initialPath: string) =>
   render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/fleet" element={<FleetLayout />}>
-          <Route index element={null} />
-          <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
-          <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
-          <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
-          <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
-        </Route>
-      </Routes>
-      <LocationProbe />
-    </MemoryRouter>,
+    // FleetLayout reads the site catalog from the shell-level SitesProvider,
+    // which drives the (mocked) listSites + permission gating these tests
+    // exercise. Wrapping here keeps the redirect/permission assertions intact.
+    <SitesProvider>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/fleet" element={<FleetLayout />}>
+            <Route index element={null} />
+            <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
+            <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
+            <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
+            <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+            <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
+          </Route>
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>
+    </SitesProvider>,
   );
 
 beforeEach(() => {
@@ -98,6 +163,7 @@ beforeEach(() => {
     onSuccess?.([buildSite(1), buildSite(2)]);
   });
   activeSiteMock.current = { kind: "all" };
+  hasPermissionMock.current = () => true;
   localStorage.clear();
 });
 
@@ -106,6 +172,14 @@ afterEach(() => {
 });
 
 describe("FleetLayout redirect logic", () => {
+  test("keeps the fleet content wrapper viewport-bound until desktop table scroll mode", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+
+    expect(screen.getByTestId("fleet-layout")).toHaveClass("w-full", "min-w-0", "laptop:w-max", "laptop:min-w-full");
+  });
+
   test("bare /fleet redirects to Sites tab when picker is All Sites and no lastTab is stored", async () => {
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
@@ -120,7 +194,7 @@ describe("FleetLayout redirect logic", () => {
 
   test("bare /fleet falls back to Buildings when picker is single-site and lastTab is 'sites'", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("sites"));
-    activeSiteMock.current = { kind: "site", id: "1" };
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/buildings"));
   });
@@ -135,10 +209,9 @@ describe("FleetLayout redirect logic", () => {
   });
 
   test("Sites tab redirects to /sites/:id when SitePicker selects a single site", async () => {
-    // Legacy "Manage sites" entry points (e.g. /settings/sites → /fleet/sites)
-    // resolve to that site's management detail page when the picker is
-    // pinned, rather than bouncing to Buildings.
-    activeSiteMock.current = { kind: "site", id: "1" };
+    // Fleet Sites entry points resolve to that site's management detail page
+    // when the picker is pinned, rather than bouncing to Buildings.
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet/sites");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/sites/1"));
   });
@@ -152,11 +225,34 @@ describe("FleetLayout redirect logic", () => {
   });
 
   test("does not redirect away from a non-sites tab when picker hides Sites", async () => {
-    activeSiteMock.current = { kind: "site", id: "1" };
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet/racks");
     // Operator is on a non-hidden tab; layout must leave them there.
     await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
+  });
+
+  test("shows the Infrastructure tab to authorized users", async () => {
+    renderAt("/fleet/racks");
+    await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
+  });
+
+  test("keeps Infrastructure deep links reachable and selected", async () => {
+    renderAt("/fleet/infrastructure");
+    await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
+  });
+
+  test("redirects hidden tab deep links without mounting their content", async () => {
+    hasPermissionMock.current = (key: string) => key !== "rack:read";
+
+    renderAt("/fleet/racks");
+
+    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
+    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 });
 
@@ -171,26 +267,139 @@ describe("FleetLayout lastTab persistence", () => {
 });
 
 describe("FleetLayout scoped-permission fallback", () => {
-  test("falls back to /fleet/miners when listSites returns PermissionDenied", async () => {
-    // useHasPermission("site:read") returns true (flat union across scopes),
-    // but the org-scoped ListSites call is denied for site-scoped-only roles.
-    // The layout must treat that as an access-blocked signal and land the
-    // operator on the still-accessible Miners tab.
+  test("falls back to Racks when listSites returns PermissionDenied", async () => {
+    // Keep the runtime PermissionDenied fallback for stale sessions or
+    // server-side authz changes that can still deny the org-scoped ListSites
+    // call after the client gate passes. Racks can still list without site
+    // catalog metadata, so it remains the first visible Fleet tab.
     listSitesMock.mockImplementation(async ({ onError }) => {
       onError?.("access denied", Code.PermissionDenied);
     });
     renderAt("/fleet");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
   });
 
-  test("ignores stored lastTab=racks when site access is blocked", async () => {
-    // A persisted "racks" pick must not override the Miners safe path —
-    // rack:read can be denied for the same role that lacks site:read,
-    // and landing on /fleet/racks would just show another permission error.
+  test("does not mount Infrastructure when site access is denied at runtime", async () => {
+    hasPermissionMock.current = (key: string) => key === "site:read";
+    listSitesMock.mockImplementation(async ({ onError }) => {
+      onError?.("access denied", Code.PermissionDenied);
+    });
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("keeps stored lastTab=racks when site access is blocked", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
     hasPermissionMock.current = (key: string) => key !== "site:read";
     renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+    expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument();
+  });
+
+  test("does not mount a Fleet tab when no org-scoped Fleet read permissions are held", async () => {
+    hasPermissionMock.current = () => false;
+    renderAt("/fleet");
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
+    expect(screen.queryByTestId("tab-content-miners")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+  });
+
+  test("shows permission denied on bare Fleet when only fleet read is held", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
+
+    renderAt("/fleet");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
+    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("shows permission denied on denied Fleet tabs when only fleet read is held", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
+
+    renderAt("/fleet/racks");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
+    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("does not mount Infrastructure deep links without site read", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("mounts Infrastructure deep links for site-read roles", async () => {
+    hasPermissionMock.current = (key: string) => key === "site:read";
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
+  });
+
+  test("mounts Racks for rack-only roles without site metadata access", async () => {
+    hasPermissionMock.current = (key: string) => key === "rack:read";
+
+    renderAt("/fleet");
+
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+    expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument();
+  });
+
+  test("does not mount Miners until its startup RPC permissions are held", async () => {
+    hasPermissionMock.current = (key: string) => key === "miner:read";
+
+    renderAt("/fleet");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tab-content-miners")).not.toBeInTheDocument();
+  });
+
+  test("mounts Miners when miner and supporting read permissions are held", async () => {
+    hasPermissionMock.current = (key: string) => key === "miner:read" || key === "rack:read" || key === "fleet:read";
+
+    renderAt("/fleet/miners");
+
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
+  });
+
+  test("mounts Miners for a Fleet+Miner role without rack:read", async () => {
+    // Regression: a role with all Fleet + Miner permissions but no rack:read
+    // (Sites/Buildings/Racks category) must still reach its miner list. The
+    // miner list only needs miner:read + fleet:read; rack-backed filters
+    // degrade rather than gate the tab.
+    hasPermissionMock.current = (key: string) => key === "miner:read" || key === "fleet:read";
+
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
+    expect(screen.queryByText("You do not have permission to view Fleet sections.")).not.toBeInTheDocument();
   });
 });
 
@@ -211,6 +420,21 @@ describe("FleetLayout CompleteSetup gate", () => {
   });
 });
 
+describe("FleetLayout site map import refresh", () => {
+  test("refreshes topology and miner data after a successful import", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText("Import site map")[0]);
+    fireEvent.click(screen.getByTestId("site-map-import-modal"));
+
+    expect(refreshEntitiesMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(Number(screen.getByTestId("complete-setup-mock").dataset.minersChangedAt)).toBeGreaterThan(0);
+    });
+  });
+});
+
 describe("FleetLayout redirect gating on sites load", () => {
   test("defers the redirect until the initial sites load resolves", async () => {
     // Hold the listSites promise so sites === undefined for one frame.
@@ -226,7 +450,7 @@ describe("FleetLayout redirect gating on sites load", () => {
     // Stale picker selection points at a now-deleted site; once sites land,
     // useActiveSite would normally reset to "all" — meanwhile, the layout's
     // redirect must NOT fire and bounce the operator off /fleet.
-    activeSiteMock.current = { kind: "site", id: "999" };
+    activeSiteMock.current = { kind: "site", id: "999", slug: "missing" };
     renderAt("/fleet");
     // Before sites resolve: still on /fleet (no redirect).
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");

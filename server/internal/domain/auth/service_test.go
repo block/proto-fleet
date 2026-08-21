@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 // noopTransactor runs the callback directly without a real DB transaction.
@@ -33,6 +34,23 @@ func (noopTransactor) RunInTx(ctx context.Context, fn func(ctx context.Context) 
 
 func (noopTransactor) RunInTxWithResult(ctx context.Context, fn func(ctx context.Context) (any, error)) (any, error) {
 	return fn(ctx)
+}
+
+type fakeSessionStore struct{}
+
+func (fakeSessionStore) CreateSession(context.Context, *session.Session) error { return nil }
+func (fakeSessionStore) GetSessionByID(context.Context, string) (*session.Session, error) {
+	return nil, sql.ErrNoRows
+}
+func (fakeSessionStore) UpdateSessionActivity(context.Context, string, time.Time, time.Time) error {
+	return nil
+}
+func (fakeSessionStore) RevokeSession(context.Context, string, time.Time) error { return nil }
+func (fakeSessionStore) RevokeAllSessionsByUserID(context.Context, int64, time.Time) error {
+	return nil
+}
+func (fakeSessionStore) DeleteExpiredSessions(context.Context, time.Time) (int64, error) {
+	return 0, nil
 }
 
 type mockUserStoreForVerify struct {
@@ -77,7 +95,7 @@ func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID 
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return m.orgs, nil
 }
-func (m *mockUserStoreForVerify) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
+func (m *mockUserStoreForVerify) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, roleName string, roleDescription string) error {
 	return nil
 }
 func (m *mockUserStoreForVerify) HasUser(ctx context.Context) (bool, error) {
@@ -86,10 +104,6 @@ func (m *mockUserStoreForVerify) HasUser(ctx context.Context) (bool, error) {
 func (m *mockUserStoreForVerify) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
 	return time.Time{}, nil
 }
-func (m *mockUserStoreForVerify) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	return "", nil
-}
-
 func newActivitySvc(ctrl *gomock.Controller) (*activity.Service, *mocks.MockActivityStore) {
 	mockStore := mocks.NewMockActivityStore(ctrl)
 	return activity.NewService(mockStore), mockStore
@@ -269,6 +283,69 @@ func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
 			assert.Contains(t, err.Error(), "username and password are required")
 		}
 	})
+}
+
+func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	password := "correctpass"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	const (
+		userID int64 = 1
+		orgID  int64 = 100
+	)
+	siteID := int64(7)
+
+	mockUserManagementStore := mocks.NewMockUserManagementStore(ctrl)
+	mockUserManagementStore.EXPECT().UpdateLastLogin(gomock.Any(), userID).Return(nil)
+	mockUserManagementStore.EXPECT().GetUserRoleName(gomock.Any(), userID, orgID).Return("CUSTOM", nil)
+
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"testuser": {
+					ID:           userID,
+					UserID:       "ext-user-1",
+					Username:     "testuser",
+					PasswordHash: string(hashedPassword),
+				},
+			},
+			orgs: []interfaces.Organization{{ID: orgID}},
+		},
+		userManagementStore: mockUserManagementStore,
+		transactor:          noopTransactor{},
+		sessionSvc: session.NewService(session.Config{
+			Duration:   time.Hour,
+			IDBytes:    16,
+			CookieName: "fleet_session",
+		}, fakeSessionStore{}),
+		permResolver: &fakeResolver{effective: map[int64]*authz.EffectivePermissions{
+			userID: authz.NewEffectivePermissions([]authz.Assignment{
+				{
+					AssignmentID: 1,
+					ScopeType:    authz.ScopeOrg,
+					Permissions:  []string{authz.PermFleetRead, authz.PermMinerRead},
+				},
+				{
+					AssignmentID: 2,
+					ScopeType:    authz.ScopeSite,
+					SiteID:       &siteID,
+					Permissions:  []string{authz.PermSiteRead, authz.PermMinerBlinkLED},
+				},
+			}),
+		}},
+	}
+
+	resp, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "testuser",
+		Password: password,
+	}, "test-agent", "127.0.0.1")
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.UserInfo)
+	assert.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, resp.UserInfo.Permissions)
 }
 
 func TestActivityLogging_NilActivitySvc(t *testing.T) {
@@ -491,6 +568,32 @@ func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid current password")
+}
+
+func TestService_UpdatePasswordRejectsInvalidNewPasswordBeforeLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := &Service{
+		userStore:  mocks.NewMockUserStore(ctrl),
+		transactor: mocks.NewMockTransactor(ctrl),
+	}
+
+	_, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+		CurrentPassword: "current-password",
+		NewPassword:     "short",
+	}, "test-agent", "127.0.0.1")
+
+	require.ErrorContains(t, err, "at least 8 characters")
+}
+
+func TestService_CreateAdminUserRejectsInvalidPasswordBeforePersistence(t *testing.T) {
+	service := &Service{}
+
+	_, err := service.CreateAdminUser(context.Background(), &onboardingv1.CreateAdminLoginRequest{
+		Username: "admin",
+		Password: "short",
+	})
+
+	require.ErrorContains(t, err, "at least 8 characters")
 }
 
 func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) {

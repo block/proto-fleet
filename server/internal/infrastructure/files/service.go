@@ -3,7 +3,10 @@ package files
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
 
 const logsDir = "logs"
@@ -25,6 +29,10 @@ const unknownMACPlaceholder = "unknown"
 // macSafeCharsRe matches characters that are NOT lowercase hex digits.
 // Used to whitelist-sanitize MAC addresses for use in filenames.
 var macSafeCharsRe = regexp.MustCompile(`[^0-9a-f]`)
+
+var batchLogTimestamp = func() string {
+	return time.Now().Format("2006-01-02_15-04-05")
+}
 
 // sanitizeMACForFilename strips separators from a MAC address and retains only lowercase
 // hex characters. If the result is empty (malformed input), it falls back to a safe placeholder.
@@ -39,6 +47,18 @@ func sanitizeMACForFilename(mac string) string {
 type FSFile struct {
 	Filename string
 	Data     []byte
+}
+
+type firmwareUploadKey struct {
+	checksum     string
+	manufacturer string
+	model        string
+	version      string
+}
+
+type firmwareUploadLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func getBatchLogsZipFilePath(batchLogUUID string) string {
@@ -69,10 +89,18 @@ func getBatchLogsDirPath(batchLogUUID string) string {
 }
 
 type Service struct {
-	maxFirmwareFileSize int64
+	maxFirmwareFileSize            int64
+	maxCommandArtifactSize         int64
+	commandArtifactRetentionTTL    time.Duration
+	commandArtifactCleanupInterval time.Duration
 
-	mu            sync.Mutex
-	checksumIndex map[string][]string // SHA-256 hex -> fileIDs
+	mu                      sync.Mutex
+	bundleCreationMu        sync.Mutex
+	firmwareMetadataReuseMu sync.RWMutex
+	checksumIndex           map[string][]string // SHA-256 hex -> reuse-eligible file IDs
+	firmwareChecksumByID    map[string]string   // fileID -> SHA-256 hex
+	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
+	syncFirmwareDir         func(string) error
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
@@ -81,6 +109,30 @@ func (s *Service) MaxFirmwareFileSize() int64 {
 		return defaultMaxFirmwareFileSize
 	}
 	return s.maxFirmwareFileSize
+}
+
+// MaxCommandArtifactSize returns the configured maximum command artifact size in bytes.
+func (s *Service) MaxCommandArtifactSize() int64 {
+	if s.maxCommandArtifactSize <= 0 {
+		return defaultMaxCommandArtifactSize
+	}
+	return s.maxCommandArtifactSize
+}
+
+// CommandArtifactRetentionTTL returns how long finalized command artifacts are retained.
+func (s *Service) CommandArtifactRetentionTTL() time.Duration {
+	if s.commandArtifactRetentionTTL <= 0 {
+		return defaultCommandArtifactRetentionTTL
+	}
+	return s.commandArtifactRetentionTTL
+}
+
+// CommandArtifactCleanupInterval returns how often finalized command artifacts are swept.
+func (s *Service) CommandArtifactCleanupInterval() time.Duration {
+	if s.commandArtifactCleanupInterval <= 0 {
+		return defaultCommandArtifactCleanupInterval
+	}
+	return s.commandArtifactCleanupInterval
 }
 
 func NewService(cfg Config) (*Service, error) {
@@ -93,15 +145,36 @@ func NewService(cfg Config) (*Service, error) {
 	if err := initFirmwareDir(); err != nil {
 		return nil, err
 	}
+	if err := initCommandArtifactDir(); err != nil {
+		return nil, err
+	}
 
 	maxSize := cfg.MaxFirmwareFileSize
 	if maxSize <= 0 {
 		maxSize = defaultMaxFirmwareFileSize
 	}
+	maxArtifactSize := cfg.MaxCommandArtifactSize
+	if maxArtifactSize <= 0 {
+		maxArtifactSize = defaultMaxCommandArtifactSize
+	}
+	retentionTTL := cfg.CommandArtifactRetentionTTL
+	if retentionTTL <= 0 {
+		retentionTTL = defaultCommandArtifactRetentionTTL
+	}
+	cleanupInterval := cfg.CommandArtifactCleanupInterval
+	if cleanupInterval <= 0 {
+		cleanupInterval = defaultCommandArtifactCleanupInterval
+	}
 
 	svc := &Service{
-		maxFirmwareFileSize: maxSize,
-		checksumIndex:       make(map[string][]string),
+		maxFirmwareFileSize:            maxSize,
+		maxCommandArtifactSize:         maxArtifactSize,
+		commandArtifactRetentionTTL:    retentionTTL,
+		commandArtifactCleanupInterval: cleanupInterval,
+		checksumIndex:                  make(map[string][]string),
+		firmwareChecksumByID:           make(map[string]string),
+		firmwareUploadLocks:            make(map[firmwareUploadKey]*firmwareUploadLock),
+		syncFirmwareDir:                syncFirmwareDirectory,
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {
@@ -121,20 +194,39 @@ func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error)
 	return batchDir, nil
 }
 
-func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {
+func (s *Service) batchLogFileName(macAddress string, attempt int) string {
+	normalizedMAC := sanitizeMACForFilename(macAddress)
+	timestamp := batchLogTimestamp()
+	if attempt == 0 {
+		return fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
+	}
+	return fmt.Sprintf("miner-logs-%s-%s-%d.csv", normalizedMAC, timestamp, attempt)
+}
+
+func (s *Service) openBatchLogFile(batchLogUUID string, macAddress string) (string, *os.File, error) {
 	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
-	normalizedMAC := sanitizeMACForFilename(macAddress)
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
-	filePath := filepath.Join(batchDir, filename)
+	for attempt := range 1000 {
+		filePath := filepath.Join(batchDir, s.batchLogFileName(macAddress, attempt))
+		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err == nil {
+			return filePath, file, nil
+		}
+		if os.IsExist(err) {
+			continue
+		}
+		return "", nil, fleeterror.NewInternalErrorf("failed to create log file: %v", err)
+	}
+	return "", nil, fleeterror.NewInternalErrorf("failed to create unique log file for batch %s", batchLogUUID)
+}
 
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {
+	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to create log file: %v", err)
+		return "", err
 	}
 	defer file.Close()
 
@@ -153,6 +245,71 @@ func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []st
 
 	if err := bufWriter.Flush(); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to flush log data to file: %v", err)
+	}
+
+	return filePath, nil
+}
+
+func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error) {
+	reader, info, err := s.OpenCommandArtifact(artifactID)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+	if info.Size > logformat.MaxArtifactBytes {
+		return "", fleeterror.NewFailedPreconditionErrorf("miner log artifact too large: %d bytes (max: %d bytes)", info.Size, logformat.MaxArtifactBytes)
+	}
+
+	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
+	if err != nil {
+		return "", err
+	}
+	keep := false
+	defer func() {
+		if file != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				slog.Warn("failed to close command artifact log file", "path", filePath, "error", closeErr)
+			}
+		}
+		if !keep {
+			if removeErr := os.Remove(filePath); removeErr != nil && !os.IsNotExist(removeErr) {
+				slog.Warn("failed to remove partial command artifact log file", "path", filePath, "error", removeErr)
+			}
+		}
+	}()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to read command artifact log: %v", err)
+	}
+	if int64(len(data)) != info.Size {
+		return "", fleeterror.NewFailedPreconditionErrorf("corrupt command artifact %s: metadata size %d does not match copied size %d", info.ID, info.Size, len(data))
+	}
+	if actualSHA := sha256.Sum256(data); hex.EncodeToString(actualSHA[:]) != info.SHA256 {
+		return "", fleeterror.NewFailedPreconditionErrorf("corrupt command artifact %s: sha256 mismatch", info.ID)
+	}
+
+	var sanitized bytes.Buffer
+	if err := logformat.WriteSanitizedCSV(&sanitized, bytes.NewReader(data)); err != nil {
+		return "", fleeterror.NewFailedPreconditionErrorf("failed to sanitize command artifact log csv: %v", err)
+	}
+	if int64(sanitized.Len()) > logformat.MaxArtifactBytes {
+		return "", fleeterror.NewFailedPreconditionErrorf("sanitized miner log artifact too large: %d bytes (max: %d bytes)", sanitized.Len(), logformat.MaxArtifactBytes)
+	}
+	if _, err := file.Write(sanitized.Bytes()); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to write sanitized command artifact log: %v", err)
+	}
+	if err := file.Sync(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to sync command artifact log: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to close command artifact log: %v", err)
+	}
+	file = nil
+	keep = true
+
+	if err := s.DeleteCommandArtifact(info.ID); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to delete materialized command artifact %s: %v", info.ID, err)
 	}
 
 	return filePath, nil
@@ -322,10 +479,25 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	return &FSFile{Filename: filename, Data: data}, nil
 }
 
+func (s *Service) EnsureBatchLogBundle(batchLogUUID string) error {
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	s.bundleCreationMu.Lock()
+	defer s.bundleCreationMu.Unlock()
+
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	_, err := s.bundleLogs(batchLogUUID)
+	return err
+}
+
 func (s *Service) DownloadLogsOnFinishedCallback(batchLogUUID string) func() error {
 	return func() error {
-		_, err := s.bundleLogs(batchLogUUID)
-		if err != nil {
+		if err := s.EnsureBatchLogBundle(batchLogUUID); err != nil {
 			return fleeterror.NewInternalErrorf("error bundling logs: %v", err)
 		}
 

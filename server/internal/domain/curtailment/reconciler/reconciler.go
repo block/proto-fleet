@@ -5,6 +5,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,8 +21,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -30,15 +33,21 @@ const (
 	// bypass recognize reconciler self-traffic.
 	reconcilerActorName = "curtailment-reconciler"
 
-	defaultTickInterval           = 30 * time.Second
-	defaultShutdownDeadline       = 10 * time.Second
-	defaultMaxRetries       int32 = 3
+	defaultTickInterval            = 30 * time.Second
+	defaultMaxRetries        int32 = 10
+	defaultCurtailMaxRetries int32 = 50
 
 	// 0.5: power_w > baseline*factor is drifted; catches partial restore.
 	defaultDriftThresholdFactor = 0.5
 
-	// 10× tick interval; ages out restore-phase targets via retry budget.
-	defaultRestoreDispatchTimeoutSec = 300
+	// Per-target telemetry confirmation timeouts; both burn retry budget.
+	defaultCurtailDispatchTimeoutSec = 5
+	defaultRestoreDispatchTimeoutSec = 30
+)
+
+const (
+	skipPendingDispatchClock   = false
+	recordPendingDispatchClock = true
 )
 
 // CommandDispatcher is the subset of command.Service the reconciler needs;
@@ -50,27 +59,37 @@ type CommandDispatcher interface {
 
 // Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
-	TickInterval         time.Duration
-	ShutdownDeadline     time.Duration
+	TickInterval         time.Duration `help:"Interval between curtailment reconciler ticks. Zero uses the default; values below 1s are rejected." default:"0s" env:"TICK_INTERVAL"`
 	MaxRetries           int32
+	CurtailMaxRetries    int32
 	DriftThresholdFactor float64
+	// CurtailDispatchTimeoutSec ages out curtail-phase targets stuck in
+	// Dispatched without confirming telemetry (burns retry budget).
+	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (burns retry budget).
-	RestoreDispatchTimeoutSec int
+	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
+	// ConfirmationFastPathEnabled turns on the wake-driven confirmation
+	// pulse (see confirmation_fast_path.go). Disabled restores exact
+	// tick-only confirmation semantics and starts no pulse goroutine.
+	ConfirmationFastPathEnabled bool `help:"Enable the curtailment confirmation fast path: a wake-driven pulse that confirms dispatched targets from fresh telemetry between full reconciler ticks." default:"true" env:"CONFIRMATION_FAST_PATH_ENABLED"`
 }
 
 func (c Config) withDefaults() Config {
 	if c.TickInterval <= 0 {
 		c.TickInterval = defaultTickInterval
 	}
-	if c.ShutdownDeadline <= 0 {
-		c.ShutdownDeadline = defaultShutdownDeadline
-	}
 	if c.MaxRetries <= 0 {
 		c.MaxRetries = defaultMaxRetries
 	}
+	if c.CurtailMaxRetries <= 0 {
+		c.CurtailMaxRetries = defaultCurtailMaxRetries
+	}
 	if c.DriftThresholdFactor <= 0 {
 		c.DriftThresholdFactor = defaultDriftThresholdFactor
+	}
+	if c.CurtailDispatchTimeoutSec == 0 {
+		c.CurtailDispatchTimeoutSec = defaultCurtailDispatchTimeoutSec
 	}
 	if c.RestoreDispatchTimeoutSec <= 0 {
 		c.RestoreDispatchTimeoutSec = defaultRestoreDispatchTimeoutSec
@@ -82,19 +101,47 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg     Config
-	store   interfaces.CurtailmentStore
-	cmd     CommandDispatcher
-	metrics curtailment.Metrics
-	now     func() time.Time
+	cfg      Config
+	store    interfaces.CurtailmentStore
+	fanStore interfaces.CurtailmentFanStateStore
+	cmd      CommandDispatcher
+	metrics  curtailment.Metrics
+	fans     curtailment.FacilityFanController
+	fanAlert FacilityFanAlertEmitter
+	now      func() time.Time
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	wg         sync.WaitGroup
+	// sampler backs the confirmation fast path (see
+	// confirmation_fast_path.go); required only when
+	// cfg.ConfirmationFastPathEnabled.
+	sampler           ConfirmationSampler
+	confirmationStore interfaces.CurtailmentConfirmationStore
+	// confirmationWake coalesces pulse wakes; buffered size 1.
+	confirmationWake chan struct{}
+	// confirmationPulse is the between-pass cadence while eligible work
+	// exists. Defaults to confirmationPulseInterval; tests shorten it.
+	confirmationPulse time.Duration
+	// confirmationPassTimeout bounds the sampling half of one pulse pass
+	// (eligibility read + batch sampling). Defaults to the
+	// confirmationPassTimeout constant; tests shorten it to force the
+	// split-budget path where sampling exhausts the pass budget while the
+	// separate write budget stays live.
+	confirmationPassTimeout time.Duration
+	// confirmationCursor is activation-owned keyset state. Each successful
+	// eligibility read advances it even when no target promotes, preventing
+	// a nonconfirming page from monopolizing the active pulse.
+	confirmationCursor interfaces.ConfirmationPageCursor
 
-	mu      sync.Mutex
-	running bool
+	loopCancel  context.CancelFunc
+	workCancel  context.CancelFunc
+	runCanceled <-chan struct{}
+	runDone     <-chan struct{}
+
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
 }
+
+var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
+var _ runtimejobs.Aborter = (*Reconciler)(nil)
 
 // Option configures a Reconciler at construction time.
 type Option func(*Reconciler)
@@ -109,15 +156,39 @@ func WithMetrics(m curtailment.Metrics) Option {
 	}
 }
 
+func WithFacilityFanController(controller curtailment.FacilityFanController) Option {
+	return func(r *Reconciler) { r.fans = controller }
+}
+
+// FacilityFanAlertEmitter is implemented by the metrics provider. The
+// reconciler emits a per-event state gauge when failed fan-ON commands reach
+// the point where miner restoration is allowed to proceed.
+type FacilityFanAlertEmitter interface {
+	EmitCurtailmentFanRestoreFailure(ctx context.Context, orgID int64, eventUUID string, failed bool)
+}
+
+func WithFacilityFanAlertEmitter(emitter FacilityFanAlertEmitter) Option {
+	return func(r *Reconciler) { r.fanAlert = emitter }
+}
+
 // New builds a Reconciler. nil store/dispatcher is rejected at Start, not
 // here, so a misconfigured fleetd surfaces during lifecycle bring-up.
 func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, opts ...Option) *Reconciler {
 	r := &Reconciler{
-		cfg:     cfg.withDefaults(),
-		store:   store,
-		cmd:     cmd,
-		metrics: curtailment.NoOpMetrics{},
-		now:     time.Now,
+		cfg:                     cfg.withDefaults(),
+		store:                   store,
+		cmd:                     cmd,
+		metrics:                 curtailment.NoOpMetrics{},
+		now:                     time.Now,
+		confirmationWake:        make(chan struct{}, 1),
+		confirmationPulse:       confirmationPulseInterval,
+		confirmationPassTimeout: confirmationPassTimeout,
+	}
+	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
+		r.fanStore = fanStore
+	}
+	if confirmationStore, ok := store.(interfaces.CurtailmentConfirmationStore); ok {
+		r.confirmationStore = confirmationStore
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -125,77 +196,165 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 	return r
 }
 
-// Start spins up the tick loop. Repeat Starts without an intervening Stop
-// are no-ops so misbehaving wiring cannot fork two reconcilers.
-func (r *Reconciler) Start(_ context.Context) error {
+// Start spins up the tick loop for the lifetime of ctx. Repeat Starts without
+// an intervening Stop are no-ops so misbehaving wiring cannot fork two
+// reconcilers.
+func (r *Reconciler) Start(ctx context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
 	}
 	if r.cmd == nil {
 		return fmt.Errorf("curtailment reconciler: command dispatcher is required")
 	}
+	if r.cfg.TickInterval < time.Second {
+		return fmt.Errorf("curtailment reconciler: tick_interval must be at least 1s, got %s", r.cfg.TickInterval)
+	}
+	if r.cfg.CurtailDispatchTimeoutSec < 1 {
+		return fmt.Errorf("curtailment reconciler: curtail_dispatch_timeout_sec must be at least 1, got %d", r.cfg.CurtailDispatchTimeoutSec)
+	}
+	if r.cfg.ConfirmationFastPathEnabled && r.sampler == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but no sampler is configured (WithConfirmationSampler)")
+	}
+	if r.cfg.ConfirmationFastPathEnabled && r.confirmationStore == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but the store does not support bulk confirmation")
+	}
 
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
-	if r.running {
+	if r.runDone != nil {
+		stopping := channelClosed(r.runCanceled)
 		r.mu.Unlock()
+		if stopping {
+			return errors.New("curtailment reconciler: previous activation is still stopping")
+		}
 		return nil
 	}
-	r.running = true
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	r.stopCancel = stopCancel
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
 	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+	r.confirmationCursor = interfaces.ConfirmationPageCursor{}
 	r.mu.Unlock()
 
-	r.wg.Add(1)
-	go r.tickLoop(stopCtx, workCtx)
-	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
+	go r.tickLoop(loopCtx, workCtx, runDone)
+	slog.Debug("configured curtailment reconciler",
+		"tick_interval", r.cfg.TickInterval,
+		"confirmation_fast_path_enabled", r.cfg.ConfirmationFastPathEnabled)
 	return nil
 }
 
-// Stop signals the tick loop and waits up to ShutdownDeadline for the
-// in-flight tick to drain. Concurrent second Stop is a no-op. Adding a
-// Start-after-Stop restart path needs a `stopping` guard to prevent
-// stacking goroutines on the same WaitGroup.
-func (r *Reconciler) Stop() error {
+// Stop cancels the activation and waits for it to drain within ctx. A timed-out
+// activation retains ownership until its goroutine actually exits, so Start can
+// never overlap it.
+func (r *Reconciler) Stop(ctx context.Context) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
-	if !r.running {
+	if r.runDone == nil {
 		r.mu.Unlock()
 		return nil
 	}
-	r.running = false
-	stopCancel := r.stopCancel
+	loopCancel := r.loopCancel
 	workCancel := r.workCancel
-	r.stopCancel = nil
-	r.workCancel = nil
+	runDone := r.runDone
 	r.mu.Unlock()
 
-	if workCancel != nil {
-		watchdog := time.AfterFunc(r.cfg.ShutdownDeadline, workCancel)
-		defer watchdog.Stop()
+	if loopCancel != nil {
+		loopCancel()
 	}
-	if stopCancel != nil {
-		stopCancel()
+	select {
+	case <-runDone:
+		if workCancel != nil {
+			workCancel()
+		}
+		return nil
+	case <-ctx.Done():
+		if workCancel != nil {
+			workCancel()
+		}
+		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
-	r.wg.Wait()
+}
+
+// Abort immediately cancels admission and detached work before a fatal exit.
+func (r *Reconciler) Abort() {
+	r.mu.Lock()
+	loopCancel := r.loopCancel
+	workCancel := r.workCancel
+	r.mu.Unlock()
+	if loopCancel != nil {
+		loopCancel()
+	}
 	if workCancel != nil {
 		workCancel()
 	}
-	slog.Info("curtailment reconciler stopped")
-	return nil
 }
 
-func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
-	defer r.wg.Done()
+func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
+	defer close(runDone)
+	defer r.finishActivation()
+
+	reportProgress := runtimejobs.TrackProgress(loopCtx, r.cfg.TickInterval)
+	var confirmationDone <-chan struct{}
+	if r.cfg.ConfirmationFastPathEnabled {
+		done := make(chan struct{})
+		confirmationDone = done
+		go func() {
+			defer close(done)
+			// The confirmation pulse is an acceleration only, so Stop may
+			// cancel an active pass immediately. Full ticks keep using the
+			// detached work context so their existing drain semantics remain
+			// unchanged.
+			r.confirmationLoop(loopCtx, loopCtx)
+		}()
+		// Startup recovery: rows may already sit in dispatched from a
+		// previous process; run one pass immediately rather than waiting
+		// for the first full tick's wake.
+		r.wakeConfirmation()
+	}
+	if confirmationDone != nil {
+		defer func() { <-confirmationDone }()
+	}
+
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-loopCtx.Done():
 			return
 		case <-ticker.C:
 			r.safeTick(workCtx)
+			if loopCtx.Err() != nil {
+				return
+			}
+			reportProgress()
 		}
+	}
+}
+
+func (r *Reconciler) finishActivation() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loopCancel = nil
+	r.workCancel = nil
+	r.runCanceled = nil
+	r.runDone = nil
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -235,11 +394,23 @@ func (r *Reconciler) runTick(ctx context.Context) {
 		return
 	}
 
-	for _, ev := range events {
+	for index, ev := range events {
 		if tickCtx.Err() != nil {
 			break
 		}
-		eventCtx, eventCancel := context.WithTimeout(tickCtx, 2*r.cfg.TickInterval)
+		deadline, ok := tickCtx.Deadline()
+		if !ok {
+			break
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		// Divide the remaining tick budget across the remaining events. An
+		// unreachable fan set or another slow boundary on an earlier event can
+		// consume its share, but cannot starve every later event in ID order.
+		remainingEvents := len(events) - index
+		eventCtx, eventCancel := context.WithTimeout(tickCtx, remaining/time.Duration(remainingEvents))
 		r.processEvent(eventCtx, ev)
 		eventCancel()
 	}
@@ -296,9 +467,22 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred so both fresh dispatches from this pass and rows already
+	// dispatched (recovery) wake the confirmation fast path.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
+	if !r.reconcilePendingFans(ctx, ev) {
+		return
+	}
 	if len(targets) == 0 {
-		// Service.Start rejects empty plans; zero targets is a contract
-		// violation needing manual recovery.
+		if isClosedLoopFullFleet(ev) {
+			now := r.now()
+			if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
+				r.logEventStateUpdateError(ev, "pending→active(empty closed-loop)", err)
+			}
+			return
+		}
+		// Service.Start rejects empty open-loop plans; zero targets is a
+		// contract violation needing manual recovery.
 		slog.Error("curtailment reconciler: pending event has no targets",
 			"event_id", ev.ID, "event_uuid", ev.EventUUID)
 		return
@@ -312,21 +496,91 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	if isAllPairedPolicyEvent(ev) {
+		deviceIDs := allPairedPolicyRefreshDeviceIdentifiers(targets)
+		if len(deviceIDs) > 0 {
+			cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+				OrgID:             ev.OrgID,
+				DeviceIdentifiers: deviceIDs,
+			})
+			if err != nil {
+				slog.Error("curtailment reconciler: list candidates (all-paired pending refresh) failed",
+					"event_id", ev.ID, "error", err)
+			} else {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candidatesByDeviceID(cands))
+			}
+		}
+	}
 	r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 
 	// Confirm just-dispatched targets via current telemetry before deciding
 	// whether the event itself can flip to active.
 	r.confirmDispatched(ctx, ev, targets)
 	r.maybeMarkActive(ctx, ev, targets)
+
+	// Durable ownership must not pause while the event is pending: recurtail
+	// (restoring -> pending) leaves released policy rows dormant for the
+	// multi-tick re-confirmation window unless admission also runs here.
+	// Claimed/reopened rows enter as pending/unavailable and dispatch on the
+	// next tick's pending pass, mirroring the observeActive claim ordering.
+	if isAllPairedPolicyEvent(ev) {
+		claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+		r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+		// Claimed rows are a separate slice the deferred wakeIfDispatchedWork
+		// (which only sees `targets`) never covers, so a dynamically-admitted
+		// miner would miss the pulse when it is parked. Wake for them too.
+		r.wakeIfDispatchedWork(claimed)
+	}
 }
 
-// dispatchPendingCurtailBatches drains pending-event Curtail work in command
+func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event) bool {
+	if ev == nil || ev.FanOffSentAt == nil || ev.FanLastError == nil {
+		return true
+	}
+	if r.fans == nil || r.fanStore == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return false
+	}
+	now := r.now()
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStatePending,
+	}
+	if ev.FanAirflowReopenedAt == nil {
+		params.FanAirflowReopenedAt = &now
+	}
+	params.FanAirflowReopenedAtOnSuccess = &now
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: pending facility fan ON failed", "event_id", ev.ID, "error", err)
+		}
+		return false
+	}
+	if lastError == nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.FanAirflowReopenedAt != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+	}
+	ev.FanLastError = lastError
+	if lastError == nil && r.fanAlert != nil {
+		r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), false)
+	}
+	return lastError == nil
+}
+
+// dispatchPendingCurtailBatches drains retryable Curtail work in command
 // batches. Orphaned DISPATCHING rows from an interrupted prior tick are
 // recovered before fresh PENDING rows. curtail_batch_size=NULL dispatches all
 // remaining targets; a positive interval paces fresh pending batches.
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	batchSize := curtailBatchSizeForEvent(ev, len(targets))
-	dispatchByState := func(state models.TargetState, singleBatch bool) bool {
+	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, recordPendingDispatch bool) bool {
+		dispatchClaim := func(claim []*models.Target) bool {
+			recordClaimDispatch := recordPendingDispatch
+			if state == models.TargetStateDispatching {
+				recordClaimDispatch = recordPendingDispatch && hasUnrecordedCurtailDispatch(claim)
+			}
+			return r.dispatchCurtailBatch(ctx, ev, claim, state, recordClaimDispatch)
+		}
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
 			if t.State != state {
@@ -334,10 +588,10 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 			}
 			claim = append(claim, t)
 			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-				if !r.dispatchCurtailBatch(ctx, ev, claim, state) {
+				if !dispatchClaim(claim) {
 					return false
 				}
-				if singleBatch {
+				if dispatchSingleBatch {
 					return true
 				}
 				claim = make([]*models.Target, 0, batchSize)
@@ -346,21 +600,21 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		if len(claim) == 0 {
 			return true
 		}
-		return r.dispatchCurtailBatch(ctx, ev, claim, state)
+		return dispatchClaim(claim)
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
-	hadDispatching := hasTargetsInState(targets, models.TargetStateDispatching)
-	if !dispatchByState(models.TargetStateDispatching, intervalActive) {
+	// A DISPATCHING row without a durable curtail-phase result may have been
+	// stranded before its command was enqueued. Treat that recovery as a fresh
+	// wave so its physical send is paced. Rows with a durable prior enqueue are
+	// retries and deliberately leave the pending-wave clock alone.
+	if !dispatchByState(models.TargetStateDispatching, intervalActive, intervalActive) {
 		return
 	}
-	if intervalActive && hadDispatching {
+	if intervalActive && !r.curtailBatchIntervalElapsed(ev) {
 		return
 	}
-	if intervalActive && !r.curtailBatchIntervalElapsed(ev, targets) {
-		return
-	}
-	_ = dispatchByState(models.TargetStatePending, intervalActive)
+	_ = dispatchByState(models.TargetStatePending, intervalActive, recordPendingDispatchClock)
 }
 
 // confirmDispatched promotes Dispatched → Confirmed when telemetry
@@ -405,16 +659,21 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // target in DISPATCHING; the next tick redispatches via
 // nonTerminalFailureState (Curtail is device-idempotent).
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
-	_ = r.dispatchCurtailBatch(ctx, ev, []*models.Target{t}, nonTerminalFailureState)
+	_ = r.dispatchCurtailBatch(ctx, ev, []*models.Target{t}, nonTerminalFailureState, skipPendingDispatchClock)
 }
 
 // dispatchCurtailBatch issues one Curtail command for every device in claim and
 // records per-target dispatched/skipped/failed outcomes.
-func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState) bool {
+func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, recordPendingDispatch bool) bool {
 	if len(claim) == 0 {
 		return true
 	}
 	if !r.eventStillDispatchable(ctx, ev) {
+		return false
+	}
+	if recordPendingDispatch && !r.recordCurtailPendingDispatch(ctx, ev, r.now()) {
+		// Fail closed before either the DISPATCHING pre-write or the physical
+		// command. A successful command must never outrun a stale durable clock.
 		return false
 	}
 	// last_dispatched_at is *not* stamped here — only successful enqueues
@@ -441,6 +700,9 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	}
 	if len(dispatchSet) == 0 {
 		return true
+	}
+	if !r.eventStillDispatchable(ctx, ev) {
+		return false
 	}
 
 	deviceIDs := make([]string, 0, len(dispatchSet))
@@ -521,6 +783,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 				slog.Error("curtailment reconciler: target dispatch update failed",
 					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+				r.recordDispatchFailure(ctx, ev, t, err.Error(), nonTerminalFailureState)
 			}
 			continue
 		}
@@ -536,20 +799,54 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	return true
 }
 
-// recordDispatchFailure bumps retry_count; transitions to RestoreFailed
-// at MaxRetries so the event can still proceed. On non-race-loss write
-// failure, falls back to BumpTargetRetry so the budget still advances
-// across ticks even when the rich state-change UPDATE can't land.
+type dispatchFailureGuard struct {
+	expectedState     models.TargetState
+	expectedBatchUUID *string
+}
+
+func loadedDispatchBatchUUID(t *models.Target) *string {
+	if t.DesiredState == models.DesiredStateActive {
+		if t.RestorePhase == nil {
+			return nil
+		}
+		return t.RestorePhase.BatchUUID
+	}
+	return t.CurtailPhase.BatchUUID
+}
+
+// recordDispatchFailure bumps retry_count. Restore targets transition to
+// RestoreFailed at MaxRetries so the event can complete; curtail targets stay
+// retryable while OFF remains asserted, with retry_count surfacing the alert.
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, nil)
+}
+
+// recordDispatchedObservationFailure guards failure writes derived from a
+// loaded dispatched target on both its state and dispatch batch. The batch
+// token closes the ABA window where another fleetd confirms and redispatches
+// the row before this stale snapshot writes. Legacy dispatched rows without a
+// batch token retain the state guard so they can still age normally.
+func (r *Reconciler) recordDispatchedObservationFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, &dispatchFailureGuard{
+		expectedState:     models.TargetStateDispatched,
+		expectedBatchUUID: loadedDispatchBatchUUID(t),
+	})
+}
+
+func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState, guard *dispatchFailureGuard) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
-	if newRetry >= r.cfg.MaxRetries {
+	if r.retryBudgetTerminalizes(t, newRetry) {
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:      state,
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
+	}
+	if guard != nil {
+		params.ExpectedState = &guard.expectedState
+		params.ExpectedDispatchBatchUUID = guard.expectedBatchUUID
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
@@ -563,9 +860,14 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 	}
 	slog.Error("curtailment reconciler: target update after dispatch failure failed",
 		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-	// Fallback: advance retry budget only. State stays at the prior value
-	// (next tick re-issues the dispatch); MaxRetries → RESTORE_FAILED
-	// escalation lands on the next successful UpdateTargetState.
+	if guard != nil {
+		// BumpTargetRetry cannot carry the dispatched-state and phase-batch
+		// guards. Falling back here could consume retry budget on a target the
+		// pulse already confirmed or on a replacement dispatch batch.
+		return
+	}
+	// Fallback: advance retry budget only. State stays at the prior value;
+	// terminal restore escalation lands on the next successful UpdateTargetState.
 	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
 		if !errors.Is(bumpErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			r.metrics.IncTargetWriteFailure()
@@ -575,6 +877,21 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 		return
 	}
 	t.RetryCount = newRetry
+}
+
+func (r *Reconciler) maxRetriesForTarget(t *models.Target) int32 {
+	if isCurtailRetryTarget(t) {
+		return r.cfg.CurtailMaxRetries
+	}
+	return r.cfg.MaxRetries
+}
+
+func (r *Reconciler) retryBudgetTerminalizes(t *models.Target, retryCount int32) bool {
+	return t == nil || (!isCurtailRetryTarget(t) && retryCount >= r.maxRetriesForTarget(t))
+}
+
+func isCurtailRetryTarget(t *models.Target) bool {
+	return t != nil && (t.DesiredState == "" || t.DesiredState == models.DesiredStateCurtailed)
 }
 
 // candidatesByDeviceID indexes a candidate slice by device identifier for
@@ -612,97 +929,584 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	if len(targets) == 0 {
-		return
-	}
-
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	if r.enforceMaxDuration(ctx, ev, targets) {
 		return
 	}
-
-	deviceIDs := make([]string, 0, len(targets))
-	for _, t := range targets {
-		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
-	}
-	cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
-		OrgID:             ev.OrgID,
-		DeviceIdentifiers: deviceIDs,
-	})
-	if err != nil {
-		slog.Error("curtailment reconciler: list candidates (drift) failed",
-			"event_id", ev.ID, "error", err)
-		return
-	}
-	candByID := candidatesByDeviceID(cands)
 
 	// Per-tick liveness check; per-target race closure is in dispatchOneCurtail.
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	for _, t := range targets {
-		switch t.State {
-		case models.TargetStateConfirmed:
-			r.checkDrift(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
-		case models.TargetStateDispatched:
-			// Re-entry: drifted-then-redispatched, waiting on confirmation.
-			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
-		case models.TargetStateDispatching:
-			// Orphan from an interrupted prior tick; redispatch.
-			if t.RetryCount >= r.cfg.MaxRetries {
-				// Escalate via recordDispatchFailure so the target reaches
-				// the terminal state. Skipping with `continue` would leave
-				// the row pinned in DISPATCHING after BumpTargetRetry's
-				// fallback path bumped retry_count past MaxRetries without
-				// a state transition.
-				r.recordDispatchFailure(cmdCtx, ev, t,
-					"retry budget exhausted from interrupted dispatch",
-					models.TargetStateDispatching)
-				continue
-			}
-			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
-		case models.TargetStateDrifted:
-			if t.RetryCount >= r.cfg.MaxRetries {
-				// Symmetric to the DISPATCHING arm: a Drifted target whose
-				// retry budget was bumped past MaxRetries by the
-				// BumpTargetRetry fallback must terminalize, not loop.
-				r.recordDispatchFailure(cmdCtx, ev, t,
-					"retry budget exhausted on drifted target",
-					models.TargetStateDrifted)
-				continue
-			}
-			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-		case models.TargetStatePending,
-			models.TargetStateResolved, models.TargetStateReleased,
-			models.TargetStateRestoreFailed:
-			// Pending unreachable on active; terminal states are restorer-owned.
+	airflowReopened := false
+	deferredDrifted := make([]*models.Target, 0)
+	if len(targets) > 0 {
+		deviceIDs := make([]string, 0, len(targets))
+		for _, t := range targets {
+			deviceIDs = append(deviceIDs, t.DeviceIdentifier)
 		}
+		cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+			OrgID:             ev.OrgID,
+			DeviceIdentifiers: deviceIDs,
+		})
+		if err != nil {
+			slog.Error("curtailment reconciler: list candidates (drift) failed",
+				"event_id", ev.ID, "error", err)
+			if ev.FanOffSentAt != nil && len(ev.FacilityFanDeviceIDs) > 0 {
+				if !r.reopenActiveFans(ctx, ev) {
+					return
+				}
+				airflowReopened = true
+			}
+		} else {
+			candByID := candidatesByDeviceID(cands)
+			if isAllPairedPolicyEvent(ev) {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candByID)
+			}
+			for _, t := range targets {
+				switch t.State {
+				case models.TargetStateConfirmed:
+					if ev.FanOffSentAt != nil &&
+						!hasFreshTelemetry(candByID[t.DeviceIdentifier]) {
+						if !airflowReopened {
+							if !r.reopenActiveFans(ctx, ev) {
+								return
+							}
+							airflowReopened = true
+						}
+						continue
+					}
+					r.checkDrift(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
+					if t.State == models.TargetStateDrifted && ev.FanOffSentAt != nil {
+						deferredDrifted = append(deferredDrifted, t)
+					}
+				case models.TargetStateDispatched:
+					// Re-entry: drifted-then-redispatched, waiting on confirmation.
+					r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
+				case models.TargetStateDispatching:
+					// Orphan from an interrupted prior tick; redispatched after
+					// observation in batch-aware order.
+					if r.retryBudgetTerminalizes(t, t.RetryCount) {
+						// Escalate restore targets instead of leaving the row pinned
+						// in DISPATCHING after retry_count passes MaxRetries.
+						r.recordDispatchFailure(cmdCtx, ev, t,
+							"retry budget exhausted from interrupted dispatch",
+							models.TargetStateDispatching)
+						continue
+					}
+				case models.TargetStateDrifted:
+					if r.retryBudgetTerminalizes(t, t.RetryCount) {
+						// Symmetric to the DISPATCHING arm: a Drifted target whose
+						// retry budget was bumped past MaxRetries by the
+						// BumpTargetRetry fallback must terminalize, not loop.
+						r.recordDispatchFailure(cmdCtx, ev, t,
+							"retry budget exhausted on drifted target",
+							models.TargetStateDrifted)
+						continue
+					}
+					// Mirror the confirm/drift paired-like guards: a drifted
+					// all-paired row whose device unpaired must not receive
+					// re-curtail commands every tick.
+					if isAllPairedPolicyEvent(ev) {
+						if c := candByID[t.DeviceIdentifier]; c == nil {
+							r.recordDispatchFailure(cmdCtx, ev, t,
+								"candidate row missing (device unpaired or deleted)",
+								models.TargetStateDrifted)
+							continue
+						} else if !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+							r.recordDispatchFailure(cmdCtx, ev, t,
+								"device is no longer paired-like",
+								models.TargetStateDrifted)
+							continue
+						}
+					}
+					if ev.FanOffSentAt != nil {
+						deferredDrifted = append(deferredDrifted, t)
+						continue
+					}
+					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
+				case models.TargetStatePending, models.TargetStateUnavailable,
+					models.TargetStateResolved, models.TargetStateReleased,
+					models.TargetStateRestoreFailed:
+					// Pending rows are handled by the active closed-loop dispatch pass
+					// below. Terminal states are restorer-owned.
+				}
+			}
+			if activeFanTargetsNeedAirflow(ev, targets) {
+				if !r.reconcileActiveFans(ctx, ev, targets) {
+					return
+				}
+				airflowReopened = true
+			}
+			for _, target := range deferredDrifted {
+				r.dispatchOneCurtail(cmdCtx, ev, target, models.TargetStateDrifted)
+			}
+			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
+		}
+	}
+	claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+	if len(claimed) > 0 && !airflowReopened && ev.FanOffSentAt != nil {
+		// A closed-loop event may discover a hashing miner after airflow was
+		// stopped. Reopen the fans while the new target is still undispatched;
+		// later ticks keep them ON until every admitted target confirms curtailment.
+		if !r.reconcileActiveFans(ctx, ev, append(targets, claimed...)) {
+			return
+		}
+		airflowReopened = true
+	}
+	r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+	// Claimed rows aren't in the deferred wake's `targets` slice; wake for
+	// them explicitly so dynamically-admitted miners get the pulse too.
+	r.wakeIfDispatchedWork(claimed)
+	if !airflowReopened {
+		_ = r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+	}
+}
+
+// reconcileActiveFans reports true only when the requested hardware command
+// and its durable state write both succeed. Dynamic dispatch uses that result
+// to fail closed while airflow is known to need reopening.
+func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return false
+	}
+	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
+	now := r.now()
+	desiredPower := driver.PowerOff
+	if !allConfirmed || confirmed == 0 {
+		if ev.FanOffSentAt == nil {
+			return false
+		}
+		desiredPower = driver.PowerOn
+	} else if (ev.FanOffSentAt == nil || ev.FanAirflowReopenedAt != nil) &&
+		!activeFanOffDelayElapsed(ev, targets, now) {
+		// Initial curtailment, dynamic admission, and drift all start their
+		// cooling delay only after the latest miner confirmation. A later
+		// airflow-reopen command remains the lower bound when applicable.
+		return false
+	}
+	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
+		// Persist the first OFF intent before hardware I/O. If the command
+		// succeeds but its follow-up state write is lost, later admission and
+		// operator recovery must conservatively assume the fans may be off.
+		intent := interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateActive,
+			FanOffSentAt:       &now,
+			LastError:          ev.FanLastError,
+		}
+		_, err := r.fanStore.CommandFanState(ctx, ev.ID, intent, func(context.Context) *string {
+			return ev.FanLastError
+		})
+		if err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: facility fan OFF intent update failed", "event_id", ev.ID, "error", err)
+			}
+			return false
+		}
+		ev.FanOffSentAt = &now
+	}
+
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateActive,
+	}
+	switch desiredPower {
+	case driver.PowerOn:
+		if ev.FanAirflowReopenedAt == nil {
+			params.FanAirflowReopenedAt = &now
+		}
+		params.FanAirflowReopenedAtOnSuccess = &now
+	case driver.PowerOff:
+		if ev.FanAirflowReopenedAt != nil {
+			params.ClearFanAirflowReopenedAt = true
+		}
+	default:
+		return false
+	}
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, desiredPower)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan state update failed", "event_id", ev.ID, "power", desiredPower, "error", err)
+		}
+		return false
+	}
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.FanAirflowReopenedAt != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+	}
+	if params.ClearFanAirflowReopenedAt {
+		ev.FanAirflowReopenedAt = nil
+	}
+	ev.FanLastError = lastError
+	return lastError == nil
+}
+
+func activeFanTargetsNeedAirflow(ev *models.Event, targets []*models.Target) bool {
+	if ev == nil || ev.FanOffSentAt == nil {
+		return false
+	}
+	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
+	return !allConfirmed || confirmed == 0
+}
+
+func hasFreshCurtailedFanEvidence(c *models.Candidate, target *models.Target, driftThresholdFactor float64) bool {
+	if c == nil || target == nil || c.LatestMetricsAt == nil {
+		return false
+	}
+	return isCurtailed(c.LatestPowerW, target.BaselinePowerW, c.LatestHashRateHS, driftThresholdFactor, true)
+}
+
+func hasFreshTelemetry(c *models.Candidate) bool {
+	if c == nil || c.LatestMetricsAt == nil {
+		return false
+	}
+	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
+		return true
+	}
+	return c.LatestHashRateHS != nil && isFinite(*c.LatestHashRateHS)
+}
+
+func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allConfirmed bool) {
+	allConfirmed = true
+	for _, target := range targets {
+		if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		// Only a confirmed curtailment supplies positive evidence that a
+		// potentially powered miner is no longer hashing. Unavailable and
+		// other terminal bookkeeping states may represent a miner that never
+		// received a curtail command, so they must keep airflow open.
+		if target.State != models.TargetStateConfirmed {
+			allConfirmed = false
+			continue
+		}
+		confirmed++
+	}
+	return confirmed, allConfirmed
+}
+
+func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now time.Time) bool {
+	if ev.FanOffDelaySec <= 0 {
+		return true
+	}
+	var latestConfirmation *time.Time
+	for _, target := range targets {
+		if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if target.State != models.TargetStateConfirmed || target.ConfirmedAt == nil {
+			return false
+		}
+		if ev.FanAirflowReopenedAt != nil && target.ConfirmedAt.Before(*ev.FanAirflowReopenedAt) {
+			return false
+		}
+		if latestConfirmation == nil || target.ConfirmedAt.After(*latestConfirmation) {
+			latestConfirmation = target.ConfirmedAt
+		}
+	}
+	if latestConfirmation == nil {
+		return false
+	}
+	delayStartedAt := *latestConfirmation
+	if ev.FanAirflowReopenedAt != nil && ev.FanAirflowReopenedAt.After(delayStartedAt) {
+		delayStartedAt = *ev.FanAirflowReopenedAt
+	}
+	return !now.Before(delayStartedAt.Add(time.Duration(ev.FanOffDelaySec) * time.Second))
+}
+
+func (r *Reconciler) reopenActiveFans(ctx context.Context, ev *models.Event) bool {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 || ev.FanOffSentAt == nil {
+		return false
+	}
+	now := r.now()
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateActive,
+	}
+	if ev.FanAirflowReopenedAt == nil {
+		params.FanAirflowReopenedAt = &now
+	}
+	params.FanAirflowReopenedAtOnSuccess = &now
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan airflow reopen failed", "event_id", ev.ID, "error", err)
+		}
+		return false
+	}
+	if lastError == nil {
+		ev.FanAirflowReopenedAt = &now
+	} else if params.FanAirflowReopenedAt != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+	}
+	ev.FanLastError = lastError
+	return lastError == nil
+}
+
+func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {
+	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
+		return nil
+	}
+	params, ok := listCandidatesParamsForEventScope(ev)
+	if !ok {
+		slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
+			"event_id", ev.ID, "scope_type", ev.ScopeType)
+		return nil
+	}
+	params.OrgID = ev.OrgID
+	// Admission gates run before the fleet-scale candidate scan for both
+	// policies. For all-paired events this paces only the discovery of
+	// brand-new devices and reopens; readiness refresh of existing targets
+	// stays per-tick via the device-scoped refresh path.
+	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
+		return nil
+	}
+	if hasInFlightCurtailDispatch(existingTargets) {
+		return nil
+	}
+	candidates, err := r.store.ListCandidates(ctx, params)
+	if err != nil {
+		slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
+			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	if isAllPairedPolicyEvent(ev) {
+		return r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
+	}
+	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: get org config (full_fleet admission) failed",
+			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	targets, _ := curtailment.BuildFullFleetAdmissionTargets(
+		candidates,
+		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
+		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+	)
+	targets = excludeExistingTargetParams(targets, existingTargets)
+	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: list active devices (full_fleet admission) failed",
+			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	targets = excludeDeviceIdentifiers(targets, activeDevices)
+	cooldownSec := postEventCooldownSecForEvent(ev)
+	if cooldownSec > 0 {
+		cooldownDevices, err := r.store.ListRecentlyResolvedCurtailedDevices(
+			ctx,
+			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
+				OrgID:             ev.OrgID,
+				CooldownSec:       cooldownSec,
+				DeviceIdentifiers: params.DeviceIdentifiers,
+				SiteIDs:           params.SiteIDs,
+			},
+		)
+		if err != nil {
+			slog.Error("curtailment reconciler: list cooldown devices (full_fleet admission) failed",
+				"event_id", ev.ID, "error", err)
+			return nil
+		}
+		targets = excludeDeviceIdentifiers(targets, cooldownDevices)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); len(targets) > int(batchSize) {
+		targets = targets[:batchSize]
+	}
+	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(ctx, ev.ID, ev.OrgID, cooldownSec, targets)
+	if err != nil {
+		slog.Error("curtailment reconciler: claim full_fleet targets failed",
+			"event_id", ev.ID, "candidate_count", len(targets), "error", err)
+		return nil
+	}
+	if len(claimed) > 0 {
+		slog.Info("curtailment reconciler: claimed full_fleet targets",
+			"event_id", ev.ID, "claimed", len(claimed))
+	}
+	return claimed
+}
+
+func hasInFlightCurtailDispatch(targets []*models.Target) bool {
+	for _, target := range targets {
+		if target.DesiredState == models.DesiredStateCurtailed && target.State == models.TargetStateDispatching {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateMinPowerWForEvent(ev *models.Event, fallback int32) int32 {
+	if ev == nil || len(ev.DecisionSnapshotJSON) == 0 {
+		return fallback
+	}
+	var snapshot struct {
+		CandidateMinPowerW int32 `json:"candidate_min_power_w"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.CandidateMinPowerW <= 0 {
+		return fallback
+	}
+	return snapshot.CandidateMinPowerW
+}
+
+func postEventCooldownSecForEvent(ev *models.Event) int32 {
+	if ev == nil || len(ev.DecisionSnapshotJSON) == 0 {
+		return 0
+	}
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
+		return 0
+	}
+	return snapshot.PostEventCooldownSec
+}
+
+func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
+	if len(targets) == 0 || len(existingTargets) == 0 {
+		return targets
+	}
+	existing := make(map[string]struct{}, len(existingTargets))
+	for _, target := range existingTargets {
+		existing[target.DeviceIdentifier] = struct{}{}
+	}
+	filtered := targets[:0]
+	for _, target := range targets {
+		if _, ok := existing[target.DeviceIdentifier]; ok {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
+}
+
+func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
+	if len(targets) == 0 || len(existingTargets) == 0 {
+		return targets
+	}
+	existing := make(map[string]models.TargetState, len(existingTargets))
+	for _, target := range existingTargets {
+		existing[target.DeviceIdentifier] = target.State
+	}
+	filtered := targets[:0]
+	for _, target := range targets {
+		state, ok := existing[target.DeviceIdentifier]
+		if ok && state != models.TargetStateReleased {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
+}
+
+func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
+	if len(targets) == 0 || len(deviceIdentifiers) == 0 {
+		return targets
+	}
+	excluded := make(map[string]struct{}, len(deviceIdentifiers))
+	for _, deviceIdentifier := range deviceIdentifiers {
+		excluded[deviceIdentifier] = struct{}{}
+	}
+	filtered := targets[:0]
+	for _, target := range targets {
+		if _, ok := excluded[target.DeviceIdentifier]; ok {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
+}
+
+func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *models.Event, claimed []*models.Target) {
+	if len(claimed) == 0 {
+		return
+	}
+	dispatchable := claimed[:0]
+	for _, target := range claimed {
+		if target.State == models.TargetStatePending || target.State == models.TargetStateDispatching {
+			dispatchable = append(dispatchable, target)
+		}
+	}
+	if len(dispatchable) == 0 {
+		return
+	}
+	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching, recordPendingDispatchClock)
+}
+
+func isClosedLoopFullFleet(ev *models.Event) bool {
+	return ev != nil && ev.Mode == models.ModeFullFleet && ev.LoopType == models.LoopTypeClosed
+}
+
+func toStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
+}
+
+func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandidatesParams, bool) {
+	switch ev.ScopeType {
+	case models.ScopeTypeWholeOrg, "":
+		return interfaces.ListCandidatesParams{}, true
+	case models.ScopeTypeSite:
+		var scope struct {
+			SiteID int64 `json:"site_id"`
+		}
+		if err := json.Unmarshal(ev.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
+			return interfaces.ListCandidatesParams{}, false
+		}
+		return interfaces.ListCandidatesParams{SiteIDs: []int64{scope.SiteID}}, true
+	case models.ScopeTypeMixed:
+		scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
+		if err != nil || !hasScope || !curtailment.IsSiteOnlyScope(scope) {
+			return interfaces.ListCandidatesParams{}, false
+		}
+		return interfaces.ListCandidatesParams{SiteIDs: scope.SiteIDs}, true
+	case models.ScopeTypeDeviceList:
+		return interfaces.ListCandidatesParams{}, false
+	default:
+		return interfaces.ListCandidatesParams{}, false
 	}
 }
 
 // confirmOneDispatched promotes Dispatched → Confirmed when telemetry
 // shows curtailment, resetting retry_count. Missing candidate row goes
-// through recordDispatchFailure so a vanished device can't stall.
+// through guarded failure aging so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		r.recordDispatchedObservationFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchedObservationFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
+		if t.LastDispatchedAt != nil && r.cfg.CurtailDispatchTimeoutSec > 0 {
+			timeout := time.Duration(r.cfg.CurtailDispatchTimeoutSec) * time.Second
+			if r.now().Sub(*t.LastDispatchedAt) > timeout {
+				slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
+					"event_id", ev.ID, "device", t.DeviceIdentifier,
+					"timeout_sec", r.cfg.CurtailDispatchTimeoutSec)
+				// Guard on dispatched: if the confirmation pulse already
+				// confirmed this target from a fresh sample, this stale-snapshot
+				// aging write race-loses instead of reverting it and burning retry.
+				r.recordDispatchedObservationFailure(ctx, ev, t,
+					"curtail telemetry timeout",
+					models.TargetStateDispatching)
+			}
+		}
 		return
 	}
 	now := r.now()
-	zero := int32(0)
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateConfirmed,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-		RetryCount:  &zero,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := confirmedCurtailTargetParams(now, c.LatestPowerW)
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: target confirm update failed",
@@ -724,6 +1528,10 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", models.TargetStateDrifted)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, false) {
@@ -748,11 +1556,14 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if params.ObservedPowerW != nil {
 			t.ObservedPowerW = params.ObservedPowerW
 		}
-		// Budget exhausted: stay Drifted (matches observeActive's drift arm).
-		if t.RetryCount >= r.cfg.MaxRetries {
+		// Restore targets terminalize at budget; curtail targets keep retrying
+		// while OFF is asserted.
+		if r.retryBudgetTerminalizes(t, t.RetryCount) {
 			return
 		}
-		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
+		if ev.FanOffSentAt == nil {
+			r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
+		}
 		return
 	}
 	// Still curtailed: refresh observed_power_w / observed_at as a rolling read.
@@ -760,6 +1571,11 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:      models.TargetStateConfirmed,
 		ObservedAt: &now,
+	}
+	if ev.FanAirflowReopenedAt != nil &&
+		(t.ConfirmedAt == nil || t.ConfirmedAt.Before(*ev.FanAirflowReopenedAt)) &&
+		hasFreshCurtailedFanEvidence(c, t, r.cfg.DriftThresholdFactor) {
+		params.ConfirmedAt = &now
 	}
 	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
 		power := *c.LatestPowerW
@@ -773,6 +1589,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		return
 	}
 	t.ObservedAt = &now
+	if params.ConfirmedAt != nil {
+		t.ConfirmedAt = params.ConfirmedAt
+	}
 	if params.ObservedPowerW != nil {
 		t.ObservedPowerW = params.ObservedPowerW
 	}
@@ -782,21 +1601,52 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 // terminally failed. All-failed events skip past Active to
 // completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	confirmed, terminalFailures := 0, 0
+	confirmed, terminalFailures, unavailable, releasedPolicy := 0, 0, 0, 0
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
 			confirmed++
 		case models.TargetStateRestoreFailed:
 			terminalFailures++
-		case models.TargetStatePending, models.TargetStateDispatching,
-			models.TargetStateDispatched, models.TargetStateDrifted:
+		case models.TargetStateUnavailable:
+			if isAllPairedPolicyEvent(ev) {
+				// Policy ownership is held until the miner becomes commandable;
+				// it should not pause drift enforcement for confirmed targets.
+				unavailable++
+				continue
+			}
+			return
+		case models.TargetStatePending, models.TargetStateDispatching, models.TargetStateDispatched, models.TargetStateDrifted:
 			// In flight.
 			return
-		case models.TargetStateResolved, models.TargetStateReleased:
+		case models.TargetStateReleased:
+			if isAllPairedPolicyReleasedCurtailTarget(ev, t) {
+				// Released all-paired policy rows are dormant placeholders.
+				// Admission can reopen them when the miner is paired-like
+				// again, so they must not pin the parent event in pending —
+				// but with nothing confirmed they must not activate it
+				// either (see the hold below).
+				releasedPolicy++
+				continue
+			}
+			// Unreachable on a pending event; hold for manual cleanup.
+			return
+		case models.TargetStateResolved:
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		}
+	}
+	if confirmed == 0 && (unavailable > 0 || releasedPolicy > 0) {
+		// All-paired policy event with nothing curtailed yet: hold it in
+		// pending so StartedAt (and enforceMaxDuration's clock) don't start
+		// until curtailment actually begins. The per-tick readiness refresh
+		// keeps promoting unavailable rows, and admission reopens released
+		// rows on re-pair; a scope that starts entirely offline — or whose
+		// every row was released on unpair — must not burn its bounded
+		// duration window (or be force-restored having curtailed nothing)
+		// before a single dispatch happens.
+		r.warnIfAllPairedPendingStalled(ev, unavailable, releasedPolicy)
+		return
 	}
 	if confirmed == 0 && terminalFailures > 0 {
 		// All-failed: nothing curtailed → skip Active.
@@ -818,6 +1668,33 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	}
 }
 
+// allPairedPendingStallWarnAfter is how long an all-paired event may hold in
+// pending (started_at unset, nothing confirmed) before the reconciler starts
+// flagging it each tick. The hold itself is deliberate and open-ended: the
+// event owns its scope — blocking every other curtailment start for that
+// scope via the hierarchy conflict check and scope watcher — until a target
+// confirms or an operator stops it, so a sustained stall (fleet-wide outage,
+// auth-needed population) must surface on dashboards, not only in the UI.
+const allPairedPendingStallWarnAfter = 15 * time.Minute
+
+// warnIfAllPairedPendingStalled emits the stall signal for a held pending
+// all-paired event. StartedAt is checked so recurtailed events (restoring →
+// pending with started_at already stamped) don't count: their clock ran.
+func (r *Reconciler) warnIfAllPairedPendingStalled(ev *models.Event, unavailable, releasedPolicy int) {
+	if !isAllPairedPolicyEvent(ev) || ev.StartedAt != nil {
+		return
+	}
+	stalledFor := r.now().Sub(ev.CreatedAt)
+	if stalledFor < allPairedPendingStallWarnAfter {
+		return
+	}
+	r.metrics.IncAllPairedPendingStall()
+	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until a target confirms or the event is stopped",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID,
+		"pending_for", stalledFor.Truncate(time.Second).String(),
+		"unavailable_targets", unavailable, "released_targets", releasedPolicy)
+}
+
 // logEventStateUpdateError buckets store.UpdateEventState errors:
 // race-loss → Warn + IncEventStateRaceLoss; other errors → Error.
 func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition string, err error) {
@@ -830,6 +1707,26 @@ func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition strin
 	}
 	slog.Error("curtailment reconciler: "+transition+" transition failed",
 		"event_id", ev.ID, "error", err)
+}
+
+func (r *Reconciler) recordCurtailPendingDispatch(ctx context.Context, ev *models.Event, dispatchedAt time.Time) bool {
+	err := r.store.RecordCurtailPendingDispatch(ctx, ev.ID, ev.State, dispatchedAt)
+	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			r.metrics.IncEventStateRaceLoss()
+			slog.Warn("curtailment reconciler: event state advanced concurrently; skipping pending dispatch clock update",
+				"event_id", ev.ID, "event_uuid", ev.EventUUID,
+				"loaded_state", ev.State)
+			return false
+		}
+		slog.Error("curtailment reconciler: pending dispatch clock update failed",
+			"event_id", ev.ID, "error", err)
+		return false
+	}
+
+	ts := dispatchedAt
+	ev.LastCurtailPendingDispatchAt = &ts
+	return true
 }
 
 // writeTargetState wraps store.UpdateTargetState so race-loss routes to
@@ -852,13 +1749,17 @@ func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, dev
 		return nil
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-		r.metrics.IncEventStateRaceLoss()
-		slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
+		r.recordTargetStateRaceLoss(ev, deviceID)
 		return err
 	}
 	r.metrics.IncTargetWriteFailure()
 	return err
+}
+
+func (r *Reconciler) recordTargetStateRaceLoss(ev *models.Event, deviceID string) {
+	r.metrics.IncEventStateRaceLoss()
+	slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
 }
 
 func expectedDesiredStateForEventState(state models.EventState) string {
@@ -918,34 +1819,24 @@ func curtailBatchIntervalActive(ev *models.Event) bool {
 	return ev != nil && ev.CurtailBatchSize != nil && ev.CurtailBatchIntervalSec > 0
 }
 
-func hasTargetsInState(targets []*models.Target, state models.TargetState) bool {
-	for _, t := range targets {
-		if t.State == state {
+func hasUnrecordedCurtailDispatch(targets []*models.Target) bool {
+	for _, target := range targets {
+		if target == nil || target.State != models.TargetStateDispatching {
+			continue
+		}
+		if target.CurtailPhase.DispatchedAt == nil {
 			return true
 		}
 	}
 	return false
 }
 
-func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event, targets []*models.Target) bool {
+func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event) bool {
 	if !curtailBatchIntervalActive(ev) {
 		return true
 	}
 	interval := time.Duration(ev.CurtailBatchIntervalSec) * time.Second
-	var newest *time.Time
-	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateCurtailed {
-			continue
-		}
-		if t.CurtailPhase.DispatchedAt == nil {
-			continue
-		}
-		if newest == nil || t.CurtailPhase.DispatchedAt.After(*newest) {
-			ts := *t.CurtailPhase.DispatchedAt
-			newest = &ts
-		}
-	}
-	return newest == nil || r.now().Sub(*newest) >= interval
+	return ev.LastCurtailPendingDispatchAt == nil || r.now().Sub(*ev.LastCurtailPendingDispatchAt) >= interval
 }
 
 // isCurtailed decides whether telemetry shows the target is curtailed.
@@ -996,7 +1887,7 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		return false
 	}
 
-	if _, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID); err != nil {
+	if _, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID, interfaces.BeginRestoreTransitionParams{}); err != nil {
 		slog.Error("curtailment reconciler: max_duration→restoring transition failed",
 			"event_id", ev.ID, "max_duration_seconds", *ev.MaxDurationSeconds,
 			"elapsed_seconds", int64(elapsed.Seconds()), "error", err)
@@ -1021,18 +1912,120 @@ func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	if len(targets) == 0 {
-		// Contract violation; BeginRestoreTransition needs targets.
-		slog.Error("curtailment reconciler: restoring event has no targets",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID)
-		return
-	}
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
+	r.reconcileRestoringFans(ctx, ev)
 
 	r.confirmDispatchedRestores(ctx, ev, targets)
 	if r.maybeCompleteRestoring(ctx, ev, targets) {
 		return
 	}
 	r.maybeClaimRestoreBatch(ctx, ev, targets)
+}
+
+func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Event) {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return
+	}
+	now := r.now()
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateRestoring,
+	}
+	if ev.FanOnSentAt == nil {
+		params.FanOnSentAt = &now
+		// Airflow markers from the active phase do not prove that this
+		// restoration's ON command succeeded. Clear the old marker when the
+		// first attempt fails; a successful command replaces it atomically.
+		params.ClearFanAirflowReopenedAt = true
+	}
+	if restoringFanAirflowStartedAt(ev) == nil {
+		params.FanAirflowReopenedAtOnSuccess = &now
+	}
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan ON state update failed", "event_id", ev.ID, "error", err)
+		}
+		return
+	}
+	if ev.FanOnSentAt == nil {
+		ev.FanOnSentAt = &now
+	}
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.ClearFanAirflowReopenedAt {
+		ev.FanAirflowReopenedAt = nil
+	}
+	ev.FanLastError = lastError
+	if r.fanAlert != nil {
+		alertStartedAt := restoreFanFailureAlertStartedAt(ev)
+		switch {
+		case lastError == nil:
+			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), false)
+		case alertStartedAt != nil && !now.Before(alertStartedAt.Add(time.Duration(ev.FanRestoreDelaySec)*time.Second)):
+			// Emit before terminal evaluation so even a targetless or already
+			// resolved event leaves an operator-visible signal when its fan
+			// restore has remained broken through the fail-open delay.
+			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), true)
+		}
+	}
+}
+
+// restoreFanFailureAlertStartedAt returns the timestamp used to decide when a
+// fan restore failure becomes operator-visible. Prefer confirmed restored
+// airflow so alerting follows the same cooling gate that protects miner
+// restores after a failed first ON attempt.
+func restoreFanFailureAlertStartedAt(ev *models.Event) *time.Time {
+	if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
+		return airflowStartedAt
+	}
+	if ev == nil {
+		return nil
+	}
+	if ev.FanOnSentAt != nil {
+		return ev.FanOnSentAt
+	}
+	return ev.FanAirflowReopenedAt
+}
+
+// restoringFanAirflowStartedAt returns the first successful ON command in the
+// current restoring phase. FanOnSentAt records the first attempt (and therefore
+// bounds fail-open behavior), while an older airflow marker may belong to the
+// active phase and must not satisfy the restore cooling gate.
+func restoringFanAirflowStartedAt(ev *models.Event) *time.Time {
+	if ev == nil || ev.FanOnSentAt == nil || ev.FanAirflowReopenedAt == nil ||
+		ev.FanAirflowReopenedAt.Before(*ev.FanOnSentAt) {
+		return nil
+	}
+	return ev.FanAirflowReopenedAt
+}
+
+func (r *Reconciler) commandAndPersistFanState(
+	ctx context.Context,
+	event *models.Event,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	power driver.PowerMode,
+) (*string, error) {
+	return r.fanStore.CommandFanState(ctx, event.ID, params, func(commandCtx context.Context) *string {
+		fanCtx, cancel := fanCommandContext(commandCtx)
+		defer cancel()
+		return r.fans.SetState(fanCtx, event, power)
+	})
+}
+
+func fanCommandContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return context.WithCancel(ctx)
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return context.WithTimeout(ctx, 0)
+	}
+	// This deadline applies only to hardware I/O. The enclosing store call keeps
+	// the event context so the remaining half can persist timeout evidence before
+	// telemetry confirmation, state transitions, and miner dispatch continue.
+	return context.WithTimeout(ctx, remaining/2)
 }
 
 // confirmDispatchedRestores promotes restore-phase Dispatched targets to
@@ -1071,7 +2064,7 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 // progress.
 func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t,
+		r.recordDispatchedObservationFailure(ctx, ev, t,
 			"candidate row missing (device unpaired or deleted)",
 			models.TargetStatePending)
 		return
@@ -1085,7 +2078,11 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 				slog.Info("curtailment reconciler: restore telemetry timeout aging initiated",
 					"event_id", ev.ID, "device", t.DeviceIdentifier,
 					"timeout_sec", r.cfg.RestoreDispatchTimeoutSec)
-				r.recordDispatchFailure(ctx, ev, t,
+				// Guard on dispatched: if the confirmation pulse already
+				// resolved this restore target, this stale-snapshot aging write
+				// race-loses instead of reverting it — critically avoiding a
+				// spurious RESTORE_FAILED when retry budget is at the ceiling.
+				r.recordDispatchedObservationFailure(ctx, ev, t,
 					"restore telemetry timeout",
 					models.TargetStatePending)
 			}
@@ -1093,15 +2090,10 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		return
 	}
 	now := r.now()
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateResolved,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := resolvedRestoreTargetParams(now, c.LatestPowerW)
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: restore confirm update failed",
@@ -1121,6 +2113,9 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 // is in a terminal state. Returns true when the transition was attempted so
 // the caller skips further work this tick.
 func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
+	if len(ev.FacilityFanDeviceIDs) > 0 && ev.FanOnSentAt == nil {
+		return false
+	}
 	successful, failed := 0, 0
 	for _, t := range targets {
 		switch t.State { //nolint:exhaustive // default arm is load-bearing: a future schema-added state must stay non-terminal until it ships its handling, not be silently swept into "complete." TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins the contract.
@@ -1152,10 +2147,28 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 	return true
 }
 
-// maybeClaimRestoreBatch enforces the in-flight + interval gates, then
-// claims up to EffectiveBatchSize pending restore targets and dispatches
-// one Uncurtail covering the batch.
+func restoreClaimBatchSize(ev *models.Event) int32 {
+	if ev != nil && ev.RestoreBatchSize == 0 {
+		return curtailment.RestoreBatchSizeMax
+	}
+	return batchSizeForEvent(ev)
+}
+
+// maybeClaimRestoreBatch enforces the in-flight + interval gates, then claims
+// pending restore targets and dispatches one Uncurtail covering the batch.
 func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Event, targets []*models.Target) {
+	if len(ev.FacilityFanDeviceIDs) > 0 {
+		if ev.FanOnSentAt == nil {
+			return
+		}
+		delayStartedAt := ev.FanOnSentAt
+		if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
+			delayStartedAt = airflowStartedAt
+		}
+		if r.now().Before(delayStartedAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)) {
+			return
+		}
+	}
 	// Gate 1: no in-flight restore batch.
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
@@ -1192,11 +2205,10 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		}
 	}
 
-	// Service.Start stamped this via ComputeEffectiveBatchSize; floor at 1
-	// against a missing column.
-	batchSize := int32(1)
-	if ev.EffectiveBatchSize != nil && *ev.EffectiveBatchSize > 0 {
-		batchSize = *ev.EffectiveBatchSize
+	batchSize := restoreClaimBatchSize(ev)
+	batchCapacity := int(batchSize)
+	if batchCapacity > len(targets) {
+		batchCapacity = len(targets)
 	}
 
 	// First pass: redispatch any DISPATCHING orphans from an interrupted
@@ -1204,7 +2216,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 	// command is safe. Orphan recovery consumes this tick's batch slot
 	// on its own — mixing orphans with fresh PENDING would double the
 	// inrush and bypass the one-batch-per-interval throttle.
-	orphans := make([]*models.Target, 0, batchSize)
+	orphans := make([]*models.Target, 0, batchCapacity)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue
@@ -1223,7 +2235,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 	}
 
 	// Second pass: claim fresh PENDING up to batchSize.
-	claim := make([]*models.Target, 0, batchSize)
+	claim := make([]*models.Target, 0, batchCapacity)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue
@@ -1270,6 +2282,9 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		dispatchSet = append(dispatchSet, t)
 	}
 	if len(dispatchSet) == 0 {
+		return
+	}
+	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
 
@@ -1346,6 +2361,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 				slog.Error("curtailment reconciler: restore dispatch state update failed",
 					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+				r.recordDispatchFailure(ctx, ev, t, err.Error(), models.TargetStatePending)
 			}
 			continue
 		}

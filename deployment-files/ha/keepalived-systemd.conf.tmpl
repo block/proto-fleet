@@ -1,0 +1,10 @@
+[Unit]
+Requires=proto-fleet-ha.service
+After=proto-fleet-ha.service
+PartOf=proto-fleet-ha.service
+
+[Service]
+Restart=on-failure
+RestartSec=2s
+# Remove a stranded VIP after keepalived exits. Flush succeeds when it is absent.
+ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}

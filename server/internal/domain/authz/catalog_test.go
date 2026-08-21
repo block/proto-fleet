@@ -67,10 +67,15 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermScheduleManage,
 		PermFleetnodeRead,
 		PermFleetnodeManage,
+		PermAlertRead,
+		PermAlertManage,
 		PermAPIKeyManage,
 		PermUserRead,
 		PermUserManage,
 		PermRoleManage,
+		PermInstanceUpdate,
+		PermMaintenanceRead,
+		PermMaintenanceManage,
 	}
 
 	for _, key := range expectedKeys {
@@ -114,7 +119,8 @@ func TestCatalogByResource_GroupsAndAssociates(t *testing.T) {
 	for _, resource := range []string{
 		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite, ResourceActivity,
 		ResourceServerLog, ResourceCurtailment, ResourcePool, ResourceSchedule, ResourceFleetNode,
-		ResourceAPIKey, ResourceUser, ResourceRole,
+		ResourceAlert, ResourceAPIKey, ResourceUser, ResourceRole, ResourceInstance,
+		ResourceMaintenance,
 	} {
 		if len(groups[resource]) == 0 {
 			t.Errorf("resource %q has no permissions in catalog", resource)
@@ -146,9 +152,12 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourcePool,
 		ResourceSchedule,
 		ResourceFleetNode,
+		ResourceAlert,
 		ResourceAPIKey,
 		ResourceUser,
 		ResourceRole,
+		ResourceInstance,
+		ResourceMaintenance,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ResourceOrder mismatch:\n  got:  %v\n  want: %v", got, want)

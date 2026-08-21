@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
-	"encoding/base64"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -21,8 +21,10 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -31,13 +33,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type controlHarness struct {
 	handler     *gateway.Handler
 	registry    *control.Registry
+	files       *files.Service
 	fleetNodeID int64
 	db          *sql.DB
 }
@@ -47,9 +50,10 @@ func newControlHarness(t *testing.T) *controlHarness {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	t.Chdir(t.TempDir())
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -63,25 +67,25 @@ func newControlHarness(t *testing.T) *controlHarness {
 	authSvc := auth.NewService(authStore, enrollmentStore, apiKeySvc)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
 	registry := control.NewRegistry()
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
-	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
+	code, pendingEnrollmentID, _, err := enrollmentSvc.CreateCodeWithEnrollmentID(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, signing)
+	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
 	// devices during ReportPairedDevices persistence.
-	_, _, err = enrollmentSvc.Confirm(t.Context(), agent.ID, 1)
+	_, _, err = enrollmentSvc.ConfirmExpected(t.Context(), agent.ID, 1, pendingEnrollmentID)
+	require.NoError(t, err)
+	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err)
 
 	return &controlHarness{
-		handler:     gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, registry),
+		handler:     gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, registry, filesService),
 		registry:    registry,
+		files:       filesService,
 		fleetNodeID: agent.ID,
 		db:          db,
 	}
@@ -215,6 +219,119 @@ func TestControlStream_RequiresHelloFirst(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
+type controlledAdmissionGate struct {
+	active context.Context //nolint:containedctx // Test-owned activation lifetime.
+	reject bool
+}
+
+func (g controlledAdmissionGate) Admit(ctx context.Context) (context.Context, func(), error) {
+	if g.reject {
+		return nil, nil, errors.New("passive")
+	}
+	requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(ctx, g.active))
+	stop := context.AfterFunc(g.active, cancelRequest)
+	return requestCtx, func() {
+		stop()
+		cancelRequest()
+	}, nil
+}
+
+func TestControlStream_ReturnsStructuredNotActive(t *testing.T) {
+	t.Run("passive admission", func(t *testing.T) {
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{reject: true})
+		stream := client.ControlStream(t.Context())
+		// Admission can reject before the first client write completes. In that
+		// race Send returns EOF, while Receive still carries the structured RPC
+		// status this test is asserting.
+		_ = stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}})
+
+		_, err := stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+
+	t.Run("demotion before hello", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(nil), "start the RPC without sending Hello")
+
+		cancelActive()
+		_, err := stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+
+	t.Run("accepted stream demotion", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+		accepted, err := stream.Receive()
+		require.NoError(t, err)
+		require.NotNil(t, accepted.GetAccepted())
+
+		cancelActive()
+		_, err = stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+}
+
+func TestControlStream_SendsPeriodicLiveness(t *testing.T) {
+	previous := gateway.ControlStreamLivenessInterval
+	gateway.ControlStreamLivenessInterval = 20 * time.Millisecond
+	t.Cleanup(func() { gateway.ControlStreamLivenessInterval = previous })
+
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+
+	first, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, first.GetAccepted())
+	second, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, second.GetAccepted())
+}
+
+func requireStructuredNotActive(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	require.Equal(t, connect.CodeUnavailable, connectErr.Code())
+	for _, detail := range connectErr.Details() {
+		value, valueErr := detail.Value()
+		require.NoError(t, valueErr)
+		if fleetDetails, ok := value.(*commonpb.FleetErrorDetails); ok {
+			require.Equal(t, commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE, fleetDetails.GetCommon())
+			return
+		}
+	}
+	t.Fatal("missing FleetErrorDetails")
+}
+
+func startControlServerWithAdmission(t *testing.T, gate controlledAdmissionGate) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+	t.Helper()
+	const fleetNodeID = 42
+	subject := &auth.Subject{FleetNodeID: fleetNodeID, OrgID: 1, Name: "agent-control"}
+	mux := http.NewServeMux()
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
+		gateway.NewHandler(nil, nil, nil, control.NewRegistry(), nil),
+		connect.WithInterceptors(
+			interceptors.NewErrorMappingInterceptor(),
+			interceptors.NewActiveInterceptor(gate),
+			agentSubjectInjector{subject: subject},
+		),
+	))
+	srv := testutil.NewH2CServer(t, mux)
+	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
+}
+
 func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID string, payload []byte) *control.Session {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -230,13 +347,17 @@ func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID
 	}
 }
 
-func startControlServer(t *testing.T, h *controlHarness) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+func startControlServer(t *testing.T, h *controlHarness, opts ...connect.HandlerOption) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
 	t.Helper()
 	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-control"}
 	mux := http.NewServeMux()
+	handlerOptions := []connect.HandlerOption{
+		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), agentSubjectInjector{subject: subject}),
+	}
+	handlerOptions = append(handlerOptions, opts...)
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
 		h.handler,
-		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), agentSubjectInjector{subject: subject}),
+		handlerOptions...,
 	))
 	srv := httptest.NewUnstartedServer(h2c.NewHandler(mux, &http2.Server{}))
 	srv.Start()

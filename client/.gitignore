@@ -12,8 +12,12 @@ dist-ssr
 *.local
 .env
 
+# Local HTTPS dev certificates (generated via mkcert)
+certs
+
 # build directories
 dist
+storybook-static
 
 # temporary directories from build
 src/protoOS/public

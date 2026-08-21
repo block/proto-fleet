@@ -16,6 +16,7 @@ import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 import { globalRoutePrefetch } from "@/protoOS/routePrefetch";
@@ -81,6 +82,7 @@ const App = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
+  const { isFleetHosted } = useMinerHosting();
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");
@@ -99,12 +101,12 @@ const App = ({
   const isPasswordSet = usePasswordSet();
   const isDefaultPasswordActive = useDefaultPasswordActive();
 
-  const { hasAccess } = useAccessToken();
+  const { hasAccess } = useAccessToken(!isFleetHosted);
   // Require defaultPasswordActive to be explicitly resolved as false before
   // firing protected hooks. `!== true` would treat `undefined` (status still
   // loading) as safe, producing a burst of 403s on a factory-password device
   // during the window between token validation and status resolution.
-  const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive === false;
+  const canAccessProtectedApi = isFleetHosted || (hasAccess === true && isDefaultPasswordActive === false);
 
   // Public endpoint — runs regardless of canAccessProtectedApi so bootup
   // flags stay fresh before the user has authenticated.
@@ -123,6 +125,10 @@ const App = ({
   // ONBOARDING NAVIGATION
   // ============================================================================
   useEffect(() => {
+    if (isFleetHosted) {
+      return;
+    }
+
     // Only run navigation logic after we have data from the API
     // undefined means we're still fetching
     if (isOnboarded !== undefined) {
@@ -138,7 +144,15 @@ const App = ({
         navigate("/onboarding/authentication");
       }
     }
-  }, [navigate, isOnboarded, isPasswordSet, isDefaultPasswordActive, isOnboardingRoute, isPasswordChangeRoute]);
+  }, [
+    navigate,
+    isFleetHosted,
+    isOnboarded,
+    isPasswordSet,
+    isDefaultPasswordActive,
+    isOnboardingRoute,
+    isPasswordChangeRoute,
+  ]);
 
   // ============================================================================
   // MINING STATUS CHECKING & WAKE LOGIC
@@ -203,6 +217,12 @@ const App = ({
   const setShowLoginModal = useSetShowLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();
 
+  useEffect(() => {
+    if (isFleetHosted && showLoginModal) {
+      setShowLoginModal(false);
+    }
+  }, [isFleetHosted, setShowLoginModal, showLoginModal]);
+
   const handleDismissLogin = useCallback(() => {
     // Every auth-required route is render-gated when canAccessProtectedApi is
     // false, so dismissing from "/" or any settings page would leave the user
@@ -253,9 +273,9 @@ const App = ({
   // flag flicker (e.g., firmware-update reboot); ESM dedup covers the
   // re-schedule.
   useEffect(() => {
-    if (!isWebServerRunning || !isMiningDriverRunning) return;
+    if (isFleetHosted || !isWebServerRunning || !isMiningDriverRunning) return;
     return prefetchRoutes(globalRoutePrefetch);
-  }, [isWebServerRunning, isMiningDriverRunning]);
+  }, [isWebServerRunning, isMiningDriverRunning, isFleetHosted]);
 
   // ============================================================================
   // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT
@@ -325,13 +345,13 @@ const App = ({
   // LOADING STATES
   // ============================================================================
   // Skip the mining driver check during onboarding since the miner may not be fully operational yet
-  if (!isWebServerRunning || (!isOnboardingRoute && !isMiningDriverRunning)) {
+  if (!isFleetHosted && (!isWebServerRunning || (!isOnboardingRoute && !isMiningDriverRunning))) {
     return <BootingUp />;
   }
 
   // Show loading spinner while waiting for system status
   // undefined = still fetching
-  if (isOnboarded === undefined) {
+  if (!isFleetHosted && isOnboarded === undefined) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <ProgressCircular indeterminate />
@@ -341,7 +361,7 @@ const App = ({
 
   // Prevent flash of app UI before redirecting to onboarding
   // If user needs onboarding and is NOT on an onboarding route, show loading
-  if (!isOnboarded && !isPasswordSet && !isOnboardingRoute) {
+  if (!isFleetHosted && !isOnboarded && !isPasswordSet && !isOnboardingRoute) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <ProgressCircular indeterminate />
@@ -353,7 +373,7 @@ const App = ({
   // not already on a password-change route. Without this, page-level hooks
   // that aren't threaded through canAccessProtectedApi (useTelemetry etc.)
   // would mount and fire a 403 burst before the redirect effect navigates.
-  if (isDefaultPasswordActive && !isPasswordChangeRoute) {
+  if (!isFleetHosted && isDefaultPasswordActive && !isPasswordChangeRoute) {
     return <BootingUp />;
   }
 
@@ -362,7 +382,7 @@ const App = ({
   // route hooks (useTelemetry, useTimeSeries, etc.) fire 401/403 bursts before
   // LoginModal or the default-password redirect takes over. LoginModal itself
   // still renders below so the user can recover from an expired session.
-  const gateRouteChildren = isAuthRequiredPath(pathname) && !canAccessProtectedApi;
+  const gateRouteChildren = !isFleetHosted && isAuthRequiredPath(pathname) && !canAccessProtectedApi;
 
   // ============================================================================
   // RENDER
@@ -377,7 +397,9 @@ const App = ({
       </div>
 
       {/* Login Modal - Layout agnostic */}
-      {showLoginModal ? <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} /> : null}
+      {!isFleetHosted && showLoginModal ? (
+        <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />
+      ) : null}
 
       {/* Wake Dialog - Layout agnostic */}
       <WarnWakeDialog open={wakeDialog.show} onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} />

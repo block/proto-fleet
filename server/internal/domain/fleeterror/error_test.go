@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,14 @@ func TestFleetErrorUnwrap(t *testing.T) {
 		fe := NewInternalError("static message")
 		assert.Nil(t, errors.Unwrap(fe))
 	})
+}
+
+func TestNotActiveErrorIsMachineReadableAndRetryable(t *testing.T) {
+	err := NewNotActiveError()
+
+	require.Equal(t, connect.CodeUnavailable, err.GRPCCode)
+	require.Equal(t, int32(commonv1.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), err.FleetErrorCode)
+	require.Equal(t, ErrorCodeTypeCommon, err.FleetErrorCodeType)
 }
 
 func TestConnectionError(t *testing.T) {

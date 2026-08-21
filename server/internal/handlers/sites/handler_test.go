@@ -2,16 +2,23 @@ package sites
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
+	"buf.build/go/protovalidate"
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -20,12 +27,11 @@ import (
 )
 
 // testHarness wires a real *sites.Service against mock stores so handler
-// tests exercise both the auth gate and the body. activitySvc is nil;
-// the service's logActivity guards against that path so audit fire-and-
-// forget no-ops in tests.
+// tests exercise both the auth gate and the body.
 type testHarness struct {
 	handler         *Handler
 	siteStore       *mocks.MockSiteStore
+	buildingStore   *mocks.MockBuildingStore
 	collectionStore *mocks.MockCollectionStore
 	tx              *mocks.MockTransactor
 	ctrl            *gomock.Controller
@@ -35,7 +41,10 @@ func newTestHandler(t *testing.T) *testHarness {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 	tx := mocks.NewMockTransactor(ctrl)
 	// RunInTx fake: runs the closure inline so cascade calls land
 	// against the mock store without a real DB.
@@ -53,14 +62,29 @@ func newTestHandler(t *testing.T) *testHarness {
 	)
 	// GetSiteStats isn't exercised by these tests; pass nil for the
 	// stats-only dependencies and rely on the service's nil-guard.
-	svc := sites.NewService(siteStore, nil, collectionStore, nil, nil, tx, nil)
+	svc := sites.NewService(
+		siteStore,
+		buildingStore,
+		collectionStore,
+		nil,
+		nil,
+		tx,
+		activity.NewService(activityStore),
+	)
 	return &testHarness{
 		handler:         NewHandler(svc),
 		siteStore:       siteStore,
+		buildingStore:   buildingStore,
 		collectionStore: collectionStore,
 		tx:              tx,
 		ctrl:            ctrl,
 	}
+}
+
+func expectInfrastructureControlSubnetMutationAllowed(h *testHarness, orgID, siteID int64) {
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), orgID, siteID).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), orgID, siteID).Return([]int64{70}, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), orgID, []int64{70}).Return(int64(0), nil)
 }
 
 // sitePermsCtx is the workhorse for body-level tests: a caller with
@@ -71,7 +95,18 @@ func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
 }
 
+func siteRoleCtx(t *testing.T, orgID int64, role string, assignments ...authz.Assignment) context.Context {
+	t.Helper()
+	ctx := handlerstest.CtxWithAssignments(t, orgID, assignments...)
+	return authn.SetInfo(ctx, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		Role:           role,
+	})
+}
+
 func ptrInt64(v int64) *int64 { return &v }
+func ptrBool(v bool) *bool    { return &v }
 
 // TestHandler_authGate exercises the permission gate at the handler
 // boundary. Callers without the required key get PermissionDenied
@@ -156,10 +191,11 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	h := newTestHandler(t)
 	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{
 		{
-			Site:          models.Site{ID: 1, Name: "alpha"},
-			DeviceCount:   42,
-			BuildingCount: 5,
-			RackCount:     17,
+			Site:                      models.Site{ID: 1, Name: "alpha"},
+			DeviceCount:               42,
+			BuildingCount:             5,
+			RackCount:                 17,
+			InfrastructureDeviceCount: 3,
 		},
 	}, nil)
 
@@ -170,7 +206,86 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	assert.Equal(t, int64(42), row.GetDeviceCount())
 	assert.Equal(t, int64(5), row.GetBuildingCount())
 	assert.Equal(t, int64(17), row.GetRackCount())
+	assert.Equal(t, int64(3), row.GetInfrastructureDeviceCount())
 	assert.Equal(t, "alpha", row.GetSite().GetName())
+}
+
+func TestHandler_ListSites_omitsStatsForNarrowedSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, Name: "narrowed"},
+			DeviceCount:   1,
+			BuildingCount: 1,
+			RackCount:     1,
+		},
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(1, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSites(), 1)
+	assert.Nil(t, resp.Msg.GetSites()[0].GetListStats())
+}
+
+func TestHandler_ResolveSiteBySlug_allowsSiteScopedRead(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7, handlerstest.SiteAssignment(42, authz.PermSiteRead))
+	resp, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), resp.Msg.GetSite().GetId())
+	assert.Equal(t, "north", resp.Msg.GetSite().GetSlug())
+}
+
+func TestHandler_ResolveSiteBySlug_masksOtherSiteScopedRead(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7, handlerstest.SiteAssignment(99, authz.PermSiteRead))
+	_, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestHandler_ResolveSiteBySlug_propagatesPermissionWiringErrors(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: 7})
+	_, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
 }
 
 func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
@@ -178,11 +293,13 @@ func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), int64(7), int64(0)).Return(nil, nil)
+	h.siteStore.EXPECT().ListSiteSlugs(gomock.Any(), int64(7)).Return(nil, nil)
 	h.siteStore.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
 			// The canonical form drops trim whitespace and normalizes.
 			assert.Equal(t, "10.0.0.0/24", p.NetworkConfig)
-			return &models.Site{ID: 1, Name: p.Name, NetworkConfig: p.NetworkConfig}, nil
+			assert.Equal(t, "alpha", p.Slug)
+			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
 	resp, err := h.handler.CreateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateSiteRequest{
@@ -191,6 +308,7 @@ func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.0/24", resp.Msg.GetSite().GetNetworkConfig())
+	assert.Equal(t, "alpha", resp.Msg.GetSite().GetSlug())
 }
 
 func TestHandler_UpdateSite_happy(t *testing.T) {
@@ -198,9 +316,19 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Empty network_config short-circuits overlap-warning lookup, so
-	// ListAllSiteNetworkConfigs is not expected on this path.
+	// ListAllSiteNetworkConfigs is not expected on this path. The name
+	// changes, so the slug is regenerated: GetSite reads the current row and
+	// ListSiteSlugs supplies the org's used slugs for collision avoidance.
+	h.siteStore.EXPECT().GetSite(gomock.Any(), int64(7), int64(42)).
+		Return(&models.Site{ID: 42, Name: "old name", Slug: "old-name"}, nil)
+	h.siteStore.EXPECT().ListSiteSlugs(gomock.Any(), int64(7)).Return([]string{"old-name"}, nil)
 	h.siteStore.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
-		Return(&models.Site{ID: 42, Name: "renamed"}, nil)
+		DoAndReturn(func(_ context.Context, p models.UpdateSiteParams) (*models.Site, error) {
+			if p.Slug != "renamed" {
+				return nil, errors.New("expected regenerated slug renamed, got " + p.Slug)
+			}
+			return &models.Site{ID: 42, Name: p.Name, Slug: p.Slug}, nil
+		})
 
 	resp, err := h.handler.UpdateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.UpdateSiteRequest{
 		Id:   42,
@@ -208,6 +336,208 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", resp.Msg.GetSite().GetName())
+	assert.Equal(t, "renamed", resp.Msg.GetSite().GetSlug())
+}
+
+func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ADMIN reads commissioned subnets", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().
+			GetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42)).
+			Return("10.20.0.0/24\nfd12:3456::5/128", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.AdminRoleName,
+			handlerstest.OrgAssignment(authz.PermSiteManage),
+		)
+		resp, err := h.handler.GetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(42), resp.Msg.GetSiteId())
+		assert.Equal(t,
+			[]string{"10.20.0.0/24", "fd12:3456::5/128"},
+			resp.Msg.GetInfrastructureControlSubnets(),
+		)
+	})
+
+	t.Run("SUPER_ADMIN replaces and canonicalizes subnets", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		expectInfrastructureControlSubnetMutationAllowed(h, 7, 42)
+		h.siteStore.EXPECT().
+			SetInfrastructureControlSubnets(
+				gomock.Any(),
+				int64(7),
+				int64(42),
+				"10.20.0.0/24\nfd12:3456::5/128",
+			).
+			Return("10.20.0.0/24\nfd12:3456::5/128", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.SuperAdminRoleName,
+			handlerstest.OrgAssignment(authz.PermSiteManage),
+		)
+		resp, err := h.handler.SetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{
+				SiteId: 42,
+				InfrastructureControlSubnets: []string{
+					"fd12:3456::5/128",
+					"10.20.0.99/24",
+				},
+			}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t,
+			[]string{"10.20.0.0/24", "fd12:3456::5/128"},
+			resp.Msg.GetInfrastructureControlSubnets(),
+		)
+	})
+
+	t.Run("ADMIN clears to decommission", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		expectInfrastructureControlSubnetMutationAllowed(h, 7, 42)
+		h.siteStore.EXPECT().
+			SetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42), "").
+			Return("", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.AdminRoleName,
+			handlerstest.OrgAssignment(authz.PermSiteManage),
+		)
+		resp, err := h.handler.SetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+		)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Msg.GetInfrastructureControlSubnets())
+	})
+}
+
+func TestHandler_InfrastructureControlSubnetsRequiresAdminAndOrgWideSiteManage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		role        string
+		assignments []authz.Assignment
+	}{
+		{
+			name: "ordinary site manager is forbidden",
+			role: "SITE_MANAGER",
+			assignments: []authz.Assignment{
+				handlerstest.OrgAssignment(authz.PermSiteManage),
+			},
+		},
+		{
+			name: "admin narrowed to target site is forbidden",
+			role: domainAuth.AdminRoleName,
+			assignments: []authz.Assignment{
+				handlerstest.SiteAssignment(42, authz.PermSiteManage),
+			},
+		},
+		{
+			name: "admin narrowed to another site is forbidden",
+			role: domainAuth.AdminRoleName,
+			assignments: []authz.Assignment{
+				handlerstest.SiteAssignment(99, authz.PermSiteManage),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			ctx := siteRoleCtx(t, 7, tt.role, tt.assignments...)
+
+			_, err := h.handler.GetInfrastructureControlSubnets(
+				ctx,
+				connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+			)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+			_, err = h.handler.SetInfrastructureControlSubnets(
+				ctx,
+				connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+			)
+			require.Error(t, err)
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_InfrastructureControlSubnetsMasksMissingAndCrossOrgSites(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	notFound := fleeterror.NewNotFoundErrorf("site %d not found", 42)
+	h.siteStore.EXPECT().
+		GetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42)).
+		Return("", notFound)
+	h.siteStore.EXPECT().
+		LockSiteForWrite(gomock.Any(), int64(7), int64(42)).
+		Return(notFound)
+
+	ctx := siteRoleCtx(
+		t,
+		7,
+		domainAuth.AdminRoleName,
+		handlerstest.OrgAssignment(authz.PermSiteManage),
+	)
+	_, err := h.handler.GetInfrastructureControlSubnets(
+		ctx,
+		connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+
+	_, err = h.handler.SetInfrastructureControlSubnets(
+		ctx,
+		connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+	)
+	require.Error(t, err)
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestSetInfrastructureControlSubnetsRequestBufValidationBounds(t *testing.T) {
+	t.Parallel()
+
+	tooMany := make([]string, 257)
+	for i := range tooMany {
+		tooMany[i] = "10.0.0.1/32"
+	}
+	require.Error(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: tooMany,
+	}))
+	require.Error(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: []string{strings.Repeat("a", 65)},
+	}))
+	require.NoError(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: []string{"10.0.0.1/32"},
+	}))
 }
 
 func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
@@ -220,11 +550,16 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	// AssignBuildingToSite).
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return([]int64{70}, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
 	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(3), nil)
+	h.siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(6), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(11)).Return(int64(1), nil)
 
 	resp, err := h.handler.DeleteSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
@@ -232,6 +567,51 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	assert.Equal(t, int64(9), resp.Msg.GetUnassignedDeviceCount())
 	assert.Equal(t, int64(2), resp.Msg.GetDeletedBuildingCount())
 	assert.Equal(t, int64(4), resp.Msg.GetUnassignedRackCount())
+	assert.Equal(t, int64(6), resp.Msg.GetDeletedInfrastructureDeviceCount())
+}
+
+// TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite is the
+// regression test for the cascade-bypass finding: an org-wide
+// site:manage grant narrowed away at the target site by a site-scoped
+// assignment must be denied before any cascade store call runs. The
+// mock stores have no expectations, so any cascade call would fail the
+// test.
+func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// Org-wide site:manage, but a site-scope assignment at site 11
+	// (granting only site:read) narrows site:manage away there.
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage),
+		handlerstest.SiteAssignment(11, authz.PermSiteRead),
+	)
+
+	_, err := h.handler.DeleteSite(ctx, connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+	// The same caller can still delete a site they are not narrowed
+	// away from — the narrowing check is per-target, not a blanket
+	// restriction.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)
+	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(12)).Return(int64(1), nil)
+
+	_, err = h.handler.DeleteSite(ctx, connect.NewRequest(&pb.DeleteSiteRequest{Id: 12}))
+	require.NoError(t, err)
 }
 
 func TestHandler_AssignDevicesToSite_success(t *testing.T) {
@@ -244,8 +624,10 @@ func TestHandler_AssignDevicesToSite_success(t *testing.T) {
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+	h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 	h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignDevicesToSiteRequest{
 		TargetSiteId:      &target,
@@ -267,6 +649,7 @@ func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+	h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{
 		"d1": conflictingSite,
 	}, nil)
@@ -285,6 +668,76 @@ func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	assert.Equal(t, conflictingSite, c.GetConflictingSiteId())
 }
 
+// TestHandler_AssignDevicesToSite_forceClearRequiresRackManage pins
+// the auth gate on the force-clear branch. Site:manage alone clears
+// the no-clear path but rejects force_clear=true — the cascade deletes
+// device_set_membership rows, which sibling rack RPCs require
+// rack:manage to perform. The caller must hold both keys for the
+// flagged path.
+func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) {
+	t.Parallel()
+
+	target := int64(20)
+	idents := []string{"d1"}
+
+	t.Run("site:manage alone + force_clear=false succeeds", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
+		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
+		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(false),
+		}))
+		require.NoError(t, err)
+	})
+
+	t.Run("site:manage alone + force_clear=true is rejected", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		// No store expectations — the auth gate fires before the service.
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(true),
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
+
+	t.Run("site:manage + rack:manage + force_clear=true succeeds", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
+		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
+		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage, authz.PermRackManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(true),
+		}))
+		require.NoError(t, err)
+	})
+}
+
 func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
@@ -293,9 +746,10 @@ func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds:  []int64{50},
@@ -311,12 +765,13 @@ func TestHandler_AssignBuildingsToSite_targetUnsetCascadesToUnassigned(t *testin
 	h := newTestHandler(t)
 
 	// target_site_id unset → service skips LockSiteForWrite (no target
-	// site to lock) but still locks the building before the cascade,
-	// then passes a nil targetSiteID through.
+	// site to lock) but still locks the building before the bulk cascade
+	// writes, then passes a nil targetSiteID through.
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds: []int64{50},
@@ -332,16 +787,15 @@ func TestHandler_AssignBuildingsToSite_bulkAggregatesCascadeCounts(t *testing.T)
 
 	target := int64(20)
 
-	// Two buildings, processed in sorted ID order.
+	// Phase A locks both buildings in sorted ID order; Phase B issues
+	// one bulk write per kind across both buildings.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(10), nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(51)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(4), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(20), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(6), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(30), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	// Pass IDs out of order to verify deterministic locking via sort.
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
@@ -365,9 +819,11 @@ func TestHandler_AssignRacksToSite_partialUpdateCascadesAndClearsBuilding(t *tes
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: &priorBuilding, Zone: "Z1"}, nil)
-	// site changes & rack has a building → building clears, zone clears.
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, (*int64)(nil), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), &target).Return(int64(8), nil)
+	// Bulk placement update clears building + zone in SQL; bulk cascade
+	// follows for the same rack set.
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, &target).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, &target).Return(int64(8), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -389,8 +845,9 @@ func TestHandler_AssignRacksToSite_targetUnsetUnassigns(t *testing.T) {
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building set
 	// site changes (priorSite → nil) but no building to clear.
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), gomock.Nil(), gomock.Nil(), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), gomock.Nil()).Return(int64(3), nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds: []int64{rackID},
@@ -408,11 +865,10 @@ func TestHandler_AssignRacksToSite_sameSiteIsNoOp(t *testing.T) {
 	rackID := int64(50)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
-	// rack already at target site, has a building — no clear, no cascade.
+	// rack already at target site — filtered out of the bulk write set;
+	// no UpdateRackPlacementBulkForSite or CascadeRackDeviceSitesBulk call.
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &target, BuildingID: ptrInt64(11), Zone: "Z1"}, nil)
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, ptrInt64(11), "Z1").Return(nil)
-	// No CascadeRackDeviceSites — siteChanged is false.
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -431,15 +887,15 @@ func TestHandler_AssignRacksToSite_bulkAggregates(t *testing.T) {
 	priorSite := int64(9)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
-	// Two racks, processed in sorted id order.
+	// Phase A locks both racks in sorted id order; Phase B issues one
+	// bulk placement update and one bulk cascade across both racks.
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(50), int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: ptrInt64(11)}, nil)
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(50), int64(7), &target, (*int64)(nil), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(50), int64(7), &target).Return(int64(4), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(51), int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(51), int64(7), &target, gomock.Nil(), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(51), int64(7), &target).Return(int64(2), nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(int64(6), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.Nil()).Return(int64(0), nil)
 
 	// IDs passed out-of-order to verify the sort happens.
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{

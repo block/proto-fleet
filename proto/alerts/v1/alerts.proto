@@ -1,0 +1,430 @@
+syntax = "proto3";
+
+package alerts.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service ChannelService {
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+    rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+
+    rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+
+    rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+
+    rpc TestChannel(TestChannelRequest) returns (TestChannelResponse);
+}
+
+service RuleService {
+    rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+
+    rpc PauseRule(PauseRuleRequest) returns (PauseRuleResponse);
+
+    rpc ResumeRule(ResumeRuleRequest) returns (ResumeRuleResponse);
+
+    rpc CreateRule(CreateRuleRequest) returns (CreateRuleResponse);
+
+    rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse);
+
+    rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+
+    // Works on both provisioned and user rules: routing is org-owned even when the rule is shared.
+    rpc SetRuleRouting(SetRuleRoutingRequest) returns (SetRuleRoutingResponse);
+}
+
+service MaintenanceWindowService {
+    rpc ListMaintenanceWindows(ListMaintenanceWindowsRequest) returns (ListMaintenanceWindowsResponse);
+    rpc CreateMaintenanceWindow(CreateMaintenanceWindowRequest) returns (CreateMaintenanceWindowResponse);
+    rpc UpdateMaintenanceWindow(UpdateMaintenanceWindowRequest) returns (UpdateMaintenanceWindowResponse);
+    rpc DeleteMaintenanceWindow(DeleteMaintenanceWindowRequest) returns (DeleteMaintenanceWindowResponse);
+}
+
+service HistoryService {
+    rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
+
+    // Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+    // handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+    rpc ListActiveAlertGroups(ListActiveAlertGroupsRequest) returns (ListActiveAlertGroupsResponse);
+}
+
+enum ChannelKind {
+    CHANNEL_KIND_UNSPECIFIED = 0;
+    CHANNEL_KIND_WEBHOOK = 1;
+    CHANNEL_KIND_SMTP = 2;
+    CHANNEL_KIND_SLACK = 3;
+}
+
+enum ValidationState {
+    VALIDATION_STATE_UNSPECIFIED = 0;
+    VALIDATION_STATE_PENDING = 1;
+    VALIDATION_STATE_OK = 2;
+    VALIDATION_STATE_FAILED = 3;
+}
+
+message WebhookConfig {
+    string url = 1;
+    string bearer_header = 2;
+    // Write-only: on update, revoke the stored bearer even when the destination is unchanged (an empty bearer_header alone means "keep").
+    bool clear_bearer_header = 3;
+}
+
+message SmtpConfig {
+    string host = 1;
+    int32 port = 2;
+    string username = 3;
+    string from = 4;
+    repeated string to = 5;
+    string password = 6;
+}
+
+message SlackConfig {
+    string webhook_url = 1;
+}
+
+message Channel {
+    string id = 1;
+    int64 organization_id = 2;
+    string name = 3;
+    ChannelKind kind = 4;
+    WebhookConfig webhook = 5;
+    SmtpConfig smtp = 6;
+    google.protobuf.Timestamp created_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+    google.protobuf.Timestamp validated_at = 9;
+    ValidationState validation_state = 10;
+    string validation_error = 11;
+    bool has_secret = 12;
+    SlackConfig slack = 13;
+}
+
+message ListChannelsRequest {}
+message ListChannelsResponse {
+    repeated Channel channels = 1;
+}
+
+message CreateChannelRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
+}
+message CreateChannelResponse {
+    Channel channel = 1;
+}
+
+message UpdateChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 3;
+    WebhookConfig webhook = 4;
+    SmtpConfig smtp = 5;
+    SlackConfig slack = 6;
+}
+message UpdateChannelResponse {
+    Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteChannelResponse {}
+
+message TestChannelRequest {
+    string id = 1;
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
+}
+message TestChannelResponse {
+    bool ok = 1;
+    string error = 2;
+    int32 response_code = 3;
+}
+
+enum RuleTemplate {
+    RULE_TEMPLATE_UNSPECIFIED = 0;
+    RULE_TEMPLATE_OFFLINE = 1;
+    RULE_TEMPLATE_HASHRATE = 2;
+    RULE_TEMPLATE_TEMPERATURE = 3;
+    RULE_TEMPLATE_POOL = 4;
+    RULE_TEMPLATE_COMMAND_FAILURE = 5;
+    RULE_TEMPLATE_TELEMETRY_POLL = 6;
+    RULE_TEMPLATE_MQTT_CURTAILMENT = 7;
+    RULE_TEMPLATE_MQTT_DISCONNECTED = 8;
+}
+
+// Origin decides mutability: only USER rules accept Update/DeleteRule.
+enum RuleOrigin {
+    RULE_ORIGIN_UNSPECIFIED = 0;
+    RULE_ORIGIN_PROVISIONED = 1;
+    RULE_ORIGIN_USER = 2;
+}
+
+enum HashrateMode {
+    HASHRATE_MODE_UNSPECIFIED = 0;
+    HASHRATE_MODE_PCT_EXPECTED = 1;
+    HASHRATE_MODE_ABSOLUTE = 2;
+}
+
+enum HashrateUnit {
+    HASHRATE_UNIT_UNSPECIFIED = 0;
+    HASHRATE_UNIT_TERAHASH = 1;
+    HASHRATE_UNIT_PETAHASH = 2;
+}
+
+// Fires when a device reports offline for the configured duration.
+message OfflineConfig {}
+
+message HashrateConfig {
+    HashrateMode mode = 1;
+    // Percent of expected in (0, 100] for PCT_EXPECTED; hashrate in `unit` for ABSOLUTE.
+    double value = 2 [(buf.validate.field).double.gt = 0];
+    // ABSOLUTE mode only.
+    HashrateUnit unit = 3;
+}
+
+message TemperatureConfig {
+    // Clients convert Fahrenheit before sending.
+    double max_celsius = 1 [(buf.validate.field).double = {gt: 0, lte: 150}];
+}
+
+// Which miners a rule fires for: the union of every listed placement (sites, buildings, racks, groups — evaluated against current membership) and the explicit device_ids. Empty/absent means the whole org.
+message RuleScope {
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated string device_ids = 2 [(buf.validate.field).repeated = {max_items: 500, items: {string: {min_len: 1, max_len: 255}}}];
+    repeated int64 building_ids = 3 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 rack_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 group_ids = 5 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    // Live "any site": covers miners assigned to any current or future site (excludes unassigned miners); when set, site_ids is ignored and reads return it empty.
+    bool all_sites = 6;
+    // Read-only, server-set: device_ids were omitted because the caller lacks miner:read (never renders as org-wide).
+    // Writes carrying it are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+    bool device_ids_redacted = 7;
+    // Write-intent marker: org-wide writes set this instead of omitting scope, so a scoped-rule update with no scope
+    // message can be rejected as a stale pre-scope client that would silently widen the rule. Never set on reads.
+    bool org_wide = 8;
+}
+
+// User-specified rule definition; the server compiles it into the backing Grafana rule.
+message RuleConfig {
+    // 190 is Grafana's alert-rule title cap.
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 190}];
+    int32 duration_seconds = 2 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
+    oneof template_config {
+        option (buf.validate.oneof).required = true;
+        OfflineConfig offline = 3;
+        HashrateConfig hashrate = 4;
+        TemperatureConfig temperature = 5;
+    }
+    RuleScope scope = 6;
+}
+
+// Where a rule's firing alerts deliver: DEFAULT = every org channel, CUSTOM = only channel_ids, NONE = nowhere; history records the alert either way.
+enum RoutingMode {
+    ROUTING_MODE_UNSPECIFIED = 0;
+    ROUTING_MODE_DEFAULT = 1;
+    ROUTING_MODE_CUSTOM = 2;
+    ROUTING_MODE_NONE = 3;
+}
+
+message RuleRouting {
+    RoutingMode mode = 1;
+    // Writes: required non-empty for CUSTOM, empty otherwise. Reads may return CUSTOM with no ids when every routed channel was deleted (such a rule delivers nowhere).
+    repeated string channel_ids = 2 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 20}}}];
+}
+
+message Rule {
+    string id = 1;
+    int64 organization_id = 2;
+    string name = 3;
+    RuleTemplate template = 4;
+    string group = 5;
+    string severity = 6;
+    string summary = 7;
+    string description = 8;
+    int32 duration_seconds = 9;
+    bool enabled = 10;
+    RuleOrigin origin = 11;
+    // Populated for USER rules only; round-trips into the edit form.
+    RuleConfig config = 12;
+    // Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
+    RuleRouting routing = 13;
+    // Read-only, server-set: the stored config no longer compiles to the SQL the rule is evaluating (a save was interrupted mid-write); re-saving the rule converges both sides.
+    bool config_out_of_sync = 14;
+    // Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config
+    // instead of reading the absent field as "no editable config", mirroring how an unset routing is handled.
+    bool config_unknown = 15;
+}
+
+message ListRulesRequest {}
+message ListRulesResponse {
+    repeated Rule rules = 1;
+}
+
+message CreateRuleRequest {
+    RuleConfig config = 1 [(buf.validate.field).required = true];
+    // Optional delivery routing applied atomically with creation; unset means default (all channels).
+    RuleRouting routing = 2;
+}
+message CreateRuleResponse {
+    Rule rule = 1;
+}
+
+message UpdateRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    RuleConfig config = 2 [(buf.validate.field).required = true];
+}
+message UpdateRuleResponse {
+    Rule rule = 1;
+}
+
+message DeleteRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteRuleResponse {}
+
+message SetRuleRoutingRequest {
+    string rule_id = 1 [(buf.validate.field).string.min_len = 1];
+    RuleRouting routing = 2 [(buf.validate.field).required = true];
+}
+message SetRuleRoutingResponse {
+    Rule rule = 1;
+}
+
+message PauseRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message PauseRuleResponse {
+    Rule rule = 1;
+}
+
+message ResumeRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message ResumeRuleResponse {
+    Rule rule = 1;
+}
+
+// What a maintenance window mutes: firing alerts from the selected rules stop delivering to the
+// selected channels while the window is active. Resolution notifications and alert history are
+// preserved. Each dimension must explicitly select either all targets or a non-empty ID list.
+message MaintenanceWindowScope {
+    reserved 1 to 5;
+    reserved "kind", "rule_id", "group_id", "site_id", "device_ids";
+    // 40 is Grafana's alert-rule UID cap.
+    repeated string rule_ids = 6 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 40}}}];
+    repeated string channel_ids = 7 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 20}}}];
+    bool all_rules = 8;
+    bool all_channels = 9;
+}
+
+message MaintenanceWindow {
+    string id = 1;
+    int64 organization_id = 2;
+    MaintenanceWindowScope scope = 3;
+    google.protobuf.Timestamp starts_at = 4;
+    google.protobuf.Timestamp ends_at = 5;
+    string comment = 6;
+    string created_by = 7;
+    google.protobuf.Timestamp created_at = 8;
+    bool active = 9;
+}
+
+message ListMaintenanceWindowsRequest {}
+message ListMaintenanceWindowsResponse {
+    repeated MaintenanceWindow maintenance_windows = 1;
+}
+
+message CreateMaintenanceWindowRequest {
+    MaintenanceWindowScope scope = 1;
+    google.protobuf.Timestamp starts_at = 2;
+    google.protobuf.Timestamp ends_at = 3;
+    string comment = 4 [(buf.validate.field).string.max_len = 1024];
+}
+message CreateMaintenanceWindowResponse {
+    MaintenanceWindow maintenance_window = 1;
+}
+
+message UpdateMaintenanceWindowRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    MaintenanceWindowScope scope = 2;
+    google.protobuf.Timestamp starts_at = 3;
+    google.protobuf.Timestamp ends_at = 4;
+    string comment = 5 [(buf.validate.field).string.max_len = 1024];
+}
+message UpdateMaintenanceWindowResponse {
+    MaintenanceWindow maintenance_window = 1;
+}
+
+message DeleteMaintenanceWindowRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteMaintenanceWindowResponse {}
+
+message AlertHistoryEntry {
+    string id = 1;
+    google.protobuf.Timestamp received_at = 2;
+    string alert_name = 3;
+    string status = 4;
+    string severity = 5;
+    string rule_group = 6;
+    string fingerprint = 7;
+    string device_id = 8;
+    string device_name = 9;
+    string device_mac = 10;
+    string template = 11;
+    string summary = 12;
+    google.protobuf.Timestamp starts_at = 13;
+    google.protobuf.Timestamp ends_at = 14;
+}
+
+message ListAlertsRequest {
+    // Opaque page cursor: the previous response's next_cursor. Opaque because the drill-in pages on an alert key
+    // and history on a row id. Ignored by the unfiltered active set, which is unpaged.
+    string before_id = 1 [(buf.validate.field).string.max_len = 64];
+    int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
+    // Return currently-active alerts instead of history. Unfiltered it is a current-state view, not a feed: the
+    // whole firing set in one capped response. Naming an alert below makes it the paged drill-in.
+    bool active_only = 3;
+    // Narrows the active set to one rule's firing instances, one per affected miner (the per-alert drill-in).
+    // Ignored unless active_only is set. 190 is Grafana's alert-rule title cap.
+    string alert_name = 4 [(buf.validate.field).string.max_len = 190];
+    // The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
+    // miners; "" is the group of rules carrying no rule label. Rejected without alert_name, ignored without
+    // active_only.
+    string rule_group = 5 [(buf.validate.field).string.max_len = 190];
+}
+message ListAlertsResponse {
+    repeated AlertHistoryEntry alerts = 1;
+    bool has_more = 2;
+    // Cursor to pass as the next request's before_id; empty when has_more is false, and always empty for the
+    // unpaged active set, where has_more instead means the cap hid part of it.
+    string next_cursor = 3;
+}
+
+// One currently-firing alert rule and its blast radius. Identity and counts only: severity, summary and every
+// other per-instance detail live on the drill-in rows, which is the one place they describe a single alert.
+message ActiveAlertGroup {
+    string alert_name = 1;
+    string rule_group = 2;
+    // Distinct miners firing this alert; 0 for fleet-wide and source-scoped alerts, which carry no device.
+    int64 device_count = 3;
+    // Firing instances in the group, which exceeds device_count only when a rule fires on a non-device dimension.
+    int64 alert_count = 4;
+    // Earliest start across the group's instances: how long this alert has been firing somewhere in the fleet.
+    google.protobuf.Timestamp first_started_at = 5;
+    // The newest instance's summary, and only for a group whose device_count is 0: those have no drill-in to
+    // describe them, and taking it from a device-less instance keeps device identity out of this response.
+    string summary = 6;
+}
+
+message ListActiveAlertGroupsRequest {}
+message ListActiveAlertGroupsResponse {
+    repeated ActiveAlertGroup groups = 1;
+    // More distinct alerts are firing than the response cap; the omitted ones are the least widespread.
+    bool has_more = 2;
+}

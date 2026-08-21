@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useRef, useState } from "react";
 
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import { Alert } from "@/shared/assets/icons";
 import Modal from "@/shared/components/Modal";
 
 interface ImportCsvModalProps {
@@ -26,7 +26,7 @@ const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
   const [errorCount, setErrorCount] = useState(0);
   const [hasFile, setHasFile] = useState(false);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setHasFile(true);
@@ -65,13 +65,7 @@ const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
             <span className="text-300 text-text-primary-70">
               Upload a CSV with columns: Part Name, Type, Site, On Hand, Reorder Point, Bin Location
             </span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
+            <input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
             <Button
               text="Select file"
               variant={variants.secondary}
@@ -83,13 +77,13 @@ const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
           <span className="text-300 text-text-primary-70">Parsing CSV...</span>
         ) : (
           <>
-            {errorCount > 0 && (
+            {errorCount > 0 ? (
               <Callout
                 intent="warning"
                 prefixIcon={<Alert width="w-4" />}
                 title={`${errorCount} row${errorCount > 1 ? "s" : ""} have errors and will be skipped`}
               />
-            )}
+            ) : null}
             <div className="max-h-80 overflow-auto">
               <table className="w-full text-300">
                 <thead>
@@ -104,10 +98,7 @@ const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
                 </thead>
                 <tbody>
                   {previewRows.map((row, i) => (
-                    <tr
-                      key={i}
-                      className={`border-b border-border-5 ${row.error ? "bg-intent-critical-fill/10" : ""}`}
-                    >
+                    <tr key={i} className={`border-b border-border-5 ${row.error ? "bg-intent-critical-fill/10" : ""}`}>
                       <td className="p-2">{row.name}</td>
                       <td className="p-2">{row.type}</td>
                       <td className="p-2">{row.siteName}</td>

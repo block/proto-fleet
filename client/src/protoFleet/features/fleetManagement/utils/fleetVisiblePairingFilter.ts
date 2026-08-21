@@ -8,6 +8,7 @@ import {
 export const FLEET_VISIBLE_PAIRING_STATUSES: PairingStatus[] = [
   PairingStatus.PAIRED,
   PairingStatus.AUTHENTICATION_NEEDED,
+  PairingStatus.DEFAULT_PASSWORD,
 ];
 
 export const FLEET_SELECTABLE_PAIRING_STATUSES: PairingStatus[] = [PairingStatus.PAIRED];
@@ -32,8 +33,17 @@ const applyAllowedPairingStatuses = (
       pairingStatuses.length > 0 || hasExplicitPairingStatuses ? pairingStatuses : [...allowedPairingStatuses],
     groupIds: filter?.groupIds ?? [],
     rackIds: filter?.rackIds ?? [],
+    includeNoRack: filter?.includeNoRack ?? false,
+    siteIds: filter?.siteIds ?? [],
+    includeUnassigned: filter?.includeUnassigned ?? false,
+    buildingIds: filter?.buildingIds ?? [],
+    includeNoBuilding: filter?.includeNoBuilding ?? false,
     firmwareVersions: filter?.firmwareVersions ?? [],
     zones: filter?.zones ?? [],
+    zoneKeys: filter?.zoneKeys ?? [],
+    numericRanges: filter?.numericRanges ?? [],
+    ipCidrs: filter?.ipCidrs ?? [],
+    ipRanges: filter?.ipRanges ?? [],
   });
 };
 

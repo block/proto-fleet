@@ -8,10 +8,12 @@ import (
 	"connectrpc.com/connect"
 	"go.uber.org/mock/gomock"
 
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -22,13 +24,15 @@ import (
 // file from pulling another generated mock package; the surface is
 // three methods so the assertion overhead is trivial.
 type fakeDeviceQueryer struct {
-	deviceIDs     []string
-	deviceIDsErr  error
-	lastFilter    *interfaces.MinerFilter
-	stateCounts   interfaces.MinerStateCounts
-	stateCountErr error
-	collections   map[int64]interfaces.MinerStateCounts
-	collErr       error
+	deviceIDs       []string
+	deviceIDsErr    error
+	lastFilter      *interfaces.MinerFilter
+	stateCounts     interfaces.MinerStateCounts
+	stateCountErr   error
+	collections     map[int64]interfaces.MinerStateCounts
+	collErr         error
+	componentCounts []interfaces.ComponentErrorCount
+	componentErr    error
 }
 
 func (f *fakeDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
@@ -42,6 +46,10 @@ func (f *fakeDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Context, _ 
 
 func (f *fakeDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, f.collErr
+}
+
+func (f *fakeDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return f.componentCounts, f.componentErr
 }
 
 // fakeTelemetryCollector is a hand-rolled
@@ -76,12 +84,10 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(3), nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(2), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(
-		[]buildingsmodels.BuildingWithCounts{{}, {}, {}}, // 3 buildings
-		nil,
-	)
 
 	devices := &fakeDeviceQueryer{
 		deviceIDs: []string{"d1", "d2", "d3"},
@@ -119,6 +125,9 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	if stats.BuildingCount != 3 {
 		t.Errorf("BuildingCount: got %d want 3", stats.BuildingCount)
 	}
+	if stats.RackCount != 2 {
+		t.Errorf("RackCount: got %d want 2", stats.RackCount)
+	}
 	if stats.DeviceCount != 3 {
 		t.Errorf("DeviceCount: got %d want 3", stats.DeviceCount)
 	}
@@ -141,13 +150,14 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	}
 }
 
-func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
+func TestGetSiteStats_includesActionablePairingStatusesInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	devices := &fakeDeviceQueryer{deviceIDs: nil} // no devices → telemetry not called
 	svc := NewService(store, buildingStore, nil, devices, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
@@ -159,7 +169,7 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	if devices.lastFilter == nil {
 		t.Fatal("expected filter to be passed to GetDeviceIdentifiersByOrgWithFilter")
 	}
-	hasPaired, hasAuthNeeded := false, false
+	hasPaired, hasAuthNeeded, hasDefaultPassword := false, false, false
 	for _, s := range devices.lastFilter.PairingStatuses {
 		if s == fm.PairingStatus_PAIRING_STATUS_PAIRED {
 			hasPaired = true
@@ -167,9 +177,12 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 		if s == fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 			hasAuthNeeded = true
 		}
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+		}
 	}
-	if !hasPaired || !hasAuthNeeded {
-		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
+	if !hasPaired || !hasAuthNeeded || !hasDefaultPassword {
+		t.Errorf("expected PAIRED+AUTH_NEEDED+DEFAULT_PASSWORD filter; got %v", devices.lastFilter.PairingStatuses)
 	}
 	if devices.lastFilter.Limit != MaxDevicesPerSiteStatsRequest+1 {
 		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerSiteStatsRequest+1, devices.lastFilter.Limit)
@@ -184,8 +197,9 @@ func TestGetSiteStats_failsFastOverCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	overCap := make([]string, MaxDevicesPerSiteStatsRequest+1)
 	for i := range overCap {
@@ -206,8 +220,9 @@ func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	// Telemetry should never fire when device list is empty — set err so
 	// any unexpected call would surface.
@@ -233,5 +248,112 @@ func TestGetSiteStats_internalErrorWhenStatsDepsMissing(t *testing.T) {
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
 		t.Fatalf("expected Internal error; got %v", err)
+	}
+}
+
+func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{
+		deviceIDs: []string{"d1"},
+		stateCounts: interfaces.MinerStateCounts{
+			HashingCount: 1,
+		},
+		componentCounts: []interfaces.ComponentErrorCount{
+			{ScopeID: 1, ComponentType: 3, DeviceCount: 1},
+		},
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
+
+	rows, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{}, func(int64) bool { return true })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ListStats == nil {
+		t.Fatalf("expected one row with list stats, got %+v", rows)
+	}
+	stats := rows[0].ListStats
+	if stats.BuildingCount != 2 || stats.RackCount != 3 || stats.DeviceCount != 1 {
+		t.Fatalf("structural counts not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.HashingCount != 1 || stats.FanIssueCount != 1 {
+		t.Fatalf("non-telemetry stats not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
+		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
+	}
+	hasDefaultPassword := false
+	for _, s := range devices.lastFilter.PairingStatuses {
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+			break
+		}
+	}
+	if !hasDefaultPassword {
+		t.Fatalf("expected site list stats to include DEFAULT_PASSWORD pairing status; got %v", devices.lastFilter.PairingStatuses)
+	}
+}
+
+func TestListSites_returnsEmptyWhenStatsFilterHasNoAuthorizedRows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, nil)
+	rows, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{
+		ErrorComponentTypes: []int32{int32(errorspb.ComponentType_COMPONENT_TYPE_FAN)},
+	}, func(int64) bool { return false })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected stats-filtered request without authorized stats to return no rows, got %+v", rows)
+	}
+}
+
+func TestListSites_returnsErrorWhenTelemetryFilterCannotFetchTelemetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{deviceIDs: []string{"d1"}}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
+
+	minHashrate := 1.0
+	_, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{
+		TelemetryRanges: []interfaces.NumericRange{{
+			Field:        interfaces.NumericFilterFieldHashrateTHs,
+			Min:          &minHashrate,
+			MinInclusive: true,
+		}},
+	}, func(int64) bool { return true })
+	if err == nil {
+		t.Fatal("expected telemetry fetch error for telemetry-filtered list")
+	}
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
+		t.Fatalf("expected Internal error, got %v", err)
 	}
 }

@@ -4,8 +4,8 @@ import { mockCompletedTickets, REPAIR_TECHNICIANS } from "../../mockData";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import type { DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 
 type HistoryColumns = "issue" | "asset" | "resolution" | "completedAt" | "assignee";
 
@@ -47,6 +47,7 @@ const HistoryTab = () => {
             <span className="text-300 text-text-primary-70">{ticket.ticketNumber}</span>
           </div>
         ),
+        width: "w-64",
       },
       asset: {
         component: (ticket) => (
@@ -57,17 +58,19 @@ const HistoryTab = () => {
             </span>
           </div>
         ),
+        width: "w-48",
       },
       resolution: {
         component: (ticket) => <span className="text-300">{ticket.resolution}</span>,
+        width: "w-32",
       },
       completedAt: {
         component: (ticket) => <span className="text-300">{ticket.completedAt}</span>,
+        width: "w-28",
       },
       assignee: {
-        component: (ticket) => (
-          <span className="text-300">{ticket.assigneeName ?? "Unassigned"}</span>
-        ),
+        component: (ticket) => <span className="text-300">{ticket.assigneeName ?? "Unassigned"}</span>,
+        width: "w-36",
       },
     }),
     [],
@@ -127,22 +130,17 @@ const HistoryTab = () => {
         sortableColumns={new Set<HistoryColumns>(["issue", "asset", "resolution"])}
         onRowClick={handleRowClick}
         headerControls={
-          <Button
-            text="Export CSV"
-            variant={variants.secondary}
-            size={buttonSizes.compact}
-            onClick={handleExport}
-          />
+          <Button text="Export CSV" variant={variants.secondary} size={buttonSizes.compact} onClick={handleExport} />
         }
       />
 
-      {detailTicketId !== null && (
+      {detailTicketId !== null ? (
         <TicketDetailModal
           ticketId={detailTicketId}
           ticketIds={tickets.map((t) => t.id)}
           onDismiss={() => setDetailTicketId(null)}
         />
-      )}
+      ) : null}
     </div>
   );
 };

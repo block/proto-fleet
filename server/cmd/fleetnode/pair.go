@@ -2,10 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,10 +32,11 @@ const (
 	maxUsedPasswordBytes = 1024
 )
 
-// credentialsReportable reports whether username/password fit the
-// FleetNodePairResult caps. We refuse an oversized credential rather than pair with
-// it: the node could authenticate but the cloud couldn't persist it back, leaving
-// the device PAIRED but unusable.
+// credentialsReportable reports whether username/password fit inside the
+// encrypted credential report caps with conservative room for sealing overhead.
+// We refuse an oversized credential rather than pair with it: the node could
+// authenticate but the cloud couldn't persist it back, leaving the device PAIRED
+// but unusable.
 func credentialsReportable(username, password string) bool {
 	return len(username) <= maxPairIdentityBytes && len(password) <= maxUsedPasswordBytes
 }
@@ -54,20 +51,17 @@ type pairer interface {
 	Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult
 }
 
-type pluginPairer struct {
-	manager *plugins.Manager
-	// minerSigningPubKey is the SPKI-DER base64 form of the node's miner-signing
-	// public key, matching token.Service.ExtractPublicKeyFromPrivateKey so a
-	// miner paired here trusts the JWTs the node signs at runtime.
-	minerSigningPubKey string
+type credentialSealer interface {
+	Seal(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error)
 }
 
-func newPluginPairer(manager *plugins.Manager, minerSigningPrivKeyHex string) (*pluginPairer, error) {
-	pub, err := minerSigningPublicKeySPKIBase64(minerSigningPrivKeyHex)
-	if err != nil {
-		return nil, err
-	}
-	return &pluginPairer{manager: manager, minerSigningPubKey: pub}, nil
+type pluginPairer struct {
+	manager     *plugins.Manager
+	credentials credentialSealer
+}
+
+func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pluginPairer {
+	return &pluginPairer{manager: manager, credentials: credentials}
 }
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
@@ -94,13 +88,16 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		FirmwareVersion: target.GetFirmwareVersion(),
 	}
 
-	// Asymmetric-auth drivers (Proto) pair with the node's own miner-signing key;
-	// operator-supplied username/password covers basic-auth drivers.
-	if bundle, ok := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds); ok {
-		basicAuth := !plugin.Caps[sdk.CapabilityAsymmetricAuth]
-		if basicAuth && !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
+	if bundle, ok := secretBundleFor(plugin.Caps, creds); ok {
+		if !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
 			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 			res.ErrorMessage = "supplied credentials exceed the maximum reportable size"
+			return res
+		}
+		encrypted, err := p.credentialReport(bundle)
+		if err != nil {
+			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+			res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
 			return res
 		}
 		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
@@ -109,9 +106,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			return res
 		}
 		setPaired(res, updated)
-		if basicAuth {
-			res.UsedCredentials = &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()}
-		}
+		res.EncryptedCredentials = encrypted
 		return res
 	}
 
@@ -122,6 +117,12 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				continue
 			}
 			bundle := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: c.Username, Password: c.Password}}
+			encrypted, err := p.credentialReport(bundle)
+			if err != nil {
+				res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+				res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
+				return res
+			}
 			updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
 			if pairErr != nil {
 				if isNodeAuthFailure(pairErr) {
@@ -131,7 +132,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				return res
 			}
 			setPaired(res, updated)
-			res.UsedCredentials = &pb.UsedCredentials{Username: c.Username, Password: c.Password}
+			res.EncryptedCredentials = encrypted
 			return res
 		}
 	}
@@ -141,14 +142,24 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	return res
 }
 
-// secretBundleFor returns the auth bundle for a driver: the node's miner-signing
-// key for asymmetric-auth drivers, supplied username/password otherwise. ok is
-// false when no credentials apply (the caller falls back to plugin defaults or
-// reports AUTH_NEEDED).
-func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
-	if caps[sdk.CapabilityAsymmetricAuth] {
-		return sdk.SecretBundle{Version: "v1", Kind: sdk.APIKey{Key: nodePubKey}}, true
+func (p *pluginPairer) credentialReport(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
+	if p.credentials == nil {
+		if bundle.Kind == nil {
+			return nil, nil
+		}
+		return nil, errors.New("credential sealer is not configured")
 	}
+	encrypted, err := p.credentials.Seal(bundle)
+	if err != nil {
+		return nil, err
+	}
+	return encrypted, nil
+}
+
+// secretBundleFor returns the supplied username/password bundle. ok is false
+// when no credentials apply (the caller falls back to plugin defaults or reports
+// AUTH_NEEDED).
+func secretBundleFor(_ sdk.Capabilities, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
 	if creds != nil && creds.Password != nil {
 		return sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: creds.GetUsername(), Password: creds.GetPassword()}}, true
 	}
@@ -162,6 +173,7 @@ func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
 	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
 	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)
+	res.DefaultPasswordActive = info.DefaultPasswordActive
 }
 
 // classifyNodePairError maps a plugin pairing error to a per-device outcome.
@@ -185,30 +197,6 @@ func isNodeAuthFailure(err error) bool {
 	}
 	var sdkErr sdk.SDKError
 	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed
-}
-
-// minerSigningPublicKeySPKIBase64 derives the SPKI-DER base64 public key from a
-// hex-encoded ed25519 private key. It must produce the identical string to
-// token.Service.ExtractPublicKeyFromPrivateKey (pinned by a cross-check test) so
-// miners paired here trust the node's runtime JWTs.
-func minerSigningPublicKeySPKIBase64(privKeyHex string) (string, error) {
-	raw, err := hex.DecodeString(privKeyHex)
-	if err != nil {
-		return "", fmt.Errorf("decode miner signing private key: %w", err)
-	}
-	if len(raw) != ed25519.PrivateKeySize {
-		return "", fmt.Errorf("miner signing private key is %d bytes, want %d", len(raw), ed25519.PrivateKeySize)
-	}
-	priv := ed25519.PrivateKey(raw)
-	pub, ok := priv.Public().(ed25519.PublicKey)
-	if !ok {
-		return "", fmt.Errorf("miner signing key is not ed25519")
-	}
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		return "", fmt.Errorf("marshal miner signing public key: %w", err)
-	}
-	return base64.StdEncoding.EncodeToString(der), nil
 }
 
 // handlePairCommand pairs a batch of discovered devices and streams the results

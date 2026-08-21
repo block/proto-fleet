@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/inventory/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -22,9 +22,9 @@ import (
 
 // Event type constants for inventory activity logs.
 const (
-	eventPartCreated  = "inventory.part_created"
-	eventPartUpdated  = "inventory.part_updated"
-	eventPartDeleted  = "inventory.part_deleted"
+	eventPartCreated   = "inventory.part_created"
+	eventPartUpdated   = "inventory.part_updated"
+	eventPartDeleted   = "inventory.part_deleted"
 	eventPartsImported = "inventory.parts_imported"
 )
 
@@ -359,13 +359,13 @@ func buildColumnIndex(headers []string) (*csvColumnIndex, error) {
 			idx.manufacturer = i
 		case csvHeaderPartNumber, "part number":
 			idx.partNumber = i
-		case csvHeaderSiteName, "site_name", "site name":
+		case csvHeaderSiteName, "site name":
 			idx.siteName = i
-		case csvHeaderOnHand, "on_hand":
+		case csvHeaderOnHand:
 			idx.onHand = i
-		case csvHeaderReorderPoint, "reorder_point", "reorder point":
+		case csvHeaderReorderPoint, "reorder point":
 			idx.reorderPoint = i
-		case csvHeaderBinLocation, "bin_location", "bin location":
+		case csvHeaderBinLocation, "bin location":
 			idx.binLocation = i
 		}
 	}

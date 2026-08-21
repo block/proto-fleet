@@ -2,7 +2,11 @@ import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
-import { type PermissionGroup, usePermissionCatalog } from "@/protoFleet/features/settings/utils/permissionCatalog";
+import {
+  type DependencyGaps,
+  type PermissionGroup,
+  usePermissionCatalog,
+} from "@/protoFleet/features/settings/utils/permissionCatalog";
 import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -33,6 +37,8 @@ const collapsedFor = (permissions: string[], groups: PermissionGroup[]): Set<str
   return collapsed;
 };
 
+const permissionTestId = (key: string) => `role-permission-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+
 const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRoleModalProps) => {
   const isVisible = open ?? true;
   const isEdit = !!role;
@@ -43,6 +49,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     permissionGroups,
     withRequiredReads,
     lockedReadKeys,
+    dependencyGaps,
     isLoading: catalogLoading,
     error: catalogError,
   } = usePermissionCatalog();
@@ -68,6 +75,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       permissionGroups={permissionGroups}
       withRequiredReads={withRequiredReads}
       lockedReadKeys={lockedReadKeys}
+      dependencyGaps={dependencyGaps}
       createRole={createRole}
       updateRole={updateRole}
       onDismiss={onDismiss}
@@ -84,6 +92,7 @@ interface FormProps {
   permissionGroups: PermissionGroup[];
   withRequiredReads: (selected: Iterable<string>) => string[];
   lockedReadKeys: (selected: Iterable<string>) => Set<string>;
+  dependencyGaps: (selected: Iterable<string>) => DependencyGaps;
   createRole: ReturnType<typeof useRoleManagement>["createRole"];
   updateRole: ReturnType<typeof useRoleManagement>["updateRole"];
   onDismiss: () => void;
@@ -98,6 +107,7 @@ const CreateEditRoleModalForm = ({
   permissionGroups,
   withRequiredReads,
   lockedReadKeys,
+  dependencyGaps,
   createRole,
   updateRole,
   onDismiss,
@@ -225,6 +235,24 @@ const CreateEditRoleModalForm = ({
 
   const lockedReads = useMemo(() => lockedReadKeys(Array.from(selected)), [selected, lockedReadKeys]);
 
+  // Permissions the current selection needs to be usable but doesn't grant
+  // yet (e.g. Schedules can't run an action without the matching miner
+  // permission). Hard requirements are offered as a one-click add; "choose at
+  // least one" sets are shown as guidance only, since granting every member
+  // would over-grant sensitive actions when just one is needed.
+  const descriptionByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    permissionGroups.forEach((group) => group.entries.forEach((entry) => map.set(entry.key, entry.description)));
+    return map;
+  }, [permissionGroups]);
+  const describe = useCallback((key: string) => descriptionByKey.get(key) ?? key, [descriptionByKey]);
+  const gaps = useMemo(() => dependencyGaps(Array.from(selected)), [selected, dependencyGaps]);
+  const hasGaps = gaps.required.length > 0 || gaps.chooseOneOf.length > 0;
+  const addRequiredDeps = useCallback(() => {
+    setErrorMsg("");
+    setExplicit((prev) => new Set([...prev, ...gaps.required]));
+  }, [gaps.required]);
+
   return (
     <Modal
       open={isVisible}
@@ -289,8 +317,32 @@ const CreateEditRoleModalForm = ({
           initValue={query}
           onChange={(value) => setQuery(value)}
           dismiss
+          testId="role-permission-search"
         />
       </div>
+
+      {hasGaps ? (
+        <Callout
+          className="mb-3"
+          intent="warning"
+          prefixIcon={<Alert />}
+          title="This role needs more access to be usable"
+          subtitle={
+            <div className="flex flex-col gap-1">
+              {gaps.required.length > 0 ? (
+                <span>The permissions you selected also require: {gaps.required.map(describe).join(", ")}</span>
+              ) : null}
+              {gaps.chooseOneOf.map((group) => (
+                <span key={group.join("|")}>
+                  Choose at least one action to schedule: {group.map(describe).join(", ")}
+                </span>
+              ))}
+            </div>
+          }
+          buttonText={gaps.required.length > 0 ? "Add required permissions" : undefined}
+          buttonOnClick={gaps.required.length > 0 ? addRequiredDeps : undefined}
+        />
+      ) : null}
 
       {renderedGroups.length === 0 ? (
         <div className="py-10 text-center text-200 text-text-primary-50">No permissions match "{query.trim()}".</div>
@@ -307,6 +359,7 @@ const CreateEditRoleModalForm = ({
               <section key={group.resource}>
                 <div className="flex items-center gap-3 py-3">
                   <Checkbox
+                    className="shrink-0"
                     checked={allSelected}
                     partiallyChecked={someSelected}
                     onChange={(e) => toggleGroup(groupKeys, e.target.checked)}
@@ -344,6 +397,7 @@ const CreateEditRoleModalForm = ({
                       return (
                         <label
                           key={entry.key}
+                          data-testid={permissionTestId(entry.key)}
                           className={clsx(
                             "flex items-center gap-3 py-2 pl-6 hover:bg-core-primary-2",
                             isLocked ? "cursor-not-allowed" : "cursor-pointer",
@@ -351,6 +405,7 @@ const CreateEditRoleModalForm = ({
                           )}
                         >
                           <Checkbox
+                            className="shrink-0"
                             checked={checked}
                             disabled={isLocked}
                             onChange={(e) => toggleKey(entry.key, e.target.checked)}

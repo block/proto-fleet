@@ -488,6 +488,15 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 	return comment, nil
 }
 
+// ListTicketComments returns all live comments for a ticket after
+// confirming that the ticket belongs to the caller's organization.
+func (s *Service) ListTicketComments(ctx context.Context, orgID, ticketID int64) ([]models.TicketComment, error) {
+	if _, err := s.store.GetRepairTicket(ctx, orgID, ticketID); err != nil {
+		return nil, err
+	}
+	return s.store.ListTicketComments(ctx, orgID, ticketID)
+}
+
 // DeleteComment soft-deletes a comment.
 func (s *Service) DeleteComment(ctx context.Context, orgID, commentID int64) error {
 	rowsAffected, err := s.store.SoftDeleteTicketComment(ctx, orgID, commentID)

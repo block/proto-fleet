@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -8,9 +8,16 @@ import {
   CurtailmentPriority,
   type CurtailmentResponseProfile,
   CurtailmentResponseProfileSchema,
+  type CurtailmentScope,
+  CurtailmentScopeSchema,
   CurtailmentStrategy,
   FixedKwParamsSchema,
+  ScopeBuildingSchema,
+  ScopeDeviceListSchema,
+  ScopeGroupSchema,
+  ScopeRackSchema,
   ScopeSiteSchema,
+  ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useCurtailmentResponseProfiles, {
   clearCurtailmentResponseProfileSessionCacheForTest,
@@ -50,6 +57,10 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   name: "Partial reduction",
   actionType: "fixedKwReduction",
   targetKw: "2000",
+  scopeType: "wholeOrg",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceIdentifiers: [],
   siteId: "",
   siteName: "",
@@ -59,10 +70,11 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   maxDurationSec: "",
   curtailBatchSize: "50",
   curtailBatchIntervalSec: "30",
-  restoreBatchSize: "10000",
+  restoreBatchSize: "0",
   restoreIntervalSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): CurtailmentResponseProfile {
@@ -80,11 +92,27 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     },
     curtailBatchSize: 50,
     curtailBatchIntervalSec: 30,
-    restoreBatchSize: 10_000,
+    restoreBatchSize: 0,
     restoreBatchIntervalSec: 0,
+    facilityFanDeviceIds: [31n, 32n],
+    fanOffDelaySec: 45,
+    fanRestoreDelaySec: 90,
+    scopeSchemaVersion: overrides.scopes?.length ? 1 : 0,
   });
 
   return Object.assign(profile, overrides);
+}
+
+function wholeOrgApiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): CurtailmentResponseProfile {
+  const scope = create(CurtailmentScopeSchema, {
+    scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },
+  });
+  return apiProfile({ site: undefined, scopes: [scope], ...overrides });
+}
+
+function expectWholeOrgScope(scopes: CurtailmentResponseProfile["scopes"] | undefined): void {
+  expect(scopes).toHaveLength(1);
+  expect(scopes?.[0]?.scope.case).toBe("wholeOrg");
 }
 
 describe("useCurtailmentResponseProfiles", () => {
@@ -115,28 +143,40 @@ describe("useCurtailmentResponseProfiles", () => {
       deadlineSummary: "Within 15 min",
       formValues: {
         ...fixedKwFormValues,
+        scopeType: "site",
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
         siteId: "101",
         siteName: "Site 101",
+        siteIds: ["101"],
+        siteNamesById: { "101": "Site 101" },
       },
     });
     expect(result.current.isLoading).toBe(false);
   });
 
   it("creates and updates profiles using the generated CRUD payload shape", async () => {
-    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ site: undefined }) });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: wholeOrgApiProfile() });
     mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
-      profile: apiProfile({ profileName: "Updated", site: undefined }),
+      profile: wholeOrgApiProfile({ profileName: "Updated" }),
     });
 
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
     await act(async () => {
-      await result.current.createResponseProfile(fixedKwFormValues);
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      });
     });
 
     expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         profileName: "Partial reduction",
+        scopeSchemaVersion: 1,
         mode: CurtailmentMode.FIXED_KW,
         modeParams: expect.objectContaining({
           case: "fixedKw",
@@ -144,11 +184,14 @@ describe("useCurtailmentResponseProfiles", () => {
         }),
         curtailBatchSize: 50,
         curtailBatchIntervalSec: 30,
-        restoreBatchSize: 10_000,
+        restoreBatchSize: 0,
         restoreBatchIntervalSec: 0,
+        facilityFanDeviceIds: [31n, 32n],
+        fanOffDelaySec: 45,
+        fanRestoreDelaySec: 90,
       }),
     );
-    expect(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.site).toBeUndefined();
+    expectWholeOrgScope(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
 
     await act(async () => {
       await result.current.updateResponseProfile("7", { ...fixedKwFormValues, name: "Updated" });
@@ -158,9 +201,232 @@ describe("useCurtailmentResponseProfiles", () => {
       expect.objectContaining({
         profileId: 7n,
         profileName: "Updated",
+        replaceFacilityFanSettings: true,
       }),
     );
-    expect(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.site).toBeUndefined();
+    expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
+  });
+
+  it("sends all-paired targeting only for full-fleet response profiles", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValue({ profile: wholeOrgApiProfile() });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        actionType: "fullFleet",
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    // All-paired targeting also opts in maintenance-flagged miners,
+    // mirroring the Start request builders.
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FIXED_KW,
+        forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
+      }),
+    );
+  });
+
+  it("strips all-paired targeting from miner-scoped response profiles", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValue({ profile: wholeOrgApiProfile() });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        actionType: "fullFleet",
+        scopeType: "explicitMiners",
+        deviceIdentifiers: ["miner-1"],
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    // Explicit-miner scopes are open loop; the server rejects the all-paired
+    // flag there, so the payload builder must not send it.
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
+      }),
+    );
+  });
+
+  it("creates profiles with a canonical topology scope", async () => {
+    const buildingScopes = [7n, 8n].map((buildingId) =>
+      create(CurtailmentScopeSchema, {
+        scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
+      }),
+    );
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: buildingScopes }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        scopeType: "building",
+        buildingTargetIds: ["7", "8", "7"],
+      });
+    });
+
+    const request = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(request?.scopes.map((scope: CurtailmentScope) => scope.scope.case)).toEqual(["building", "building"]);
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "2 buildings",
+      isReadOnly: false,
+      isExecutionReady: false,
+      formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+    });
+  });
+
+  it("persists all-paired targeting when creating and updating full-fleet topology profiles", async () => {
+    const buildingScope = create(CurtailmentScopeSchema, {
+      scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({
+        site: undefined,
+        scopes: [buildingScope],
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: { case: undefined },
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({
+        site: undefined,
+        scopes: [buildingScope],
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: { case: undefined },
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+    const values: ResponseProfileFormValues = {
+      ...fixedKwFormValues,
+      actionType: "fullFleet",
+      targetKw: "",
+      scopeType: "building",
+      buildingTargetIds: ["7"],
+      forceIncludeAllPairedMiners: true,
+    };
+
+    await act(async () => {
+      await result.current.createResponseProfile(values);
+    });
+
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.updateResponseProfile("7", values);
+    });
+
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId: 7n,
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    );
+  });
+
+  it("rejects an empty target state instead of defaulting a profile to whole org", async () => {
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await expect(
+      act(async () => {
+        await result.current.createResponseProfile({
+          ...fixedKwFormValues,
+          scopeType: "building",
+          buildingTargetIds: [],
+          minerSelectionMode: "subset",
+        });
+      }),
+    ).rejects.toThrow("Select a curtailment target scope.");
+    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
+  });
+
+  it("drops stale maintenance inclusion when all-paired targeting is unchecked", async () => {
+    mockUpdateCurtailmentResponseProfile.mockResolvedValue({
+      profile: wholeOrgApiProfile({ profileName: "Formerly all-paired" }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    // A profile previously saved with all-paired enabled hydrates
+    // includeMaintenance: true into the edit form. Unchecking "Target all
+    // paired miners" must clear the admin-gated maintenance pair on save —
+    // the maintenance toggle no longer exists in the UI, so nothing else can.
+    await act(async () => {
+      await result.current.updateResponseProfile("7", {
+        ...fixedKwFormValues,
+        name: "Formerly all-paired",
+        actionType: "fullFleet",
+        includeMaintenance: true,
+        forceIncludeAllPairedMiners: false,
+      });
+    });
+
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
+      }),
+    );
+  });
+
+  it("rejects batch restore profiles without a positive restore batch size", async () => {
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await expect(
+      act(async () => {
+        await result.current.createResponseProfile({
+          ...fixedKwFormValues,
+          restoreBehavior: "automaticBatchRestore",
+          restoreBatchSize: "",
+          restoreIntervalSec: "",
+        });
+      }),
+    ).rejects.toThrow("Enter restore batch size greater than 0 for batch restore.");
+
+    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
   });
 
   it("preserves site in the CRUD payload when site values are present", async () => {
@@ -169,8 +435,12 @@ describe("useCurtailmentResponseProfiles", () => {
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
     const siteScopedValues = {
       ...fixedKwFormValues,
+      scopeType: "site" as const,
+      siteSelection: "site" as const,
       siteId: "101",
       siteName: "Site 101",
+      siteIds: ["101"],
+      siteNamesById: { "101": "Site 101" },
     };
 
     await act(async () => {
@@ -179,7 +449,12 @@ describe("useCurtailmentResponseProfiles", () => {
 
     const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
     expect(createRequest).toEqual(expect.objectContaining({ profileName: "Partial reduction" }));
-    expect(createRequest?.site?.siteId).toBe(101n);
+    expect(createRequest?.scopes).toHaveLength(1);
+    expect(createRequest?.scopes[0]?.scope.case).toBe("site");
+    if (createRequest?.scopes?.[0]?.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(createRequest.scopes[0].scope.value.siteId).toBe(101n);
 
     await act(async () => {
       await result.current.updateResponseProfile("7", { ...siteScopedValues, name: "Updated" });
@@ -187,7 +462,122 @@ describe("useCurtailmentResponseProfiles", () => {
 
     const updateRequest = mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0];
     expect(updateRequest).toEqual(expect.objectContaining({ profileId: 7n, profileName: "Updated" }));
-    expect(updateRequest?.site?.siteId).toBe(101n);
+    expect(updateRequest?.scopes).toHaveLength(1);
+    expect(updateRequest?.scopes[0]?.scope.case).toBe("site");
+    if (updateRequest?.scopes?.[0]?.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(updateRequest.scopes[0].scope.value.siteId).toBe(101n);
+  });
+
+  it("persists miners as the terminal scope without parent sites", async () => {
+    const minerScope = create(CurtailmentScopeSchema, {
+      scope: {
+        case: "deviceIdentifiers",
+        value: create(ScopeDeviceListSchema, { deviceIdentifiers: ["miner-1", "miner-2"] }),
+      },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: [minerScope] }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        scopeType: "explicitMiners",
+        siteSelection: "site",
+        siteId: "101",
+        siteName: "Austin, TX",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+        deviceIdentifiers: ["miner-1", "miner-1", "miner-2"],
+      });
+    });
+
+    const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(createRequest?.scopes).toHaveLength(1);
+    expect(createRequest?.scopes[0]?.scope.case).toBe("deviceIdentifiers");
+    if (createRequest?.scopes?.[0]?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected miner scope");
+    }
+    expect(createRequest.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "2 miners",
+      formValues: expect.objectContaining({
+        siteId: "",
+        siteIds: [],
+        siteNamesById: {},
+      }),
+    });
+  });
+
+  it("preserves all-sites profile selections as site scopes", async () => {
+    const site101Scope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
+    });
+    const site102Scope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 102n }) },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: [site101Scope, site102Scope] }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        scopeType: "site",
+        siteSelection: "allSites",
+        siteId: "101",
+        siteName: "Austin, TX",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+      });
+    });
+
+    const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(createRequest?.scopes).toHaveLength(2);
+    expect([createRequest?.scopes?.[0]?.scope.case, createRequest?.scopes?.[1]?.scope.case]).toEqual(["site", "site"]);
+    if (createRequest?.scopes?.[0]?.scope.case !== "site" || createRequest.scopes[1]?.scope.case !== "site") {
+      throw new Error("Expected all-sites profile scope to preserve selected sites");
+    }
+    expect(createRequest.scopes[0].scope.value.siteId).toBe(101n);
+    expect(createRequest.scopes[1].scope.value.siteId).toBe(102n);
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "All sites",
+      formValues: expect.objectContaining({
+        siteSelection: "allSites",
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+      }),
+    });
+  });
+
+  it("collapses all-miner response profile selections to whole org", async () => {
+    const wholeOrgScope = create(CurtailmentScopeSchema, {
+      scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: [wholeOrgScope] }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        minerSelectionMode: "all",
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        siteId: "101",
+        siteName: "Site 101",
+        siteIds: ["101"],
+      });
+    });
+
+    const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(createRequest?.scopes).toHaveLength(1);
+    expect(createRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
   });
 
   it("maps API profiles with sites as site-scoped profiles", async () => {
@@ -208,8 +598,122 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("maps API profiles without sites as whole-fleet profiles", async () => {
+  it("uses loaded site names for site-scoped API profiles", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
+    const siteNameById = new Map([["101", "Austin, TX"]]);
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false, { siteNameById }));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "Austin, TX",
+      formValues: expect.objectContaining({
+        siteId: "101",
+        siteName: "Austin, TX",
+      }),
+    });
+  });
+
+  it("remaps loaded profiles when site names arrive without refetching profiles", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
+
+    const { result, rerender } = renderHook(
+      ({ siteNameById }: { siteNameById?: Map<string, string> }) =>
+        useCurtailmentResponseProfiles(true, { siteNameById }),
+      {
+        initialProps: {
+          siteNameById: undefined as Map<string, string> | undefined,
+        },
+      },
+    );
+
+    await waitFor(() => expect(result.current.responseProfiles[0]?.scope).toBe("Site 101"));
+
+    rerender({
+      siteNameById: new Map([["101", "Austin, TX"]]),
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "Austin, TX",
+      formValues: expect.objectContaining({
+        siteId: "101",
+        siteName: "Austin, TX",
+      }),
+    });
+    expect(mockListCurtailmentResponseProfiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats default zero curtail batch intervals as unset without a batch size", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ curtailBatchSize: 0, curtailBatchIntervalSec: 0 })],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]?.formValues).toEqual(
+      expect.objectContaining({
+        curtailBatchSize: "",
+        curtailBatchIntervalSec: "",
+      }),
+    );
+  });
+
+  it("keeps API profiles without a recognized scope visible but read-only", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile({ site: undefined })] });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "Unknown scope",
+      formValues: undefined,
+      isReadOnly: true,
+    });
+  });
+
+  it("keeps unsupported and malformed scope contracts visible but read-only", async () => {
+    const siteScope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
+    });
+    const buildingScope = create(CurtailmentScopeSchema, {
+      scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [
+        apiProfile({ profileId: 8n, site: undefined, scopes: [siteScope], scopeSchemaVersion: 2 }),
+        apiProfile({ profileId: 9n, site: undefined, scopes: [siteScope, buildingScope] }),
+      ],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles).toEqual([
+      expect.objectContaining({ id: "8", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
+      expect.objectContaining({ id: "9", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
+    ]);
+  });
+
+  it("maps explicit whole-org API scopes as all-miner form state", async () => {
+    const wholeOrgScope = create(CurtailmentScopeSchema, {
+      scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ site: undefined, scopes: [wholeOrgScope] })],
+    });
 
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
@@ -220,19 +724,76 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.responseProfiles[0]).toMatchObject({
       scope: "Whole fleet",
       formValues: expect.objectContaining({
+        minerSelectionMode: "all",
+        siteSelection: "allSites",
         siteId: "",
-        siteName: "",
+        siteIds: [],
+        deviceIdentifiers: [],
       }),
     });
+  });
+
+  it("maps topology-scoped API profiles to editable form values and card summaries", async () => {
+    const buildingScopes = [7n, 8n].map((buildingId) =>
+      create(CurtailmentScopeSchema, {
+        scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
+      }),
+    );
+    const rackScope = create(CurtailmentScopeSchema, {
+      scope: { case: "rack", value: create(ScopeRackSchema, { rackId: 9n }) },
+    });
+    const groupScopes = [10n, 11n].map((groupId) =>
+      create(CurtailmentScopeSchema, {
+        scope: { case: "group", value: create(ScopeGroupSchema, { groupId }) },
+      }),
+    );
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [
+        apiProfile({ profileId: 7n, profileName: "Buildings", site: undefined, scopes: buildingScopes }),
+        apiProfile({ profileId: 8n, profileName: "Rack", site: undefined, scopes: [rackScope] }),
+        apiProfile({ profileId: 9n, profileName: "Groups", site: undefined, scopes: groupScopes }),
+      ],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Buildings",
+          scope: "2 buildings",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+        }),
+        expect.objectContaining({
+          name: "Rack",
+          scope: "1 rack",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "rack", rackTargetIds: ["9"] }),
+        }),
+        expect.objectContaining({
+          name: "Groups",
+          scope: "2 groups",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "group", groupTargetIds: ["10", "11"] }),
+        }),
+      ]),
+    );
   });
 
   it("maps full-fleet API mode to the whole-fleet card scope", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
       profiles: [
-        apiProfile({
+        wholeOrgApiProfile({
           mode: CurtailmentMode.FULL_FLEET,
           modeParams: { case: undefined },
-          site: undefined,
         }),
       ],
     });
@@ -249,12 +810,23 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("drops submitted miner selections for API-backed response profiles", async () => {
-    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ site: undefined }) });
-    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile({ site: undefined })] });
+  it("preserves submitted miner selections for API-backed response profiles", async () => {
+    const minerScope = create(CurtailmentScopeSchema, {
+      scope: {
+        case: "deviceIdentifiers",
+        value: create(ScopeDeviceListSchema, { deviceIdentifiers: ["miner-1", "miner-2", "miner-3"] }),
+      },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: [minerScope] }),
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ site: undefined, scopes: [minerScope] })],
+    });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
     const minerScopedValues = {
       ...fixedKwFormValues,
+      scopeType: "explicitMiners" as const,
       deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       siteId: "",
       siteName: "",
@@ -269,13 +841,44 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     expect(result.current.responseProfiles[0]).toMatchObject({
-      scope: "Whole fleet",
+      scope: "3 miners",
       formValues: expect.objectContaining({
-        deviceIdentifiers: [],
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
         siteId: "",
         siteName: "",
       }),
     });
+  });
+
+  it("uses refetched facility fan settings instead of stale session values", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ facilityFanDeviceIds: [31n], fanOffDelaySec: 45, fanRestoreDelaySec: 90 }),
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ facilityFanDeviceIds: [32n], fanOffDelaySec: 60, fanRestoreDelaySec: 120 })],
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      });
+    });
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]?.formValues).toEqual(
+      expect.objectContaining({
+        facilityFanDeviceIds: ["32"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
+      }),
+    );
   });
 
   it("deletes response profiles by id", async () => {

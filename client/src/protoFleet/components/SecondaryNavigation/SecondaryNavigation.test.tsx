@@ -31,7 +31,7 @@ describe("Secondary Navigation", () => {
     );
 
     const navMenu = getByTestId("secondary-nav");
-    const navItems = navMenu.querySelectorAll("li");
+    const navItems = navMenu.querySelectorAll("a");
     expect(navItems.length).toBe(3);
   });
 
@@ -46,5 +46,22 @@ describe("Secondary Navigation", () => {
     await waitFor(() => {
       expect(currentItem).toHaveClass("bg-core-primary-5");
     });
+  });
+
+  it("renders section labels when provided", () => {
+    const { getByText } = render(
+      <MemoryRouter initialEntries={["/bar/foo"]}>
+        <SecondaryNavigation
+          items={[
+            { ...items[0], section: "Fleet" },
+            { ...items[1], section: "Fleet" },
+            { ...items[2], section: "Admin" },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(getByText("Fleet")).toBeInTheDocument();
+    expect(getByText("Admin")).toBeInTheDocument();
   });
 });

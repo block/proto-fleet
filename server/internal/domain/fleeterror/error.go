@@ -276,6 +276,10 @@ func NewAlreadyExistsErrorf(format string, a ...any) FleetError {
 	return newErrorfWithCode(format, connect.CodeAlreadyExists, a...)
 }
 
+func NewResourceExhaustedErrorf(format string, a ...any) FleetError {
+	return newErrorfWithCode(format, connect.CodeResourceExhausted, a...)
+}
+
 func NewUnimplementedError(debugMessage string) FleetError {
 	return NewPlainError(debugMessage, connect.CodeUnimplemented).WithCallerStackTrace()
 }
@@ -286,6 +290,14 @@ func NewUnimplementedErrorf(format string, a ...any) FleetError {
 
 func NewUnavailableErrorf(format string, a ...any) FleetError {
 	return newErrorfWithCode(format, connect.CodeUnavailable, a...)
+}
+
+func NewNotActiveError() FleetError {
+	return NewErrorWithCommonCode(
+		"Fleet is not active",
+		connect.CodeUnavailable,
+		commonv1.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE,
+	)
 }
 
 func NewCanceledError() FleetError {

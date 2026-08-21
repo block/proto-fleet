@@ -9,11 +9,18 @@ import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 const SCHEDULE_PREFIX = "schedule_e2e";
 
 test.describe("Proto Fleet - Schedules", () => {
+  let shouldCleanupSchedules = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupSchedules = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Delete schedules created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupSchedules) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -35,59 +42,65 @@ test.describe("Proto Fleet - Schedules", () => {
     }
   });
 
-  test("Create, pause/resume, edit, and delete a schedule", async ({ commonSteps, settingsSchedulesPage }) => {
-    const scheduleName = generateRandomText(SCHEDULE_PREFIX);
-    const updatedScheduleName = `${scheduleName}_updated`;
+  test(
+    "Create, pause/resume, edit, and delete a schedule",
+    { tag: "@smoke" },
+    async ({ commonSteps, settingsSchedulesPage }) => {
+      const scheduleName = generateRandomText(SCHEDULE_PREFIX);
+      const updatedScheduleName = `${scheduleName}_updated`;
 
-    await test.step("Log in as admin", async () => {
-      await commonSteps.loginAsAdmin();
-    });
+      await test.step("Log in as admin", async () => {
+        await commonSteps.loginAsAdmin();
+      });
 
-    await test.step("Navigate to schedules settings", async () => {
-      await settingsSchedulesPage.navigateToSchedulesSettings();
-      await settingsSchedulesPage.validateSchedulesPageOpened();
-    });
+      await test.step("Navigate to schedules settings", async () => {
+        await settingsSchedulesPage.navigateToSchedulesSettings();
+        await settingsSchedulesPage.validateSchedulesPageOpened();
+      });
 
-    await test.step("Create a one-time schedule for one miner", async () => {
-      await settingsSchedulesPage.clickAddSchedule();
-      await settingsSchedulesPage.inputScheduleName(scheduleName);
-      await settingsSchedulesPage.selectStartDate(1);
-      await settingsSchedulesPage.openMinersTargetSelector();
-      await settingsSchedulesPage.waitForMinerSelectionModalToLoad();
-      await settingsSchedulesPage.selectFirstMiners(1);
-      await settingsSchedulesPage.confirmMinerSelection();
-      await settingsSchedulesPage.clickSaveSchedule();
-    });
+      await test.step("Create a one-time schedule for one miner", async () => {
+        shouldCleanupSchedules = true;
+        await settingsSchedulesPage.clickAddSchedule();
+        await settingsSchedulesPage.inputScheduleName(scheduleName);
+        await settingsSchedulesPage.selectStartDate(1);
+        await settingsSchedulesPage.openMinersTargetSelector();
+        await settingsSchedulesPage.waitForMinerSelectionModalToLoad();
+        await settingsSchedulesPage.selectFirstMiners(1);
+        await settingsSchedulesPage.confirmMinerSelection();
+        await settingsSchedulesPage.clickSaveSchedule();
+      });
 
-    await test.step("Validate the schedule was created", async () => {
-      await settingsSchedulesPage.validateScheduleVisible(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
-      await settingsSchedulesPage.validateScheduleAction(scheduleName, "Set power target");
-      await settingsSchedulesPage.validateScheduleTargetSummary(scheduleName, "Applies to 1 miner");
-    });
+      await test.step("Validate the schedule was created", async () => {
+        await settingsSchedulesPage.validateScheduleVisible(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
+        await settingsSchedulesPage.validateScheduleAction(scheduleName, "Set power target");
+        await settingsSchedulesPage.validateScheduleTargetSummary(scheduleName, "Applies to 1 miner");
+      });
 
-    await test.step("Pause and resume the schedule", async () => {
-      await settingsSchedulesPage.pauseSchedule(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Paused");
+      await test.step("Pause and resume the schedule", async () => {
+        await settingsSchedulesPage.pauseSchedule(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Paused");
 
-      await settingsSchedulesPage.resumeSchedule(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
-    });
+        await settingsSchedulesPage.resumeSchedule(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
+      });
 
-    await test.step("Edit the schedule name", async () => {
-      await settingsSchedulesPage.openEditSchedule(scheduleName);
-      await settingsSchedulesPage.inputScheduleName(updatedScheduleName);
-      await settingsSchedulesPage.clickSaveSchedule();
-      await settingsSchedulesPage.validateScheduleVisible(updatedScheduleName);
-      await settingsSchedulesPage.validateScheduleNotVisible(scheduleName);
-    });
+      await test.step("Edit the schedule name", async () => {
+        await settingsSchedulesPage.openEditSchedule(scheduleName);
+        await settingsSchedulesPage.inputScheduleName(updatedScheduleName);
+        await settingsSchedulesPage.clickSaveSchedule();
+        await settingsSchedulesPage.validateScheduleVisible(updatedScheduleName);
+        await settingsSchedulesPage.validateScheduleNotVisible(scheduleName);
+      });
 
-    await test.step("Delete the schedule", async () => {
-      await settingsSchedulesPage.deleteSchedule(updatedScheduleName);
-    });
-  });
+      await test.step("Delete the schedule", async () => {
+        await settingsSchedulesPage.deleteSchedule(updatedScheduleName);
+        shouldCleanupSchedules = false;
+      });
+    },
+  );
 
-  test("Recurring schedule validation", async ({ commonSteps, settingsSchedulesPage }) => {
+  test("Recurring schedule validation", { tag: "@smoke" }, async ({ commonSteps, settingsSchedulesPage }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
     await test.step("Log in as admin", async () => {
@@ -100,6 +113,7 @@ test.describe("Proto Fleet - Schedules", () => {
     });
 
     await test.step("Switch to a recurring weekly schedule and validate days are required", async () => {
+      shouldCleanupSchedules = true;
       await settingsSchedulesPage.clickAddSchedule();
       await settingsSchedulesPage.inputScheduleName(scheduleName);
       await settingsSchedulesPage.selectScheduleType("Recurring");

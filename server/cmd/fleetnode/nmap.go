@@ -42,6 +42,9 @@ func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 	if r.localSubnets != nil {
 		return r.localSubnets()
 	}
+	if configured := strings.TrimSpace(r.LocalDiscoverySubnet); configured != "" {
+		return []string{configured}, nil
+	}
 	info, err := networking.GetLocalNetworkInfo()
 	if err != nil {
 		return nil, fmt.Errorf("get local network info: %w", err)

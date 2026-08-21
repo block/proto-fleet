@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import List from "@/shared/components/List/index";
@@ -8,18 +8,16 @@ import testColConfig from "@/shared/components/List/mocks/colConfig";
 import { testCols, testColTitles, testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 import { ListAction } from "@/shared/components/List/types";
 
-beforeAll(() => {
-  vi.mock("recharts", () => ({
-    ResponsiveContainer: ({ children }: { children: ReactNode }) => (
-      <div data-testid="recharts-responsive-container">{children}</div>
-    ),
-    LineChart: ({ children }: { children: ReactNode }) => <div data-testid="recharts-line-chart">{children}</div>,
-    ReferenceLine: () => <div data-testid="recharts-reference-line" />,
-    Line: () => <div data-testid="recharts-line" />,
-    XAxis: () => <div data-testid="recharts-xaxis" />,
-    YAxis: () => <div data-testid="recharts-yaxis" />,
-  }));
-});
+vi.mock("recharts", () => ({
+  ResponsiveContainer: ({ children }: { children: ReactNode }) => (
+    <div data-testid="recharts-responsive-container">{children}</div>
+  ),
+  LineChart: ({ children }: { children: ReactNode }) => <div data-testid="recharts-line-chart">{children}</div>,
+  ReferenceLine: () => <div data-testid="recharts-reference-line" />,
+  Line: () => <div data-testid="recharts-line" />,
+  XAxis: () => <div data-testid="recharts-xaxis" />,
+  YAxis: () => <div data-testid="recharts-yaxis" />,
+}));
 
 describe("List", () => {
   const activeCols = [testCols.name, testCols.status, testCols.value, testCols.timestamp] as (keyof TestItem)[];
@@ -88,6 +86,30 @@ describe("List", () => {
     );
 
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
+  });
+
+  it("renders standalone dash table values in muted text", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={[testCols.name, testCols.status] as (keyof TestItem)[]}
+        colTitles={testColTitles}
+        colConfig={{
+          ...testColConfig,
+          [testCols.status]: {
+            component: () => <span className="text-text-primary">—</span>,
+          },
+        }}
+        items={[{ ...testItems[0], id: "dash-item", name: "—" }]}
+        itemKey="id"
+      />,
+    );
+
+    const placeholders = screen.getAllByText("—");
+
+    expect(placeholders).toHaveLength(2);
+    placeholders.forEach((placeholder) => {
+      expect(placeholder.closest(".text-text-primary-50")).toBeInTheDocument();
+    });
   });
 
   it("does not apply trailing padding classes when the last column is already reachable", () => {
@@ -260,9 +282,10 @@ describe("List", () => {
   it("does not register a resize listener when horizontal overflow handling is disabled", () => {
     const addEventListenerSpy = vi.spyOn(window, "addEventListener");
     let resizeListenerCount: number;
+    let scrollContainer: HTMLDivElement;
 
     try {
-      render(
+      const { container } = render(
         <List<TestItem, TestItemKey>
           activeCols={activeCols}
           colTitles={testColTitles}
@@ -272,12 +295,20 @@ describe("List", () => {
           overflowContainer={false}
         />,
       );
+      scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
       resizeListenerCount = addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === "resize").length;
     } finally {
       addEventListenerSpy.mockRestore();
     }
 
     expect(resizeListenerCount).toBe(0);
+    expect(scrollContainer!).toHaveClass(
+      "phone:overflow-x-auto",
+      "phone:overscroll-x-contain",
+      "tablet-only:overflow-x-auto",
+      "tablet-only:overscroll-x-contain",
+    );
+    expect(scrollContainer!).not.toHaveClass("overflow-x-auto");
   });
 
   it("shows item count by default", () => {
@@ -311,6 +342,109 @@ describe("List", () => {
     );
 
     expect(screen.queryByText(`${testItems.length} miners`)).not.toBeInTheDocument();
+  });
+
+  it("renders no-data content without redundant count or table chrome", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={[]}
+        itemKey="id"
+        total={0}
+        itemName={{ singular: "miner", plural: "miners" }}
+        noDataElement={<div>No miners found</div>}
+      />,
+    );
+
+    expect(screen.getByText("No miners found")).toBeInTheDocument();
+    expect(screen.queryByText("0 miners")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("list-header")).not.toBeInTheDocument();
+  });
+
+  it("hides filter controls for a true no-data state", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        filters={testFilters}
+        items={[]}
+        itemKey="id"
+        total={0}
+        noDataElement={<div>No miners found</div>}
+      />,
+    );
+
+    expect(screen.getByText("No miners found")).toBeInTheDocument();
+    expect(screen.queryByText("All Items")).not.toBeInTheDocument();
+    expect(screen.queryByText("Value Range")).not.toBeInTheDocument();
+  });
+
+  it("renders rows when data arrives after an empty filtered no-data state", async () => {
+    const props = {
+      activeCols,
+      colTitles: testColTitles,
+      colConfig: testColConfig,
+      filters: testFilters,
+      itemKey: "id" as const,
+      total: 0,
+      noDataElement: <div>No miners found</div>,
+      filterItem: () => true,
+    };
+
+    const { rerender } = render(<List<TestItem, TestItemKey> {...props} items={[]} />);
+
+    expect(screen.getByText("No miners found")).toBeInTheDocument();
+    expect(screen.queryByText("All Items")).not.toBeInTheDocument();
+
+    rerender(<List<TestItem, TestItemKey> {...props} items={testItems} total={testItems.length} />);
+
+    expect(screen.getByText("All Items")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(testItems[0].name)).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No miners found")).not.toBeInTheDocument();
+  });
+
+  it("keeps header controls visible for a true no-data state", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        filters={testFilters}
+        headerControls={<button type="button">Add miner</button>}
+        items={[]}
+        itemKey="id"
+        total={0}
+        noDataElement={<div>No miners found</div>}
+      />,
+    );
+
+    expect(screen.getByText("Add miner")).toBeInTheDocument();
+    expect(screen.queryByText("All Items")).not.toBeInTheDocument();
+  });
+
+  it("keeps filter controls visible for a filtered no-data state", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        filters={testFilters}
+        hasActiveFilters
+        items={[]}
+        itemKey="id"
+        total={0}
+        noDataElement={<div>No miners found</div>}
+      />,
+    );
+
+    expect(screen.getByText("No miners found")).toBeInTheDocument();
+    expect(screen.getByText("All Items")).toBeInTheDocument();
+    expect(screen.getByText("Value Range")).toBeInTheDocument();
   });
 
   it("does not render checkboxes when items are not selectable", () => {
@@ -584,6 +718,31 @@ describe("List", () => {
       />,
     );
 
+    expect(screen.getAllByTestId("action")).toHaveLength(testItems.length);
+  });
+
+  it("renders an action placeholder when a row hides every action", () => {
+    const actions = [
+      {
+        title: "Edit",
+        actionHandler: vi.fn(),
+        hidden: (item: TestItem) => item.id === testItems[0].id,
+      },
+    ] as ListAction<TestItem>[];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        actions={actions}
+        actionPlaceholder={(item) => (item.id === testItems[0].id ? <span>Locked</span> : null)}
+      />,
+    );
+
+    expect(screen.getByText("Locked")).toBeInTheDocument();
     expect(screen.getAllByTestId("action")).toHaveLength(testItems.length);
   });
 
@@ -951,6 +1110,106 @@ describe("List", () => {
     );
 
     expect(customSetSelectedItems).not.toHaveBeenCalled();
+  });
+
+  it("merges the current page into selection on header select-all when preserveOffPageSelection is true", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // item3 is selected but lives on another page (not in items).
+    const selectedAcrossPages = [testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const selectAllCheckbox = screen
+      .getByTestId("list-header")
+      .querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(selectAllCheckbox);
+
+    // Page keys are added without dropping the off-page selection (item3).
+    expect(customSetSelectedItems).toHaveBeenCalledWith(
+      expect.arrayContaining([testItems[2].id, testItems[0].id, testItems[1].id]),
+    );
+    expect(customSetSelectedItems.mock.calls[0][0]).toHaveLength(3);
+  });
+
+  it("removes only the current page from selection on header deselect when preserveOffPageSelection is true", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // All of page one plus an off-page selection.
+    const selectedAcrossPages = [testItems[0].id, testItems[1].id, testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const selectAllCheckbox = screen
+      .getByTestId("list-header")
+      .querySelector("input[type='checkbox']") as HTMLInputElement;
+    // Page-one items are all selected, so the header checkbox is checked;
+    // clicking it clears just this page and keeps the off-page item3.
+    fireEvent.click(selectAllCheckbox);
+
+    expect(customSetSelectedItems).toHaveBeenCalledWith([testItems[2].id]);
+  });
+
+  it("keeps off-page selections when a row check fills the current page (preserveOffPageSelection)", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // item1 already selected on this page + item3 selected off-page. Checking
+    // item2 makes the page "full" — without the fix that flips to "all" mode
+    // and the sync effect rewrites selection to just the page keys, dropping
+    // item3.
+    const selectedAcrossPages = [testItems[0].id, testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const rowCheckboxes = Array.from(
+      screen.getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+    ) as HTMLInputElement[];
+    // Check the second row (item2).
+    fireEvent.click(rowCheckboxes[1]);
+
+    // Every write keeps the off-page item3 — it is never dropped.
+    for (const call of customSetSelectedItems.mock.calls) {
+      expect(call[0]).toContain(testItems[2].id);
+    }
+    expect(customSetSelectedItems).toHaveBeenLastCalledWith(
+      expect.arrayContaining([testItems[0].id, testItems[1].id, testItems[2].id]),
+    );
   });
 
   it("does not show the header checkbox as partially checked for off-page selections", () => {

@@ -17,6 +17,9 @@ export const minerCols = {
   temperature: "temperature",
   firmware: "firmware",
   groups: "groups",
+  site: "site",
+  building: "building",
+  rack: "rack",
 } as const;
 
 export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
@@ -35,6 +38,9 @@ export const minerColTitles: ColTitles<MinerColumn> = {
   temperature: "Temp",
   firmware: "Firmware",
   groups: "Groups",
+  site: "Site",
+  building: "Building",
+  rack: "Rack",
 };
 
 export const deviceStatusFilterStates = {

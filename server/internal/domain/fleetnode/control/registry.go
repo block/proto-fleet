@@ -51,6 +51,14 @@ const commandEventBuffer = 64
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 64
 
+// MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
+// their first message can be matched to a command expectation.
+const MaxConcurrentCommandArtifactUploadsPerFleetNode = 2
+
+const maxConcurrentCommandArtifactDownloadsPerFleetNode = 2
+
+const maxCommandArtifactTransferAttempts = 3
+
 // maxReportsPerCommand caps devices reported per command at the scan ceiling
 // (targets × ports): a broad scan isn't truncated, a runaway agent is bounded.
 const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.MaxPortsPerIP
@@ -58,6 +66,10 @@ const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.Ma
 var (
 	// ErrNoActiveStream: no ControlStream for the fleet_node (callers map to FailedPrecondition).
 	ErrNoActiveStream = errors.New("no active control stream for fleet_node")
+
+	// errSessionInvalidated: the authenticated session was replaced or revoked
+	// before its ControlStream could register.
+	errSessionInvalidated = errors.New("fleet_node session was replaced or revoked")
 
 	// errNoInFlightCommand: AdmitReport's command_id isn't an in-flight report-bearing
 	// command. Unexported; callers map it to FailedPrecondition like any non-quota admit failure.
@@ -69,6 +81,25 @@ var (
 	// ErrEmptyReport: a pair report carried no results (consumes no quota);
 	// callers map it to InvalidArgument.
 	ErrEmptyReport = errors.New("report carried no results")
+
+	// ErrArtifactNotExpected: a command artifact transfer did not match the
+	// server-issued command's declared transfer expectations.
+	ErrArtifactNotExpected = errors.New("artifact transfer not expected for command")
+
+	// ErrArtifactAlreadyTransferred: an artifact expectation is already in progress or completed.
+	ErrArtifactAlreadyTransferred = errors.New("artifact transfer already in progress or completed for command")
+
+	// ErrArtifactTransferLimitExceeded: the fleet_node already has the maximum
+	// allowed concurrent command artifact transfer streams.
+	ErrArtifactTransferLimitExceeded = errors.New("artifact transfer concurrency limit exceeded for fleet_node")
+
+	// ErrArtifactTransferAttemptsExceeded: an in-flight command has exhausted
+	// retry attempts for one artifact expectation.
+	ErrArtifactTransferAttemptsExceeded = errors.New("artifact transfer attempts exceeded for command")
+
+	// ErrArtifactTooLarge: an artifact transfer exceeds the in-flight command's
+	// purpose-specific size expectation.
+	ErrArtifactTooLarge = errors.New("artifact transfer exceeds command size expectation")
 
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
@@ -108,6 +139,33 @@ type PairMeta struct {
 	Targets    map[string]struct{} // dispatched device identifiers; also the report quota
 }
 
+// ArtifactDirection indicates which side of a command artifact transfer owns the bytes.
+type ArtifactDirection int
+
+const (
+	ArtifactDirectionUpload ArtifactDirection = iota
+	ArtifactDirectionDownload
+)
+
+// ArtifactExpectation is attached to an in-flight command before dispatch. Gateway
+// upload/download RPCs must match one of these expectations before bytes move.
+type ArtifactExpectation struct {
+	Direction        ArtifactDirection
+	Purpose          gatewaypb.CommandArtifactPurpose
+	ArtifactID       string
+	DeviceIdentifier string
+	SizeBytes        int64
+	MaxSizeBytes     int64
+}
+
+type artifactExpectation struct {
+	ArtifactExpectation
+	inProgress bool
+	completed  bool
+	attempts   int
+	uploadRef  *gatewaypb.CommandArtifactRef
+}
+
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
@@ -136,6 +194,8 @@ type inflightCommand struct {
 	// ack-only (ack != nil): the terminal ack for a per-miner command.
 	ack chan *gatewaypb.ControlAck // cap 1, never closed
 
+	artifacts []artifactExpectation
+
 	done chan struct{} // closed once on teardown/free; wakes the waiter
 }
 
@@ -144,12 +204,25 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
-	mu    sync.Mutex
-	conns map[int64]*connection
+	mu                       sync.Mutex
+	conns                    map[int64]*connection
+	sessionFences            map[int64]sessionFence
+	commandArtifactUploads   map[int64]int
+	commandArtifactDownloads map[int64]int
+}
+
+type sessionFence struct {
+	fingerprint string
+	revoked     bool
 }
 
 func NewRegistry() *Registry {
-	return &Registry{conns: make(map[int64]*connection)}
+	return &Registry{
+		conns:                    make(map[int64]*connection),
+		sessionFences:            make(map[int64]sessionFence),
+		commandArtifactUploads:   make(map[int64]int),
+		commandArtifactDownloads: make(map[int64]int),
+	}
 }
 
 // ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream

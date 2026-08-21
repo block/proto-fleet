@@ -22,13 +22,10 @@ import { usePermissions } from "@/protoFleet/store";
 // enforces every key regardless of what the UI shows. This filter is a
 // UX improvement, not a security boundary.
 //
-// Scope caveat: the filter uses org-scope semantics via
-// EffectivePermissions.FlatKeys() projected onto UserInfo.permissions,
-// so a *site-scoped* grant for a miner action will still surface the
-// action in the menu even though the click will be denied for miners
-// outside the granted site. Site-aware filtering needs the menu to
-// know the targeted miner's site and is deferred — the server gate
-// catches the 403 regardless.
+// Scope caveat: UserInfo.permissions represents default/org-scoped
+// authority. Site-scoped grants intentionally do not surface actions here
+// until this menu can evaluate permissions against the targeted miner's
+// resource scope. The server gate catches any stale or mismatched UI.
 export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly string[]> = {
   [deviceActions.blinkLEDs]: "miner:blink_led",
   [deviceActions.downloadLogs]: "miner:download_logs",

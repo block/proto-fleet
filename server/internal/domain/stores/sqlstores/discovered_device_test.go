@@ -26,9 +26,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldInsertNewDevice(t *testing.T) {
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org",
-		Name:                "Test Org",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org",
+		Name:  "Test Org",
 	})
 	require.NoError(t, err)
 
@@ -87,9 +86,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldUpdateExistingDevice(t *testing.T) 
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org",
-		Name:                "Test Org",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org",
+		Name:  "Test Org",
 	})
 	require.NoError(t, err)
 
@@ -143,9 +141,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldRefreshModelAndManufacturerOnRedisc
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-refresh-model",
-		Name:                "Test Org Refresh Model",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-refresh-model",
+		Name:  "Test Org Refresh Model",
 	})
 	require.NoError(t, err)
 
@@ -204,9 +201,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldClearFirmwareVersionWhenRediscovery
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-clear-firmware",
-		Name:                "Test Org Clear Firmware",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-clear-firmware",
+		Name:  "Test Org Clear Firmware",
 	})
 	require.NoError(t, err)
 
@@ -266,9 +262,8 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnExistingDevice(t *testin
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-2",
-		Name:                "Test Org 2",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-2",
+		Name:  "Test Org 2",
 	})
 	require.NoError(t, err)
 
@@ -327,9 +322,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldAllowSettingIsActiveToTrue(t *testi
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-active",
-		Name:                "Test Org Active",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-active",
+		Name:  "Test Org Active",
 	})
 	require.NoError(t, err)
 
@@ -379,9 +373,8 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnErrorForNonExistentDevic
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-3",
-		Name:                "Test Org 3",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-3",
+		Name:  "Test Org 3",
 	})
 	require.NoError(t, err)
 
@@ -414,9 +407,8 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldReturnUnpairedD
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-unpaired",
-		Name:                "Test Org Unpaired",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-unpaired",
+		Name:  "Test Org Unpaired",
 	})
 	require.NoError(t, err)
 
@@ -474,9 +466,8 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldSupportPaginati
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-pagination",
-		Name:                "Test Org Pagination",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-pagination",
+		Name:  "Test Org Pagination",
 	})
 	require.NoError(t, err)
 
@@ -545,9 +536,8 @@ func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrect
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-count",
-		Name:                "Test Org Count",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-count",
+		Name:  "Test Org Count",
 	})
 	require.NoError(t, err)
 

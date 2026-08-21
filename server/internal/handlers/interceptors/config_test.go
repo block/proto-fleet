@@ -9,9 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -20,6 +25,16 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedRequestProcedures, sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure)
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure],
+		"site-map imports carry CSV topology and miner identity data")
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure],
+		"site-map export streams carry CSV topology and miner identity data")
 }
 
 func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
@@ -33,6 +48,62 @@ func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 	for _, procedure := range procedures {
 		assert.Contains(t, RedactedRequestProcedures, procedure)
 	}
+}
+
+// Infrastructure device bodies carry driver_config — the OT control
+// network map (endpoint IPs, unit IDs, register addresses) — and must
+// never land in debug logs.
+func TestInfrastructureProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s carries driver_config (OT network topology) and must suppress body logging",
+			procedure)
+	}
+}
+
+// Infrastructure devices are the OT control surface (writes change which
+// physical fans curtailment drives; manage-level reads expose the OT network
+// map), so all five procedures must reject API-key auth.
+func TestInfrastructureProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must be session-only; the OT control surface should not be reachable via API key",
+			procedure)
+	}
+}
+
+func TestInfrastructureControlSubnetProceduresAreSensitiveAndSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	getProcedure := sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure
+	setProcedure := sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure
+
+	for _, procedure := range []string{getProcedure, setProcedure} {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s exposes OT topology and must reject API-key auth", procedure)
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s exposes OT topology and must suppress body logging", procedure)
+	}
+	assert.Contains(t, RedactedRequestProcedures, setProcedure,
+		"commissioning replacement carries OT topology in its request body")
 }
 
 func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
@@ -50,6 +121,23 @@ func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
 	}
 }
 
+// The alert surface is uniformly session-only; rule mutations persist Grafana
+// rule evaluations and must not be reachable from a leaked API key.
+func TestAlertRuleMutationProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		alertsv1connect.RuleServiceCreateRuleProcedure,
+		alertsv1connect.RuleServiceUpdateRuleProcedure,
+		alertsv1connect.RuleServiceDeleteRuleProcedure,
+		alertsv1connect.RuleServiceSetRuleRoutingProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth like the rest of the alert-management surface", procedure)
+	}
+}
+
 // AdminTerminateEvent is the operator-of-last-resort recovery RPC and must
 // reject API-key auth.
 func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
@@ -58,6 +146,9 @@ func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 	assert.Contains(t, SessionOnlyProcedures,
 		curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
 		"AdminTerminateEvent must be session-only; recovery escape hatch should not be reachable via API key")
+	assert.Contains(t, SessionOnlyProcedures,
+		curtailmentv1connect.CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
+		"ForceReleaseCurtailmentOwnership must be session-only; recovery escape hatch should not be reachable via API key")
 }
 
 // Public curtailment control/read RPCs must remain reachable via API-key auth
@@ -70,8 +161,9 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 		curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure,
 		curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure,
 		curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
-		curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure,
+		curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure,
 		curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure,
+		curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure,
 		curtailmentv1connect.CurtailmentServiceListCurtailmentAutomationRulesProcedure,
 		curtailmentv1connect.CurtailmentServiceGetCurtailmentAutomationRuleProcedure,
 		curtailmentv1connect.CurtailmentServiceCreateCurtailmentAutomationRuleProcedure,
@@ -84,6 +176,52 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 		assert.NotContains(t, SessionOnlyProcedures, procedure,
 			"%s must remain API-key-accessible for public-API integrations",
 			procedure)
+	}
+}
+
+// The updates surface is uniformly session-only: an API key can neither read
+// the instance's patch level nor flip the release channel. Membership is
+// asserted AND exercised through the interceptor so a procedure rename cannot
+// silently drop the gate (nil service deps are fine — the SessionOnly branch
+// returns before any service is touched).
+func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+
+	procedures := []string{
+		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+		instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
+		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+		instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth like the rest of the instance-administration surface", procedure)
+
+		header := http.Header{}
+		header.Set("Authorization", "Bearer fleet_test_some_key")
+		_, err := interceptor.authenticate(context.Background(), procedure, header)
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	}
+}
+
+func TestInstanceUpdateResponsesAreRedacted(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+		instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, RedactedResponseProcedures, procedure,
+			"update responses expose host operational metadata that should not land in debug logs")
 	}
 }
 

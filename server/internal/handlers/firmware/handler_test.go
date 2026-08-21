@@ -2,6 +2,7 @@ package firmware
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
+	activityModels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sessionMocks "github.com/block/proto-fleet/server/internal/domain/session/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -24,15 +30,44 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
-const testMaxUploadBytes int64 = 10 * 1024 * 1024 // 10 MB for tests
-
 type testEnv struct {
-	ctrl             *gomock.Controller
-	sessionStoreMock *sessionMocks.MockStore
-	userStoreMock    *storeMocks.MockUserStore
-	fileSvc          *files.Service
-	sessionSvc       *session.Service
-	sessionID        string
+	ctrl               *gomock.Controller
+	sessionStoreMock   *sessionMocks.MockStore
+	userStoreMock      *storeMocks.MockUserStore
+	fileSvc            *files.Service
+	sessionSvc         *session.Service
+	sessionID          string
+	permissionResolver effectivePermissionResolver
+}
+
+type staticPermissionResolver struct {
+	permissions []string
+	err         error
+}
+
+func assertJSONErrorResponse(t *testing.T, rr *httptest.ResponseRecorder, status int, message string) {
+	t.Helper()
+	require.Equal(t, status, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
+	var response errorResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+	assert.Equal(t, message, response.Error)
+}
+
+func (r staticPermissionResolver) LoadEffective(
+	_ context.Context,
+	_,
+	_ int64,
+) (*authz.EffectivePermissions, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  r.permissions,
+	}}), nil
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -62,6 +97,9 @@ func newTestEnv(t *testing.T) *testEnv {
 		fileSvc:          fileSvc,
 		sessionSvc:       sessionSvc,
 		sessionID:        "test-session-id",
+		permissionResolver: staticPermissionResolver{
+			permissions: []string{authz.PermMinerFirmwareUpdate},
+		},
 	}
 }
 
@@ -120,10 +158,10 @@ func TestAuthenticate_PopulatesSessionInfo(t *testing.T) {
 
 func (e *testEnv) uploadHandler() *uploadHandler {
 	return &uploadHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
-		maxUploadBytes: testMaxUploadBytes,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
@@ -132,6 +170,15 @@ func (e *testEnv) checkHandler() *checkHandler {
 		filesService:   e.fileSvc,
 		sessionService: e.sessionSvc,
 		userStore:      e.userStoreMock,
+	}
+}
+
+func (e *testEnv) updateMetadataHandler() *updateMetadataHandler {
+	return &updateMetadataHandler{
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
@@ -144,15 +191,48 @@ func (e *testEnv) configHandler() *configHandler {
 	}
 }
 
-func createMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+func defaultFirmwareFields() map[string]string {
+	return map[string]string{
+		"target_manufacturer": "Proto",
+		"target_model":        "Rig",
+		"firmware_version":    "v2.0.0",
+	}
+}
+
+// buildMultipartRequest assembles a firmware upload body from fields plus the
+// file part. fileFirst puts the file ahead of the metadata fields, which the
+// handler must accept just the same.
+func buildMultipartRequest(
+	t *testing.T,
+	filename string,
+	content []byte,
+	cookie *http.Cookie,
+	fields map[string]string,
+	fileFirst bool,
+) *http.Request {
 	t.Helper()
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
+	writeFile := func() {
+		part, err := writer.CreateFormFile("file", filename)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+	}
+	writeFields := func() {
+		for name, value := range fields {
+			require.NoError(t, writer.WriteField(name, value))
+		}
+	}
+
+	if fileFirst {
+		writeFile()
+		writeFields()
+	} else {
+		writeFields()
+		writeFile()
+	}
 	require.NoError(t, writer.Close())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload", &buf)
@@ -161,6 +241,35 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 		req.AddCookie(cookie)
 	}
 	return req
+}
+
+func createMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+	t.Helper()
+	return buildMultipartRequest(t, filename, content, cookie, defaultFirmwareFields(), false)
+}
+
+func createFileFirstMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+	t.Helper()
+	return buildMultipartRequest(t, filename, content, cookie, defaultFirmwareFields(), true)
+}
+
+func createMultipartRequestWithFields(
+	t *testing.T,
+	filename string,
+	content []byte,
+	cookie *http.Cookie,
+	fields map[string]string,
+) *http.Request {
+	t.Helper()
+	return buildMultipartRequest(t, filename, content, cookie, fields, false)
+}
+
+func testFirmwareMetadata() files.FirmwareMetadata {
+	return files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
+}
+
+func firmwareCheckBody(checksum string) string {
+	return fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`, checksum)
 }
 
 func createCheckRequest(t *testing.T, body string, cookie *http.Cookie) *http.Request {
@@ -242,6 +351,80 @@ func TestUploadHandler_RejectsInvalidExtension(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
 }
 
+func TestUploadHandler_RejectsInvalidExtensionBeforeOversizedFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	var err error
+	env.fileSvc, err = files.NewService(files.Config{MaxFirmwareFileSize: 50})
+	require.NoError(t, err)
+	req := createMultipartRequest(
+		t,
+		"firmware.bin",
+		[]byte(strings.Repeat("x", 200)),
+		validSessionCookie(env.sessionID),
+	)
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		`FleetError: invalid_argument (Common: 0) unsupported firmware file type "firmware.bin" (allowed: .swu, .tar.gz, .zip)`)
+}
+
+func TestUploadHandler_RejectsCompleteInvalidMetadataBeforeStaging(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	require.NoError(t, os.RemoveAll("firmware/staging"))
+	require.NoError(t, os.WriteFile("firmware/staging", []byte("not a directory"), 0600))
+	req := createMultipartRequestWithFields(
+		t,
+		"firmware.swu",
+		[]byte("data"),
+		validSessionCookie(env.sessionID),
+		map[string]string{
+			"target_manufacturer": "Proto",
+			"target_model":        " ",
+			"firmware_version":    "v2.0.0",
+		},
+	)
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		"FleetError: invalid_argument (Common: 0) target_model is required")
+}
+
+func TestUploadHandler_RejectsMissingTargetMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		fields    map[string]string
+		wantError string
+	}{
+		{name: "all metadata", wantError: "target_manufacturer"},
+		{name: "manufacturer", fields: map[string]string{"target_model": "Rig", "firmware_version": "v2.0.0"}, wantError: "target_manufacturer"},
+		{name: "model", fields: map[string]string{"target_manufacturer": "Proto", "firmware_version": "v2.0.0"}, wantError: "target_model"},
+		{name: "version", fields: map[string]string{"target_manufacturer": "Proto", "target_model": "Rig"}, wantError: "firmware_version"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.expectAuth()
+			req := createMultipartRequestWithFields(t, "firmware.swu", []byte("data"), validSessionCookie(env.sessionID), tt.fields)
+			rr := httptest.NewRecorder()
+
+			env.uploadHandler().ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantError)
+			staged, err := files.StagedFirmwareUploadCount()
+			require.NoError(t, err)
+			assert.Zero(t, staged)
+		})
+	}
+}
+
 func TestUploadHandler_RejectsMissingFileField(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
@@ -253,6 +436,20 @@ func TestUploadHandler_RejectsMissingFileField(t *testing.T) {
 	env.uploadHandler().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestUploadHandler_Returns500WhenStagingFails(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	require.NoError(t, os.RemoveAll("firmware/staging"))
+	require.NoError(t, os.WriteFile("firmware/staging", []byte("not a directory"), 0600))
+	req := createMultipartRequest(t, "firmware.swu", []byte("data"), validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusInternalServerError, "failed to stage firmware upload")
+	assert.NotContains(t, rr.Body.String(), "failed to create firmware staging file")
 }
 
 func TestUploadHandler_SuccessfulUpload(t *testing.T) {
@@ -267,6 +464,54 @@ func TestUploadHandler_SuccessfulUpload(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "firmware_file_id")
 	assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
+}
+
+func TestUploadHandler_AcceptsMetadataAfterFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	req := createFileFirstMultipartRequest(t, "firmware-v2.0.swu", []byte("file-first firmware"), validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	stored, err := env.fileSvc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "Proto", stored[0].TargetManufacturer)
+	assert.Equal(t, "Rig", stored[0].TargetModel)
+	assert.Equal(t, "v2.0.0", stored[0].FirmwareVersion)
+	staged, err := files.StagedFirmwareUploadCount()
+	require.NoError(t, err)
+	assert.Zero(t, staged)
+}
+
+func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, activityModels.CategorySystem, event.Category)
+			assert.Equal(t, firmwareUploadedEventType, event.Type)
+			assert.Equal(t, "Uploaded firmware file: firmware-v2.0.swu", event.Description)
+			assert.Equal(t, "testuser", *event.Username)
+			assert.Equal(t, int64(1), *event.OrganizationID)
+			assert.Equal(t, "Proto", event.Metadata["target_manufacturer"])
+			assert.Equal(t, "Rig", event.Metadata["target_model"])
+			assert.Equal(t, "v2.0.0", event.Metadata["firmware_version"])
+			return nil
+		},
+	)
+
+	h := env.uploadHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+	req := createMultipartRequest(t, "firmware-v2.0.swu", []byte("activity firmware"), validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestUploadHandler_SuccessfulUploadTarGz(t *testing.T) {
@@ -288,7 +533,6 @@ func TestUploadHandler_RejectsOversizedBody(t *testing.T) {
 	env.fileSvc, _ = files.NewService(files.Config{MaxFirmwareFileSize: 50})
 
 	h := env.uploadHandler()
-	h.maxUploadBytes = 50
 
 	oversized := []byte(strings.Repeat("x", 200))
 	req := createMultipartRequest(t, "firmware.swu", oversized, validSessionCookie(env.sessionID))
@@ -349,7 +593,7 @@ func TestCheckHandler_RejectsNonHexChecksum(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 	nonHex := strings.Repeat("zz", 32) // 64 chars but not valid hex
-	req := createCheckRequest(t, `{"sha256":"`+nonHex+`"}`, validSessionCookie(env.sessionID))
+	req := createCheckRequest(t, firmwareCheckBody(nonHex), validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
 
 	env.checkHandler().ServeHTTP(rr, req)
@@ -362,7 +606,7 @@ func TestCheckHandler_ReturnsFalseForUnknownChecksum(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 	checksum := strings.Repeat("a", 64)
-	req := createCheckRequest(t, `{"sha256":"`+checksum+`"}`, validSessionCookie(env.sessionID))
+	req := createCheckRequest(t, firmwareCheckBody(checksum), validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
 
 	env.checkHandler().ServeHTTP(rr, req)
@@ -372,16 +616,35 @@ func TestCheckHandler_ReturnsFalseForUnknownChecksum(t *testing.T) {
 	assert.NotContains(t, rr.Body.String(), "firmware_file_id")
 }
 
+func TestCheckHandler_RequiresMatchingTargetMetadata(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	content := "firmware content for target mismatch"
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S19","firmware_version":"v2.0.0"}`, sha256Hex(content))
+	req := createCheckRequest(t, body, validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.checkHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"exists":false`)
+	assert.NotContains(t, rr.Body.String(), fileID)
+}
+
 func TestCheckHandler_ReturnsTrueForKnownChecksum(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 
 	content := "firmware content for check test"
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	checksum := sha256Hex(content)
-	req := createCheckRequest(t, `{"sha256":"`+checksum+`"}`, validSessionCookie(env.sessionID))
+	req := createCheckRequest(t, firmwareCheckBody(checksum), validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
 
 	env.checkHandler().ServeHTTP(rr, req)
@@ -396,11 +659,11 @@ func TestCheckHandler_AcceptsUppercaseChecksum(t *testing.T) {
 	env.expectAuth()
 
 	content := "firmware for uppercase check"
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	checksum := strings.ToUpper(sha256Hex(content))
-	req := createCheckRequest(t, `{"sha256":"`+checksum+`"}`, validSessionCookie(env.sessionID))
+	req := createCheckRequest(t, firmwareCheckBody(checksum), validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
 
 	env.checkHandler().ServeHTTP(rr, req)
@@ -505,17 +768,19 @@ func (e *testEnv) listFilesHandler() *listFilesHandler {
 
 func (e *testEnv) deleteFileHandler() *deleteFileHandler {
 	return &deleteFileHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
 func (e *testEnv) deleteAllFilesHandler() *deleteAllFilesHandler {
 	return &deleteAllFilesHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
@@ -552,9 +817,9 @@ func TestListFilesHandler_ReturnsSavedFiles(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 
-	_, err := env.fileSvc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha"))
+	_, err := env.fileSvc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha"), testFirmwareMetadata())
 	require.NoError(t, err)
-	_, err = env.fileSvc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content"))
+	_, err = env.fileSvc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/files", nil)
@@ -569,6 +834,165 @@ func TestListFilesHandler_ReturnsSavedFiles(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Len(t, resp.Files, 2)
+	for _, file := range resp.Files {
+		assert.Equal(t, "Proto", file.TargetManufacturer)
+		assert.Equal(t, "Rig", file.TargetModel)
+	}
+}
+
+// --- Update metadata handler tests ---
+
+func TestUpdateMetadataHandler_UpdatesStoredFirmware(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	body := `{"target_manufacturer":" Bitmain ","target_model":" S19 ","firmware_version":" v3.0.0 "}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.updateMetadataHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+	metadata, err := env.fileSvc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, files.FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, metadata)
+}
+
+func TestUpdateMetadataHandler_LogsMetadataUpdateActivity(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, activityModels.CategorySystem, event.Category)
+			assert.Equal(t, firmwareMetadataUpdatedEventType, event.Type)
+			assert.Equal(t, "Updated firmware metadata: "+fileID, event.Description)
+			assert.Equal(t, "testuser", *event.Username)
+			assert.Equal(t, int64(1), *event.OrganizationID)
+			assert.Equal(t, fileID, event.Metadata["firmware_file_id"])
+			assert.Equal(t, "Proto", event.Metadata["previous_target_manufacturer"])
+			assert.Equal(t, "Rig", event.Metadata["previous_target_model"])
+			assert.Equal(t, "v2.0.0", event.Metadata["previous_firmware_version"])
+			assert.Equal(t, "Bitmain", event.Metadata["current_target_manufacturer"])
+			assert.Equal(t, "S19", event.Metadata["current_target_model"])
+			assert.Equal(t, "v3.0.0", event.Metadata["current_firmware_version"])
+			return nil
+		},
+	)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+
+	body := `{"target_manufacturer":" Bitmain ","target_model":" S19 ","firmware_version":" v3.0.0 "}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestUpdateMetadataHandler_DoesNotLogActivityForFailedUpdate(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+	fileID := "00000000-0000-0000-0000-000000000000"
+
+	body := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestUpdateMetadataHandler_RepairsCorruptMetadataAndLogsCurrentState(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	payloadPath, err := env.fileSvc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(payloadPath), "metadata.json"), []byte(`not json`), 0600))
+
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, "Bitmain", event.Metadata["current_target_manufacturer"])
+			assert.Equal(t, "S19", event.Metadata["current_target_model"])
+			assert.Equal(t, "v3.0.0", event.Metadata["current_firmware_version"])
+			assert.NotContains(t, event.Metadata, "previous_target_manufacturer")
+			assert.NotContains(t, event.Metadata, "previous_target_model")
+			assert.NotContains(t, event.Metadata, "previous_firmware_version")
+			return nil
+		},
+	)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+
+	body := `{"target_manufacturer":"Bitmain","target_model":"S19","firmware_version":"v3.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+	metadata, err := env.fileSvc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, files.FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, metadata)
+}
+
+func TestUpdateMetadataHandler_RejectsIncompleteMetadata(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(`{"target_manufacturer":"Proto"}`))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.updateMetadataHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest, "FleetError: invalid_argument (Common: 0) target_model is required")
+}
+
+func TestUpdateMetadataHandler_Returns404ForMissingFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID := "00000000-0000-0000-0000-000000000000"
+	body := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.updateMetadataHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+fileID)
 }
 
 // --- Delete file handler tests ---
@@ -580,14 +1004,14 @@ func TestDeleteFileHandler_RejectsNoCookie(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusUnauthorized, "authentication required")
 }
 
 func TestDeleteFileHandler_DeletesExistingFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"))
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/"+fileID, nil)
@@ -614,8 +1038,7 @@ func TestDeleteFileHandler_Returns400ForInvalidID(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "invalid firmware file ID")
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest, "FleetError: invalid_argument (Common: 0) invalid firmware file ID: not-a-uuid")
 }
 
 func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
@@ -630,8 +1053,7 @@ func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusNotFound, rr.Code)
-	assert.Contains(t, rr.Body.String(), "firmware file not found")
+	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+missingID)
 }
 
 // --- Delete all files handler tests ---
@@ -643,16 +1065,16 @@ func TestDeleteAllFilesHandler_RejectsNoCookie(t *testing.T) {
 
 	env.deleteAllFilesHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusUnauthorized, "authentication required")
 }
 
 func TestDeleteAllFilesHandler_DeletesAllFiles(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 
-	_, err := env.fileSvc.SaveFirmwareFile("one.swu", strings.NewReader("one"))
+	_, err := env.fileSvc.SaveFirmwareFile("one.swu", strings.NewReader("one"), testFirmwareMetadata())
 	require.NoError(t, err)
-	_, err = env.fileSvc.SaveFirmwareFile("two.swu", strings.NewReader("two"))
+	_, err = env.fileSvc.SaveFirmwareFile("two.swu", strings.NewReader("two"), testFirmwareMetadata())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)

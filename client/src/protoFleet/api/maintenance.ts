@@ -122,7 +122,7 @@ export const useMaintenanceApi = () => {
   );
 
   const getTicket = useCallback(
-    async ({ id, signal, onSuccess, onError, onFinally }: GetTicketProps) => {
+    async ({ id: _id, signal, onSuccess, onError, onFinally }: GetTicketProps) => {
       try {
         // TODO: wire to maintenanceClient.getRepairTicket
         if (signal?.aborted) return;
@@ -160,7 +160,7 @@ export const useMaintenanceApi = () => {
   );
 
   const updateTicket = useCallback(
-    async ({ id, signal, onSuccess, onError, onFinally }: UpdateTicketProps) => {
+    async ({ id: _id, signal, onSuccess, onError, onFinally }: UpdateTicketProps) => {
       try {
         // TODO: wire to maintenanceClient.updateRepairTicket
         if (signal?.aborted) return;
@@ -217,7 +217,7 @@ export const useMaintenanceApi = () => {
   );
 
   const createComment = useCallback(
-    async ({ ticketId, text, signal, onSuccess, onError, onFinally }: CommentProps) => {
+    async ({ ticketId: _ticketId, text: _text, signal, onSuccess, onError, onFinally }: CommentProps) => {
       try {
         // TODO: wire to maintenanceClient.createTicketComment
         if (signal?.aborted) return;
@@ -236,7 +236,7 @@ export const useMaintenanceApi = () => {
   );
 
   const deleteComment = useCallback(
-    async ({ commentId, signal, onSuccess, onError, onFinally }: CommentProps) => {
+    async ({ commentId: _commentId, signal, onSuccess, onError, onFinally }: CommentProps) => {
       try {
         // TODO: wire to maintenanceClient.deleteTicketComment
         if (signal?.aborted) return;

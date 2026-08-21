@@ -272,7 +272,7 @@ WHERE rt.org_id = sqlc.arg('org_id')
        OR rt.assignee_user_id = sqlc.narg('filter_assignee_user_id')::bigint)
   AND (sqlc.narg('cursor_id')::bigint IS NULL
        OR rt.id < sqlc.narg('cursor_id')::bigint)
-ORDER BY rt.completed_at DESC NULLS LAST, rt.id DESC
+ORDER BY rt.id DESC
 LIMIT sqlc.arg('limit_n')::int;
 
 -- name: ListTicketsByMiner :many

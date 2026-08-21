@@ -64,6 +64,17 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 	return session, nil
 }
 
+func cloneArtifactExpectations(in []ArtifactExpectation) []artifactExpectation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]artifactExpectation, len(in))
+	for i, expectation := range in {
+		out[i] = artifactExpectation{ArtifactExpectation: expectation}
+	}
+	return out
+}
+
 // enqueue hands cmd to the connection's outbound queue, returning ErrNoActiveStream
 // if the connection drops first or an Internal error if ctx expires. The caller owns
 // freeing the inflight entry on failure (Session.Close / removeCmd).

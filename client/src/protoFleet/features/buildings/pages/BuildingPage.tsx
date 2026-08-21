@@ -5,18 +5,28 @@ import { create } from "@bufbuild/protobuf";
 import BuildingMetricsRow from "../components/BuildingMetricsRow";
 import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
+import { BuildingRackGrid } from "../components/BuildingRackGrid";
 import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Building,
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { parseBigIntId } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
-import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -30,7 +40,6 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.POWER,
   MeasurementType.TEMPERATURE,
   MeasurementType.EFFICIENCY,
-  MeasurementType.UPTIME,
 ];
 
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
@@ -45,14 +54,22 @@ const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, Aggre
 // honestly: NotFound (server confirmed the id doesn't exist), error (any
 // other failure — permission denied, network, 5xx), and success.
 type FetchOutcome =
-  | { status: "found"; building: Building }
-  | { status: "notFound" }
-  | { status: "error"; message: string };
+  { status: "found"; building: Building } | { status: "notFound" } | { status: "error"; message: string };
 
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBuilding, listBuildingRacks } = useBuildings();
+  const { getBuilding, listAllBuildings, listBuildingRacks } = useBuildings();
+  // Site catalog comes from the shared shell-level provider (just used here to
+  // label the building's parent site in breadcrumbs), so this page no longer
+  // fires its own ListSites.
+  const { sites } = useSitesContext();
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const canManageSites = useHasPermission("site:manage");
+  // The picker's first act is a ListDeviceSets, which the server gates on
+  // rack:read. Offering the CTA without it trades a usable flow for a
+  // permission-denied modal.
+  const canReadRacks = useHasPermission("rack:read");
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -63,6 +80,7 @@ const BuildingPage = () => {
   // Parallel-fetched rack count keyed by buildingId so it can't race a
   // navigation. Used to populate the cascade-delete dialog's count copy.
   const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
+  const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const inflightControllerRef = useRef<AbortController | null>(null);
   const racksInflightRef = useRef<AbortController | null>(null);
 
@@ -99,16 +117,19 @@ const BuildingPage = () => {
   );
 
   useEffect(() => {
+    const controller = new AbortController();
+    void listAllBuildings({
+      signal: controller.signal,
+      onSuccess: setAllBuildings,
+      onError: () => setAllBuildings([]),
+    });
+    return () => controller.abort();
+  }, [listAllBuildings]);
+
+  useEffect(() => {
     if (buildingId === null) return;
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
-
-  const buildingModals = useBuildingModals({
-    refetchBuildings: () => {
-      if (buildingId !== null) fetchBuilding(buildingId);
-    },
-    onDeleteFromManage: () => navigate("/sites"),
-  });
 
   useEffect(() => {
     return () => {
@@ -137,9 +158,22 @@ const BuildingPage = () => {
   // (telemetry hooks then short-circuit to "no data").
   const memberDeviceIds: string[] | null = stats ? stats.deviceIdentifiers : null;
 
+  // Declared after useBuildingStats so the rack section can be refreshed too:
+  // the racks card renders from stats.rackHealth, not the building record, so
+  // refetching the building alone leaves "No racks in this building yet" on
+  // screen after an assign or create until the next stats poll.
+  const buildingModals = useBuildingModals({
+    refetchBuildings: () => {
+      if (buildingId !== null) fetchBuilding(buildingId);
+    },
+    onMutationSuccess: () => refetchStats(),
+    onDeleteFromManage: () => navigate(scopedPath("/fleet/sites", activeSite)),
+  });
+
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // Component errors scoped to the building's devices. While stats are
   // still loading (memberDeviceIds === null) we pass enabled=false so the
@@ -178,6 +212,22 @@ const BuildingPage = () => {
 
   const effectiveOutcome: FetchOutcome | "loading" | "invalid" =
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";
+  const siteNameById = useMemo(
+    () =>
+      new Map(
+        (sites ?? []).filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name]),
+      ),
+    [sites],
+  );
+
+  // On deep-link/bookmark, align the (headerless-route) scope with the opened
+  // building's own site (or the unassigned bucket when it has none) so its
+  // modals' miner pickers scope correctly (#764). Pass undefined while the
+  // building is still loading so an unassigned building isn't treated as such
+  // before it resolves.
+  const loadedBuilding =
+    typeof effectiveOutcome === "object" && effectiveOutcome.status === "found" ? effectiveOutcome.building : undefined;
+  useSyncScopeToEntity(loadedBuilding ? entityScopeTarget(loadedBuilding.siteId, sites) : undefined);
 
   if (effectiveOutcome === "loading") {
     return (
@@ -192,8 +242,8 @@ const BuildingPage = () => {
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page-not-found">
         <Header title="Building not found" titleSize="text-heading-300" />
         <p className="text-300 text-text-primary-70">
-          Either the building has been deleted or the URL is invalid. Return to <Link to="/sites">/sites</Link> to find
-          your building.
+          Either the building has been deleted or the URL is invalid. Return to{" "}
+          <Link to={scopedPath("/fleet/sites", activeSite)}>Fleet sites</Link> to find your building.
         </p>
       </div>
     );
@@ -223,6 +273,16 @@ const BuildingPage = () => {
   const label = effectiveBuilding.name || "(unnamed building)";
   const idForHeader = effectiveBuilding.id.toString();
   const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
+  const buildingRacksPath = scopedPath(`/fleet/racks?${buildingFilterParam}`, activeSite);
+  const siteIdForHeader = effectiveBuilding.siteId?.toString();
+  const buildingSiblings = allBuildings
+    .filter((row) => row.building !== undefined)
+    .filter((row) => (row.building!.siteId ?? 0n) === (effectiveBuilding.siteId ?? 0n))
+    .map((row) => ({
+      label: row.building!.name || "(unnamed building)",
+      to: `/buildings/${row.building!.id.toString()}`,
+      isActive: row.building!.id === effectiveBuilding.id,
+    }));
 
   // Edit/Delete require the rack count to render an accurate cascade
   // warning ("deleting this building will unassign N racks"). Prefer the
@@ -235,70 +295,119 @@ const BuildingPage = () => {
   const racksFromList =
     rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : null;
   const fallbackRackCount = racksFromList ?? (stats ? BigInt(stats.rackCount) : 0n);
+  const buildingRow = () =>
+    create(BuildingWithCountsSchema, {
+      building: effectiveBuilding,
+      rackCount: fallbackRackCount,
+    });
+
   const handleEditBuilding = () => {
-    buildingModals.openManage(
-      create(BuildingWithCountsSchema, {
-        building: effectiveBuilding,
-        rackCount: fallbackRackCount,
-      }),
-    );
+    buildingModals.openManage(buildingRow());
+  };
+
+  // The racks picker on its own, not the whole manage surface: the operator is
+  // already looking at the building, so stacking ManageBuildingModal behind the
+  // picker would put a layer on screen they never asked for. Empty membership —
+  // this only renders when the building has no racks.
+  const handleManageRacks = () => {
+    buildingModals.openRacksPicker(buildingRow(), []);
   };
 
   return (
     <div className="h-full" data-testid="building-page">
       <div className="flex flex-col">
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <BuildingPageHeader label={label} buildingId={idForHeader} onEditBuilding={handleEditBuilding} />
+          <BuildingPageHeader
+            label={label}
+            buildingId={idForHeader}
+            siteId={siteIdForHeader}
+            siteName={siteIdForHeader ? siteNameById.get(siteIdForHeader) : undefined}
+            buildingSiblings={buildingSiblings}
+            onEditBuilding={handleEditBuilding}
+          />
         </div>
 
         {/* Stats fetch failure on initial load — surface it inline so the
             metrics row, diagnostics, and performance section don't sit
             indefinitely in skeleton state with no recovery affordance. */}
-        {statsError && !statsHasLoaded ? (
-          <div className="px-6 pt-6 laptop:px-10 laptop:pt-10">
-            <div
-              className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
-              data-testid="building-page-stats-error"
-            >
-              <span>Couldn&apos;t load building metrics: {statsError}</span>
-              <button
-                type="button"
-                onClick={() => refetchStats()}
-                className="shrink-0 underline hover:opacity-80"
-                data-testid="building-page-stats-retry"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         {/* Metrics row */}
-        <section className="px-6 pt-6 laptop:px-10 laptop:pt-10">
-          <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
+        <section className="px-6 pt-10 laptop:px-10" data-testid="building-page-metrics-section">
+          <div className="flex flex-col gap-3">
+            {statsError && !statsHasLoaded ? (
+              <div
+                className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
+                data-testid="building-page-stats-error"
+              >
+                <span>Couldn&apos;t load building metrics: {statsError}</span>
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  text="Retry"
+                  onClick={() => refetchStats()}
+                  className="shrink-0"
+                  testId="building-page-stats-retry"
+                />
+              </div>
+            ) : null}
+            <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} variant="compact" />
+          </div>
         </section>
 
-        {/* Diagnostics: rack-health module (FPO) + component health */}
-        <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
-            <PlaceholderBlock label="Rack health module — #264" className="h-64" />
-            <FleetErrors
-              controlBoardErrors={controlBoardErrors}
-              fanErrors={fanErrors}
-              hashboardErrors={hashboardErrors}
-              psuErrors={psuErrors}
-              extraFilterParams={buildingFilterParam}
-            />
+        {/* Diagnostics: building rack grid + component health */}
+        <section className="px-4 pt-10 laptop:px-8" data-testid="building-page-racks-section">
+          <div className="flex flex-col gap-3">
+            <div
+              className="flex items-center justify-between gap-3 px-2"
+              data-testid="building-page-racks-section-header"
+            >
+              <Header title="Racks" titleSize="text-heading-200" testId="building-page-racks-title" />
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="View racks"
+                to={buildingRacksPath}
+                className="shrink-0"
+                testId="building-page-racks-section-view"
+              />
+            </div>
+            <div className="flex flex-col gap-1 overflow-visible p-2" data-testid="building-page-racks-card-stack">
+              {stats ? (
+                <BuildingRackGrid
+                  rackHealth={stats.rackHealth}
+                  aisles={effectiveBuilding.aisles}
+                  racksPerAisle={effectiveBuilding.racksPerAisle}
+                  // Assigning racks to a building is a site:manage action (the
+                  // server enforces the same on AssignRacksToBuilding), and the
+                  // picker has to list racks to offer any, so a viewer missing
+                  // either permission gets the empty card with no CTA.
+                  onManageRacks={canManageSites && canReadRacks ? handleManageRacks : undefined}
+                />
+              ) : (
+                <PlaceholderBlock
+                  label={statsError ? "Rack health unavailable" : "Loading rack health…"}
+                  className="h-64"
+                />
+              )}
+              <FleetErrors
+                controlBoardErrors={controlBoardErrors}
+                fanErrors={fanErrors}
+                gapClassName="gap-1"
+                hashboardErrors={hashboardErrors}
+                psuErrors={psuErrors}
+                extraFilterParams={buildingFilterParam}
+                activeSite={activeSite}
+              />
+            </div>
           </div>
         </section>
 
         {/* Performance section — identical wiring to RackOverviewPage */}
-        <section className="pb-6">
+        <section className="pb-6" data-testid="building-page-performance-section">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-10 pb-1 laptop:px-10`}>
+            <div className="flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -352,8 +461,8 @@ const BuildingPage = () => {
             </div>
           </div>
 
-          <div className="px-6 laptop:px-10">
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          <div className="px-4 laptop:px-8">
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
           <div ref={refs.vertical.end} />

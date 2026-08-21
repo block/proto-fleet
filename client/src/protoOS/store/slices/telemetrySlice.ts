@@ -752,6 +752,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       state.telemetry.asics = new Map();
       state.telemetry.psus = new Map();
       state.telemetry.fans = new Map();
+      state.telemetry.coolingMode = null;
       state.telemetry.lastApiResponse = null;
       state.telemetry.lastUpdated = Date.now();
     }),

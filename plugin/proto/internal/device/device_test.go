@@ -167,24 +167,26 @@ func TestIsDefaultPasswordError(t *testing.T) {
 	}
 }
 
-func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
-	// Firmware gates DELETE /api/v1/pairing/auth-key behind the default-password
-	// lockout (see server/fake-proto-rig's matching handler test), so Unpair
-	// cannot actually clear Fleet's installed key on a never-rotated device.
-	// The constructor still returns a live handle so UpdateMinerPassword —
-	// routed through /auth/change-password, which is exempt — remains reachable.
-	var clearAuthKeyCalls int
+func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
+	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/pairing/auth-key":
-			clearAuthKeyCalls++
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			systemStatusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_password_active":true}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -198,21 +200,222 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	deviceInfo := sdk.DeviceInfo{
-		Host:      host,
-		Port:      int32(port),
-		URLScheme: "http",
-	}
+	dev, err := New("device-default-password", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: "1.0.0",
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+	require.Equal(t, 1, systemStatusCalls, "constructor verification should read the flag once")
 
-	dev, err := New("device-locked", deviceInfo, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
-	require.NoError(t, err, "constructor must succeed under default-password so remediation ops remain reachable")
-	require.NotNil(t, dev)
+	for range 3 {
+		metrics, err := dev.Status(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, metrics.DefaultPasswordActive)
+		assert.True(t, *metrics.DefaultPasswordActive)
+	}
+	assert.Equal(t, 1, systemStatusCalls, "default-password flag should be cached between throttle intervals")
+}
+
+func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
+	defaultPasswordActive := true
+	var systemStatusCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/auth/change-password":
+			defaultPasswordActive = false
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			systemStatusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"default_password_active":%t}`, defaultPasswordActive)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-default-password-change", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: "1.0.0",
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+	require.Equal(t, 1, systemStatusCalls, "constructor verification should read the flag once")
+
+	metrics, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, metrics.DefaultPasswordActive)
+	require.True(t, *metrics.DefaultPasswordActive)
+	require.Equal(t, 1, systemStatusCalls, "status should use cached default-password flag")
+
+	require.NoError(t, dev.UpdateMinerPassword(context.Background(), "proto", "new-password"))
+
+	metrics, err = dev.Status(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, metrics.DefaultPasswordActive)
+	assert.False(t, *metrics.DefaultPasswordActive, "successful password update should clear stale default-password status")
+	assert.Equal(t, 1, systemStatusCalls, "post-change status should not need an immediate extra probe")
+}
+
+func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
+	firmwareVersion := "1.0.0"
+	var firmwareVersionCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_password_active":false}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/system/reboot":
+			firmwareVersion = "2.0.0"
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
+			firmwareVersionCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"system-info":{"os":{"name":"Proto OS","version":%q}}}`, firmwareVersion)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-firmware-reboot", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: firmwareVersion,
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(time.Hour))
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 
-	unpairErr := dev.Unpair(context.Background())
-	require.Error(t, unpairErr, "Unpair must surface the firmware default-password gate rather than silently succeed")
-	assert.True(t, isDefaultPasswordError(unpairErr), "Unpair error should be recognizable as default-password active; got: %v", unpairErr)
-	assert.Equal(t, 1, clearAuthKeyCalls, "Unpair should still attempt DELETE /api/v1/pairing/auth-key")
+	cached, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0", cached.FirmwareVersion)
+	require.Equal(t, 0, firmwareVersionCalls, "known firmware should remain throttled before reboot")
+
+	require.NoError(t, dev.Reboot(context.Background()))
+
+	refreshed, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
+	assert.Equal(t, 1, firmwareVersionCalls, "first post-reboot status should refresh activated firmware")
+}
+
+func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
+	firmwareVersion := "1.0.0"
+	failFirmwareVersionProbe := false
+	var firmwareVersionCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_password_active":false}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/system/reboot":
+			firmwareVersion = "2.0.0"
+			failFirmwareVersionProbe = true
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
+			firmwareVersionCalls++
+			if failFirmwareVersionProbe {
+				failFirmwareVersionProbe = false
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"system-info":{"os":{"name":"Proto OS","version":%q}}}`, firmwareVersion)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-firmware-reboot-retry", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: firmwareVersion,
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	require.NoError(t, dev.Reboot(context.Background()))
+
+	stale, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0", stale.FirmwareVersion)
+	require.Equal(t, 1, firmwareVersionCalls, "first post-reboot firmware probe should fail")
+
+	stillStale, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0", stillStale.FirmwareVersion)
+	require.Equal(t, 1, firmwareVersionCalls, "failed firmware probe should throttle immediate retries")
+
+	dev.lastFirmwareCheckAt = time.Now().Add(-firmwareRefreshInterval)
+	refreshed, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
+	assert.Equal(t, 2, firmwareVersionCalls, "firmware refresh should retry after the throttle interval")
 }
 
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
@@ -303,21 +506,113 @@ func TestDevice_CurtailFullStopsAndUncurtailStartsMining(t *testing.T) {
 }
 
 func TestDevice_CurtailFullOnInactiveMinerDoesNotStartOnUncurtail(t *testing.T) {
-	var stopped, started bool
+	var stopCount int
+	var started bool
 	dev := newMiningControlTestDeviceWithMiningState(t, http.StatusOK, "Stopped", func(path string) {
 		switch path {
 		case "/api/v1/mining/stop":
-			stopped = true
+			stopCount++
 		case "/api/v1/mining/start":
 			started = true
 		}
 	})
 
 	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
-	require.True(t, stopped)
+	require.Equal(t, 1, stopCount)
 
 	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
 	require.False(t, started)
+	require.Equal(t, 2, stopCount)
+}
+
+func TestDevice_CurtailFullOnPoollessMinerRestoresIdleWithoutStarting(t *testing.T) {
+	var stopCount int
+	var started bool
+	dev := newMiningControlTestDeviceWithPools(t, http.StatusOK, "NoPools", `{"pools":[]}`, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopCount++
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Equal(t, 1, stopCount)
+
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.False(t, started)
+	require.Equal(t, 2, stopCount)
+}
+
+func TestDevice_StatusOnlyTrustsLocallyInitiatedCurtailment(t *testing.T) {
+	miningState := "Curtailed"
+	dev := newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		http.StatusOK,
+		&miningState,
+		`{"pools":[]}`,
+		func(r *http.Request) {
+			if r.URL.Path == "/api/v1/mining/stop" {
+				miningState = "Curtailed"
+			}
+		},
+		SetStatusTTL(0*time.Second),
+	)
+
+	metrics, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, sdk.HealthNeedsMiningPool, metrics.Health)
+
+	miningState = "NoPools"
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+
+	metrics, err = dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, sdk.HealthHealthyInactive, metrics.Health)
+}
+
+func TestDevice_UncurtailInactiveMinerRetriesStopWithoutLosingSnapshot(t *testing.T) {
+	miningState := "Stopped"
+	var stopCount, startCount int
+	dev := newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+		t,
+		&miningState,
+		configuredPoolsJSON,
+		func(r *http.Request) int {
+			switch r.URL.Path {
+			case "/api/v1/mining/stop":
+				stopCount++
+				if stopCount == 2 {
+					return http.StatusInternalServerError
+				}
+			case "/api/v1/mining/start":
+				startCount++
+			}
+			return http.StatusOK
+		},
+		nil,
+		SetStatusTTL(0*time.Second),
+	)
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Error(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	require.Equal(t, 3, stopCount)
+	require.Zero(t, startCount)
+}
+
+func TestDevice_CurtailFullMarksStopRequestAsCurtailment(t *testing.T) {
+	var curtailmentHeader string
+	dev := newMiningControlTestDeviceWithRequestCallback(t, http.StatusOK, "Mining", func(r *http.Request) {
+		if r.URL.Path == "/api/v1/mining/stop" {
+			curtailmentHeader = r.Header.Get("X-Proto-Fleet-Curtailment")
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Equal(t, "full", curtailmentHeader)
 }
 
 func TestDevice_CurtailFullRefreshesStatusBeforeSnapshot(t *testing.T) {
@@ -481,6 +776,8 @@ func TestDevice_CurtailEfficiencyMissingTargetReturnsTransient(t *testing.T) {
 	assert.Contains(t, sdkErr.Err.Error(), "power target not available")
 }
 
+const configuredPoolsJSON = `{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`
+
 func newMiningControlTestDevice(t *testing.T, miningControlStatus int) *Device {
 	t.Helper()
 	return newMiningControlTestDeviceWithCallback(t, miningControlStatus, nil)
@@ -497,20 +794,89 @@ func newMiningControlTestDeviceWithMiningState(t *testing.T, miningControlStatus
 
 func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningControlStatus int, miningState *string, onControl func(path string), opts ...DeviceOption) *Device {
 	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		miningState,
+		configuredPoolsJSON,
+		requestPathCallback(onControl),
+		opts...,
+	)
+}
+
+func newMiningControlTestDeviceWithPools(t *testing.T, miningControlStatus int, miningState, poolsJSON string, onControl func(path string)) *Device {
+	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		&miningState,
+		poolsJSON,
+		requestPathCallback(onControl),
+		SetStatusTTL(0*time.Second),
+	)
+}
+
+func newMiningControlTestDeviceWithRequestCallback(t *testing.T, miningControlStatus int, miningState string, onControl func(*http.Request)) *Device {
+	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		&miningState,
+		configuredPoolsJSON,
+		onControl,
+		SetStatusTTL(0*time.Second),
+	)
+}
+
+func requestPathCallback(callback func(path string)) func(*http.Request) {
+	if callback == nil {
+		return nil
+	}
+	return func(r *http.Request) {
+		callback(r.URL.Path)
+	}
+}
+
+func newMiningControlTestDeviceWithDynamicStateAndPools(t *testing.T, miningControlStatus int, miningState *string, poolsJSON string, onControl func(*http.Request), opts ...DeviceOption) *Device {
+	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+		t,
+		miningState,
+		poolsJSON,
+		func(*http.Request) int {
+			return miningControlStatus
+		},
+		onControl,
+		opts...,
+	)
+}
+
+func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+	t *testing.T,
+	miningState *string,
+	poolsJSON string,
+	controlStatus func(*http.Request) int,
+	onControl func(*http.Request),
+	opts ...DeviceOption,
+) *Device {
+	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, *miningState)))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+			_, _ = w.Write([]byte(poolsJSON))
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
 			if onControl != nil {
-				onControl(r.URL.Path)
+				onControl(r)
 			}
-			w.WriteHeader(miningControlStatus)
+			w.WriteHeader(controlStatus(r))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -528,7 +894,7 @@ func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningContro
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, opts...)
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 
@@ -553,6 +919,9 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
@@ -594,7 +963,7 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 
@@ -612,6 +981,9 @@ func newFullEfficiencyCurtailmentTestDevice(
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, miningState)))
@@ -656,7 +1028,7 @@ func newFullEfficiencyCurtailmentTestDevice(
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 

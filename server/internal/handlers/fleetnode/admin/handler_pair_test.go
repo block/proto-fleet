@@ -17,7 +17,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
@@ -39,7 +38,7 @@ func (h *pairingHarness) insertDiscoveredForNode(t *testing.T, fleetNodeID int64
 // poking the registry directly, so tests exercise the real persist+forward flow.
 func (h *pairingHarness) nodeReportPaired(t *testing.T, fleetNodeID int64, commandID string, results []*gatewaypb.FleetNodePairResult) {
 	t.Helper()
-	gw := gateway.NewHandler(nil, nil, h.pairing, h.registry)
+	gw := gateway.NewHandler(nil, nil, h.pairing, h.registry, nil)
 	ctx := authn.SetInfo(context.Background(), &auth.Subject{FleetNodeID: fleetNodeID, OrgID: h.orgID, Name: "agent"})
 	_, err := gw.ReportPairedDevices(ctx, connect.NewRequest(&gatewaypb.ReportPairedDevicesRequest{CommandId: commandID, Results: results}))
 	require.NoError(t, err)
@@ -62,7 +61,7 @@ func TestPairDiscoveredDevicesOnFleetNode_PairsAndStreamsResults(t *testing.T) {
 			if !ok {
 				return
 			}
-			var agentCmd pairingpb.AgentCommand
+			var agentCmd gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &agentCmd))
 			pairReq := agentCmd.GetPair()
 			require.NotNil(t, pairReq)
@@ -182,7 +181,7 @@ func TestPairDiscoveredDevicesOnFleetNode_DropsResultsOutsideRequestedTargets(t 
 			if !ok {
 				return
 			}
-			var agentCmd pairingpb.AgentCommand
+			var agentCmd gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &agentCmd))
 			// The dispatched command must carry only the requested target.
 			require.Len(t, agentCmd.GetPair().GetTargets(), 1)

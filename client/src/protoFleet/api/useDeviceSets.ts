@@ -7,11 +7,14 @@ import {
   DeviceIdentifierListSchema,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type DeviceSet,
   type DeviceSetStats,
   DeviceSetType,
+  type PerDeviceRackConflict,
+  type PerRackCreateErrorReason,
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
@@ -29,6 +32,7 @@ interface CreateGroupProps {
   label: string;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
+  signal?: AbortSignal;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -51,23 +55,32 @@ interface DeleteGroupProps {
   onFinally?: () => void;
 }
 
-interface ListDeviceSetsProps {
+export interface ListDeviceSetsProps {
   pageSize?: number;
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
   zones?: string[];
   buildingIds?: bigint[];
+  includeNoBuilding?: boolean;
+  // Rack-list site filter (RACK type only). Mirrors the miner-list
+  // shape: siteIds is an OR across sites, includeUnassigned additionally
+  // surfaces racks with device_set_rack.site_id IS NULL. Both empty +
+  // false = no site filter applied.
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface AddDevicesToDeviceSetProps {
-  deviceSetId: bigint;
+interface AddDevicesToGroupProps {
+  targetGroupId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (addedCount: number) => void;
+  signal?: AbortSignal;
+  onSuccess?: (addedCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -113,17 +126,20 @@ interface ListRackTypesProps {
 
 interface ListGroupMembersProps {
   deviceSetId: bigint;
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
   signal?: AbortSignal;
   onSuccess?: (deviceIdentifiers: string[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface RemoveDevicesFromDeviceSetProps {
-  deviceSetId: bigint;
+interface RemoveDevicesFromGroupProps {
+  targetGroupId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (removedCount: number) => void;
+  signal?: AbortSignal;
+  onSuccess?: (removedCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -136,6 +152,13 @@ interface UpdateRackProps {
   columns?: number;
   orderIndex?: RackOrderIndex;
   coolingType?: RackCoolingType;
+  // Placement (site:manage). Encoded like saveRack: a building fully
+  // determines placement (site derived server-side); an explicit 0n unassigns
+  // that level; undefined omits placement entirely (server preserves the
+  // rack's current site/building). Omit both for a rack:manage-only settings
+  // save that must not move the rack.
+  siteId?: bigint;
+  buildingId?: bigint;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -170,8 +193,23 @@ interface AssignDevicesToRackProps {
   // stay intact).
   targetRackId?: bigint;
   deviceIdentifiers: string[];
+  // When adding to a site-less rack, proceed and strip the conflicting
+  // miners' site. Default false: the server returns conflicts (surfaced
+  // via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
+  // Optional slot placements, applied in the same transaction. One entry
+  // per miner whose placement changes: `position` set lands it there,
+  // `position` omitted clears its slot (in the rack, off the grid). A
+  // miner not named here keeps whatever slot it had, which is what makes
+  // this safe where saveRack was not. Every entry must name a miner in
+  // deviceIdentifiers; no two may share a miner or a cell.
+  slotAssignments?: RackSlot[];
   signal?: AbortSignal;
   onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
+  // Fires when the server returns site-strip conflicts (no write
+  // happened). The caller confirms and retries with
+  // forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -187,8 +225,58 @@ interface SaveRackProps {
   deviceIdentifiers: string[];
   allDevices?: boolean;
   slotAssignments: { deviceIdentifier: string; row: number; column: number }[];
+  // Rack placement. Encoded onto RackInfo per its proto contract: when
+  // buildingId is set we send only building_id and let the server derive
+  // site_id; otherwise we send explicit site_id + building_id (0 = unassign)
+  // so an edit that clears placement takes effect. Leave both undefined to
+  // preserve the current placement on an update.
+  siteId?: bigint;
+  buildingId?: bigint;
+  // When the saved rack is site-less, proceed and strip the conflicting
+  // members' site/building. Default false: the server returns conflicts
+  // (surfaced via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
   onSuccess?: (deviceSet: DeviceSet, assignedCount: number) => void;
+  // Fires when the server returns site-strip conflicts (no write happened).
+  // The caller confirms and retries with forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+// One rack in a bulk create. Carries the whole rack description, not just the
+// label: the bulk form applies one geometry across the batch, but a NewRack
+// describes a whole rack. Placement is the exception — see CreateRacksProps.
+export interface NewRackInput {
+  label: string;
+  rows: number;
+  columns: number;
+  zone?: string;
+  orderIndex: RackOrderIndex;
+  coolingType: RackCoolingType;
+}
+
+// A row the server refused, keyed by its index in the submitted list so the
+// preview can mark that exact line.
+export interface BulkCreateRackError {
+  index: number;
+  label: string;
+  reason: PerRackCreateErrorReason;
+}
+
+interface CreateRacksProps {
+  // Where the whole batch lands. Omit both for unassigned racks; a building
+  // determines the site server-side, so callers that know the building leave
+  // siteId undefined.
+  siteId?: bigint;
+  buildingId?: bigint;
+  racks: NewRackInput[];
+  signal?: AbortSignal;
+  onSuccess?: (racks: DeviceSet[]) => void;
+  // Called on failure. `errors` carries the per-row label collisions when the
+  // server rejected the batch (nothing was created); it is empty for a
+  // transport / permission failure.
+  onError?: (message: string, errors: BulkCreateRackError[]) => void;
   onFinally?: () => void;
 }
 
@@ -228,17 +316,29 @@ const useDeviceSets = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createGroup = useCallback(
-    async ({ label, deviceIdentifiers = [], allDevices = false, onSuccess, onError, onFinally }: CreateGroupProps) => {
+    async ({
+      label,
+      deviceIdentifiers = [],
+      allDevices = false,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateGroupProps) => {
       try {
         const deviceSelector =
           allDevices || deviceIdentifiers.length > 0 ? buildDeviceSelector(deviceIdentifiers, allDevices) : undefined;
 
-        const createResponse = await deviceSetClient.createDeviceSet({
-          type: DeviceSetType.GROUP,
-          label,
-          deviceSelector,
-        });
+        const createResponse = await deviceSetClient.createDeviceSet(
+          {
+            type: DeviceSetType.GROUP,
+            label,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         const deviceSet = createResponse.deviceSet;
         if (!deviceSet) {
           onError?.("Failed to create group");
@@ -247,6 +347,9 @@ const useDeviceSets = () => {
 
         onSuccess?.(deviceSet);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: (error) => {
@@ -312,7 +415,18 @@ const useDeviceSets = () => {
   );
 
   const listGroups = useCallback(
-    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListDeviceSetsProps) => {
+    async ({
+      pageSize,
+      pageToken,
+      sort,
+      errorComponentTypes,
+      siteIds,
+      includeUnassigned,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListDeviceSetsProps) => {
       try {
         if (pageSize) {
           const response = await deviceSetClient.listDeviceSets({
@@ -321,6 +435,9 @@ const useDeviceSets = () => {
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -334,6 +451,10 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -362,6 +483,10 @@ const useDeviceSets = () => {
       errorComponentTypes,
       zones,
       buildingIds,
+      includeNoBuilding,
+      siteIds,
+      includeUnassigned,
+      telemetryRanges,
       onSuccess,
       onError,
       onFinally,
@@ -376,6 +501,10 @@ const useDeviceSets = () => {
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
             buildingIds: buildingIds ?? [],
+            includeNoBuilding: includeNoBuilding ?? false,
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -389,8 +518,13 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
               zones: zones ?? [],
               buildingIds: buildingIds ?? [],
+              includeNoBuilding: includeNoBuilding ?? false,
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -440,7 +574,15 @@ const useDeviceSets = () => {
   );
 
   const listGroupMembers = useCallback(
-    async ({ deviceSetId, signal, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+    async ({
+      deviceSetId,
+      siteIds,
+      includeUnassigned,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListGroupMembersProps) => {
       try {
         const allIdentifiers: string[] = [];
         let pageToken = "";
@@ -451,6 +593,8 @@ const useDeviceSets = () => {
               deviceSetId,
               pageSize: memberPageSize,
               pageToken,
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
             },
             { signal },
           );
@@ -498,28 +642,42 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
-  const addDevicesToDeviceSet = useCallback(
+  // addDevicesToGroup adds devices to a group (many-to-many). The
+  // server rejects non-group targets with InvalidArgument; for rack
+  // adds use assignDevicesToRack, which atomically clears any prior
+  // rack membership and cascades the rack's site onto the device.
+  const addDevicesToGroup = useCallback(
     async ({
-      deviceSetId,
+      targetGroupId,
       deviceIdentifiers,
       allDevices,
+      signal,
       onSuccess,
       onError,
       onFinally,
-    }: AddDevicesToDeviceSetProps) => {
+    }: AddDevicesToGroupProps) => {
+      if (!allDevices && (!deviceIdentifiers || deviceIdentifiers.length === 0)) {
+        onError?.("No devices selected.");
+        onFinally?.();
+        return;
+      }
       try {
-        const deviceSelector =
-          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
-            ? buildDeviceSelector(deviceIdentifiers, allDevices)
-            : undefined;
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
-        const response = await deviceSetClient.addDevicesToDeviceSet({
-          deviceSetId,
-          deviceSelector,
-        });
+        const response = await deviceSetClient.addDevicesToGroup(
+          {
+            targetGroupId,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         onSuccess?.(response.addedCount);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: () => {
@@ -617,17 +775,56 @@ const useDeviceSets = () => {
   // server error / network blip between the two calls can't orphan
   // miners from rack assignment (issue #420). Pass targetRackId
   // unset to clear rack membership without re-assigning.
+  //
+  // Prefer this over saveRack for every edit to an existing rack. This is
+  // a delta — it names only the miners it changes — whereas saveRack
+  // replaces the rack's entire member set, so a stale local snapshot
+  // silently drops miners another session added while the modal was open.
+  // Pass slotAssignments to move membership and placement in one call.
   const assignDevicesToRack = useCallback(
-    async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
+    async ({
+      targetRackId,
+      deviceIdentifiers,
+      forceClearConflictingSite,
+      slotAssignments,
+      signal,
+      onSuccess,
+      onConflicts,
+      onError,
+      onFinally,
+    }: AssignDevicesToRackProps) => {
       try {
+        // Always construct the device_list variant of DeviceSelector — the
+        // server rejects all_devices for AssignDevicesToRack (moving every
+        // paired device into a single rack is never the intended op). The
+        // hook contract is `deviceIdentifiers: string[]`, which the caller
+        // is responsible for ensuring is non-empty; an empty array still
+        // produces InvalidArgument from the server's identifier validation.
+        const deviceSelector = create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "deviceList",
+            value: create(DeviceIdentifierListSchema, {
+              deviceIdentifiers,
+            }),
+          },
+        });
+
         const response = await deviceSetClient.assignDevicesToRack(
           {
             targetRackId,
-            deviceIdentifiers,
+            deviceSelector,
+            forceClearConflictingSite,
+            slotAssignments,
           },
           { signal },
         );
         if (signal?.aborted) return;
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list so the caller can confirm + retry with force.
+        if (response.conflicts.length > 0) {
+          onConflicts?.(response.conflicts);
+          return;
+        }
         onSuccess?.(response.assignedCount, response.siteReassignedCount, response.removedCount);
       } catch (err) {
         if (isAbortError(err, signal)) {
@@ -646,28 +843,42 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
-  const removeDevicesFromDeviceSet = useCallback(
+  // removeDevicesFromGroup drops devices from a group. The server
+  // rejects non-group targets with InvalidArgument; for rack removal
+  // use assignDevicesToRack with targetRackId unset, which clears rack
+  // membership in a single transaction (site/building stay intact).
+  const removeDevicesFromGroup = useCallback(
     async ({
-      deviceSetId,
+      targetGroupId,
       deviceIdentifiers,
       allDevices,
+      signal,
       onSuccess,
       onError,
       onFinally,
-    }: RemoveDevicesFromDeviceSetProps) => {
+    }: RemoveDevicesFromGroupProps) => {
+      if (!allDevices && (!deviceIdentifiers || deviceIdentifiers.length === 0)) {
+        onError?.("No devices selected.");
+        onFinally?.();
+        return;
+      }
       try {
-        const deviceSelector =
-          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
-            ? buildDeviceSelector(deviceIdentifiers, allDevices)
-            : undefined;
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
-        const response = await deviceSetClient.removeDevicesFromDeviceSet({
-          deviceSetId,
-          deviceSelector,
-        });
+        const response = await deviceSetClient.removeDevicesFromGroup(
+          {
+            targetGroupId,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         onSuccess?.(response.removedCount);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: () => {
@@ -690,12 +901,27 @@ const useDeviceSets = () => {
       columns,
       orderIndex,
       coolingType,
+      siteId,
+      buildingId,
       onSuccess,
       onError,
       onFinally,
     }: UpdateRackProps) => {
       try {
+        // Placement encoding mirrors saveRack: a building fully determines
+        // placement (send only building_id), otherwise send whichever of
+        // site_id / building_id was specified (0n unassigns, undefined omits).
+        const placement: { siteId?: bigint; buildingId?: bigint } = {};
+        if (buildingId !== undefined && buildingId > 0n) {
+          placement.buildingId = buildingId;
+        } else {
+          if (siteId !== undefined) placement.siteId = siteId;
+          if (buildingId !== undefined) placement.buildingId = buildingId;
+        }
+        const hasPlacement = placement.siteId !== undefined || placement.buildingId !== undefined;
+
         const rackInfo =
+          hasPlacement ||
           zone !== undefined ||
           rows !== undefined ||
           columns !== undefined ||
@@ -707,6 +933,7 @@ const useDeviceSets = () => {
                 ...(columns !== undefined && { columns }),
                 ...(orderIndex !== undefined && { orderIndex }),
                 ...(coolingType !== undefined && { coolingType }),
+                ...placement,
               })
             : undefined;
 
@@ -825,17 +1052,35 @@ const useDeviceSets = () => {
       deviceIdentifiers,
       allDevices,
       slotAssignments,
+      siteId,
+      buildingId,
+      forceClearConflictingSite,
       onSuccess,
+      onConflicts,
       onError,
       onFinally,
     }: SaveRackProps) => {
       try {
+        // Placement encoding (see RackInfo proto): a building fully determines
+        // placement, so send only building_id and let the server derive
+        // site_id. Otherwise send whichever of site_id / building_id the
+        // caller specified — an explicit 0 unassigns that level, undefined
+        // leaves it untouched (preserved on update).
+        const placement: { siteId?: bigint; buildingId?: bigint } = {};
+        if (buildingId !== undefined && buildingId > 0n) {
+          placement.buildingId = buildingId;
+        } else {
+          if (siteId !== undefined) placement.siteId = siteId;
+          if (buildingId !== undefined) placement.buildingId = buildingId;
+        }
+
         const rackInfo = create(RackInfoSchema, {
           rows,
           columns,
           zone,
           orderIndex,
           coolingType,
+          ...placement,
         });
 
         const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
@@ -856,7 +1101,24 @@ const useDeviceSets = () => {
           rackInfo,
           deviceSelector,
           slotAssignments: rackSlots,
+          forceClearConflictingSite,
         });
+
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list. Surface it so the caller can confirm and retry
+        // with forceClearConflictingSite=true. Fall back to onError when the
+        // caller wired no onConflicts handler, so a no-write conflict is never
+        // a silent no-op (no onSuccess either).
+        if (response.conflicts.length > 0) {
+          if (onConflicts) {
+            onConflicts(response.conflicts);
+          } else {
+            onError?.(
+              `${response.conflicts.length} device(s) would lose their site or building placement by joining this rack`,
+            );
+          }
+          return;
+        }
 
         const deviceSet = response.deviceSet;
         if (!deviceSet) {
@@ -879,9 +1141,57 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
+  // createRacks creates every rack in the batch at one placement in a single
+  // transaction (all-or-nothing), so a mid-list failure can't leave half the
+  // operator's list behind. Label collisions come back per row — within the
+  // batch, or against a rack already live anywhere in the org — with nothing
+  // created, so the caller can mark the offending preview lines.
+  const createRacks = useCallback(
+    async ({ siteId, buildingId, racks, signal, onSuccess, onError, onFinally }: CreateRacksProps) => {
+      try {
+        const response = await deviceSetClient.createRacks(
+          {
+            siteId,
+            buildingId,
+            racks: racks.map((r) => ({
+              label: r.label,
+              rows: r.rows,
+              columns: r.columns,
+              zone: r.zone ?? "",
+              orderIndex: r.orderIndex,
+              coolingType: r.coolingType,
+            })),
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.errors.length > 0 || response.racks.length === 0) {
+          onError?.(
+            "Some rack labels are already taken",
+            response.errors.map((e) => ({ index: e.index, label: e.label, reason: e.reason })),
+          );
+          return;
+        }
+        onSuccess?.(response.racks);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "rack"), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
     createRack,
+    createRacks,
     updateGroup,
     updateRack,
     deleteGroup,
@@ -892,9 +1202,9 @@ const useDeviceSets = () => {
     listRackTypes,
     listGroupMembers,
     getDeviceSetStats,
-    addDevicesToDeviceSet,
+    addDevicesToGroup,
     assignDevicesToRack,
-    removeDevicesFromDeviceSet,
+    removeDevicesFromGroup,
     getRackSlots,
     setRackSlotPosition,
     clearRackSlotPosition,
@@ -903,4 +1213,3 @@ const useDeviceSets = () => {
 };
 
 export { useDeviceSets };
-export type { ListDeviceSetsProps };

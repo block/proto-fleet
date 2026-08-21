@@ -9,14 +9,23 @@ const eligible = (id: string, label = `R-${id}`): RackPickerItem => ({
   buildingLabel: "—",
   statusLabel: "Unassigned",
   disabled: false,
+  reassignment: false,
+  crossSite: false,
+  minerCount: 0,
 });
 
-const disabledItem = (id: string, label = `R-${id}`): RackPickerItem => ({
+// A rack currently placed elsewhere — selectable only with the "Show assigned
+// racks" toggle on, and reported in `reassigned` so the host can gate the
+// reparent confirm.
+const reassignmentItem = (id: string, minerCount: number, label = `R-${id}`): RackPickerItem => ({
   id,
   label,
   buildingLabel: "Other",
   statusLabel: "In another building",
   disabled: true,
+  reassignment: true,
+  crossSite: false,
+  minerCount,
 });
 
 describe("computeRackSelectionDelta", () => {
@@ -25,6 +34,7 @@ describe("computeRackSelectionDelta", () => {
     const out = computeRackSelectionDelta(items, [1n, 2n], ["1", "2"]);
     expect(out.added).toEqual([]);
     expect(out.removed).toEqual([]);
+    expect(out.reassigned).toEqual([]);
   });
 
   it("classifies newly-checked ids as added with labels", () => {
@@ -32,6 +42,7 @@ describe("computeRackSelectionDelta", () => {
     const out = computeRackSelectionDelta(items, [1n], ["1", "2"]);
     expect(out.added).toEqual([{ rackId: 2n, label: "Rack-2" }]);
     expect(out.removed).toEqual([]);
+    expect(out.reassigned).toEqual([]);
   });
 
   it("classifies seeded-and-now-unchecked ids as removed", () => {
@@ -49,13 +60,17 @@ describe("computeRackSelectionDelta", () => {
     expect(out.removed).toEqual([]);
   });
 
-  it("does not add disabled-row ids even if selectedItems lists them", () => {
-    // Defensive: the row gate prevents toggling, but if the seeded set
-    // included a disabled id and the operator never touched it, we
-    // should not surface it as new.
-    const items = [eligible("1"), disabledItem("2")];
+  it("adds a selected reassignment row and reports it in reassigned with its miner count", () => {
+    // With the toggle on the operator can select an already-placed rack. It is
+    // a legitimate add AND surfaces in `reassigned` so the host prompts the
+    // reparent confirm before committing.
+    const items = [eligible("1"), reassignmentItem("2", 5)];
     const out = computeRackSelectionDelta(items, [], ["1", "2"]);
-    expect(out.added).toEqual([{ rackId: 1n, label: "R-1" }]);
+    expect(out.added).toEqual([
+      { rackId: 1n, label: "R-1" },
+      { rackId: 2n, label: "R-2" },
+    ]);
+    expect(out.reassigned).toEqual([{ rackId: 2n, label: "R-2", minerCount: 5 }]);
   });
 
   it("mixed delta: one add + one remove + one untouched-missing", () => {
@@ -63,5 +78,6 @@ describe("computeRackSelectionDelta", () => {
     const out = computeRackSelectionDelta(items, [1n, 3n, 99n], ["1", "4"]);
     expect(out.added).toEqual([{ rackId: 4n, label: "R-4" }]);
     expect(out.removed).toEqual([3n]); // 99n stays — missing from items
+    expect(out.reassigned).toEqual([]);
   });
 });

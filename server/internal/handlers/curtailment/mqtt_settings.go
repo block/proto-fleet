@@ -248,10 +248,20 @@ func toMqttStatusProto(view mqttingest.SourceView) *pb.MqttCurtailmentSourceStat
 		return out
 	}
 	state := view.State
-	out.LastTarget = state.LastTarget.String()
-	out.LastTargetAt = mqttTimeProto(state.LastTargetAt)
-	out.LastReceivedAt = mqttTimeProto(state.LastReceivedAt)
-	out.LastReceivedBroker = state.LastReceivedBroker
+	target := state.LastTarget
+	targetAt := state.LastTargetAt
+	receivedAt := state.LastReceivedAt
+	receivedBroker := state.LastReceivedBroker
+	if pending := state.PendingEdge; pending != nil {
+		target = pending.Target
+		targetAt = pending.TargetAt
+		receivedAt = pending.ReceivedAt
+		receivedBroker = pending.ReceivedBroker
+	}
+	out.LastTarget = target.String()
+	out.LastTargetAt = mqttTimeProto(targetAt)
+	out.LastReceivedAt = mqttTimeProto(receivedAt)
+	out.LastReceivedBroker = receivedBroker
 	return out
 }
 

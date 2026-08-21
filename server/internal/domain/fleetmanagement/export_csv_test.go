@@ -17,10 +17,15 @@ func TestBuildMinerCSVRow_FormatsValuesAndIssues(t *testing.T) {
 	componentID := "2"
 	row := buildMinerCSVRow(
 		&pb.MinerStateSnapshot{
-			Name:            "Miner A",
-			WorkerName:      "worker-01",
-			GroupLabels:     []string{"Group 1", "Group 2"},
-			RackLabel:       "Rack 1",
+			Name:       "Miner A",
+			WorkerName: "worker-01",
+			Placement: &commonpb.PlacementRefs{
+				Groups: []*commonpb.ResourceRef{
+					{Id: 1, Label: "Group 1"},
+					{Id: 2, Label: "Group 2"},
+				},
+				Rack: &commonpb.ResourceRef{Id: 10, Label: "Rack 1"},
+			},
 			Model:           "S21",
 			MacAddress:      "AA:BB:CC:DD:EE:FF",
 			IpAddress:       "10.0.0.5",
@@ -178,6 +183,30 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Needs attention",
 		},
 		{
+			name: "default password uses normal status",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Hashing",
+		},
+		{
+			name: "default password with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Offline",
+		},
+		{
+			name: "paired with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_PAIRED,
+			},
+			expected: "Offline",
+		},
+		{
 			name:     "needs mining pool",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL},
 			expected: "Needs attention",
@@ -221,6 +250,13 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 			},
 			expected: "Authentication required",
+		},
+		{
+			name: "default password",
+			snapshot: &pb.MinerStateSnapshot{
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "",
 		},
 		{
 			name:     "needs mining pool",
@@ -483,4 +519,23 @@ func TestMeasurementCSVValue_AuthNeededOverridesInactive(t *testing.T) {
 		PairingStatus: pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 	}
 	assert.Equal(t, "", measurementCSVValue(snapshot, nil), "auth-needed with inactive status should return empty, not dash")
+}
+
+// TestMeasurementCSVValue_DefaultPasswordExportsTelemetry verifies that
+// DEFAULT_PASSWORD devices export their telemetry values (telemetry is not gated
+// by the default password), unlike AUTHENTICATION_NEEDED which blanks them.
+func TestMeasurementCSVValue_DefaultPasswordExportsTelemetry(t *testing.T) {
+	snapshot := &pb.MinerStateSnapshot{
+		DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	}
+	measurements := []*commonpb.Measurement{{Value: 42}}
+
+	assert.Equal(t, "42.000", measurementCSVValue(snapshot, measurements),
+		"default-password devices report telemetry, so values must be exported")
+	assert.Equal(t, "42.000", temperatureCSVValue(&pb.MinerStateSnapshot{
+		DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		Temperature:   measurements,
+	}, pb.CsvTemperatureUnit_CSV_TEMPERATURE_UNIT_CELSIUS))
 }

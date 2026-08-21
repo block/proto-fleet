@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
-import TicketQueue from "../components/TicketQueue/TicketQueue";
 import HistoryTab from "../components/TicketHistory/HistoryTab";
+import TicketQueue from "../components/TicketQueue/TicketQueue";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 type MaintenanceTabId = "queue" | "history";
@@ -23,8 +23,8 @@ const MaintenancePage = () => {
         </TabStrip>
       </div>
       <div className="min-h-0 flex-1 px-6 pt-6 laptop:px-10">
-        {activeTab === "queue" && <TicketQueue />}
-        {activeTab === "history" && <HistoryTab />}
+        {activeTab === "queue" ? <TicketQueue /> : null}
+        {activeTab === "history" ? <HistoryTab /> : null}
       </div>
     </div>
   );

@@ -113,15 +113,18 @@ Prefixes:
 ### Pull Requests
 
 Write the description so a reviewer can judge the architecture and technical
-decisions without reading the low-level code. Use the six-part structure
+decisions without reading the low-level code. Start with the reviewable line
+diff, then use the remaining structure
 documented in the **PR descriptions** section of [AGENTS.md](./AGENTS.md):
-Summary, How it works, Diagrams (mermaid, so they render on GitHub), Areas of
-the code involved, Key technical decisions & trade-offs, and Testing &
-validation. Scale each section to the change — a one-line fix does not need a
-diagram, a new subsystem does.
+Reviewable diff, Summary, How it works, Diagrams (mermaid, so they render on
+GitHub), Areas of the code involved, Key technical decisions & trade-offs, and
+Testing & validation. Scale each section to the change — a one-line fix does
+not need a diagram, a new subsystem does.
 
 ```bash
-gh pr create --title "Brief description" --body "## Summary
+gh pr create --title "Brief description" --body "Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).
+
+## Summary
 - What this delivers and why
 
 ## How it works

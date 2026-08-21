@@ -1,15 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,9 +24,36 @@ import (
 )
 
 const (
-	minPasswordLength      = 8
-	maxLocateLEDOnTimeSecs = 300
+	minPasswordLength                    = 8
+	maxLocateLEDOnTimeSecs               = 300
+	firmwareVersionScanLimit       int64 = 64 * 1024
+	maxFirmwareUploadBytes         int64 = 512 * 1024 * 1024
+	maxTestControlRequestBytes     int64 = 1024
+	defaultFirmwareStepDelay             = 1 * time.Second
+	defaultFirmwareInstallDelay          = 2 * time.Second
+	fakeRigEnableTestControlsEnv         = "FAKE_RIG_ENABLE_TEST_CONTROLS"
+	firmwareUpdateOutcomeSuccess         = "success"
+	firmwareUpdateOutcomeError           = "error"
+	firmwareUpdateOutcomeAttention       = "attention"
+	firmwareUpdateFailureMessage         = "Simulated firmware update failure"
+	firmwareUpdateAttentionMessage       = "Simulated firmware update requires attention"
 )
+
+var firmwareFilenameVersionRE = regexp.MustCompile(`(?:^|[^0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.]|\.[A-Za-z])`)
+
+var firmwareContentVersionREs = []*regexp.Regexp{
+	regexp.MustCompile(`(?:^|[^[:alnum:]_])firmware_version[[:space:]]*=[[:space:]]*v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.])`),
+	regexp.MustCompile(`"firmware_version"[[:space:]]*:[[:space:]]*"v?([0-9]+\.[0-9]+\.[0-9]+)"`),
+	regexp.MustCompile(`(?m)^[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+)[ \t]*\r?$`),
+}
+
+var secp256k1FieldPrime = func() *big.Int {
+	prime, ok := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
+	if !ok {
+		panic("invalid secp256k1 field prime")
+	}
+	return prime
+}()
 
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
@@ -65,11 +99,12 @@ type ChangePasswordRequest struct {
 
 // PoolConfigInner is a single pool configuration (matches OpenAPI PoolConfig_inner)
 type PoolConfigInner struct {
-	Name     string `json:"name,omitempty"`
-	URL      string `json:"url"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
-	Priority *int   `json:"priority,omitempty"`
+	Name              string  `json:"name,omitempty"`
+	URL               string  `json:"url"`
+	Username          string  `json:"username"`
+	Password          string  `json:"password,omitempty"`
+	V2AuthorityPubkey *string `json:"v2_authority_pubkey,omitempty"`
+	Priority          *int    `json:"priority,omitempty"`
 }
 
 // PoolResponse is a single pool response
@@ -82,19 +117,29 @@ type PoolsList struct {
 	Pools []PoolData `json:"pools"`
 }
 
+type PoolProtocol string
+
+const (
+	poolProtocolUnknown   PoolProtocol = "Unknown"
+	poolProtocolStratumV1 PoolProtocol = "Stratum V1"
+	poolProtocolStratumV2 PoolProtocol = "Stratum V2"
+)
+
 // PoolData is a single pool data
 type PoolData struct {
-	ID               int    `json:"id"`
-	Priority         int    `json:"priority"`
-	Name             string `json:"name,omitempty"`
-	URL              string `json:"url"`
-	User             string `json:"user"`
-	Status           string `json:"status"`
-	AcceptedShares   int64  `json:"accepted"`
-	RejectedShares   int64  `json:"rejected"`
-	Difficulty       string `json:"difficulty"`
-	Enabled          bool   `json:"enabled"`
-	ConnectionStatus string `json:"connection_status"`
+	ID                int          `json:"id"`
+	Priority          int          `json:"priority"`
+	Name              string       `json:"name,omitempty"`
+	URL               string       `json:"url"`
+	User              string       `json:"user"`
+	Status            string       `json:"status"`
+	Protocol          PoolProtocol `json:"protocol"`
+	V2AuthorityPubkey string       `json:"v2_authority_pubkey"`
+	AcceptedShares    int64        `json:"accepted"`
+	RejectedShares    int64        `json:"rejected"`
+	Difficulty        string       `json:"difficulty"`
+	Enabled           bool         `json:"enabled"`
+	ConnectionStatus  string       `json:"connection_status"`
 }
 
 // SystemInfo contains system information
@@ -171,7 +216,42 @@ func nextFirmwareVersion(currentVersion string) string {
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch+1)
 }
 
-func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion string) UpdateStatus {
+func firmwareVersionFromFilename(filename string) (string, bool) {
+	matches := firmwareFilenameVersionRE.FindStringSubmatch(filename)
+	if len(matches) != 2 {
+		return "", false
+	}
+	return matches[1], true
+}
+
+func firmwareVersionFromContent(content io.Reader) (string, bool, error) {
+	prefix, err := io.ReadAll(io.LimitReader(content, firmwareVersionScanLimit))
+	if err != nil {
+		return "", false, fmt.Errorf("read firmware version prefix: %w", err)
+	}
+
+	for _, expression := range firmwareContentVersionREs {
+		matches := expression.FindSubmatch(prefix)
+		if len(matches) == 2 {
+			return string(matches[1]), true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func explicitFirmwareVersion(filename string, content io.Reader) (string, bool, error) {
+	if version, ok := firmwareVersionFromFilename(filename); ok {
+		return version, true, nil
+	}
+	if version, ok, err := firmwareVersionFromContent(content); err != nil {
+		return "", false, err
+	} else if ok {
+		return version, true, nil
+	}
+	return "", false, nil
+}
+
+func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion, updateError string) UpdateStatus {
 	updateStatus := UpdateStatus{
 		Status:          status,
 		CurrentVersion:  currentVersion,
@@ -191,6 +271,12 @@ func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion
 	case "installed":
 		message := "Reboot required"
 		updateStatus.Message = &message
+	case "error":
+		message := "Update failed"
+		updateStatus.Message = &message
+		if updateError != "" {
+			updateStatus.Error = &updateError
+		}
 	}
 
 	if newVersion != "" {
@@ -201,11 +287,34 @@ func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion
 	return updateStatus
 }
 
-// SystemStatuses contains system onboarding status
+// SystemStatuses contains system onboarding status. MDK-API 1.8.2 removed
+// default_password_active from this response; the default-password state now
+// only surfaces via the 403 contract on blocked routes.
 type SystemStatuses struct {
-	Onboarded             bool `json:"onboarded"`
-	PasswordSet           bool `json:"password_set"`
-	DefaultPasswordActive bool `json:"default_password_active"`
+	Onboarded   bool `json:"onboarded"`
+	PasswordSet bool `json:"password_set"`
+}
+
+// SecureResponseState contains the cached secure-related component state
+// (MDK-API SecureResponseState schema).
+type SecureResponseState struct {
+	Sshd                string `json:"sshd"`
+	NatsService         string `json:"nats-service"`
+	Secureboot          string `json:"secureboot"`
+	CertificateValidity string `json:"certificate-validity"`
+}
+
+// SecureResponse is the GET/PUT /api/v1/system/secure response
+// (MDK-API SecureResponse schema).
+type SecureResponse struct {
+	Secure bool                `json:"secure"`
+	State  SecureResponseState `json:"state"`
+}
+
+// SecureConfig is the PUT /api/v1/system/secure request body
+// (MDK-API SecureConfig schema).
+type SecureConfig struct {
+	SecureOverride *bool `json:"secure_override"`
 }
 
 // LogsResponse contains the logs response wrapper
@@ -547,16 +656,24 @@ type PSUTelemetry struct {
 
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
-	state               *MinerState
-	locateTimerMu       sync.Mutex
-	cancelLocateTimer   func()
-	scheduleLocateClear func(time.Duration, func()) func()
+	state                *MinerState
+	testControlsEnabled  bool
+	locateTimerMu        sync.Mutex
+	cancelLocateTimer    func()
+	scheduleLocateClear  func(time.Duration, func()) func()
+	firmwareUploadLimit  int64
+	firmwareStepDelay    time.Duration
+	firmwareInstallDelay time.Duration
 }
 
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{
-		state: state,
+		state:                state,
+		testControlsEnabled:  getEnvBool(fakeRigEnableTestControlsEnv, false),
+		firmwareUploadLimit:  maxFirmwareUploadBytes,
+		firmwareStepDelay:    defaultFirmwareStepDelay,
+		firmwareInstallDelay: defaultFirmwareInstallDelay,
 		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
 			timer := time.AfterFunc(duration, callback)
 			return func() {
@@ -570,35 +687,47 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //   - PUBLIC_ROUTES (no auth): PUT /auth/password, POST /auth/login,
 //     POST /auth/refresh, GET /system, /system/status, /system/ssh,
 //     /system/secure, /system/unlock, /system/tag, /system/telemetry,
-//     /network, /hardware, /hardware/psus, /hashboards, /power-supplies,
-//     /pairing/info, POST /pairing/auth-key.
-//   - DEFAULT_PASSWORD_EXEMPT_PREFIXES (auth required but not password-gated):
-//     /auth/change-password and /pools (all verbs, all sub-paths).
-//   - Everything else: auth required AND blocked while default_password_active.
+//     /network, /pairing/info, POST /pairing/auth-key.
+//   - Discovery reads (device-online check, no auth): /hardware, /hardware/psus,
+//     /hashboards, /power-supplies.
+//   - DEFAULT_PASSWORD_BLOCKED_ROUTES: PUT /system/unlock.
+//   - Everything else: auth requirements still apply, but default_password_active
+//     does not block the route.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Pools: auth required, exempt from the default-password gate per firmware.
+	if h.testControlsEnabled {
+		// This authenticated test-control route is intentionally outside the real device API.
+		mux.HandleFunc(
+			"/fake-api/v1/test/firmware-update/outcome",
+			h.requireBearerAuth(h.handleFakeFirmwareUpdateOutcome),
+		)
+	}
+
+	// Pools: auth required, not blocked by default_password_active per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
 	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
 	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.handlePoolByID))
 	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.handleTestPoolConnection))
 
 	// Auth flow. login/refresh/set-password are fully public; change-password
-	// requires auth but bypasses the default-password gate (it's the path OUT
-	// of that state). logout is authenticated and gated like any other route.
+	// and logout require auth but are not blocked by default_password_active.
 	mux.HandleFunc("/api/v1/auth/login", h.handleLogin)
-	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.requirePasswordChanged(h.handleLogout)))
+	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.handleLogout))
 	mux.HandleFunc("/api/v1/auth/refresh", h.handleRefresh)
 	mux.HandleFunc("/api/v1/auth/password", h.handleSetPassword)
 	mux.HandleFunc("/api/v1/auth/change-password", h.requireBearerAuth(h.handleChangePassword))
 
 	// System — GET public for the read-only status endpoints; mutating verbs
-	// (PUT, DELETE) require auth and are default-password-gated.
+	// (PUT, DELETE) require auth. Only PUT /system/unlock is blocked while
+	// default_password_active.
 	mux.HandleFunc("/api/v1/system", h.handleSystem)
 	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus)
-	mux.HandleFunc("/api/v1/system/secure", h.handleSecureStatus)
+	mux.HandleFunc(
+		"/api/v1/system/secure",
+		h.requireBearerAuthMethods(h.handleSecureStatus, http.MethodPut),
+	)
 	mux.HandleFunc(
 		"/api/v1/system/ssh",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleSSH, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleSSH, http.MethodPut),
 	)
 	mux.HandleFunc(
 		"/api/v1/system/unlock",
@@ -606,76 +735,73 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	)
 	mux.HandleFunc(
 		"/api/v1/system/tag",
-		h.requireBearerAuthMethods(
-			h.requirePasswordChangedMethods(h.handleTag, http.MethodPut, http.MethodDelete),
-			http.MethodPut, http.MethodDelete,
-		),
+		h.requireBearerAuthMethods(h.handleTag, http.MethodPut, http.MethodDelete),
 	)
 	mux.HandleFunc(
 		"/api/v1/system/telemetry",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleTelemetryConfig, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleTelemetryConfig, http.MethodPut),
 	)
-	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.requirePasswordChanged(h.handleReboot)))
-	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.requirePasswordChanged(h.handleLocate)))
-	mux.HandleFunc("/api/v1/system/logs", h.requireBearerAuth(h.requirePasswordChanged(h.handleLogs)))
-	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdate)))
-	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdateCheck)))
+	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.handleReboot))
+	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.handleLocate))
+	mux.HandleFunc("/api/v1/system/logs", h.requireBearerAuth(h.handleLogs))
+	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.handleUpdate))
+	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.handleUpdateCheck))
+
+	// Curtailment — config and status both require auth.
+	mux.HandleFunc("/api/v1/curtailment/config", h.requireBearerAuth(h.handleCurtailmentConfig))
+	mux.HandleFunc("/api/v1/curtailment/status", h.requireBearerAuth(h.handleCurtailmentStatus))
 
 	// Mining
-	mux.HandleFunc("/api/v1/mining", h.requireBearerAuth(h.requirePasswordChanged(h.handleMining)))
-	mux.HandleFunc("/api/v1/mining/target", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningTarget)))
-	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningTuning)))
-	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStart)))
-	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
+	mux.HandleFunc("/api/v1/mining", h.requireBearerAuth(h.handleMining))
+	mux.HandleFunc("/api/v1/mining/target", h.requireBearerAuth(h.handleMiningTarget))
+	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuth(h.handleMiningTuning))
+	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.handleMiningStart))
+	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.handleMiningStop))
 
 	// Hardware discovery endpoints are public; detailed hashboard stats remain
-	// authenticated under /hashboards/{hb_sn}.
+	// authenticated under /hashboards/{hb_sn} but are not default-password-gated.
 	mux.HandleFunc("/api/v1/hardware", h.requireDeviceOnline(h.handleHardware))
 	mux.HandleFunc("/api/v1/hardware/psus", h.requireDeviceOnline(h.handleHardwarePSUs))
 	mux.HandleFunc("/api/v1/hashboards", h.requireDeviceOnline(h.handleHashboards))
-	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
+	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.handleHashboardByID))
 
 	// Telemetry data
-	mux.HandleFunc("/api/v1/hashrate", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashrate)))
-	mux.HandleFunc("/api/v1/hashrate/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashrateByID)))
-	mux.HandleFunc("/api/v1/temperature", h.requireBearerAuth(h.requirePasswordChanged(h.handleTemperature)))
-	mux.HandleFunc("/api/v1/temperature/", h.requireBearerAuth(h.requirePasswordChanged(h.handleTemperatureByID)))
-	mux.HandleFunc("/api/v1/power", h.requireBearerAuth(h.requirePasswordChanged(h.handlePower)))
-	mux.HandleFunc("/api/v1/power/", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerByID)))
-	mux.HandleFunc("/api/v1/efficiency", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiency)))
-	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiencyByID)))
+	mux.HandleFunc("/api/v1/hashrate", h.requireBearerAuth(h.handleHashrate))
+	mux.HandleFunc("/api/v1/hashrate/", h.requireBearerAuth(h.handleHashrateByID))
+	mux.HandleFunc("/api/v1/temperature", h.requireBearerAuth(h.handleTemperature))
+	mux.HandleFunc("/api/v1/temperature/", h.requireBearerAuth(h.handleTemperatureByID))
+	mux.HandleFunc("/api/v1/power", h.requireBearerAuth(h.handlePower))
+	mux.HandleFunc("/api/v1/power/", h.requireBearerAuth(h.handlePowerByID))
+	mux.HandleFunc("/api/v1/efficiency", h.requireBearerAuth(h.handleEfficiency))
+	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.handleEfficiencyByID))
 
-	// PSUs
+	// PSUs — discovery read is public; the update requires auth.
 	mux.HandleFunc("/api/v1/power-supplies", h.requireDeviceOnline(h.handlePowerSupplies))
-	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
+	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.handlePowerSuppliesUpdate))
 
 	// Cooling
-	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuth(h.requirePasswordChanged(h.handleCooling)))
+	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuth(h.handleCooling))
 
-	// Network — GET public; PUT requires auth and is default-password-gated.
+	// Network — GET public; PUT requires auth.
 	mux.HandleFunc(
 		"/api/v1/network",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleNetwork, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleNetwork, http.MethodPut),
 	)
 
 	// Errors
-	mux.HandleFunc("/api/v1/errors", h.requireBearerAuth(h.requirePasswordChanged(h.handleErrors)))
+	mux.HandleFunc("/api/v1/errors", h.requireBearerAuth(h.handleErrors))
 
 	// Telemetry
-	mux.HandleFunc("/api/v1/telemetry", h.requireBearerAuth(h.requirePasswordChanged(h.handleTelemetry)))
-	mux.HandleFunc("/api/v1/timeseries", h.requireBearerAuth(h.requirePasswordChanged(h.handleTimeseries)))
+	mux.HandleFunc("/api/v1/telemetry", h.requireBearerAuth(h.handleTelemetry))
+	mux.HandleFunc("/api/v1/timeseries", h.requireBearerAuth(h.handleTimeseries))
 
 	// Pairing — GET /info and POST /auth-key are public (POST's handler has
 	// internal auth logic for key rotation). DELETE requires auth and is
-	// default-password-gated, per firmware. Fleet unpair paths must tolerate
-	// a 403 from a never-rotated device.
+	// not blocked by default_password_active.
 	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo)
 	mux.HandleFunc(
 		"/api/v1/pairing/auth-key",
-		h.requireBearerAuthMethods(
-			h.requirePasswordChangedMethods(h.handlePairingAuthKey, http.MethodDelete),
-			http.MethodDelete,
-		),
+		h.requireBearerAuthMethods(h.handlePairingAuthKey, http.MethodDelete),
 	)
 }
 
@@ -810,19 +936,6 @@ func (h *RESTApiHandler) requirePasswordChangedMethods(next http.HandlerFunc, me
 			return
 		}
 
-		if h.state.IsDefaultPasswordActive() {
-			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
-			return
-		}
-
-		next(w, r)
-	}
-}
-
-// requirePasswordChanged returns 403 when the device still has the default
-// password, matching the Proto firmware's default-password lockout behavior.
-func (h *RESTApiHandler) requirePasswordChanged(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
 		if h.state.IsDefaultPasswordActive() {
 			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 			return
@@ -1010,28 +1123,8 @@ func (h *RESTApiHandler) getPools(w http.ResponseWriter, r *http.Request) {
 			status = "Dead"
 		}
 
-		var acceptedShares, rejectedShares int64
-		var difficulty string = "0"
-		if p.Statistics != nil {
-			acceptedShares = int64(p.Statistics.AcceptedShares)
-			rejectedShares = int64(p.Statistics.RejectedShares)
-			difficulty = fmt.Sprintf("%.0f", p.Statistics.CurrentDifficulty)
-		}
-
-		poolName := h.state.GetPoolName(p.Idx)
-		poolList[i] = PoolData{
-			ID:               int(p.Idx),
-			Priority:         p.Priority,
-			Name:             poolName,
-			URL:              p.Url,
-			User:             p.Username,
-			Status:           status,
-			AcceptedShares:   acceptedShares,
-			RejectedShares:   rejectedShares,
-			Difficulty:       difficulty,
-			Enabled:          true, // Pool is enabled if it exists
-			ConnectionStatus: status,
-		}
+		poolList[i] = poolDataFromPool(p, h.state.GetPoolName(p.Idx), status)
+		poolList[i].ConnectionStatus = status
 	}
 
 	h.writeJSON(w, http.StatusOK, PoolsList{Pools: poolList})
@@ -1046,8 +1139,7 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, p := range pools {
-		if err := validatePoolURL(p.URL); err != nil {
-			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+		if !h.validatePoolConfig(w, p.URL, p.V2AuthorityPubkey) {
 			return
 		}
 	}
@@ -1063,11 +1155,12 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pool := &Pool{
-			Idx:      uint32(i),
-			Priority: priority,
-			Url:      p.URL,
-			Username: p.Username,
-			Password: p.Password,
+			Idx:               uint32(i),
+			Priority:          priority,
+			Url:               p.URL,
+			Username:          p.Username,
+			Password:          p.Password,
+			V2AuthorityPubkey: stringValue(p.V2AuthorityPubkey),
 			Statistics: &PoolStatistics{
 				AcceptedShares:    defaultPoolAcceptedShares,
 				RejectedShares:    defaultPoolRejectedShares,
@@ -1116,32 +1209,38 @@ func (h *RESTApiHandler) getPool(w http.ResponseWriter, r *http.Request, id int)
 	pools := h.state.GetPools()
 	for _, p := range pools {
 		if int(p.Idx) == id {
-			var acceptedShares, rejectedShares int64
-			var difficulty string = "0"
-			if p.Statistics != nil {
-				acceptedShares = int64(p.Statistics.AcceptedShares)
-				rejectedShares = int64(p.Statistics.RejectedShares)
-				difficulty = fmt.Sprintf("%.0f", p.Statistics.CurrentDifficulty)
-			}
-
 			h.writeJSON(w, http.StatusOK, PoolResponse{
-				Pool: PoolData{
-					ID:             int(p.Idx),
-					Name:           h.state.GetPoolName(p.Idx),
-					Priority:       p.Priority,
-					URL:            p.Url,
-					User:           p.Username,
-					Status:         "Active",
-					AcceptedShares: acceptedShares,
-					RejectedShares: rejectedShares,
-					Difficulty:     difficulty,
-					Enabled:        true,
-				},
+				Pool: poolDataFromPool(p, h.state.GetPoolName(p.Idx), "Active"),
 			})
 			return
 		}
 	}
 	h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Pool not found")
+}
+
+func poolDataFromPool(pool *Pool, name, status string) PoolData {
+	var acceptedShares, rejectedShares int64
+	difficulty := "0"
+	if pool.Statistics != nil {
+		acceptedShares = int64(pool.Statistics.AcceptedShares)
+		rejectedShares = int64(pool.Statistics.RejectedShares)
+		difficulty = fmt.Sprintf("%.0f", pool.Statistics.CurrentDifficulty)
+	}
+
+	return PoolData{
+		ID:                int(pool.Idx),
+		Priority:          pool.Priority,
+		Name:              name,
+		URL:               pool.Url,
+		User:              pool.Username,
+		Status:            status,
+		Protocol:          poolProtocol(pool.Url),
+		V2AuthorityPubkey: pool.V2AuthorityPubkey,
+		AcceptedShares:    acceptedShares,
+		RejectedShares:    rejectedShares,
+		Difficulty:        difficulty,
+		Enabled:           true,
+	}
 }
 
 func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id int) {
@@ -1151,18 +1250,23 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 		return
 	}
 
-	if config.URL != "" {
-		if err := validatePoolURL(config.URL); err != nil {
-			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
-			return
-		}
-	}
-
 	h.state.mu.Lock()
 	defer h.state.mu.Unlock()
 
 	for _, p := range h.state.Pools {
 		if int(p.Idx) == id {
+			effectiveURL := p.Url
+			if config.URL != "" {
+				effectiveURL = config.URL
+			}
+			effectiveAuthorityKey := p.V2AuthorityPubkey
+			if config.V2AuthorityPubkey != nil {
+				effectiveAuthorityKey = *config.V2AuthorityPubkey
+			}
+			if !h.validatePoolConfig(w, effectiveURL, &effectiveAuthorityKey) {
+				return
+			}
+
 			if config.Name != "" {
 				if h.state.PoolNames == nil {
 					h.state.PoolNames = make(map[uint32]string)
@@ -1177,6 +1281,9 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 			}
 			if config.Password != "" {
 				p.Password = config.Password
+			}
+			if config.V2AuthorityPubkey != nil {
+				p.V2AuthorityPubkey = *config.V2AuthorityPubkey
 			}
 			if config.Priority != nil {
 				p.Priority = *config.Priority
@@ -1200,9 +1307,10 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 	}
 
 	type testPoolConnectionRequest struct {
-		URL      string          `json:"url"`
-		Username string          `json:"username"`
-		Password json.RawMessage `json:"password"`
+		URL               string          `json:"url"`
+		Username          string          `json:"username"`
+		Password          json.RawMessage `json:"password"`
+		V2AuthorityPubkey *string         `json:"v2_authority_pubkey,omitempty"`
 	}
 
 	var req testPoolConnectionRequest
@@ -1211,8 +1319,7 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := validatePoolURL(req.URL); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+	if !h.validatePoolConfig(w, req.URL, req.V2AuthorityPubkey) {
 		return
 	}
 
@@ -1225,40 +1332,165 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Connection test passed"})
 }
 
-func validatePoolURL(raw string) error {
+func parsePoolURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return fmt.Errorf("empty url")
+		return nil, fmt.Errorf("empty url")
 	}
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
-	case "stratum+tcp", "stratum+ssl", "stratum+tls", "stratum2+tcp", "stratum2+ssl", "stratum2+tls":
+	case "stratum+tcp", "stratum2+tcp":
 		// ok
 	default:
-		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
 
 	if u.Hostname() == "" {
-		return fmt.Errorf("missing hostname")
+		return nil, fmt.Errorf("missing hostname")
 	}
 
 	port := u.Port()
 	if port == "" {
-		return fmt.Errorf("missing port")
+		return u, nil
 	}
 
 	portNum, err := strconv.Atoi(port)
 	if err != nil || portNum < 1 || portNum > 65535 {
-		return fmt.Errorf("invalid port")
+		return nil, fmt.Errorf("invalid port")
+	}
+
+	return u, nil
+}
+
+func (h *RESTApiHandler) validatePoolConfig(w http.ResponseWriter, rawURL string, authorityKey *string) bool {
+	poolURL, err := parsePoolURL(rawURL)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, MessageResponse{Message: "Invalid pool URL"})
+		return false
+	}
+	if err := validateSV2AuthorityKey(poolURL, stringValue(authorityKey)); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, MessageResponse{Message: err.Error()})
+		return false
+	}
+	return true
+}
+
+func validateSV2AuthorityKey(poolURL *url.URL, authorityKey string) error {
+	if !strings.EqualFold(poolURL.Scheme, "stratum2+tcp") {
+		return nil
+	}
+
+	authorityKey = strings.TrimSpace(authorityKey)
+	if authorityKey == "" {
+		if isLoopbackPoolHost(poolURL.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("an authority public key is required for remote SV2 pools")
+	}
+	if len(authorityKey) != 51 {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
+	}
+
+	decoded, err := decodeBase58(authorityKey)
+	if err != nil || len(decoded) != 38 {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
+	}
+
+	payload, checksum := decoded[:34], decoded[34:]
+	firstHash := sha256.Sum256(payload)
+	secondHash := sha256.Sum256(firstHash[:])
+	if payload[0] != 1 ||
+		payload[1] != 0 ||
+		!bytes.Equal(checksum, secondHash[:4]) ||
+		!isValidSecp256k1XOnlyKey(payload[2:]) {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
 	}
 
 	return nil
+}
+
+func decodeBase58(encoded string) ([]byte, error) {
+	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+	value := new(big.Int)
+	radix := big.NewInt(58)
+	for i := 0; i < len(encoded); i++ {
+		digit := strings.IndexByte(alphabet, encoded[i])
+		if digit < 0 {
+			return nil, fmt.Errorf("invalid base58 character")
+		}
+		value.Mul(value, radix)
+		value.Add(value, big.NewInt(int64(digit)))
+	}
+
+	decoded := value.Bytes()
+	leadingZeroes := 0
+	for leadingZeroes < len(encoded) && encoded[leadingZeroes] == alphabet[0] {
+		leadingZeroes++
+	}
+	result := make([]byte, leadingZeroes+len(decoded))
+	copy(result[leadingZeroes:], decoded)
+	return result, nil
+}
+
+func isValidSecp256k1XOnlyKey(encoded []byte) bool {
+	if len(encoded) != 32 {
+		return false
+	}
+
+	x := new(big.Int).SetBytes(encoded)
+	if x.Cmp(secp256k1FieldPrime) >= 0 {
+		return false
+	}
+
+	// A valid x-only key must have a y coordinate satisfying y² = x³ + 7.
+	rightHandSide := new(big.Int).Exp(x, big.NewInt(3), secp256k1FieldPrime)
+	rightHandSide.Add(rightHandSide, big.NewInt(7)).Mod(rightHandSide, secp256k1FieldPrime)
+
+	// secp256k1's field prime is 3 mod 4, so rhs^((p+1)/4) is a square root
+	// exactly when rhs is a quadratic residue.
+	exponent := new(big.Int).Add(secp256k1FieldPrime, big.NewInt(1))
+	exponent.Rsh(exponent, 2)
+	y := new(big.Int).Exp(rightHandSide, exponent, secp256k1FieldPrime)
+	ySquared := new(big.Int).Mul(y, y)
+	ySquared.Mod(ySquared, secp256k1FieldPrime)
+	return ySquared.Cmp(rightHandSide) == 0
+}
+
+func isLoopbackPoolHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func poolProtocol(rawURL string) PoolProtocol {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return poolProtocolUnknown
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "stratum+tcp":
+		return poolProtocolStratumV1
+	case "stratum2+tcp":
+		return poolProtocolStratumV2
+	default:
+		return poolProtocolUnknown
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // Auth handlers
@@ -1416,6 +1648,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 	fwCurrentVersion := h.state.FWCurrentVersion
 	fwPreviousVersion := h.state.FWPreviousVersion
 	fwNewVersion := h.state.FWNewVersion
+	fwUpdateError := h.state.FWUpdateError
 	h.state.mu.RUnlock()
 	if fwStatus == "" {
 		fwStatus = "current"
@@ -1440,7 +1673,13 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 				GitHash:  "abc123def456",
 				Hostname: h.state.Hostname,
 			},
-			SWUpdateState: buildSystemUpdateStatus(fwStatus, fwCurrentVersion, fwPreviousVersion, fwNewVersion),
+			SWUpdateState: buildSystemUpdateStatus(
+				fwStatus,
+				fwCurrentVersion,
+				fwPreviousVersion,
+				fwNewVersion,
+				fwUpdateError,
+			),
 			MiningDriverSW: &SWInfo{
 				Name:    "mcdd",
 				Version: fwCurrentVersion,
@@ -1474,9 +1713,8 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 	passwordSet := h.state.GetPassword() != ""
 
 	h.writeJSON(w, http.StatusOK, SystemStatuses{
-		Onboarded:             h.state.IsOnboarded(),
-		PasswordSet:           passwordSet,
-		DefaultPasswordActive: h.state.IsDefaultPasswordActive(),
+		Onboarded:   h.state.IsOnboarded(),
+		PasswordSet: passwordSet,
 	})
 }
 
@@ -1490,9 +1728,12 @@ func (h *RESTApiHandler) handleReboot(w http.ResponseWriter, r *http.Request) {
 	if h.state.FWUpdateStatus == "installed" && h.state.FWNewVersion != "" {
 		h.state.FWPreviousVersion = h.state.FWCurrentVersion
 		h.state.FWCurrentVersion = h.state.FWNewVersion
-		h.state.FWNewVersion = ""
 	}
+	h.state.FWNewVersion = ""
 	h.state.FWUpdateStatus = "current"
+	h.state.FWUpdateError = ""
+	h.state.FWUpdateOutcome = ""
+	h.state.FWUpdateSequence++
 	h.state.Rebooting = true
 	h.state.mu.Unlock()
 
@@ -1628,88 +1869,210 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
-	go func() {
-		time.Sleep(1 * time.Second)
+func isFirmwareUpdatePending(status string) bool {
+	switch status {
+	case "downloading", "downloaded", "installing", "installed":
+		return true
+	default:
+		return false
+	}
+}
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+// beginFirmwareUpdateLocked starts a new lifecycle and consumes the one-shot
+// fake outcome. The caller must hold h.state.mu.
+func (h *RESTApiHandler) beginFirmwareUpdateLocked(status, newVersion string) uint64 {
+	outcome := h.state.FWNextUpdateOutcome
+	switch outcome {
+	case firmwareUpdateOutcomeError, firmwareUpdateOutcomeAttention:
+	default:
+		outcome = firmwareUpdateOutcomeSuccess
+	}
+
+	h.state.FWNextUpdateOutcome = firmwareUpdateOutcomeSuccess
+	h.state.FWUpdateOutcome = outcome
+	h.state.FWUpdateError = ""
+	h.state.FWUpdateStatus = status
+	h.state.FWNewVersion = newVersion
+	h.state.FWUpdateSequence++
+	return h.state.FWUpdateSequence
+}
+
+func (h *RESTApiHandler) transitionFirmwareStatus(sequence uint64, from, to string) bool {
+	h.state.mu.Lock()
+	defer h.state.mu.Unlock()
+
+	if h.state.Rebooting ||
+		h.state.FWUpdateSequence != sequence ||
+		h.state.FWUpdateStatus != from {
+		return false
+	}
+	h.state.FWUpdateStatus = to
+	return true
+}
+
+func (h *RESTApiHandler) completeFirmwareInstall(sequence uint64) {
+	time.Sleep(h.firmwareInstallDelay)
+
+	h.state.mu.Lock()
+	if h.state.Rebooting ||
+		h.state.FWUpdateSequence != sequence ||
+		h.state.FWUpdateStatus != "installing" {
+		h.state.mu.Unlock()
+		return
+	}
+
+	switch h.state.FWUpdateOutcome {
+	case firmwareUpdateOutcomeError:
+		h.state.FWUpdateStatus = "error"
+		h.state.FWUpdateError = firmwareUpdateFailureMessage
+	case firmwareUpdateOutcomeAttention:
+		h.state.FWUpdateStatus = "error"
+		h.state.FWUpdateError = firmwareUpdateAttentionMessage
+	default:
+		h.state.FWUpdateStatus = "installed"
+		h.state.FWUpdateError = ""
+	}
+	status := h.state.FWUpdateStatus
+	h.state.mu.Unlock()
+
+	if status == "installed" {
+		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+		return
+	}
+	log.Printf("[FAKE-RIG] Firmware update status: %s", status)
+}
+
+func (h *RESTApiHandler) startFirmwareUploadLifecycle(sequence uint64) {
+	go func() {
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloaded", "installing") {
 			return
 		}
-		h.state.FWUpdateStatus = "downloaded"
-		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+		h.completeFirmwareInstall(sequence)
+	}()
+}
+
+func (h *RESTApiHandler) startFirmwareOTALifecycle(sequence uint64) {
+	go func() {
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloading", "downloaded") {
+			return
+		}
 		log.Printf("[FAKE-RIG] Firmware update status: downloaded")
+
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloaded", "installing") {
+			return
+		}
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+		h.completeFirmwareInstall(sequence)
 	}()
 }
 
-func (h *RESTApiHandler) startFirmwareOTALifecycle() {
-	go func() {
-		time.Sleep(1 * time.Second)
-
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installing"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installing")
-
-		time.Sleep(2 * time.Second)
-
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installed"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
-	}()
+func (h *RESTApiHandler) startFirmwareInstallLifecycle(sequence uint64) {
+	go h.completeFirmwareInstall(sequence)
 }
 
-func (h *RESTApiHandler) startFirmwareInstallLifecycle(fromDownloaded bool) {
-	go func() {
-		if fromDownloaded {
-			time.Sleep(1 * time.Second)
-		}
+var errFirmwareUploadTooLarge = errors.New("firmware upload is too large")
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installing"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installing")
+type firmwareUpload struct {
+	body   io.Reader
+	reader *multipart.Reader
+	file   *multipart.Part
+}
 
-		time.Sleep(2 * time.Second)
+func normalizeFirmwareUploadError(err error) error {
+	if err == nil {
+		return nil
+	}
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return fmt.Errorf("%w: %v", errFirmwareUploadTooLarge, err)
+	}
+	return err
+}
+
+func readFirmwareUploadPart(w http.ResponseWriter, r *http.Request, limit int64) (*firmwareUpload, error) {
+	if r.ContentLength > limit {
+		return nil, fmt.Errorf(
+			"%w: declared content length %d exceeds %d bytes",
+			errFirmwareUploadTooLarge,
+			r.ContentLength,
+			limit,
+		)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, fmt.Errorf("parse multipart upload: %w", err)
+	}
+
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			return nil, fmt.Errorf("missing file part")
 		}
-		h.state.FWUpdateStatus = "installed"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
-	}()
+		if nextErr != nil {
+			return nil, fmt.Errorf("read multipart upload: %w", normalizeFirmwareUploadError(nextErr))
+		}
+		if part.FormName() == "file" && part.FileName() != "" {
+			return &firmwareUpload{
+				body:   r.Body,
+				reader: reader,
+				file:   part,
+			}, nil
+		}
+		if closeErr := part.Close(); closeErr != nil {
+			return nil, fmt.Errorf("skip multipart field: %w", normalizeFirmwareUploadError(closeErr))
+		}
+	}
+}
+
+func consumeFirmwareUpload(upload *firmwareUpload) error {
+	if _, err := io.Copy(io.Discard, upload.file); err != nil {
+		_ = upload.file.Close()
+		return fmt.Errorf("read firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+	if err := upload.file.Close(); err != nil {
+		return fmt.Errorf("close firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+
+	for {
+		part, err := upload.reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			_ = part.Close()
+			return fmt.Errorf("read trailing multipart data: %w", normalizeFirmwareUploadError(err))
+		}
+		if err := part.Close(); err != nil {
+			return fmt.Errorf("close trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+	}
+
+	if _, err := io.Copy(io.Discard, upload.body); err != nil {
+		return fmt.Errorf("read multipart body through EOF: %w", normalizeFirmwareUploadError(err))
+	}
+	return nil
+}
+
+func (h *RESTApiHandler) writeFirmwareUploadError(w http.ResponseWriter, err error, malformedMessage string) {
+	if errors.Is(err, errFirmwareUploadTooLarge) {
+		h.writeError(
+			w,
+			http.StatusRequestEntityTooLarge,
+			"REQUEST_TOO_LARGE",
+			"Firmware upload exceeds the 512 MiB limit",
+		)
+		return
+	}
+	h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", malformedMessage)
 }
 
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1733,22 +2096,26 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			currentVersion = defaultFirmwareVersion
 		}
 
-		if h.state.FWNewVersion == "" {
-			h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
-		}
-
 		installFromDownloaded := h.state.FWUpdateStatus == "downloaded"
+		var sequence uint64
 		if installFromDownloaded {
 			h.state.FWUpdateStatus = "installing"
+			if h.state.FWUpdateSequence == 0 {
+				h.state.FWUpdateSequence++
+			}
+			if h.state.FWUpdateOutcome == "" {
+				h.state.FWUpdateOutcome = firmwareUpdateOutcomeSuccess
+			}
+			sequence = h.state.FWUpdateSequence
 		} else {
-			h.state.FWUpdateStatus = "downloading"
+			sequence = h.beginFirmwareUpdateLocked("downloading", nextFirmwareVersion(currentVersion))
 		}
 		h.state.mu.Unlock()
 
 		if installFromDownloaded {
-			h.startFirmwareInstallLifecycle(true)
+			h.startFirmwareInstallLifecycle(sequence)
 		} else {
-			h.startFirmwareOTALifecycle()
+			h.startFirmwareOTALifecycle(sequence)
 		}
 		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
 	case http.MethodPut:
@@ -1765,42 +2132,110 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
 			return
 		}
-		// Reject re-uploads whenever an update is pending (downloaded/installing)
-		// OR has already completed install and is awaiting reboot. Treating
-		// "installed" as in-progress prevents a second upload from clobbering
-		// FWUpdateStatus/FWNewVersion and causing handleReboot to skip promotion.
-		switch h.state.FWUpdateStatus {
-		case "downloading", "downloaded", "installing", "installed":
+		if isFirmwareUpdatePending(h.state.FWUpdateStatus) {
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
-		currentVersion := h.state.FWCurrentVersion
-		if currentVersion == "" {
-			currentVersion = defaultFirmwareVersion
-		}
-		h.state.FWUpdateStatus = "downloading"
-		h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
 		h.state.mu.Unlock()
 
-		file, header, err := r.FormFile("file")
+		upload, err := readFirmwareUploadPart(w, r, h.firmwareUploadLimit)
 		if err != nil {
-			h.state.mu.Lock()
-			h.state.FWUpdateStatus = ""
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
+			h.writeFirmwareUploadError(w, err, "Missing or invalid 'file' field in multipart form")
 			return
 		}
-		defer file.Close()
 
-		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
-		h.startFirmwareOTALifecycle()
+		file := upload.file
+		filename := file.FileName()
+		explicitVersion, hasExplicitVersion, err := explicitFirmwareVersion(filename, file)
+		if err != nil {
+			_ = file.Close()
+			h.writeFirmwareUploadError(w, normalizeFirmwareUploadError(err), "Unable to inspect firmware upload")
+			return
+		}
+		if err := consumeFirmwareUpload(upload); err != nil {
+			h.writeFirmwareUploadError(w, err, "Unable to read complete firmware upload")
+			return
+		}
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
+		if isFirmwareUpdatePending(h.state.FWUpdateStatus) {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
+			return
+		}
+		newVersion := explicitVersion
+		if !hasExplicitVersion {
+			currentVersion := h.state.FWCurrentVersion
+			if currentVersion == "" {
+				currentVersion = defaultFirmwareVersion
+			}
+			newVersion = nextFirmwareVersion(currentVersion)
+		}
+		sequence := h.beginFirmwareUpdateLocked("downloaded", newVersion)
+		h.state.mu.Unlock()
+
+		log.Printf("Firmware upload received: filename=%s", filename)
+		h.startFirmwareUploadLifecycle(sequence)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}
+}
+
+func (h *RESTApiHandler) handleFakeFirmwareUpdateOutcome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	var request struct {
+		Outcome string `json:"outcome"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestControlRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Request body must contain exactly one JSON value")
+		return
+	}
+
+	outcome := strings.ToLower(strings.TrimSpace(request.Outcome))
+	switch outcome {
+	case firmwareUpdateOutcomeSuccess, firmwareUpdateOutcomeError, firmwareUpdateOutcomeAttention:
+	default:
+		h.writeError(
+			w,
+			http.StatusUnprocessableEntity,
+			"INVALID_REQUEST",
+			"outcome must be success, error, or attention",
+		)
+		return
+	}
+
+	h.state.mu.Lock()
+	h.state.FWNextUpdateOutcome = outcome
+	h.state.mu.Unlock()
+	h.writeJSON(w, http.StatusOK, map[string]string{"next_outcome": outcome})
 }
 
 func (h *RESTApiHandler) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -1833,12 +2268,145 @@ func (h *RESTApiHandler) handleSSH(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// secureResponse builds the current secure status. The simulated device is
+// never locked, so secure stays false; the component state mirrors an open
+// development rig with a valid device certificate.
+func (h *RESTApiHandler) secureResponse() SecureResponse {
+	return SecureResponse{
+		Secure: false,
+		State: SecureResponseState{
+			Sshd:                "active",
+			NatsService:         "open",
+			Secureboot:          "OPEN",
+			CertificateValidity: "VALID",
+		},
+	}
+}
+
 func (h *RESTApiHandler) handleSecureStatus(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(w, http.StatusOK, h.secureResponse())
+	case http.MethodPut:
+		var config SecureConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if config.SecureOverride == nil {
+			h.writeError(w, http.StatusUnprocessableEntity, "INVALID_REQUEST",
+				"Invalid secure config: 'secure_override' is missing")
+			return
+		}
+		h.state.SetSecureOverride(*config.SecureOverride)
+		h.writeJSON(w, http.StatusOK, h.secureResponse())
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
+}
+
+func (h *RESTApiHandler) handleCurtailmentConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(w, http.StatusOK, h.state.GetCurtailmentConfig())
+	case http.MethodPut:
+		var config CurtailmentConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if err := validateCurtailmentConfig(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+			return
+		}
+		h.state.SetCurtailmentConfig(config)
+		h.writeJSON(w, http.StatusOK, config)
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
+}
+
+func (h *RESTApiHandler) handleCurtailmentStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]bool{"secure": false})
+	// No curtailment-service runs in the simulator, so the status mirrors the
+	// firmware's default (no status message received yet).
+	h.writeJSON(w, http.StatusOK, defaultCurtailmentStatus())
+}
+
+// curtailmentStatusTTL mirrors the firmware's API curtailment status TTL:
+// status_publish_interval must not exceed it.
+const curtailmentStatusTTL = 60 * time.Second
+
+// validateCurtailmentConfig mirrors the firmware's validate_config rules for
+// PUT /api/v1/curtailment/config.
+func validateCurtailmentConfig(config *CurtailmentConfig) error {
+	if config.FailPolicy != "closed" && config.FailPolicy != "open" {
+		return fmt.Errorf("fail_policy must be 'closed' or 'open', got '%s'", config.FailPolicy)
+	}
+	if config.RestorePolicy != "respect_manual_stop" {
+		return fmt.Errorf("restore_policy must be 'respect_manual_stop'")
+	}
+	if config.NatsURL != "nats://localhost:4222" {
+		return fmt.Errorf("nats_url must be 'nats://localhost:4222' to match the local MDK pubsub bus")
+	}
+	if config.McddGrpcAddr == "" {
+		return fmt.Errorf("mcdd_grpc_addr is required")
+	}
+	interval, err := time.ParseDuration(config.StatusPublishInterval)
+	if err != nil || interval <= 0 {
+		return fmt.Errorf("status_publish_interval must be a positive Go duration")
+	}
+	if interval > curtailmentStatusTTL {
+		return fmt.Errorf("status_publish_interval must be less than or equal to %ds", int(curtailmentStatusTTL.Seconds()))
+	}
+	for i := range config.Providers {
+		if err := validateCurtailmentProvider(&config.Providers[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCurtailmentProvider(provider *CurtailmentProviderConfig) error {
+	if provider.Name == "" {
+		return fmt.Errorf("provider name is required")
+	}
+	if provider.Type != "maestro_mqtt" {
+		return fmt.Errorf("unsupported provider type '%s'", provider.Type)
+	}
+	if provider.Port < 1 || provider.Port > 65535 {
+		return fmt.Errorf("provider '%s' port must be between 1 and 65535", provider.Name)
+	}
+	if provider.Enabled && len(provider.Brokers) == 0 {
+		return fmt.Errorf("provider '%s' is enabled but has no brokers", provider.Name)
+	}
+	if provider.Qos < 0 || provider.Qos > 2 {
+		return fmt.Errorf("provider '%s' qos must be 0, 1, or 2", provider.Name)
+	}
+	if provider.Topic == "" {
+		return fmt.Errorf("provider '%s' topic is required", provider.Name)
+	}
+	if _, err := time.ParseDuration(provider.StaleAfter); err != nil {
+		return fmt.Errorf("provider '%s' stale_after must be a Go duration", provider.Name)
+	}
+	if _, err := time.ParseDuration(provider.ReconnectBackoff); err != nil {
+		return fmt.Errorf("provider '%s' reconnect_backoff must be a Go duration", provider.Name)
+	}
+	for i, broker := range provider.Brokers {
+		if strings.TrimSpace(broker) == "" {
+			return fmt.Errorf("provider '%s' broker[%d] is required", provider.Name, i)
+		}
+		if broker != strings.TrimSpace(broker) {
+			return fmt.Errorf("provider '%s' broker[%d] must not include surrounding whitespace", provider.Name, i)
+		}
+		if strings.Contains(broker, "://") || strings.Contains(broker, "/") {
+			return fmt.Errorf("provider '%s' broker[%d] must be a host or IP address, not a URL", provider.Name, i)
+		}
+	}
+	return nil
 }
 
 func (h *RESTApiHandler) handleUnlock(w http.ResponseWriter, r *http.Request) {
@@ -2065,8 +2633,16 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.state.SetMiningState(MiningStateStopped)
-	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Mining stopped"})
+
+	state := MiningStateStopped
+	message := "Mining stopped"
+	if r.Header.Get("X-Proto-Fleet-Curtailment") == "full" {
+		state = MiningStateCurtailed
+		message = "Mining curtailed"
+	}
+
+	h.state.SetMiningState(state)
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: message})
 }
 
 func (h *RESTApiHandler) handleMiningTuning(w http.ResponseWriter, r *http.Request) {
@@ -2763,10 +3339,6 @@ func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Req
 		if existing := h.state.GetAuthKey(); existing != "" {
 			if !h.isAuthorized(r) {
 				h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required for key rotation")
-				return
-			}
-			if h.state.IsDefaultPasswordActive() {
-				h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 				return
 			}
 		}

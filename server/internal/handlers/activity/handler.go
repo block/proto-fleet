@@ -231,6 +231,8 @@ func filterFromProto(orgID int64, pf *pb.ActivityFilter) models.Filter {
 	f.UserIDs = pf.GetUserIds()
 	f.ScopeTypes = pf.GetScopeTypes()
 	f.SearchText = pf.GetSearchText()
+	f.SiteIDs = pf.GetSiteIds()
+	f.IncludeUnassigned = pf.GetIncludeUnassigned()
 	if pf.GetStartTime() != nil {
 		t := pf.GetStartTime().AsTime()
 		f.StartTime = &t

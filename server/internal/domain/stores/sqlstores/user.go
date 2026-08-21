@@ -13,6 +13,7 @@ import (
 
 var _ interfaces.UserStore = &SQLUserStore{}
 var _ interfaces.UserManagementStore = &SQLUserStore{}
+var _ interfaces.BreakGlassUserStore = &SQLUserStore{}
 
 type SQLUserStore struct {
 	SQLConnectionManager
@@ -24,7 +25,7 @@ func NewSQLUserStore(conn *sql.DB) *SQLUserStore {
 	}
 }
 
-func (s *SQLUserStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLUserStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -94,10 +95,9 @@ func (s *SQLUserStore) GetOrganizationsForUser(ctx context.Context, userID int64
 	result := make([]interfaces.Organization, len(orgs))
 	for i, org := range orgs {
 		result[i] = interfaces.Organization{
-			ID:                  org.ID,
-			Name:                org.Name,
-			OrgID:               org.OrgID,
-			MinerAuthPrivateKey: org.MinerAuthPrivateKey,
+			ID:    org.ID,
+			Name:  org.Name,
+			OrgID: org.OrgID,
 		}
 	}
 
@@ -105,7 +105,7 @@ func (s *SQLUserStore) GetOrganizationsForUser(ctx context.Context, userID int64
 }
 
 func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
-	orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
+	orgName string, orgID string, roleName string, roleDescription string) error {
 
 	q := s.getQueries(ctx)
 
@@ -120,9 +120,8 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 	}
 
 	orgInternalID, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name:                orgName,
-		OrgID:               orgID,
-		MinerAuthPrivateKey: minerAuthPrivateKey,
+		Name:  orgName,
+		OrgID: orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error creating organization: %v", err)
@@ -180,10 +179,6 @@ func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (tim
 		return time.Time{}, err
 	}
 	return sqlTimeToTime(result), nil
-}
-
-func (s *SQLUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	return s.getQueries(ctx).GetOrganizationPrivateKey(ctx, orgID)
 }
 
 func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {
@@ -345,11 +340,28 @@ func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.
 	})
 }
 
-func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	return s.getQueries(ctx).AdminResetUserPassword(ctx, sqlc.AdminResetUserPasswordParams{
 		PasswordHash: passwordHash,
 		ID:           userID,
 	})
+}
+
+func (s *SQLUserStore) LockActiveSuperAdminUsers(ctx context.Context) ([]interfaces.BreakGlassSuperAdmin, error) {
+	rows, err := s.getQueries(ctx).LockActiveSuperAdminUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]interfaces.BreakGlassSuperAdmin, len(rows))
+	for i, row := range rows {
+		users[i] = interfaces.BreakGlassSuperAdmin{
+			ID:             row.ID,
+			ExternalUserID: row.ExternalUserID,
+			Username:       row.Username,
+			OrganizationID: row.OrganizationID,
+		}
+	}
+	return users, nil
 }
 
 func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {

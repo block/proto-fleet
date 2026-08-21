@@ -186,7 +186,7 @@ func TestResolver_NoAssignmentsReturnsEmptyDenyAll(t *testing.T) {
 	require.NotNil(t, eff)
 	require.False(t, eff.Has(authz.PermFleetRead, authz.ResourceContext{}))
 	require.False(t, eff.Has(authz.PermMinerBlinkLED, siteCtx(1)))
-	require.Empty(t, eff.FlatKeys())
+	require.Empty(t, eff.Keys())
 }
 
 // ---------------------------------------------------------------

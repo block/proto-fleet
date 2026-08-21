@@ -23,11 +23,29 @@ func (r RackOrderIndex) Valid() bool {
 	return r >= RackOrderIndexUnspecified && r <= RackOrderIndexTopRight
 }
 
+// GridCapacity is the number of racks a building's grid holds
+// (aisles × racks_per_aisle). Zero means the layout is unconfigured and
+// imposes no rack limit.
+func GridCapacity(aisles, racksPerAisle int32) int64 {
+	return int64(aisles) * int64(racksPerAisle)
+}
+
+// RackCapacityExceeded reports whether resultingCount racks would exceed a
+// building's configured grid. An unconfigured grid (capacity 0) is never
+// exceeded. resultingCount is the net final membership the caller intends,
+// leaving the caller free to derive it from an import graph or a live
+// reassignment.
+func RackCapacityExceeded(aisles, racksPerAisle int32, resultingCount int64) bool {
+	capacity := GridCapacity(aisles, racksPerAisle)
+	return capacity > 0 && resultingCount > capacity
+}
+
 // Building is the canonical domain shape for a building row.
 type Building struct {
 	ID                    int64
 	OrgID                 int64
 	SiteID                *int64 // nil = unassigned
+	SiteLabel             string
 	Name                  string
 	Description           string
 	PowerKw               float64
@@ -45,11 +63,19 @@ type Building struct {
 // BuildingWithCounts pairs a Building with its rack_count for the
 // list/delete-confirm flows.
 type BuildingWithCounts struct {
-	Building  Building
-	RackCount int64
+	Building    Building
+	RackCount   int64
+	DeviceCount int64
+	ListStats   *FleetListStats
 }
 
-// CreateParams is the input shape for the building create flow.
+// CreateParams is the input shape for the building create flow. The building
+// fields are always used; the trailing seed fields are optional (#559) — when
+// RackIDs and/or DeviceIdentifiers are non-empty, CreateBuilding assigns them
+// to the new building in the SAME transaction, so a failure anywhere (including
+// an unresolvable device conflict) rolls the building INSERT back too. The two
+// id sets are independent: a seeded device need not belong to any seeded rack
+// (it becomes a direct building member). Empty seed fields = a plain create.
 type CreateParams struct {
 	OrgID                 int64
 	SiteID                *int64 // nil = unassigned
@@ -63,6 +89,57 @@ type CreateParams struct {
 	DefaultRackRows       int32
 	DefaultRackColumns    int32
 	DefaultRackOrderIndex RackOrderIndex
+
+	// Optional seed (see type doc).
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
+}
+
+// CreateBuildingResult carries the created building plus the seed-assignment
+// counts. Building is nil when a seeded device hit unresolvable conflicts (the
+// whole tx rolled back); the conflicts travel out-of-band as
+// []PerDeviceBuildingConflict. For a plain (unseeded) create the counts are 0.
+type CreateBuildingResult struct {
+	Building                  *Building
+	AssignedRackCount         int64
+	ReassignedDeviceCount     int64
+	SiteReassignedDeviceCount int64
+}
+
+// NewBuildingParam is one row of a bulk create.
+type NewBuildingParam struct {
+	Name          string
+	Description   string
+	PowerKw       float64
+	OverheadKw    float64
+	Aisles        int32
+	RacksPerAisle int32
+}
+
+// CreateBuildingsParams is the input shape for bulk create. SiteID is
+// required and not a pointer: there is no "unassigned" bulk-create case.
+type CreateBuildingsParams struct {
+	OrgID     int64
+	SiteID    int64
+	Buildings []NewBuildingParam
+}
+
+type PerBuildingCreateErrorReason int
+
+const (
+	ReasonBuildingCreateUnspecified          PerBuildingCreateErrorReason = 0
+	ReasonBuildingCreateDuplicateNameInBatch PerBuildingCreateErrorReason = 1
+	ReasonBuildingCreateDuplicateNameAtSite  PerBuildingCreateErrorReason = 2
+)
+
+// PerBuildingCreateError points at one offending row of a bulk create.
+// Mirrors the proto shape so the handler stays a thin translator.
+type PerBuildingCreateError struct {
+	// Index is zero-based into CreateBuildingsParams.Buildings.
+	Index  int32
+	Name   string
+	Reason PerBuildingCreateErrorReason
 }
 
 // UpdateParams is the input shape for building updates. SiteID is
@@ -84,14 +161,16 @@ type UpdateParams struct {
 	DefaultRackOrderIndex RackOrderIndex
 }
 
-// ListFilter selects which buildings to return. SiteID is nil when
-// the caller is not filtering by site; UnassignedOnly is true to
-// request the "site_id IS NULL" bucket. SiteID != nil and
-// UnassignedOnly are mutually exclusive (enforced by the proto oneof).
+// ListFilter selects which buildings to return. SiteIDs is an OR
+// across sites; IncludeUnassigned additionally lets through buildings
+// with site_id IS NULL. Both empty + IncludeUnassigned false means no
+// filter (every live building in the org). Mirrors the miner-list
+// filter shape from MinerListFilter (#197).
 type ListFilter struct {
-	OrgID          int64
-	SiteID         *int64
-	UnassignedOnly bool
+	OrgID             int64
+	SiteIDs           []int64
+	IncludeUnassigned bool
+	IncludeStats      bool
 }
 
 // DeleteResult carries the cascade-unassign rack count for the
@@ -139,28 +218,116 @@ type AssignRacksToBuildingResult struct {
 	SiteReassignedDeviceCount int64
 }
 
+// PerDeviceBuildingConflictReason enumerates why a device was rejected
+// by AssignDevicesToBuilding.
+type PerDeviceBuildingConflictReason int
+
+const (
+	// ReasonBuildingUnspecified — default zero value, should never
+	// appear in emitted conflicts.
+	ReasonBuildingUnspecified PerDeviceBuildingConflictReason = 0
+	// ReasonBuildingDeviceNotFound — identifier doesn't match a live
+	// device in the org.
+	ReasonBuildingDeviceNotFound PerDeviceBuildingConflictReason = 1
+	// ReasonBuildingDeviceInRackAtOtherBuilding — device is in a rack
+	// whose building_id differs from the requested target.
+	ReasonBuildingDeviceInRackAtOtherBuilding PerDeviceBuildingConflictReason = 2
+	// ReasonBuildingDeviceInRackAtOtherSite — device is in a rack
+	// whose site_id differs from the target building's site. Covers
+	// the cross-site rack-without-building case the building-only
+	// conflict check misses. Cleared by the same force flag as
+	// IN_RACK_AT_OTHER_BUILDING.
+	ReasonBuildingDeviceInRackAtOtherSite PerDeviceBuildingConflictReason = 3
+)
+
+// PerDeviceBuildingConflict explains why a device was rejected by
+// AssignDevicesToBuilding. Mirrors the proto shape so the handler is a
+// thin translator.
+type PerDeviceBuildingConflict struct {
+	DeviceIdentifier      string
+	Reason                PerDeviceBuildingConflictReason
+	ConflictingBuildingID int64
+}
+
+// AssignDevicesToBuildingParams is the input shape for the bulk assign
+// flow. TargetBuildingID == nil means "Unassigned".
+//
+// When ForceClearConflictingRackMembership is true the service, inside
+// the same transaction as the building write, drops any existing rack
+// membership for devices whose rack is at a different building before
+// applying the building update. Mirrors AssignDevicesToSite's force-
+// clear semantic. When false (default), any device in a rack at a
+// different building rejects the whole batch with conflicts.
+type AssignDevicesToBuildingParams struct {
+	OrgID                               int64
+	TargetBuildingID                    *int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
+}
+
+// AssignDevicesToBuildingResult carries the rows touched + the count of
+// devices whose site_id was cascaded to the target building's site.
+type AssignDevicesToBuildingResult struct {
+	ReassignedCount           int64
+	SiteReassignedDeviceCount int64
+}
+
 // BuildingStats is the rollup returned by GetBuildingStats. Scope is
 // every device whose rack lives in the building.
 type BuildingStats struct {
-	BuildingID               int64
-	RackCount                int32
-	DeviceCount              int32
-	ReportingCount           int32
-	HashrateReportingCount   int32
-	EfficiencyReportingCount int32
-	PowerReportingCount      int32
-	TotalHashrateThs         float64
-	AvgEfficiencyJth         float64
-	TotalPowerKw             float64
-	HashingCount             int32
-	BrokenCount              int32
-	OfflineCount             int32
-	SleepingCount            int32
-	RackHealth               []BuildingRackHealth
+	BuildingID                int64
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
+	RackHealth                []BuildingRackHealth
 	// DeviceIdentifiers is the set of devices the rollup was computed
 	// over. Returned so FE telemetry consumers can scope themselves
 	// without a separate ListMinerStateSnapshots pagination.
 	DeviceIdentifiers []string
+}
+
+// FleetListStats is the lightweight rollup attached to list rows. It
+// intentionally excludes BuildingStats detail fields such as RackHealth
+// and DeviceIdentifiers.
+type FleetListStats struct {
+	BuildingCount             int32
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
 }
 
 // BuildingRackHealth is the per-rack rollup returned alongside

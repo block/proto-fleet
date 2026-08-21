@@ -23,6 +23,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/maintenance/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	domain "github.com/block/proto-fleet/server/internal/domain/maintenance"
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -50,7 +51,11 @@ func (h *Handler) CreateRepairTicket(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := h.service.CreateRepairTicket(ctx, toCreateParams(req.Msg, info.OrganizationID))
+	params, err := toCreateParams(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	ticket, err := h.service.CreateRepairTicket(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -68,11 +73,11 @@ func (h *Handler) GetRepairTicket(ctx context.Context, req *connect.Request[pb.G
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.GetRepairTicketResponse{
-		Ticket:   toProtoTicket(&detail.Ticket),
-		Comments: toProtoComments(detail.Comments),
-		Parts:    toProtoPartsUsed(detail.PartsUsed),
-	}), nil
+	return connect.NewResponse(&pb.GetRepairTicketResponse{Detail: &pb.RepairTicketDetail{
+		Ticket:    toProtoTicket(&detail.Ticket),
+		Comments:  toProtoComments(detail.Comments),
+		PartsUsed: toProtoPartsUsed(detail.PartsUsed),
+	}}), nil
 }
 
 func (h *Handler) ListRepairTickets(ctx context.Context, req *connect.Request[pb.ListRepairTicketsRequest]) (*connect.Response[pb.ListRepairTicketsResponse], error) {
@@ -80,7 +85,11 @@ func (h *Handler) ListRepairTickets(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, err
 	}
-	tickets, totalCount, err := h.service.ListRepairTickets(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter, err := toListFilter(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	tickets, totalCount, err := h.service.ListRepairTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +101,22 @@ func (h *Handler) UpdateRepairTicket(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := h.service.UpdateRepairTicket(ctx, toUpdateParams(req.Msg, info.OrganizationID))
+	params, err := toUpdateParams(req.Msg, info.OrganizationID)
 	if err != nil {
 		return nil, err
+	}
+	ticket, err := h.service.UpdateRepairTicket(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.PartsUsed != nil {
+		parts := make([]models.PartUsage, len(req.Msg.GetPartsUsed()))
+		for i, part := range req.Msg.GetPartsUsed() {
+			parts[i] = models.PartUsage{PartName: part.GetPartName(), Quantity: part.GetQuantity()}
+		}
+		if err := h.service.SetTicketParts(ctx, info.OrganizationID, req.Msg.GetId(), parts); err != nil {
+			return nil, err
+		}
 	}
 	return connect.NewResponse(&pb.UpdateRepairTicketResponse{
 		Ticket: toProtoTicket(ticket),
@@ -116,69 +138,61 @@ func (h *Handler) DeleteRepairTicket(ctx context.Context, req *connect.Request[p
 // Bulk operations
 // ---------------------------------------------------------------
 
-func (h *Handler) BulkUpdateTicketStatus(ctx context.Context, req *connect.Request[pb.BulkUpdateTicketStatusRequest]) (*connect.Response[pb.BulkUpdateTicketStatusResponse], error) {
+func (h *Handler) BulkUpdateRepairTickets(ctx context.Context, req *connect.Request[pb.BulkUpdateRepairTicketsRequest]) (*connect.Response[pb.BulkUpdateRepairTicketsResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	affected, err := h.service.BulkUpdateStatus(
-		ctx,
-		info.OrganizationID,
-		req.Msg.GetTicketIds(),
-		models.TicketStatus(req.Msg.GetNewStatus()),
-	)
-	if err != nil {
-		return nil, err
+	if req.Msg.GetClearAssignee() && req.Msg.GetMutation() != nil {
+		return nil, fleeterror.NewInvalidArgumentError("clear_assignee cannot be combined with another mutation")
 	}
-	return connect.NewResponse(&pb.BulkUpdateTicketStatusResponse{
-		AffectedCount: affected,
-	}), nil
-}
 
-func (h *Handler) BulkAssignTickets(ctx context.Context, req *connect.Request[pb.BulkAssignTicketsRequest]) (*connect.Response[pb.BulkAssignTicketsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
+	var affected int64
+	switch mutation := req.Msg.GetMutation().(type) {
+	case *pb.BulkUpdateRepairTicketsRequest_AssignToUserId:
+		assigneeUserID := mutation.AssignToUserId
+		affected, err = h.service.BulkAssign(ctx, info.OrganizationID, req.Msg.GetTicketIds(), &assigneeUserID)
+	case *pb.BulkUpdateRepairTicketsRequest_SetStatus:
+		status, conversionErr := checkedEnumValue(int32(mutation.SetStatus), 1, 5, "set_status")
+		if conversionErr != nil {
+			return nil, conversionErr
+		}
+		affected, err = h.service.BulkUpdateStatus(
+			ctx,
+			info.OrganizationID,
+			req.Msg.GetTicketIds(),
+			models.TicketStatus(status),
+		)
+	case *pb.BulkUpdateRepairTicketsRequest_MarkUrgent:
+		if !mutation.MarkUrgent {
+			return nil, fleeterror.NewInvalidArgumentError("mark_urgent must be true")
+		}
+		affected, err = h.service.BulkMarkUrgent(ctx, info.OrganizationID, req.Msg.GetTicketIds())
+	case *pb.BulkUpdateRepairTicketsRequest_BulkClose:
+		if mutation.BulkClose == nil {
+			return nil, fleeterror.NewInvalidArgumentError("bulk_close parameters are required")
+		}
+		params, conversionErr := toBulkCloseParams(mutation.BulkClose, info.OrganizationID, req.Msg.GetTicketIds())
+		if conversionErr != nil {
+			return nil, conversionErr
+		}
+		affected, err = h.service.BulkClose(
+			ctx,
+			params,
+		)
+	case nil:
+		if !req.Msg.GetClearAssignee() {
+			return nil, fleeterror.NewInvalidArgumentError("a bulk mutation is required")
+		}
+		affected, err = h.service.BulkAssign(ctx, info.OrganizationID, req.Msg.GetTicketIds(), nil)
+	default:
+		return nil, fleeterror.NewInvalidArgumentError("unsupported bulk mutation")
+	}
 	if err != nil {
 		return nil, err
 	}
-	var assigneeUserID *int64
-	if req.Msg.AssigneeUserId != nil {
-		v := req.Msg.GetAssigneeUserId()
-		assigneeUserID = &v
-	}
-	affected, err := h.service.BulkAssign(ctx, info.OrganizationID, req.Msg.GetTicketIds(), assigneeUserID)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.BulkAssignTicketsResponse{
-		AffectedCount: affected,
-	}), nil
-}
-
-func (h *Handler) BulkMarkUrgent(ctx context.Context, req *connect.Request[pb.BulkMarkUrgentRequest]) (*connect.Response[pb.BulkMarkUrgentResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	affected, err := h.service.BulkMarkUrgent(ctx, info.OrganizationID, req.Msg.GetTicketIds())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.BulkMarkUrgentResponse{
-		AffectedCount: affected,
-	}), nil
-}
-
-func (h *Handler) BulkCloseTickets(ctx context.Context, req *connect.Request[pb.BulkCloseTicketsRequest]) (*connect.Response[pb.BulkCloseTicketsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	affected, err := h.service.BulkClose(ctx, toBulkCloseParams(req.Msg, info.OrganizationID))
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.BulkCloseTicketsResponse{
-		AffectedCount: affected,
+	return connect.NewResponse(&pb.BulkUpdateRepairTicketsResponse{
+		UpdatedCount: int32(affected), //nolint:gosec // request validation caps ticket_ids at 500
 	}), nil
 }
 
@@ -201,6 +215,18 @@ func (h *Handler) GetTicketStats(ctx context.Context, req *connect.Request[pb.Ge
 // ---------------------------------------------------------------
 // Comments
 // ---------------------------------------------------------------
+
+func (h *Handler) ListTicketComments(ctx context.Context, req *connect.Request[pb.ListTicketCommentsRequest]) (*connect.Response[pb.ListTicketCommentsResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	comments, err := h.service.ListTicketComments(ctx, info.OrganizationID, req.Msg.GetTicketId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ListTicketCommentsResponse{Comments: toProtoComments(comments)}), nil
+}
 
 func (h *Handler) CreateTicketComment(ctx context.Context, req *connect.Request[pb.CreateTicketCommentRequest]) (*connect.Response[pb.CreateTicketCommentResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
@@ -243,37 +269,13 @@ func (h *Handler) ListCompletedTickets(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	tickets, err := h.service.ListCompletedTickets(ctx, toCompletedFilter(req.Msg, info.OrganizationID))
+	filter, err := toCompletedFilter(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	tickets, err := h.service.ListCompletedTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(toListCompletedTicketsResponse(tickets)), nil
-}
-
-// ---------------------------------------------------------------
-// Miner / Rack scoped
-// ---------------------------------------------------------------
-
-func (h *Handler) ListTicketsByMiner(ctx context.Context, req *connect.Request[pb.ListTicketsByMinerRequest]) (*connect.Response[pb.ListTicketsByMinerResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	tickets, err := h.service.ListTicketsByMiner(ctx, info.OrganizationID, req.Msg.GetMinerIdentifier())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(toListTicketsByMinerResponse(tickets)), nil
-}
-
-func (h *Handler) ListTicketsByRack(ctx context.Context, req *connect.Request[pb.ListTicketsByRackRequest]) (*connect.Response[pb.ListTicketsByRackResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	tickets, err := h.service.ListTicketsByRack(ctx, info.OrganizationID, req.Msg.GetRackId())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(toListTicketsByRackResponse(tickets)), nil
 }

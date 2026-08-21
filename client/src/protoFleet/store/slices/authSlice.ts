@@ -9,12 +9,14 @@ import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentDa
 
 export interface AuthSlice {
   sessionExpiry: Date | null;
+  sessionGeneration: number;
   isAuthenticated: boolean;
   username: string;
   role: string;
-  // permissions is the caller's effective permission keys, populated
-  // from UserInfo.permissions on login. UI gates query this via
-  // useHasPermission; the server still enforces every gate.
+  // permissions is the caller's default/org-scoped permission keys, populated
+  // from UserInfo.permissions on login. Narrower resource-scoped permissions
+  // should be represented separately when the client grows resource-aware
+  // gates. The server still enforces every gate.
   permissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;
@@ -37,6 +39,7 @@ export interface AuthSlice {
 export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
   // Initial state
   sessionExpiry: null,
+  sessionGeneration: 0,
   isAuthenticated: false,
   username: "",
   role: "",
@@ -48,6 +51,9 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   setSessionExpiry: (expiry) =>
     set((state) => {
       state.auth.sessionExpiry = expiry;
+      if (expiry) {
+        state.auth.sessionGeneration += 1;
+      }
     }),
 
   setIsAuthenticated: (isAuthenticated) =>

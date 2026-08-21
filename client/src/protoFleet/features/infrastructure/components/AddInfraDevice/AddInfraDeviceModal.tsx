@@ -1,74 +1,94 @@
 import { useCallback, useState } from "react";
 
-import ManualAddStep from "./ManualAddStep";
-import ScanNetworkStep from "./ScanNetworkStep";
-import Modal from "@/shared/components/Modal";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import ManualAddStep, { type ManualAddStepState } from "./ManualAddStep";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import ActionErrorBanner from "@/protoFleet/features/infrastructure/components/ActionErrorBanner";
+import type {
+  InfraBuildingOption,
+  InfraDeviceDraft,
+  InfraRackOption,
+} from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
+import Modal from "@/shared/components/Modal";
 
 interface AddInfraDeviceModalProps {
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
+  initialSiteName?: string;
   onDismiss: () => void;
-  onSuccess: () => void;
+  // Persists the draft; rejection keeps the modal open with the error
+  // shown inline. The caller closes the modal on success.
+  onSubmit: (device: InfraDeviceDraft) => Promise<void>;
 }
 
-const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps) => {
-  const [mode, setMode] = useState("scan");
-  const [canPair, setCanPair] = useState(false);
-  const [pairHandler, setPairHandler] = useState<(() => void) | null>(null);
+const AddInfraDeviceModal = ({
+  siteOptions = [],
+  buildingOptions = [],
+  rackOptions = [],
+  initialSiteName,
+  onDismiss,
+  onSubmit,
+}: AddInfraDeviceModalProps) => {
+  const [canAdd, setCanAdd] = useState(false);
+  const [addHandler, setAddHandler] = useState<(() => void) | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleModeSelect = useCallback((key: string) => {
-    setMode(key);
-    setCanPair(false);
-    setPairHandler(null);
+  const handleManualStateChange = useCallback((state: ManualAddStepState) => {
+    setCanAdd(state.canAdd);
+    setAddHandler(() => state.addHandler);
   }, []);
 
-  const handleScanSelection = useCallback((count: number, handler: () => void) => {
-    setCanPair(count > 0);
-    setPairHandler(() => handler);
-  }, []);
+  const handleDraft = useCallback(
+    (draft: InfraDeviceDraft) => {
+      setIsSubmitting(true);
+      setActionError(null);
+      onSubmit(draft)
+        .catch((error: unknown) => {
+          setActionError(getErrorMessage(error) || "Failed to add infrastructure device.");
+        })
+        .finally(() => {
+          setIsSubmitting(false);
+        });
+    },
+    [onSubmit],
+  );
 
-  const handleManualValid = useCallback((valid: boolean, handler: () => void) => {
-    setCanPair(valid);
-    setPairHandler(() => handler);
-  }, []);
-
-  const pairLabel = mode === "scan" ? "Pair devices" : "Pair device";
+  // Blocks escape/click-outside/close-icon while the create is in
+  // flight so the request's outcome (success close or inline error)
+  // isn't lost to a dismissed modal.
+  const handleDismiss = useCallback(() => {
+    if (isSubmitting) return;
+    onDismiss();
+  }, [isSubmitting, onDismiss]);
 
   return (
     <Modal
       open
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       title="Add infrastructure device"
+      description="Add a single fan or fan group controlled through a drive, bridge, or PLC."
       buttons={[
         {
-          text: pairLabel,
+          text: isSubmitting ? "Adding…" : "Add device",
           variant: variants.primary,
-          onClick: () => pairHandler?.(),
-          disabled: !canPair,
+          onClick: () => addHandler?.(),
+          disabled: !canAdd || isSubmitting,
           dismissModalOnClick: false,
         },
       ]}
     >
       <div className="flex flex-col gap-4">
-        <SegmentedControl
-          segments={[
-            { key: "scan", title: "Scan network" },
-            { key: "manual", title: "Add manually" },
-          ]}
-          initialSegmentKey={mode}
-          onSelect={handleModeSelect}
+        {actionError ? <ActionErrorBanner message={actionError} /> : null}
+        <ManualAddStep
+          siteOptions={siteOptions}
+          buildingOptions={buildingOptions}
+          rackOptions={rackOptions}
+          initialSiteName={initialSiteName}
+          onSuccess={handleDraft}
+          onStateChange={handleManualStateChange}
         />
-        {mode === "scan" ? (
-          <ScanNetworkStep
-            onSuccess={onSuccess}
-            onSelectionChange={handleScanSelection}
-          />
-        ) : (
-          <ManualAddStep
-            onSuccess={onSuccess}
-            onValidChange={handleManualValid}
-          />
-        )}
       </div>
     </Modal>
   );

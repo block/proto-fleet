@@ -53,4 +53,42 @@ describe("BackupPoolModalWrapper", () => {
       "To add a worker name, add a period after the username followed by the worker name.Example: mann23.workerbee",
     );
   });
+
+  it("uses ProtoOS's standalone Stratum V2 authority-key field", () => {
+    render(
+      <BackupPoolModalWrapper
+        open
+        onChangePools={vi.fn()}
+        onDismiss={vi.fn()}
+        poolIndex={0}
+        pools={[
+          {
+            name: "SV2 Pool",
+            url: "stratum2+tcp://pool.example.com",
+            username: "worker",
+            password: "",
+            priority: 0,
+            v2_authority_pubkey: "authority-key",
+          },
+          {
+            name: "",
+            url: "",
+            username: "",
+            password: "",
+            priority: 1,
+          },
+          {
+            name: "",
+            url: "",
+            username: "",
+            password: "",
+            priority: 2,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Authority public key")).toHaveValue("authority-key");
+    expect(screen.getByLabelText("Pool URL")).toHaveValue("stratum2+tcp://pool.example.com");
+  });
 });

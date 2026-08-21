@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,4 +121,23 @@ func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
 	require.NoError(t, d.StopMining(context.Background()))
 	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel)
 	assert.Nil(t, d.preCurtailMiningActive)
+}
+
+func TestDevice_CurtailHonorsContextDuringLatency(t *testing.T) {
+	d := newTestDevice(t)
+	enabled := true
+	d.config.Behavior.InternalLatency = config.LatencyConfig{
+		Enabled: &enabled,
+		MinMS:   50,
+		MaxMS:   50,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	err := d.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, d.isMining, "timed-out curtailment should not mutate mining state")
+	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel)
 }

@@ -10,6 +10,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -27,9 +30,79 @@ func NewHandler(svc *collection.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// authorizeRackPlacement gates a placement on site:manage and stashes the
+// authorized sites for the service (authz.AuthorizedPlacement). A move checks
+// both source (currentSiteID, nil for a new rack) and destination; the
+// destination narrows to the building's parent site, falling back to ORG scope
+// when it resolves to no site.
+func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
+	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
+	if err != nil {
+		return ctx, err
+	}
+	sites := distinctSites(currentSiteID, targetSiteID)
+	// Destination with no site to narrow on (site-less building, or nothing else
+	// being checked) still needs org-scoped site:manage.
+	destSiteLessBuilding := buildingID != nil && *buildingID > 0 && targetSiteID == nil
+	if destSiteLessBuilding || len(sites) == 0 {
+		sites = append(sites, nil)
+	}
+	for _, site := range sites {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site}); err != nil {
+			return ctx, err
+		}
+	}
+	return authz.WithAuthorizedPlacement(ctx, authz.AuthorizedPlacement{
+		CurrentSiteID: currentSiteID,
+		TargetSiteID:  targetSiteID,
+	}), nil
+}
+
+// resolvePlacementTargetSite maps a placement request to the destination
+// site_id: a building_id resolves to its parent site, an explicit site_id is
+// used directly, and an unassign (id == 0) or a site-less building resolves to
+// no site (nil).
+func (h *Handler) resolvePlacementTargetSite(ctx context.Context, orgID int64, siteID, buildingID *int64) (*int64, error) {
+	if buildingID != nil && *buildingID > 0 {
+		return h.svc.ResolveBuildingSite(ctx, orgID, *buildingID)
+	}
+	if siteID != nil && *siteID > 0 {
+		return siteID, nil
+	}
+	return nil, nil
+}
+
+// distinctSites returns the distinct non-nil site ids among the given sites,
+// so an in-place re-assert (source == destination) is checked once and a nil
+// (untouched) side is skipped.
+func distinctSites(sites ...*int64) []*int64 {
+	var out []*int64
+	seen := make(map[int64]struct{}, len(sites))
+	for _, s := range sites {
+		if s == nil {
+			continue
+		}
+		if _, dup := seen[*s]; dup {
+			continue
+		}
+		seen[*s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.CreateDeviceSetRequest]) (*connect.Response[dspb.CreateDeviceSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
+	}
+	// Creating a rack under a site/building persists that placement, so gate it
+	// on site:manage. New rack, so no source site — destination only.
+	if ri, ok := r.Msg.TypeDetails.(*dspb.CreateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, nil /* currentSiteID */, ri.RackInfo.SiteId, ri.RackInfo.BuildingId)
+		if err != nil {
+			return nil, err
+		}
 	}
 	req := toCollectionCreateReq(r.Msg)
 	result, err := h.svc.CreateCollection(ctx, req)
@@ -58,8 +131,22 @@ func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetD
 }
 
 func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.UpdateDeviceSetRequest]) (*connect.Response[dspb.UpdateDeviceSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
+	}
+	// Explicit placement intent (site_id/building_id, including 0 to unassign) is
+	// a MOVE, so gate on site:manage against both current site and destination.
+	// Metadata-only edits (label/zone/dims, membership) stay rack:manage.
+	if ri, ok := r.Msg.TypeDetails.(*dspb.UpdateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
+		currentSiteID, err := h.svc.ResolveRackSite(ctx, info.OrganizationID, r.Msg.DeviceSetId)
+		if err != nil {
+			return nil, err
+		}
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, currentSiteID, ri.RackInfo.SiteId, ri.RackInfo.BuildingId)
+		if err != nil {
+			return nil, err
+		}
 	}
 	req := toCollectionUpdateReq(r.Msg)
 	result, err := h.svc.UpdateCollection(ctx, req)
@@ -85,7 +172,7 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
 	}
 	params, err := toListCollectionsParams(r.Msg)
@@ -107,48 +194,50 @@ func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.Li
 	}), nil
 }
 
-func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[dspb.AddDevicesToDeviceSetRequest]) (*connect.Response[dspb.AddDevicesToDeviceSetResponse], error) {
+func (h *Handler) AddDevicesToGroup(ctx context.Context, r *connect.Request[dspb.AddDevicesToGroupRequest]) (*connect.Response[dspb.AddDevicesToGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
-		DeviceSelector: r.Msg.DeviceSelector,
+	result, err := h.svc.AddDevicesToGroup(ctx, collection.AddDevicesToGroupParams{
+		TargetGroupID:  r.Msg.GetTargetGroupId(),
+		DeviceSelector: r.Msg.GetDeviceSelector(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.AddDevicesToDeviceSetResponse{
-		DeviceSetId:         result.CollectionId,
-		AddedCount:          result.AddedCount,
-		SiteReassignedCount: result.SiteReassignedCount,
+	return connect.NewResponse(&dspb.AddDevicesToGroupResponse{
+		AddedCount: result.AddedCount,
 	}), nil
 }
 
-func (h *Handler) RemoveDevicesFromDeviceSet(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[dspb.RemoveDevicesFromDeviceSetResponse], error) {
+func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromGroupRequest]) (*connect.Response[dspb.RemoveDevicesFromGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.RemoveDevicesFromCollection(ctx, &collectionpb.RemoveDevicesFromCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
-		DeviceSelector: r.Msg.DeviceSelector,
+	result, err := h.svc.RemoveDevicesFromGroup(ctx, collection.RemoveDevicesFromGroupParams{
+		TargetGroupID:  r.Msg.GetTargetGroupId(),
+		DeviceSelector: r.Msg.GetDeviceSelector(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.RemoveDevicesFromDeviceSetResponse{
+	return connect.NewResponse(&dspb.RemoveDevicesFromGroupResponse{
 		RemovedCount: result.RemovedCount,
 	}), nil
 }
 
 func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[dspb.ListDeviceSetMembersRequest]) (*connect.Response[dspb.ListDeviceSetMembersResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.ListCollectionMembers(ctx, &collectionpb.ListCollectionMembersRequest{
-		CollectionId: r.Msg.DeviceSetId,
+	result, err := h.svc.ListCollectionMembersDomain(ctx, collection.ListCollectionMembersParams{
+		CollectionID: r.Msg.DeviceSetId,
 		PageSize:     r.Msg.PageSize,
 		PageToken:    r.Msg.PageToken,
+		Filter: &interfaces.DeviceSetFilter{
+			SiteIDs:           r.Msg.SiteIds,
+			IncludeUnassigned: r.Msg.IncludeUnassigned,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -161,6 +250,37 @@ func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[d
 		Members:       members,
 		NextPageToken: result.NextPageToken,
 	}), nil
+}
+
+func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64) (*session.Info, error) {
+	if err := validateDeviceSetSiteIDs(siteIDs); err != nil {
+		return nil, err
+	}
+
+	info, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range siteIDs {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteIDs[i]}); err != nil {
+			return nil, err
+		}
+	}
+
+	return info, nil
+}
+
+func validateDeviceSetSiteIDs(siteIDs []int64) error {
+	if len(siteIDs) > maxDeviceSetFilterValues {
+		return fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	for i, id := range siteIDs {
+		if id <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) GetDeviceDeviceSets(ctx context.Context, r *connect.Request[dspb.GetDeviceDeviceSetsRequest]) (*connect.Response[dspb.GetDeviceDeviceSetsResponse], error) {
@@ -311,13 +431,37 @@ func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[dspb.Lis
 }
 
 func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRackRequest]) (*connect.Response[dspb.SaveRackResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	req := toCollectionSaveRackReq(r.Msg)
-	result, err := h.svc.SaveRack(ctx, req)
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
+	}
+	// Placement intent gates on site:manage. SaveRack with a device_set_id is a
+	// move, so resolve and authorize the current site too; a create has none.
+	// Omitted placement preserves the current site/building and stays rack:manage.
+	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		var currentSiteID *int64
+		if r.Msg.DeviceSetId != nil {
+			currentSiteID, err = h.svc.ResolveRackSite(ctx, info.OrganizationID, *r.Msg.DeviceSetId)
+			if err != nil {
+				return nil, err
+			}
+		}
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, currentSiteID, ri.SiteId, ri.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+	}
+	req := toCollectionSaveRackReq(r.Msg)
+	result, err := h.svc.SaveRack(ctx, req, r.Msg.GetForceClearConflictingSite())
+	if err != nil {
+		return nil, err
+	}
+	// Site-strip conflicts: the save wrote nothing; return the per-device list
+	// so the client can confirm and retry with force_clear_conflicting_site.
+	if len(result.Conflicts) > 0 {
+		return connect.NewResponse(&dspb.SaveRackResponse{
+			Conflicts: toProtoRackConflicts(result.Conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&dspb.SaveRackResponse{
 		DeviceSet:           toDeviceSet(result.Collection),
@@ -326,14 +470,56 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 	}), nil
 }
 
+func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.CreateRacksRequest]) (*connect.Response[dspb.CreateRacksResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// Placement intent gates on site:manage. Every rack is new (no source site),
+	// so authorize the destination only.
+	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
+		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, nil /* currentSiteID */, r.Msg.SiteId, r.Msg.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+	}
+	created, rejected, err := h.svc.CreateRacks(ctx, toCreateRacksParams(r.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	// Collisions: nothing was written. Return the per-row list so the form
+	// can mark the offending lines.
+	if len(rejected) > 0 {
+		return connect.NewResponse(&dspb.CreateRacksResponse{
+			Errors: toDeviceSetRackCreateErrors(rejected),
+		}), nil
+	}
+	racks := make([]*dspb.DeviceSet, 0, len(created))
+	for _, rack := range created {
+		racks = append(racks, toDeviceSet(rack))
+	}
+	return connect.NewResponse(&dspb.CreateRacksResponse{Racks: racks}), nil
+}
+
 func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[dspb.AssignDevicesToRackRequest]) (*connect.Response[dspb.AssignDevicesToRackResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.svc.AssignDevicesToRack(ctx, toAssignDevicesToRackParams(r.Msg, info.OrganizationID))
+	params, err := toAssignDevicesToRackParams(r.Msg, info.OrganizationID)
 	if err != nil {
 		return nil, err
+	}
+	result, err := h.svc.AssignDevicesToRack(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	// Site-strip conflicts: the batch wrote nothing; return the per-device
+	// list so the client can confirm and retry with force.
+	if len(result.Conflicts) > 0 {
+		return connect.NewResponse(&dspb.AssignDevicesToRackResponse{
+			Conflicts: toProtoRackConflicts(result.Conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&dspb.AssignDevicesToRackResponse{
 		AssignedCount:       result.AssignedCount,

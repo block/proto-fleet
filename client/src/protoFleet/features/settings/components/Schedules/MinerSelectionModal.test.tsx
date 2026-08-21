@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import MinerSelectionModal from "./MinerSelectionModal";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const mockMinerSelectionList = vi.fn();
 
@@ -24,13 +26,37 @@ describe("MinerSelectionModal", () => {
     mockMinerSelectionList.mockReset();
   });
 
-  it("keeps the global select-all footer enabled for schedule targeting", () => {
+  it("disables filtered select-all for schedule targeting", () => {
     render(<MinerSelectionModal open selectedMinerIds={["miner-1"]} onDismiss={vi.fn()} onSave={vi.fn()} />);
 
     expect(mockMinerSelectionList).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        showSelectAllFooter: false,
+      expect.objectContaining({
+        disableFilteredSelectAll: true,
       }),
     );
+  });
+
+  it("forwards the active-site scope to the miner selection list", () => {
+    const scope = { siteIds: [7n], includeUnassigned: false };
+    render(
+      <MinerSelectionModal open selectedMinerIds={["miner-1"]} scope={scope} onDismiss={vi.fn()} onSave={vi.fn()} />,
+    );
+
+    expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ scope }));
+  });
+
+  it("forwards drill-down ancestors as the initial miner filter", () => {
+    const initialFilter = create(MinerListFilterSchema, { buildingIds: [11n], rackIds: [21n] });
+    render(
+      <MinerSelectionModal
+        open
+        selectedMinerIds={[]}
+        initialFilter={initialFilter}
+        onDismiss={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ initialFilter }));
   });
 });

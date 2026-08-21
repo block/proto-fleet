@@ -10,6 +10,13 @@ export interface RackFormData {
   columns: number;
   orderIndex: RackOrderIndex;
   coolingType: RackCoolingType;
+  // Rack placement chosen in RackSettingsModal. Both optional; undefined =
+  // unassigned at that level. siteId is retained even when buildingId is set
+  // (it's the selected building's site) so the miner-selection eligibility
+  // filter can pin the site — saveRack omits it from the wire RackInfo and
+  // lets the server derive site from the building.
+  siteId?: bigint;
+  buildingId?: bigint;
 }
 
 export interface SelectedSlot {

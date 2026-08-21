@@ -60,7 +60,7 @@ func (m *mockUserStoreForAuth) UpdateUserUsername(ctx context.Context, userID in
 func (m *mockUserStoreForAuth) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return nil, nil
 }
-func (m *mockUserStoreForAuth) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
+func (m *mockUserStoreForAuth) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, roleName string, roleDescription string) error {
 	return nil
 }
 func (m *mockUserStoreForAuth) HasUser(ctx context.Context) (bool, error) {
@@ -69,10 +69,6 @@ func (m *mockUserStoreForAuth) HasUser(ctx context.Context) (bool, error) {
 func (m *mockUserStoreForAuth) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
 	return time.Time{}, nil
 }
-func (m *mockUserStoreForAuth) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	return "", nil
-}
-
 func TestService_verifyUserCredentials(t *testing.T) {
 	tests := []struct {
 		name              string

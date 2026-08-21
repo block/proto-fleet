@@ -2,252 +2,571 @@ package command
 
 import (
 	"context"
-	"net/url"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"testing"
 
-	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
-	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	commandMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	queueMocks "github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 )
 
-// TestUpdateMinerPassword_PayloadExtraction tests the basic payload extraction logic
-// for UpdateMinerPassword command type
-func TestUpdateMinerPassword_PayloadExtraction(t *testing.T) {
-	tests := []struct {
-		name            string
-		newPassword     string
-		currentPassword string
-		expectError     bool
-	}{
-		{
-			name:            "valid payload with both passwords",
-			newPassword:     "newpass123",
-			currentPassword: "oldpass123",
-			expectError:     false,
-		},
-		{
-			name:            "invalid payload - missing current password",
-			newPassword:     "newpass456",
-			currentPassword: "",
-			expectError:     true,
-		},
-		{
-			name:            "invalid payload - missing new password",
-			newPassword:     "",
-			currentPassword: "oldpass123",
-			expectError:     true,
-		},
-	}
+const (
+	testServiceMasterKey    = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	testMinerAuthPrivateKey = "z65ViaeDr/SF9jyoEJ/lp/Vsl8C4SrxehBbCCLez9OUA4ni3G8J1K/9db5tXyxx+xd3syUtei8Nw0Ml9QOVzGEvzsnVxp8B7G63VM8ls7i4rncYDrlRV4ietDPs="
+)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create test payload
-			payload := dto.UpdateMinerPasswordPayload{
-				NewPassword:     tt.newPassword,
-				CurrentPassword: tt.currentPassword,
-			}
+func TestExecuteCommand_UpdateMinerPassword_UpdatesExistingCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDevice(t, "antminer", true)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	wirePasswordCommandMocks(t, ctrl, svc, dbDeviceID, deviceIdentifier, "antminer")
 
-			// Verify payload fields
-			assert.Equal(t, tt.newPassword, payload.NewPassword)
-			assert.Equal(t, tt.currentPassword, payload.CurrentPassword)
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
 
-			// Validate that both passwords are required
-			if tt.expectError {
-				assert.True(t, tt.newPassword == "" || tt.currentPassword == "",
-					"At least one password should be empty for error cases")
-			} else {
-				assert.NotEmpty(t, tt.newPassword, "New password should be provided")
-				assert.NotEmpty(t, tt.currentPassword, "Current password should be provided")
-			}
+	require.NoError(t, err)
+	username, password := storedCredentials(t, db, encryptSvc, dbDeviceID)
+	assert.Equal(t, "existing-user", username)
+	assert.Equal(t, "new-password", password)
+}
+
+func TestExecuteCommand_UpdateMinerPassword_InsertsMissingProtoCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDevice(t, models.DriverNameProto, false)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), deviceIdentifier, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			userPass, ok := secret.Kind.(sdk.UsernamePassword)
+			require.True(t, ok, "expected password-update resolver to synthesize username/password secret")
+			assert.Equal(t, models.ProtoDefaultUsername, userPass.Username)
+			assert.Equal(t, "old-password", userPass.Password)
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
 		})
-	}
+
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto, driver: mockDriver},
+	)
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.NoError(t, err)
+	username, password := storedCredentials(t, db, encryptSvc, dbDeviceID)
+	assert.Equal(t, models.ProtoDefaultUsername, username)
+	assert.Equal(t, "new-password", password)
 }
 
-// TestUpdateMinerPassword_DeviceTypeHandling tests that the code correctly
-// handles different device types (Antminer vs Proto)
-func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
-	tests := []struct {
-		name               string
-		deviceType         string
-		shouldStoreInDB    bool
-		userProvidedPasswd string
-	}{
-		{
-			name:               "Antminer devices store credentials in DB after update",
-			deviceType:         "antminer",
-			shouldStoreInDB:    true,
-			userProvidedPasswd: "currentpass",
-		},
-		{
-			name:               "Proto devices do not store credentials in DB",
-			deviceType:         "proto",
-			shouldStoreInDB:    false,
-			userProvidedPasswd: "protocurrent",
-		},
-	}
+func TestExecuteCommand_UpdateMinerPassword_DefaultPasswordDevicePersistsAndPairs(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDeviceWithStatus(
+		t,
+		models.DriverNameProto,
+		true,
+		sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This test documents the expected behavior:
-			// - Antminer: credentials stored in DB after successful update (shouldStoreInDB = true)
-			// - Proto: credentials NOT stored (shouldStoreInDB = false, uses JWT)
-			// - All device types require user to provide current password
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
 
-			if tt.deviceType == "antminer" {
-				assert.True(t, tt.shouldStoreInDB, "Antminer credentials should be stored after update")
-			} else if tt.deviceType == "proto" {
-				assert.False(t, tt.shouldStoreInDB, "Proto credentials should not be stored")
-			}
-
-			// All device types require current password from user
-			assert.NotEmpty(t, tt.userProvidedPasswd, "User must always provide current password")
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), deviceIdentifier, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			userPass, ok := secret.Kind.(sdk.UsernamePassword)
+			require.True(t, ok, "expected username/password secret for persisted default-password credentials")
+			assert.Equal(t, "existing-user", userPass.Username)
+			assert.Equal(t, "old-password", userPass.Password)
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
 		})
-	}
+
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto, driver: mockDriver},
+	)
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.NoError(t, err)
+	username, password := storedCredentials(t, db, encryptSvc, dbDeviceID)
+	assert.Equal(t, "existing-user", username)
+	assert.Equal(t, "new-password", password)
+	pairingStatus, err := sqlc.New(db).GetDevicePairingStatusByDeviceDatabaseID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	assert.Equal(t, sqlc.PairingStatusEnumPAIRED, pairingStatus)
 }
 
-// TestUpdateMinerPassword_CurrentPasswordRequired tests that current password
-// is always required from the user for all device types
-func TestUpdateMinerPassword_CurrentPasswordRequired(t *testing.T) {
-	tests := []struct {
-		name               string
-		deviceType         string
-		userProvidedPasswd string
-		shouldSucceed      bool
-	}{
-		{
-			name:               "Antminer with current password succeeds",
-			deviceType:         "antminer",
-			userProvidedPasswd: "currentpass",
-			shouldSucceed:      true,
+func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerPersistsNodeEncryptedCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDeviceWithStatus(
+		t,
+		models.DriverNameProto,
+		false,
+		sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	)
+	bindCommandTestFleetNodeDevice(t, db, dbDeviceID)
+	oldUsername := fleetNodeCredentialBlobForTest("old-user")
+	oldPassword := fleetNodeCredentialBlobForTest("old-pass")
+	storeCommandTestFleetNodeCredentials(t, db, dbDeviceID, oldUsername, oldPassword)
+	updatedUsername := fleetNodeCredentialBlobForTest("user")
+	updatedPassword := fleetNodeCredentialBlobForTest("pass")
+	resultPayload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+		EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+			Username: updatedUsername,
+			Password: updatedPassword,
 		},
-		{
-			name:               "Antminer without current password fails",
-			deviceType:         "antminer",
-			userProvidedPasswd: "",
-			shouldSucceed:      false,
-		},
-		{
-			name:               "Proto with current password succeeds",
-			deviceType:         "proto",
-			userProvidedPasswd: "protocurrent",
-			shouldSucceed:      true,
-		},
-		{
-			name:               "Proto without current password fails",
-			deviceType:         "proto",
-			userProvidedPasswd: "",
-			shouldSucceed:      false,
+	})
+	require.NoError(t, err)
+
+	sender := &commandTestFleetNodeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded: true,
+			Code:      gatewaypb.AckCode_ACK_CODE_OK,
+			Payload:   resultPayload,
 		},
 	}
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(sender)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This test documents that all device types require the user to provide
-			// the current password. The system never auto-fills or retrieves stored passwords.
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, encryptedPasswordUpdateMessage(t, dbDeviceID))
 
-			if tt.userProvidedPasswd == "" {
-				assert.False(t, tt.shouldSucceed, "Operation should fail without current password")
-			} else {
-				assert.True(t, tt.shouldSucceed, "Operation should succeed with current password")
-			}
+	require.NoError(t, err)
+	assert.True(t, sender.called)
+	var env gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.cmd.GetPayload(), &env))
+	action := env.GetMinerCommand().GetUpdateMinerPassword()
+	require.NotNil(t, action)
+	assert.Equal(t, passwordupdate.Algorithm, action.GetEncryptedPasswordUpdate().GetAlgorithm())
+	target := env.GetMinerCommand().GetTarget()
+	require.NotNil(t, target)
+	assert.Equal(t, oldUsername, target.GetCredentialUsername())
+	assert.Equal(t, oldPassword, target.GetCredentialPassword())
+
+	username, password := storedCredentialCiphertext(t, db, dbDeviceID)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(updatedUsername), username)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(updatedPassword), password)
+	pairingStatus, err := sqlc.New(db).GetDevicePairingStatusByDeviceDatabaseID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	assert.Equal(t, sqlc.PairingStatusEnumPAIRED, pairingStatus)
+
+	resolveSender := &commandTestFleetNodeSender{}
+	minerSvc := minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(resolveSender)
+
+	resolved, err := minerSvc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	require.NoError(t, resolved.Reboot(t.Context()))
+
+	var resolvedEnv gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(resolveSender.cmd.GetPayload(), &resolvedEnv))
+	resolvedTarget := resolvedEnv.GetMinerCommand().GetTarget()
+	require.NotNil(t, resolvedTarget)
+	assert.Equal(t, updatedUsername, resolvedTarget.GetCredentialUsername())
+	assert.Equal(t, updatedPassword, resolvedTarget.GetCredentialPassword())
+}
+
+func TestExecuteCommand_UpdateMinerPassword_RejectsMalformedNodeEncryptedCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, _ := setupPasswordCommandDeviceWithStatus(
+		t,
+		models.DriverNameProto,
+		false,
+		sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	)
+	bindCommandTestFleetNodeDevice(t, db, dbDeviceID)
+	oldUsername := fleetNodeCredentialBlobForTest("old-user")
+	oldPassword := fleetNodeCredentialBlobForTest("old-pass")
+	storeCommandTestFleetNodeCredentials(t, db, dbDeviceID, oldUsername, oldPassword)
+	resultPayload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+		EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+			Username: []byte("plain-user"),
+			Password: []byte("plain-pass"),
+		},
+	})
+	require.NoError(t, err)
+
+	sender := &commandTestFleetNodeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded: true,
+			Code:      gatewaypb.AckCode_ACK_CODE_OK,
+			Payload:   resultPayload,
+		},
+	}
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(sender)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, encryptedPasswordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "malformed encrypted credentials")
+	username, password := storedCredentialCiphertext(t, db, dbDeviceID)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(oldUsername), username)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(oldPassword), password)
+	pairingStatus, err := sqlc.New(db).GetDevicePairingStatusByDeviceDatabaseID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	assert.Equal(t, sqlc.PairingStatusEnumDEFAULTPASSWORD, pairingStatus)
+}
+
+func TestExecuteCommand_UpdateMinerPassword_ResolverAuthErrorFailsPrecondition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	const dbDeviceID int64 = 124
+
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	svc := &ExecutionService{minerService: mockMinerGetter}
+	mockMinerGetter.EXPECT().
+		GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").
+		Return(nil, fleeterror.NewUnauthenticatedError("bad current password"))
+
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Contains(t, err.Error(), "bad current password")
+}
+
+func TestExecuteCommand_UpdateMinerPassword_ActionAuthErrorFailsPrecondition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	const dbDeviceID int64 = 125
+	const deviceIdentifier = "proto-auth-action"
+
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	svc := &ExecutionService{minerService: mockMinerGetter}
+
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier(deviceIdentifier)).AnyTimes()
+	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), dto.UpdateMinerPasswordPayload{
+		CurrentPassword: "old-password",
+		NewPassword:     "new-password",
+	}).Return(fleeterror.NewUnauthenticatedError("bad current password"))
+
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Contains(t, err.Error(), "bad current password")
+}
+
+func TestExecuteCommand_UpdateMinerPassword_MissingNonProtoCredentialsFails(t *testing.T) {
+	svc, _, _, dbDeviceID, deviceIdentifier := setupPasswordCommandDevice(t, "antminer", false)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockQueue := queueMocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	svc.messageQueue = mockQueue
+	svc.minerService = mockMinerGetter
+	svc.deviceStore = mockDeviceStore
+
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier(deviceIdentifier)).AnyTimes()
+	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), dto.UpdateMinerPasswordPayload{
+		CurrentPassword: "old-password",
+		NewPassword:     "new-password",
+	}).Return(nil)
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier(deviceIdentifier))
+
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credential persistence failed")
+}
+
+func setupPasswordCommandDevice(t *testing.T, driverName string, withCredentials bool) (*ExecutionService, *sql.DB, *encrypt.Service, int64, string) {
+	return setupPasswordCommandDeviceWithStatus(t, driverName, withCredentials, sqlc.PairingStatusEnumPAIRED)
+}
+
+func setupPasswordCommandDeviceWithStatus(t *testing.T, driverName string, withCredentials bool, pairingStatus sqlc.PairingStatusEnum) (*ExecutionService, *sql.DB, *encrypt.Service, int64, string) {
+	t.Helper()
+
+	conn := newCommandTestDB(t)
+	_, err := conn.ExecContext(t.Context(), `
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, 'test-org-1', 'Test Organization 1')
+		ON CONFLICT DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+	require.NoError(t, err)
+
+	q := sqlc.New(conn)
+	deviceIdentifier := "password-command-" + driverName
+	discoveredID, err := q.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            1,
+		DeviceIdentifier: "discovered-" + deviceIdentifier,
+		Model:            sql.NullString{String: "TestMiner", Valid: true},
+		Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
+		DriverName:       driverName,
+		IpAddress:        "192.0.2.10",
+		Port:             "443",
+		UrlScheme:        "https",
+		IsActive:         true,
+	})
+	require.NoError(t, err)
+	dbDeviceID, err := q.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              1,
+		DiscoveredDeviceID: discoveredID,
+		DeviceIdentifier:   deviceIdentifier,
+		MacAddress:         "00:11:22:33:44:55",
+		SerialNumber:       sql.NullString{String: "SN-" + deviceIdentifier, Valid: true},
+	})
+	require.NoError(t, err)
+	_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      dbDeviceID,
+		PairingStatus: pairingStatus,
+	})
+	require.NoError(t, err)
+
+	if withCredentials {
+		usernameEnc, err := encryptSvc.Encrypt([]byte("existing-user"))
+		require.NoError(t, err)
+		passwordEnc, err := encryptSvc.Encrypt([]byte("old-password"))
+		require.NoError(t, err)
+		err = q.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+			DeviceID:    dbDeviceID,
+			UsernameEnc: usernameEnc,
+			PasswordEnc: passwordEnc,
 		})
+		require.NoError(t, err)
 	}
+
+	svc := NewExecutionService(&Config{
+		MaxWorkers: 1,
+	}, conn, nil, encryptSvc, nil, nil, nil, nil, nil)
+	return svc, conn, encryptSvc, dbDeviceID, deviceIdentifier
 }
 
-// Mock miner for testing UpdateMinerPassword
-type mockMinerForPassword struct {
-	updateCalled    bool
-	receivedPayload dto.UpdateMinerPasswordPayload
-	shouldFail      bool
+type commandTestPluginManager struct {
+	driverName string
+	driver     sdk.Driver
 }
 
-func (m *mockMinerForPassword) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
-	m.updateCalled = true
-	m.receivedPayload = payload
-	if m.shouldFail {
-		return assert.AnError
+func (m *commandTestPluginManager) HasPluginForDriverName(driverName string) bool {
+	return driverName == m.driverName
+}
+
+func (m *commandTestPluginManager) GetCapabilitiesForDriverName(string) sdk.Capabilities {
+	return sdk.Capabilities{}
+}
+
+func (m *commandTestPluginManager) GetDriverByDriverName(driverName string) (sdk.Driver, error) {
+	if driverName == m.driverName {
+		return m.driver, nil
 	}
-	return nil
+	return nil, fmt.Errorf("no driver registered for %s", driverName)
 }
 
-// Implement MinerInfo interface
-func (m *mockMinerForPassword) GetDriverName() string          { return "antminer" }
-func (m *mockMinerForPassword) GetID() models.DeviceIdentifier { return "test-device" }
-func (m *mockMinerForPassword) GetOrgID() int64                { return 1 }
-func (m *mockMinerForPassword) GetSiteID() int64               { return 0 }
-func (m *mockMinerForPassword) GetSerialNumber() string        { return "SN123" }
-func (m *mockMinerForPassword) GetConnectionInfo() networking.ConnectionInfo {
-	return networking.ConnectionInfo{}
-}
-func (m *mockMinerForPassword) GetWebViewURL() *url.URL { return &url.URL{} }
-
-// Implement remaining Miner interface methods
-func (m *mockMinerForPassword) Reboot(ctx context.Context) error      { return nil }
-func (m *mockMinerForPassword) StartMining(ctx context.Context) error { return nil }
-func (m *mockMinerForPassword) StopMining(ctx context.Context) error  { return nil }
-func (m *mockMinerForPassword) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
-	return nil
-}
-func (m *mockMinerForPassword) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
-	return nil
-}
-func (m *mockMinerForPassword) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
-	return nil
-}
-func (m *mockMinerForPassword) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
-	return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, nil
-}
-func (m *mockMinerForPassword) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
-	return nil
-}
-func (m *mockMinerForPassword) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-	return nil
-}
-func (m *mockMinerForPassword) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	return nil
-}
-func (m *mockMinerForPassword) BlinkLED(ctx context.Context) error { return nil }
-func (m *mockMinerForPassword) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
-	return nil
-}
-func (m *mockMinerForPassword) Unpair(ctx context.Context) error { return nil }
-func (m *mockMinerForPassword) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
-	return modelsV2.DeviceMetrics{}, nil
-}
-func (m *mockMinerForPassword) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
-	return 0, nil
-}
-func (m *mockMinerForPassword) GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error) {
-	return diagnosticsModels.DeviceErrors{}, nil
-}
-func (m *mockMinerForPassword) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
-	return nil, nil
+type commandTestFleetNodeSender struct {
+	called bool
+	cmd    *gatewaypb.ControlCommand
+	ack    *gatewaypb.ControlAck
 }
 
-var _ interfaces.Miner = (*mockMinerForPassword)(nil)
-
-// Mock MinerGetter
-type mockMinerGetter struct {
-	miner interfaces.Miner
+func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	s.called = true
+	s.cmd = cmd
+	if s.ack != nil {
+		return s.ack, nil
+	}
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
 
-func (m *mockMinerGetter) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	return m.miner, nil
+// newCommandTestDB uses the shared restart-tolerant harness from
+// testutil/dbtest. This package cannot import testutil itself (testutil
+// imports domain/command, so that would be an import cycle), which is why an
+// inlined copy of the harness used to live here — and drifted, missing the
+// transient-server-restart retries that CI relies on under heavy concurrent
+// migration load.
+func newCommandTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping database-backed credential command test in short mode")
+	}
+	return dbtest.GetTestDB(t)
 }
 
-// Mock MessageQueue
-type mockQueue struct{}
+func wirePasswordCommandMocks(t *testing.T, ctrl *gomock.Controller, svc *ExecutionService, dbDeviceID int64, deviceIdentifier string, driverName string) {
+	t.Helper()
 
-func (m *mockQueue) Enqueue(ctx context.Context, messages []queue.Message) error { return nil }
-func (m *mockQueue) Dequeue(ctx context.Context) ([]queue.Message, error)        { return nil, nil }
-func (m *mockQueue) MarkSuccess(ctx context.Context, id int64) error             { return nil }
-func (m *mockQueue) MarkFailed(ctx context.Context, id int64, reason string) error {
-	return nil
+	mockQueue := queueMocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	svc.messageQueue = mockQueue
+	svc.minerService = mockMinerGetter
+	svc.deviceStore = mockDeviceStore
+
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return(driverName).AnyTimes()
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier(deviceIdentifier)).AnyTimes()
+	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), dto.UpdateMinerPasswordPayload{
+		CurrentPassword: "old-password",
+		NewPassword:     "new-password",
+	}).Return(nil)
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), deviceIdentifier, string(sqlc.PairingStatusEnumPAIRED)).
+		Return(nil)
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier(deviceIdentifier))
+}
+
+func passwordUpdateMessage(t *testing.T, dbDeviceID int64) queue.Message {
+	t.Helper()
+	payload, err := json.Marshal(dto.UpdateMinerPasswordPayload{
+		CurrentPassword: "old-password",
+		NewPassword:     "new-password",
+	})
+	require.NoError(t, err)
+	return queue.Message{ID: 7, DeviceID: dbDeviceID, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
+}
+
+func encryptedPasswordUpdateMessage(t *testing.T, dbDeviceID int64) queue.Message {
+	t.Helper()
+	payload, err := json.Marshal(dto.UpdateMinerPasswordPayload{
+		EncryptedPasswordUpdate: &dto.NodeEncryptedPayload{
+			Algorithm:       passwordupdate.Algorithm,
+			EphemeralPubkey: []byte("12345678901234567890123456789012"),
+			Nonce:           []byte("123456789012"),
+			Ciphertext:      []byte("12345678901234567"),
+		},
+	})
+	require.NoError(t, err)
+	return queue.Message{ID: 7, DeviceID: dbDeviceID, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
+}
+
+func storedCredentials(t *testing.T, db *sql.DB, encryptSvc *encrypt.Service, dbDeviceID int64) (string, string) {
+	t.Helper()
+	creds, err := sqlc.New(db).GetMinerCredentialsByDeviceID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	username, err := encryptSvc.Decrypt(creds.UsernameEnc)
+	require.NoError(t, err)
+	password, err := encryptSvc.Decrypt(creds.PasswordEnc)
+	require.NoError(t, err)
+	return string(username), string(password)
+}
+
+func storedCredentialCiphertext(t *testing.T, db *sql.DB, dbDeviceID int64) (string, string) {
+	t.Helper()
+	creds, err := sqlc.New(db).GetMinerCredentialsByDeviceID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	return creds.UsernameEnc, creds.PasswordEnc
+}
+
+func bindCommandTestFleetNodeDevice(t *testing.T, db *sql.DB, dbDeviceID int64) {
+	t.Helper()
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, $1, $2, $3, 'CONFIRMED')
+		RETURNING id`,
+		fmt.Sprintf("password-command-node-%d", dbDeviceID),
+		[]byte(fmt.Sprintf("identity-pubkey-%d", dbDeviceID)),
+		[]byte("01234567890123456789012345678901"),
+	).Scan(&fleetNodeID))
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, $2, 1)`,
+		fleetNodeID,
+		dbDeviceID,
+	)
+	require.NoError(t, err)
+}
+
+func storeCommandTestFleetNodeCredentials(t *testing.T, db *sql.DB, dbDeviceID int64, username, password []byte) {
+	t.Helper()
+
+	err := sqlc.New(db).UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+		DeviceID:    dbDeviceID,
+		UsernameEnc: base64.StdEncoding.EncodeToString(username),
+		PasswordEnc: base64.StdEncoding.EncodeToString(password),
+	})
+	require.NoError(t, err)
+}
+
+func fleetNodeCredentialBlobForTest(label string) []byte {
+	blob := make([]byte, 0, 1+len("PFNC")+12+len(label)+16)
+	blob = append(blob, byte(1))
+	blob = append(blob, []byte("PFNC")...)
+	blob = append(blob, []byte("nonce-000001")...)
+	blob = append(blob, []byte(label)...)
+	blob = append(blob, []byte("test-tag-16-byte")...)
+	return blob
 }

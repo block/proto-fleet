@@ -60,7 +60,6 @@ services:
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h"
-      AUTH_MINER_EXPIRATION_PERIOD: "168h"
       DB_NAME: "fleet"
       DB_USERNAME: "fleet"
       DB_PASSWORD: "fleet"
@@ -76,7 +75,7 @@ services:
       timescaledb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/health/ready"]
       interval: 2s
       timeout: 3s
       retries: 30

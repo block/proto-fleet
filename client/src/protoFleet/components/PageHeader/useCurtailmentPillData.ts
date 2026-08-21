@@ -6,9 +6,10 @@ import {
   applyActiveCurtailmentEvent,
   refreshActiveCurtailmentData,
   useActiveCurtailmentEvent,
+  useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
-import { isAbortError } from "@/protoFleet/api/requestErrors";
+import { isAbortError, isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
 export interface UseCurtailmentPillDataResult {
@@ -22,10 +23,15 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
   const canReadCurtailment = useHasPermission("curtailment:read");
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
-  const activeEvent = useMemo<CurtailmentPillEvent | null>(
-    () => (canReadCurtailment ? mapCurtailmentPillEvent(activeCurtailmentEvent) : null),
-    [activeCurtailmentEvent, canReadCurtailment],
-  );
+  const activeCurtailmentEvents = useActiveCurtailmentEvents();
+  const activeEvent = useMemo<CurtailmentPillEvent | null>(() => {
+    if (!canReadCurtailment) {
+      return null;
+    }
+
+    const selectedPillEvent = mapCurtailmentPillEvent(activeCurtailmentEvent);
+    return selectedPillEvent ?? activeCurtailmentEvents.map(mapCurtailmentPillEvent).find(Boolean) ?? null;
+  }, [activeCurtailmentEvent, activeCurtailmentEvents, canReadCurtailment]);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const pendingFreshRefreshRef = useRef(false);
   const pollIntervalMs = activeEvent === null ? idlePollIntervalMs : activeCurtailmentPollIntervalMs;
@@ -61,7 +67,11 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
             return;
           }
 
-          handleAuthErrors({ error, onError: () => applyActiveCurtailmentEvent(undefined) });
+          if (isAuthOrPermissionError(error)) {
+            applyActiveCurtailmentEvent(undefined);
+          }
+
+          handleAuthErrors({ error });
         } finally {
           inFlightRefreshRef.current = null;
         }

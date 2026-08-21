@@ -56,6 +56,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 	filter.PairingStatuses = []pb.PairingStatus{
 		pb.PairingStatus_PAIRING_STATUS_PAIRED,
 		pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 	}
 	// Export uses default name-ASC order for cross-page consistency.
 	temperatureUnit := normalizeCSVTemperatureUnit(req.TemperatureUnit)
@@ -72,7 +73,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		pairedIDs := collectPairedDeviceIdentifiers(snapshots)
 		allIDs := collectAllDeviceIdentifiers(snapshots)
 		s.populateTelemetryData(ctx, snapshots, pairedIDs)
-		s.populateGroupLabels(ctx, info.OrganizationID, snapshots, allIDs)
+		s.populateGroupRefs(ctx, info.OrganizationID, snapshots, allIDs)
 		s.populateRackDetails(ctx, info.OrganizationID, snapshots, allIDs)
 
 		errorsByDevice, err := s.listOpenErrorsByDevice(ctx, info.OrganizationID, allIDs)
@@ -179,8 +180,8 @@ func buildMinerCSVRow(
 	return []string{
 		sanitizeOrFallback(snapshot.Name, sanitizeCSVField(snapshot.DeviceIdentifier)),
 		sanitizeOrFallback(snapshot.WorkerName, ""),
-		sanitizeCSVField(strings.Join(snapshot.GroupLabels, ", ")),
-		sanitizeOrFallback(snapshot.RackLabel, ""),
+		sanitizeCSVField(strings.Join(snapshotGroupLabels(snapshot), ", ")),
+		sanitizeOrFallback(snapshotRackLabel(snapshot), ""),
 		sanitizeOrFallback(snapshot.Model, "-"),
 		sanitizeOrFallback(snapshot.MacAddress, "-"),
 		sanitizeOrFallback(snapshot.IpAddress, "-"),
@@ -192,6 +193,24 @@ func buildMinerCSVRow(
 		temperatureCSVValue(snapshot, temperatureUnit),
 		sanitizeOrFallback(snapshot.FirmwareVersion, "-"),
 	}
+}
+
+func snapshotGroupLabels(snapshot *pb.MinerStateSnapshot) []string {
+	if snapshot.GetPlacement() == nil {
+		return nil
+	}
+	labels := make([]string, 0, len(snapshot.GetPlacement().Groups))
+	for _, group := range snapshot.GetPlacement().Groups {
+		labels = append(labels, group.Label)
+	}
+	return labels
+}
+
+func snapshotRackLabel(snapshot *pb.MinerStateSnapshot) string {
+	if snapshot.GetPlacement() == nil || snapshot.GetPlacement().Rack == nil {
+		return ""
+	}
+	return snapshot.GetPlacement().Rack.Label
 }
 
 func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
@@ -206,9 +225,20 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
+// telemetryGatedByAuth reports whether telemetry is unavailable pending auth.
+// DEFAULT_PASSWORD devices still report telemetry, so their values are exported.
+func telemetryGatedByAuth(status pb.PairingStatus) bool {
+	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+}
+
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return csvStatusNeedsAttention
+	}
+
+	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED &&
+		isPairedLikePairingStatus(snapshot.PairingStatus) {
+		return "Offline"
 	}
 
 	switch snapshot.DeviceStatus {
@@ -290,7 +320,7 @@ func powerCSVValue(snapshot *pb.MinerStateSnapshot) string {
 }
 
 func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.CsvTemperatureUnit) string {
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+	if telemetryGatedByAuth(snapshot.PairingStatus) {
 		return ""
 	}
 
@@ -319,7 +349,7 @@ func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.Csv
 }
 
 func measurementCSVValue(snapshot *pb.MinerStateSnapshot, measurements []*commonpb.Measurement) string {
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+	if telemetryGatedByAuth(snapshot.PairingStatus) {
 		return ""
 	}
 

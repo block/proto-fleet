@@ -209,6 +209,63 @@ JOIN requested r ON (
               AND dsm.device_identifier = r.device_identifier
         )
     )
+    OR (
+        -- Site targets resolve by the device's direct site_id, matching the
+        -- MinerFilter site clause used by target expansion (device_filters.go).
+        -- The discovered_device / device_pairing predicates mirror the active +
+        -- paired-like filtering GetDeviceIdentifiersByOrgWithFilter applies, so
+        -- the overlap set matches the miners the schedule actually controls and
+        -- we don't block commands to devices expansion would have excluded
+        -- (inactive / not paired-like).
+        st.target_type = 'site'
+        AND EXISTS (
+            SELECT 1
+            FROM device d
+            JOIN discovered_device dd ON dd.id = d.discovered_device_id
+            JOIN device_pairing dp ON dp.device_id = d.id
+            WHERE d.org_id = s.org_id
+              AND d.deleted_at IS NULL
+              AND dd.is_active = TRUE
+              AND dd.deleted_at IS NULL
+              AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+              AND d.device_identifier = r.device_identifier
+              AND d.site_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
+        )
+    )
+    OR (
+        -- Building targets resolve by the device's direct building_id OR via
+        -- rack membership (device_set_rack.building_id), mirroring the
+        -- MinerFilter building clause used by target expansion. Same active +
+        -- paired-like device predicates as the site branch above.
+        st.target_type = 'building'
+        AND EXISTS (
+            SELECT 1
+            FROM device d
+            JOIN discovered_device dd ON dd.id = d.discovered_device_id
+            JOIN device_pairing dp ON dp.device_id = d.id
+            WHERE d.org_id = s.org_id
+              AND d.deleted_at IS NULL
+              AND dd.is_active = TRUE
+              AND dd.deleted_at IS NULL
+              AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+              AND d.device_identifier = r.device_identifier
+              AND (
+                  d.building_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
+                  OR EXISTS (
+                      SELECT 1
+                      FROM device_set_membership dcm
+                      JOIN device_set ds ON ds.id = dcm.device_set_id
+                      JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id
+                      WHERE dcm.device_id = d.id
+                        AND dcm.org_id = s.org_id
+                        AND ds.org_id = s.org_id
+                        AND dcm.device_set_type = 'rack'
+                        AND ds.deleted_at IS NULL
+                        AND dsr.building_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
+                  )
+              )
+        )
+    )
 )
 WHERE s.org_id = $1
   AND s.status = 'running'

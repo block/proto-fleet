@@ -142,8 +142,8 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
@@ -151,39 +151,108 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterBySiteID(t *testing.T) {
+func TestHandler_ListBuildings_filterBySiteIDs(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			require.NotNil(t, f.SiteID)
-			assert.Equal(t, int64(42), *f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Equal(t, []int64{42, 99}, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_SiteId{SiteId: 42},
+		SiteIds: []int64{42, 99},
 	}))
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterByUnassignedOnly(t *testing.T) {
+func TestHandler_ListBuildings_filterByIncludeUnassigned(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.True(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_UnassignedOnly{UnassignedOnly: true},
+		IncludeUnassigned: true,
 	}))
 	require.NoError(t, err)
+}
+
+func TestHandler_ListBuildings_filterCombined(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.Equal(t, []int64{42}, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
+			return nil, nil
+		})
+
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
+		SiteIds:           []int64{42},
+		IncludeUnassigned: true,
+	}))
+	require.NoError(t, err)
+}
+
+func TestHandler_ListBuildings_includesPlacementRefs(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(42)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{{
+			Building: models.Building{
+				ID:        7,
+				SiteID:    &siteID,
+				SiteLabel: "Austin",
+				Name:      "Building A",
+			},
+		}}, nil)
+
+	resp, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+
+	building := resp.Msg.GetBuildings()[0].GetBuilding()
+	require.NotNil(t, building.GetPlacement())
+	require.NotNil(t, building.GetPlacement().GetSite())
+	assert.Equal(t, siteID, building.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", building.GetPlacement().GetSite().GetLabel())
+}
+
+func TestHandler_ListBuildings_omitsStatsForNarrowedBuildingSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(1)
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.True(t, f.IncludeStats)
+			return []models.BuildingWithCounts{
+				{
+					Building:    models.Building{ID: 10, Name: "narrowed", SiteID: &siteID},
+					RackCount:   1,
+					DeviceCount: 1,
+				},
+			}, nil
+		})
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(siteID, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+	assert.Nil(t, resp.Msg.GetBuildings()[0].GetListStats())
 }
 
 func TestHandler_CreateBuilding_happy(t *testing.T) {
@@ -326,8 +395,11 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(1), nil)
+	// SoftDeleteBuilding returns the deleted row's site (nil = unassigned here)
+	// so the audit row scopes to the building's site, race-free.
+	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(nil, true, nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 
 	resp, err := h.handler.DeleteBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteBuildingRequest{Id: 33}))
 	require.NoError(t, err)
@@ -398,23 +470,30 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 	buildingID := int64(11)
 	siteID := int64(3)
 
+	// Capacity guard reads current membership (unordered vs the chain below).
+	h.buildingStore.EXPECT().CountRacksInBuilding(gomock.Any(), int64(7), buildingID).Return(int64(0), nil)
 	gomock.InOrder(
 		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), buildingID).Return(nil),
 		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), buildingID).
 			Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil),
+		// Phase A: per-rack lock + read.
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(99), int64(7)).
 			Return(interfaces.RackPlacement{SiteID: nil}, nil),
-		h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(99), int64(7), &siteID, &buildingID, "").
-			Return(nil),
-		h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(99), int64(7), &siteID).
+		// Phase B1: single bulk placement write.
+		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(gomock.Any(), int64(7), []int64{99}, &siteID, &buildingID).
+			Return(int64(1), nil),
+		// Phase B2: single bulk cascade for site-changed rack.
+		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{99}, &siteID).
 			Return(int64(3), nil),
-		// Pass-1 NULL vacate + pass-2 real place — splitting the
-		// position write into two passes lets swaps and move-into-
-		// occupied-cell requests commit without tripping the partial
-		// unique index mid-loop.
-		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), gomock.Nil(), gomock.Nil()).
+		// Phase B2b: building cascade — rack moved nil → &buildingID, so
+		// device.building_id has to follow.
+		h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{99}, &buildingID).
+			Return(int64(3), nil),
+		// Phase B3: bulk pass-1 vacate.
+		h.buildingStore.EXPECT().SetRackBuildingPositionBulkClear(gomock.Any(), int64(7), []int64{99}).
 			Return(nil),
-		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), ptrInt32t(1), ptrInt32t(2)).
+		// Phase B4: bulk pass-2 place.
+		h.buildingStore.EXPECT().SetRackBuildingPositionBulkPlace(gomock.Any(), int64(7), []int64{99}, []int32{1}, []int32{2}).
 			Return(nil),
 	)
 
@@ -433,3 +512,120 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 }
 
 func ptrInt32t(v int32) *int32 { return &v }
+
+func TestHandler_CreateBuildings_happy(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+	h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+		Return([]string{}, nil)
+	h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
+		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
+			assert.Equal(t, int32(4), p.Aisles)
+			assert.Equal(t, int32(10), p.RacksPerAisle)
+			return &models.Building{ID: 1, Name: p.Name, SiteID: p.SiteID}, nil
+		}).Times(2)
+
+	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId: 42,
+		Buildings: []*pb.NewBuilding{
+			{Name: "B-001", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-002", Aisles: 4, RacksPerAisle: 10},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Len(t, resp.Msg.GetBuildings(), 2)
+	assert.Empty(t, resp.Msg.GetErrors())
+}
+
+func TestHandler_CreateBuildings_returnsPerRowErrorsAndNoBuildings(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// A batch duplicate is still checked against the site, so one response can
+	// carry every offending row; nothing is live here, so the in-batch
+	// collision is the only rejection. The response carries the offending
+	// index rather than a transport error.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+	h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+		Return([]string{}, nil)
+
+	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId: 42,
+		Buildings: []*pb.NewBuilding{
+			{Name: "B-001"},
+			{Name: "B-001"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetBuildings())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t, int32(1), resp.Msg.GetErrors()[0].GetIndex())
+	assert.Equal(t, "B-001", resp.Msg.GetErrors()[0].GetName())
+	assert.Equal(t,
+		pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+func TestHandler_CreateBuildings_requiresSiteManage(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermSiteRead)
+
+	_, err := h.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId:    42,
+		Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+	}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// TestHandler_CreateBuildings_authorizesAgainstTargetSite pins the scope of
+// the RBAC check. Bulk create always names one site, so it authorizes against
+// that site rather than the org: a site-scoped manager is admitted at their
+// own site, and a site assignment that narrows an org-wide grant is honored.
+func TestHandler_CreateBuildings_authorizesAgainstTargetSite(t *testing.T) {
+	t.Parallel()
+
+	t.Run("site-scoped manager is admitted at their own site", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, 7,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+		h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+			Return([]string{}, nil)
+		h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
+			Return(&models.Building{ID: 1, Name: "B-001"}, nil)
+
+		resp, err := h.handler.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+			SiteId:    42,
+			Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetBuildings(), 1)
+	})
+
+	t.Run("site-scoped manager is denied at another site", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		// Manager at site 42 only; the request targets site 99. No store
+		// expectations: this must be denied before any write.
+		ctx := handlerstest.CtxWithAssignments(t, 7,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		_, err := h.handler.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+			SiteId:    99,
+			Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
+}

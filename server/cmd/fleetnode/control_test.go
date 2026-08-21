@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,9 +23,11 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -51,6 +55,7 @@ func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 4*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 }
 
 func TestControlLoop_AcksAndReports(t *testing.T) {
@@ -206,6 +211,20 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	}
 }
 
+func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {
+	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}
+	cmd := &RunCmd{discoverer: disc}
+	fake := &controlFakeGateway{}
+	fake.setBehavior(controlFakeBehavior{acceptedLiveness: 2})
+	fake.queue(discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"})))
+
+	runControlLoopOnce(t, cmd, fake)
+
+	require.Len(t, fake.acksCopy(), 1, "liveness frames must not interrupt later commands")
+}
+
 func TestResolveAndValidatePorts(t *testing.T) {
 	t.Parallel()
 
@@ -337,6 +356,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 4*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert: fast IP reported, ack signals PARTIAL.
 	reports := fake.reportsCopy()
@@ -433,9 +453,61 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.helloCount() >= 2 }, 3*time.Second, 50*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
+}
+
+func TestIsNotActiveControlErrorRequiresStructuredDetail(t *testing.T) {
+	t.Parallel()
+
+	notActive := fleeterror.NewNotActiveError().ConnectError()
+	require.True(t, isNotActiveControlError(fmt.Errorf("recv: %w", notActive)))
+	require.False(t, isNotActiveControlError(connect.NewError(connect.CodeUnavailable, errors.New("plain unavailable"))))
+	require.False(t, isNotActiveControlError(connect.NewError(connect.CodeCanceled, errors.New("client canceled"))))
+
+	// Guard against accidentally matching a different structured common code.
+	other := connect.NewError(connect.CodeUnavailable, errors.New("other structured error"))
+	detail, err := connect.NewErrorDetail(&commonpb.FleetErrorDetails{Code: &commonpb.FleetErrorDetails_Common{
+		Common: commonpb.FleetErrorCode_FLEET_ERROR_CODE_UNSPECIFIED,
+	}})
+	require.NoError(t, err)
+	other.AddDetail(detail)
+	require.False(t, isNotActiveControlError(other))
+}
+
+func TestControlReconnectDelayNotActiveStaysInInitialJitterWindow(t *testing.T) {
+	t.Parallel()
+
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic jitter test
+	err := fleeterror.NewNotActiveError().ConnectError()
+	backoff := 16 * time.Second
+	for range 20 {
+		delay, nextBackoff := controlReconnectDelay(err, time.Second, backoff, rng)
+		assert.GreaterOrEqual(t, delay, time.Second)
+		assert.LessOrEqual(t, delay, 1500*time.Millisecond)
+		assert.Equal(t, controlReconnectInitial, nextBackoff)
+		backoff = nextBackoff
+	}
+}
+
+func TestControlReconnectDelayGenericFailuresRemainExponential(t *testing.T) {
+	t.Parallel()
+
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic jitter test
+	err := connect.NewError(connect.CodeUnavailable, errors.New("network unavailable"))
+	backoff := controlReconnectInitial
+
+	firstDelay, backoff := controlReconnectDelay(err, time.Second, backoff, rng)
+	assert.GreaterOrEqual(t, firstDelay, time.Second)
+	assert.LessOrEqual(t, firstDelay, 1500*time.Millisecond)
+	assert.Equal(t, 2*time.Second, backoff)
+
+	secondDelay, backoff := controlReconnectDelay(err, time.Second, backoff, rng)
+	assert.GreaterOrEqual(t, secondDelay, 2*time.Second)
+	assert.LessOrEqual(t, secondDelay, 3*time.Second)
+	assert.Equal(t, 4*time.Second, backoff)
 }
 
 type stubDiscoverer struct {
@@ -462,6 +534,7 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 
 type controlFakeBehavior struct {
 	closeAfterAccepted bool
+	acceptedLiveness   int
 	// closeOnSignal lets tests force a server-side stream close at a precise
 	// moment (e.g., after the agent has started executing a command). The
 	// fake closes its ControlStream handler when this channel becomes ready.
@@ -582,11 +655,17 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Lock()
 	closeNow := f.behavior.closeAfterAccepted
 	closeOnSignal := f.behavior.closeOnSignal
+	acceptedLiveness := f.behavior.acceptedLiveness
 	pending := f.pending
 	f.pending = nil
 	f.mu.Unlock()
 	if closeNow {
 		return nil
+	}
+	for range acceptedLiveness {
+		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+			return fmt.Errorf("send accepted liveness: %w", err)
+		}
 	}
 
 	for _, p := range pending {
@@ -646,6 +725,109 @@ func newControlClient(t *testing.T, fake *controlFakeGateway) gatewayClient {
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
 }
 
+type reconnectControlGateway struct {
+	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
+
+	firstCommands       []pendingCommand
+	replacementCommands chan pendingCommand
+	closeFirst          chan struct{}
+	sessions            atomic.Int32
+	mu                  sync.Mutex
+	acksBySession       map[int32][]*pb.ControlAck
+}
+
+func (f *reconnectControlGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	first, err := stream.Receive()
+	if err != nil {
+		return fmt.Errorf("receive hello: %w", err)
+	}
+	if first.GetHello() == nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("expected hello"))
+	}
+	session := f.sessions.Add(1)
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
+		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()},
+	}}); err != nil {
+		return fmt.Errorf("send accepted: %w", err)
+	}
+	if session == 1 {
+		for _, command := range f.firstCommands {
+			if err := sendFakeControlCommand(stream, command); err != nil {
+				return err
+			}
+		}
+	}
+
+	type receiveResult struct {
+		message *pb.ControlStreamRequest
+		err     error
+	}
+	incoming := make(chan receiveResult, 1)
+	go func() {
+		for {
+			message, receiveErr := stream.Receive()
+			incoming <- receiveResult{message: message, err: receiveErr}
+			if receiveErr != nil {
+				return
+			}
+		}
+	}()
+
+	var replacementCommands <-chan pendingCommand
+	var closeFirst <-chan struct{}
+	if session == 1 {
+		closeFirst = f.closeFirst
+	} else {
+		replacementCommands = f.replacementCommands
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-closeFirst:
+			return nil
+		case command := <-replacementCommands:
+			if err := sendFakeControlCommand(stream, command); err != nil {
+				return err
+			}
+		case result := <-incoming:
+			if result.err != nil {
+				return result.err
+			}
+			if ack := result.message.GetAck(); ack != nil {
+				f.mu.Lock()
+				f.acksBySession[session] = append(f.acksBySession[session], ack)
+				f.mu.Unlock()
+			}
+		}
+	}
+}
+
+func sendFakeControlCommand(stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse], command pendingCommand) error {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: &pb.ControlCommand{
+		CommandId: command.id,
+		Payload:   command.payload,
+	}}}); err != nil {
+		return fmt.Errorf("send command %s: %w", command.id, err)
+	}
+	return nil
+}
+
+func (f *reconnectControlGateway) sessionAcks(session int32) []*pb.ControlAck {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*pb.ControlAck(nil), f.acksBySession[session]...)
+}
+
+func newReconnectControlClient(t *testing.T, fake *reconnectControlGateway) gatewayClient {
+	t.Helper()
+	mux := http.NewServeMux()
+	path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
+	mux.Handle(path, handler)
+	srv := testutil.NewH2CServer(t, mux)
+	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
+}
+
 func discardLogger(t *testing.T) *slog.Logger {
 	t.Helper()
 	return slog.New(slog.DiscardHandler)
@@ -662,8 +844,8 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 // way DiscoverOnFleetNode now sends it over the ControlStream.
 func discoverPayload(t *testing.T, req *pairingpb.DiscoverRequest) []byte {
 	t.Helper()
-	return mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_Discover{Discover: req},
+	return mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_Discover{Discover: req},
 	})
 }
 
@@ -791,15 +973,21 @@ func TestReportFromDiscovered(t *testing.T) {
 // blockingDiscoverer holds Probe open per-IP so tests can observe Receive
 // drain and ctx-cancel behavior while a command is in flight.
 type blockingDiscoverer struct {
-	mu      sync.Mutex
-	started map[string]chan struct{}
-	release map[string]chan struct{}
+	mu        sync.Mutex
+	started   map[string]chan struct{}
+	cancelled map[string]chan struct{}
+	release   map[string]chan struct{}
 }
 
 func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
-	d := &blockingDiscoverer{started: map[string]chan struct{}{}, release: map[string]chan struct{}{}}
+	d := &blockingDiscoverer{
+		started:   map[string]chan struct{}{},
+		cancelled: map[string]chan struct{}{},
+		release:   map[string]chan struct{}{},
+	}
 	for _, ip := range ips {
 		d.started[ip] = make(chan struct{}, 1)
+		d.cancelled[ip] = make(chan struct{}, 1)
 		d.release[ip] = make(chan struct{})
 	}
 	return d
@@ -808,6 +996,7 @@ func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
 func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.DiscoveredDeviceReport, error) {
 	b.mu.Lock()
 	start, ok := b.started[ip]
+	cancelled := b.cancelled[ip]
 	release := b.release[ip]
 	b.mu.Unlock()
 	if !ok {
@@ -821,6 +1010,10 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	case <-release:
 		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
 	case <-ctx.Done():
+		select {
+		case cancelled <- struct{}{}:
+		default:
+		}
 		return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
 	}
 }
@@ -838,6 +1031,18 @@ func (b *blockingDiscoverer) waitStarted(t *testing.T, ip string) {
 	case <-start:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("probe for %s never started", ip)
+	}
+}
+
+func (b *blockingDiscoverer) waitCancelled(t *testing.T, ip string) {
+	t.Helper()
+	b.mu.Lock()
+	cancelled := b.cancelled[ip]
+	b.mu.Unlock()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("probe for %s did not observe session cancellation", ip)
 	}
 }
 
@@ -885,6 +1090,7 @@ func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
 
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 }
 
 func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
@@ -906,9 +1112,9 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
-	payload := mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: withTarget(
-			&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}},
+	payload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
 		)},
 	})
 	fake := &controlFakeGateway{}
@@ -940,6 +1146,108 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	close(release)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
+}
+
+func TestControlLoop_ReconnectDoesNotWaitForOldWorkersAndRetainsTheirPermits(t *testing.T) {
+	// Arrange: fill all ordinary command permits with plugin calls that ignore
+	// session cancellation. The first stream will be dropped while they remain stuck.
+	controller := gomock.NewController(t)
+	releases := make([]chan struct{}, commandPoolSize)
+	for i := range releases {
+		releases[i] = make(chan struct{})
+	}
+	started := make(chan int, commandPoolSize)
+	var rebootCalls atomic.Int32
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().Reboot(gomock.Any()).DoAndReturn(func(context.Context) error {
+		call := int(rebootCalls.Add(1)) - 1
+		if call < commandPoolSize {
+			started <- call
+			<-releases[call] // deliberately ignores ctx
+		}
+		return nil
+	}).Times(commandPoolSize + 1)
+	device.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	payload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+		)},
+	})
+	firstCommands := make([]pendingCommand, commandPoolSize)
+	for i := range firstCommands {
+		firstCommands[i] = pendingCommand{id: fmt.Sprintf("old-%d", i), payload: payload}
+	}
+	fake := &reconnectControlGateway{
+		firstCommands:       firstCommands,
+		replacementCommands: make(chan pendingCommand, 2),
+		closeFirst:          make(chan struct{}),
+		acksBySession:       make(map[int32][]*pb.ControlAck),
+	}
+	client := newReconnectControlClient(t, fake)
+	state := &bootstrap.State{FleetNodeID: 7}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	for range commandPoolSize {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("old command workers did not fill the process-wide pool")
+		}
+	}
+
+	// Act: disconnect the first stream. Reconnection must happen while every old
+	// worker is still stuck and every permit is still occupied.
+	close(fake.closeFirst)
+	require.Eventually(t, func() bool { return fake.sessions.Load() >= 2 }, 3*time.Second, 20*time.Millisecond,
+		"replacement stream should open without draining old command handlers")
+	fake.replacementCommands <- pendingCommand{id: "replacement-busy", payload: payload}
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.sessionAcks(2) {
+			if ack.GetCommandId() == "replacement-busy" {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_BUSY
+			}
+		}
+		return false
+	}, 2*time.Second, 20*time.Millisecond)
+	require.Len(t, cmd.controlCommandSlots, commandPoolSize, "old workers must retain all permits across reconnect")
+
+	// Releasing exactly one old worker creates exactly one slot for the new stream.
+	close(releases[0])
+	require.Eventually(t, func() bool { return len(cmd.controlCommandSlots) == commandPoolSize-1 }, 2*time.Second, 20*time.Millisecond)
+	fake.replacementCommands <- pendingCommand{id: "replacement-ok", payload: payload}
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.sessionAcks(2) {
+			if ack.GetCommandId() == "replacement-ok" {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_OK && ack.GetSucceeded()
+			}
+		}
+		return false
+	}, 2*time.Second, 20*time.Millisecond)
+
+	// A late old completion is bound to the discarded first-session sender and
+	// cannot appear on the replacement stream.
+	for _, ack := range fake.sessionAcks(2) {
+		assert.NotContains(t, ack.GetCommandId(), "old-")
+	}
+
+	// Cleanup after the assertions so stuck workers are observable during reconnect.
+	for i := 1; i < len(releases); i++ {
+		close(releases[i])
+	}
+	require.Eventually(t, func() bool { return len(cmd.controlCommandSlots) == 0 }, 2*time.Second, 20*time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("control loop did not stop")
+	}
 }
 
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
@@ -971,6 +1279,7 @@ func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("runControlLoop did not return after ctx cancel")
 	}
+	cmd.waitForControlWorkers(discardLogger(t))
 }
 
 func TestFanOutProbes_SupervisorReturnsPartialOnStuckPlugin(t *testing.T) {
@@ -1082,6 +1391,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert
 	acks := fake.acksCopy()
@@ -1197,15 +1507,13 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	disc.waitStarted(t, "10.0.0.42")
 	close(streamClose)
 
-	// Assert: with sessionCtx wiring, the dropped stream cancels the
-	// in-flight probe via the session-scoped ctx, the worker exits within
-	// the supervisor budget, runControlSession returns, and runControlLoop
-	// backs off and reconnects. helloCount reaching 2 within 4 seconds
-	// requires the unblock path -- without it, the loop's defer would
-	// hang for commandTimeout (30s) before reconnect.
+	// Assert: reconnect happens promptly, and the old probe independently
+	// observes session cancellation before the daemon's parent is cancelled.
 	require.Eventually(t, func() bool { return fake.helloCount() >= 2 }, 4*time.Second, 50*time.Millisecond)
+	disc.waitCancelled(t, "10.0.0.42")
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 }
 
 func TestDecodeAgentCommandLane(t *testing.T) {
@@ -1213,12 +1521,12 @@ func TestDecodeAgentCommandLane(t *testing.T) {
 	discover := discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}},
 	})
-	minerCmd := mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: &pairingpb.MinerCommand{
-			Target: &pairingpb.MinerConnectionDescriptor{
+	minerCmd := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+			Target: &pb.MinerConnectionDescriptor{
 				DeviceIdentifier: "d1", DriverName: "virtual", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
 			},
-			Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}},
+			Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
 		}},
 	})
 
@@ -1267,6 +1575,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() >= 1 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert: exactly the valid command was acked.
 	acks := fake.acksCopy()
@@ -1308,6 +1617,7 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() >= 4 }, 4*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 }
 
 func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
@@ -1334,6 +1644,53 @@ func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "..."))
 }
 
+func TestSendAckWithPayload_DowngradesOversizedOKPayload(t *testing.T) {
+	// Arrange
+	r := &RunCmd{}
+	captured := &capturingAcker{}
+	payload := make([]byte, maxAckPayloadBytes+1)
+
+	// Act
+	r.sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
+
+	// Assert
+	require.Len(t, captured.sent, 1)
+	got := captured.sent[0].GetAck()
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Empty(t, got.GetPayload())
+	assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+}
+
+func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {
+	// Arrange
+	inner := &capturingAcker{}
+	sender := &lockedAcker{inner: inner}
+	sender.Close()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	// Act
+	(&RunCmd{}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
+
+	// Assert
+	assert.Empty(t, inner.sent, "a late ack must not reach the discarded session")
+	assert.NotContains(t, logs.String(), "send ack failed")
+}
+
+func TestSendAck_TransportFailureWarns(t *testing.T) {
+	// Arrange
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	// Act
+	(&RunCmd{}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
+
+	// Assert
+	assert.Contains(t, logs.String(), "send ack failed")
+	assert.Contains(t, logs.String(), "current-command")
+}
+
 type capturingAcker struct {
 	sent []*pb.ControlStreamRequest
 }
@@ -1341,4 +1698,12 @@ type capturingAcker struct {
 func (c *capturingAcker) Send(req *pb.ControlStreamRequest) error {
 	c.sent = append(c.sent, req)
 	return nil
+}
+
+type errorAcker struct {
+	err error
+}
+
+func (a errorAcker) Send(*pb.ControlStreamRequest) error {
+	return a.err
 }

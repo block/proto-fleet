@@ -42,7 +42,7 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 			if !ok {
 				return
 			}
-			var env pairingpb.AgentCommand
+			var env gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
 			req := env.GetDiscover()
 			ip := req.GetIpList().GetIpAddresses()
@@ -400,7 +400,7 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 			if !ok {
 				return
 			}
-			var env pairingpb.AgentCommand
+			var env gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
 			req := env.GetDiscover()
 			gotTarget <- req.GetNmap().GetTarget()
@@ -471,7 +471,7 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 			if !ok {
 				return
 			}
-			var env pairingpb.AgentCommand
+			var env gatewaypb.AgentCommand
 			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
 			req := env.GetDiscover()
 			gotIPs <- req.GetIpList().GetIpAddresses()

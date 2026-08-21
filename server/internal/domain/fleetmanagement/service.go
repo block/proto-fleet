@@ -26,10 +26,12 @@ import (
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -47,12 +49,12 @@ const (
 	// maxPageSize is the maximum number of items that can be returned per page
 	maxPageSize = 1000
 
-	// concurrentClearAuthKeyLimit bounds the number of parallel ClearAuthKey RPCs
+	// concurrentUnpairLimit bounds the number of parallel Unpair RPCs
 	// fired in the background after a delete operation
-	concurrentClearAuthKeyLimit = 20
+	concurrentUnpairLimit = 20
 
-	// clearAuthKeyTimeout is the per-device timeout for best-effort ClearAuthKey calls
-	clearAuthKeyTimeout = 5 * time.Second
+	// unpairTimeout is the per-device timeout for best-effort Unpair calls
+	unpairTimeout = 5 * time.Second
 
 	// fleetOptionsFetchTimeout bounds the singleflight fetch that hydrates
 	// the per-org option cache. The fetch runs on a context detached from
@@ -135,14 +137,14 @@ type Service struct {
 	optionsCache  *fleetoptions.Cache
 	optionsSingle singleflight.Group
 
-	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
-	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
+	// backgroundWg tracks in-flight background Unpair goroutines so they can
+	// be awaited during graceful shutdown via WaitForPendingUnpairs.
 	backgroundWg sync.WaitGroup
 
-	// clearAuthKeySem bounds the total number of concurrent ClearAuthKey RPCs
+	// unpairSem bounds the total number of concurrent Unpair RPCs
 	// across all delete operations. Shared at the service level so that multiple
 	// concurrent DeleteMiners calls don't exceed the limit.
-	clearAuthKeySem chan struct{}
+	unpairSem chan struct{}
 
 	// refreshMinerSem bounds row refresh network fanout across all callers.
 	refreshMinerSem chan struct{}
@@ -175,7 +177,7 @@ func NewService(
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
 		optionsCache:          fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024),
-		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+		unpairSem:             make(chan struct{}, concurrentUnpairLimit),
 		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
 }
@@ -193,9 +195,31 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	}
 }
 
-// WaitForPendingClearAuthKeys blocks until all background ClearAuthKey goroutines
+// resolveDeviceSetSiteScope derives the (site_id, multi_site) scope of a
+// multi-device fleet event (#538) from the touched identifiers: a single
+// shared site is stamped so the event surfaces under /{site}/activity; a
+// set spanning sites (or mixing sited + site-less devices) is marked
+// multi_site so it stays out of the unassigned bucket. Best-effort — a
+// resolution error leaves the event org-scoped (nil/false) rather than
+// failing the action's fire-and-forget audit log. DeleteMiners must call
+// this BEFORE soft-deleting, since the query excludes deleted devices.
+func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
+	if s.activitySvc == nil {
+		// No activity sink — the scope would only feed an event we never
+		// write, so skip the query entirely.
+		return activitymodels.SiteScope{}
+	}
+	sites, err := s.deviceStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)
+	if err != nil {
+		slog.Warn("failed to resolve device-set site scope for activity log", "error", err)
+		return activitymodels.SiteScope{}
+	}
+	return activitymodels.ResolveSiteScope(sites)
+}
+
+// WaitForPendingUnpairs blocks until all background Unpair goroutines
 // complete or the timeout expires. Call during graceful server shutdown.
-func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
+func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		s.backgroundWg.Wait()
@@ -204,7 +228,7 @@ func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		slog.Warn("timed out waiting for pending ClearAuthKey operations during shutdown")
+		slog.Warn("timed out waiting for pending Unpair operations during shutdown")
 	}
 }
 
@@ -381,12 +405,12 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 	snapshotDeviceIDs := make(map[string]struct{}, len(snapshots))
 	for _, snapshot := range snapshots {
 		snapshotDeviceIDs[snapshot.DeviceIdentifier] = struct{}{}
-		if snapshot.SiteId == nil {
+		if snapshot.Placement == nil || snapshot.Placement.Site == nil {
 			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
 			continue
 		}
 
-		siteID := *snapshot.SiteId
+		siteID := snapshot.Placement.Site.Id
 		contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{SiteID: &siteID}
 	}
 
@@ -466,19 +490,96 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 	return time.Duration(waves) * perWaveTimeout
 }
 
-// GetMinerStateCounts returns counts of miners in different states without fetching miner data
-func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
+// LookupMinerByIdentifier resolves a single paired miner from a scanned
+// identifier — a MAC address or a manufacturer serial number — and returns a
+// fully hydrated snapshot. Backs the rack QR scan flow. The caller strips any
+// scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
+//
+// Routing: when identifier_type is MAC or SERIAL the matching store lookup is
+// used directly. When UNSPECIFIED the kind is inferred from the value shape
+// (a normalizable MAC pattern → MAC, else serial). Returns NotFound when no
+// paired device in the caller's organization matches.
+func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMinerByIdentifierRequest) (*pb.LookupMinerByIdentifierResponse, error) {
+	identifier := strings.TrimSpace(req.GetIdentifier())
+	if identifier == "" {
+		return nil, fleeterror.NewInvalidArgumentError("identifier must not be empty")
+	}
+
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, nil)
+	// The store lookups return a NotFound fleeterror when nothing matches,
+	// which surfaces to the client as connect.CodeNotFound.
+	device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuse the shared hydration path so the returned snapshot matches
+	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	if err != nil {
+		return nil, err
+	}
+	if len(snapshots) == 0 {
+		// The device row resolved but the unified snapshot query returned
+		// nothing (e.g. the device was soft-deleted between the two reads).
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
+	}
+
+	return &pb.LookupMinerByIdentifierResponse{Snapshot: snapshots[0]}, nil
+}
+
+// resolvePairedDeviceByIdentifier dispatches to the MAC or serial store lookup
+// based on the requested type, inferring the type from the value shape when
+// UNSPECIFIED.
+func (s *Service) resolvePairedDeviceByIdentifier(
+	ctx context.Context,
+	identifier string,
+	idType pb.MinerIdentifierType,
+	orgID int64,
+) (*interfaces.PairedDeviceInfo, error) {
+	switch idType {
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS:
+		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_UNSPECIFIED:
+		fallthrough
+	default:
+		// UNSPECIFIED: infer from shape. NormalizeMAC returns a 17-char
+		// AA:BB:.. string only for valid MAC input; anything else is treated
+		// as a serial.
+		if len(networking.NormalizeMAC(identifier)) == 17 {
+			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+		}
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	}
+}
+
+// GetMinerStateCounts returns counts of miners in different states without fetching miner data
+func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := stateCountsFilter(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Both the total and the per-state breakdown must share the same scope,
+	// otherwise the dashboard FleetHealth bar mixes a scoped breakdown with
+	// an org-wide total.
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, nil)
+	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
@@ -486,6 +587,28 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCo
 	return &pb.GetMinerStateCountsResponse{
 		TotalMiners: int32(total), //nolint:gosec
 		StateCounts: stateCounts,
+	}, nil
+}
+
+// stateCountsFilter builds the site-scope filter for GetMinerStateCounts,
+// applying the same validation as the miner-list site filter. Returns nil
+// when no site scope is requested (all-sites).
+func stateCountsFilter(req *pb.GetMinerStateCountsRequest) (*interfaces.MinerFilter, error) {
+	if len(req.SiteIds) == 0 && !req.IncludeUnassigned {
+		return nil, nil
+	}
+	if len(req.SiteIds) > maxFreeFormFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"site_ids exceeds maximum of %d values", maxFreeFormFilterValues)
+	}
+	for i, id := range req.SiteIds {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	return &interfaces.MinerFilter{
+		SiteIDs:           req.SiteIds,
+		IncludeUnassigned: req.IncludeUnassigned,
 	}, nil
 }
 
@@ -547,7 +670,7 @@ func (s *Service) buildSnapshot(
 	// Enrich snapshots with telemetry and collection labels for paired devices
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
 	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
-	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateGroupRefs(ctx, orgID, snapshots, pairedDeviceIDs)
 	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	var stateCounts *telemetrypb.MinerStateCounts
@@ -590,7 +713,7 @@ func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, 
 
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
 	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
-	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateGroupRefs(ctx, orgID, snapshots, pairedDeviceIDs)
 	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	return snapshots, nil
@@ -670,14 +793,24 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	snapshots := make([]*pb.MinerStateSnapshot, 0, len(rows))
 	for _, row := range rows {
 		snapshot := &pb.MinerStateSnapshot{
-			DeviceIdentifier: row.DeviceIdentifier,
-			DriverName:       row.DriverName,
+			DeviceIdentifier:         row.DeviceIdentifier,
+			DriverName:               row.DriverName,
+			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
 		}
 
 		if row.SiteID.Valid {
 			id := row.SiteID.Int64
-			snapshot.SiteId = &id
-			snapshot.SiteLabel = row.SiteLabel
+			ensureSnapshotPlacement(snapshot).Site = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.SiteLabel,
+			}
+		}
+		if row.BuildingID.Valid {
+			id := row.BuildingID.Int64
+			ensureSnapshotPlacement(snapshot).Building = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.BuildingLabel,
+			}
 		}
 
 		if row.Model.Valid {
@@ -698,6 +831,8 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PAIRED
 		case "AUTHENTICATION_NEEDED":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+		case "DEFAULT_PASSWORD":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 		case "PENDING":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PENDING
 		case "FAILED":
@@ -708,7 +843,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		}
 
-		isPaired := row.PairingStatus == "PAIRED"
+		isPaired := isPairedLikeStatus(row.PairingStatus)
 
 		snapshot.Name = ComposeDeviceName(row.CustomName.String, snapshot.Manufacturer, snapshot.Model)
 
@@ -749,10 +884,21 @@ const (
 	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
 )
 
+// isPairedLikeStatus reports whether a pairing_status is paired and reporting
+// telemetry. DEFAULT_PASSWORD is treated like PAIRED (its telemetry is trusted).
+func isPairedLikeStatus(status string) bool {
+	return status == pairing.StatusPaired || status == pairing.StatusDefaultPassword
+}
+
+func isPairedLikePairingStatus(status pb.PairingStatus) bool {
+	return status == pb.PairingStatus_PAIRING_STATUS_PAIRED ||
+		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+}
+
 func collectPairedDeviceIdentifiers(snapshots []*pb.MinerStateSnapshot) []string {
 	var ids []string
 	for _, s := range snapshots {
-		if s.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
+		if isPairedLikePairingStatus(s.PairingStatus) {
 			ids = append(ids, s.DeviceIdentifier)
 		}
 	}
@@ -811,22 +957,29 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 	}
 }
 
-// populateGroupLabels fetches group labels for paired devices and populates the GroupLabels field.
-func (s *Service) populateGroupLabels(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
+// populateGroupRefs fetches group refs for paired devices and populates snapshot placement.
+func (s *Service) populateGroupRefs(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
 	if len(pairedDeviceIDs) == 0 {
 		return
 	}
 
-	groupLabels, err := s.collectionStore.GetGroupLabelsForDevices(ctx, orgID, pairedDeviceIDs)
+	groupRefs, err := s.collectionStore.GetGroupRefsForDevices(ctx, orgID, pairedDeviceIDs)
 	if err != nil {
-		slog.Warn("failed to fetch group labels for snapshots", "error", err)
+		slog.Warn("failed to fetch group refs for snapshots", "error", err)
 		return
 	}
 
-	// Populate group labels on snapshots
+	// Populate group refs on snapshots
 	for _, snapshot := range snapshots {
-		if labels, ok := groupLabels[snapshot.DeviceIdentifier]; ok {
-			snapshot.GroupLabels = labels
+		if refs, ok := groupRefs[snapshot.DeviceIdentifier]; ok {
+			placement := ensureSnapshotPlacement(snapshot)
+			placement.Groups = make([]*commonpb.ResourceRef, 0, len(refs))
+			for _, ref := range refs {
+				placement.Groups = append(placement.Groups, &commonpb.ResourceRef{
+					Id:    ref.ID,
+					Label: ref.Label,
+				})
+			}
 		}
 	}
 }
@@ -846,10 +999,28 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 	// Populate rack details on snapshots
 	for _, snapshot := range snapshots {
 		if details, ok := rackDetails[snapshot.DeviceIdentifier]; ok {
-			snapshot.RackLabel = details.Label
+			placement := ensureSnapshotPlacement(snapshot)
+			placement.Rack = &commonpb.ResourceRef{
+				Id:    details.ID,
+				Label: details.Label,
+			}
 			snapshot.RackPosition = details.Position
+			placement.Zone = details.Zone
+			if details.BuildingID != nil {
+				placement.Building = &commonpb.ResourceRef{
+					Id:    *details.BuildingID,
+					Label: details.BuildingLabel,
+				}
+			}
 		}
 	}
+}
+
+func ensureSnapshotPlacement(snapshot *pb.MinerStateSnapshot) *commonpb.PlacementRefs {
+	if snapshot.Placement == nil {
+		snapshot.Placement = &commonpb.PlacementRefs{}
+	}
+	return snapshot.Placement
 }
 
 // convertToMeasurement converts a MetricValue to a proto Measurement by dividing by the conversion factor.
@@ -871,7 +1042,8 @@ func convertToMeasurementWithMultiplier(metric *modelsV2.MetricValue, timestamp 
 }
 
 // shouldIncludeStateCounts determines if state counts should be fetched based on pairing status filter.
-// State counts are only meaningful for devices that have telemetry data (PAIRED and AUTHENTICATION_NEEDED).
+// State counts are meaningful for fleet-visible paired-like devices: PAIRED,
+// AUTHENTICATION_NEEDED, and DEFAULT_PASSWORD.
 // Per proto definition: empty slice means "no filter" (include all), UNSPECIFIED means "all statuses".
 func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 	if len(pairingStatuses) == 0 {
@@ -881,6 +1053,7 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 		switch status {
 		case pb.PairingStatus_PAIRING_STATUS_PAIRED,
 			pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			pb.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
 			return true
 		case pb.PairingStatus_PAIRING_STATUS_UNPAIRED,
@@ -1073,11 +1246,15 @@ func parseFilter(
 		filter.NumericRanges = ranges
 	}
 
+	// ip_cidrs and ip_ranges are two encodings of one subnet-filter surface, so
+	// cap their combined size — otherwise a client could bypass the limit by
+	// splitting entries across both fields.
+	if len(pbFilter.IpCidrs)+len(pbFilter.IpRanges) > maxFreeFormFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs + ip_ranges exceeds maximum of %d values", maxFreeFormFilterValues)
+	}
+
 	if len(pbFilter.IpCidrs) > 0 {
-		if len(pbFilter.IpCidrs) > maxFreeFormFilterValues {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"ip_cidrs exceeds maximum of %d values", maxFreeFormFilterValues)
-		}
 		prefixes := make([]netip.Prefix, 0, len(pbFilter.IpCidrs))
 		for i, c := range pbFilter.IpCidrs {
 			p, err := parseCIDR(i, c)
@@ -1087,6 +1264,25 @@ func parseFilter(
 			prefixes = append(prefixes, p)
 		}
 		filter.IPCIDRs = prefixes
+	}
+
+	if len(pbFilter.IpRanges) > 0 {
+		ranges := make([]interfaces.IPRange, 0, len(pbFilter.IpRanges))
+		for i, r := range pbFilter.IpRanges {
+			start, end, err := netutil.ParseIPRange(r.GetStartIp(), r.GetEndIp())
+			if err != nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: %v", i, err)
+			}
+			// MinerListFilter.ip_ranges is documented IPv4-only (matching the
+			// client's range grammar); reject IPv6 to keep the contract honest.
+			if !start.Is4() {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: only IPv4 ranges are supported", i)
+			}
+			ranges = append(ranges, interfaces.IPRange{Start: start, End: end})
+		}
+		filter.IPRanges = ranges
 	}
 
 	if len(pbFilter.SiteIds) > 0 {
@@ -1354,8 +1550,8 @@ func poolUsernameMatchCandidates(username string) []string {
 	return []string{trimmed, baseUsername}
 }
 
-// DeleteMiners soft-deletes devices from the fleet and attempts best-effort ClearAuthKey on Proto devices.
-// The DB deletion always succeeds immediately. ClearAuthKey runs in background goroutines and
+// DeleteMiners soft-deletes devices from the fleet and attempts best-effort Unpair on Proto devices.
+// The DB deletion always succeeds immediately. Unpair runs in background goroutines and
 // failures are logged but never surfaced to the caller.
 func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1373,7 +1569,12 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	}
 
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
-	miners := s.collectProtoMinersForClearAuthKey(ctx, deviceIdentifiers)
+	miners := s.collectProtoMinersForUnpair(ctx, deviceIdentifiers)
+
+	// Resolve the site scope BEFORE the soft-delete — GetDistinctDeviceSiteIDs
+	// filters deleted_at IS NULL, so post-delete it would return nothing and
+	// the audit row would fall into the unassigned bucket (#538).
+	siteScope := s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers)
 
 	// SoftDeleteDevices verifies ownership and deletes in a single transaction
 	// to prevent TOCTOU races between the check and the delete.
@@ -1391,7 +1592,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	}
 
 	count := int(deletedCount)
-	s.logActivity(ctx, activitymodels.Event{
+	unpairEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           "unpair_miners",
 		Description:    "Unpaired miners",
@@ -1399,11 +1600,13 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	unpairEvent.ApplySiteScope(siteScope)
+	s.logActivity(ctx, unpairEvent)
 
-	// Best-effort background ClearAuthKey for Proto rigs using a bounded worker pool.
+	// Best-effort background Unpair for Proto rigs using a bounded worker pool.
 	// Workers are tracked by s.backgroundWg so the server can await completion
-	// during graceful shutdown via WaitForPendingClearAuthKeys.
+	// during graceful shutdown via WaitForPendingUnpairs.
 	// The shared semaphore limits total concurrent RPCs across all delete calls.
 	if len(miners) > 0 {
 		minerCh := make(chan minerInterfaces.Miner, len(miners))
@@ -1412,22 +1615,22 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		}
 		close(minerCh)
 
-		numWorkers := min(len(miners), concurrentClearAuthKeyLimit)
+		numWorkers := min(len(miners), concurrentUnpairLimit)
 		for range numWorkers {
 			s.backgroundWg.Add(1)
 			go func() {
 				defer s.backgroundWg.Done()
 				for miner := range minerCh {
-					s.clearAuthKeySem <- struct{}{}
+					s.unpairSem <- struct{}{}
 
-					clearCtx, cancel := context.WithTimeout(context.Background(), clearAuthKeyTimeout)
+					clearCtx, cancel := context.WithTimeout(context.Background(), unpairTimeout)
 					err := miner.Unpair(clearCtx)
 					cancel()
 					if err != nil {
-						slog.Warn("best-effort ClearAuthKey failed", "deviceID", miner.GetID(), "error", err)
+						slog.Warn("best-effort Unpair failed", "deviceID", miner.GetID(), "error", err)
 					}
 
-					<-s.clearAuthKeySem
+					<-s.unpairSem
 				}
 			}()
 		}
@@ -1462,15 +1665,15 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 	}
 }
 
-// collectProtoMinersForClearAuthKey collects Miner objects only for Proto rigs.
-// Per the RFC, ClearAuthKey is only attempted for Proto devices; 3rd-party miners
+// collectProtoMinersForUnpair collects Miner objects only for Proto rigs.
+// Per the RFC, Unpair is only attempted for Proto devices; 3rd-party miners
 // (Antminer, etc.) require no device communication on delete.
-func (s *Service) collectProtoMinersForClearAuthKey(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
+func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner
 	for _, id := range deviceIdentifiers {
 		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
 		if err != nil {
-			slog.Debug("skipping ClearAuthKey for device", "deviceID", id, "error", err)
+			slog.Debug("skipping Unpair for device", "deviceID", id, "error", err)
 			continue
 		}
 		if m.GetDriverName() != mm.DriverNameProto {

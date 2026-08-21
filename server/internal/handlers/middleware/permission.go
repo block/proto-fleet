@@ -122,6 +122,136 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	return info, nil
 }
 
+func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	if !eff.HasOrgWide(key) {
+		return nil, permissionDeniedError(key, authz.ResourceContext{})
+	}
+	return info, nil
+}
+
+// HasPermission reports whether the caller holds key against rc WITHOUT
+// erroring on a plain denial — use it to conditionally widen a response
+// (e.g. include extra fields) rather than to gate a whole RPC. It still
+// returns an error for genuine auth/wiring failures (unauthenticated,
+// unknown internal actor, missing effective permissions) so callers don't
+// mistake a real failure for a denial. Internal actors that
+// RequirePermission would allow report true. Auth, internal-actor, and
+// fail-closed handling match RequirePermission exactly.
+func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (bool, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true, nil
+		default:
+			return false, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	return eff.Has(key, rc), nil
+}
+
+func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true, nil
+		default:
+			return false, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	return eff.HasOrgWide(key), nil
+}
+
+// SiteScopeForPermission projects the caller's site-level authority for
+// key into a store-consumable filter shape — see
+// authz.EffectivePermissions.SiteScopeFor for the orgWide/denylist vs
+// allowlist contract. List handlers use it to push the caller's
+// readable-site set into the SQL query instead of fetching every row
+// and dropping unreadable ones per-item.
+//
+// Allowlisted internal actors report (true, nil, nil) — org-wide, no
+// exclusions — matching the RequirePermission short-circuit. Auth and
+// fail-closed handling match RequirePermission exactly.
+func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, sites []int64, err error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false, nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true, nil, nil
+		default:
+			return false, nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false, nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	orgWide, sites = eff.SiteScopeFor(key)
+	return orgWide, sites, nil
+}
+
 // RequireAnyPermission gates a handler on the caller holding at least
 // one of the named permission keys against the supplied resource
 // context. Use it sparingly — for read-only RPCs whose information is

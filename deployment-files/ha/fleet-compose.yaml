@@ -1,0 +1,77 @@
+services:
+  fleet-api:
+    # Restart process failures, but let systemd reapply the HA start gate after Docker restarts.
+    restart: on-failure
+    # HA manages the shared VIP on the host; Fleet only needs raw sockets for nmap discovery.
+    cap_add: !override
+      - NET_RAW
+    # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
+    depends_on: !reset []
+    # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
+    command: ["/bin/sh", "-c", "sleep 15; exec /app/fleetd"]
+    environment:
+      # External traffic reaches Fleet through local nginx and the shared VIP.
+      HTTP_LISTEN_ADDRESS: "127.0.0.1:4000"
+      # HA does not support the update checker or its UI; do not interpolate a parent value.
+      UPDATES_ENABLED: "false"
+      FLEET_HA_ENABLED: "true"
+      FLEET_HA_ETCD_ENDPOINTS: "https://${HA_DB_A_IP}:2379,https://${HA_DB_B_IP}:2379,https://${HA_DCS_C_IP}:2379"
+      FLEET_HA_ENDPOINT_IP: "${HA_VIRTUAL_IP}"
+      FLEET_HA_ENDPOINT_INTERFACE: "${HA_NETWORK_INTERFACE}"
+      FLEET_PUBLIC_URL: "https://${HA_VIRTUAL_IP}"
+      FLEET_ALERTS_GRAFANA_USER: "admin"
+      FLEET_ALERTS_GRAFANA_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
+    volumes:
+      - "${HA_SECRETS_DIR}/service-ca.crt:/etc/proto-fleet/ha/service-ca.crt:ro"
+      - "${HA_SECRETS_DIR}/fleet-etcd-password:/etc/proto-fleet/ha/fleet-etcd-password:ro"
+      - "${HA_SECRETS_DIR}/node.env:/etc/proto-fleet/ha/node.env:ro"
+      - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
+  fleet-client:
+    restart: on-failure
+    # Replace the base TLS mount with this host's certificate for the shared VIP.
+    volumes: !override
+      - "${HA_SECRETS_DIR}/fleet-client.crt:/etc/nginx/ssl/cert.pem:ro"
+      - "${HA_SECRETS_DIR}/fleet-client.key:/etc/nginx/ssl/key.pem:ro"
+      - "${HA_SECRETS_DIR}/service-ca.crt:/usr/share/nginx/html/proto-fleet-ha-service-ca.crt:ro"
+
+  grafana:
+    # HA keeps Grafana intentionally local: the file-provisioned readiness
+    # rule is identical on both hosts, while each instance keeps standalone
+    # SQLite state in its own grafana-data volume.
+    # Pin the verified multi-architecture manifest because HA release installs
+    # otherwise pull this image outside the checksummed release archive.
+    image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace
+    depends_on: !reset []
+    network_mode: host
+    ports: !reset []
+    expose: !reset []
+    networks: !reset []
+    extra_hosts: !override
+      - "fleet-api:127.0.0.1"
+    environment:
+      HA_NODE_IP: "${HA_NODE_IP}"
+      HA_DB_A_IP: "${HA_DB_A_IP}"
+      HA_DB_B_IP: "${HA_DB_B_IP}"
+      GRAFANA_DB_NAME: "fleet"
+      GRAFANA_DB_USERNAME: "grafana_ha_ro"
+      GF_SERVER_HTTP_ADDR: "127.0.0.1"
+      GF_SERVER_HTTP_PORT: "3030"
+    volumes: !override
+      - grafana-data:/var/lib/grafana
+      - "./server/monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro"
+      - "./server/monitoring/grafana/provisioning/alerting/contact-points.yaml:/etc/grafana/provisioning/alerting/contact-points.yaml:ro"
+      - "./server/monitoring/grafana/provisioning/alerting/notification-policies.yaml:/etc/grafana/provisioning/alerting/notification-policies.yaml:ro"
+      - "${HA_SECRETS_DIR}/service-ca.crt:/etc/grafana/proto-fleet-ha/service-ca.crt:ro"
+      - "./server/monitoring/grafana/ha/timescaledb.yaml:/etc/grafana/provisioning/datasources/timescaledb.yaml:ro"
+      - "./server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml:/etc/grafana/provisioning/alerting/proto-fleet-ha-rules.yaml:ro"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          { credential="$$(printf 'admin:%s' "$${GF_SECURITY_ADMIN_PASSWORD}" | base64 | tr -d '\n')" &&
+          wget -q -O /dev/null http://127.0.0.1:3030/api/health &&
+          wget -q -O /dev/null --header "Authorization: Basic $${credential}"
+          http://127.0.0.1:3030/api/v1/provisioning/alert-rules/protofleet-ha-readiness; }
+          >/dev/null 2>&1
+    # Keep Docker restarts behind the same systemd start gate as Fleet.
+    restart: on-failure

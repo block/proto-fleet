@@ -1,4 +1,5 @@
 import { expect, Page } from "@playwright/test";
+import { DEFAULT_TIMEOUT } from "../config/test.config";
 
 export class BasePage {
   constructor(
@@ -38,12 +39,38 @@ export class BasePage {
     await expect(this.page.getByText(text)).toBeVisible();
   }
 
+  private async modalHasVisibleText(text: string) {
+    const matches = this.page.getByTestId("modal").getByText(text);
+    const count = await matches.count();
+    for (let index = 0; index < count; index += 1) {
+      if (
+        await matches
+          .nth(index)
+          .isVisible()
+          .catch(() => false)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async validateTextInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeVisible();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(true);
   }
 
   async validateTextNotInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeHidden();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" not to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(false);
   }
 
   async validateToastMessage(message: string) {

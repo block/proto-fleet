@@ -3,7 +3,8 @@ import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
 const stopRequestPattern = /StopCurtailment/;
-const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 2;
+const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export interface CurtailmentCleanupTarget {
   reason: string;
@@ -19,11 +20,16 @@ export class EnergyPage extends BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/energy"]').click();
     await expect(this.page).toHaveURL(/.*\/energy/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async validateEnergyPageOpened() {
     await this.validateTitle("Curtailment");
     await this.validateTitle("Curtailment history");
+  }
+
+  async validateRunCurtailmentButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Run curtailment", exact: true })).toHaveCount(0);
   }
 
   async openCurtailmentPlanner() {
@@ -43,6 +49,10 @@ export class EnergyPage extends BasePage {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
 
     await modal.locator("#curtailment-reason").fill(reason);
+    // Full shutdown is the default mode; switch to fixed-kW so the target
+    // input renders.
+    await modal.locator("#curtailment-mode").click();
+    await this.page.getByRole("option", { name: "Fixed kW reduction", exact: true }).click();
     await modal.locator("#curtailment-target-kw").fill(targetKw);
     await modal.locator("#curtailment-restore-batch-interval").fill(restoreBatchIntervalSec);
   }
@@ -75,12 +85,12 @@ export class EnergyPage extends BasePage {
 
   async startCurtailment() {
     await this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }).click();
-    const maintenanceConfirmation = this.page.getByTestId("curtailment-maintenance-confirmation");
+    const forceInclusionConfirmation = this.page.getByTestId("curtailment-force-inclusion-confirmation");
     const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
 
-    await expect(maintenanceConfirmation.or(runConfirmation)).toBeVisible();
-    if (await maintenanceConfirmation.isVisible()) {
-      await maintenanceConfirmation.getByRole("button", { name: "Force include" }).click();
+    await expect(forceInclusionConfirmation.or(runConfirmation)).toBeVisible();
+    if (await forceInclusionConfirmation.isVisible()) {
+      await forceInclusionConfirmation.getByRole("button", { name: "Force include" }).click();
     }
     await expect(runConfirmation).toBeVisible();
     await runConfirmation.getByRole("button", { name: "Run curtailment" }).click();
@@ -92,9 +102,16 @@ export class EnergyPage extends BasePage {
     const activeCurtailmentSection = this.activeCurtailmentSection(reason);
 
     await expect(activeCurtailmentSection).toBeVisible();
-    await expect(activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup")).toContainText(
-      /Pending|Curtailing|Curtailed/,
-    );
+    await expect(activeCurtailmentSection).toContainText(/Dispatch status\s*(Pending|Curtailing|Curtailed)/);
+  }
+
+  async validateActiveCurtailmentManageActionsHidden(reason: string) {
+    const activeCurtailmentSection = this.activeCurtailmentSection(reason);
+    await expect(activeCurtailmentSection).toBeVisible();
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore now", exact: true })).toHaveCount(0);
   }
 
   async validateCurtailmentHistoryRow(reason: string) {
@@ -144,9 +161,10 @@ export class EnergyPage extends BasePage {
             return inactiveState;
           }
 
-          const primaryLockupText =
-            (await activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup").textContent()) ?? "";
-          return /Restored|Restore incomplete/.test(primaryLockupText) ? terminalRestoreState : primaryLockupText;
+          const sectionText = (await activeCurtailmentSection.textContent()) ?? "";
+          return /Dispatch status\s*(Restored|Restore incomplete)/.test(sectionText)
+            ? terminalRestoreState
+            : sectionText;
         },
         { timeout: restoreReconciliationTimeout, intervals: [DEFAULT_INTERVAL] },
       )
@@ -179,6 +197,44 @@ export class EnergyPage extends BasePage {
 
     if (await this.hasMatchingActiveCurtailment(target.reason)) {
       await this.waitForCurtailmentToRestore(target);
+    }
+  }
+
+  async cleanupStartedCurtailmentsByReasonPrefix(prefix: string) {
+    await this.page.goto("/energy");
+    await expect(this.page).toHaveURL(/.*\/energy/);
+
+    const reasons = new Set<string>();
+    const activeReasonPattern = new RegExp(`(${escapeRegex(prefix)}.*?)(?=\\s+\\(Applies to )`);
+
+    const activeCurtailmentSections = this.page
+      .getByTestId("active-curtailment-primary-lockup")
+      .locator("xpath=ancestor::section[1]");
+
+    for (const activeCurtailmentSection of await activeCurtailmentSections.all()) {
+      const text = (await activeCurtailmentSection.textContent()) ?? "";
+      const activeReasonMatch = text.match(activeReasonPattern);
+      if (activeReasonMatch?.[1]) {
+        reasons.add(activeReasonMatch[1].trim());
+      }
+    }
+
+    const stoppableHistoryRows = this.page
+      .locator('[data-testid^="curtailment-history-row-"]')
+      .filter({ has: this.page.getByRole("button", { name: /^Stop / }) });
+
+    for (const historyRow of await stoppableHistoryRows.all()) {
+      const text = (await historyRow.textContent()) ?? "";
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(prefix)) {
+          reasons.add(trimmed);
+        }
+      }
+    }
+
+    for (const reason of reasons) {
+      await this.cleanupStartedCurtailment({ reason });
     }
   }
 
@@ -295,8 +351,7 @@ export function getStartCurtailmentRequestBody(request: Request) {
     modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
     reason?: string;
     restoreBatchIntervalSec?: number;
-    wholeOrg?: Record<string, never>;
-    scope?: { wholeOrg?: Record<string, never> };
+    scopes?: Array<{ wholeOrg?: Record<string, never> }>;
   };
 }
 

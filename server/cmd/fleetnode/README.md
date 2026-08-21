@@ -48,6 +48,15 @@ When a server-issued `DiscoverRequest` arrives in `NmapModeRequest` form, the ag
 
 The target is validated against a strict grammar before invocation: bare IPv4/IPv6, CIDR, `A.B.C.D-N` range, or hostname. Leading dashes, whitespace, and shell metacharacters are rejected — this defends against a compromised server crafting a target like `-iL/etc/passwd` that nmap would otherwise interpret as a flag. See `validateNmapTarget` in [nmap.go](nmap.go).
 
+For automatic "local subnet" discovery commands, the server sends the reserved `fleetnode-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
+
+```bash
+fleetnode run --local-discovery-subnet=10.90.0.0/24
+FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
+```
+
+The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR and no broader than the supported nmap scan-size limit.
+
 ## Control stream
 
 `run` opens a bidirectional `ControlStream` over the gateway:
@@ -104,6 +113,14 @@ go test ./server/cmd/fleetnode -race -count=1
 ```
 
 [fake_gateway_test.go](fake_gateway_test.go) provides an in-process h2c gateway for handler tests. Pair the agent with a local server via `just dev` (see [server/README.md](../../README.md)).
+
+For manual end-to-end UI testing of fleet-node discovery and pairing, run from the repository root:
+
+```bash
+just fleetnode-ui-test-up
+```
+
+This starts the backend, isolated fake miners, an enrolled fleet node with `FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24`, and the ProtoFleet client. On a fresh dev database it creates `admin` / `Pass123!`; if your local database already has a different admin user, run with `FLEET_ADMIN_USERNAME` and `FLEET_ADMIN_PASSWORD` set. In the UI, use Fleet → Miners → Add miners → Scan network. The fake miners live on a Docker network that only the fleet node can reach, so the existing UI exercises the fleet-node routing path without cloud discovery competing for the same rows. Stop the stack with `just fleetnode-ui-test-down`; reset the fleetnode state with `just fleetnode-ui-test-reset`.
 
 ## Troubleshooting
 

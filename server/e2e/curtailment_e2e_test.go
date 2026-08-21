@@ -3,10 +3,13 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +55,12 @@ func TestCurtailmentLifecycle(t *testing.T) {
 	t.Log("Waiting for fleet-api to be ready...")
 	waitForFleetAPIHealth(t, ctx, 60*time.Second)
 
+	// Step 0b: Configure pools on the fresh proto-sim so it reports a real
+	// mining load. A pool-less sim sits in the NoPools state (0 hashrate,
+	// ~200W idle) and the curtailment selector would rightly exclude it
+	// below candidate_min_power_w.
+	configureProtoSimPools(t, ctx)
+
 	// Step 1: Bootstrap admin + auth.
 	username := "e2e-curtailment-admin"
 	password := "e2e-test-password"
@@ -59,7 +68,7 @@ func TestCurtailmentLifecycle(t *testing.T) {
 	token := authenticateViaRealAPI(t, ctx, username, password)
 
 	// Step 2: Discover + pair the proto-sim miner.
-	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimIP, protoSimPort)
+	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
 	require.Len(t, devices, 1, "should discover exactly one proto-sim device")
 	deviceID := devices[0].DeviceIdentifier
 	require.NotEmpty(t, deviceID, "device identifier must be set")
@@ -125,26 +134,44 @@ func TestCurtailmentLifecycle(t *testing.T) {
 			startedEventUUID, resp.Msg.Event.State.String())
 	})
 
-	// Step 5: Poll GetActive until the reconciler advances pending → active.
+	// Step 5: Poll ListActive until the reconciler advances pending → active.
 	// 30s tick + telemetry confirmation gives a generous 3-minute budget.
 	t.Run("ReconcilerAdvancesToActive", func(t *testing.T) {
 		deadline := time.Now().Add(3 * time.Minute)
 		var finalState curtailmentv1.CurtailmentEventState
 		for time.Now().Before(deadline) {
-			req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+			req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 			req.Header().Set("Authorization", "Bearer "+token)
-			resp, err := curtailmentClient.GetActiveCurtailment(ctx, req)
+			resp, err := curtailmentClient.ListActiveCurtailments(ctx, req)
 			require.NoError(t, err)
-			require.NotNil(t, resp.Msg.Event, "active event must be present while curtailment is in flight")
-			finalState = resp.Msg.Event.State
-			if finalState == curtailmentv1.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE {
-				t.Logf("✓ Event advanced to ACTIVE after %v",
-					time.Since(deadline.Add(-3*time.Minute)).Truncate(time.Second))
-				return
+			for _, event := range resp.Msg.Events {
+				if event.EventUuid == startedEventUUID {
+					finalState = event.State
+					if finalState == curtailmentv1.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE {
+						t.Logf("✓ Event advanced to ACTIVE after %v",
+							time.Since(deadline.Add(-3*time.Minute)).Truncate(time.Second))
+						return
+					}
+					break
+				}
 			}
 			time.Sleep(5 * time.Second)
 		}
 		t.Fatalf("event did not reach ACTIVE within 3 minutes; last state: %s", finalState.String())
+	})
+
+	// Step 5b: Confirmation fast path (issue #661). The base compose enables
+	// CURTAILMENT_CONFIRMATION_FAST_PATH_ENABLED, so once the tick dispatches
+	// Curtail, the pulse samples the proto-sim miner directly and promotes
+	// the target to confirmed without waiting for the next 30s tick. The
+	// dispatch→completion delta is the discriminating signal: tick-bound
+	// confirmation cannot land before the next tick (~30s after dispatch),
+	// while the pulse (3s cadence) lands in single-digit seconds.
+	t.Run("FastPathConfirmsCurtailBeforeNextTick", func(t *testing.T) {
+		delta := pollTargetPhaseCompletionDelta(t, startedEventUUID, "curtail", 2*time.Minute)
+		assert.Less(t, delta, 25*time.Second,
+			"curtail confirmation must land before the next full tick (fast path)")
+		t.Logf("✓ Curtail confirmed %.1fs after dispatch (tick interval is 30s)", delta.Seconds())
 	})
 
 	// Step 6: Stop the event. The handler flips desired_state to active in
@@ -161,28 +188,42 @@ func TestCurtailmentLifecycle(t *testing.T) {
 		t.Logf("✓ Stop accepted for event %s", startedEventUUID)
 	})
 
-	// Step 7: Poll GetActive until the event reaches a terminal state
-	// (COMPLETED or COMPLETED_WITH_FAILURES). Restore at default 30s
-	// interval + adaptive batch_size for a single miner completes in
-	// ~30–90s with telemetry confirmation.
+	// Step 7: Poll ListActive until the event leaves the active set. Restore
+	// at default 30s interval + adaptive batch_size for a single miner
+	// completes in ~30–90s with telemetry confirmation.
 	t.Run("RestoreCompletes", func(t *testing.T) {
 		deadline := time.Now().Add(3 * time.Minute)
 		listClient := curtailmentClient
 		var lastSeenState string
 		for time.Now().Before(deadline) {
-			// GetActive returns nil event once the event is terminal.
-			req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+			req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 			req.Header().Set("Authorization", "Bearer "+token)
-			resp, err := listClient.GetActiveCurtailment(ctx, req)
+			resp, err := listClient.ListActiveCurtailments(ctx, req)
 			require.NoError(t, err)
-			if resp.Msg.Event == nil {
-				t.Logf("✓ No active event — restore completed")
+			var activeEvent *curtailmentv1.CurtailmentEvent
+			for _, event := range resp.Msg.Events {
+				if event.EventUuid == startedEventUUID {
+					activeEvent = event
+					break
+				}
+			}
+			if activeEvent == nil {
+				t.Logf("✓ Event left active set — restore completed")
 				return
 			}
-			lastSeenState = resp.Msg.Event.State.String()
+			lastSeenState = activeEvent.State.String()
 			time.Sleep(5 * time.Second)
 		}
 		t.Fatalf("event did not terminate within 3 minutes; last active state: %s", lastSeenState)
+	})
+
+	// Step 7b: Restore-side fast path — the pulse resolves the dispatched
+	// restore target from a fresh post-Uncurtail sample before the next tick.
+	t.Run("FastPathResolvesRestoreBeforeNextTick", func(t *testing.T) {
+		delta := pollTargetPhaseCompletionDelta(t, startedEventUUID, "restore", 2*time.Minute)
+		assert.Less(t, delta, 25*time.Second,
+			"restore resolution must land before the next full tick (fast path)")
+		t.Logf("✓ Restore resolved %.1fs after dispatch (tick interval is 30s)", delta.Seconds())
 	})
 
 	// Step 8: List the event via the read API and assert it lands in a
@@ -254,12 +295,14 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 	t.Log("Waiting for fleet-api to be ready...")
 	waitForFleetAPIHealth(t, ctx, 60*time.Second)
 
+	configureProtoSimPools(t, ctx)
+
 	username := "e2e-curtailment-restart"
 	password := "e2e-test-password"
 	createAdminViaAPI(t, ctx, username, password)
 	token := authenticateViaRealAPI(t, ctx, username, password)
 
-	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimIP, protoSimPort)
+	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
 	require.Len(t, devices, 1)
 	deviceID := devices[0].DeviceIdentifier
 	pairDeviceViaRealAPI(t, ctx, token, deviceID)
@@ -343,11 +386,18 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 	t.Log("Waiting for event to terminate after restart + stop...")
 	deadline = time.Now().Add(3 * time.Minute)
 	for time.Now().Before(deadline) {
-		req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+		req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 		req.Header().Set("Authorization", "Bearer "+token)
-		resp, err := curtailmentClient.GetActiveCurtailment(ctx, req)
+		resp, err := curtailmentClient.ListActiveCurtailments(ctx, req)
 		require.NoError(t, err)
-		if resp.Msg.Event == nil {
+		stillActive := false
+		for _, event := range resp.Msg.Events {
+			if event.EventUuid == eventUUID {
+				stillActive = true
+				break
+			}
+		}
+		if !stillActive {
 			t.Logf("✓ Event terminal after restart-and-stop")
 			return
 		}
@@ -356,13 +406,105 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 	t.Fatal("event did not terminate after restart within 3 minutes")
 }
 
+// configureProtoSimPools authenticates against the proto-sim's REST API on
+// its host-mapped port and configures one pool. A fresh sim boots with no
+// pools and reports the NoPools mining state (zero hashrate, idle power),
+// which the curtailment selector excludes below candidate_min_power_w;
+// configuring a pool flips it to Mining at full simulated load, matching a
+// production miner. Password mirrors FAKE_RIG_PASSWORD in docker-compose.
+func configureProtoSimPools(t *testing.T, ctx context.Context) {
+	t.Helper()
+	const simBaseURL = "http://localhost:" + protoSimPort
+
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	loginBody, err := json.Marshal(map[string]string{"password": "proto"})
+	require.NoError(t, err)
+	loginReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		simBaseURL+"/api/v1/auth/login", bytes.NewReader(loginBody))
+	require.NoError(t, err)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp, err := http.DefaultClient.Do(loginReq)
+	require.NoError(t, err, "proto-sim login should succeed")
+	defer loginResp.Body.Close()
+	require.Equal(t, http.StatusOK, loginResp.StatusCode, "proto-sim login should return 200")
+	var auth struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.NewDecoder(loginResp.Body).Decode(&auth))
+	require.NotEmpty(t, auth.AccessToken)
+
+	poolsBody, err := json.Marshal([]map[string]string{{
+		"name":     "e2e-pool",
+		"url":      "stratum+tcp://pool.example.com:3333",
+		"username": "e2e-worker",
+		"password": "x",
+	}})
+	require.NoError(t, err)
+	poolsReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		simBaseURL+"/api/v1/pools", bytes.NewReader(poolsBody))
+	require.NoError(t, err)
+	poolsReq.Header.Set("Content-Type", "application/json")
+	poolsReq.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	poolsResp, err := http.DefaultClient.Do(poolsReq)
+	require.NoError(t, err, "proto-sim pool configuration should succeed")
+	defer poolsResp.Body.Close()
+	require.Equal(t, http.StatusOK, poolsResp.StatusCode, "proto-sim pool configuration should return 200")
+	t.Log("✓ Configured pools on proto-sim (miner now reports full mining load)")
+}
+
+// pollTargetPhaseCompletionDelta polls the event's single target row until
+// the given phase ("curtail" or "restore") has both a dispatch and a
+// completion timestamp, then returns completion − dispatch. Reading the
+// durable phase columns directly from Postgres pins the same timestamps
+// the reconciler's guarded writes stamp, independent of API projection.
+func pollTargetPhaseCompletionDelta(t *testing.T, eventUUID, phase string, timeout time.Duration) time.Duration {
+	t.Helper()
+	require.NotEmpty(t, eventUUID, "event UUID required — Start must have succeeded")
+	query := "SELECT EXTRACT(EPOCH FROM (ct." + phase + "_completed_at - ct." + phase + "_dispatched_at)) " +
+		"FROM curtailment_target ct " +
+		"JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id " +
+		"WHERE ce.event_uuid = '" + eventUUID + "' " +
+		"AND ct." + phase + "_completed_at IS NOT NULL " +
+		"AND ct." + phase + "_dispatched_at IS NOT NULL;"
+	deadline := time.Now().Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		commandTimeout := min(remaining, requestTimeout)
+		commandCtx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		cmd := exec.CommandContext(commandCtx, "docker", "exec", containerPrefix+"timescaledb-1",
+			"psql", "-U", "fleet", "-d", "fleet", "-t", "-A", "-c", query)
+		out, err := cmd.CombinedOutput()
+		cancel()
+		require.NoError(t, err, "psql phase timestamp read should succeed: %s", strings.TrimSpace(string(out)))
+		raw := strings.TrimSpace(string(out))
+		if raw != "" {
+			seconds, err := strconv.ParseFloat(raw, 64)
+			require.NoError(t, err, "phase delta parse should succeed: %q", raw)
+			return time.Duration(seconds * float64(time.Second))
+		}
+		sleepDuration := min(2*time.Second, time.Until(deadline))
+		if sleepDuration > 0 {
+			time.Sleep(sleepDuration)
+		}
+	}
+	t.Fatalf("target %s phase did not complete within %v", phase, timeout)
+	return 0
+}
+
 // readHeartbeatLastTickAt reads the singleton heartbeat row directly from
 // Postgres so the test asserts what the staleness alert would see, not
 // what fleetd reports. Mirrors the runbook's alert predicate.
 func readHeartbeatLastTickAt(t *testing.T) time.Time {
 	t.Helper()
+	// -U fleet: the compose stack provisions only the 'fleet' role
+	// (POSTGRES_USER in docker-compose.base.yaml); no 'postgres' superuser exists.
 	cmd := exec.Command("docker", "exec", containerPrefix+"timescaledb-1",
-		"psql", "-U", "postgres", "-d", "fleet", "-t", "-A", "-c",
+		"psql", "-U", "fleet", "-d", "fleet", "-t", "-A", "-c",
 		"SELECT to_char(last_tick_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') FROM curtailment_reconciler_heartbeat WHERE id = 1;")
 	out, err := cmd.Output()
 	require.NoError(t, err, "psql heartbeat read should succeed")

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Card from "@/shared/components/Card";
-import List, { type ColConfig, type ColTitles } from "@/shared/components/List";
-import { Alert } from "@/shared/assets/icons";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 
 type TicketColumns = "urgent" | "issue" | "status" | "age";
 
@@ -68,7 +69,11 @@ interface MinerMaintenanceSectionProps {
   onCreateTicket?: () => void;
 }
 
-const MinerMaintenanceSection = ({ minerIdentifier, onTicketClick, onCreateTicket }: MinerMaintenanceSectionProps) => {
+const MinerMaintenanceSection = ({
+  minerIdentifier: _minerIdentifier,
+  onTicketClick,
+  onCreateTicket,
+}: MinerMaintenanceSectionProps) => {
   const [openTickets] = useState<MinerTicketItem[]>([]);
   const [repairHistory] = useState<RepairHistoryItem[]>([]);
 
@@ -101,9 +106,7 @@ const MinerMaintenanceSection = ({ minerIdentifier, onTicketClick, onCreateTicke
               <div className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotColor(ticket.status)}`} />
               <span className="text-300">{formatStatus(ticket.status)}</span>
             </div>
-            {ticket.assigneeName && (
-              <span className="text-300 text-text-primary-70">{ticket.assigneeName}</span>
-            )}
+            {ticket.assigneeName ? <span className="text-300 text-text-primary-70">{ticket.assigneeName}</span> : null}
           </div>
         ),
         width: "w-36",
@@ -120,14 +123,14 @@ const MinerMaintenanceSection = ({ minerIdentifier, onTicketClick, onCreateTicke
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div className="text-heading-200 text-text-primary">Maintenance</div>
-        {onCreateTicket && (
+        {onCreateTicket ? (
           <Button
             text="Create ticket"
             variant={variants.secondary}
             size={buttonSizes.compact}
             onClick={onCreateTicket}
           />
-        )}
+        ) : null}
       </div>
 
       {openTickets.length > 0 ? (
@@ -145,7 +148,7 @@ const MinerMaintenanceSection = ({ minerIdentifier, onTicketClick, onCreateTicke
         <div className="text-300 text-text-primary-70">No open tickets for this miner.</div>
       )}
 
-      {repairHistory.length > 0 && (
+      {repairHistory.length > 0 ? (
         <div className="flex flex-col gap-3">
           <span className="text-emphasis-300 font-medium">Repair History</span>
           {repairHistory.map((entry, i) => (
@@ -158,15 +161,15 @@ const MinerMaintenanceSection = ({ minerIdentifier, onTicketClick, onCreateTicke
               <div className="flex flex-col gap-0.5">
                 <span className="text-300 font-medium">{entry.date}</span>
                 <span className="text-300">{entry.resolution}</span>
-                {entry.partsUsed && (
+                {entry.partsUsed ? (
                   <span className="text-300 text-text-primary-70">Parts: {entry.partsUsed}</span>
-                )}
+                ) : null}
                 <span className="text-300 text-text-primary-70">{entry.technician}</span>
               </div>
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

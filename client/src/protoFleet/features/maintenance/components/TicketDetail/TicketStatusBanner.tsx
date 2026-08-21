@@ -10,7 +10,14 @@ interface TicketStatusBannerProps {
   onMarkReceived: () => void;
 }
 
-const TicketStatusBanner = ({ status, assigneeName, onAssign, onComplete, onResume, onMarkReceived }: TicketStatusBannerProps) => {
+const TicketStatusBanner = ({
+  status,
+  assigneeName,
+  onAssign,
+  onComplete,
+  onResume,
+  onMarkReceived,
+}: TicketStatusBannerProps) => {
   switch (status) {
     case "open":
       return (
@@ -57,13 +64,7 @@ const TicketStatusBanner = ({ status, assigneeName, onAssign, onComplete, onResu
         />
       );
     case "completed":
-      return (
-        <Callout
-          intent="success"
-          prefixIcon={<Checkmark width="w-4" />}
-          title="Repair completed"
-        />
-      );
+      return <Callout intent="success" prefixIcon={<Checkmark width="w-4" />} title="Repair completed" />;
     default:
       return null;
   }

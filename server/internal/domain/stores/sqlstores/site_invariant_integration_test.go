@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -99,4 +101,239 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	var unassignedCount int
 	require.NoError(t, row.Scan(&unassignedCount))
 	assert.GreaterOrEqual(t, unassignedCount, 3, "all 3 devices should now have site_id IS NULL")
+}
+
+func TestDeleteSite_BlocksWholeOrgProfileInfrastructureReferences(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	buildingStore := sqlstores.NewSQLBuildingStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	sitesService := sitesdomain.NewService(siteStore, buildingStore, nil, nil, nil, transactor, nil)
+
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Calgary fans"})
+	require.NoError(t, err)
+	var infrastructureDeviceID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO infrastructure_device (
+			org_id, site_id, building_name, name, device_kind, fan_count,
+			enabled, driver_type, driver_config
+		) VALUES ($1, $2, 'Building 1', 'Exhaust fan', 'single_fan', 1, TRUE, 'modbus_tcp', '{}'::jsonb)
+		RETURNING id
+	`, orgID, site.ID).Scan(&infrastructureDeviceID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id, profile_name, mode, scope_json, facility_fan_device_ids,
+			authorization_envelope_jsonb
+		) VALUES (
+			$1, 'Whole-org response', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($3::bigint),
+				'facility_fan_scope_unbounded', false
+			)
+		)
+	`, orgID, infrastructureDeviceID, site.ID)
+	require.NoError(t, err)
+
+	_, err = sitesService.DeleteSite(ctx, orgID, site.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	var liveSites, liveDevices, liveProfiles int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM site WHERE id = $1 AND deleted_at IS NULL`, site.ID).Scan(&liveSites))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM infrastructure_device WHERE id = $1 AND deleted_at IS NULL`, infrastructureDeviceID).Scan(&liveDevices))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM curtailment_response_profile WHERE org_id = $1 AND facility_fan_device_ids @> ARRAY[$2::bigint]`, orgID, infrastructureDeviceID).Scan(&liveProfiles))
+	assert.Equal(t, 1, liveSites)
+	assert.Equal(t, 1, liveDevices)
+	assert.Equal(t, 1, liveProfiles)
+}
+
+func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Calgary"})
+	require.NoError(t, err)
+	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Austin"})
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id,
+			profile_name,
+			site_id,
+			scope_json,
+			mode,
+			target_kw,
+			authorization_envelope_jsonb
+		) VALUES
+			($1, 'Legacy site', $2, jsonb_build_object('site_ids', jsonb_build_array($2::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($2::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false)),
+			($1, 'Scoped site list', NULL, jsonb_build_object('site_ids', jsonb_build_array($2::bigint, $3::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($2::bigint, $3::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false)),
+			($1, 'Other site', NULL, jsonb_build_object('site_ids', jsonb_build_array($3::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($3::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false))
+	`, orgID, siteA.ID, siteB.ID)
+	require.NoError(t, err)
+
+	deleted, err := siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, siteA.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT profile_name
+		FROM curtailment_response_profile
+		WHERE org_id = $1
+		ORDER BY profile_name
+	`, orgID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		names = append(names, name)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []string{"Other site"}, names)
+}
+
+func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProfiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Toronto"})
+	require.NoError(t, err)
+
+	var profileID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id,
+			profile_name,
+			site_id,
+			scope_json,
+			mode,
+			target_kw,
+			authorization_envelope_jsonb
+		) VALUES (
+			$1,
+			'Automation profile',
+			NULL,
+			jsonb_build_object('site_ids', jsonb_build_array($2::bigint)),
+			'FIXED_KW',
+			100,
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', jsonb_build_array($2::bigint),
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', false,
+				'facility_fan_site_ids', '[]'::jsonb,
+				'facility_fan_scope_unbounded', false
+			)
+		)
+		RETURNING id
+	`, orgID, site.ID).Scan(&profileID)
+	require.NoError(t, err)
+
+	var sourceID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO curtailment_mqtt_source_config (
+			organization_id,
+			service_user_id,
+			source_name,
+			topic,
+			broker_primary_host,
+			broker_secondary_host,
+			broker_transport,
+			mqtt_username,
+			mqtt_password_enc,
+			payload_format
+		) VALUES (
+			$1,
+			$2,
+			'Automation source',
+			'maestro/target',
+			'broker-primary.local',
+			'broker-secondary.local',
+			'tcp',
+			'mqtt-user',
+			'encrypted-password',
+			'target_timestamp'
+		)
+		RETURNING id
+	`, orgID, user.DatabaseID).Scan(&sourceID)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_automation_rule (
+			org_id,
+			rule_name,
+			trigger_type,
+			mqtt_source_id,
+			response_profile_id,
+			enabled
+		) VALUES (
+			$1,
+			'Automation rule',
+			'MQTT',
+			$2,
+			$3,
+			TRUE
+		)
+	`, orgID, sourceID, profileID)
+	require.NoError(t, err)
+
+	deleted, err := siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, site.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Equal(t, int64(0), deleted)
+
+	row := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM curtailment_response_profile
+		WHERE org_id = $1
+		  AND id = $2
+	`, orgID, profileID)
+	var profileCount int
+	require.NoError(t, row.Scan(&profileCount))
+	assert.Equal(t, 1, profileCount)
+
+	row = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM curtailment_automation_rule
+		WHERE org_id = $1
+		  AND response_profile_id = $2
+	`, orgID, profileID)
+	var ruleCount int
+	require.NoError(t, row.Scan(&ruleCount))
+	assert.Equal(t, 1, ruleCount)
 }

@@ -475,7 +475,7 @@ WHERE rt.org_id = $1
        OR rt.assignee_user_id = $3::bigint)
   AND ($4::bigint IS NULL
        OR rt.id < $4::bigint)
-ORDER BY rt.completed_at DESC NULLS LAST, rt.id DESC
+ORDER BY rt.id DESC
 LIMIT $5::int
 `
 

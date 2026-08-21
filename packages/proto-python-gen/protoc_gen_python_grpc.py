@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """protoc-gen-python-grpc — A proper protoc plugin for Python gRPC stub generation.
 
 Reads a CodeGeneratorRequest from stdin, generates *_pb2_grpc.py files using

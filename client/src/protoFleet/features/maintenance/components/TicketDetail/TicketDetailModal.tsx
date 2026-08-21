@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import TicketComments from "./TicketComments";
-import { RmaSectionContent } from "./RmaSection";
-import { ResolutionSectionContent } from "./ResolutionSection";
-import CompletionForm from "./CompletionForm";
-import { mockTickets, mockCompletedTickets, REPAIR_TECHNICIANS } from "../../mockData";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
-import { Alert, Edit, Fleet, Info, Checkmark, Pause, Racks } from "@/shared/assets/icons";
+import { mockCompletedTickets, mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import CompletionForm from "./CompletionForm";
+import { ResolutionSectionContent } from "./ResolutionSection";
+import { RmaSectionContent } from "./RmaSection";
+import TicketComments from "./TicketComments";
+import { Alert, Checkmark, Edit, Fleet, Info, Pause, Racks } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
-import Row from "@/shared/components/Row";
 import Modal from "@/shared/components/Modal";
+import Row from "@/shared/components/Row";
 
 interface TicketDetailModalProps {
   ticketId: string;
@@ -31,11 +31,26 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showCardAssign, setShowCardAssign] = useState(false);
 
-  const allTickets = useMemo(() => [...mockTickets, ...mockCompletedTickets], []);
-  const ticket = useMemo(
-    () => allTickets.find((t) => t.id === currentId),
-    [allTickets, currentId],
+  const allTickets = useMemo(
+    () => [
+      ...mockTickets,
+      ...mockCompletedTickets.map((completedTicket) => ({
+        ...completedTicket,
+        category: completedTicket.minerIdentifier ? "miner" : "infrastructure",
+        status: "completed",
+        urgent: false,
+        minerType: null,
+        rackLabel: "",
+        zone: "",
+        groupLabel: "",
+        commentCount: 0,
+        partsCount: 0,
+        age: `Completed ${completedTicket.completedAt}`,
+      })),
+    ],
+    [],
   );
+  const ticket = useMemo(() => allTickets.find((t) => t.id === currentId), [allTickets, currentId]);
 
   const navIds = ticketIds ?? mockTickets.map((t) => t.id);
   const currentIndex = navIds.indexOf(currentId);
@@ -131,41 +146,77 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
         {
           text: "Assign ▾",
           variant: variants.secondary,
-          onClick: () => { setShowAssignMenu((v) => !v); setShowStatusMenu(false); },
+          onClick: () => {
+            setShowAssignMenu((v) => !v);
+            setShowStatusMenu(false);
+          },
           dismissModalOnClick: false,
         },
         {
           text: "Update status ▾",
           variant: variants.secondary,
-          onClick: () => { setShowStatusMenu((v) => !v); setShowAssignMenu(false); },
+          onClick: () => {
+            setShowStatusMenu((v) => !v);
+            setShowAssignMenu(false);
+          },
           dismissModalOnClick: false,
         },
       ]}
     >
-      {(showAssignMenu || showStatusMenu) && (
+      {showAssignMenu || showStatusMenu ? (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => { setShowAssignMenu(false); setShowStatusMenu(false); }} />
-          <div className="absolute right-6 top-16 z-40 w-48 rounded-2xl bg-surface-elevated-base py-2 shadow-300">
-            {showAssignMenu && (
+          <div
+            className="fixed inset-0 z-30"
+            onClick={() => {
+              setShowAssignMenu(false);
+              setShowStatusMenu(false);
+            }}
+          />
+          <div className="absolute top-16 right-6 z-40 w-48 rounded-2xl bg-surface-elevated-base py-2 shadow-300">
+            {showAssignMenu ? (
               <>
-                {ticket.assigneeName && (
-                  <div className="px-4"><Row compact className="text-emphasis-300" onClick={() => setShowAssignMenu(false)}>Unassign</Row></div>
-                )}
+                {ticket.assigneeName ? (
+                  <div className="px-4">
+                    <Row compact className="text-emphasis-300" onClick={() => setShowAssignMenu(false)}>
+                      Unassign
+                    </Row>
+                  </div>
+                ) : null}
                 {REPAIR_TECHNICIANS.map((name) => (
-                  <div key={name} className="px-4"><Row compact className={`text-emphasis-300 ${name === ticket.assigneeName ? "font-medium" : ""}`} onClick={() => setShowAssignMenu(false)}>{name}</Row></div>
+                  <div key={name} className="px-4">
+                    <Row
+                      compact
+                      className={`text-emphasis-300 ${name === ticket.assigneeName ? "font-medium" : ""}`}
+                      onClick={() => setShowAssignMenu(false)}
+                    >
+                      {name}
+                    </Row>
+                  </div>
                 ))}
               </>
-            )}
-            {showStatusMenu && STATUS_OPTIONS.map((label) => (
-              <div key={label} className="px-4"><Row compact className={`text-emphasis-300 ${statusKey(label) === ticket.status ? "font-medium" : ""}`} onClick={() => setShowStatusMenu(false)}>{label}</Row></div>
-            ))}
+            ) : null}
+            {showStatusMenu
+              ? STATUS_OPTIONS.map((label) => (
+                  <div key={label} className="px-4">
+                    <Row
+                      compact
+                      className={`text-emphasis-300 ${statusKey(label) === ticket.status ? "font-medium" : ""}`}
+                      onClick={() => setShowStatusMenu(false)}
+                    >
+                      {label}
+                    </Row>
+                  </div>
+                ))
+              : null}
           </div>
         </>
-      )}
+      ) : null}
       <div ref={scrollRef} className="flex flex-col gap-6">
         {/* Badge + Title lockup */}
         <div className="flex flex-col gap-2">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${ticket.urgent ? "bg-intent-critical-10" : "bg-surface-5"}`}>
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-xl ${ticket.urgent ? "bg-intent-critical-10" : "bg-surface-5"}`}
+          >
             <div className={getComponentIconColor(ticket.urgent)}>
               {getComponentIcon(ticket.component, ticket.urgent)}
             </div>
@@ -173,25 +224,23 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
           <h2 className="text-heading-300 text-text-primary">
             {ticket.component}: {ticket.diagnosis}
           </h2>
-          <span className="-mt-1 text-300 text-text-primary-70">
-            {ticket.assigneeName ?? "unassigned"}
-          </span>
+          <span className="-mt-1 text-300 text-text-primary-70">{ticket.assigneeName ?? "unassigned"}</span>
         </div>
 
         {/* Card group — status, linked info, rack — all 4px gap */}
         <div className="flex flex-col gap-1">
           {/* Status card — expands to include completion form */}
-          {statusBannerProps && (
+          {statusBannerProps ? (
             <div className="flex flex-col gap-4 rounded-xl bg-surface-5 p-4">
               <div className="flex items-center gap-3">
                 <div className="shrink-0 text-text-primary-70">{statusBannerProps.icon}</div>
                 <div className="flex flex-1 flex-col">
                   <span className="text-emphasis-300 font-medium">{statusBannerProps.title}</span>
-                  {!showCompletionForm && (
+                  {!showCompletionForm ? (
                     <span className="text-200 text-text-primary-70">{statusBannerProps.subtitle}</span>
-                  )}
+                  ) : null}
                 </div>
-                {statusBannerProps.buttonText && !showCompletionForm && (
+                {statusBannerProps.buttonText && !showCompletionForm ? (
                   <div className="relative">
                     <Button
                       text={statusBannerProps.buttonText}
@@ -205,7 +254,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
                         }
                       }}
                     />
-                    {showCardAssign && (
+                    {showCardAssign ? (
                       <>
                         <div className="fixed inset-0 z-30" onClick={() => setShowCardAssign(false)} />
                         <div className="absolute top-full right-0 z-40 mt-1 w-48 rounded-2xl bg-surface-elevated-base py-2 shadow-300">
@@ -221,19 +270,19 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
                           ))}
                         </div>
                       </>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </div>
-              {showCompletionForm && (
+              {showCompletionForm ? (
                 <CompletionForm
                   isMinerTicket={isMinerTicket}
                   onSubmit={() => setShowCompletionForm(false)}
                   onCancel={() => setShowCompletionForm(false)}
                 />
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
 
           {/* Linked cards row */}
           <div className="grid grid-cols-2 gap-1">
@@ -257,7 +306,9 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
                 <Info width="w-5" className="shrink-0 text-text-primary-70" />
                 <div className="flex flex-col">
                   <span className="text-emphasis-300 font-medium">{ticket.component}</span>
-                  <span className="text-200 text-text-primary-70">{ticket.buildingName}, {ticket.siteName}</span>
+                  <span className="text-200 text-text-primary-70">
+                    {ticket.buildingName}, {ticket.siteName}
+                  </span>
                 </div>
               </div>
             )}
@@ -273,50 +324,53 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
           </div>
 
           {/* Rack visualization (miner tickets only) */}
-          {isMinerTicket && ticket.rackLabel && (
-          <button
-            type="button"
-            className="flex w-full flex-col gap-3 rounded-xl bg-surface-5 p-4 text-left transition-colors hover:bg-surface-10"
-            onClick={() => {
-              onDismiss();
-              navigate(`/racks/${ticket.rackLabel}`);
-            }}
-          >
-            <div className="flex w-full items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Racks width="w-5" className="shrink-0 text-text-primary-70" />
-                <span className="text-emphasis-300 font-medium">{ticket.rackLabel}, Slot {highlightSlot}</span>
+          {isMinerTicket && ticket.rackLabel ? (
+            <button
+              type="button"
+              className="flex w-full flex-col gap-3 rounded-xl bg-surface-5 p-4 text-left transition-colors hover:bg-surface-10"
+              onClick={() => {
+                onDismiss();
+                navigate(`/racks/${ticket.rackLabel}`);
+              }}
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Racks width="w-5" className="shrink-0 text-text-primary-70" />
+                  <span className="text-emphasis-300 font-medium">
+                    {ticket.rackLabel}, Slot {highlightSlot}
+                  </span>
+                </div>
+                <span className="text-300 text-text-primary-70">
+                  {ticket.siteName}, {ticket.buildingName}
+                </span>
               </div>
-              <span className="text-300 text-text-primary-70">{ticket.siteName}, {ticket.buildingName}</span>
-            </div>
-            <div className="flex justify-center py-2">
-              <div
-                className="grid gap-1"
-                style={{ gridTemplateColumns: `repeat(${rackCols}, 1fr)` }}
-              >
-                {Array.from({ length: rackCols * rackRows }, (_, i) => {
-                  const isHighlight = i === highlightSlot - 1;
-                  const isOccupied = [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24].includes(i);
-                  return (
-                    <div
-                      key={i}
-                      className={`h-4 w-4 rounded-sm ${
-                        isHighlight
-                          ? "bg-core-accent-fill"
-                          : isOccupied
-                            ? "bg-core-primary-fill/10"
-                            : "bg-transparent"
-                      }`}
-                    />
-                  );
-                })}
+              <div className="flex justify-center py-2">
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${rackCols}, 1fr)` }}>
+                  {Array.from({ length: rackCols * rackRows }, (_, i) => {
+                    const isHighlight = i === highlightSlot - 1;
+                    const isOccupied = [
+                      0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24,
+                    ].includes(i);
+                    return (
+                      <div
+                        key={i}
+                        className={`h-4 w-4 rounded-sm ${
+                          isHighlight
+                            ? "bg-core-accent-fill"
+                            : isOccupied
+                              ? "bg-core-primary-fill/10"
+                              : "bg-transparent"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </button>
-        )}
+            </button>
+          ) : null}
         </div>
 
-        {isSentToVendor && (
+        {isSentToVendor ? (
           <RmaSectionContent
             vendor=""
             tracking=""
@@ -325,16 +379,11 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
             onTrackingChange={() => {}}
             onEtaChange={() => {}}
           />
-        )}
+        ) : null}
 
-        {isCompleted && (
-          <ResolutionSectionContent
-            resolution="Repaired"
-            repairLocation="On-rack"
-            partsUsed={[]}
-            notes=""
-          />
-        )}
+        {isCompleted ? (
+          <ResolutionSectionContent resolution="Repaired" repairLocation="On-rack" partsUsed={[]} notes="" />
+        ) : null}
 
         <TicketComments ticketId={currentId} />
 
@@ -342,7 +391,9 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
         <div className="sticky -bottom-6 -mx-6 -mb-6 bg-surface-elevated-base px-6">
           <Divider className="-mx-6 !w-[calc(100%+3rem)]" />
           <div className="flex items-center justify-between py-5">
-            <div className="text-emphasis-300">{currentIndex + 1} of {navIds.length} tickets</div>
+            <div className="text-emphasis-300">
+              {currentIndex + 1} of {navIds.length} tickets
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 className="py-1"

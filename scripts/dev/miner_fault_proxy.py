@@ -160,8 +160,7 @@ async def write_json(
         "content-type: application/json\r\n"
         f"content-length: {len(body)}\r\n"
         "connection: close\r\n"
-        "\r\n"
-        .encode("utf-8")
+        "\r\n".encode("utf-8")
         + body
     )
     await writer.drain()
@@ -196,26 +195,40 @@ async def handle_control(
     if method == "POST" and path.startswith("/mode/"):
         mode = path.removeprefix("/mode/")
         if mode not in MODES:
-            await write_json(writer, "400 Bad Request", {"error": f"unknown mode {mode}", "modes": sorted(MODES)})
+            await write_json(
+                writer,
+                "400 Bad Request",
+                {"error": f"unknown mode {mode}", "modes": sorted(MODES)},
+            )
             return
         state.mode = mode
         print(f"control changed mode={mode}", flush=True)
         await write_json(writer, "200 OK", {"mode": state.mode})
         return
 
-    await write_json(writer, "404 Not Found", {"error": "use GET / or POST /mode/{pass|close|http-500|garbage|timeout}"})
+    await write_json(
+        writer,
+        "404 Not Found",
+        {"error": "use GET / or POST /mode/{pass|close|http-500|garbage|timeout}"},
+    )
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Tiny TCP proxy with fault injection modes.")
+    parser = argparse.ArgumentParser(
+        description="Tiny TCP proxy with fault injection modes."
+    )
     parser.add_argument(
         "--forward",
         action="append",
         type=parse_forward,
         help="Port mapping as LISTEN_HOST:PORT=TARGET_HOST:PORT. Repeat for multiple ports.",
     )
-    parser.add_argument("--listen", type=parse_host_port, help="Deprecated. Use --forward.")
-    parser.add_argument("--target", type=parse_host_port, help="Deprecated. Use --forward.")
+    parser.add_argument(
+        "--listen", type=parse_host_port, help="Deprecated. Use --forward."
+    )
+    parser.add_argument(
+        "--target", type=parse_host_port, help="Deprecated. Use --forward."
+    )
     parser.add_argument("--control", default="0.0.0.0:9000", type=parse_host_port)
     parser.add_argument(
         "--fault-port",
@@ -248,7 +261,9 @@ async def main() -> None:
                     forward.target,
                     state,
                     args.timeout_seconds,
-                    str(forward.listen[1]) if forward.listen[1] in fault_ports else None,
+                    str(forward.listen[1])
+                    if forward.listen[1] in fault_ports
+                    else None,
                 ),
                 *forward.listen,
             )
@@ -265,7 +280,10 @@ async def main() -> None:
             f"{forward.target[0]}:{forward.target[1]}",
             flush=True,
         )
-    print(f"fault_ports={sorted(fault_ports)}; control on {args.control[0]}:{args.control[1]}; mode={state.mode}", flush=True)
+    print(
+        f"fault_ports={sorted(fault_ports)}; control on {args.control[0]}:{args.control[1]}; mode={state.mode}",
+        flush=True,
+    )
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

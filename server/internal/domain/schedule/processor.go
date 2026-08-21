@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -28,14 +30,9 @@ const (
 	revertPerformanceMode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 	schedulerActorName    = "scheduler"
 	oneTimeRetryDelay     = time.Second
-	// shutdownDeadline bounds Stop(): drain-before-cancel is the graceful
-	// path, the watchdog cancels workCtx if a DB/dispatch call wedges.
-	// Sized within the fleetd-wide shutdownTimeout (10s).
-	shutdownDeadline = 10 * time.Second
 )
 
-// shutdownDeadlineFn lets tests shrink the watchdog without affecting prod.
-var shutdownDeadlineFn = func() time.Duration { return shutdownDeadline }
+var errProcessorStopping = errors.New("schedule processor is still stopping")
 
 // CommandDispatcher is the subset of command.Service the processor needs.
 // CommandResult carries preflight skips for schedule-level audit.
@@ -49,33 +46,77 @@ type CommandDispatcher interface {
 type jobEntry struct {
 	entryID     cron.EntryID
 	timer       *time.Timer
+	activation  *processorActivation
 	isOneTime   bool
 	fingerprint string
 	generation  uint64
 }
 
-type Processor struct {
+// processorActivation separates stopping new work from canceling work that was
+// already admitted. Activation cancellation closes admission immediately;
+// admitted work is only force-canceled when Stop exhausts its deadline.
+type processorActivation struct {
+	admissionCtx    context.Context //nolint:containedctx // scoped to this activation's admission phase
+	cancelAdmission context.CancelFunc
+	workCtx         context.Context //nolint:containedctx // scoped to this activation's drain phase
+	cancelWork      context.CancelFunc
 	cron            *cron.Cron
+	startupDone     chan struct{}
+	startupErr      error
+	stopDone        chan struct{}
+	stopOnce        sync.Once
+	wg              sync.WaitGroup
+	timerWG         sync.WaitGroup
+}
+
+func newProcessorActivation(ctx context.Context) *processorActivation {
+	admissionCtx, cancelAdmission := context.WithCancel(ctx)
+	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+	return &processorActivation{
+		admissionCtx:    admissionCtx,
+		cancelAdmission: cancelAdmission,
+		workCtx:         workCtx,
+		cancelWork:      cancelWork,
+		cron:            cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger))),
+		startupDone:     make(chan struct{}),
+		stopDone:        make(chan struct{}),
+	}
+}
+
+func (a *processorActivation) startupResult() error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.admissionCtx.Err() != nil {
+		return errProcessorStopping
+	}
+	return nil
+}
+
+type Processor struct {
 	procStore       interfaces.ScheduleProcessorStore
 	targetStore     interfaces.ScheduleTargetStore
 	collectionStore interfaces.CollectionStore
+	deviceStore     scheduletargets.DeviceResolver
 	commandSvc      CommandDispatcher
 	activitySvc     *activity.Service
 	now             func() time.Time
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	wg         sync.WaitGroup
-	timerWG    sync.WaitGroup
-	mu         sync.Mutex
-	jobs       map[int64]jobEntry
-	nextGen    uint64
+	lifecycleMu sync.Mutex
+	activation  *processorActivation
+	mu          sync.Mutex
+	jobs        map[int64]jobEntry
+	nextGen     uint64
 }
+
+var _ runtimejobs.Lifecycle = (*Processor)(nil)
+var _ runtimejobs.Aborter = (*Processor)(nil)
 
 func NewProcessor(
 	procStore interfaces.ScheduleProcessorStore,
 	targetStore interfaces.ScheduleTargetStore,
 	collectionStore interfaces.CollectionStore,
+	deviceStore scheduletargets.DeviceResolver,
 	commandSvc CommandDispatcher,
 	activitySvc *activity.Service,
 ) *Processor {
@@ -83,6 +124,7 @@ func NewProcessor(
 		procStore:       procStore,
 		targetStore:     targetStore,
 		collectionStore: collectionStore,
+		deviceStore:     deviceStore,
 		commandSvc:      commandSvc,
 		activitySvc:     activitySvc,
 		now:             time.Now,
@@ -111,105 +153,163 @@ func scheduleFingerprint(sched *pb.Schedule) string {
 	return strings.Join(parts, "|")
 }
 
-func (p *Processor) Start(_ context.Context) error {
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	p.stopCancel = stopCancel
-	p.workCancel = workCancel
-
-	p.cron = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
-
-	if err := p.recoverStaleRunning(workCtx); err != nil {
-		stopCancel()
-		workCancel()
-		return fmt.Errorf("schedule processor startup: %w", err)
-	}
-	if err := p.syncSchedules(workCtx); err != nil {
-		stopCancel()
-		workCancel()
+// Start activates schedule processing for the lifetime of ctx.
+func (p *Processor) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
 
-	p.cron.Start()
+	p.lifecycleMu.Lock()
+	if active := p.activation; active != nil {
+		p.lifecycleMu.Unlock()
+		select {
+		case <-active.startupDone:
+			return active.startupResult()
+		case <-active.admissionCtx.Done():
+			// Startup failures publish their result before canceling admission.
+			select {
+			case <-active.startupDone:
+				return active.startupResult()
+			default:
+				return errProcessorStopping
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("schedule processor startup: %w", ctx.Err())
+		}
+	}
+	run := newProcessorActivation(ctx)
+	p.activation = run
+	p.lifecycleMu.Unlock()
 
-	p.wg.Add(2)
-	go p.reconcileLoop(stopCtx, workCtx)
-	go p.endOfWindowLoop(stopCtx, workCtx)
+	context.AfterFunc(run.admissionCtx, func() { p.beginStop(run) })
 
-	slog.Info("schedule processor started")
+	if err := p.recoverStaleRunning(run.admissionCtx); err != nil {
+		return p.failStart(run, err)
+	}
+	if err := p.syncSchedules(run.admissionCtx, run); err != nil {
+		return p.failStart(run, err)
+	}
+	if err := run.admissionCtx.Err(); err != nil {
+		return p.failStart(run, err)
+	}
+
+	run.cron.Start()
+	run.wg.Add(2)
+	go p.reconcileLoop(run)
+	go p.endOfWindowLoop(run)
+	close(run.startupDone)
+
 	return nil
 }
 
-func (p *Processor) Stop() error {
-	// Watchdog bounds total shutdown: workCancel is idempotent, so an early
-	// fire just unblocks wedged in-flight calls; the drain sequence below
-	// still runs to completion.
-	if p.workCancel != nil {
-		watchdog := time.AfterFunc(shutdownDeadlineFn(), p.workCancel)
-		defer watchdog.Stop()
-	}
+func (p *Processor) failStart(run *processorActivation, err error) error {
+	run.startupErr = fmt.Errorf("schedule processor startup: %w", err)
+	close(run.startupDone)
+	p.beginStop(run)
+	<-run.stopDone
+	return run.startupErr
+}
 
-	if p.stopCancel != nil {
-		p.stopCancel()
+// Stop cancels the activation and waits for it to drain, bounded by ctx. The
+// processor remains in the stopping state until its goroutines have actually
+// drained, preventing a later Start from overlapping the old activation.
+func (p *Processor) Stop(ctx context.Context) error {
+	p.lifecycleMu.Lock()
+	run := p.activation
+	p.lifecycleMu.Unlock()
+	if run == nil {
+		return nil
 	}
-
-	// Stop cron before waiting on the loops so no new cron callbacks fire
-	// during shutdown. In-flight callbacks complete with workCtx still live;
-	// cron.Stop() returns a context that's done once they finish. AddFunc on
-	// a stopped cron appends to entries without firing, so a late
-	// registration from the reconcile loop's last iteration is harmless.
-	if p.cron != nil {
-		cronCtx := p.cron.Stop()
-		<-cronCtx.Done()
+	p.beginStop(run)
+	select {
+	case <-run.stopDone:
+		return nil
+	case <-ctx.Done():
+		run.cancelWork()
+		return fmt.Errorf("stop schedule processor: %w", ctx.Err())
 	}
+}
 
-	p.wg.Wait()
+// Abort immediately cancels admission and detached work before a fatal exit.
+func (p *Processor) Abort() {
+	p.lifecycleMu.Lock()
+	run := p.activation
+	p.lifecycleMu.Unlock()
+	if run == nil {
+		return
+	}
+	p.beginStop(run)
+	run.cancelWork()
+}
+
+func (p *Processor) beginStop(run *processorActivation) {
+	run.stopOnce.Do(func() {
+		run.cancelAdmission()
+		go p.finishStop(run)
+	})
+}
+
+func (p *Processor) finishStop(run *processorActivation) {
+	<-run.startupDone
+	<-run.cron.Stop().Done()
+	run.wg.Wait()
 
 	p.mu.Lock()
 	for _, entry := range p.jobs {
-		if entry.isOneTime && entry.timer != nil {
-			if entry.timer.Stop() {
-				p.timerWG.Done()
-			}
+		if entry.activation == run && entry.isOneTime && entry.timer != nil && entry.timer.Stop() {
+			run.timerWG.Done()
 		}
 	}
 	p.mu.Unlock()
+	run.timerWG.Wait()
+	run.cancelWork()
 
-	p.timerWG.Wait()
-
-	if p.workCancel != nil {
-		p.workCancel()
+	p.lifecycleMu.Lock()
+	p.mu.Lock()
+	p.jobs = make(map[int64]jobEntry)
+	p.nextGen = 0
+	p.mu.Unlock()
+	if p.activation == run {
+		p.activation = nil
 	}
-	slog.Info("schedule processor stopped")
-	return nil
+	close(run.stopDone)
+	p.lifecycleMu.Unlock()
 }
 
-func (p *Processor) reconcileLoop(stopCtx, workCtx context.Context) {
-	defer p.wg.Done()
+func (p *Processor) reconcileLoop(run *processorActivation) {
+	defer run.wg.Done()
+	reportProgress := runtimejobs.TrackProgress(run.admissionCtx, reconcileInterval)
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-run.admissionCtx.Done():
 			return
 		case <-ticker.C:
-			if err := p.syncSchedules(workCtx); err != nil {
+			if run.admissionCtx.Err() != nil {
+				return
+			}
+			if err := p.syncSchedules(run.workCtx, run); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
+			reportProgress()
 		}
 	}
 }
 
-func (p *Processor) endOfWindowLoop(stopCtx, workCtx context.Context) {
-	defer p.wg.Done()
+func (p *Processor) endOfWindowLoop(run *processorActivation) {
+	defer run.wg.Done()
 	ticker := time.NewTicker(endOfWindowInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-run.admissionCtx.Done():
 			return
 		case <-ticker.C:
-			p.checkEndOfWindow(workCtx)
+			if run.admissionCtx.Err() != nil {
+				return
+			}
+			p.checkEndOfWindow(run.workCtx)
 		}
 	}
 }
@@ -241,7 +341,7 @@ func (p *Processor) recoverStaleRunning(ctx context.Context) error {
 
 // syncSchedules loads active/running schedules from the DB, diffs against
 // registered jobs, and adds/removes/updates as needed.
-func (p *Processor) syncSchedules(ctx context.Context) error {
+func (p *Processor) syncSchedules(ctx context.Context, run *processorActivation) error {
 	schedules, err := p.procStore.GetActiveSchedules(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load active schedules: %w", err)
@@ -262,7 +362,7 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 			p.removeJobLocked(sw.Schedule.Id)
 		}
 
-		if err := p.registerJob(ctx, sw.Schedule); err != nil {
+		if err := p.registerJob(run, sw.Schedule); err != nil {
 			slog.Error("failed to register job", "schedule_id", sw.Schedule.Id, "error", err)
 		}
 	}
@@ -275,9 +375,17 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 	return nil
 }
 
-func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
+func (p *Processor) registerJob(run *processorActivation, sched *pb.Schedule) error {
 	scheduleID := sched.Id
 	generation := p.nextJobGenerationLocked()
+	executeIfActive := func() {
+		select {
+		case <-run.admissionCtx.Done():
+			return
+		default:
+			p.executeSchedule(run.workCtx, scheduleID)
+		}
+	}
 
 	if sched.ScheduleType == pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME {
 		t, err := ParseScheduleTime(sched.StartDate, sched.StartTime, sched.Timezone)
@@ -288,12 +396,12 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		if delay < oneTimeRetryDelay {
 			delay = oneTimeRetryDelay
 		}
-		p.timerWG.Add(1)
+		run.timerWG.Add(1)
 		timer := time.AfterFunc(delay, func() {
-			defer p.timerWG.Done()
-			p.executeSchedule(ctx, scheduleID)
+			defer run.timerWG.Done()
+			executeIfActive()
 		})
-		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched), generation: generation}
+		p.jobs[scheduleID] = jobEntry{timer: timer, activation: run, isOneTime: true, fingerprint: scheduleFingerprint(sched), generation: generation}
 		return nil
 	}
 
@@ -306,12 +414,12 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		return fmt.Errorf("failed to build cron expression: %w", err)
 	}
 
-	entryID, err := p.cron.AddFunc(cronExpr, func() { p.executeSchedule(ctx, scheduleID) })
+	entryID, err := run.cron.AddFunc(cronExpr, executeIfActive)
 	if err != nil {
 		return fmt.Errorf("failed to register cron job: %w", err)
 	}
 
-	p.jobs[scheduleID] = jobEntry{entryID: entryID, fingerprint: scheduleFingerprint(sched), generation: generation}
+	p.jobs[scheduleID] = jobEntry{entryID: entryID, activation: run, fingerprint: scheduleFingerprint(sched), generation: generation}
 	return nil
 }
 
@@ -508,7 +616,7 @@ func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *
 
 // expandTargets converts a slice of ScheduleTarget into deduplicated device identifiers.
 func (p *Processor) expandTargets(ctx context.Context, targets []*pb.ScheduleTarget, orgID int64) ([]string, error) {
-	return scheduletargets.Expand(ctx, p.collectionStore, targets, orgID, func(targetID string) {
+	return scheduletargets.Expand(ctx, p.collectionStore, p.deviceStore, targets, orgID, func(targetID string) {
 		slog.Warn("unspecified target type", "target_id", targetID)
 	})
 }
@@ -732,10 +840,10 @@ func (p *Processor) removeJobLocked(scheduleID int64) {
 	if entry, ok := p.jobs[scheduleID]; ok {
 		if entry.isOneTime {
 			if entry.timer != nil && entry.timer.Stop() {
-				p.timerWG.Done()
+				entry.activation.timerWG.Done()
 			}
 		} else {
-			p.cron.Remove(entry.entryID)
+			entry.activation.cron.Remove(entry.entryID)
 		}
 		delete(p.jobs, scheduleID)
 	}

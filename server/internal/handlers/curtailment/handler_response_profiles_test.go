@@ -15,16 +15,18 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
 			ProfileName: "Standard shed",
 			Site:        &pb.ScopeSite{SiteId: 7},
@@ -39,6 +41,10 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 			CurtailBatchIntervalSec: ptrUint32(15),
 			RestoreBatchSize:        ptrUint32(20),
 			RestoreBatchIntervalSec: ptrUint32(30),
+			PostEventCooldownSec:    600,
+			FacilityFanDeviceIds:    []int64{31},
+			FanOffDelaySec:          45,
+			FanRestoreDelaySec:      90,
 		}),
 	)
 
@@ -54,10 +60,124 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, uint32(15), profile.GetCurtailBatchIntervalSec())
 	assert.Equal(t, uint32(20), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(30), profile.GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(600), profile.GetPostEventCooldownSec())
+	assert.Equal(t, []int64{31}, profile.GetFacilityFanDeviceIds())
+	assert.Equal(t, uint32(45), profile.GetFanOffDelaySec())
+	assert.Equal(t, uint32(90), profile.GetFanRestoreDelaySec())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	require.NotNil(t, store.created.SiteID)
 	assert.Equal(t, int64(7), *store.created.SiteID)
+	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
+	assert.Equal(t, []int64{31}, store.created.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.created.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.created.FanRestoreDelaySec)
+	assert.Equal(t, 1, store.infrastructureDeviceListCalls)
+	require.Contains(t, store.createdInfrastructureDevices, int64(31))
+	assert.Equal(t, int64(8), store.createdInfrastructureDevices[31].SiteID)
+}
+
+func TestHandler_CreateCurtailmentResponseProfilePreservesSingularSiteScopeVersion(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.CreateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName:        "Versioned site shed",
+			Site:               &pb.ScopeSite{SiteId: 7},
+			ScopeSchemaVersion: domainCurtailment.ScopeSchemaVersionCurrent,
+			Mode:               pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, domainCurtailment.ScopeSchemaVersionCurrent, resp.Msg.GetProfile().GetScopeSchemaVersion())
+	require.NotNil(t, store.created)
+	assert.JSONEq(t, `{"scope_schema_version":1,"site_id":7}`, string(store.created.ScopeJSON))
+}
+
+func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		assignments []authz.Assignment
+		device      *models.ResponseProfileInfrastructureDevice
+		wantCode    connect.Code
+		wantDebug   string
+	}{
+		{
+			name: "masks fan without site read",
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(8),
+			},
+			device:    &models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true},
+			wantCode:  connect.CodeNotFound,
+			wantDebug: "one or more infrastructure devices were not found",
+		},
+		{
+			name: "rejects fan without curtailment manage at its site",
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(8, authz.PermSiteRead),
+			},
+			device:   &models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true},
+			wantCode: connect.CodePermissionDenied,
+		},
+		{
+			name: "masks a missing fan like an unreadable fan",
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentManage, authz.PermSiteRead),
+			},
+			wantCode:  connect.CodeNotFound,
+			wantDebug: "one or more infrastructure devices were not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newHandlerResponseProfileStore()
+			if tt.device != nil {
+				store.infrastructureDevices[31] = *tt.device
+			}
+			h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+			_, err := h.CreateCurtailmentResponseProfile(
+				testSessionCtxWithAssignments(t, &session.Info{
+					AuthMethod:     session.AuthMethodSession,
+					OrganizationID: 42,
+					Role:           "OPERATOR",
+					SessionID:      "sess-response-profile-fan-auth",
+				}, tt.assignments...),
+				connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+					ProfileName:             "Cross-site fans",
+					Site:                    &pb.ScopeSite{SiteId: 7},
+					Mode:                    pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+					FacilityFanDeviceIds:    []int64{31},
+					RestoreBatchSize:        ptrUint32(20),
+					RestoreBatchIntervalSec: ptrUint32(30),
+				}),
+			)
+
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, tt.wantCode, fleetErr.GRPCCode)
+			if tt.wantDebug != "" {
+				assert.Equal(t, tt.wantDebug, fleetErr.DebugMessage)
+			}
+			assert.Nil(t, store.created)
+		})
+	}
 }
 
 func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInterval(t *testing.T) {
@@ -81,11 +201,13 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInt
 
 	require.NoError(t, err)
 	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchSize())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int32(0), store.created.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.created.RestoreBatchSize)
 }
 
-func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
+func TestHandler_CreateCurtailmentResponseProfileWithExplicitWholeOrg(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
@@ -95,10 +217,13 @@ func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
 			ProfileName: "Whole org shed",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
-			Strategy:    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
-			Level:       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
-			Priority:    pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+			Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+			Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
 			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
 			},
@@ -120,10 +245,14 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 	shadowedSiteID := int64(7)
 	fallbackSiteID := int64(8)
 	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"hidden-miner": &shadowedSiteID, "unassigned-miner": nil}
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Whole org", Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 202, OrgID: 42, ProfileName: "Hidden site", SiteID: &shadowedSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 203, OrgID: 42, ProfileName: "Visible site", SiteID: &fallbackSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 204, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 205, OrgID: 42, ProfileName: "Hidden device", ScopeJSON: []byte(`{"device_identifiers":["hidden-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 206, OrgID: 42, ProfileName: "Unassigned device", ScopeJSON: []byte(`{"device_identifiers":["unassigned-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
@@ -139,9 +268,198 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 
 	require.NoError(t, err)
 	profiles := resp.Msg.GetProfiles()
-	require.Len(t, profiles, 2)
-	profileIDs := []int64{profiles[0].GetProfileId(), profiles[1].GetProfileId()}
-	assert.Equal(t, []int64{201, 203}, profileIDs)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, int64(203), profiles[0].GetProfileId())
+}
+
+func TestHandler_ListCurtailmentResponseProfilesFiltersProfilesWithInaccessibleFacilityFans(t *testing.T) {
+	t.Parallel()
+
+	profileSiteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Visible", SiteID: &profileSiteID, Mode: models.ModeFullFleet, RestoreBatchSize: 50},
+		{ID: 202, OrgID: 42, ProfileName: "Hidden fan", SiteID: &profileSiteID, Mode: models.ModeFullFleet, RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}},
+	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.ListCurtailmentResponseProfiles(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-list-fan-auth",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(8, authz.PermSiteRead),
+		),
+		connect.NewRequest(&pb.ListCurtailmentResponseProfilesRequest{}),
+	)
+
+	require.NoError(t, err)
+	profiles := resp.Msg.GetProfiles()
+	require.Len(t, profiles, 1)
+	assert.Equal(t, int64(201), profiles[0].GetProfileId())
+}
+
+func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		deniedSite = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-device-scope",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(deniedSite),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Device shed",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
+				}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.created)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_CreateCurtailmentResponseProfileCarriesAuthorizedDeviceSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const allowedSite = int64(7)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"miner-a": ptrHandlerInt64(allowedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-device-snapshot",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Device shed",
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}},
+				},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, store.createdDeviceSites, "miner-a")
+	require.NotNil(t, store.createdDeviceSites["miner-a"])
+	assert.Equal(t, allowedSite, *store.createdDeviceSites["miner-a"])
+}
+
+func TestHandler_CreateCurtailmentResponseProfileRequiresOrgWideForUnassignedDevices(t *testing.T) {
+	t.Parallel()
+
+	const narrowedSite = int64(7)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"unassigned-miner": nil}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-unassigned-device",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(narrowedSite),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Unassigned miner shed",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"unassigned-miner"}},
+				}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.created)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_CreateCurtailmentResponseProfileChecksCompositeSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+			testSiteAssignment(deniedSite),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Composite shed",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: deniedSite}}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.created)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
@@ -170,18 +488,82 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_GetCurtailmentResponseProfileMasksInaccessibleFacilityFans(t *testing.T) {
+	t.Parallel()
+
+	profileSiteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Hidden fan", SiteID: &profileSiteID, Mode: models.ModeFullFleet, RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}},
+	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.GetCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-get-fan-auth",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(8),
+		),
+		connect.NewRequest(&pb.GetCurtailmentResponseProfileRequest{ProfileId: 201}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestHandler_GetCurtailmentResponseProfileChecksStoredCompositeSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.GetCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-get-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+			testSiteAssignment(deniedSite),
+		),
+		connect.NewRequest(&pb.GetCurtailmentResponseProfileRequest{ProfileId: 201}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	t.Parallel()
 
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.UpdateCurtailmentResponseProfile(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
 			ProfileId:   201,
 			ProfileName: "Updated",
@@ -192,6 +574,7 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 			},
 			RestoreBatchSize:        ptrUint32(40),
 			RestoreBatchIntervalSec: ptrUint32(0),
+			PostEventCooldownSec:    900,
 		}),
 	)
 
@@ -203,10 +586,258 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, float64(3000), profile.GetFixedKw().GetTargetKw())
 	assert.Equal(t, uint32(40), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(0), profile.GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(900), profile.GetPostEventCooldownSec())
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
+	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.updated.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.updated.FanRestoreDelaySec)
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+	assert.Equal(t, []int64{31}, store.updateExpectedFanSettings.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.updateExpectedFanSettings.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.updateExpectedFanSettings.FanRestoreDelaySec)
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileRequiresAccessToPreservedFacilityFans(t *testing.T) {
+	t.Parallel()
+
+	profileSiteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{
+			ID:                   201,
+			OrgID:                42,
+			ProfileName:          "Old",
+			SiteID:               &profileSiteID,
+			ScopeJSON:            siteScopeJSON(t, profileSiteID),
+			Mode:                 models.ModeFullFleet,
+			RestoreBatchSize:     50,
+			FacilityFanDeviceIDs: []int64{31},
+			FanOffDelaySec:       45,
+			FanRestoreDelaySec:   90,
+		},
+	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-fan-auth",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(8, authz.PermSiteRead),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:               201,
+			ProfileName:             "Updated",
+			Site:                    &pb.ScopeSite{SiteId: profileSiteID},
+			Mode:                    pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			RestoreBatchSize:        ptrUint32(50),
+			RestoreBatchIntervalSec: ptrUint32(0),
+		}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Nil(t, store.updated)
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileClearsFacilityFanSettingsWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
+	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:                  201,
+			ProfileName:                "Updated",
+			Site:                       &pb.ScopeSite{SiteId: siteID},
+			Mode:                       pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams:                 &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{FixedKw: &pb.FixedKwParams{TargetKw: 3000}},
+			ReplaceFacilityFanSettings: true,
+			RestoreBatchSize:           ptrUint32(40),
+			RestoreBatchIntervalSec:    ptrUint32(0),
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Empty(t, store.updated.FacilityFanDeviceIDs)
+	assert.Zero(t, store.updated.FanOffDelaySec)
+	assert.Zero(t, store.updated.FanRestoreDelaySec)
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *testing.T) {
+	t.Parallel()
+
+	const (
+		siteA = int64(7)
+		siteB = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(siteA, authz.PermCurtailmentManage),
+			testSiteAssignment(siteB, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated composite",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteA}}},
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteB}}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileRejectsOmittedScope(t *testing.T) {
+	t.Parallel()
+
+	const (
+		siteA = int64(7)
+		siteB = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-omitted-scope",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(siteA, authz.PermCurtailmentManage),
+			testSiteAssignment(siteB, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated composite",
+			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Nil(t, store.updated)
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileAllowsExplicitSiteClear(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated whole org",
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updated.SiteID)
+	assert.JSONEq(t, `{"whole_org":true}`, string(store.updated.ScopeJSON))
+	require.NotNil(t, store.updateExpectedSiteID)
+	assert.Equal(t, siteID, *store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *testing.T) {
+	t.Parallel()
+
+	const narrowedSite = int64(8)
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-clear-site",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(narrowedSite),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated whole org",
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.updated)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T) {
@@ -250,12 +881,13 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.DeleteCurtailmentResponseProfile(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.DeleteCurtailmentResponseProfileRequest{ProfileId: 201}),
 	)
 
@@ -263,6 +895,10 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, int64(201), store.deletedProfileID)
 	require.NotNil(t, store.deleteExpectedSiteID)
 	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.deleteExpectedScopeJSON))
+	assert.Equal(t, []int64{31}, store.deleteExpectedFanSettings.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.deleteExpectedFanSettings.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.deleteExpectedFanSettings.FanRestoreDelaySec)
 }
 
 func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
@@ -361,20 +997,55 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 	assert.True(t, store.created.ForceIncludeMaintenance)
 }
 
+func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.CreateCurtailmentResponseProfile(
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName:                 "All paired shed",
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			ForceIncludeAllPairedMiners: true,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.GetProfile())
+	require.NotNil(t, store.created)
+	assert.True(t, store.created.ForceIncludeAllPairedMiners)
+	assert.True(t, resp.Msg.GetProfile().GetForceIncludeAllPairedMiners())
+}
+
 type handlerResponseProfileStore struct {
-	siteBelongs          bool
-	siteCheckCount       int
-	created              *models.ResponseProfile
-	updated              *models.ResponseProfile
-	updateExpectedSiteID *int64
-	deletedProfileID     int64
-	deleteExpectedSiteID *int64
-	profiles             []*models.ResponseProfile
+	siteBelongs                   bool
+	siteCheckCount                int
+	created                       *models.ResponseProfile
+	createdDeviceSites            map[string]*int64
+	updated                       *models.ResponseProfile
+	updateExpectedSiteID          *int64
+	updateExpectedScopeJSON       []byte
+	updateExpectedFanSettings     models.ResponseProfileFanSettings
+	deletedProfileID              int64
+	deleteExpectedSiteID          *int64
+	deleteExpectedScopeJSON       []byte
+	deleteExpectedFanSettings     models.ResponseProfileFanSettings
+	profiles                      []*models.ResponseProfile
+	deviceSites                   map[string]*int64
+	infrastructureDevices         map[int64]models.ResponseProfileInfrastructureDevice
+	infrastructureDeviceListCalls int
+	createdInfrastructureDevices  map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
 	return &handlerResponseProfileStore{
-		siteBelongs: true,
+		siteBelongs:           true,
+		infrastructureDevices: map[int64]models.ResponseProfileInfrastructureDevice{},
 	}
 }
 
@@ -391,21 +1062,65 @@ func (s *handlerResponseProfileStore) GetResponseProfile(_ context.Context, _ in
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
 }
 
-func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (*handlerResponseProfileStore) ListCandidates(
+	context.Context,
+	interfaces.ListCandidatesParams,
+) ([]*models.Candidate, error) {
+	return nil, nil
+}
+
+func (s *handlerResponseProfileStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {
+	out := make(map[string]*int64, len(deviceIdentifiers))
+	for _, deviceIdentifier := range deviceIdentifiers {
+		siteID, ok := s.deviceSites[deviceIdentifier]
+		if !ok {
+			continue
+		}
+		out[deviceIdentifier] = cloneInt64Ptr(siteID)
+	}
+	return out, nil
+}
+
+func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_ context.Context, _ int64, deviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	s.infrastructureDeviceListCalls++
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		if device, ok := s.infrastructureDevices[deviceID]; ok {
+			out[deviceID] = device
+		}
+	}
+	return out, nil
+}
+
+func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
 	s.created = &profile
+	s.createdDeviceSites = expectedDeviceSites
+	s.createdInfrastructureDevices = expectedInfrastructureDevices
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[string]*int64, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
+	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.updateExpectedFanSettings = models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
+		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
+	}
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
 	s.deletedProfileID = profileID
 	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
+	s.deleteExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.deleteExpectedFanSettings = models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
+		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
+	}
 	return nil
 }
 
@@ -416,6 +1131,10 @@ func (*handlerResponseProfileStore) CountAutomationRulesByResponseProfile(contex
 func (s *handlerResponseProfileStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
 	s.siteCheckCount++
 	return s.siteBelongs, nil
+}
+
+func ptrHandlerInt64(v int64) *int64 {
+	return &v
 }
 
 func ptrFloat64(v float64) *float64 {

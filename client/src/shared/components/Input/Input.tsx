@@ -45,6 +45,14 @@ interface InputProps {
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
   onChangeBlur?: (value: string, id: string) => void;
+  // Rejects characters before they are displayed, for fields that accept only
+  // part of what a keyboard can produce (digits, say). It has to run here: this
+  // component owns the displayed value and only re-seeds it from `initValue`
+  // when that prop changes, so a caller sanitizing in `onChange` gets no
+  // re-sync when the sanitized result is unchanged — the rejected character
+  // stays on screen while the caller holds the clean value. Applied before both
+  // the internal update and `onChange`, so they never disagree.
+  sanitize?: (value: string) => string;
   onKeyDown?: (key: string) => void;
   readOnly?: boolean;
   testId?: string;
@@ -85,6 +93,7 @@ const Input = ({
   onChange,
   onChangeBlur,
   onKeyDown,
+  sanitize,
   readOnly,
   testId,
   tooltip,
@@ -152,11 +161,12 @@ const Input = ({
 
   const handleChange = useCallback(
     (event?: ChangeEvent<HTMLInputElement>) => {
-      const newValue = (event?.target as HTMLInputElement).value || "";
+      const raw = (event?.target as HTMLInputElement).value || "";
+      const newValue = sanitize ? sanitize(raw) : raw;
       setValue(newValue);
       onChange?.(newValue, id);
     },
-    [onChange, id],
+    [onChange, id, sanitize],
   );
 
   const handleKeyDown = useCallback(
@@ -183,7 +193,12 @@ const Input = ({
           id={id}
           data-testid={testId}
           className={clsx(
-            "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
+            // pointer-coarse:text-400 = 16px on touch devices. iOS auto-zooms a focused field
+            // whose font is under 16px and never zooms back out, leaving later views
+            // zoomed/overflowing. It's a WebKit behavior affecting every iOS browser (Safari,
+            // Chrome, Brave, ...) at any width/orientation — so target the coarse pointer, not a
+            // width breakpoint (which would miss landscape phones and iPads); desktop keeps 14px.
+            "peer w-full rounded-lg text-300 text-text-primary outline-hidden pointer-coarse:text-400",
             "transition duration-200 ease-in-out",
             { "bg-surface-base": !disabled },
             { "bg-core-primary-5": disabled },

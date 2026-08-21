@@ -39,6 +39,9 @@ func (f *fakeDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Context, _ 
 func (f *fakeDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, nil
 }
+func (f *fakeDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return nil, nil
+}
 
 type fakeTelemetryCollector struct {
 	metrics map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics
@@ -98,7 +101,8 @@ func TestHandler_GetSiteStats_plumbsResponse(t *testing.T) {
 	h := newStatsHandler(t)
 
 	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), int64(1)).Return(true, nil)
-	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
+	h.siteStore.EXPECT().CountBuildingsBySite(gomock.Any(), int64(7), int64(1)).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountRacksBySite(gomock.Any(), int64(7), int64(1)).Return(int64(2), nil)
 	h.deviceQueryer.deviceIDs = nil // empty short-circuit; telemetry never called
 
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteRead, authz.PermFleetRead)

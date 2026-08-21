@@ -35,14 +35,14 @@ export const GlobalActionsWidget = ({ onBlinkLEDs, onDownloadLogs }: GlobalActio
     <div className="relative" ref={WidgetRef}>
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
-        className="w-[28px] p-0 text-text-primary"
+        className="!h-8 !w-8 !p-0 text-text-primary"
         isOpen={isOpen}
         testId="global-actions-widget"
         ariaLabel="Global actions"
         ariaHasPopup="menu"
         ariaExpanded={isOpen}
       >
-        <Ellipsis width={iconSizes.small} className="m-1" />
+        <Ellipsis width={iconSizes.small} className="h-4 shrink-0" />
       </WidgetWrapper>
       {isOpen ? <GlobalActionsPopover onBlinkLEDs={handleBlinkButton} onDownloadLogs={handleDownloadButton} /> : null}
     </div>

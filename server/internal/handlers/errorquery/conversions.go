@@ -82,6 +82,8 @@ func convertFilterToDomain(filter *errorsv1.Filter) *models.QueryFilter {
 		domainFilter.DeviceIdentifiers = simple.GetDeviceIdentifiers()
 		domainFilter.DeviceTypes = simple.GetDeviceTypes()
 		domainFilter.ComponentIDs = simple.GetComponentIds()
+		domainFilter.SiteIDs = simple.GetSiteIds()
+		domainFilter.IncludeUnassigned = simple.GetIncludeUnassigned()
 
 		for _, ct := range simple.GetComponentTypes() {
 			domainFilter.ComponentTypes = append(domainFilter.ComponentTypes, convertComponentTypeProtoToDomain(ct))

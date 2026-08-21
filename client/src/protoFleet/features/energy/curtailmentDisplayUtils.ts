@@ -3,6 +3,7 @@ import {
   CurtailmentEventState as ProtoCurtailmentEventState,
   CurtailmentTargetState as ProtoCurtailmentTargetState,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 
 export const curtailmentEventStateConfigs = {
   pending: {
@@ -53,13 +54,7 @@ export const activeCurtailmentEventStates = [
 
 export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
 export type CurtailmentTargetState =
-  | "pending"
-  | "dispatched"
-  | "confirmed"
-  | "drifted"
-  | "resolved"
-  | "released"
-  | "restoreFailed";
+  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
 
 export interface CurtailmentTargetRollup {
   state: CurtailmentTargetState;
@@ -123,6 +118,41 @@ export interface ActiveCurtailmentMinerCompliance {
   totalCount: number;
 }
 
+// Curtail-phase dispatch progress derived from live rollups (issue #660).
+// "Reached" means the sleep command went out (sent or already confirmed);
+// confirmed is the stronger telemetry-backed signal. DRIFTED targets —
+// observed uncurtailed after confirmation, awaiting a successful redispatch —
+// count toward the denominator but never as reached, so under-curtailment is
+// never masked as progress during an SLA obligation. The dispatchable
+// denominator excludes unavailable targets (can't be commanded) and
+// released/resolved rows (no longer curtail-targeted), so events with
+// unavailable targets can still present as fully dispatched.
+//
+// `percent` is the operator-facing completion number: confirmed-based
+// (telemetry-verified curtailed share), matching the rendered summary and the
+// restore shape's percent. Issue #660 originally framed progress reached-based;
+// #670's design pass consolidated the display to confirmed vs a single
+// "Curtailing" bucket, so the confirmed share is the number that must never
+// overstate. Reached-based pacing signals stay available via reachedCount.
+//
+// Known precision bound: the server's wire rollup deliberately folds the
+// DISPATCHING pre-command transient into the `dispatched` bucket (see
+// populateEventTargets in server/internal/handlers/curtailment/translate.go),
+// so a just-claimed batch counts as sent for the sub-tick window between
+// claim and command send. The client cannot split the bucket, and counting
+// it as pending instead would understate progress for the far longer
+// sent-awaiting-confirmation phase.
+export interface ActiveCurtailmentCurtailProgress {
+  confirmedCount: number;
+  sentCount: number;
+  driftedCount: number;
+  pendingCount: number;
+  unavailableCount: number;
+  dispatchableCount: number;
+  reachedCount: number;
+  percent: number;
+}
+
 const activeCurtailmentEventStateSet = new Set<CurtailmentEventState>(activeCurtailmentEventStates);
 const countedTargetStates: CurtailmentTargetState[] = [
   "pending",
@@ -131,6 +161,7 @@ const countedTargetStates: CurtailmentTargetState[] = [
   "drifted",
   "resolved",
   "released",
+  "unavailable",
   "restoreFailed",
 ];
 const startedCurtailmentDispatchTargetStates: CurtailmentTargetState[] = [
@@ -163,6 +194,18 @@ function getSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
 
 function getMinerCountLabel(minerCount: number): string {
   return minerCount === 1 ? "miner" : "miners";
+}
+
+function getSiteCountLabel(siteCount: number): string {
+  return siteCount === 1 ? "site" : "sites";
+}
+
+function getScopeCountLabel(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+function formatCurtailmentScopeParts(parts: string[]): string {
+  return parts.length > 0 ? parts.join(" + ") : "Unknown scope";
 }
 
 export function isActiveCurtailmentEventState(state: CurtailmentEventState): state is ActiveCurtailmentEventState {
@@ -203,6 +246,8 @@ export function mapCurtailmentTargetState(state: ProtoCurtailmentTargetState): C
       return "resolved";
     case ProtoCurtailmentTargetState.RELEASED:
       return "released";
+    case ProtoCurtailmentTargetState.UNAVAILABLE:
+      return "unavailable";
     case ProtoCurtailmentTargetState.RESTORE_FAILED:
       return "restoreFailed";
     case ProtoCurtailmentTargetState.PENDING:
@@ -236,15 +281,34 @@ export function getCurtailmentTargetRollups(event: ProtoCurtailmentEvent): Curta
     { state: "drifted", count: rollup.drifted },
     { state: "resolved", count: rollup.resolved },
     { state: "released", count: rollup.released },
+    { state: "unavailable", count: rollup.unavailable },
     { state: "restoreFailed", count: rollup.restoreFailed },
   ];
 
   return rollups.filter((targetRollup) => targetRollup.count > 0);
 }
 
+// Audit-context count: prefers the event-start decision snapshot, so
+// history rows keep describing the original selection. Active surfaces
+// should use getCurtailmentEventLiveTargetCount instead.
 export function getCurtailmentEventSelectedMinerCount(event: ProtoCurtailmentEvent): number {
   const snapshotSelectedCount = getSnapshotNumber(event, selectedCountSnapshotKeys);
   return snapshotSelectedCount ?? event.targetRollup?.total ?? event.targets.length;
+}
+
+// Live operational count for active surfaces: the target rollup describes the
+// event's current target set, which closed-loop claims and all-paired policy
+// changes can grow far past the event-start snapshot count. When no rollup is
+// available the legacy fallbacks apply: hydrated target rows, then the
+// event-start snapshot count.
+export function getCurtailmentEventLiveTargetCount(event: ProtoCurtailmentEvent): number {
+  if (event.targetRollup) {
+    return event.targetRollup.total;
+  }
+  if (event.targets.length > 0) {
+    return event.targets.length;
+  }
+  return getSnapshotNumber(event, selectedCountSnapshotKeys) ?? 0;
 }
 
 export function getCurtailmentEventEstimatedReductionKw(event: ProtoCurtailmentEvent): number {
@@ -266,7 +330,10 @@ function getConfirmedTargetCount(event: ProtoCurtailmentEvent): number {
 }
 
 function getEstimatedObservedReductionKw(event: ProtoCurtailmentEvent, estimatedReductionKw: number): number {
-  const selectedCount = getCurtailmentEventSelectedMinerCount(event);
+  // The confirmed numerator is rollup-derived, so pair it with the live
+  // rollup total; a stale snapshot denominator would push progress past 100%
+  // once the live target set outgrows the event-start selection.
+  const selectedCount = getCurtailmentEventLiveTargetCount(event);
   if (selectedCount <= 0) {
     return 0;
   }
@@ -293,14 +360,69 @@ export function getCurtailmentEventObservedReductionKw(
     : getEstimatedObservedReductionKw(event, estimatedReductionKw);
 }
 
-export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent): string {
+export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, siteNameById?: SiteNameById): string {
+  if (event.scopes.length > 0) {
+    const siteLabelsById = new Map<string, string>();
+    const buildingIds = new Set<bigint>();
+    const rackIds = new Set<bigint>();
+    const groupIds = new Set<bigint>();
+    const deviceIdentifiers = new Set<string>();
+
+    for (const scope of event.scopes) {
+      switch (scope.scope.case) {
+        case "wholeOrg":
+          return "Whole fleet";
+        case "site": {
+          const siteId = scope.scope.value.siteId.toString();
+          siteLabelsById.set(siteId, getSiteDisplayName(siteId, siteNameById));
+          break;
+        }
+        case "building":
+          buildingIds.add(scope.scope.value.buildingId);
+          break;
+        case "rack":
+          rackIds.add(scope.scope.value.rackId);
+          break;
+        case "group":
+          groupIds.add(scope.scope.value.groupId);
+          break;
+        case "deviceIdentifiers":
+          scope.scope.value.deviceIdentifiers.forEach((deviceIdentifier) => deviceIdentifiers.add(deviceIdentifier));
+          break;
+        case undefined:
+          break;
+      }
+    }
+
+    const parts: string[] = [];
+    if (siteLabelsById.size === 1) {
+      parts.push([...siteLabelsById.values()][0]);
+    } else if (siteLabelsById.size > 1) {
+      parts.push(`${siteLabelsById.size.toLocaleString()} ${getSiteCountLabel(siteLabelsById.size)}`);
+    }
+
+    if (buildingIds.size > 0) {
+      parts.push(`${buildingIds.size.toLocaleString()} ${getScopeCountLabel(buildingIds.size, "building")}`);
+    }
+    if (rackIds.size > 0) {
+      parts.push(`${rackIds.size.toLocaleString()} ${getScopeCountLabel(rackIds.size, "rack")}`);
+    }
+    if (groupIds.size > 0) {
+      parts.push(`${groupIds.size.toLocaleString()} ${getScopeCountLabel(groupIds.size, "group")}`);
+    }
+
+    if (deviceIdentifiers.size > 0) {
+      parts.push(`${deviceIdentifiers.size.toLocaleString()} ${getMinerCountLabel(deviceIdentifiers.size)}`);
+    }
+
+    return formatCurtailmentScopeParts(parts);
+  }
+
   switch (event.scope.case) {
     case "wholeOrg":
       return "Whole fleet";
     case "site":
-      return `Site ${event.scope.value.siteId.toString()}`;
-    case "deviceSetIds":
-      return `${event.scope.value.deviceSetIds.length.toLocaleString()} device sets`;
+      return getSiteDisplayName(event.scope.value.siteId, siteNameById);
     case "deviceIdentifiers": {
       const count = event.scope.value.deviceIdentifiers.length;
       return `${count.toLocaleString()} ${getMinerCountLabel(count)}`;
@@ -323,7 +445,7 @@ export function getCurtailmentProgressPercent(value: number, total: number): num
 }
 
 export function getActiveCurtailmentRollupCount(
-  event: ActiveCurtailmentDisplayEvent,
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
   states: CurtailmentTargetState[],
 ): number {
   return event.rollups.reduce((total, rollup) => {
@@ -333,6 +455,94 @@ export function getActiveCurtailmentRollupCount(
 
     return total + rollup.count;
   }, 0);
+}
+
+const sentCurtailTargetStates: CurtailmentTargetState[] = ["dispatched"];
+const confirmedCurtailTargetStates: CurtailmentTargetState[] = ["confirmed"];
+const driftedCurtailTargetStates: CurtailmentTargetState[] = ["drifted"];
+const pendingCurtailTargetStates: CurtailmentTargetState[] = ["pending"];
+const unavailableCurtailTargetStates: CurtailmentTargetState[] = ["unavailable"];
+
+export function getActiveCurtailmentCurtailProgress(
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
+): ActiveCurtailmentCurtailProgress {
+  const confirmedCount = getActiveCurtailmentRollupCount(event, confirmedCurtailTargetStates);
+  const sentCount = getActiveCurtailmentRollupCount(event, sentCurtailTargetStates);
+  const driftedCount = getActiveCurtailmentRollupCount(event, driftedCurtailTargetStates);
+  const pendingCount = getActiveCurtailmentRollupCount(event, pendingCurtailTargetStates);
+  const unavailableCount = getActiveCurtailmentRollupCount(event, unavailableCurtailTargetStates);
+  const dispatchableCount = confirmedCount + sentCount + driftedCount + pendingCount;
+  const reachedCount = confirmedCount + sentCount;
+
+  return {
+    confirmedCount,
+    sentCount,
+    driftedCount,
+    pendingCount,
+    unavailableCount,
+    dispatchableCount,
+    reachedCount,
+    // Floor so 100% is only reported when every dispatchable target has
+    // confirmed; rounding 99.6% up would claim completion with targets pending.
+    percent: Math.floor(getCurtailmentProgressPercent(confirmedCount, dispatchableCount)),
+  };
+}
+
+// Restore-phase progress derived from live rollups: resolved and released
+// targets are back online; restore failures are terminal and reported
+// separately (they never count as restored); everything still curtailed or
+// in-flight is awaiting. The restorable denominator excludes unavailable
+// targets, mirroring the curtail-phase progress semantics.
+export interface ActiveCurtailmentRestoreProgress {
+  restoredCount: number;
+  failedCount: number;
+  awaitingCount: number;
+  unavailableCount: number;
+  restorableCount: number;
+  percent: number;
+}
+
+const awaitingRestoreTargetStates: CurtailmentTargetState[] = ["pending", "dispatched", "drifted", "confirmed"];
+
+export function getActiveCurtailmentRestoreProgress(
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
+): ActiveCurtailmentRestoreProgress {
+  const restoredCount = getActiveCurtailmentRollupCount(event, restoredTargetStates);
+  const failedCount = getActiveCurtailmentRollupCount(event, restoreFailedTargetStates);
+  const awaitingCount = getActiveCurtailmentRollupCount(event, awaitingRestoreTargetStates);
+  const unavailableCount = getActiveCurtailmentRollupCount(event, unavailableCurtailTargetStates);
+  const restorableCount = restoredCount + failedCount + awaitingCount;
+
+  return {
+    restoredCount,
+    failedCount,
+    awaitingCount,
+    unavailableCount,
+    restorableCount,
+    // Floored for the same reason as the curtail percent: never overstate
+    // completion on an SLA surface.
+    percent: Math.floor(getCurtailmentProgressPercent(restoredCount, restorableCount)),
+  };
+}
+
+// Compact duration for the SLA-facing elapsed readout ("3m 12s"); zero units
+// are omitted except the bare-seconds case.
+export function formatCurtailmentElapsedDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return "0s";
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours.toLocaleString()}h ${minutes}m` : `${hours.toLocaleString()}h`;
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  return `${seconds}s`;
 }
 
 export function getActiveCurtailmentMinerCompliance(
@@ -411,6 +621,24 @@ export function formatCurtailmentKw(value: number, fractionDigits = 1): string {
 
 export function formatCurtailmentMinerCount(minerCount: number): string {
   return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
+}
+
+function getFacilityFanDeviceCountLabel(deviceCount: number): string {
+  return deviceCount === 1 ? "device" : "devices";
+}
+
+export function formatCurtailmentFacilityFanCount(deviceCount: number): string {
+  return `${deviceCount.toLocaleString()} ${getFacilityFanDeviceCountLabel(deviceCount)}`;
+}
+
+export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFanDeviceCount = 0): string {
+  const parts = [formatCurtailmentMinerCount(minerCount)];
+
+  if (facilityFanDeviceCount > 0) {
+    parts.push(formatCurtailmentFacilityFanCount(facilityFanDeviceCount));
+  }
+
+  return parts.join(", ");
 }
 
 export function formatCurtailmentSelectedMinerCount(minerCount: number): string {

@@ -33,8 +33,6 @@ function createMockDevice(overrides: Partial<DeviceListItem> = {}): DeviceListIt
       manufacturer: "",
       temperatureStatus: 0,
       firmwareVersion: "",
-      groupLabels: [],
-      rackLabel: "",
       driverName: "",
       workerName: "",
     } as unknown as MinerStateSnapshot,

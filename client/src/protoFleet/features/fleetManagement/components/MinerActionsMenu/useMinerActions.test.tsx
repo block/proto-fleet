@@ -10,7 +10,10 @@ import {
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import {
+  CommandBatchUpdateStatus_CommandBatchUpdateStatusType,
+  PerformanceMode,
+} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
@@ -535,11 +538,15 @@ describe("useMinerActions", () => {
     const readSubsetIdsFromDirectSelector = (mockCall: any) =>
       mockCall[0].deviceSelector.selectionType.value.deviceIdentifiers;
 
-    const runConfirmFlow = (action: SupportedAction) => async (result: RenderHookResult) => {
+    const runPopoverAction = async (result: RenderHookResult, action: SupportedAction) => {
       const popoverAction = result.current.popoverActions.find((a) => a.action === action);
       await act(async () => {
         await popoverAction?.actionHandler();
       });
+    };
+
+    const runConfirmFlow = (action: SupportedAction) => async (result: RenderHookResult) => {
+      await runPopoverAction(result, action);
       await act(async () => {
         await result.current.handleConfirmation();
       });
@@ -586,12 +593,7 @@ describe("useMinerActions", () => {
         batchId: "batch-blink",
         deviceStatus: DeviceStatus.ONLINE,
         mock: mockBlinkLED,
-        dispatch: async (result) => {
-          const popoverAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
-          await act(async () => {
-            popoverAction?.actionHandler();
-          });
-        },
+        dispatch: (result) => runPopoverAction(result, deviceActions.blinkLEDs),
         getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("blinkLEDRequest"),
       },
       {
@@ -620,6 +622,7 @@ describe("useMinerActions", () => {
       mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
         onStreamData({
           status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED,
             commandBatchDeviceCount: {
               total: BigInt(successIds.length + failureIds.length),
               success: BigInt(successIds.length),
@@ -714,9 +717,76 @@ describe("useMinerActions", () => {
       expect(findRetryCall()).toBeUndefined();
     });
 
-    // L3: all-fail path goes through removeToast(originalToastId) (not update)
-    // before attaching Retry. This exercises that branch and confirms Retry is
-    // still offered (streamCompletedNormally is true when 0 + N === N).
+    it("keeps completed counts in progress until the stream reports FINISHED", async () => {
+      let capturedOnStreamData: ((resp: any) => void) | undefined;
+      let capturedAbortController: AbortController | undefined;
+      let streamSettled: Promise<void> | undefined;
+
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData, streamAbortController }: any) => {
+        capturedOnStreamData = onStreamData;
+        capturedAbortController = streamAbortController;
+        streamSettled = new Promise<void>((resolve) => {
+          streamAbortController.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return streamSettled;
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runPopoverAction(result, deviceActions.blinkLEDs);
+
+      const completeProgressUpdate = {
+        status: {
+          commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+          commandBatchDeviceCount: {
+            total: BigInt(2),
+            success: BigInt(2),
+            failure: BigInt(0),
+            successDeviceIdentifiers: ["device-1", "device-2"],
+            failureDeviceIdentifiers: [],
+          },
+        },
+      };
+
+      act(() => {
+        capturedOnStreamData?.(completeProgressUpdate);
+        capturedOnStreamData?.(completeProgressUpdate);
+      });
+
+      expect(capturedAbortController?.signal.aborted).toBe(false);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Blinked LEDs 2 out of 2 miners",
+          status: toaster.STATUSES.loading,
+        }),
+      );
+      const loadingProgressCalls = (toaster.updateToast as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call) => call[1]?.message === "Blinked LEDs 2 out of 2 miners" && call[1]?.status === toaster.STATUSES.loading,
+      );
+      expect(loadingProgressCalls).toHaveLength(1);
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-blink");
+
+      act(() => {
+        capturedOnStreamData?.({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(2),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1", "device-2"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await streamSettled;
+      });
+    });
+
     it("attaches Retry when all devices fail", async () => {
       stubActionSuccess(mockReboot, "batch-reboot");
       stubPartialFailureStream([], ["device-1", "device-2"]);
@@ -727,9 +797,6 @@ describe("useMinerActions", () => {
       expect(findRetryCall()).toBeDefined();
     });
 
-    // L2: verify the error toast is still pushed on premature termination,
-    // even though Retry is suppressed. A regression that accidentally
-    // suppressed the error toast would be caught here.
     it("does not attach Retry but still shows error toast when the batch stream ends prematurely", async () => {
       stubActionSuccess(mockReboot, "batch-reboot");
       mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
@@ -762,6 +829,41 @@ describe("useMinerActions", () => {
 
       expect(findRetryCall()).toBeUndefined();
       expect(toaster.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: toaster.STATUSES.error }));
+      expect(toaster.removeToast).toHaveBeenCalledWith(expect.any(Number));
+      expect(mockRemoveDevicesFromBatch).toHaveBeenCalledWith("batch-reboot", ["device-1"]);
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-reboot");
+    });
+
+    it("cleans up non-status-changing batches when the stream ends before FINISHED", async () => {
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runPopoverAction(result, deviceActions.blinkLEDs);
+
+      expect(findRetryCall()).toBeUndefined();
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Unable to confirm bulk action completion. Check miner status and try again.",
+          status: toaster.STATUSES.error,
+        }),
+      );
+      expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-blink");
     });
   });
 
@@ -787,6 +889,91 @@ describe("useMinerActions", () => {
       expect(result.current.showManagePowerModal).toBe(true);
       expect(result.current.currentAction).toBe(performanceActions.managePower);
       expect(onActionStart).toHaveBeenCalled();
+    });
+
+    it("ignores manage power capability continuations after cancel", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        result.current.handleCancel();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("ignores manage power capability continuations after another action starts", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        blinkAction?.actionHandler();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.blinkLEDs);
     });
 
     it("should handle manage power confirm and call API", async () => {
@@ -1117,6 +1304,7 @@ describe("useMinerActions", () => {
 
       expect(mockStartBatchOperation).toHaveBeenCalledWith(
         expect.objectContaining({
+          batchIdentifier: expect.stringMatching(/^unpair-/),
           action: deviceActions.unpair,
           deviceIdentifiers: ["device-1"],
         }),
@@ -1211,6 +1399,13 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      // Unpair deletes the full command-visible set so it matches the "All N"
+      // count — not the resolver's PAIRED-only default.
+      expect(selector.selectionType.value.pairingStatuses).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.AUTHENTICATION_NEEDED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
       expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
@@ -1253,6 +1448,102 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value).toBeDefined();
+    });
+
+    it("should send allMatchingFilter selector for a command in filtered 'all' mode", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        rackIds: [7n],
+        models: ["S19"],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockReboot).toHaveBeenCalled();
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allMatchingFilter");
+      expect(selector.selectionType.value.rackIds).toEqual([7n]);
+      expect(selector.selectionType.value.models).toEqual(["S19"]);
+    });
+
+    it("should send allMatchingFilter for a command when only a SitePicker site scope is active", async () => {
+      // Regression: the site scope lives in currentFilter (siteIds) but not in
+      // the URL filter params, so a command must still resolve the scoped set —
+      // not expand to the whole fleet.
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const siteScopedFilter = createProto(MinerListFilterSchema, { siteIds: [3n] });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          currentFilter: siteScopedFilter,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allMatchingFilter");
+      expect(selector.selectionType.value.siteIds).toEqual([3n]);
+    });
+
+    it("should send allDevices (whole fleet) for a command in unscoped 'all' mode", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          // No currentFilter — nothing scoped, so "all" means the whole fleet.
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockReboot).toHaveBeenCalled();
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
     });
 
     it("should use includeDevices selector in subset mode even with active filter", async () => {
@@ -2020,7 +2311,7 @@ describe("useMinerActions", () => {
       });
     };
 
-    it("should show auth-key-cleared message for single online paired Proto rig", () => {
+    it("should show unpaired message for single online paired Proto rig", () => {
       setStoreMiners([
         { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
       ]);
@@ -2035,7 +2326,7 @@ describe("useMinerActions", () => {
 
       const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
-        "This miner will be removed from your fleet and its auth key will be cleared.",
+        "This miner will be removed from your fleet and unpaired from Proto Fleet.",
       );
     });
 
@@ -2111,7 +2402,7 @@ describe("useMinerActions", () => {
       );
     });
 
-    it("should show auth-key-cleared message for multiple online paired Proto rigs", () => {
+    it("should show unpaired message for multiple online paired Proto rigs", () => {
       setStoreMiners([
         { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
         { id: "device-2", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
@@ -2130,7 +2421,7 @@ describe("useMinerActions", () => {
 
       const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
-        "These miners will be removed from your fleet and their auth keys will be cleared.",
+        "These miners will be removed from your fleet and unpaired from Proto Fleet.",
       );
     });
 
@@ -3769,9 +4060,14 @@ describe("useMinerActions", () => {
     });
 
     it("should show error toast and not open modal when selected miners have mixed models", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
       testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
         deviceIdentifier: "device-2",
+        manufacturer: "Proto",
         model: "Proto Rig",
       });
 
@@ -3798,7 +4094,7 @@ describe("useMinerActions", () => {
 
       expect(toaster.pushToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining("same model"),
+          message: expect.stringContaining("same manufacturer and model"),
           status: "error",
         }),
       );
@@ -3807,8 +4103,16 @@ describe("useMinerActions", () => {
     });
 
     it("should open modal when all selected miners have the same model", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
-      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
 
       const { result } = renderHook(() =>
         useMinerActions({
@@ -3828,6 +4132,121 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.showFirmwareUpdateModal).toBe(true);
+      expect(result.current.firmwareUpdateTarget).toEqual({ targetManufacturer: "Bitmain", targetModel: "S19" });
+    });
+
+    it("derives the firmware target from the capability-filtered selection", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Proto",
+        model: "Rig",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+
+      act(() => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(true);
+      expect(result.current.firmwareUpdateTarget).toEqual({ targetManufacturer: "Proto", targetModel: "Rig" });
+    });
+
+    it("does not open the modal for the same model from different manufacturers", async () => {
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Other",
+        model: "S19",
+      });
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(result.current.firmwareUpdateTarget).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("does not open the modal when a selected miner has an unknown target", async () => {
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "",
+        model: "S19",
+      });
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(result.current.firmwareUpdateTarget).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("manufacturer and model"), status: "error" }),
+      );
     });
   });
 });

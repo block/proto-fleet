@@ -36,7 +36,7 @@ WHERE ip.org_id = sqlc.arg('org_id')
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
   AND (sqlc.narg('cursor_id')::bigint IS NULL
        OR ip.id < sqlc.narg('cursor_id')::bigint)
-ORDER BY ip.name, ip.id
+ORDER BY ip.id DESC
 LIMIT sqlc.arg('limit_n')::int;
 
 -- name: UpdateInventoryPart :one

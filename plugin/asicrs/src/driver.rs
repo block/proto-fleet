@@ -413,6 +413,7 @@ impl Driver for DriverService {
                 manufacturer,
                 mac_address,
                 firmware_version,
+                default_password_active: None,
             }),
         }))
     }
@@ -569,6 +570,7 @@ impl Driver for DriverService {
                 manufacturer: fresh_manufacturer,
                 mac_address: fresh_mac,
                 firmware_version,
+                default_password_active: None,
             }),
         }))
     }
@@ -914,6 +916,15 @@ impl Driver for DriverService {
             .await
             .map_err(device_err_to_status)?;
         Ok(Response::new(()))
+    }
+
+    async fn apply_curtailment_config(
+        &self,
+        _req: Request<pb::ApplyCurtailmentConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "curtailment configuration not supported by asicrs",
+        ))
     }
 
     // --- Telemetry ---

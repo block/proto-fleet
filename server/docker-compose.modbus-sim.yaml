@@ -1,0 +1,17 @@
+services:
+  fleet-api:
+    environment:
+      INFRASTRUCTURE_OT_CONTROL_SUBNETS: "192.168.2.242/32"
+
+  modbus-sim:
+    build:
+      context: .
+      dockerfile: devtools/modbussim/Dockerfile
+    restart: unless-stopped
+    environment:
+      MODBUS_SIM_LISTEN_ADDRESS: ":5502"
+    ports:
+      - "127.0.0.1:5502:5502"
+    networks:
+      fleet-network:
+        ipv4_address: 192.168.2.242

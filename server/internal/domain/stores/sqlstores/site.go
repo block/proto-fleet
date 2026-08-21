@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -24,9 +26,17 @@ func NewSQLSiteStore(conn *sql.DB) *SQLSiteStore {
 }
 
 func (s *SQLSiteStore) CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error) {
+	if strings.TrimSpace(params.Slug) == "" {
+		usedSlugs, err := s.ListSiteSlugs(ctx, params.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		params.Slug = sitesdomain.GenerateSiteSlug(params.Name, usedSlugs)
+	}
 	row, err := s.GetQueries(ctx).CreateSite(ctx, sqlc.CreateSiteParams{
 		OrgID:           params.OrgID,
 		Name:            params.Name,
+		Slug:            params.Slug,
 		LocationCity:    emptyToNullString(params.LocationCity),
 		LocationState:   emptyToNullString(params.LocationState),
 		Timezone:        emptyToNullString(params.Timezone),
@@ -38,6 +48,9 @@ func (s *SQLSiteStore) CreateSite(ctx context.Context, params models.CreateSiteP
 		Notes:           emptyToNullString(params.Notes),
 	})
 	if err != nil {
+		if isUniqueViolationOn(err, "uk_site_org_slug") {
+			return nil, models.ErrSiteSlugCollision
+		}
 		if isUniqueViolation(err) {
 			return nil, fleeterror.NewPlainError("a site with this name already exists", connect.CodeAlreadyExists).WithCallerStackTrace()
 		}
@@ -59,6 +72,47 @@ func (s *SQLSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Si
 	return &out, nil
 }
 
+func (s *SQLSiteStore) GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error) {
+	value, err := s.GetQueries(ctx).GetInfrastructureControlSubnets(ctx, sqlc.GetInfrastructureControlSubnetsParams{
+		ID:    siteID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to get infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
+func (s *SQLSiteStore) SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error) {
+	value, err := s.GetQueries(ctx).SetInfrastructureControlSubnets(ctx, sqlc.SetInfrastructureControlSubnetsParams{
+		InfrastructureControlSubnets: canonical,
+		ID:                           siteID,
+		OrgID:                        orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to set infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
+func (s *SQLSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
+	row, err := s.GetQueries(ctx).GetSiteBySlug(ctx, sqlc.GetSiteBySlugParams{Slug: slug, OrgID: orgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("site %q not found", slug)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get site by slug: %v", err)
+	}
+	out := siteFromRow(row)
+	return &out, nil
+}
+
 func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error) {
 	rows, err := s.GetQueries(ctx).ListSites(ctx, orgID)
 	if err != nil {
@@ -71,6 +125,7 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 				ID:              row.ID,
 				OrgID:           row.OrgID,
 				Name:            row.Name,
+				Slug:            row.Slug,
 				LocationCity:    row.LocationCity.String,
 				LocationState:   row.LocationState.String,
 				Timezone:        row.Timezone.String,
@@ -83,18 +138,50 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 				CreatedAt:       row.CreatedAt,
 				UpdatedAt:       row.UpdatedAt,
 			},
-			DeviceCount:   row.DeviceCount,
-			BuildingCount: row.BuildingCount,
-			RackCount:     row.RackCount,
+			DeviceCount:               row.DeviceCount,
+			BuildingCount:             row.BuildingCount,
+			RackCount:                 row.RackCount,
+			InfrastructureDeviceCount: row.InfrastructureDeviceCount,
 		})
 	}
 	return out, nil
+}
+
+func (s *SQLSiteStore) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error) {
+	slugs, err := s.GetQueries(ctx).ListSiteSlugs(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list site slugs: %v", err)
+	}
+	return slugs, nil
+}
+
+func (s *SQLSiteStore) CountRacksBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountRacksBySite(ctx, sqlc.CountRacksBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count racks by site: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountBuildingsBySite(ctx, sqlc.CountBuildingsBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count buildings by site: %v", err)
+	}
+	return count, nil
 }
 
 func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error) {
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{
 		Name:            params.Name,
+		Slug:            params.Slug,
 		LocationCity:    emptyToNullString(params.LocationCity),
 		LocationState:   emptyToNullString(params.LocationState),
 		Timezone:        emptyToNullString(params.Timezone),
@@ -107,6 +194,9 @@ func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteP
 		ID:              params.ID,
 		OrgID:           params.OrgID,
 	}); err != nil {
+		if isUniqueViolationOn(err, "uk_site_org_slug") {
+			return nil, models.ErrSiteSlugCollision
+		}
 		if isUniqueViolation(err) {
 			return nil, fleeterror.NewPlainError("a site with this name already exists", connect.CodeAlreadyExists).WithCallerStackTrace()
 		}
@@ -135,14 +225,31 @@ func (s *SQLSiteStore) UnassignDevicesFromSite(ctx context.Context, orgID, siteI
 }
 
 func (s *SQLSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfilesBySite(ctx, sqlc.DeleteCurtailmentResponseProfilesBySiteParams{
+	row, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfilesBySite(ctx, sqlc.DeleteCurtailmentResponseProfilesBySiteParams{
 		OrgID:  orgID,
 		SiteID: zeroToNullInt64(siteID),
 	})
 	if err != nil {
+		if isForeignKeyViolationOn(err, "fk_curtailment_automation_rule_response_profile") {
+			return 0, fleeterror.NewFailedPreconditionError("site has curtailment response profiles referenced by automation rules")
+		}
 		return 0, fleeterror.NewInternalErrorf("failed to delete curtailment response profiles by site: %v", err)
 	}
-	return rowsAffected, nil
+	if row.BlockingRuleCount > 0 {
+		return 0, fleeterror.NewFailedPreconditionError("site has curtailment response profiles referenced by automation rules")
+	}
+	return row.DeletedCount, nil
+}
+
+func (s *SQLSiteStore) CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountCurtailmentResponseProfilesBySite(ctx, sqlc.CountCurtailmentResponseProfilesBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count curtailment response profiles by site: %v", err)
+	}
+	return count, nil
 }
 
 func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
@@ -154,6 +261,95 @@ func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, sit
 		return 0, fleeterror.NewInternalErrorf("failed to soft-delete buildings: %v", err)
 	}
 	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevicesBySite(ctx, sqlc.SoftDeleteInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to soft-delete infrastructure devices: %v", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockInfrastructureDevicesBySiteForWrite(ctx, sqlc.LockInfrastructureDevicesBySiteForWriteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site mutation: %v", err)
+	}
+	return ids, nil
+}
+
+func (s *SQLSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountInfrastructureDevicesBySite(ctx, sqlc.CountInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count infrastructure devices by site: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevices(ctx, sqlc.CountResponseProfilesByInfrastructureDevicesParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
 }
 
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {
@@ -184,6 +380,20 @@ func (s *SQLSiteStore) SiteBelongsToOrg(ctx context.Context, orgID, id int64) (b
 		return false, fleeterror.NewInternalErrorf("failed to check site ownership: %v", err)
 	}
 	return belongs, nil
+}
+
+func (s *SQLSiteStore) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).SitesByIDs(ctx, sqlc.SitesByIDsParams{
+		OrgID: orgID,
+		Ids:   ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up sites by ID: %v", err)
+	}
+	return rows, nil
 }
 
 func (s *SQLSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
@@ -223,7 +433,7 @@ func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, 
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to lock devices for reassign: %v", err)
+		return fleeterror.NewInternalErrorf("failed to lock devices for reassign: %w", err)
 	}
 	return nil
 }
@@ -240,6 +450,17 @@ func (s *SQLSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, tar
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*int64, error) {
+	rows, err := s.GetQueries(ctx).GetDistinctDeviceSiteIDs(ctx, sqlc.GetDistinctDeviceSiteIDsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to query distinct device site_ids: %v", err)
+	}
+	return nullInt64sToPtrs(rows), nil
+}
+
 func (s *SQLSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error) {
 	rows, err := s.GetQueries(ctx).FindDeviceSiteConflicts(ctx, sqlc.FindDeviceSiteConflictsParams{
 		OrgID:             orgID,
@@ -253,6 +474,17 @@ func (s *SQLSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64,
 		out[r.DeviceIdentifier] = r.ConflictingSiteID
 	}
 	return out, nil
+}
+
+func (s *SQLSiteStore) FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesInSiteLessRacks(ctx, sqlc.FindDevicesInSiteLessRacksParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices in site-less racks: %v", err)
+	}
+	return rows, nil
 }
 
 func (s *SQLSiteStore) ListExistingDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
@@ -285,6 +517,24 @@ func (s *SQLSiteStore) AssignBuildingToSite(ctx context.Context, orgID, building
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) AssignBuildingsToSiteBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).AssignBuildingsToSiteBulk(ctx, sqlc.AssignBuildingsToSiteBulkParams{
+		SiteID:      ptrToNullInt64(targetSiteID),
+		BuildingIds: buildingIDs,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return 0, fleeterror.NewPlainError("a building with this name already exists in the target site", connect.CodeAlreadyExists).WithCallerStackTrace()
+		}
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-assign buildings to site: %w", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).ReassignRacksUnderBuilding(ctx, sqlc.ReassignRacksUnderBuildingParams{
 		TargetSiteID: ptrToNullInt64(targetSiteID),
@@ -297,6 +547,21 @@ func (s *SQLSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, bu
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).ReassignRacksUnderBuildingsBulk(ctx, sqlc.ReassignRacksUnderBuildingsBulkParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign racks under buildings: %w", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) ReassignDevicesUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).ReassignDevicesUnderBuilding(ctx, sqlc.ReassignDevicesUnderBuildingParams{
 		TargetSiteID: ptrToNullInt64(targetSiteID),
@@ -305,6 +570,21 @@ func (s *SQLSiteStore) ReassignDevicesUnderBuilding(ctx context.Context, orgID, 
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to reassign devices under building: %v", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) ReassignDevicesUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).ReassignDevicesUnderBuildingsBulk(ctx, sqlc.ReassignDevicesUnderBuildingsBulkParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign devices under buildings: %w", err)
 	}
 	return rowsAffected, nil
 }
@@ -333,6 +613,7 @@ func siteFromRow(row sqlc.Site) models.Site {
 		ID:              row.ID,
 		OrgID:           row.OrgID,
 		Name:            row.Name,
+		Slug:            row.Slug,
 		LocationCity:    row.LocationCity.String,
 		LocationState:   row.LocationState.String,
 		Timezone:        row.Timezone.String,

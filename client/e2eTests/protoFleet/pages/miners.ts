@@ -42,6 +42,35 @@ export class MinersPage extends BasePage {
       .toBeGreaterThanOrEqual(minerCount);
   }
 
+  async waitForMinersPageContentToLoad() {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const emptyState = this.page.getByText("You haven't paired any miners", { exact: true });
+    const getStartedButton = this.page.getByRole("button", { name: "Get started", exact: true });
+    const addMinersButton = this.page.getByRole("button", { name: "Add miners", exact: true });
+    const getReadyState = async () => {
+      if ((await rows.count()) > 0) {
+        return "rows";
+      }
+      if (await emptyState.isVisible().catch(() => false)) {
+        return "empty";
+      }
+      if (await getStartedButton.isVisible().catch(() => false)) {
+        return "get-started";
+      }
+      if (await addMinersButton.isVisible().catch(() => false)) {
+        return "add-miners";
+      }
+      return "loading";
+    };
+
+    await expect.poll(getReadyState, { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] }).not.toBe("loading");
+
+    const readyState = await getReadyState();
+    if (readyState === "rows") {
+      await this.waitForMinersListToLoad();
+    }
+  }
+
   private async openAddFilterPopover() {
     await this.page.getByTestId("filter-nested-filters-meta").click();
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
@@ -201,6 +230,31 @@ export class MinersPage extends BasePage {
     await expect(columnLocator).toHaveText(expectedValue);
   }
 
+  async waitForMinerValue(
+    ipAddress: string,
+    columnTestId: string,
+    expectedValue: string,
+    timeout: number = DEFAULT_TIMEOUT,
+  ) {
+    await this.waitForColumnValuesToLoad(columnTestId);
+
+    await expect
+      .poll(async () => await this.getMinerColumnText(ipAddress, columnTestId), {
+        timeout,
+        message: `Expected miner ${ipAddress} column ${columnTestId} to become ${expectedValue}.`,
+      })
+      .toBe(expectedValue);
+  }
+
+  async getMinerColumnText(ipAddress: string, columnTestId: string): Promise<string> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    const text = await minerRow
+      .getByTestId(columnTestId)
+      .textContent()
+      .catch(() => null);
+    return text?.trim() ?? "";
+  }
+
   async validateMinerIcon(minerIp: string, columnTestId: string, iconId: IssueIconId) {
     const minerRow = await this.getMinerRowByIp(minerIp);
     const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
@@ -243,15 +297,58 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
+  async clickBulkActionsMoreButton() {
+    await this.getActionBar()
+      .getByRole("button", { name: this.isMobile ? "Actions" : "More", exact: true })
+      .click();
+    await expect(this.getBulkActionsPopover()).toBeVisible();
+  }
+
+  private singleMinerActionsPopover(): Locator {
+    return this.page
+      .locator(
+        '[data-testid="single-miner-actions-popover-popover"], [data-testid="single-miner-actions-popover-popover-sheet"]',
+      )
+      .first();
+  }
+
+  getSingleMinerActionsPopover(): Locator {
+    return this.singleMinerActionsPopover();
+  }
+
+  getBulkActionsPopover(): Locator {
+    return this.page
+      .locator('[data-testid="actions-menu-popover"], [data-testid="actions-menu-popover-sheet"]')
+      .first();
+  }
+
+  getActionBar(): Locator {
+    return this.page.getByTestId("action-bar");
+  }
+
   async clickBlinkLEDsButton() {
+    const singleMinerAction = this.singleMinerActionsPopover().getByTestId("blink-leds-popover-button");
+    if (await singleMinerAction.isVisible().catch(() => false)) {
+      await singleMinerAction.click();
+      return;
+    }
+
     const quickAction = this.page.getByTestId("actions-menu-quick-action-blink-leds");
     if (await quickAction.isVisible().catch(() => false)) {
       await quickAction.click();
       return;
     }
 
-    await this.clickActionsMenuButton();
-    await this.page.getByText("Blink LEDs", { exact: true }).click();
+    if (await this.tryAction(() => this.page.getByText("Blink LEDs", { exact: true }).click(), 2000)) {
+      return;
+    }
+
+    if (await this.tryAction(() => this.clickActionsMenuButton(), 2000)) {
+      await this.page.getByText("Blink LEDs", { exact: true }).click();
+      return;
+    }
+
+    throw new Error("Could not find a visible Blink LEDs action in the current miner actions UI.");
   }
 
   async validateActionBarMinerCount(expectedCount: number) {
@@ -261,6 +358,16 @@ export class MinersPage extends BasePage {
     } else {
       await expect(this.page.getByTestId("action-bar").getByText(`${expectedCount} miners selected`)).toBeVisible();
     }
+  }
+
+  async getSelectedMinersCount(): Promise<number> {
+    await expect(this.page.getByTestId("action-bar")).toBeVisible();
+    const text = (await this.page.getByTestId("action-bar").textContent()) ?? "";
+    const match = text.match(/(\d+) miners? selected/);
+    if (!match) {
+      throw new Error(`Could not find selected miner count in action bar text: ${text}`);
+    }
+    return Number(match[1]);
   }
 
   async clickRebootButton() {
@@ -301,6 +408,59 @@ export class MinersPage extends BasePage {
 
   async clickManagePowerConfirm() {
     await this.clickIn("Confirm", "modal");
+  }
+
+  async cancelSingleMinerConfirmationDialog() {
+    const dialog = this.page.getByTestId("single-miner-actions-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  }
+
+  async dismissSingleMinerActionsPopoverIfVisible() {
+    const popover = this.singleMinerActionsPopover();
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const mobileSheet = this.page.getByTestId("single-miner-actions-popover-popover-sheet");
+    if (await mobileSheet.isVisible().catch(() => false)) {
+      await mobileSheet.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(8, 8);
+    }
+
+    await expect(popover).toBeHidden();
+  }
+
+  async dismissBulkActionsPopoverIfVisible() {
+    const popover = this.getBulkActionsPopover();
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const mobileSheet = this.page.getByTestId("actions-menu-popover-sheet");
+    if (await mobileSheet.isVisible().catch(() => false)) {
+      await mobileSheet.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(8, 8);
+    }
+
+    await expect(popover).toBeHidden();
   }
 
   async clickEditMiningPoolButton() {
@@ -374,7 +534,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickBulkWorkerNameSave() {
-    await this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible').click();
+    await this.bulkWorkerNameSaveButton().click();
   }
 
   async validateBulkWorkerNameModalOpened() {
@@ -382,7 +542,7 @@ export class MinersPage extends BasePage {
   }
 
   async validateBulkWorkerNameSaveLabel(expectedLabel: string) {
-    await expect(this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible')).toHaveText(expectedLabel);
+    await expect(this.bulkWorkerNameSaveButton()).toHaveText(expectedLabel);
   }
 
   async closeBulkWorkerNameModal() {
@@ -408,7 +568,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickManageSecurityUpdateButton() {
-    await this.page.getByRole("button", { name: "Update", exact: true }).click();
+    await this.page.getByRole("button", { name: "Update", exact: true }).first().click();
   }
 
   async closeManageSecurityModal() {
@@ -721,7 +881,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickBulkRenameSave() {
-    await this.page.getByTestId("bulk-rename-save-button").filter({ visible: true }).click();
+    await this.bulkRenameSaveButton().click();
   }
 
   async selectBulkRenameSeparator(separatorId: string) {
@@ -836,6 +996,30 @@ export class MinersPage extends BasePage {
     return await row.getByTestId("name").innerText();
   }
 
+  async getVisibleMinerSummaries(count: number): Promise<
+    Array<{
+      name: string;
+      ipAddress: string;
+    }>
+  > {
+    await this.waitForMinersListToLoad();
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+    expect(rowCount).toBeGreaterThanOrEqual(count);
+
+    const summaries: Array<{ name: string; ipAddress: string }> = [];
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      summaries.push({
+        name: (await row.getByTestId("name").innerText()).trim(),
+        ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+      });
+    }
+
+    return summaries;
+  }
+
   async getMinerNames(): Promise<string[]> {
     const nameElements = this.page.getByTestId("list-body").locator("tr").getByTestId("name");
     const names = await nameElements.allInnerTexts();
@@ -870,7 +1054,7 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async validateAllMinersStatus(status: string, expected: boolean = true) {
+  async validateAllMinersStatus(status: string, expected: boolean = true, timeoutMs: number = PROLONGED_TIMEOUT) {
     await this.waitForColumnValuesToLoad("status");
     // To avoid miner actions hiding some valuable data in screenshots
     await this.uncheckSelectAllCheckbox();
@@ -882,18 +1066,18 @@ export class MinersPage extends BasePage {
       const statusLocator = rows.nth(i).locator(`//td[@data-testid='status']`);
       if (expected) {
         await expect(statusLocator).toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       } else {
         await expect(statusLocator).not.toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       }
     }
   }
 
-  async validateNoMinerWithStatus(status: string) {
-    await this.validateAllMinersStatus(status, false);
+  async validateNoMinerWithStatus(status: string, timeoutMs?: number) {
+    await this.validateAllMinersStatus(status, false, timeoutMs);
   }
 
   async validateAllMinersStatusSettled(status: string) {
@@ -1010,8 +1194,53 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: PROLONGED_TIMEOUT });
   }
 
+  async validateActionableMinersIssues(issue: string, expected: boolean = true, expectedCount?: number) {
+    await expect(async () => {
+      try {
+        await this.waitForColumnValuesToLoad("status");
+        await this.uncheckSelectAllCheckbox();
+        const rows = this.page.getByTestId("list-body").locator("tr");
+        const rowCount = await rows.count();
+        let actionableCount = 0;
+
+        for (let i = rowCount - 1; i >= 0; i--) {
+          const row = rows.nth(i);
+          await row.scrollIntoViewIfNeeded();
+          const checkbox = row.locator('input[type="checkbox"]').first();
+          if (await checkbox.isDisabled()) {
+            continue;
+          }
+
+          actionableCount++;
+          const issuesLocator = row.locator(`//td[@data-testid='issues']`);
+
+          if (expected) {
+            await expect(issuesLocator).toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          } else {
+            await expect(issuesLocator).not.toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          }
+        }
+
+        if (expectedCount !== undefined) {
+          expect(actionableCount).toBe(expectedCount);
+        }
+      } catch (error) {
+        await this.reloadPage();
+        throw error;
+      }
+    }).toPass({ timeout: PROLONGED_TIMEOUT });
+  }
+
   async validateNoMinerWithIssue(issue: string) {
     await this.validateAllMinersIssues(issue, false);
+  }
+
+  async validateNoActionableMinerWithIssue(issue: string, expectedCount?: number) {
+    await this.validateActionableMinersIssues(issue, false, expectedCount);
   }
 
   private async waitForColumnValuesToLoad(columnTestId: string) {
@@ -1068,35 +1297,6 @@ export class MinersPage extends BasePage {
     await this.validateTemperatureUnit("°C");
   }
 
-  async validateActiveFilter(filterLabel: string) {
-    // Match the chip's editable summary button only — the outer chip wrapper also carries
-    // an `active-filter-*` testid, which would otherwise resolve two elements with the
-    // same text and trip Playwright's strict mode.
-    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
-      hasText: filterLabel,
-    });
-    await expect(activeFilterButton).toBeVisible();
-  }
-
-  async validateActiveFilterSummary(filterValue: string, expectedSummary: string) {
-    await expect(this.page.getByTestId(`active-filter-${filterValue}-edit`)).toHaveText(expectedSummary);
-  }
-
-  async validateActiveFilterNotVisible(filterLabel: string) {
-    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
-      hasText: filterLabel,
-    });
-    await expect(activeFilterButton).toHaveCount(0);
-  }
-
-  async clickClearAllFilters() {
-    await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
-  }
-
-  async clearActiveFilter(filterValue: string) {
-    await this.page.getByTestId(`active-filter-${filterValue}-clear`).click();
-  }
-
   async validateNoResultsEmptyState() {
     await this.page.getByText("No results", { exact: true }).waitFor();
     await expect(this.page.getByText("No results", { exact: true })).toBeVisible();
@@ -1128,6 +1328,12 @@ export class MinersPage extends BasePage {
     const rows = this.page.getByTestId("list-body").locator("tr");
     const row = rows.nth(index);
     return await row.getByTestId("ipAddress").innerText();
+  }
+
+  async openMinerRow(ipAddress: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await minerRow.scrollIntoViewIfNeeded();
+    await minerRow.getByTestId("name").click();
   }
 
   async getMinerIpAddressByStatus(status: string): Promise<string> {
@@ -1169,6 +1375,73 @@ export class MinersPage extends BasePage {
     return await row.getByTestId("ipAddress").innerText();
   }
 
+  async getSelectableProtoRigIpAddresses(count: number): Promise<string[]> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const selectableProtoRigRows = allRows
+      .filter({ has: this.page.getByTestId("name").getByText(PROTO_RIG_DISPLAY_NAME, { exact: true }) })
+      .filter({ has: this.page.locator('input[type="checkbox"]:not([disabled])') });
+
+    const protoRigCount = await selectableProtoRigRows.count();
+    if (protoRigCount < count) {
+      throw new Error(`Only ${protoRigCount} selectable Proto Rig miners available, cannot collect ${count}.`);
+    }
+
+    const minerIps: string[] = [];
+    for (let i = 0; i < count; i++) {
+      minerIps.push((await selectableProtoRigRows.nth(i).getByTestId("ipAddress").innerText()).trim());
+    }
+
+    return minerIps;
+  }
+
+  async openSingleMinerActionsForFirstProtoRig(): Promise<string> {
+    const [minerIp] = await this.getSelectableProtoRigIpAddresses(1);
+    const minerRow = await this.getMinerRowByIp(minerIp);
+    await minerRow.scrollIntoViewIfNeeded();
+    await minerRow.getByTestId("single-miner-actions-menu-button").click();
+    await expect(this.singleMinerActionsPopover()).toBeVisible();
+    return minerIp;
+  }
+
+  async selectProtoRigMiners(count: number): Promise<string[]> {
+    const minerIps = await this.getSelectableProtoRigIpAddresses(count);
+    for (const minerIp of minerIps) {
+      await this.clickMinerCheckbox(minerIp);
+    }
+    return minerIps;
+  }
+
+  async openSingleMinerActionsForAuthenticatedMinerWithAction(actionTestId: string): Promise<string> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+    const authenticatedCount = await authenticatedRows.count();
+    const checkedMinerIps: string[] = [];
+
+    for (let i = 0; i < authenticatedCount; i++) {
+      const row = authenticatedRows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+
+      const minerIp = (await row.getByTestId("ipAddress").innerText()).trim();
+      checkedMinerIps.push(minerIp);
+
+      await row.getByTestId("single-miner-actions-menu-button").click();
+      const popover = this.singleMinerActionsPopover();
+      await expect(popover).toBeVisible();
+
+      if ((await popover.getByTestId(actionTestId).count()) > 0) {
+        return minerIp;
+      }
+
+      await this.dismissSingleMinerActionsPopoverIfVisible();
+    }
+
+    throw new Error(
+      `No authenticated miner exposed action "${actionTestId}". Checked miners: ${checkedMinerIps.join(", ") || "none"}`,
+    );
+  }
+
   async validateMinerNotPresent(ipAddress: string) {
     const minerRow = this.page.getByTestId(`ipAddress`).getByText(ipAddress, { exact: true });
     await expect(minerRow).toBeHidden();
@@ -1182,91 +1455,14 @@ export class MinersPage extends BasePage {
     await this.clickButton("Get started");
   }
 
-  async clickNewSavedViewButton() {
-    await this.page.getByTestId("views-bar-new-view-button").click();
+  private bulkWorkerNameSaveButton(): Locator {
+    return this.page.getByTestId(
+      this.isMobile ? "bulk-worker-name-save-button-mobile" : "bulk-worker-name-save-button",
+    );
   }
 
-  async validateViewModalOpened(title: "New view" | "Update view") {
-    const modal = this.page.getByTestId("view-modal");
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText(title);
-  }
-
-  async inputViewName(name: string) {
-    await this.page.locator("#view-name").fill(name);
-  }
-
-  async saveNewView() {
-    await this.page.getByTestId("view-modal").getByRole("button", { name: "Save", exact: true }).click();
-    await expect(this.page.getByTestId("view-modal")).toBeHidden();
-  }
-
-  async updateSavedView() {
-    await this.page.getByTestId("view-modal").getByRole("button", { name: "Update", exact: true }).click();
-    await expect(this.page.getByTestId("view-modal")).toBeHidden();
-  }
-
-  private getViewTabs(viewName: string) {
-    return this.page
-      .getByTestId("views-bar")
-      .locator('[data-testid^="views-bar-tab-"]')
-      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) });
-  }
-
-  private getViewTab(viewName: string) {
-    return this.getViewTabs(viewName).first();
-  }
-
-  async validateViewTabVisible(viewName: string) {
-    await expect(this.getViewTab(viewName)).toBeVisible();
-  }
-
-  async validateViewTabActive(viewName: string) {
-    await expect(this.getViewTab(viewName)).toHaveAttribute("data-active", "true");
-  }
-
-  async clickViewTab(viewName: string) {
-    await this.getViewTab(viewName).getByRole("button", { name: viewName, exact: true }).click();
-  }
-
-  async openViewTabKebab(viewName: string) {
-    await this.getViewTab(viewName).getByLabel(`Actions for ${viewName}`, { exact: true }).click();
-  }
-
-  async clickResetViewAction(viewName: string) {
-    await this.openViewTabKebab(viewName);
-    await this.page.getByText("Reset view", { exact: true }).click();
-  }
-
-  async clickUpdateViewAction(viewName: string) {
-    await this.openViewTabKebab(viewName);
-    await this.page.getByText("Update view", { exact: true }).click();
-  }
-
-  async clickRenameViewAction(viewName: string) {
-    await this.openViewTabKebab(viewName);
-    await this.page.getByText("Rename", { exact: true }).click();
-  }
-
-  async clickDeleteViewAction(viewName: string) {
-    await this.openViewTabKebab(viewName);
-    await this.page.getByText("Delete", { exact: true }).click();
-  }
-
-  async validateViewTabNotVisible(viewName: string) {
-    await expect(this.getViewTabs(viewName)).toHaveCount(0);
-  }
-
-  async validateDeleteViewDialogOpened(viewName: string) {
-    const dialog = this.page.getByTestId("views-bar-delete-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(`Delete the view "${viewName}"? This can't be undone.`);
-  }
-
-  async confirmDeleteView() {
-    const dialog = this.page.getByTestId("views-bar-delete-dialog");
-    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-    await expect(dialog).toBeHidden();
+  private bulkRenameSaveButton(): Locator {
+    return this.page.getByTestId(this.isMobile ? "bulk-rename-save-button-mobile" : "bulk-rename-save-button");
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {
@@ -1307,5 +1503,14 @@ export class MinersPage extends BasePage {
 
   async clickCloseStatusModal() {
     await this.clickIn("Done", "modal");
+  }
+
+  async validateSingleMinerActionsHidden(testIds: string[]) {
+    const popover = this.singleMinerActionsPopover();
+    await expect(popover).toBeVisible();
+
+    for (const testId of testIds) {
+      await expect(popover.getByTestId(testId), `Expected action "${testId}" to be hidden.`).toHaveCount(0);
+    }
   }
 }

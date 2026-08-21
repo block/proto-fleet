@@ -22,10 +22,14 @@ The `install.sh` script sets up the Proto Fleet server components.
 ### Proto Fleet Installation Options
 
 ```bash
-Usage: install.sh [VERSION]
+Usage: install.sh [options] [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
+Options:
+  --install-dir PATH       Use PATH without prompting.
+  --non-interactive        Fail instead of prompting; for an existing install
+                           with a complete deployment .env.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -38,7 +42,8 @@ Examples:
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 
 # Install a specific version
-bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+VERSION=v0.2.10-rc.2
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSION/install.sh") "$VERSION"
 
 # Install the latest nightly prerelease (installer is fetched from the resolved
 # nightly release asset, not from the mutable nightly-channel branch)
@@ -49,9 +54,188 @@ bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSI
 The script will:
 
 - Check system compatibility (page size)
-- Download and extract the specified version
-- Preserve existing configuration files if present
+- Download the specified version and verify its published SHA-256 checksum
+- Extract the release and preserve existing configuration files
+- On Linux/systemd with rootful Docker, install the host updater used for
+  in-product one-click upgrades
 - Run the deployment script automatically
+
+## Resetting the SUPER_ADMIN password
+
+If the sole SUPER_ADMIN is locked out, run this from the installed standalone
+`deployment` directory:
+
+```bash
+./reset-super-admin-password.sh
+```
+
+On an HA database host (`ha-a` or `ha-b`), run the same wrapper with the
+installed HA deployment user's permissions:
+
+```bash
+sudo /opt/proto-fleet/deployment/reset-super-admin-password.sh
+```
+
+The wrapper selects the installed standalone or HA Compose profile. With no
+flags it generates and prints a temporary password on the host after the reset
+succeeds; the credential is never written to container logs. Standalone
+recovery verifies that the selected Docker context or `DOCKER_HOST` identifies
+the same daemon used to run the installation. The reset revokes existing
+sessions and requires a password change at next login.
+To supply the temporary password through a pipeline instead:
+
+```bash
+printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
+```
+
+Supplied passwords must be valid UTF-8, contain at least 8 characters, and use
+no more than 72 bytes; the success message does not echo them. The command
+refuses to choose an account if the database contains zero or multiple live
+SUPER_ADMIN users. It rejects all other options and fails closed if both
+standalone and HA installation state appear active.
+
+## One-click upgrades
+
+After one manual install of a release that includes the host updater,
+permission-holding operators can upgrade an eligible stable or release
+candidate from the ProtoFleet update prompt. The confirmation explains the
+restart window and adds a no-downgrade warning for release candidates.
+
+The updater runs as `proto-fleet-updater.service`, outside the Docker Compose
+stack it restarts. Fleet API talks to it over
+`/run/proto-fleet-updater/updater.sock`; the application container is never
+given the host Docker socket. Before stopping Fleet, the updater:
+
+1. downloads the target bundle and its checksum over HTTPS;
+2. verifies the SHA-256 digest and safely extracts the archive;
+3. preserves `.env`, the Docker-daemon identity marker, `ssl/`, and
+   `server/influx_config/.env`;
+4. builds and validates the staged deployment with Fleet still running.
+
+Only then does it swap the staged deployment into place and restart the stack.
+The previous deployment remains at `<install-root>/deployment.previous` for
+operator inspection. Automatic rollback is deliberately disabled because
+database migrations are forward-only.
+
+The checksum sidecar detects transfer corruption and binds the expected asset
+name to its digest. Because the bundle and sidecar share the same GitHub
+Release origin, GitHub remains the publisher trust anchor; independent release
+signing is intentionally outside this phase.
+
+One-click upgrades are enabled on Linux hosts with systemd and rootful Docker,
+including WSL distributions configured with systemd. macOS, rootless Docker,
+and Linux hosts without systemd continue to show the exact manual upgrade
+command.
+
+### Failure recovery
+
+The client shows the terminal error, host log path, and a recovery command
+when Fleet is reachable. The same durable details remain on the host:
+
+```text
+/var/lib/proto-fleet-updater/state.json
+/var/lib/proto-fleet-updater/logs/<operation-id>.log
+```
+
+Inspect the service and latest operation with:
+
+```bash
+sudo systemctl status proto-fleet-updater.service
+sudo journalctl -u proto-fleet-updater.service
+sudo cat /var/lib/proto-fleet-updater/state.json
+```
+
+If activation failed, run the `recovery_command` from `state.json` as root.
+Do not replace the active deployment with `deployment.previous` after
+migrations may have started; an older binary may be incompatible with the
+newer schema.
+
+## Optional Virtual Miners
+
+Deployment bundles include the virtual miner plugin for stress testing, but it
+is disabled by default and is not loaded during a regular fleet install. To
+enable it, set `ENABLE_VIRTUAL_MINERS=true` in the deployment `.env` file and
+rerun `./run-fleet.sh`.
+
+The bundled `server/virtual-plugin.json` generates 1000 miners by default in
+the `10.255.x.x` range; discover them from ProtoFleet with IP List discovery
+starting at `10.255.0.2`.
+
+For larger curtailment stress tests, add generation overrides to `.env`:
+
+```bash
+ENABLE_VIRTUAL_MINERS=true
+VIRTUAL_MINER_COUNT=5000
+VIRTUAL_MINER_IP_START=10.255.0.2
+VIRTUAL_MINER_SERIAL_PREFIX=VM
+VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT=10
+```
+
+Virtual miners simulate both network latency and miner processing latency. The
+default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
+Generation is capped at 50,000 virtual miners per plugin process.
+
+## Facility Infrastructure Control
+
+Direct Modbus TCP writes are disabled unless the deployment and the target
+site independently authorize the endpoint. Set the deployment-controlled
+positive allowlist in `.env` as comma-separated private CIDRs or host
+prefixes:
+
+```bash
+INFRASTRUCTURE_OT_CONTROL_SUBNETS=10.40.12.0/24,10.52.7.18/32
+```
+
+An ADMIN or SUPER_ADMIN with org-wide `site:manage` must separately commission
+the target site's allowlist through
+`SiteService.SetInfrastructureControlSubnets`. Site-scoped grants are
+insufficient. The endpoint must be in both lists. Empty deployment or site
+configuration fails closed.
+
+Application allowlists do not replace OT network controls. Before enabling a
+site, restrict Modbus TCP routing with default-deny firewall rules so only the
+Proto Fleet server can reach the commissioned drive/PLC addresses and port.
+
+## Host Profiles
+
+The installer tunes the database and poller for the host hardware via a
+profile, chosen once during an interactive `./run-fleet.sh` run and stored as
+`FLEET_PROFILE` in the deployment `.env`:
+
+- `standard` (default): Raspberry Pi 5 class host, 16GB RAM with SSD; up to
+  ~5000 miners
+- `mini`: low-power or SD-card host, <=4GB RAM; up to ~200 miners
+- `max`: dedicated server, 32GB+ RAM, 8+ cores, NVMe; 5000+ miners with
+  maximum performance and durability
+
+Non-interactive installs skip the prompt and keep conservative defaults; set
+the profile directly in `.env` and rerun:
+
+```bash
+FLEET_PROFILE=standard
+```
+
+The full key list and per-value rationale live in `profiles/*.env`. Any single
+key set in `.env` overrides the profile value (operator values win). Remove
+the `FLEET_PROFILE` line to return to the untuned defaults. Because profiles
+only apply through `run-fleet.sh`'s env-file layering, always restart the
+stack with `./run-fleet.sh` rather than a bare `docker compose up`, which
+would recreate the containers untuned.
+
+## Database Connection Override
+
+By default, fleet-api builds its PostgreSQL connection from `DB_USERNAME`,
+`DB_PASSWORD`, `DB_NAME`, `DB_ADDRESS`, and `DB_SSL_MODE`. Advanced deployments
+can set `DB_DSN` to provide the full PostgreSQL connection string instead. When
+the final database DSN contains multiple hosts, it must include
+`target_session_attrs=read-write` so fleet-api targets the current writable
+database endpoint.
+
+`DB_DSN` only overrides fleet-api's database connection. The bundled beta
+Grafana alerts datasource still points at `timescaledb:5432` and uses
+`GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`; HA deployments that enable the
+alerts stack must update Grafana's datasource target separately so alerts read
+from the same database topology as fleet-api.
 
 ## Uninstalling Proto Fleet
 
@@ -91,9 +275,9 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
 
-## Notifications
+## Alerts
 
-The notifications deployment runs an extra grafana service:
+The alerts deployment runs an extra grafana service:
 
 | Service   | Image (pinned)                        | Purpose                                                                       |
 | --------- | ------------------------------------- | ----------------------------------------------------------------------------- |
@@ -102,25 +286,25 @@ The notifications deployment runs an extra grafana service:
 ### Network topology
 
 Grafana runs on a private docker bridge network called `monitoring`.
-The UI is bound to `127.0.0.1:3000` so operators on the box can reach
+The UI is bound to `127.0.0.1:3030` so operators on the box can reach
 it without exposing the dashboard to the LAN. Grafana reaches
 `fleet-api` (host-networked) via the docker host gateway for outbound
 webhook deliveries, and TimescaleDB on the standard fleet network for
 queries.
 
-### Enabling the notifications stack
+### Enabling the alerts stack
 
-The notifications sidecar is a beta feature and is **off by default**.
+The alerts sidecar is a beta feature and is **off by default**.
 It lives in a separate compose file,
-`docker-compose.notifications.yaml`, that `run-fleet.sh` layers in via
-a second `-f` flag when the `--enable-beta-notifications` flag is
-passed. To run a fleet with the beta notifications stack:
+`docker-compose.alerts.yaml`, that `run-fleet.sh` layers in via
+a second `-f` flag when the `--enable-beta-alerts` flag is
+passed. To run a fleet with the beta alerts stack:
 
 ```bash
-./run-fleet.sh --enable-beta-notifications
+./run-fleet.sh --enable-beta-alerts
 ```
 
-On the first run with notifications enabled, `run-fleet.sh` rotates the
+On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
 PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
@@ -147,3 +331,218 @@ The configs live under `server/monitoring/grafana/`:
   `/internal/alertmanager-webhook` endpoint.
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
+
+### When "Metric Ingest Stalled" fires
+
+The rule reads the `fleet_telemetry_poll_heartbeat` continuous aggregate,
+not the raw samples. That aggregate is `materialized_only` and carries its
+own retention policy, so if its refresh policy job stops, retention keeps
+deleting buckets until the aggregate is empty and the rule fires for every
+pollable organization while ingest is perfectly healthy.
+
+So the alert firing does not by itself mean ingest died. Check the raw
+samples first — this is the discriminator:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT organization_id, max(time) AS newest,
+       round(extract(epoch from now() - max(time))) AS staleness_seconds
+  FROM notification_metric_sample
+ WHERE metric = 'fleet_telemetry_poll_total'
+   AND time > now() - INTERVAL '15 minutes'
+ GROUP BY organization_id;
+SQL
+```
+
+If the newest raw sample is also stale, the stall is real: check fleet-api
+and its metrics writer (`docker logs … | grep 'metrics:'`). If raw samples
+are landing fine, the aggregate is the problem — check its refresh policy:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT s.job_id, s.job_status, s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.job_stats s
+  JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+ WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+   AND j.hypertable_name IN (
+       SELECT ca.view_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+       UNION ALL
+       SELECT ca.materialization_hypertable_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat');
+SQL
+```
+
+The `proc_name` filter excludes the aggregate's retention policy, which is
+also registered against the same hypertable; matching the materialization
+hypertable name too covers the TimescaleDB versions that label a refresh
+policy that way rather than by view name.
+
+A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
+confirms it. Resume the job with the `job_id` from above and backfill enough
+buckets to clear the alert:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT alter_job(<job_id>, scheduled => true);
+CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat',
+                                  now() - INTERVAL '2 hours',
+                                  now() - INTERVAL '1 minute');
+SQL
+```
+
+Keep this on psql's default autocommit — `refresh_continuous_aggregate()`
+cannot run inside a transaction block, so adding `--single-transaction` (or
+wrapping the statements in `BEGIN`) fails with that error.
+
+### Enabling system monitoring
+
+Host system monitoring is **off by default** and requires the alerts
+stack, since it reuses the same metrics pipeline, Grafana rule engine,
+and notification channels:
+
+```bash
+./run-fleet.sh --enable-beta-alerts --enable-system-monitoring
+```
+
+(or set `ENABLE_BETA_ALERTS=true` and `ENABLE_SYSTEM_MONITORING=true`
+in `.env` so upgrades keep it on).
+
+This layers in `docker-compose.system-monitoring.yaml`, which:
+
+- starts an in-process collector in fleet-api that samples host CPU,
+  memory, and disk usage every 30 seconds into
+  `notification_metric_sample`;
+- mounts an empty sentinel volume **read-only** at `/hostfs` inside
+  fleet-api. With the default local volume driver all named volumes
+  share one backing filesystem, so the disk gauge reports the disk
+  holding the TimescaleDB data (the one that filling up takes fleet
+  down) without exposing any database files. To watch a different
+  filesystem, change the mount source in
+  `docker-compose.system-monitoring.yaml`;
+- provisions the `proto-fleet-system` alert rules (Host CPU High,
+  Host Memory High, Host Disk Space Low, Fleet Heartbeat Stale). They
+  deliver to each organization's configured alert channels like any
+  other rule, and can be paused per-org from the alerts settings page;
+- provisions a "System Monitoring" Grafana dashboard with host gauges
+  and slow-query tables backed by `pg_stat_statements`, read through a
+  narrow `fleet_slow_statements()` definer function so the Grafana role
+  sees this database's normalized statement stats without cluster-wide
+  statistics privileges.
+
+If fleet-api itself goes down, Grafana keeps evaluating the heartbeat
+rule but can only deliver the notification once fleet-api is back; use
+the Grafana UI at `127.0.0.1:3030` during an outage.
+
+Disabling the feature removes the alert rules on the next start (via a
+provisioned tombstone) but leaves the System Monitoring dashboard in
+Grafana; delete it from the UI if it bothers you. fleet-api also
+serves `GET /health/ready` (200 only when Fleet is active and its
+database answers a ping) for external uptime monitors, alongside the
+always-static liveness check at `GET /health`.
+
+## Client Observability
+
+The ProtoFleet web client ships a vendor-neutral observability layer: a
+provider registry (`client/src/shared/observability/`) that stays a
+complete no-op until a provider is configured. **Datadog RUM** is the
+first and currently the only bundled provider; the registry has a seam
+for adding others (e.g. PostHog, Sentry) without touching the entry
+point, API transport, or error boundary. See the **Observability**
+section in [`client/README.md`](../client/README.md) for the provider
+model and how to add one.
+
+This section documents the operator-facing config for each provider.
+
+### Datadog RUM
+
+Forwards Real User Monitoring (RUM) data to your own Datadog org. It is
+**off by default** and is a complete no-op unless the two required keys
+are set — the client runs unchanged with no SDK side effects when they
+are absent.
+
+Configuration is read at container start, so you can enable it on a
+prebuilt client image without rebuilding: set the `DD_*` variables in the
+deployment `.env` file and rerun `./run-fleet.sh`. The client's nginx
+image renders them into `config.js` when the container starts.
+
+```dotenv
+# Required to enable (both must be set)
+DD_APPLICATION_ID=your-datadog-rum-application-id
+DD_CLIENT_TOKEN=your-datadog-rum-client-token
+
+# Optional
+DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
+DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
+DD_ENV=prod-site1              # environment tag; use prod-<site> so per-site data stays separable (default: build env)
+DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
+DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
+DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
+```
+
+`DD_CLIENT_TOKEN` is a public browser RUM client token, not a secret
+Datadog API key.
+
+When enabled, RUM captures page/session data, forwards React render
+errors, and injects distributed-tracing headers on same-origin
+`/api-proxy` calls. Session Replay is off by default and masks all
+text/inputs when enabled. Data goes only to the Datadog org identified by
+your keys.
+
+## Server Tracing (Datadog APM)
+
+Request tracing on fleet-api is **off by default**. It lives in a
+separate compose file, `docker-compose.tracing.yaml`, that
+`run-fleet.sh` layers in when the `--enable-tracing` flag is passed
+(or `ENABLE_TRACING=true` is set in `.env`). The overlay starts an
+OpenTelemetry collector sidecar and forwards fleet-api request spans
+to Datadog APM:
+
+```bash
+./run-fleet.sh --enable-tracing
+```
+
+```dotenv
+# Required (run-fleet.sh refuses to start without it when tracing is on)
+DD_API_KEY=your-datadog-api-key
+
+# Optional
+DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
+DD_ENV=prod-site1                # APM environment tag; use prod-<site> to match the RUM config (default: production)
+DD_HOSTNAME=fleet-host-1         # host tag on spans (default: this machine's hostname)
+FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
+FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
+```
+
+`DD_HOSTNAME` is stamped onto spans as `host.name`. Without it the Datadog
+exporter infers a hostname from inside the collector container, so traces
+hang off a host that nothing else reports. `run-fleet.sh` defaults it to the
+output of `hostname` and writes that value to `.env`; if you also run a
+Datadog Agent on this machine for host metrics or logs, set `DD_HOSTNAME` to
+the hostname that agent reports (its `DD_HOSTNAME`, or `datadog-agent
+hostname`) so APM traces and infra data resolve to the same host. Matching
+`DD_ENV` across the agent, this overlay, and the RUM config is what joins
+infra, APM, and RUM. The overlay itself treats `DD_HOSTNAME` as required, so
+driving `docker compose` with `docker-compose.tracing.yaml` by hand needs it
+set in `.env` or the shell.
+
+Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
+it stays in `.env` (mode 0600) and the collector container's
+environment.
+
+With `FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true` (this overlay's
+default), fleet-api parents its request spans to the `traceparent`
+header Datadog RUM injects on `/api-proxy` calls, so RUM sessions link
+to their APM traces. Trusting that header means any client on the LAN
+can influence tracing of its own requests: a not-sampled flag is
+honored (an unsampled RUM trace records no server span), sampled
+requests are still capped by `FLEET_TELEMETRY_SAMPLE_RATE`, and trace
+IDs are client-chosen. Set
+`FLEET_TELEMETRY_TRUST_INCOMING_TRACES=false` to ignore client trace
+context; spans then start fresh traces that reference the client
+context as a link only.

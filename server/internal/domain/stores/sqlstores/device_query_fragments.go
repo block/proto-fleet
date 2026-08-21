@@ -20,6 +20,16 @@ import (
 // or the actual pairing status for paired devices.
 const pairingStatusExpr = "CASE WHEN device.id IS NOT NULL THEN COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END"
 
+const embeddedWebViewAvailableExpr = `(
+    device.id IS NOT NULL
+    AND COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND discovered_device.driver_name = 'proto'
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = device.id AND fnd.org_id = device.org_id
+    )
+)`
+
 // minerSelectColumns contains the common SELECT columns for miner state queries.
 const minerSelectColumns = `SELECT
     discovered_device.device_identifier,
@@ -41,7 +51,10 @@ const minerSelectColumns = `SELECT
     discovered_device.driver_name,
     device.custom_name,
     device.site_id,
-    COALESCE(site.name, '') as site_label`
+    COALESCE(site.name, '') as site_label,
+    device.building_id,
+    COALESCE(building.name, '') as building_label,
+    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
@@ -59,7 +72,10 @@ LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
 LEFT JOIN site ON site.id = device.site_id
     AND site.org_id = $1
-    AND site.deleted_at IS NULL`
+    AND site.deleted_at IS NULL
+LEFT JOIN building ON building.id = device.building_id
+    AND building.org_id = $1
+    AND building.deleted_at IS NULL`
 
 // minerWhereClause constrains results to the org's active, non-deleted devices.
 // Parameter: $1 = org_id
@@ -90,7 +106,7 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 const (
 	actionableErrorSeverityList      = "(1, 2, 3, 4)"
 	actionableErrorComponentTypeList = "(1, 2, 3, 4)"
-	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED')"
+	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
 	actionableErrorSeverities        = "errors.severity IN " + actionableErrorSeverityList
 )
 

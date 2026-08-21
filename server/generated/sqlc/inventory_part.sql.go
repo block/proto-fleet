@@ -219,7 +219,7 @@ WHERE ip.org_id = $1
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
   AND ($5::bigint IS NULL
        OR ip.id < $5::bigint)
-ORDER BY ip.name, ip.id
+ORDER BY ip.id DESC
 LIMIT $6::int
 `
 

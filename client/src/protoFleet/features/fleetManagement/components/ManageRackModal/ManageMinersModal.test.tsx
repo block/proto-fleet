@@ -9,6 +9,8 @@ const mockGetSelection = vi.fn(() => ({
   selectedItems: [] as string[],
   allSelected: false,
   totalMiners: 0,
+  reassignedItems: [] as string[],
+  blockedByFilter: false,
 }));
 
 vi.mock("@/protoFleet/components/MinerSelectionList", () => ({
@@ -32,7 +34,7 @@ vi.mock("@/shared/components/Modal", () => ({
       <div data-testid="modal">
         {children}
         {buttons?.map((btn: any, i: number) => (
-          <button key={i} onClick={btn.onClick}>
+          <button key={i} onClick={btn.onClick} disabled={Boolean(btn.disabled || btn.loading)}>
             {btn.text}
           </button>
         ))}
@@ -52,7 +54,8 @@ vi.mock("@/shared/assets/icons", () => ({
 const defaultProps = {
   show: true,
   currentRackMiners: [] as string[],
-  currentRackLabel: "Rack-01",
+  eligibility: { rackId: 1n, siteId: 10n, buildingId: 100n },
+  targetRackLabel: "Rack 1",
   maxSlots: 25,
   onDismiss: vi.fn(),
   onConfirm: vi.fn(),
@@ -69,15 +72,25 @@ describe("ManageMinersModal", () => {
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
   });
 
-  it("renders MinerSelectionList with correct filter config", () => {
-    render(<ManageMinersModal {...defaultProps} />);
+  it("hides the Site facet and forwards the header site scope when scope is provided", () => {
+    const scope = { siteIds: [7n], includeUnassigned: true };
+    render(<ManageMinersModal {...defaultProps} scope={scope} />);
 
     expect(screen.getByTestId("miner-selection-list")).toBeInTheDocument();
+    expect(latestProps.current.scope).toEqual(scope);
     expect(latestProps.current.filterConfig).toEqual({
       showTypeFilter: true,
-      showRackFilter: false,
-      showGroupFilter: false,
+      showSubnetFilter: true,
+      showSiteFilter: false,
+      showBuildingFilter: true,
+      showRackFilter: true,
+      showGroupFilter: true,
     });
+  });
+
+  it("keeps the Site facet when no scope is provided (avoids stranding on the full org)", () => {
+    render(<ManageMinersModal {...defaultProps} />);
+    expect(latestProps.current.filterConfig.showSiteFilter).toBe(true);
   });
 
   it("passes currentRackMiners as initialSelectedItems", () => {
@@ -85,27 +98,25 @@ describe("ManageMinersModal", () => {
     expect(latestProps.current.initialSelectedItems).toEqual(["miner-1", "miner-2"]);
   });
 
-  it("disables miners in other racks via isRowDisabled", () => {
-    render(<ManageMinersModal {...defaultProps} currentRackLabel="Rack-01" />);
-
-    const isRowDisabled = latestProps.current.isRowDisabled;
-    expect(isRowDisabled({ rackLabel: "Other-Rack", deviceIdentifier: "m1" })).toBe(true);
-    expect(isRowDisabled({ rackLabel: "Rack-01", deviceIdentifier: "m2" })).toBe(false);
-    expect(isRowDisabled({ rackLabel: "", deviceIdentifier: "m3" })).toBe(false);
+  it("passes the target rack eligibility to the selection list", () => {
+    render(<ManageMinersModal {...defaultProps} eligibility={{ rackId: 5n, siteId: 2n, buildingId: 3n }} />);
+    expect(latestProps.current.eligibility).toEqual({ rackId: 5n, siteId: 2n, buildingId: 3n });
   });
 
-  it("calls onConfirm with selected IDs on continue", () => {
+  it("calls onConfirm with selected IDs on save", () => {
     const onConfirm = vi.fn();
     mockGetSelection.mockReturnValue({
       selectedItems: ["miner-1", "miner-2"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
-    expect(onConfirm).toHaveBeenCalledWith(["miner-1", "miner-2"], false, undefined);
+    expect(onConfirm).toHaveBeenCalledWith(["miner-1", "miner-2"], false, undefined, []);
   });
 
   it("shows overflow error when selection exceeds maxSlots", () => {
@@ -113,10 +124,12 @@ describe("ManageMinersModal", () => {
       selectedItems: ["m1", "m2", "m3"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     expect(screen.getByText(/Cannot add 3 miners with only 2 available slots/)).toBeInTheDocument();
   });
@@ -127,11 +140,80 @@ describe("ManageMinersModal", () => {
       selectedItems: ["m1", "m2", "m3"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("blocks Save and prompts to clear the filter when a placement facet conflicts", () => {
+    const onConfirm = vi.fn();
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["m1", "m2"],
+      allSelected: true,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: true,
+    });
+
+    render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByText(/Save/));
+
+    // No save (which would otherwise resolve/commit a hidden selection).
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText(/Clear the Building or Rack filter/i)).toBeInTheDocument();
+  });
+
+  it("closes without a write when the selection still matches the rack's members", () => {
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["miner-1"],
+      allSelected: false,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
+    });
+
+    const onConfirm = vi.fn();
+    const onDismiss = vi.fn();
+    const { unmount } = render(
+      <ManageMinersModal
+        {...defaultProps}
+        currentRackMiners={["miner-1"]}
+        onConfirm={onConfirm}
+        onDismiss={onDismiss}
+      />,
+    );
+    // Reviewing the list and keeping it as-is is a legitimate outcome, so Save
+    // closes — but it must not report a membership change it didn't make.
+    fireEvent.click(screen.getByText(/Save/));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    unmount();
+
+    // Same count, different miner — a real membership change, so it commits.
+    render(<ManageMinersModal {...defaultProps} currentRackMiners={["miner-2"]} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByText(/Save/));
+    expect(onConfirm).toHaveBeenCalledWith(["miner-1"], false, undefined, []);
+  });
+
+  it("treats select-all as a change, since it resolves server-side", () => {
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["miner-1"],
+      allSelected: true,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
+    });
+
+    const onConfirm = vi.fn();
+    render(<ManageMinersModal {...defaultProps} currentRackMiners={["miner-1"]} onConfirm={onConfirm} />);
+    // The selection resolves server-side, so it can't be compared here — it
+    // commits even though the local ids match the rack's members.
+    fireEvent.click(screen.getByText(/Save/));
+    expect(onConfirm).toHaveBeenCalledWith(["miner-1"], true, undefined, []);
   });
 });

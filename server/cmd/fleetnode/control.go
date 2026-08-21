@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
@@ -42,10 +44,13 @@ const (
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
-	// commandPoolSize bounds quick per-miner commands handled concurrently per
-	// session. Discovery does not draw from this pool; it has its own exclusive,
-	// single-flight slot (see runControlSession). Commands past the ceiling are
-	// acked BUSY.
+	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
+	// make the ack itself invalid.
+	maxAckPayloadBytes = 1 << 20
+	// commandPoolSize bounds quick per-miner commands handled concurrently by
+	// the daemon across reconnects. Discovery does not draw from this pool; it
+	// has its own process-wide exclusive slot (see runControlSession). Commands
+	// past the ceiling are acked BUSY.
 	commandPoolSize = 16
 )
 
@@ -67,18 +72,36 @@ type acker interface {
 	Send(req *pb.ControlStreamRequest) error
 }
 
+var errControlSenderClosed = errors.New("control session sender closed")
+
+var (
+	errControlSessionRotated = errors.New("control session credentials rotated")
+	errControlSessionExpired = errors.New("control session credentials expired")
+)
+
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
 // serialize through this wrapper.
 type lockedAcker struct {
-	mu    sync.Mutex
-	inner acker
+	mu     sync.Mutex
+	inner  acker
+	closed atomic.Bool
 }
 
 func (l *lockedAcker) Send(req *pb.ControlStreamRequest) error {
+	if l.closed.Load() {
+		return errControlSenderClosed
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed.Load() {
+		return errControlSenderClosed
+	}
 	return l.inner.Send(req)
+}
+
+func (l *lockedAcker) Close() {
+	l.closed.Store(true)
 }
 
 type endpoint struct{ ip, port string }
@@ -95,6 +118,7 @@ func cmdErr(code pb.AckCode, format string, args ...any) *commandError {
 }
 
 func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, logger *slog.Logger) error {
+	r.initControlConcurrency()
 	loopLogger := logger.With("fleet_node_id", st.FleetNodeID)
 	backoff := controlReconnectInitial
 	// Per-loop rng so tests don't race on math/rand's global source.
@@ -106,7 +130,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 		default:
 		}
 		started := time.Now()
-		err := r.runControlSession(ctx, loopLogger, client)
+		err := r.runControlSession(ctx, loopLogger, client, st)
 		if err == nil {
 			return nil
 		}
@@ -118,10 +142,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			loopLogger.Info("control stream unimplemented by server; running heartbeat-only", "err", err)
 			return nil
 		}
-		if time.Since(started) > stableSessionThreshold {
-			backoff = controlReconnectInitial
-		}
-		sleep := min(backoff+time.Duration(rng.Int63n(int64(backoff/2)+1)), controlReconnectMax)
+		sleep, nextBackoff := controlReconnectDelay(err, time.Since(started), backoff, rng)
 		loopLogger.Warn("control stream disconnected; will reconnect", "backoff", sleep.String(), "err", err)
 		timer := time.NewTimer(sleep)
 		select {
@@ -130,12 +151,50 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			return nil
 		case <-timer.C:
 		}
-		backoff = min(backoff*2, controlReconnectMax)
+		backoff = nextBackoff
 	}
 }
 
-func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient) error {
-	stream := client.ControlStream(ctx)
+func controlReconnectDelay(err error, sessionDuration, backoff time.Duration, rng *rand.Rand) (time.Duration, time.Duration) {
+	if isNotActiveControlError(err) {
+		return jitterControlReconnect(controlReconnectInitial, rng), controlReconnectInitial
+	}
+	if sessionDuration > stableSessionThreshold {
+		backoff = controlReconnectInitial
+	}
+	return jitterControlReconnect(backoff, rng), min(backoff*2, controlReconnectMax)
+}
+
+func jitterControlReconnect(backoff time.Duration, rng *rand.Rand) time.Duration {
+	return min(backoff+time.Duration(rng.Int63n(int64(backoff/2)+1)), controlReconnectMax)
+}
+
+func isNotActiveControlError(err error) bool {
+	if connect.CodeOf(err) != connect.CodeUnavailable {
+		return false
+	}
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	for _, detail := range connectErr.Details() {
+		value, valueErr := detail.Value()
+		if valueErr != nil {
+			continue
+		}
+		fleetDetails, ok := value.(*commonpb.FleetErrorDetails)
+		if ok && fleetDetails.GetCommon() == commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient, st *bootstrap.State) error {
+	r.initControlConcurrency()
+	credentialCtx, endSession := r.beginControlSession(ctx, st)
+	defer endSession()
+	stream := client.ControlStream(credentialCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -145,7 +204,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-ctx.Done():
+		case <-credentialCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
@@ -153,10 +212,22 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while sending hello: %w", cause)
+		}
 		return fmt.Errorf("send hello: %w", err)
 	}
 	first, err := stream.Receive()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
+		}
 		return fmt.Errorf("await accepted: %w", err)
 	}
 	if first.GetAccepted() == nil {
@@ -167,35 +238,34 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(ctx)
-	defer cancelSession()
+	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
+	defer func() {
+		cancelSession()
+		sender.Close()
+	}()
 
-	// Two lanes per session:
-	//   - discovery (and the pairing effort's future pair) is a heavy, report-bearing
-	//     scan; it is single-flight per node via an exclusive slot, so a second
-	//     concurrent discovery is rejected BUSY rather than doubling the scan load.
+	// Two process-wide lanes owned by RunCmd:
+	//   - discovery and pairing are heavy, report-bearing scans that share an
+	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
+	//     doubling the load.
 	//   - quick per-miner commands use a broader pool, so they run concurrently and a
 	//     long discovery never head-of-line-blocks them.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
-	discoverySlot := make(chan struct{}, 1)
-	cmdSem := make(chan struct{}, commandPoolSize)
-	var wg sync.WaitGroup
-	defer func() {
-		cancelSession() // cancel every in-flight handler's ctx
-		wg.Wait()       // drain: handlers ack or abort fast on the cancelled ctx
-	}()
-
 	for {
 		msg, err := stream.Receive()
 		if err != nil {
-			// Watcher closed the stream because ctx is done; clean shutdown.
+			// Parent cancellation is daemon shutdown. Credential rotation or expiry
+			// retires only this stream so the reconnect loop can open a replacement.
 			if ctx.Err() != nil {
 				return nil
+			}
+			if cause := context.Cause(credentialCtx); cause != nil {
+				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return fmt.Errorf("control stream closed by server: %w", err)
@@ -210,17 +280,17 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		slot := cmdSem
+		slot := r.controlCommandSlots
 		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
-			slot = discoverySlot
+			slot = r.controlDiscoverySlot
 		}
 		select {
 		case slot <- struct{}{}:
-			wg.Add(1)
+			r.controlWorkers.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments,
 			// including the acquired lane, so each goroutine releases the same lane.
-			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error, lane chan struct{}) {
-				defer wg.Done()
+			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
+				defer r.controlWorkers.Done()
 				defer func() { <-lane }()
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
 			}(cmd, env, parseErr, slot)
@@ -231,20 +301,42 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}
 }
 
+func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
+	r.stateMu.Lock()
+	expiresAt := st.SessionExpiresAt
+
+	deadlineCtx := parent
+	cancelDeadline := func() {}
+	if !expiresAt.IsZero() {
+		deadlineCtx, cancelDeadline = context.WithDeadlineCause(parent, expiresAt, errControlSessionExpired)
+	}
+	sessionCtx, cancelSession := context.WithCancelCause(deadlineCtx)
+	r.controlSessionCancel = cancelSession
+	r.stateMu.Unlock()
+
+	return sessionCtx, func() {
+		cancelSession(context.Canceled)
+		cancelDeadline()
+		r.stateMu.Lock()
+		r.controlSessionCancel = nil
+		r.stateMu.Unlock()
+	}
+}
+
 // decodeAgentCommand unmarshals the ControlCommand.payload envelope. The receive loop
 // decodes once and hands the result to handleCommand so the payload is parsed a single
-// time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
-// kind that takes the exclusive single-flight slot; everything else, including a
+// time. Discovery and pairing are the heavy, report-bearing commands that take the
+// exclusive single-flight slot; everything else, including a
 // malformed payload, takes the per-miner command pool and is acked by handleCommand.
-func decodeAgentCommand(payload []byte) (*pairingpb.AgentCommand, error) {
-	env := &pairingpb.AgentCommand{}
+func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
+	env := &pb.AgentCommand{}
 	if err := proto.Unmarshal(payload, env); err != nil {
 		return nil, fmt.Errorf("decode AgentCommand: %w", err)
 	}
 	return env, nil
 }
 
-func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pairingpb.AgentCommand, parseErr error, logger *slog.Logger) {
+func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pb.AgentCommand, parseErr error, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
 	// Drop silently if command_id is itself unsafe to echo in an ack; the
 	// gateway would reject the ack and close the stream. Server retries.
@@ -263,12 +355,14 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		return
 	}
 	switch k := env.GetCommand().(type) {
-	case *pairingpb.AgentCommand_Discover:
+	case *pb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
-	case *pairingpb.AgentCommand_MinerCommand:
-		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
-	case *pairingpb.AgentCommand_Pair:
+	case *pb.AgentCommand_MinerCommand:
+		r.handleMinerCommand(ctx, client, stream, commandID, k.MinerCommand, logger)
+	case *pb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
+	case *pb.AgentCommand_Telemetry:
+		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
 	}
@@ -543,13 +637,29 @@ func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, comman
 }
 
 func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg string, logger *slog.Logger) {
+	r.sendAckWithPayload(stream, commandID, code, errMsg, nil, logger)
+}
+
+func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, logger *slog.Logger) {
+	if len(payload) > maxAckPayloadBytes {
+		originalBytes := len(payload)
+		payload = nil
+		if code == pb.AckCode_ACK_CODE_OK {
+			code = pb.AckCode_ACK_CODE_INTERNAL
+			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		} else if errMsg == "" {
+			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		}
+		logger.Warn("dropping oversized ack payload", "command_id", commandID, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
+	}
 	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
 		CommandId:    commandID,
 		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
 		ErrorMessage: errMsg,
 		Code:         code,
-	}}}); err != nil {
+		Payload:      payload,
+	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}
 }
@@ -561,9 +671,9 @@ type pluginDiscoverer struct {
 	fleetNodeID int64
 }
 
-// newPluginComponents builds the discoverer and pairer over one shared manager
+// newPluginComponents builds the discoverer, pairer, and telemetry fetcher over one shared manager
 // so the node loads plugins only once.
-func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, minerSigningPrivKeyHex string) (*pluginDiscoverer, *pluginPairer, func(), error) {
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec) (*pluginDiscoverer, *pluginPairer, *pluginTelemetryFetcher, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -582,7 +692,7 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = manager.Shutdown(shutdownCtx)
 		shutdownCancel()
-		return nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
+		return nil, nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
@@ -591,17 +701,18 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		defer shutdownCancel()
 		_ = manager.Shutdown(shutdownCtx)
 	}
-	prr, err := newPluginPairer(manager, minerSigningPrivKeyHex)
+	prr := newPluginPairer(manager, credentials)
+	tf, err := newPluginTelemetryFetcher(manager, credentials)
 	if err != nil {
 		cleanup()
-		return nil, nil, func() {}, fmt.Errorf("init pairer: %w", err)
+		return nil, nil, nil, func() {}, fmt.Errorf("init telemetry fetcher: %w", err)
 	}
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),
 		fleetNodeID: fleetNodeID,
 	}
-	return disc, prr, cleanup, nil
+	return disc, prr, tf, cleanup, nil
 }
 
 func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error) {

@@ -36,7 +36,7 @@ const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: Completion
   const [resolution, setResolution] = useState("repaired");
   const [repairLocation, setRepairLocation] = useState("on_rack");
   const [partsUsed, setPartsUsed] = useState("");
-  const [notes, setNotes] = useState("");
+  const [, setNotes] = useState("");
 
   const handleSubmit = useCallback(() => {
     onSubmit();
@@ -75,7 +75,9 @@ const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: Completion
             onChange={setRepairLocation}
             forceBelow
           />
-        ) : <div />}
+        ) : (
+          <div />
+        )}
       </div>
 
       <Select
@@ -91,12 +93,7 @@ const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: Completion
 
       <div className="flex justify-end gap-3 pt-1">
         <Button text="Cancel" variant={variants.secondary} size={buttonSizes.compact} onClick={onCancel} />
-        <Button
-          text={submitText}
-          variant={variants.primary}
-          size={buttonSizes.compact}
-          onClick={handleSubmit}
-        />
+        <Button text={submitText} variant={variants.primary} size={buttonSizes.compact} onClick={handleSubmit} />
       </div>
     </div>
   );

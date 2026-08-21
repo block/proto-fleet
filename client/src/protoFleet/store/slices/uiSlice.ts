@@ -14,6 +14,7 @@ import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/prefe
 // =============================================================================
 
 export type RacksViewMode = "grid" | "list";
+export type BuildingsViewMode = "grid" | "list";
 
 export interface UISlice {
   theme: Theme;
@@ -23,8 +24,16 @@ export interface UISlice {
   bulkRenamePreferences: BulkRenamePreferences;
   bulkWorkerNamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
+  buildingsViewMode: BuildingsViewMode;
   isActionBarVisible: boolean;
   activeSite: ActiveSite;
+  // Monotonic counter bumped whenever the org's site list changes (create /
+  // rename / delete). The PageHeader's SitePicker fetches sites once on mount
+  // and holds them in local state, so it has no other way to learn a site was
+  // just created from a page or modal below it; watching this nonce lets it
+  // refetch without coupling to every mutation site. Not persisted — it's an
+  // in-memory refresh signal, not a preference.
+  sitesRevision: number;
 
   // Actions
   setTheme: (theme: Theme) => void;
@@ -34,8 +43,10 @@ export interface UISlice {
   setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
   setBulkWorkerNamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
+  setBuildingsViewMode: (mode: BuildingsViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
   setActiveSite: (next: ActiveSite) => void;
+  bumpSitesRevision: () => void;
 }
 
 // =============================================================================
@@ -51,8 +62,13 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
   bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
+  // Buildings defaults to the list: the tab's actions (counts, rack
+  // placement, bulk select) live in the table; the grid is a browse-only
+  // affordance. Racks defaults to grid because its cards are interactive.
+  buildingsViewMode: "list",
   isActionBarVisible: false,
   activeSite: DEFAULT_ACTIVE_SITE,
+  sitesRevision: 0,
 
   // Actions
   setTheme: (theme) =>
@@ -90,6 +106,11 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
       state.ui.racksViewMode = mode;
     }),
 
+  setBuildingsViewMode: (mode) =>
+    set((state) => {
+      state.ui.buildingsViewMode = mode;
+    }),
+
   setActionBarVisible: (visible) =>
     set((state) => {
       state.ui.isActionBarVisible = visible;
@@ -98,5 +119,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setActiveSite: (next) =>
     set((state) => {
       state.ui.activeSite = next;
+    }),
+
+  bumpSitesRevision: () =>
+    set((state) => {
+      state.ui.sitesRevision += 1;
     }),
 });

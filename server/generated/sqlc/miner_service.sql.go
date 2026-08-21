@@ -10,68 +10,6 @@ import (
 	"database/sql"
 )
 
-const getActiveFleetNodeForDevice = `-- name: GetActiveFleetNodeForDevice :one
-SELECT
-    fnd.fleet_node_id,
-    d.org_id,
-    d.site_id,
-    d.device_identifier,
-    d.serial_number,
-    d.mac_address,
-    dd.driver_name,
-    dd.ip_address,
-    dd.port,
-    dd.url_scheme
-FROM fleet_node_device fnd
-JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
-JOIN device_pairing dp ON dp.device_id = d.id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
-WHERE d.device_identifier = $1
-    AND dp.pairing_status = 'PAIRED'
-    AND fn.deleted_at IS NULL
-    AND fn.enrollment_status = 'CONFIRMED'
-LIMIT 1
-`
-
-type GetActiveFleetNodeForDeviceRow struct {
-	FleetNodeID      int64
-	OrgID            int64
-	SiteID           sql.NullInt64
-	DeviceIdentifier string
-	SerialNumber     sql.NullString
-	MacAddress       string
-	DriverName       string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-}
-
-// Resolve the active fleet node a device is paired to, with the connection
-// coordinates the node needs to reach the LAN miner. The miner service calls this
-// first so commands for a fleet-node-paired device route over the ControlStream
-// instead of being dialed directly. Requires device_pairing = PAIRED (matching the
-// direct-dial gate) so a device merely bound to a node but not yet paired/authenticated
-// cannot receive commands. Returns no rows otherwise, so cloud-dialed and not-yet-paired
-// devices fall through to the direct path.
-func (q *Queries) GetActiveFleetNodeForDevice(ctx context.Context, deviceIdentifier string) (GetActiveFleetNodeForDeviceRow, error) {
-	row := q.queryRow(ctx, q.getActiveFleetNodeForDeviceStmt, getActiveFleetNodeForDevice, deviceIdentifier)
-	var i GetActiveFleetNodeForDeviceRow
-	err := row.Scan(
-		&i.FleetNodeID,
-		&i.OrgID,
-		&i.SiteID,
-		&i.DeviceIdentifier,
-		&i.SerialNumber,
-		&i.MacAddress,
-		&i.DriverName,
-		&i.IpAddress,
-		&i.Port,
-		&i.UrlScheme,
-	)
-	return i, err
-}
-
 const getDeviceWithCredentialsAndIPByDeviceIdentifier = `-- name: GetDeviceWithCredentialsAndIPByDeviceIdentifier :one
 SELECT
     d.id,
@@ -94,7 +32,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
 WHERE d.device_identifier = $1
     AND d.deleted_at IS NULL
-    AND dp.pairing_status = 'PAIRED'
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     -- Cloud dials this device directly, so exclude fleet-node-owned devices:
     -- the node owns their I/O and the cloud has no route to them.
     AND NOT EXISTS (
@@ -143,10 +81,89 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	return i, err
 }
 
-const getDeviceWithCredentialsAndIPByID = `-- name: GetDeviceWithCredentialsAndIPByID :one
+const getDirectProtoMinerProxyTarget = `-- name: GetDirectProtoMinerProxyTarget :one
 SELECT
     d.id,
     d.device_identifier,
+    d.org_id,
+    d.site_id,
+    d.serial_number,
+    d.mac_address,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.driver_name,
+    mc.username_enc,
+    mc.password_enc
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND dd.driver_name = 'proto'
+    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
+    -- devices need a result-capable typed control command instead.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+LIMIT 1
+`
+
+type GetDirectProtoMinerProxyTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type GetDirectProtoMinerProxyTargetRow struct {
+	ID               int64
+	DeviceIdentifier string
+	OrgID            int64
+	SiteID           sql.NullInt64
+	SerialNumber     sql.NullString
+	MacAddress       string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	DriverName       string
+	UsernameEnc      sql.NullString
+	PasswordEnc      sql.NullString
+}
+
+func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
+	row := q.queryRow(ctx, q.getDirectProtoMinerProxyTargetStmt, getDirectProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i GetDirectProtoMinerProxyTargetRow
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.OrgID,
+		&i.SiteID,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.DriverName,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
+	)
+	return i, err
+}
+
+const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
+SELECT
+    fnd.fleet_node_id,
+    d.id,
+    d.device_identifier,
+    d.site_id,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -158,26 +175,25 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    d.site_id
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
+    dd.firmware_version
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-WHERE d.id = $1
-    AND d.deleted_at IS NULL
-    AND dp.pairing_status = 'PAIRED'
-    -- Cloud dials this device directly, so exclude fleet-node-owned devices:
-    -- the node owns their I/O and the cloud has no route to them.
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-    )
+WHERE d.device_identifier = $1
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND fn.deleted_at IS NULL
+    AND fn.enrollment_status = 'CONFIRMED'
 LIMIT 1
 `
 
-type GetDeviceWithCredentialsAndIPByIDRow struct {
+type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
+	FleetNodeID      int64
 	ID               int64
 	DeviceIdentifier string
+	SiteID           sql.NullInt64
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	DriverName       string
@@ -189,15 +205,21 @@ type GetDeviceWithCredentialsAndIPByIDRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
-	SiteID           sql.NullInt64
+	FirmwareVersion  sql.NullString
 }
 
-func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int64) (GetDeviceWithCredentialsAndIPByIDRow, error) {
-	row := q.queryRow(ctx, q.getDeviceWithCredentialsAndIPByIDStmt, getDeviceWithCredentialsAndIPByID, id)
-	var i GetDeviceWithCredentialsAndIPByIDRow
+// Resolve the active fleet node and all connection metadata needed for a
+// telemetry sample and remote miner command routing. The server sends this to
+// the node because the node has no database, then validates that the returned
+// telemetry matches this trusted device identifier before storing it.
+func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, getFleetNodeTelemetryRouteByDeviceIdentifier, deviceIdentifier)
+	var i GetFleetNodeTelemetryRouteByDeviceIdentifierRow
 	err := row.Scan(
+		&i.FleetNodeID,
 		&i.ID,
 		&i.DeviceIdentifier,
+		&i.SiteID,
 		&i.Model,
 		&i.Manufacturer,
 		&i.DriverName,
@@ -209,7 +231,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int6
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
-		&i.SiteID,
+		&i.FirmwareVersion,
 	)
 	return i, err
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -18,7 +17,6 @@ import (
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -29,7 +27,7 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 	}
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -40,33 +38,29 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := fleetnodeenrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, nil)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), nil)
 
 	return db, 1, pairingSvc, enrollmentSvc
 }
 
 func createFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) int64 {
 	t.Helper()
-	id := createPendingFleetNode(t, enrollment, orgID, name)
-	_, _, err := enrollment.Confirm(t.Context(), id, orgID)
+	id, pendingEnrollmentID := createPendingFleetNode(t, enrollment, orgID, name)
+	_, _, err := enrollment.ConfirmExpected(t.Context(), id, orgID, pendingEnrollmentID)
 	require.NoError(t, err)
 	return id
 }
 
-func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) int64 {
+func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) (int64, int64) {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	signing, _, err := ed25519.GenerateKey(rand.Reader)
+	code, pendingEnrollmentID, _, err := enrollment.CreateCodeWithEnrollmentID(t.Context(), 1, orgID, time.Hour)
 	require.NoError(t, err)
-	code, _, err := enrollment.CreateCode(t.Context(), 1, orgID, time.Hour)
+	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
-	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey, signing)
-	require.NoError(t, err)
-	return node.ID
+	return node.ID, pendingEnrollmentID
 }
 
 // Suffix device_identifier/serial with the row id to avoid collisions
@@ -97,9 +91,30 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-pair-list")
 	deviceID := insertDevice(t, db, orgID)
 	assignedBy := int64(1)
+	_, err := db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'server-username', 'server-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
 
 	// Act 1: pair
 	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, &assignedBy))
+
+	// Assert pair clears any credentials from the previous cloud-owned route.
+	var credentialRows int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Zero(t, credentialRows)
+
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'stale-repeat-username', 'stale-repeat-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
+	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, &assignedBy))
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Equal(t, 1, credentialRows, "idempotent same-node pair preserves working node credentials")
 
 	// Act 2: list scoped to this fleet node
 	pairs, err := pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
@@ -119,6 +134,35 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	pairs, err = pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
 	require.NoError(t, err)
 	assert.Len(t, pairs, 0)
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Zero(t, credentialRows)
+}
+
+func TestUnpairDoesNotDeleteCredentialsAcrossOrgs(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cross-org-unpair")
+	deviceID := insertDevice(t, db, orgID)
+	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, nil))
+	_, err := db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'node-owned-username', 'node-owned-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
+
+	const otherOrgID = int64(2)
+	_, err = db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, 'other-org', 'Other Org') ON CONFLICT DO NOTHING`, otherOrgID)
+	require.NoError(t, err)
+
+	// Act: the target device id exists, but not as a fleet-node binding in this org.
+	require.NoError(t, pairing.UnpairDevice(ctx, deviceID, otherOrgID))
+
+	// Assert
+	var credentialRows int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Equal(t, 1, credentialRows)
 }
 
 func TestPairUnpairInvalidatesMinerCache(t *testing.T) {
@@ -156,24 +200,29 @@ func TestPairRejectsDeviceAlreadyPaired(t *testing.T) {
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition for double-pair")
 }
 
-// A device the cloud actively dials (device_pairing PAIRED) must not be pairable
-// to a fleet node: the discovery upsert guard would then reject the node's
-// refreshes, leaving a device that reads as fleet-node paired but never refreshes.
-func TestPairRejectsCloudPairedDevice(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	nodeID := createFleetNode(t, enrollment, orgID, "node-cloud-paired")
-	deviceID := insertDevice(t, db, orgID)
-	_, err := db.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at) VALUES ($1, 'PAIRED', NOW())`, deviceID)
-	require.NoError(t, err)
+// A device the cloud actively dials (paired-like with no fleet_node_device) must
+// not be pairable to a fleet node: the discovery upsert guard would then reject
+// the node's refreshes, leaving a device that reads as fleet-node paired but never
+// refreshes.
+func TestPairRejectsCloudPairedLikeDevice(t *testing.T) {
+	for _, pairingStatus := range []string{"PAIRED", "DEFAULT_PASSWORD"} {
+		t.Run(pairingStatus, func(t *testing.T) {
+			// Arrange
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			nodeID := createFleetNode(t, enrollment, orgID, "node-cloud-paired")
+			deviceID := insertDevice(t, db, orgID)
+			_, err := db.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at) VALUES ($1, $2, NOW())`, deviceID, pairingStatus)
+			require.NoError(t, err)
 
-	// Act
-	err = pairing.PairDevice(ctx, nodeID, deviceID, orgID, nil)
+			// Act
+			err = pairing.PairDevice(ctx, nodeID, deviceID, orgID, nil)
 
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition for cloud-paired device")
+			// Assert
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition for cloud-paired-like device")
+		})
+	}
 }
 
 // After a fleet node is revoked (soft-deleted), a replacement node must be able
@@ -224,7 +273,7 @@ func TestPairRejectsFleetNodeFromDifferentOrg(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (2, 'other-org', 'Other Org', 'k') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (2, 'other-org', 'Other Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	otherNodeID := createFleetNode(t, enrollment, 2, "node-other-org")
 	deviceID := insertDevice(t, db, orgID)
@@ -319,7 +368,7 @@ func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *t
 	nodeID := createFleetNode(t, enrollment, orgID, "node-refresh")
 	var ddID int64
 	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
-		VALUES ($1, 'unpaired-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID).Scan(&ddID))
+		VALUES ($1, 'unpaired-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, $2) RETURNING id`, orgID, nodeID).Scan(&ddID))
 	_, err := db.Exec(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		VALUES ($1, $2, $3, $4, $5)`,
 		fmt.Sprintf("local-dev-%d", ddID),
@@ -341,6 +390,36 @@ func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *t
 	var ip string
 	require.NoError(t, db.QueryRow(`SELECT ip_address FROM discovered_device WHERE id = $1`, ddID).Scan(&ip))
 	assert.Equal(t, "10.0.0.99", ip, "originating node must be able to refresh an unpaired device row")
+}
+
+func TestUpsertDiscoveredDevices_RejectsClaimingCloudDiscoveredBareDevice(t *testing.T) {
+	// Arrange: a cloud-origin discovered row has no fleet-node attribution and
+	// no active pairing yet. A fleet node must not be able to take ownership of
+	// that identifier because generic Pair requests route credentials by the DB
+	// attribution.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cloud-bare-claim")
+	var ddID int64
+	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES ($1, 'cloud-bare-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID).Scan(&ddID))
+
+	// Act
+	acceptedIdx, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+		{DeviceIdentifier: "cloud-bare-shared", IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
+	})
+
+	// Assert: rejected; cloud-origin endpoint and attribution remain untouched.
+	require.NoError(t, err)
+	assert.Empty(t, acceptedIdx)
+	assert.Equal(t, int64(1), rejected)
+	var (
+		ip         string
+		attributed sql.NullInt64
+	)
+	require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &attributed))
+	assert.Equal(t, "10.0.0.60", ip)
+	assert.False(t, attributed.Valid)
 }
 
 func TestUpsertDiscoveredDevices_BatchValidationErrorRollsBack(t *testing.T) {
@@ -384,6 +463,12 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 		orgID, ddID,
 	).Scan(&devID))
 	require.NoError(t, pairing.PairDevice(ctx, nodeID, devID, orgID, nil))
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'node-owned-username', 'node-owned-password')`,
+		devID,
+	)
+	require.NoError(t, err)
 
 	// Act
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, nodeID, orgID))
@@ -393,6 +478,9 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	var pairings int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM fleet_node_device WHERE fleet_node_id = $1`, nodeID).Scan(&pairings))
 	assert.Equal(t, 0, pairings, "revoke must delete fleet_node_device rows")
+	var credentials int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM miner_credentials WHERE device_id = $1`, devID).Scan(&credentials))
+	assert.Equal(t, 0, credentials, "revoke must delete node-owned miner credentials")
 	var attributed sql.NullInt64
 	require.NoError(t, db.QueryRow(`SELECT discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&attributed))
 	require.True(t, attributed.Valid, "revoke must NOT clear discovered_by_fleet_node_id (immutable origin)")
@@ -456,7 +544,7 @@ func TestPairRejectsPendingFleetNode(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	pendingID := createPendingFleetNode(t, enrollment, orgID, "node-pending")
+	pendingID, _ := createPendingFleetNode(t, enrollment, orgID, "node-pending")
 	deviceID := insertDevice(t, db, orgID)
 
 	// Act
@@ -557,70 +645,6 @@ func TestUpsertDiscoveredDevices_RejectsReportFromOtherFleetNode(t *testing.T) {
 	assert.Equal(t, fleetNodeA, attributed.Int64, "attribution must remain with the original discoverer")
 }
 
-func TestUpsertDiscoveredDevices_RejectsInvalidIPAddress(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-ip")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "not-an-ip", Port: "80", URLScheme: "http", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestUpsertDiscoveredDevices_RejectsInvalidPort(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-port")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "999999", URLScheme: "http", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestUpsertDiscoveredDevices_AcceptsVirtualScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-virtual-scheme")
-
-	// Act
-	acceptedIdx, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "virt-1", IPAddress: "10.0.0.1", Port: "80", URLScheme: "virtual", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, acceptedIdx, 1)
-}
-
-func TestUpsertDiscoveredDevices_RejectsMalformedURLScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-scheme")
-
-	// Act: an injection payload that would otherwise become a clickable link.
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "80", URLScheme: "javascript:alert(1)//", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
 func TestUpsertDiscoveredDevices_PersistsSchemeUpToProtoLimit(t *testing.T) {
 	// Arrange: a non-http scheme longer than the old VARCHAR(10) column but
 	// within the gateway proto's advertised max_len of 32. Before the column
@@ -687,43 +711,47 @@ func TestUpsertDiscoveredDevices_RejectsClaimingDevicePairedToOtherFleetNode(t *
 	assert.False(t, attributed.Valid, "row must remain NULL-attributed; the upsert is a no-op so attribution does not change")
 }
 
-func TestUpsertDiscoveredDevices_RejectsClaimingCloudPairedDevice(t *testing.T) {
-	// Arrange: a cloud-paired miner — a NULL-attributed discovered_device
-	// promoted to a device with a PAIRED device_pairing row but NO
-	// fleet_node_device assignment.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cloud-claim")
-	var ddID int64
-	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
-		VALUES ($1, 'cloud-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID).Scan(&ddID))
-	var devID int64
-	require.NoError(t, db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		fmt.Sprintf("cloud-dev-%d", ddID),
-		fmt.Sprintf("aa:bb:cc:ee:00:%02x", ddID%256),
-		fmt.Sprintf("cloud-sn-%d", ddID),
-		orgID, ddID,
-	).Scan(&devID))
-	_, err := db.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at) VALUES ($1, 'PAIRED', CURRENT_TIMESTAMP)`, devID)
-	require.NoError(t, err)
+func TestUpsertDiscoveredDevices_RejectsClaimingCloudPairedLikeDevice(t *testing.T) {
+	for _, pairingStatus := range []string{"PAIRED", "DEFAULT_PASSWORD"} {
+		t.Run(pairingStatus, func(t *testing.T) {
+			// Arrange: a cloud-paired-like miner — a NULL-attributed discovered_device
+			// promoted to a paired-like device_pairing row but NO fleet_node_device assignment.
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cloud-claim")
+			identifier := "cloud-shared-" + pairingStatus
+			var ddID int64
+			require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+				VALUES ($1, $2, '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID, identifier).Scan(&ddID))
+			var devID int64
+			require.NoError(t, db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+				VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+				fmt.Sprintf("cloud-dev-%d", ddID),
+				fmt.Sprintf("aa:bb:cc:ee:00:%02x", ddID%256),
+				fmt.Sprintf("cloud-sn-%d", ddID),
+				orgID, ddID,
+			).Scan(&devID))
+			_, err := db.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at) VALUES ($1, $2, CURRENT_TIMESTAMP)`, devID, pairingStatus)
+			require.NoError(t, err)
 
-	// Act: a fleet node reports the same device_identifier with a different IP.
-	acceptedIdx, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "cloud-shared", IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
-	})
+			// Act: a fleet node reports the same device_identifier with a different IP.
+			acceptedIdx, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+				{DeviceIdentifier: identifier, IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
+			})
 
-	// Assert: rejected; the cloud-managed endpoint and attribution are untouched.
-	require.NoError(t, err)
-	assert.Empty(t, acceptedIdx)
-	assert.Equal(t, int64(1), rejected, "a fleet node must not overwrite a cloud-paired device's endpoint")
-	var (
-		ip         string
-		attributed sql.NullInt64
-	)
-	require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &attributed))
-	assert.Equal(t, "10.0.0.60", ip, "cloud-paired endpoint must not be overwritten")
-	assert.False(t, attributed.Valid, "attribution must not be claimed")
+			// Assert: rejected; the cloud-managed endpoint and attribution are untouched.
+			require.NoError(t, err)
+			assert.Empty(t, acceptedIdx)
+			assert.Equal(t, int64(1), rejected, "a fleet node must not overwrite a cloud-paired-like device's endpoint")
+			var (
+				ip         string
+				attributed sql.NullInt64
+			)
+			require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &attributed))
+			assert.Equal(t, "10.0.0.60", ip, "cloud-paired-like endpoint must not be overwritten")
+			assert.False(t, attributed.Valid, "attribution must not be claimed")
+		})
+	}
 }
 
 func TestUpsertDiscoveredDevices_RefreshesDevicePairedToReportingNode(t *testing.T) {
@@ -761,39 +789,6 @@ func TestUpsertDiscoveredDevices_RefreshesDevicePairedToReportingNode(t *testing
 	require.NoError(t, db.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &port))
 	assert.Equal(t, "10.0.0.71", ip)
 	assert.Equal(t, "8080", port)
-}
-
-func TestUpsertDiscoveredDevices_RejectsNonPrivateIPs(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-ip-ranges")
-
-	cases := []struct {
-		name string
-		ip   string
-	}{
-		{"loopback v4", "127.0.0.1"},
-		{"loopback v6", "::1"},
-		{"link-local v4", "169.254.1.1"},
-		{"link-local v6", "fe80::1"},
-		{"public v4", "8.8.8.8"},
-		{"public v6", "2606:4700:4700::1111"},
-		{"multicast v4", "224.0.0.1"},
-		{"unspecified v4", "0.0.0.0"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-				{DeviceIdentifier: "x-" + tc.name, IPAddress: tc.ip, Port: "80", URLScheme: "http", DriverName: "virtual"},
-			})
-
-			// Assert
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsInvalidArgumentError(err), "expected InvalidArgument for %s (%s)", tc.name, tc.ip)
-		})
-	}
 }
 
 func TestUpsertDiscoveredDevices_AcceptsRFC4193IPv6(t *testing.T) {

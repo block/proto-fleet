@@ -23,7 +23,7 @@ test.describe("General Settings", () => {
       const commonSteps = new CommonSteps(authPage, minersPage);
 
       await commonSteps.loginAsAdmin();
-      await authPage.navigateToSettingsPage();
+      await authPage.navigateToPreferencesSettings();
 
       const currentTemperature = await settingsPage.getCurrentTemperatureFormat();
 
@@ -38,40 +38,39 @@ test.describe("General Settings", () => {
     }
   });
 
-  test("Render network details from the fleet network info API", async ({
-    authPage,
-    settingsPage,
-    commonSteps,
-    page,
-  }) => {
-    await commonSteps.loginAsAdmin();
+  test(
+    "Render network details from the fleet network info API",
+    { tag: "@smoke" },
+    async ({ authPage, settingsPage, commonSteps, page }) => {
+      await commonSteps.loginAsAdmin();
 
-    const networkInfoResponsePromise = page.waitForResponse((response) => response.url().includes("GetNetworkInfo"));
+      const networkInfoResponsePromise = page.waitForResponse((response) => response.url().includes("GetNetworkInfo"));
 
-    let subnet = "";
-    let gateway = "";
+      let subnet = "";
+      let gateway = "";
 
-    await test.step("Navigate to general settings and capture the network info response", async () => {
-      await authPage.navigateToSettingsPage();
-      const response = await networkInfoResponsePromise;
-      const body = await response.json();
+      await test.step("Navigate to network settings and capture the network info response", async () => {
+        await authPage.navigateToNetworkSettings();
+        const response = await networkInfoResponsePromise;
+        const body = await response.json();
 
-      subnet = body.networkInfo?.subnet ?? "";
-      gateway = body.networkInfo?.gateway ?? "";
-    });
+        subnet = body.networkInfo?.subnet ?? "";
+        gateway = body.networkInfo?.gateway ?? "";
+      });
 
-    await test.step("Validate network details are rendered", async () => {
-      test.expect(subnet).toBeTruthy();
-      test.expect(gateway).toBeTruthy();
-      await settingsPage.validateNetworkDetails(subnet, gateway);
-    });
-  });
+      await test.step("Validate network details are rendered", async () => {
+        test.expect(subnet).toBeTruthy();
+        test.expect(gateway).toBeTruthy();
+        await settingsPage.validateNetworkDetails(subnet, gateway);
+      });
+    },
+  );
 
   test("Set temperature format", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
-    await test.step("Navigate to general settings", async () => {
-      await authPage.navigateToSettingsPage();
+    await test.step("Navigate to preferences settings", async () => {
+      await authPage.navigateToPreferencesSettings();
     });
 
     await test.step("Set temperature to Fahrenheit", async () => {
@@ -88,7 +87,7 @@ test.describe("General Settings", () => {
     });
 
     await test.step("Navigate back to settings", async () => {
-      await authPage.navigateToSettingsPage();
+      await authPage.navigateToPreferencesSettings();
     });
 
     await test.step("Change temperature format to Celsius", async () => {
@@ -105,47 +104,51 @@ test.describe("General Settings", () => {
     });
   });
 
-  test("Theme preference persists after refresh", async ({ authPage, settingsPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
+  test(
+    "Theme preference persists after refresh",
+    { tag: "@smoke" },
+    async ({ authPage, settingsPage, commonSteps }) => {
+      await commonSteps.loginAsAdmin();
 
-    let originalTheme: SettingsTheme = "System";
-    let targetTheme: "Light" | "Dark" = "Dark";
+      let originalTheme: SettingsTheme = "System";
+      let targetTheme: "Light" | "Dark" = "Dark";
 
-    const targetThemeByCurrentTheme: Record<SettingsTheme, "Light" | "Dark"> = {
-      Dark: "Light",
-      Light: "Dark",
-      System: "Dark",
-    };
-    const bodyThemeByTheme: Record<"Light" | "Dark", "light" | "dark"> = {
-      Light: "light",
-      Dark: "dark",
-    };
+      const targetThemeByCurrentTheme: Record<SettingsTheme, "Light" | "Dark"> = {
+        Dark: "Light",
+        Light: "Dark",
+        System: "Dark",
+      };
+      const bodyThemeByTheme: Record<"Light" | "Dark", "light" | "dark"> = {
+        Light: "light",
+        Dark: "dark",
+      };
 
-    await test.step("Navigate to general settings and capture the current theme", async () => {
-      await authPage.navigateToSettingsPage();
-      originalTheme = await settingsPage.getCurrentTheme();
-      targetTheme = targetThemeByCurrentTheme[originalTheme] ?? "Dark";
-    });
+      await test.step("Navigate to preferences settings and capture the current theme", async () => {
+        await authPage.navigateToPreferencesSettings();
+        originalTheme = await settingsPage.getCurrentTheme();
+        targetTheme = targetThemeByCurrentTheme[originalTheme] ?? "Dark";
+      });
 
-    await test.step("Change the theme to a deterministic value", async () => {
-      await settingsPage.clickThemeButton();
-      await settingsPage.selectTheme(targetTheme);
-      await settingsPage.clickDoneButton();
-      await settingsPage.validateCurrentTheme(targetTheme);
-      await settingsPage.validateBodyTheme(bodyThemeByTheme[targetTheme]);
-    });
+      await test.step("Change the theme to a deterministic value", async () => {
+        await settingsPage.clickThemeButton();
+        await settingsPage.selectTheme(targetTheme);
+        await settingsPage.clickDoneButton();
+        await settingsPage.validateCurrentTheme(targetTheme);
+        await settingsPage.validateBodyTheme(bodyThemeByTheme[targetTheme]);
+      });
 
-    await test.step("Refresh and validate theme persistence", async () => {
-      await settingsPage.reloadPage();
-      await settingsPage.validateCurrentTheme(targetTheme);
-      await settingsPage.validateBodyTheme(bodyThemeByTheme[targetTheme]);
-    });
+      await test.step("Refresh and validate theme persistence", async () => {
+        await settingsPage.reloadPage();
+        await settingsPage.validateCurrentTheme(targetTheme);
+        await settingsPage.validateBodyTheme(bodyThemeByTheme[targetTheme]);
+      });
 
-    await test.step("Restore the original theme", async () => {
-      await settingsPage.clickThemeButton();
-      await settingsPage.selectTheme(originalTheme);
-      await settingsPage.clickDoneButton();
-      await settingsPage.validateCurrentTheme(originalTheme);
-    });
-  });
+      await test.step("Restore the original theme", async () => {
+        await settingsPage.clickThemeButton();
+        await settingsPage.selectTheme(originalTheme);
+        await settingsPage.clickDoneButton();
+        await settingsPage.validateCurrentTheme(originalTheme);
+      });
+    },
+  );
 });

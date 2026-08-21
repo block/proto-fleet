@@ -17,6 +17,10 @@ export class RacksPage extends BasePage {
     await this.validateTitle("Fleet");
   }
 
+  async validateAddRackButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Add rack", exact: true })).toHaveCount(0);
+  }
+
   async clickAddRackButton() {
     await this.clickButton("Add rack");
     await this.validateTitleInModal("Rack settings");
@@ -28,10 +32,6 @@ export class RacksPage extends BasePage {
 
   async inputRackLabel(label: string) {
     await this.page.locator("#rack-label").fill(label);
-  }
-
-  async getGeneratedRackLabel(): Promise<string> {
-    return await this.page.locator("#rack-label").inputValue();
   }
 
   async enableCustomRackLayout() {
@@ -59,8 +59,15 @@ export class RacksPage extends BasePage {
       .trim();
   }
 
-  async clickContinueFromRackSettings() {
-    await this.clickIn("Continue", "modal");
+  // The Rack settings CTA creates the rack, so a new rack reads "Create rack"
+  // and lands on the manage-rack modal with the rack already persisted.
+  async clickCreateRackFromSettings() {
+    await this.clickIn("Create rack", "modal");
+  }
+
+  // Reopened on an existing rack, the same CTA updates the rack's own fields.
+  async clickSaveRackSettings() {
+    await this.clickIn("Save", "modal");
   }
 
   async validateRackSettingsFieldError(
@@ -83,7 +90,18 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Select miners");
   }
 
+  // The rack grid only renders once the manage-rack modal has mounted and its
+  // device set has loaded. "Create rack" hands off to that modal after the create
+  // RPC resolves, so a header action probed any earlier finds nothing — and on
+  // phone/tablet those actions live in a closed overflow sheet, so there is no
+  // button in the DOM for Playwright to auto-wait on as a fallback.
+  private async waitForManageRackModalToLoad() {
+    await expect(this.page.getByTestId(/^rack-slot-\d+$/).first()).toBeVisible();
+  }
+
   async clickManageMiners() {
+    await this.waitForManageRackModalToLoad();
+
     const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
     if (this.isMobile && (await overflowTrigger.isVisible().catch(() => false))) {
       await overflowTrigger.click();
@@ -94,11 +112,34 @@ export class RacksPage extends BasePage {
   }
 
   async filterModalType(type: string) {
-    await this.page.getByTestId("modal").getByTestId("filter-dropdown-Model").click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
+    // The modal's filters live in a nested "Add filter" popover (matching the
+    // fleet miner list). Scope the trigger to the modal so we don't hit the
+    // rack-overview page's own filter behind it; the popover/submenu are
+    // portaled to the body, so query them page-level.
+    const trigger = this.page.getByTestId("modal").getByTestId("filter-nested-filters-meta");
+    await trigger.click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeVisible();
-    await this.clickDropdownFilterOption(popover, type);
-    await popover.getByRole("button", { name: "Apply" }).click();
+
+    await popover.getByTestId("nested-dropdown-filter-row-model").click();
+    // Desktop portals a side submenu; phone/tablet collapses the options into the
+    // popover with a "back" header.
+    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-model");
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    const submenu = (await desktopSubmenu.isVisible().catch(() => false)) ? desktopSubmenu : popover;
+
+    await this.clickDropdownFilterOption(submenu, type);
+
+    // Checkbox selection applies immediately; toggle the trigger to close the
+    // popover so it doesn't overlay the list.
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("nested-dropdown-filter-popover");
+      await expect(popover).toBeHidden();
+      return;
+    }
+
+    await trigger.click();
     await expect(popover).toBeHidden();
   }
 
@@ -153,8 +194,9 @@ export class RacksPage extends BasePage {
     await this.modalMinerList.selectRowByCellText("ipAddress", ipAddress);
   }
 
-  async clickContinueInMinerSelector() {
-    await this.clickIn("Continue", "modal");
+  // The miner picker commits the rack's membership itself, hence "Save".
+  async clickSaveInMinerSelector() {
+    await this.clickIn("Save", "modal");
   }
 
   async validateMinerSelectorOverflowError(selectedCount: number, maxSlots: number) {
@@ -184,6 +226,13 @@ export class RacksPage extends BasePage {
   }
 
   async clickRackSlotMenuItem(menuItemLabel: "Search miners" | "Select from list") {
+    if (this.isMobile) {
+      const actionTestId =
+        menuItemLabel === "Search miners" ? "rack-slot-search-miners-action" : "rack-slot-select-from-list-action";
+      await this.page.getByTestId("rack-slot-actions-sheet-content").getByTestId(actionTestId).click();
+      return;
+    }
+
     await this.page.getByRole("menuitem", { name: menuItemLabel, exact: true }).click();
   }
 
@@ -273,12 +322,35 @@ export class RacksPage extends BasePage {
     await this.page.getByRole("button", { name: "Clear", exact: true }).click();
   }
 
-  async clickSaveRack() {
+  // The manage-rack modal's Save persists slot placement only.
+  async clickSaveMinerPositions() {
     await this.clickButton("Save");
   }
 
+  async clickDismissManageRack() {
+    await this.page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  }
+
+  // No slot changed, so there is nothing for Save to write. It stays clickable
+  // and closes the modal rather than toasting a save that dispatched nothing.
+  async saveMinerPositionsWithNothingPlaced() {
+    const save = this.page.getByRole("button", { name: "Save", exact: true });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await this.validateModalIsClosed();
+  }
+
   async clickViewMiners() {
-    await this.clickButton("View miners");
+    const directButton = this.page.getByTestId("rack-page-view-miners");
+    if (await directButton.isVisible().catch(() => false)) {
+      await directButton.click();
+    } else {
+      await this.page.getByRole("button", { name: "Device set actions", exact: true }).click();
+      const actionsPopover = this.page.getByTestId("group-actions-popover");
+      await expect(actionsPopover).toBeVisible();
+      await actionsPopover.getByRole("button", { name: "View miners", exact: true }).click();
+    }
+
     await expect(this.page).toHaveURL(/.*\/miners/);
   }
 
@@ -292,13 +364,19 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Rack settings");
   }
 
-  async changeOrderIndexAndContinue(orderIndexLabel: string) {
+  // Reached through Edit Rack Settings, so the rack already exists and the CTA
+  // persists the change straight away.
+  async changeOrderIndexAndSaveSettings(orderIndexLabel: string) {
     await this.selectOption("order-index-select", orderIndexLabel);
-    await this.clickContinueFromRackSettings();
+    await this.clickSaveRackSettings();
   }
 
-  async validateRackToast(label: string, action: "created" | "updated" = "created") {
+  async validateRackToast(label: string, action: "created" | "saved" = "created") {
     await this.validateTextInToast(`Rack "${label}" ${action}`);
+  }
+
+  async validateMinerPositionsToast(label: string) {
+    await this.validateTextInToast(`Miner positions saved for "${label}"`);
   }
 
   async validateRackCardVisible(label: string, zone: string) {
@@ -315,113 +393,60 @@ export class RacksPage extends BasePage {
     await this.getRackCard(label, zone).click();
   }
 
-  async clickViewList() {
-    await this.clickButton("View list");
+  async clickViewList(timeout: number = DEFAULT_TIMEOUT) {
+    await this.clickRackViewMode("View list", timeout);
   }
 
-  async clickViewGrid() {
-    await this.clickButton("View grid");
+  async clickViewGrid(timeout: number = DEFAULT_TIMEOUT) {
+    await this.clickRackViewMode("View grid", timeout);
   }
 
-  private async getVisibleAddFilterTrigger(): Promise<Locator> {
-    const triggers = this.page.getByTestId("filter-nested-add-filter");
-    const count = await triggers.count();
-    for (let i = 0; i < count; i++) {
-      const trigger = triggers.nth(i);
-      if (await trigger.isVisible().catch(() => false)) return trigger;
-    }
-    throw new Error("No visible Add Filter trigger found");
-  }
+  private async clickRackViewMode(label: "View grid" | "View list", timeout: number) {
+    const controls = this.page.getByTestId("segmented-control");
+    let visibleControlIndex = -1;
 
-  private async openVisibleAddFilter() {
-    const trigger = await this.getVisibleAddFilterTrigger();
-    await trigger.click();
-    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
-    await expect(popover).toBeVisible();
-    return popover;
-  }
+    await expect
+      .poll(
+        async () => {
+          const count = await controls.count();
 
-  private async openZoneSubmenu(popover: Locator) {
-    await popover.getByTestId("nested-dropdown-filter-row-zone").click();
-    // Desktop renders a portaled side submenu; phone/tablet collapses options into the
-    // parent popover with a "back" header. Either way the option rows for the chosen
-    // category become visible — return whichever container holds them.
-    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-zone");
-    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
-    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
-    if (await desktopSubmenu.isVisible().catch(() => false)) return desktopSubmenu;
-    return popover;
-  }
+          for (let i = 0; i < count; i++) {
+            const control = controls.nth(i);
+            const button = control.getByRole("button", { name: label, exact: true });
 
-  private async dismissAddFilterPopover() {
-    // Toggle the trigger to close — the trigger is never covered by its own popover, so
-    // this is more reliable than clicking page chrome that may not exist or may be
-    // intercepted by the portal-fixed popover.
-    const trigger = await this.getVisibleAddFilterTrigger();
-    await trigger.click();
-    await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
-  }
+            if ((await control.isVisible().catch(() => false)) && (await button.isVisible().catch(() => false))) {
+              visibleControlIndex = i;
+              return "visible";
+            }
+          }
 
-  private async setZoneSelection(target: string[]) {
-    // Open Add Filter, drill into Zone, and toggle each option to match the desired set.
-    // Reading the live submenu (which reflects current selection) avoids the race in
-    // editing an existing chip's popover while resetAndFetch is in flight.
-    const popover = await this.openVisibleAddFilter();
-    const submenu = await this.openZoneSubmenu(popover);
-    const options = submenu.locator('[data-testid^="filter-option-"]');
-    const count = await options.count();
-    const wanted = new Set(target);
-    for (let i = 0; i < count; i++) {
-      const opt = options.nth(i);
-      const testId = await opt.getAttribute("data-testid");
-      if (!testId) continue;
-      const optionId = testId.replace(/^filter-option-/, "");
-      const isChecked = await opt
-        .locator('input[type="checkbox"]')
-        .isChecked()
-        .catch(() => false);
-      if (isChecked !== wanted.has(optionId)) {
-        await opt.click();
-      }
-    }
-    await this.dismissAddFilterPopover();
+          return "hidden";
+        },
+        {
+          timeout,
+          intervals: [DEFAULT_INTERVAL],
+          message: `Expected the ${label} segmented control button to be visible.`,
+        },
+      )
+      .toBe("visible");
+
+    await controls.nth(visibleControlIndex).getByRole("button", { name: label, exact: true }).click();
   }
 
   async applyZoneFilter(zoneNames: string[]) {
-    await this.setZoneSelection(zoneNames);
+    await this.setNestedCheckboxFilterSelection("zone", zoneNames);
+  }
+
+  async applySiteFilter(siteNames: string[]) {
+    await this.setNestedCheckboxFilterSelection("site", siteNames);
+  }
+
+  async applyBuildingFilter(buildingNames: string[]) {
+    await this.setNestedCheckboxFilterSelection("building", buildingNames);
   }
 
   async toggleAllZoneFilters() {
-    // Toggle: if any zone is currently selected, clear; otherwise select all.
-    const popover = await this.openVisibleAddFilter();
-    const submenu = await this.openZoneSubmenu(popover);
-    const options = submenu.locator('[data-testid^="filter-option-"]');
-    const count = await options.count();
-    let anyChecked = false;
-    for (let i = 0; i < count; i++) {
-      if (
-        await options
-          .nth(i)
-          .locator('input[type="checkbox"]')
-          .isChecked()
-          .catch(() => false)
-      ) {
-        anyChecked = true;
-        break;
-      }
-    }
-    for (let i = 0; i < count; i++) {
-      const opt = options.nth(i);
-      const isChecked = await opt
-        .locator('input[type="checkbox"]')
-        .isChecked()
-        .catch(() => false);
-      if (isChecked === anyChecked) {
-        // anyChecked => clear all (uncheck checked); !anyChecked => select all (check unchecked).
-        await opt.click();
-      }
-    }
-    await this.dismissAddFilterPopover();
+    await this.toggleAllNestedCheckboxFilterOptions("zone");
   }
 
   async selectGridSort(sortLabel: string) {
@@ -430,13 +455,29 @@ export class RacksPage extends BasePage {
     await expect(popover).toBeVisible();
     await this.clickDropdownFilterOption(popover, sortLabel);
     if (await popover.isVisible().catch(() => false)) {
+      if (this.isMobile) {
+        await this.dismissMobilePopoverSheet("dropdown-filter-popover");
+        await expect(popover).toBeHidden();
+        return;
+      }
+
       await this.clickVisibleFilterDropdown("Sort");
     }
     await expect(popover).toBeHidden();
   }
 
-  async waitForRackListToLoad({ allowEmpty = true }: { allowEmpty?: boolean } = {}) {
-    await expect(this.page.getByRole("button", { name: "Add rack" }).first()).toBeVisible();
+  async waitForRackListToLoad({
+    allowEmpty = true,
+    requireManageAccess = true,
+    timeout = DEFAULT_TIMEOUT,
+  }: {
+    allowEmpty?: boolean;
+    requireManageAccess?: boolean;
+    timeout?: number;
+  } = {}) {
+    if (requireManageAccess) {
+      await expect(this.page.getByRole("button", { name: "Add rack" }).first()).toBeVisible({ timeout });
+    }
 
     const rows = this.page.getByTestId("list-row");
     const noRowsText = this.page.getByText("You haven't set up any racks");
@@ -456,11 +497,11 @@ export class RacksPage extends BasePage {
       const rowCountAfterDelay = await rows.count();
       // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(rowCountAfterDelay).toBe(rowCount);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    }).toPass({ timeout, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async listRackNames(): Promise<string[]> {
-    await this.waitForRackListToLoad();
+  async listRackNames(timeout: number = DEFAULT_TIMEOUT): Promise<string[]> {
+    await this.waitForRackListToLoad({ timeout });
 
     const nameCells = this.page.getByTestId("list-row").getByTestId("name");
     const count = await nameCells.count();
@@ -485,10 +526,67 @@ export class RacksPage extends BasePage {
     await expect(row.getByTestId("miners")).toHaveText(String(miners));
   }
 
-  async openRackFromList(label: string) {
+  async validateRackMinerCount(label: string, miners: number) {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
+    await expect(row.getByTestId("miners")).toHaveText(String(miners));
+  }
+
+  async validateRackPlacementRow(label: string, siteName: string, buildingName = "") {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("site")).toHaveText(siteName);
+    await expect(row.getByTestId("building")).toHaveText(buildingName);
+  }
+
+  async validateRackNotVisible(label: string) {
+    await expect(this.getRackListRow(label)).toHaveCount(0);
+  }
+
+  async openRackFromList(label: string, timeout: number = DEFAULT_TIMEOUT) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible({ timeout });
     await row.getByTestId("name").getByRole("button", { name: label, exact: true }).click();
+  }
+
+  async getRackIdByLabel(label: string): Promise<bigint> {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+
+    const trigger = row.getByRole("button", { name: `Actions for ${label}`, exact: true });
+    await expect(trigger).toBeVisible();
+
+    const testId = await trigger.getAttribute("data-testid");
+    const capturedId = testId?.match(/^rack-list-row-(\d+)-actions-trigger$/)?.[1];
+    if (!capturedId) {
+      throw new Error(`Could not parse rack id from row action trigger: ${testId ?? "missing test id"}`);
+    }
+
+    return BigInt(capturedId);
+  }
+
+  async assignRackToBuildingFromList(label: string, buildingName: string) {
+    await this.navigateToRacksPage();
+    await this.clickViewList();
+    await this.waitForRackListToLoad({ allowEmpty: false });
+    await this.openRackActionsFromList(label);
+    await this.page.getByText("Add to building", { exact: true }).click();
+    await this.selectParentPickerTarget(buildingName);
+  }
+
+  async deleteRackByLabelIfVisible(label: string, timeout: number = DEFAULT_TIMEOUT) {
+    await this.navigateToRacksPage();
+    await this.tryAction(() => this.clickViewList(timeout), timeout);
+    if (!(await this.tryAction(() => this.openRackFromList(label, timeout), timeout))) {
+      return;
+    }
+
+    await this.clickEditRack();
+    await this.clickDeleteRack();
+    await this.clickDeleteConfirm();
+    await expect(this.page).toHaveURL(/\/racks(?:\?.*)?$/, { timeout });
+    await this.waitForRackListToLoad({ timeout });
+    await this.tryAction(() => this.validateRackNotVisible(label), timeout);
   }
 
   async clickEditRack() {
@@ -526,8 +624,8 @@ export class RacksPage extends BasePage {
     await this.clickButton("Delete");
   }
 
-  async validateRackDeletedToast() {
-    await this.validateTextInToast("Rack deleted");
+  async validateRackDeletedToast(timeout: number = DEFAULT_TIMEOUT) {
+    await this.validateTextInToast("Rack deleted", timeout);
   }
 
   async validateRackOverviewAssignedSlots(slotNumbers: readonly number[]) {
@@ -562,16 +660,35 @@ export class RacksPage extends BasePage {
   }
 
   private async clickDropdownFilterOption(popover: Locator, optionName: string) {
-    const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
-    if (await optionByTestId.isVisible().catch(() => false)) {
-      await optionByTestId.click();
-      return;
+    const optionByTestId = popover.getByTestId(`filter-option-${optionName}`);
+    const optionByTestIdCount = await optionByTestId.count();
+    for (let i = 0; i < optionByTestIdCount; i++) {
+      const option = optionByTestId.nth(i);
+      if (await option.isVisible().catch(() => false)) {
+        await option.click();
+        return;
+      }
     }
 
-    await popover.getByText(optionName, { exact: true }).first().click();
+    const optionRows = popover.locator('[data-testid^="filter-option-"]').filter({ hasText: optionName });
+    const optionRowCount = await optionRows.count();
+    for (let i = 0; i < optionRowCount; i++) {
+      const option = optionRows.nth(i);
+      const label = ((await option.textContent()) ?? "").replace(/\s+/g, " ").trim();
+      if (label === optionName && (await option.isVisible().catch(() => false))) {
+        await option.click();
+        return;
+      }
+    }
+
+    throw new Error(`Could not find a visible dropdown filter option named "${optionName}".`);
   }
 
   private async clickVisibleFilterDropdown(title: string) {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("dropdown-filter-popover");
+    }
+
     const dropdowns = this.page.getByTestId(`filter-dropdown-${title}`);
     const count = await dropdowns.count();
 
@@ -636,5 +753,21 @@ export class RacksPage extends BasePage {
       .getByTestId("list-row")
       .filter({ has: this.page.getByTestId("name").getByRole("button", { name: label, exact: true }) })
       .first();
+  }
+
+  private async openRackActionsFromList(label: string) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: `Actions for ${label}`, exact: true }).click();
+  }
+
+  private async selectParentPickerTarget(label: string) {
+    const modal = this.page.getByTestId("modal");
+    await expect(modal).toBeVisible();
+    await modal.getByText(label, { exact: true }).click();
+    const saveButton = modal.getByRole("button", { name: "Save", exact: true });
+    await expect(saveButton).toBeVisible();
+    await saveButton.click();
+    await expect(modal).toHaveCount(0);
   }
 }

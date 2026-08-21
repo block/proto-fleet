@@ -43,6 +43,12 @@
   min-height: 110px;
 }
 
+@media (max-width: 631px) {
+  .curtailment-response-profile-grid {
+    gap: 12px;
+  }
+}
+
 @media (min-width: 60rem) {
   .curtailment-response-profile-grid {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), calc((100% - 48px) / 3)));

@@ -90,7 +90,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 	}
 
 	count := len(deviceIdentifiers)
-	s.logActivity(ctx, activitymodels.Event{
+	renameEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           "rename_miners",
 		Description:    "Rename miners",
@@ -98,7 +98,9 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	renameEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	s.logActivity(ctx, renameEvent)
 
 	return &pb.RenameMinersResponse{
 		RenamedCount:   renameResponseCount(len(names)),
@@ -187,7 +189,7 @@ func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNam
 	}
 
 	count := len(deviceIdentifiers)
-	s.logActivity(ctx, activitymodels.Event{
+	workerNameEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           "update_worker_names",
 		Description:    "Update worker names",
@@ -196,7 +198,9 @@ func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNam
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 		Metadata:       map[string]any{"batch_id": batchIdentifier},
-	})
+	}
+	workerNameEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	s.logActivity(ctx, workerNameEvent)
 
 	return &pb.UpdateWorkerNamesResponse{
 		UpdatedCount:    renameResponseCount(len(desiredWorkerNamesByDeviceIdentifier)),

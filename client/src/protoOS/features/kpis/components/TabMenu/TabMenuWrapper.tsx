@@ -1,15 +1,18 @@
 import { memo, useMemo } from "react";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { convertAndFormatMeasurement, convertValueUnits, useMiner, useTemperatureUnit } from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
-type TabMenuWrapperProps = {
-  basePath?: string; // Optional base path for navigation
-};
-
-const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
+const TabMenuWrapper = memo(() => {
   const temperatureUnit = useTemperatureUnit();
   const miner = useMiner();
+  // Prefix minerRoot so KPI tab navigation stays inside the embedded miner view
+  // when fleet-hosted (minerRoot is "" in standalone protoOS). Without it the
+  // absolute paths (e.g. "/hashrate") escape the embed and ProtoFleet's
+  // "/:siteScope" route treats the tab segment as an unknown site, redirecting
+  // back to the dashboard.
+  const { minerRoot } = useMinerHosting();
 
   const tabItems = useMemo(
     () => ({
@@ -52,7 +55,7 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
     [miner, temperatureUnit],
   );
 
-  return <TabMenu items={tabItems} basePath={basePath} />;
+  return <TabMenu items={tabItems} basePath={minerRoot} />;
 });
 
 TabMenuWrapper.displayName = "TabMenuWrapper";

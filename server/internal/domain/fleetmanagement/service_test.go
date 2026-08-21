@@ -22,13 +22,16 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -288,6 +291,235 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: ""})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_LookupMinerByIdentifier_ShouldRejectWhitespaceOnlyIdentifier(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: "   "})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_LookupMinerByIdentifier_ShouldPropagateStoreNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial = "UNKNOWN-SERIAL"
+		orgID  = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(nil, fleeterror.NewNotFoundErrorf("no paired device found with serial_number=%s org_id=%d", serial, orgID))
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     serial,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestService_LookupMinerByIdentifier_ShouldTrimIdentifierBeforeLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial   = "TRIMMED-SERIAL"
+		deviceID = "device-abc"
+		orgID    = int64(123)
+	)
+
+	// The trailing/leading whitespace must be stripped before the store call.
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, _ int32, filter *interfaces.MinerFilter, _ *interfaces.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+			assert.Equal(t, []string{deviceID}, filter.DeviceIdentifiers)
+			return []sqlc.ListMinerStateSnapshotsRow{{
+				DeviceIdentifier: deviceID,
+				PairingStatus:    "UNPAIRED", // keep hydration light; populators early-return
+			}}, "", int64(1), nil
+		})
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     "  " + serial + "\n",
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Snapshot)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		mac      = "00:1A:2B:3C:4D:5E"
+		deviceID = "device-mac"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     mac,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		mac      = "00:1A:2B:3C:4D:5E" // MAC-shaped → inferred as MAC
+		deviceID = "device-mac"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier: mac, // no explicit type
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldInferSerialWhenTypeUnspecified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial   = "1234567890123456" // not MAC-shaped → inferred as serial
+		deviceID = "device-serial"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier: serial, // no explicit type
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+
+	const (
+		serial   = "SN123456"
+		deviceID = "device-xyz"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "PAIRED",
+			SerialNumber:     sql.NullString{String: serial, Valid: true},
+			Model:            sql.NullString{String: "S21 XP", Valid: true},
+		}}, "", int64(1), nil)
+	// Paired snapshot triggers hydration; return empty placement data.
+	collectionStore.EXPECT().
+		GetGroupRefsForDevices(gomock.Any(), orgID, []string{deviceID}).
+		Return(map[string][]interfaces.DeviceGroupRef{}, nil)
+	collectionStore.EXPECT().
+		GetRackDetailsForDevices(gomock.Any(), orgID, []string{deviceID}).
+		Return(map[string]interfaces.DeviceRackDetails{}, nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, collectionStore, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     serial,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Snapshot)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+	assert.Equal(t, serial, resp.Snapshot.SerialNumber)
+	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Snapshot.PairingStatus)
 }
 
 func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
@@ -1513,6 +1745,156 @@ func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.
 
 // --- DeleteMiners tests ---
 
+func validFleetNodeEncryptionPubkey(t *testing.T) []byte {
+	t.Helper()
+
+	publicKey, _, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	return publicKey
+}
+
+func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
+	t.Helper()
+
+	var deviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT id
+		FROM device
+		WHERE org_id = $1
+		  AND device_identifier = $2
+		  AND deleted_at IS NULL`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&deviceID))
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, $4, 'CONFIRMED')
+		RETURNING id`,
+		orgID,
+		"delete-miners-node-"+deviceIdentifier,
+		[]byte("identity-"+deviceIdentifier),
+		validFleetNodeEncryptionPubkey(t),
+	).Scan(&fleetNodeID))
+
+	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, deviceID, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+
+	return deviceID
+}
+
+func createStaleFleetNodeDevicePairing(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
+	t.Helper()
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, $4, 'CONFIRMED')
+		RETURNING id`,
+		orgID,
+		"stale-delete-miners-node-"+deviceIdentifier,
+		[]byte("stale-identity-"+deviceIdentifier),
+		validFleetNodeEncryptionPubkey(t),
+	).Scan(&fleetNodeID))
+
+	var discoveredDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO discovered_device (
+			org_id,
+			device_identifier,
+			driver_name,
+			ip_address,
+			port,
+			url_scheme,
+			is_active,
+			deleted_at
+		)
+		VALUES ($1, $2, 'proto', '172.17.99.1', '80', 'https', false, NOW())
+		RETURNING id`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&discoveredDeviceID))
+
+	var staleDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO device (
+			org_id,
+			discovered_device_id,
+			device_identifier,
+			mac_address,
+			deleted_at
+		)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id`,
+		orgID,
+		discoveredDeviceID,
+		deviceIdentifier,
+		"02:00:00:99:99:99",
+	).Scan(&staleDeviceID))
+
+	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, staleDeviceID, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+
+	return staleDeviceID
+}
+
+func requireNoFleetNodeDevicePairing(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM fleet_node_device
+		WHERE device_id = $1`,
+		deviceID,
+	).Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
+func insertMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		VALUES ($1, $2, $3)`,
+		deviceID,
+		"node-owned-username",
+		"node-owned-password",
+	)
+	require.NoError(t, err)
+}
+
+func requireNoMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM miner_credentials
+		WHERE device_id = $1`,
+		deviceID,
+	).Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
+func requireDeviceSoftDeleted(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) {
+	t.Helper()
+
+	var deletedAt sql.NullTime
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT deleted_at
+		FROM device
+		WHERE org_id = $1
+		  AND device_identifier = $2`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&deletedAt))
+	require.True(t, deletedAt.Valid, "device should be soft-deleted")
+}
+
 func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -1547,6 +1929,208 @@ func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, listResp.Miners, 1, "only 1 miner should remain after deleting 2")
 	assert.Equal(t, deviceIDs[2], listResp.Miners[0].DeviceIdentifier)
+}
+
+// TestService_DeleteMiners_StampsActivitySiteScope is the end-to-end #538
+// regression for the unpair path: an unpair of devices that all sit in one
+// site stamps that site_id on the unpair_miners activity row, so it surfaces
+// under /{siteA}/activity and never pollutes the /unassigned bucket. The
+// scope is resolved BEFORE the soft-delete (the query excludes deleted rows),
+// which this test pins by deleting and then asserting against the read filter.
+func TestService_DeleteMiners_StampsActivitySiteScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+	db := testContext.ServiceProvider.DB
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
+	require.NoError(t, err)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	for _, id := range deviceIDs {
+		_, err := db.ExecContext(ctx,
+			`UPDATE device SET site_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
+			siteA.ID, orgID, id)
+		require.NoError(t, err)
+	}
+
+	service := testContext.ServiceProvider.FleetManagementService
+	resp, err := service.DeleteMiners(ctx, &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), resp.DeletedCount)
+
+	activityStore := sqlstores.NewSQLActivityStore(db)
+	hasUnpairEvent := func(filter activitymodels.Filter) bool {
+		filter.OrganizationID = orgID
+		filter.PageSize = activitymodels.MaxPageSize
+		entries, err := activityStore.List(ctx, filter)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if e.Type == "unpair_miners" {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteA.ID}}),
+		"single-site unpair must surface under /{siteA}/activity")
+	assert.False(t, hasUnpairEvent(activitymodels.Filter{IncludeUnassigned: true}),
+		"single-site unpair must NOT pollute the unassigned bucket")
+}
+
+// TestService_DeleteMiners_CrossSiteSurfacesUnderEachSite is the end-to-end
+// #538 middle-path regression: an unpair spanning two sites records site
+// membership so it surfaces under BOTH /{siteA} and /{siteB} and the all-sites
+// feed, but NOT the /unassigned bucket (no site-less devices were touched).
+func TestService_DeleteMiners_CrossSiteSurfacesUnderEachSite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+	db := testContext.ServiceProvider.DB
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
+	require.NoError(t, err)
+	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site B"})
+	require.NoError(t, err)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	// Split the set across two sites so the touched scope has cardinality 2.
+	for i, id := range deviceIDs {
+		siteID := siteA.ID
+		if i%2 == 1 {
+			siteID = siteB.ID
+		}
+		_, err := db.ExecContext(ctx,
+			`UPDATE device SET site_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
+			siteID, orgID, id)
+		require.NoError(t, err)
+	}
+
+	service := testContext.ServiceProvider.FleetManagementService
+	resp, err := service.DeleteMiners(ctx, &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), resp.DeletedCount)
+
+	activityStore := sqlstores.NewSQLActivityStore(db)
+	hasUnpairEvent := func(filter activitymodels.Filter) bool {
+		filter.OrganizationID = orgID
+		filter.PageSize = activitymodels.MaxPageSize
+		entries, err := activityStore.List(ctx, filter)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if e.Type == "unpair_miners" {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteA.ID}}),
+		"cross-site unpair must surface under /{siteA}/activity")
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteB.ID}}),
+		"cross-site unpair must surface under /{siteB}/activity")
+	assert.False(t, hasUnpairEvent(activitymodels.Filter{IncludeUnassigned: true}),
+		"cross-site unpair with no site-less devices must NOT pollute the unassigned bucket")
+}
+
+func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	deviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+	requireDeviceSoftDeleted(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, deviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, listResp.Miners, "node-owned miner should be removed from the fleet list")
+}
+
+func TestService_DeleteMiners_ShouldCleanStaleFleetNodePairingRowsForRediscoveredDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	liveDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	staleDeviceID := createStaleFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, staleDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
 }
 
 func TestService_DeleteMiners_ShouldRejectEmptyRequestWithoutFilter(t *testing.T) {
@@ -1689,6 +2273,40 @@ func TestService_DeleteMiners_ShouldDeleteAllPairedDevicesWithEmptyFilter(t *tes
 	assert.Empty(t, listResp.Miners, "no miners should remain after deleting all")
 }
 
+func TestService_DeleteMiners_ShouldIncludeFleetNodePairedDevicesWithAllSelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
+	nodeOwnedDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[1])
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), resp.DeletedCount)
+	requireDeviceSoftDeleted(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[1])
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, nodeOwnedDeviceID)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, listResp.Miners, "no miners should remain after deleting all")
+}
+
 func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -1728,7 +2346,7 @@ func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T
 	assert.Len(t, listResp.Miners, 1, "re-discovered miner should be visible")
 }
 
-func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
+func TestService_DeleteMiners_ShouldWaitForPendingUnpairs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
@@ -1751,11 +2369,11 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 	_, err := service.DeleteMiners(ctx, req)
 	require.NoError(t, err)
 
-	// WaitForPendingClearAuthKeys should return promptly (background ClearAuthKey
+	// WaitForPendingUnpairs should return promptly (background Unpair
 	// will fail since there's no real device, but that's expected — best-effort)
 	done := make(chan struct{})
 	go func() {
-		service.WaitForPendingClearAuthKeys(1 * time.Minute)
+		service.WaitForPendingUnpairs(1 * time.Minute)
 		close(done)
 	}()
 
@@ -1763,7 +2381,7 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 	case <-done:
 		// Expected: completed within timeout
 	case <-time.After(1 * time.Minute):
-		t.Fatal("WaitForPendingClearAuthKeys did not complete within timeout")
+		t.Fatal("WaitForPendingUnpairs did not complete within timeout")
 	}
 }
 

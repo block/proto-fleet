@@ -57,6 +57,36 @@ func (mr *MockCollectionStoreMockRecorder) AddDevicesToCollection(ctx, orgID, co
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevicesToCollection", reflect.TypeOf((*MockCollectionStore)(nil).AddDevicesToCollection), ctx, orgID, collectionID, deviceIdentifiers)
 }
 
+// AddDevicesToCollectionReturningAdded mocks base method.
+func (m *MockCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddDevicesToCollectionReturningAdded", ctx, orgID, collectionID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddDevicesToCollectionReturningAdded indicates an expected call of AddDevicesToCollectionReturningAdded.
+func (mr *MockCollectionStoreMockRecorder) AddDevicesToCollectionReturningAdded(ctx, orgID, collectionID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevicesToCollectionReturningAdded", reflect.TypeOf((*MockCollectionStore)(nil).AddDevicesToCollectionReturningAdded), ctx, orgID, collectionID, deviceIdentifiers)
+}
+
+// CascadeAddedDeviceBuildings mocks base method.
+func (m *MockCollectionStore) CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeAddedDeviceBuildings", ctx, orgID, deviceSetID, deviceIdentifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CascadeAddedDeviceBuildings indicates an expected call of CascadeAddedDeviceBuildings.
+func (mr *MockCollectionStoreMockRecorder) CascadeAddedDeviceBuildings(ctx, orgID, deviceSetID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeAddedDeviceBuildings", reflect.TypeOf((*MockCollectionStore)(nil).CascadeAddedDeviceBuildings), ctx, orgID, deviceSetID, deviceIdentifiers)
+}
+
 // CascadeAddedDeviceSites mocks base method.
 func (m *MockCollectionStore) CascadeAddedDeviceSites(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -72,6 +102,36 @@ func (mr *MockCollectionStoreMockRecorder) CascadeAddedDeviceSites(ctx, orgID, d
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeAddedDeviceSites", reflect.TypeOf((*MockCollectionStore)(nil).CascadeAddedDeviceSites), ctx, orgID, deviceSetID, deviceIdentifiers)
 }
 
+// CascadeRackDeviceBuildings mocks base method.
+func (m *MockCollectionStore) CascadeRackDeviceBuildings(ctx context.Context, collectionID, orgID int64, targetBuildingID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeRackDeviceBuildings", ctx, collectionID, orgID, targetBuildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CascadeRackDeviceBuildings indicates an expected call of CascadeRackDeviceBuildings.
+func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceBuildings(ctx, collectionID, orgID, targetBuildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceBuildings", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceBuildings), ctx, collectionID, orgID, targetBuildingID)
+}
+
+// CascadeRackDeviceBuildingsBulk mocks base method.
+func (m *MockCollectionStore) CascadeRackDeviceBuildingsBulk(ctx context.Context, orgID int64, rackIDs []int64, targetBuildingID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeRackDeviceBuildingsBulk", ctx, orgID, rackIDs, targetBuildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CascadeRackDeviceBuildingsBulk indicates an expected call of CascadeRackDeviceBuildingsBulk.
+func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceBuildingsBulk(ctx, orgID, rackIDs, targetBuildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceBuildingsBulk", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceBuildingsBulk), ctx, orgID, rackIDs, targetBuildingID)
+}
+
 // CascadeRackDeviceSites mocks base method.
 func (m *MockCollectionStore) CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -85,6 +145,36 @@ func (m *MockCollectionStore) CascadeRackDeviceSites(ctx context.Context, collec
 func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSites(ctx, collectionID, orgID, targetSiteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSites", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSites), ctx, collectionID, orgID, targetSiteID)
+}
+
+// CascadeRackDeviceSitesBulk mocks base method.
+func (m *MockCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeRackDeviceSitesBulk", ctx, orgID, rackIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CascadeRackDeviceSitesBulk indicates an expected call of CascadeRackDeviceSitesBulk.
+func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSitesBulk(ctx, orgID, rackIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSitesBulk", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSitesBulk), ctx, orgID, rackIDs, targetSiteID)
+}
+
+// ClearDeviceSitesAndBuildings mocks base method.
+func (m *MockCollectionStore) ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDeviceSitesAndBuildings", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearDeviceSitesAndBuildings indicates an expected call of ClearDeviceSitesAndBuildings.
+func (mr *MockCollectionStoreMockRecorder) ClearDeviceSitesAndBuildings(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeviceSitesAndBuildings", reflect.TypeOf((*MockCollectionStore)(nil).ClearDeviceSitesAndBuildings), ctx, orgID, deviceIdentifiers)
 }
 
 // ClearRackPlacementForSoftDelete mocks base method.
@@ -157,6 +247,21 @@ func (m *MockCollectionStore) CreateRackExtension(ctx context.Context, params in
 func (mr *MockCollectionStoreMockRecorder) CreateRackExtension(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRackExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateRackExtension), ctx, params)
+}
+
+// FindDevicesWithSiteOrBuilding mocks base method.
+func (m *MockCollectionStore) FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDevicesWithSiteOrBuilding", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDevicesWithSiteOrBuilding indicates an expected call of FindDevicesWithSiteOrBuilding.
+func (mr *MockCollectionStoreMockRecorder) FindDevicesWithSiteOrBuilding(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesWithSiteOrBuilding", reflect.TypeOf((*MockCollectionStore)(nil).FindDevicesWithSiteOrBuilding), ctx, orgID, deviceIdentifiers)
 }
 
 // GetAddedDeviceSiteConflicts mocks base method.
@@ -279,19 +384,19 @@ func (mr *MockCollectionStoreMockRecorder) GetDeviceSiteIDsByMembership(ctx, col
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceSiteIDsByMembership", reflect.TypeOf((*MockCollectionStore)(nil).GetDeviceSiteIDsByMembership), ctx, collectionID, orgID)
 }
 
-// GetGroupLabelsForDevices mocks base method.
-func (m *MockCollectionStore) GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error) {
+// GetGroupRefsForDevices mocks base method.
+func (m *MockCollectionStore) GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]interfaces.DeviceGroupRef, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetGroupLabelsForDevices", ctx, orgID, deviceIdentifiers)
-	ret0, _ := ret[0].(map[string][]string)
+	ret := m.ctrl.Call(m, "GetGroupRefsForDevices", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(map[string][]interfaces.DeviceGroupRef)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetGroupLabelsForDevices indicates an expected call of GetGroupLabelsForDevices.
-func (mr *MockCollectionStoreMockRecorder) GetGroupLabelsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+// GetGroupRefsForDevices indicates an expected call of GetGroupRefsForDevices.
+func (mr *MockCollectionStoreMockRecorder) GetGroupRefsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupLabelsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetGroupLabelsForDevices), ctx, orgID, deviceIdentifiers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupRefsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetGroupRefsForDevices), ctx, orgID, deviceIdentifiers)
 }
 
 // GetRackDetailsForDevices mocks base method.
@@ -355,9 +460,9 @@ func (mr *MockCollectionStoreMockRecorder) GetRackSlots(ctx, collectionID, orgID
 }
 
 // ListCollectionMembers mocks base method.
-func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, collectionID int64, pageSize int32, pageToken string) ([]*collectionv1.CollectionMember, string, error) {
+func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*collectionv1.CollectionMember, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCollectionMembers", ctx, orgID, collectionID, pageSize, pageToken)
+	ret := m.ctrl.Call(m, "ListCollectionMembers", ctx, orgID, collectionID, pageSize, pageToken, filter)
 	ret0, _ := ret[0].([]*collectionv1.CollectionMember)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(error)
@@ -365,9 +470,9 @@ func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, 
 }
 
 // ListCollectionMembers indicates an expected call of ListCollectionMembers.
-func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, collectionID, pageSize, pageToken any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, collectionID, pageSize, pageToken, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollectionMembers", reflect.TypeOf((*MockCollectionStore)(nil).ListCollectionMembers), ctx, orgID, collectionID, pageSize, pageToken)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollectionMembers", reflect.TypeOf((*MockCollectionStore)(nil).ListCollectionMembers), ctx, orgID, collectionID, pageSize, pageToken, filter)
 }
 
 // ListCollections mocks base method.
@@ -432,6 +537,35 @@ func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
 }
 
+// ListTakenLabels mocks base method.
+func (m *MockCollectionStore) ListTakenLabels(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, labels []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTakenLabels", ctx, orgID, collectionType, labels)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTakenLabels indicates an expected call of ListTakenLabels.
+func (mr *MockCollectionStoreMockRecorder) ListTakenLabels(ctx, orgID, collectionType, labels any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTakenLabels", reflect.TypeOf((*MockCollectionStore)(nil).ListTakenLabels), ctx, orgID, collectionType, labels)
+}
+
+// LockDevicesForReassign mocks base method.
+func (m *MockCollectionStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockDevicesForReassign", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockDevicesForReassign indicates an expected call of LockDevicesForReassign.
+func (mr *MockCollectionStoreMockRecorder) LockDevicesForReassign(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForReassign", reflect.TypeOf((*MockCollectionStore)(nil).LockDevicesForReassign), ctx, orgID, deviceIdentifiers)
+}
+
 // LockRackPlacementForWrite mocks base method.
 func (m *MockCollectionStore) LockRackPlacementForWrite(ctx context.Context, collectionID, orgID int64) (interfaces.RackPlacement, error) {
 	m.ctrl.T.Helper()
@@ -445,6 +579,21 @@ func (m *MockCollectionStore) LockRackPlacementForWrite(ctx context.Context, col
 func (mr *MockCollectionStoreMockRecorder) LockRackPlacementForWrite(ctx, collectionID, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRackPlacementForWrite", reflect.TypeOf((*MockCollectionStore)(nil).LockRackPlacementForWrite), ctx, collectionID, orgID)
+}
+
+// LockRacksForReparent mocks base method.
+func (m *MockCollectionStore) LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockRacksForReparent", ctx, orgID, deviceIdentifiers, targetRackID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockRacksForReparent indicates an expected call of LockRacksForReparent.
+func (mr *MockCollectionStoreMockRecorder) LockRacksForReparent(ctx, orgID, deviceIdentifiers, targetRackID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRacksForReparent", reflect.TypeOf((*MockCollectionStore)(nil).LockRacksForReparent), ctx, orgID, deviceIdentifiers, targetRackID)
 }
 
 // RemoveAllDevicesFromCollection mocks base method.
@@ -492,6 +641,21 @@ func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromCollection(ctx, orgI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromCollection", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromCollection), ctx, orgID, collectionID, deviceIdentifiers)
 }
 
+// RemoveDevicesFromCollectionReturningRemoved mocks base method.
+func (m *MockCollectionStore) RemoveDevicesFromCollectionReturningRemoved(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDevicesFromCollectionReturningRemoved", ctx, orgID, collectionID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveDevicesFromCollectionReturningRemoved indicates an expected call of RemoveDevicesFromCollectionReturningRemoved.
+func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromCollectionReturningRemoved(ctx, orgID, collectionID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromCollectionReturningRemoved", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromCollectionReturningRemoved), ctx, orgID, collectionID, deviceIdentifiers)
+}
+
 // SetRackSlotPosition mocks base method.
 func (m *MockCollectionStore) SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32, orgID int64) error {
 	m.ctrl.T.Helper()
@@ -519,6 +683,21 @@ func (m *MockCollectionStore) SoftDeleteCollection(ctx context.Context, orgID, c
 func (mr *MockCollectionStoreMockRecorder) SoftDeleteCollection(ctx, orgID, collectionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteCollection", reflect.TypeOf((*MockCollectionStore)(nil).SoftDeleteCollection), ctx, orgID, collectionID)
+}
+
+// UnassignDeviceBuildingsByRack mocks base method.
+func (m *MockCollectionStore) UnassignDeviceBuildingsByRack(ctx context.Context, collectionID, orgID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnassignDeviceBuildingsByRack", ctx, collectionID, orgID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UnassignDeviceBuildingsByRack indicates an expected call of UnassignDeviceBuildingsByRack.
+func (mr *MockCollectionStoreMockRecorder) UnassignDeviceBuildingsByRack(ctx, collectionID, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnassignDeviceBuildingsByRack", reflect.TypeOf((*MockCollectionStore)(nil).UnassignDeviceBuildingsByRack), ctx, collectionID, orgID)
 }
 
 // UnassignDeviceSitesByRack mocks base method.
@@ -576,4 +755,33 @@ func (m *MockCollectionStore) UpdateRackPlacement(ctx context.Context, collectio
 func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacement(ctx, collectionID, orgID, siteID, buildingID, zone any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacement", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacement), ctx, collectionID, orgID, siteID, buildingID, zone)
+}
+
+// UpdateRackPlacementBulkForBuilding mocks base method.
+func (m *MockCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRackPlacementBulkForBuilding", ctx, orgID, rackIDs, targetSiteID, targetBuildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateRackPlacementBulkForBuilding indicates an expected call of UpdateRackPlacementBulkForBuilding.
+func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacementBulkForBuilding(ctx, orgID, rackIDs, targetSiteID, targetBuildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacementBulkForBuilding", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacementBulkForBuilding), ctx, orgID, rackIDs, targetSiteID, targetBuildingID)
+}
+
+// UpdateRackPlacementBulkForSite mocks base method.
+func (m *MockCollectionStore) UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRackPlacementBulkForSite", ctx, orgID, rackIDs, targetSiteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateRackPlacementBulkForSite indicates an expected call of UpdateRackPlacementBulkForSite.
+func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacementBulkForSite(ctx, orgID, rackIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacementBulkForSite", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacementBulkForSite), ctx, orgID, rackIDs, targetSiteID)
 }

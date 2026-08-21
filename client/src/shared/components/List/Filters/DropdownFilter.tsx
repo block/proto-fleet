@@ -17,6 +17,7 @@ const POPOVER_CHROME_BASE = 56;
 export type DropdownOption = {
   id: string;
   label: string;
+  showGroupDivider?: boolean;
 };
 
 type DropdownFilterProps = {
@@ -27,6 +28,7 @@ type DropdownFilterProps = {
   onSelect: (selectedItems: string[]) => void;
   withButtons?: boolean;
   showSelectAll?: boolean;
+  closeOnSelect?: boolean;
   className?: string;
   testId?: string;
 };
@@ -38,6 +40,7 @@ const FilterContent = ({
   onSelect,
   withButtons = false,
   showSelectAll = true,
+  closeOnSelect = false,
   className,
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
@@ -112,9 +115,12 @@ const FilterContent = ({
           ? externalSelectedItems.filter((id) => id !== itemId)
           : [...externalSelectedItems, itemId];
         onSelect(newSelection);
+        if (closeOnSelect) {
+          setShowPopover(false);
+        }
       }
     },
-    [withButtons, onSelect, externalSelectedItems],
+    [withButtons, onSelect, externalSelectedItems, closeOnSelect],
   );
 
   const handleSelectAll = useCallback(() => {
@@ -187,6 +193,7 @@ const FilterContent = ({
             popoverRef={popoverRef}
             optionsMaxHeight={optionsMaxHeight}
             position={popoverPosition}
+            closePopover={() => setShowPopover(false)}
           />
         ) : null}
       </div>

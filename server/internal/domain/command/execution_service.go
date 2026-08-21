@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -21,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
@@ -28,6 +31,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 const (
@@ -38,6 +43,7 @@ const (
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -65,12 +71,38 @@ type ExecutionService struct {
 
 	workerSemaphore chan struct{}
 
-	queueProcessorMu      sync.Mutex
-	queueProcessorRunning bool
-	reaperCancel          context.CancelFunc
+	lifecycleMu sync.Mutex
+	run         *executionRun
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+type executionRun struct {
+	admissionCtx    context.Context //nolint:containedctx // scoped to this activation's admission phase
+	cancelAdmission context.CancelFunc
+	workCtx         context.Context //nolint:containedctx // scoped to this activation's drain phase
+	cancelWork      context.CancelFunc
+	accepting       bool
+	wg              sync.WaitGroup
+	done            chan struct{}
+}
+
+var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
+
+var errExecutionStoppedBeforeEnqueue = errors.New("command execution service stopped before enqueue")
+
+func newExecutionRun(ctx context.Context) *executionRun {
+	admissionCtx, cancelAdmission := context.WithCancel(ctx)
+	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+	return &executionRun{
+		admissionCtx:    admissionCtx,
+		cancelAdmission: cancelAdmission,
+		workCtx:         workCtx,
+		cancelWork:      cancelWork,
+		accepting:       true,
+		done:            make(chan struct{}),
+	}
+}
+
+func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -84,18 +116,17 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		config.FirmwareUpdateStuckTimeout = 20 * time.Minute
 	}
 	return &ExecutionService{
-		config:                config,
-		conn:                  conn,
-		messageQueue:          messageQueue,
-		encryptService:        encryptService,
-		tokenService:          tokenService,
-		minerService:          minerService,
-		deviceStore:           deviceStore,
-		telemetryListener:     telemetryListener,
-		filesService:          filesService,
-		metricsEmitter:        NoCommandMetrics(),
-		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
-		queueProcessorRunning: false,
+		config:            config,
+		conn:              conn,
+		messageQueue:      messageQueue,
+		encryptService:    encryptService,
+		tokenService:      tokenService,
+		minerService:      minerService,
+		deviceStore:       deviceStore,
+		telemetryListener: telemetryListener,
+		filesService:      filesService,
+		metricsEmitter:    NoCommandMetrics(),
+		workerSemaphore:   make(chan struct{}, config.MaxWorkers),
 	}
 }
 
@@ -107,49 +138,151 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 	return es
 }
 
-// Start starts the queue processor thread if it is not already running.
+// Start runs command execution for the lifetime of ctx if it is not already
+// active.
 func (es *ExecutionService) Start(ctx context.Context) error {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start command execution service: %w", err)
+	}
 
-	if es.queueProcessorRunning {
+	es.lifecycleMu.Lock()
+	if es.run != nil {
+		if !es.run.accepting || es.run.admissionCtx.Err() != nil {
+			es.lifecycleMu.Unlock()
+			return fmt.Errorf("command execution service activation is still draining")
+		}
+		es.lifecycleMu.Unlock()
 		return nil
 	}
-
-	es.queueProcessorRunning = true
-
-	if es.reaperCancel != nil {
-		es.reaperCancel()
+	if err := es.reapAfterRestart(ctx); err != nil {
+		es.lifecycleMu.Unlock()
+		return err
 	}
-	reaperCtx, reaperCancel := context.WithCancel(ctx)
-	es.reaperCancel = reaperCancel
 
-	go es.startStuckMessageReaper(reaperCtx)
+	run := newExecutionRun(ctx)
+	es.run = run
+
+	run.wg.Go(func() {
+		es.startStuckMessageReaper(run.admissionCtx)
+	})
 
 	// Start the queue processor thread
-	go func() {
-		err := es.startQueueProcessorThread(ctx)
-		reaperCancel()
-		es.queueProcessorMu.Lock()
-		es.queueProcessorRunning = false
-		es.queueProcessorMu.Unlock()
+	run.wg.Go(func() {
+		err := es.startQueueProcessorThread(run)
+		es.beginStop(run)
 
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("message processing stopped with error", "error", err)
 		}
-	}()
+	})
+	context.AfterFunc(run.admissionCtx, func() {
+		es.beginStop(run)
+	})
+	go es.finishRun(run)
+	es.lifecycleMu.Unlock()
 
 	return nil
 }
 
-func (es *ExecutionService) IsRunning() bool {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
+func (es *ExecutionService) beginStop(run *executionRun) {
+	es.lifecycleMu.Lock()
+	if es.run == run {
+		run.accepting = false
+	}
+	es.lifecycleMu.Unlock()
+	run.cancelAdmission()
+}
 
-	return es.queueProcessorRunning
+func (es *ExecutionService) finishRun(run *executionRun) {
+	run.wg.Wait()
+	run.cancelWork()
+	es.lifecycleMu.Lock()
+	if es.run == run {
+		es.run = nil
+	}
+	es.lifecycleMu.Unlock()
+	close(run.done)
+}
+
+// Stop closes admission and waits for admitted work to drain. If ctx expires,
+// it cancels that work before returning.
+func (es *ExecutionService) Stop(ctx context.Context) error {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run == nil {
+		es.lifecycleMu.Unlock()
+		return nil
+	}
+	run.accepting = false
+	es.lifecycleMu.Unlock()
+	run.cancelAdmission()
+
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		run.cancelWork()
+		return fmt.Errorf("stop command execution service: %w", ctx.Err())
+	}
+}
+
+func (es *ExecutionService) IsRunning() bool {
+	es.lifecycleMu.Lock()
+	defer es.lifecycleMu.Unlock()
+
+	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
+}
+
+// Abort immediately cancels admitted work before a fatal HA process exit.
+func (es *ExecutionService) Abort() {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run != nil {
+		run.accepting = false
+	}
+	es.lifecycleMu.Unlock()
+	if run == nil {
+		return
+	}
+	run.cancelAdmission()
+	run.cancelWork()
+}
+
+// withAdmission makes accepting an enqueue atomic with stopping. Once
+// admitted, the operation may drain after Stop begins and is canceled only if
+// the stop context expires.
+func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.Context) error) error {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run == nil || !run.accepting || run.admissionCtx.Err() != nil {
+		es.lifecycleMu.Unlock()
+		return errExecutionStoppedBeforeEnqueue
+	}
+	run.wg.Add(1)
+	es.lifecycleMu.Unlock()
+	defer run.wg.Done()
+
+	workCtx, cancel := context.WithCancelCause(ctx)
+	stopCancel := context.AfterFunc(run.workCtx, func() {
+		cancel(errExecutionStoppedBeforeEnqueue)
+	})
+	defer func() {
+		stopCancel()
+		cancel(context.Canceled)
+	}()
+	if run.workCtx.Err() != nil {
+		cancel(errExecutionStoppedBeforeEnqueue)
+	}
+
+	err := fn(workCtx)
+	if err != nil && errors.Is(context.Cause(workCtx), errExecutionStoppedBeforeEnqueue) {
+		return errExecutionStoppedBeforeEnqueue
+	}
+	return err
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
+	reportProgress := runtimejobs.TrackProgress(ctx, es.config.ReaperInterval)
 	ticker := time.NewTicker(es.config.ReaperInterval)
 	defer ticker.Stop()
 
@@ -159,59 +292,111 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if es.conn == nil {
+				reportProgress()
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
-			reaped, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
+			reaped, err := es.reapMessages(reapCtx, reapModeStuck)
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
+				reportProgress()
 				continue
 			}
 			if len(reaped) > 0 {
 				slog.Warn("stuck message reaper moved messages to FAILED", "count", len(reaped))
 			}
 			es.emitReapedCommandMetrics(ctx, reaped)
-			for _, deviceID := range fwDeviceIDs {
-				es.clearFirmwareUpdateStatus(ctx, deviceID)
+			if _, err := es.finishTerminalCommandBatches(ctx); err != nil {
+				slog.Error("finish terminal command batches", "error", err)
 			}
+			reportProgress()
 		}
 	}
 }
 
 type reapedCommand struct {
 	orgID       int64
+	siteID      int64
 	commandType string
 }
 
-// reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
-// writes the corresponding audit log entries in a single transaction.
-// Firmware update messages use a longer cutoff since they include install polling.
-// Returns the reaped commands' metric metadata and the device IDs from reaped
-// firmware update messages (so callers can clean up stuck device statuses).
-func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedCommand, []int64, error) {
-	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
+type reapMode uint8
+
+const (
+	reapModeStuck reapMode = iota
+	reapModeRestart
+)
+
+const (
+	reaperBatchSize      = 100
+	stuckMessageReason   = "reaped: stuck in PROCESSING beyond timeout"
+	stuckFirmwareReason  = "reaped: firmware update stuck in PROCESSING beyond timeout"
+	commandRestartReason = "Interrupted by Fleet restart; device outcome may be unknown"
+)
+
+// reapAfterRestart fails PROCESSING work whose device outcome is unknown.
+// PENDING work remains queued for this process to execute.
+func (es *ExecutionService) reapAfterRestart(ctx context.Context) error {
+	if es.conn == nil {
+		return nil
+	}
+
+	for {
+		reaped, err := es.reapMessages(ctx, reapModeRestart)
+		if err != nil {
+			return fmt.Errorf("reap commands after restart: %w", err)
+		}
+		es.emitReapedCommandMetrics(ctx, reaped)
+		if len(reaped) < reaperBatchSize {
+			break
+		}
+	}
+	for {
+		finished, err := es.finishTerminalCommandBatches(ctx)
+		if err != nil {
+			return err
+		}
+		if finished < reaperBatchSize {
+			return nil
+		}
+	}
+}
+
+func (es *ExecutionService) finishTerminalCommandBatches(ctx context.Context) (int64, error) {
+	return db.WithTransactionTimeout(ctx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (int64, error) {
+		return q.FinishTerminalCommandBatches(ctx, reaperBatchSize)
+	})
+}
+
+// reapMessages marks one bounded batch FAILED, writes its audit rows, and
+// clears firmware-owned status.
+func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]reapedCommand, error) {
+	now := time.Now()
+	errorInfo := stuckMessageReason
+	firmwareErrorInfo := stuckFirmwareReason
+	if mode == reapModeRestart {
+		errorInfo = commandRestartReason
+		firmwareErrorInfo = commandRestartReason
+	}
+
 	var reapedCmds []reapedCommand
-	var fwDeviceIDs []int64
-	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
-		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
-			Cutoff:    cutoff,
-			ReapLimit: 100,
+	err := db.WithTransactionTimeoutNoResult(ctx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+		reaped, err := q.ReapMessages(ctx, sqlc.ReapMessagesParams{
+			IncludeFresh:      mode == reapModeRestart,
+			Cutoff:            now.Add(-es.config.StuckMessageTimeout),
+			FirmwareCutoff:    now.Add(-es.config.FirmwareUpdateStuckTimeout),
+			ReapLimit:         reaperBatchSize,
+			ErrorInfo:         errorInfo,
+			FirmwareErrorInfo: firmwareErrorInfo,
 		})
 		if err != nil {
 			return err
 		}
 
-		fwCutoff := time.Now().Add(-es.config.FirmwareUpdateStuckTimeout)
-		fwReaped, err := q.ReapStuckFirmwareUpdateMessages(ctx, sqlc.ReapStuckFirmwareUpdateMessagesParams{
-			Cutoff:    fwCutoff,
-			ReapLimit: 100,
-		})
-		if err != nil {
-			return err
-		}
-
-		reapedCmds = make([]reapedCommand, 0, len(reaped)+len(fwReaped))
+		reapedCmds = make([]reapedCommand, 0, len(reaped))
+		firmwareDeviceIDs := make([]int64, 0)
+		requeueOrganizations := make(map[int64]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -222,27 +407,39 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 			}); err != nil {
 				return err
 			}
-			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
-		}
-		for _, msg := range fwReaped {
-			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
-				Uuid:      msg.CommandBatchLogUuid,
-				DeviceID:  msg.DeviceID,
-				Status:    sqlc.DeviceCommandStatusEnumFAILED,
-				UpdatedAt: time.Now(),
-				ErrorInfo: msg.ErrorInfo,
-			}); err != nil {
-				return err
+			kind, kindErr := commandtype.FromString(msg.CommandType)
+			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
+				requeueOrganizations[msg.OrgID] = struct{}{}
 			}
-			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
-			fwDeviceIDs = append(fwDeviceIDs, msg.DeviceID)
+			if kindErr == nil && kind == commandtype.FirmwareUpdate {
+				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
+			}
+			siteID := int64(0)
+			if msg.SiteID.Valid {
+				siteID = msg.SiteID.Int64
+			}
+			reapedCmds = append(reapedCmds, reapedCommand{
+				orgID:       msg.OrgID,
+				siteID:      siteID,
+				commandType: msg.CommandType,
+			})
+		}
+		for orgID := range requeueOrganizations {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, orgID); err != nil {
+				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
+			}
+		}
+		if len(firmwareDeviceIDs) > 0 {
+			if err := q.ResetReapedFirmwareStatuses(ctx, firmwareDeviceIDs); err != nil {
+				return fmt.Errorf("reset reaped firmware statuses: %w", err)
+			}
 		}
 		return nil
 	})
-	return reapedCmds, fwDeviceIDs, err
+	return reapedCmds, err
 }
 
-var errReapedStuck = errors.New("reaped: stuck in PROCESSING beyond timeout")
+var errReapedCommand = errors.New("reaped command")
 
 // records a result="failure" sample for each reaped command.
 func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped []reapedCommand) {
@@ -256,14 +453,17 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 				"command_type", r.commandType, "error", err)
 			continue
 		}
-		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, 0, kind, errReapedStuck)
+		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, r.siteID, kind, errReapedCommand)
 	}
 }
 
-func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
-	messages, err := es.messageQueue.Dequeue(ctx)
+func (es *ExecutionService) dequeueWithRetry(ctx context.Context, limit int32) ([]queue.Message, error) {
+	messages, err := es.messageQueue.Dequeue(ctx, limit)
 	if err == nil {
 		return messages, nil
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("dequeue context canceled: %w", ctx.Err())
 	}
 
 	delay := es.config.MasterPollingInterval
@@ -273,7 +473,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 
 		select {
 		case <-ctx.Done():
-			return nil, fleeterror.NewInternalErrorf("context cancelled: %v", ctx.Err())
+			return nil, fmt.Errorf("dequeue retry context canceled: %w", ctx.Err())
 		case <-time.After(delay):
 			// Continue with retry
 		}
@@ -281,50 +481,99 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		// simple backoff for next attempt
 		delay *= 2
 
-		messages, err = es.messageQueue.Dequeue(ctx)
+		messages, err = es.messageQueue.Dequeue(ctx, limit)
 		if err == nil {
 			return messages, nil
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("dequeue context canceled after retry: %w", ctx.Err())
+		}
 	}
 
-	slog.Error("dequeue failed after retries", "error", err)
 	return nil, err
 }
 
-func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error {
+func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
+	ctx := run.admissionCtx
 	for {
-		select {
-		case <-ctx.Done():
-			return fleeterror.NewInternalErrorf("error queue processor thread ctx DONE: %v", ctx.Err())
-		default:
-			messages, err := es.dequeueWithRetry(ctx)
-
-			if err != nil {
-				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
+		reservedSlots, err := es.reserveWorkerSlots(ctx)
+		if err != nil {
+			return err
+		}
+		messages, err := es.dequeueWithRetry(ctx, reservedSlots)
+		if err != nil {
+			es.releaseWorkerSlots(int(reservedSlots))
+			if ctx.Err() != nil {
+				return fmt.Errorf("queue processor context canceled while dequeuing: %w", ctx.Err())
 			}
-
-			if len(messages) == 0 {
-				time.Sleep(es.config.MasterPollingInterval)
+			slog.Error("dequeue failed after retries; command execution service remains active", "error", err)
+			timer := time.NewTimer(es.config.MasterPollingInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("queue processor context canceled after dequeue failure: %w", ctx.Err())
+			case <-timer.C:
 				continue
 			}
+		}
+		if len(messages) > int(reservedSlots) {
+			es.releaseWorkerSlots(int(reservedSlots))
+			return fleeterror.NewInternalErrorf("dequeue returned %d messages for %d reserved worker slots", len(messages), reservedSlots)
+		}
+		es.releaseWorkerSlots(int(reservedSlots) - len(messages))
 
-			for _, message := range messages {
-				es.workerSemaphore <- struct{}{}
-
-				go func(msg queue.Message) {
-					defer func() { <-es.workerSemaphore }()
-
-					timeout := es.config.WorkerExecutionTimeout
-					if msg.CommandType == commandtype.FirmwareUpdate {
-						timeout = es.config.FirmwareUpdateTimeout
-					}
-					workerCtx, cancel := context.WithTimeout(ctx, timeout)
-					defer cancel()
-
-					es.workerProcessCommand(workerCtx, msg)
-				}(message)
+		if len(messages) == 0 {
+			timer := time.NewTimer(es.config.MasterPollingInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("queue processor context canceled while idle: %w", ctx.Err())
+			case <-timer.C:
+				continue
 			}
 		}
+
+		for _, message := range messages {
+			// The processor remains in the run wait group while it adds workers, so Wait
+			// cannot finish before all worker registrations are complete.
+			run.wg.Go(func() {
+				defer func() { <-es.workerSemaphore }()
+
+				timeout := es.config.WorkerExecutionTimeout
+				if message.CommandType == commandtype.FirmwareUpdate {
+					timeout = es.config.FirmwareUpdateTimeout
+				}
+				workerCtx, cancel := context.WithTimeout(run.workCtx, timeout)
+				defer cancel()
+
+				es.workerProcessCommand(workerCtx, message)
+			})
+		}
+	}
+}
+
+func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
+	select {
+	case es.workerSemaphore <- struct{}{}:
+	case <-ctx.Done():
+		return 0, fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
+	}
+
+	reserved := int32(1)
+	for int(reserved) < cap(es.workerSemaphore) {
+		select {
+		case es.workerSemaphore <- struct{}{}:
+			reserved++
+		default:
+			return reserved, nil
+		}
+	}
+	return reserved, nil
+}
+
+func (es *ExecutionService) releaseWorkerSlots(count int) {
+	for range count {
+		<-es.workerSemaphore
 	}
 }
 
@@ -349,7 +598,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		queueUpdated  bool
 		queueTerminal bool
 	)
-	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+	txErr := db.WithTransactionTimeoutNoResult(dbCtx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
 		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
@@ -360,6 +609,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
+			return nil
+		}
+		if !terminal {
 			return nil
 		}
 
@@ -375,6 +627,11 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 			ErrorInfo: sanitizedErrorInfo(workerError),
 		}); err != nil {
 			return err
+		}
+		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, orgID); err != nil {
+				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
+			}
 		}
 
 		return nil
@@ -393,13 +650,17 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	}
 }
 
+func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
+	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil
+}
+
 // markQueueMessageStatus transitions the queue_message to its next state within an
 // existing transaction. Returns (updated, terminal, err) where:
 //   - updated is true when rowsAffected > 0 (the row was still PROCESSING),
 //   - terminal is true when the resulting queue status is SUCCESS or FAILED
 //
 // (false, _, nil) means the row is no longer PROCESSING (stale/reaped)
-func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, message queue.Message, workerError error) (bool, bool, error) {
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Querier, message queue.Message, workerError error) (bool, bool, error) {
 	var (
 		result   sql.Result
 		err      error
@@ -435,7 +696,10 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 	if err != nil {
 		return false, false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
 	}
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to read queue message transition result: %v", err)
+	}
 	return rowsAffected > 0, terminal, nil
 }
 
@@ -443,8 +707,23 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 // id along with the execution error (if any). It does NOT mark queue message
 // status — the caller is responsible for that.
 func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, int64, error) {
-	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
+	var passwordPayload *dto.UpdateMinerPasswordPayload
+	if commandType == commandtype.UpdateMinerPassword {
+		var p dto.UpdateMinerPasswordPayload
+		if err := json.Unmarshal(message.Payload, &p); err != nil {
+			return message.OrgID, 0, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", err)
+		}
+		passwordPayload = &p
+	}
+
+	minerInfo, err := es.resolveMinerForCommand(ctx, commandType, message.DeviceID, passwordPayload)
 	if err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return message.OrgID, 0, err
+		}
+		if commandType == commandtype.UpdateMinerPassword && fleeterror.IsAuthenticationError(err) {
+			return message.OrgID, 0, fleeterror.NewFailedPreconditionErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
@@ -516,22 +795,19 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
 			break
 		}
-		reader, filename, size, openErr := es.filesService.OpenFirmwareFile(p.FirmwareFileID)
+		reader, info, openErr := es.filesService.OpenFirmwareFileWithInfo(p.FirmwareFileID)
 		if openErr != nil {
 			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
 			break
 		}
 		defer reader.Close()
-		filePath, pathErr := es.filesService.GetFirmwareFilePath(p.FirmwareFileID)
-		if pathErr != nil {
-			err = fleeterror.NewInternalErrorf("error resolving firmware file path: %v", pathErr)
-			break
-		}
 		err = minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
 			Reader:   reader,
-			Filename: filename,
-			Size:     size,
-			FilePath: filePath,
+			ID:       info.ID,
+			Filename: info.Filename,
+			Size:     info.Size,
+			SHA256:   info.SHA256,
+			FilePath: info.FilePath,
 		})
 		if err != nil {
 			break
@@ -542,6 +818,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			break
 		}
 		if shouldReboot {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+				break
+			}
 			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
@@ -565,29 +845,55 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
-	case commandtype.UpdateMinerPassword:
-		var p dto.UpdateMinerPasswordPayload
-		credExtractErr := json.Unmarshal(message.Payload, &p)
-		if credExtractErr != nil {
-			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
+	case commandtype.ApplyCurtailmentConfig:
+		var queuePayload curtailmentConfigQueuePayload
+		if configExtractErr := json.Unmarshal(message.Payload, &queuePayload); configExtractErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtailment config payload: %v", configExtractErr)
 		}
+		dispatchPayload, prepareErr := es.prepareCurtailmentConfigPayload(queuePayload)
+		if prepareErr != nil {
+			return orgID, siteID, prepareErr
+		}
+		configurator, ok := minerInfo.(interfaces.MinerCurtailmentConfigurator)
+		if !ok {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("miner does not support curtailment configuration")
+		}
+		err = configurator.ApplyCurtailmentConfig(ctx, dispatchPayload)
+	case commandtype.UpdateMinerPassword:
+		p := *passwordPayload
 
-		// Update device via plugin
-		err = minerInfo.UpdateMinerPassword(ctx, p)
+		var encryptedCredentials *gatewaypb.EncryptedCredentials
+		if updater, ok := minerInfo.(interfaces.MinerPasswordCredentialUpdater); ok {
+			encryptedCredentials, err = updater.UpdateMinerPasswordWithCredentials(ctx, p)
+		} else {
+			err = minerInfo.UpdateMinerPassword(ctx, p)
+		}
 		if err != nil {
+			if fleeterror.IsAuthenticationError(err) {
+				err = fleeterror.NewFailedPreconditionErrorf("miner rejected current password: %v", err)
+			}
 			break
 		}
 
-		// Only evict after a successful DB write: the cached handle already has the new
-		// credentials and is the only valid session if DB sync fails.
-		// Proto devices (asymmetric auth) store no password in DB, so always evict.
-		if minerInfo.GetDriverName() != models.DriverNameProto {
-			if dbErr := es.updateMinerPasswordInDB(ctx, message.DeviceID, p.NewPassword); dbErr != nil {
-				slog.Error("device password updated but database sync failed",
-					"device_id", message.DeviceID, "error", dbErr)
-				break
-			}
+		// Surface a persistence failure as a command error: the on-device password
+		// already changed, so a silent success would leave Fleet with stale credentials.
+		if dbErr := es.persistUpdatedMinerPassword(ctx, message.DeviceID, minerInfo, p.NewPassword, encryptedCredentials); dbErr != nil {
+			slog.Error("device password updated but database sync failed",
+				"device_id", message.DeviceID, "error", dbErr)
+			err = fleeterror.NewFailedPreconditionErrorf(
+				"device %d password changed on-device but credential persistence failed: %v",
+				message.DeviceID, dbErr)
+			es.minerService.InvalidateMiner(minerInfo.GetID())
+			break
 		}
+
+		// Clear the DEFAULT_PASSWORD remediation state (no-op for already-PAIRED rows).
+		if resetErr := es.deviceStore.UpdateDevicePairingStatusByIdentifier(
+			ctx, string(minerInfo.GetID()), string(sqlc.PairingStatusEnumPAIRED)); resetErr != nil {
+			slog.Error("password updated but pairing-status reset failed",
+				"device_id", message.DeviceID, "error", resetErr)
+		}
+
 		// Evict so the next lookup re-reads updated credentials from DB.
 		es.minerService.InvalidateMiner(minerInfo.GetID())
 	default:
@@ -601,6 +907,47 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) prepareCurtailmentConfigPayload(payload curtailmentConfigQueuePayload) (dto.ApplyCurtailmentConfigPayload, error) {
+	if payload.LocalConfigCiphertext != "" {
+		if payload.FleetNodeEncryptedConfig != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionError("curtailment config payload has multiple encrypted representations")
+		}
+		if es.encryptService == nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewInternalError("curtailment config decryption is not configured")
+		}
+		plaintext, err := es.encryptService.Decrypt(payload.LocalConfigCiphertext)
+		if err != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionErrorf("decrypt local curtailment config: %v", err)
+		}
+		defer clear(plaintext)
+		var config sdk.CurtailmentConfig
+		if err := json.Unmarshal(plaintext, &config); err != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionErrorf("unmarshal local curtailment config: %v", err)
+		}
+		return dto.ApplyCurtailmentConfigPayload{Config: &config}, nil
+	}
+	if payload.FleetNodeEncryptedConfig == nil {
+		return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionError("curtailment config payload is missing an encrypted config")
+	}
+	return dto.ApplyCurtailmentConfigPayload{EncryptedConfig: payload.FleetNodeEncryptedConfig}, nil
+}
+
+func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {
+	var (
+		miner interfaces.Miner
+		err   error
+	)
+	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil && passwordPayload.EncryptedPasswordUpdate == nil {
+		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
+	} else {
+		miner, err = es.minerService.GetMiner(ctx, deviceID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return miner, nil
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(
@@ -646,7 +993,7 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 
 	currentPools, err := minerInfo.GetMiningPools(ctx)
 	if err != nil {
-		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewInternalErrorf("failed to read current mining pools for worker-name reapply: %v", err)
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
 	}
 	if len(currentPools) == 0 {
 		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil
@@ -794,7 +1141,7 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 		return es.deviceStore.UpdateWorkerName(ctx, deviceIdentifier, workerName)
 	}
 
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		affected, err := q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
 			DeviceIdentifier: string(deviceIdentifier),
 			WorkerName:       sql.NullString{String: workerName, Valid: workerName != ""},
@@ -913,7 +1260,7 @@ func normalizePoolUsernameBase(username string) string {
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -960,7 +1307,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 
-	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(cleanupCtx, deviceID)
 	})
 	if err != nil {
@@ -1008,7 +1355,11 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 // already verified reboot support for firmware updates. For polling-capable
 // devices, status transitions to UPDATING while installation runs, then
 // REBOOT_REQUIRED on success.
-func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) (bool, error) {
+func (es *ExecutionService) pollFirmwareInstallStatus(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	deviceID int64,
+) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
 		slog.Info("firmware update status provider unavailable, rebooting after upload", "device_id", deviceID)
@@ -1023,7 +1374,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, miner
 		return true, nil
 	}
 
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1048,7 +1399,7 @@ func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, devi
 	if es.conn == nil || es.deviceStore == nil {
 		return
 	}
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1146,15 +1497,74 @@ func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, mine
 	return nil
 }
 
+var errMinerCredentialsMissing = errors.New("no miner credentials row for device")
+
+// persistMinerPassword updates the device's stored password, inserting a defensive
+// row for Proto if the command reached persistence before credentials existed.
+func (es *ExecutionService) persistUpdatedMinerPassword(ctx context.Context, deviceID int64, minerInfo interfaces.Miner, password string, encrypted *gatewaypb.EncryptedCredentials) error {
+	if encrypted != nil {
+		return es.persistFleetNodeMinerCredentials(ctx, deviceID, encrypted)
+	}
+	return es.persistMinerPassword(ctx, deviceID, minerInfo.GetDriverName(), password)
+}
+
+func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context, deviceID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+	encodedUsername, encodedPassword, err := credentialblob.EncodeValid(encrypted)
+	if errors.Is(err, credentialblob.ErrMissingCredentials) {
+		return fleeterror.NewInternalErrorf("fleet node password update returned empty encrypted credentials")
+	}
+	if errors.Is(err, credentialblob.ErrMalformedCredentials) {
+		return fleeterror.NewInternalErrorf("fleet node password update returned malformed encrypted credentials")
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("encode fleet node password update credentials: %v", err)
+	}
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
+			DeviceID:    deviceID,
+			UsernameEnc: encodedUsername,
+			PasswordEnc: encodedPassword,
+		})
+	})
+}
+
+func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID int64, driverName, password string) error {
+	err := es.updateMinerPasswordInDB(ctx, deviceID, password)
+	if errors.Is(err, errMinerCredentialsMissing) && driverName == models.DriverNameProto {
+		return es.insertProtoCredentials(ctx, deviceID, password)
+	}
+	return err
+}
+
+func (es *ExecutionService) insertProtoCredentials(ctx context.Context, deviceID int64, password string) error {
+	usernameEnc, err := es.encryptService.Encrypt([]byte(models.ProtoDefaultUsername))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
+	}
+	passwordEnc, err := es.encryptService.Encrypt([]byte(password))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
+	}
+
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
+			DeviceID:    deviceID,
+			UsernameEnc: usernameEnc,
+			PasswordEnc: passwordEnc,
+		})
+	})
+}
+
 // updateMinerPasswordInDB encrypts and stores the miner password in the database
 // after successful password update on the device. Username remains unchanged.
+// Returns errMinerCredentialsMissing when no credentials row exists.
 func (es *ExecutionService) updateMinerPasswordInDB(ctx context.Context, deviceID int64, password string) error {
 	passwordEnc, err := es.encryptService.Encrypt([]byte(password))
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 	}
 
-	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (int64, error) {
+	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (int64, error) {
 		return q.UpdateMinerPassword(ctx, sqlc.UpdateMinerPasswordParams{
 			PasswordEnc: passwordEnc,
 			DeviceID:    deviceID,
@@ -1164,9 +1574,8 @@ func (es *ExecutionService) updateMinerPasswordInDB(ctx context.Context, deviceI
 		return err
 	}
 
-	// If no rows were affected, credentials don't exist for this device (data integrity issue)
 	if rowsAffected == 0 {
-		return fleeterror.NewInternalErrorf("no credentials found for device %d - cannot update password", deviceID)
+		return errMinerCredentialsMissing
 	}
 
 	return nil

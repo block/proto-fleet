@@ -1,20 +1,19 @@
 import { useCallback, useMemo, useState } from "react";
 
-import TicketDetailModal from "../TicketDetail/TicketDetailModal";
-import CreateTicketModal from "../CreateTicket/CreateTicketModal";
-import BulkCloseModal from "../BulkClose/BulkCloseModal";
-import { mockTickets, CURRENT_USER } from "../../mockData";
-import { Alert, Dismiss, Info } from "@/shared/assets/icons";
-import Divider from "@/shared/components/Divider";
-import StatusCircle from "@/shared/components/StatusCircle";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import { CURRENT_USER, mockTickets } from "../../mockData";
+import BulkCloseModal from "../BulkClose/BulkCloseModal";
+import CreateTicketModal from "../CreateTicket/CreateTicketModal";
+import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
+import { Dismiss, Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
-import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import SegmentedControl from "@/shared/components/SegmentedControl";
+import StatusCircle from "@/shared/components/StatusCircle";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type TicketColumns = "urgent" | "issue" | "asset" | "location" | "status";
 
@@ -125,18 +124,16 @@ const TicketQueue = () => {
             <span className="text-300 text-text-primary-70">{ticket.ticketNumber}</span>
           </div>
         ),
+        width: "w-64",
       },
       asset: {
         component: (ticket) => (
           <div className="flex flex-col">
-            <span className="text-emphasis-300 font-medium">
-              {ticket.minerIdentifier ?? ticket.component}
-            </span>
-            <span className="text-300 text-text-primary-70">
-              {ticket.minerType ?? ticket.buildingName}
-            </span>
+            <span className="text-emphasis-300 font-medium">{ticket.minerIdentifier ?? ticket.component}</span>
+            <span className="text-300 text-text-primary-70">{ticket.minerType ?? ticket.buildingName}</span>
           </div>
         ),
+        width: "w-48",
       },
       location: {
         component: (ticket) => (
@@ -151,6 +148,7 @@ const TicketQueue = () => {
             </span>
           </div>
         ),
+        width: "w-48",
       },
       status: {
         component: (ticket) => (
@@ -164,6 +162,7 @@ const TicketQueue = () => {
             </div>
           </div>
         ),
+        width: "w-36",
       },
     }),
     [isCompact],
@@ -253,10 +252,7 @@ const TicketQueue = () => {
     [myTicketsActive, activeDropdownFilters],
   );
 
-  const filteredTickets = useMemo(
-    () => tickets.filter(filterTicket),
-    [tickets, filterTicket],
-  );
+  const filteredTickets = useMemo(() => tickets.filter(filterTicket), [tickets, filterTicket]);
 
   const handleRowClick = useCallback((ticket: TicketItem) => {
     setDetailTicketId(ticket.id);
@@ -323,7 +319,7 @@ const TicketQueue = () => {
   const toolbar = (
     <div className={`flex gap-2 pb-4 ${isCompact ? "flex-col" : "flex-wrap items-center"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        {!isCompact && (
+        {!isCompact ? (
           <SegmentedControl
             key={viewMode}
             className="shrink-0"
@@ -334,7 +330,7 @@ const TicketQueue = () => {
             initialSegmentKey={viewMode}
             onSelect={(key) => setViewMode(key as "list" | "kanban")}
           />
-        )}
+        ) : null}
         <Button
           variant={myTicketsActive ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
@@ -342,10 +338,7 @@ const TicketQueue = () => {
         >
           My tickets
         </Button>
-        <FilterChipsBar
-          filters={chipFilters}
-          onChange={handleChipFilterChange}
-        />
+        <FilterChipsBar filters={chipFilters} onChange={handleChipFilterChange} />
       </div>
       <div className={`${isCompact ? "" : "ml-auto"}`}>
         <Button
@@ -360,11 +353,13 @@ const TicketQueue = () => {
 
   return (
     <div className="flex flex-col">
-      {queueStats.overdue > 0 && !overdueDismissed && (
+      {queueStats.overdue > 0 && !overdueDismissed ? (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-border-5 px-4 py-3">
           <Info width="w-5" className="shrink-0 text-text-primary" />
           <div className="flex flex-1 flex-col">
-            <span className="text-emphasis-300 font-medium">{queueStats.overdue} ticket{queueStats.overdue > 1 ? "s" : ""} overdue</span>
+            <span className="text-emphasis-300 font-medium">
+              {queueStats.overdue} ticket{queueStats.overdue > 1 ? "s" : ""} overdue
+            </span>
             <span className="text-300 text-text-primary-70">These tickets have been open for more than 3 days.</span>
           </div>
           <Button
@@ -384,7 +379,7 @@ const TicketQueue = () => {
             onClick={() => setOverdueDismissed(true)}
           />
         </div>
-      )}
+      ) : null}
       {toolbar}
       {viewMode === "list" ? (
         <List
@@ -407,24 +402,24 @@ const TicketQueue = () => {
         <TicketKanbanView tickets={filteredTickets} statusCounts={statusCounts} onCardClick={handleRowClick} />
       )}
 
-      {detailTicketId !== null && (
+      {detailTicketId !== null ? (
         <TicketDetailModal
           ticketId={detailTicketId}
           ticketIds={tickets.map((t) => t.id)}
           onDismiss={() => setDetailTicketId(null)}
         />
-      )}
+      ) : null}
 
-      {showCreateModal && (
+      {showCreateModal ? (
         <CreateTicketModal
           onDismiss={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false);
           }}
         />
-      )}
+      ) : null}
 
-      {showBulkCloseModal && (
+      {showBulkCloseModal ? (
         <BulkCloseModal
           ticketIds={selectedTicketIds}
           onDismiss={() => setShowBulkCloseModal(false)}
@@ -433,7 +428,7 @@ const TicketQueue = () => {
             setSelectedTicketIds([]);
           }}
         />
-      )}
+      ) : null}
     </div>
   );
 };
@@ -463,9 +458,7 @@ const TicketKanbanView = ({
           </div>
           <div className="flex flex-col gap-2">
             {colTickets.length === 0 ? (
-              <div className="flex min-h-32 items-center justify-center text-300 text-text-primary-70">
-                No tickets
-              </div>
+              <div className="flex min-h-32 items-center justify-center text-300 text-text-primary-70">No tickets</div>
             ) : (
               colTickets.map((ticket) => {
                 const metaParts = [
@@ -487,12 +480,8 @@ const TicketKanbanView = ({
                         {getComponentIcon(ticket.component, ticket.urgent)}
                       </div>
                     </div>
-                    <span className="pb-2 text-300 font-medium text-text-primary">
-                      {ticket.diagnosis}
-                    </span>
-                    <span className="text-200 text-text-primary-70">
-                      {metaParts.join(", ")}
-                    </span>
+                    <span className="pb-2 text-300 font-medium text-text-primary">{ticket.diagnosis}</span>
+                    <span className="text-200 text-text-primary-70">{metaParts.join(", ")}</span>
                   </button>
                 );
               })

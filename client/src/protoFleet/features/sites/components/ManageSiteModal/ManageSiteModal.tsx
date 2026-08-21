@@ -1,264 +1,484 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 
-import { useBuildings } from "@/protoFleet/api/buildings";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type Site } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import ManageBuildingsModal from "../ManageBuildingsModal";
+import {
+  type BuildingFormValues,
+  type BulkCreateBuildingError,
+  emptyBuildingFormValues,
+  type NewBuildingInput,
+  useBuildings,
+} from "@/protoFleet/api/buildings";
+import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type Site, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
-import { Alert } from "@/shared/assets/icons";
+import { Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
-import Textarea from "@/shared/components/Textarea";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
-export type ManageSiteModalMode = "create" | "edit";
+// One building shown in the modal's list. Seeded from the server fetch and
+// re-synced after each membership write (the picker's Save and the row-level
+// Remove both commit immediately, so this list mirrors the server rather than
+// staging a pending edit).
+interface BuildingEntry {
+  buildingId: bigint;
+  label: string;
+  rackCount: bigint;
+}
 
 interface ManageSiteModalProps {
   open: boolean;
-  mode: ManageSiteModalMode;
   draft: SiteFormValues;
-  // In edit mode the parent has a Site row to drive the right-pane preview
-  // header off; in create mode there is no row yet so the preview uses the
-  // draft values directly.
-  site?: Site;
-  // Persisted at save time. Returns the canonical site + warnings so the
-  // modal can refresh the textarea + surface the Callout without owning
-  // the network call itself.
-  onSave: () => Promise<{
-    canonicalNetworkConfig: string;
-    warnings: string[];
-    closeOnSuccess: boolean;
-  } | null>;
+  // The site is always persisted by the time this modal opens (the create
+  // flow's Continue creates it up front), so it drives the right-pane preview
+  // header and the site_id for building writes.
+  site: Site;
+  // Applies the buildings picker's membership delta via AssignBuildingsToSite.
+  // Resolves true on success; a false result leaves the picker open to retry.
+  onAssignBuildings: (delta: { added: bigint[]; removed: bigint[] }) => Promise<boolean>;
+  // Row-level "Remove building" — unassigns it from this site immediately.
+  onRemoveBuilding: (buildingId: bigint, label: string) => Promise<boolean>;
+  // Creates a new building against this site and returns the created row (or
+  // null on failure). The building is associated to the site atomically, so
+  // the modal injects the returned row into its working set without a refetch.
+  onCreateBuilding: (values: BuildingFormValues) => Promise<Building | null>;
+  // Bulk sibling of onCreateBuilding, wired to the all-or-nothing
+  // CreateBuildings RPC. `created` is empty when nothing was written, and
+  // `errors` names the rows the server rejected so the preview can mark them.
+  // Omit to leave the create modal single-only.
+  onCreateBuildings?: (
+    buildings: NewBuildingInput[],
+  ) => Promise<{ created: Building[]; errors: BulkCreateBuildingError[] }>;
+  // Opens SiteSettingsModal stacked on top to edit name / address / etc.
   onEditDetails: () => void;
-  // Bubbles draft.networkConfig edits back to the parent state so a round-
-  // trip through SiteSettingsModal preserves the textarea contents.
-  onNetworkConfigChange: (value: string) => void;
+  // Opens the cascade delete dialog (edit) or discards the pending create.
+  // Mirrors ManageBuildingModal's header Delete CTA.
+  onDeleteRequested: () => void;
   onDismiss: () => void;
   saving?: boolean;
-  // Building-table CTAs. Wired by the host page so the building modal stack
-  // shares a single useBuildingModals instance across ManageSiteModal and
-  // the settings page table.
-  onAddBuilding?: () => void;
-  onEditBuilding?: (row: BuildingWithCounts) => void;
   // Refresh signal — bumped by the host whenever the building cache changes
-  // (post-create / post-delete) so the modal's local list re-fetches without
-  // bouncing through unmount/remount.
+  // (e.g. a building deleted from the settings table) so the modal's local
+  // list re-fetches without bouncing through unmount/remount.
   buildingsRefreshKey?: number;
+  // Counts of items assigned directly to this site (not via a building),
+  // shown as count lines under the buildings list. Set when the site was
+  // created from a bulk "New site" action seeded with loose racks/miners.
+  unassignedRackCount?: number;
+  unassignedMinerCount?: number;
 }
+
+// Row layout mirrors MinerRow from ManageRackModal: name + secondary line
+// stack on the left, a kebab menu on the right. Buildings have no placement
+// state, so there's no leading icon column or row selection — the only row
+// action is "Remove building", which drops it from the site's working set
+// (the building itself is not deleted).
+const BuildingRow = ({
+  buildingId,
+  label,
+  rackCount,
+  saving,
+  onRemove,
+}: {
+  buildingId: bigint;
+  label: string;
+  rackCount: bigint;
+  saving: boolean;
+  onRemove: (buildingId: bigint, label: string) => void;
+}) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const handleRemove = useCallback(() => {
+    setShowMenu(false);
+    onRemove(buildingId, label);
+  }, [buildingId, label, onRemove]);
+
+  useEscapeDismiss(showMenu ? () => setShowMenu(false) : undefined);
+
+  return (
+    <div
+      className="flex items-center px-3 py-3"
+      data-testid={`manage-site-modal-building-row-${buildingId.toString()}`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-300 text-text-primary">{label || "(unnamed building)"}</div>
+        <div className="truncate text-300 text-text-primary-50">
+          {rackCount.toString()} {rackCount === 1n ? "rack" : "racks"}
+        </div>
+      </div>
+
+      <div className="relative shrink-0" ref={menuRef}>
+        <button
+          type="button"
+          aria-label="Building options"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-text-primary-70 hover:cursor-pointer"
+          disabled={saving}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMenu((prev) => !prev);
+          }}
+          data-testid={`manage-site-modal-building-menu-${buildingId.toString()}`}
+        >
+          <Ellipsis width="w-4" />
+        </button>
+        {showMenu ? (
+          <>
+            <div
+              className="fixed inset-0 z-20"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu(false);
+              }}
+            />
+            <div className="absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border border-border-5 bg-surface-elevated-base py-1 shadow-300">
+              <button
+                type="button"
+                className="w-full px-4 py-2 text-left text-300 text-text-primary hover:bg-surface-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemove();
+                }}
+                data-testid={`manage-site-modal-remove-building-${buildingId.toString()}`}
+              >
+                Remove building
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+};
 
 const ManageSiteModal = ({
   open,
-  mode,
   draft,
   site,
-  onSave,
+  onAssignBuildings,
+  onRemoveBuilding,
+  onCreateBuilding,
+  onCreateBuildings,
   onEditDetails,
-  onNetworkConfigChange,
+  onDeleteRequested,
   onDismiss,
   saving = false,
-  onAddBuilding,
-  onEditBuilding,
   buildingsRefreshKey = 0,
+  unassignedRackCount,
+  unassignedMinerCount,
 }: ManageSiteModalProps) => {
   const { listBuildingsBySite } = useBuildings();
-  const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  // undefined = loading; [] = loaded-empty. Mirrors the site's committed
+  // membership — every mutation in this modal writes before updating it.
+  const [entries, setEntries] = useState<BuildingEntry[] | undefined>(undefined);
+  const [showManageBuildings, setShowManageBuildings] = useState(false);
+  // null = closed; otherwise which side of the create modal's Single / Multiple
+  // toggle the picker's two create buttons asked for.
+  const [createBuilding, setCreateBuilding] = useState<"single" | "multiple" | null>(null);
 
-  // Only fetch when edit mode has a persisted site; create mode renders an
-  // empty-state placeholder until the first Save lands a row. Skipping the
-  // effect entirely for the no-fetch branches keeps the setState-in-effect
-  // lint clean and avoids triggering a re-render to clear buildings.
-  const shouldFetchBuildings = open && mode === "edit" && site !== undefined;
-  const fetchSiteId = shouldFetchBuildings ? site.id : undefined;
+  const shouldFetchBuildings = open;
+  const fetchSiteId = site.id;
   useEffect(() => {
-    if (!shouldFetchBuildings || fetchSiteId === undefined) return;
+    if (!shouldFetchBuildings) return;
     const controller = new AbortController();
     void listBuildingsBySite({
       siteId: fetchSiteId,
       signal: controller.signal,
-      onSuccess: setBuildings,
-      onError: () => setBuildings([]),
+      onSuccess: (rows: BuildingWithCounts[]) => {
+        const seeded: BuildingEntry[] = rows
+          .filter((r) => r.building)
+          .map((r) => ({
+            buildingId: r.building?.id ?? 0n,
+            label: r.building?.name ?? "(unnamed)",
+            rackCount: r.rackCount,
+          }));
+        setEntries(seeded);
+      },
+      onError: () => {
+        setEntries([]);
+      },
     });
     return () => controller.abort();
   }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite, buildingsRefreshKey]);
 
-  // Buildings render as "no buildings" in the non-fetch branches so the
-  // operator never sees a stale list from a previous open. The preview
-  // grid uses this derived value directly.
-  const displayBuildings: BuildingWithCounts[] | undefined = shouldFetchBuildings ? buildings : [];
+  const sortedEntries = useMemo(
+    () => (entries ? [...entries].sort((a, b) => a.label.localeCompare(b.label)) : undefined),
+    [entries],
+  );
 
-  const previewTitle = (site?.name || draft.name || "Untitled site").trim();
+  const previewTitle = (site.name || draft.name || "Untitled site").trim();
   const previewLocation = useMemo(() => formatSiteAddress(draft) || "—", [draft]);
   const previewCapacity = draft.powerCapacityMw > 0 ? `${draft.powerCapacityMw} MW` : "—";
-  const buildingCount = displayBuildings?.length ?? 0;
+  const buildingCount = sortedEntries?.length ?? 0;
+  const currentBuildingIds = useMemo(() => (entries ?? []).map((e) => e.buildingId), [entries]);
+  // The inline building-create dropdown is always locked to this site, so a
+  // one-element list built from `site` is all BuildingSettingsModal needs — and
+  // it sidesteps the brief window right after create-on-Continue where the
+  // page's site catalog hasn't refetched the new row yet.
+  const buildingCreateSites = useMemo(() => [create(SiteWithCountsSchema, { site })], [site]);
 
-  const handleSave = async () => {
-    const result = await onSave();
-    // Refresh warnings only after a resolved save — clearing them before the
-    // await would wipe a still-relevant warning if the next request errors.
-    if (!result) return;
-    setWarnings(result.warnings);
-    if (result.canonicalNetworkConfig !== draft.networkConfig) {
-      onNetworkConfigChange(result.canonicalNetworkConfig);
-    }
-    if (result.closeOnSuccess) {
-      onDismiss();
-    }
+  // Picker Save — the write already happened by the time this resolves, so
+  // mirror it into the list. `added` joins without disturbing existing rows;
+  // `removed` drops only those entries. Buildings in neither list are
+  // untouched, so a member the picker's listBuildings response omitted (race /
+  // paging gap) is preserved. A failed write leaves the picker open to retry.
+  const handleManageBuildingsConfirm = async (delta: {
+    added: { buildingId: bigint; label: string }[];
+    removed: bigint[];
+  }) => {
+    const ok = await onAssignBuildings({ added: delta.added.map((a) => a.buildingId), removed: delta.removed });
+    if (!ok) return;
+    const removedSet = new Set(delta.removed.map((id) => id.toString()));
+    setEntries((prev) => {
+      const kept = (prev ?? []).filter((e) => !removedSet.has(e.buildingId.toString()));
+      const knownIds = new Set(kept.map((e) => e.buildingId.toString()));
+      const newcomers: BuildingEntry[] = [];
+      for (const a of delta.added) {
+        if (knownIds.has(a.buildingId.toString())) continue;
+        newcomers.push({ buildingId: a.buildingId, label: a.label, rackCount: 0n });
+      }
+      return [...kept, ...newcomers];
+    });
+    setShowManageBuildings(false);
   };
 
+  // Kebab "Remove building" — unassigns immediately (moves the building to
+  // "Unassigned"; the building itself is not deleted). Drop the row only once
+  // the write lands so a failure leaves the list truthful.
+  const handleRemoveBuilding = useCallback(
+    async (buildingId: bigint, label: string) => {
+      const ok = await onRemoveBuilding(buildingId, label);
+      if (!ok) return;
+      setEntries((prev) => (prev ?? []).filter((e) => e.buildingId !== buildingId));
+    },
+    [onRemoveBuilding],
+  );
+
+  // Inline building-create confirm. CreateBuilding already associated the new
+  // building to this site, so inject it into the list rather than refetching.
+  // A failed create returns null (toast shown by the host) and leaves the
+  // create modal open.
+  const handleCreateBuildingSave = async (values: BuildingFormValues) => {
+    const created = await onCreateBuilding(values);
+    if (!created) return;
+    setEntries((prev) => {
+      const next = prev ?? [];
+      if (next.some((e) => e.buildingId === created.id)) return next;
+      return [...next, { buildingId: created.id, label: created.name, rackCount: 0n }];
+    });
+    setCreateBuilding(null);
+  };
+
+  // Bulk sibling of handleCreateBuildingSave. Closing is driven by `created`
+  // rather than by an empty `errors`: a skipped dispatch (double-click guard)
+  // returns neither, and the modal should stay open in that case too.
+  const handleCreateBuildingsSave = async (buildings: NewBuildingInput[]): Promise<BulkCreateBuildingError[]> => {
+    if (!onCreateBuildings) return [];
+    const { created, errors } = await onCreateBuildings(buildings);
+    if (created.length === 0) return errors;
+    setEntries((prev) => {
+      const next = prev ?? [];
+      const known = new Set(next.map((e) => e.buildingId.toString()));
+      const newcomers = created
+        .filter((b) => !known.has(b.id.toString()))
+        .map((b) => ({ buildingId: b.id, label: b.name, rackCount: 0n }));
+      return [...next, ...newcomers];
+    });
+    setCreateBuilding(null);
+    return errors;
+  };
+
+  // Feeds the bulk preview's collision check. Undefined while the list is still
+  // loading, so a generated name isn't cleared against a set we haven't read.
+  const existingBuildingNames = useMemo(() => entries?.map((e) => e.label), [entries]);
+
+  const buildingsBusy = saving || sortedEntries === undefined;
+
   return (
-    <FullScreenTwoPaneModal
-      open={open}
-      title="Manage Site"
-      onDismiss={onDismiss}
-      isBusy={saving}
-      buttons={[
-        {
-          text: "Edit details",
-          variant: variants.secondary,
-          onClick: onEditDetails,
-          disabled: saving,
-          testId: "manage-site-modal-edit-details",
-        },
-        {
-          text: saving ? "Saving…" : "Save",
-          variant: variants.primary,
-          onClick: handleSave,
-          disabled: saving,
-          testId: "manage-site-modal-save",
-        },
-      ]}
-      abovePanes={
-        warnings.length > 0 ? (
-          <div className="mb-4 px-6 laptop:px-10" data-testid="manage-site-modal-warnings">
-            <Callout
-              intent={intents.warning}
-              prefixIcon={<Alert />}
-              title="Network config saved with warnings"
-              subtitle={warnings.join(" ")}
-            />
-          </div>
-        ) : null
-      }
-      primaryPane={
-        <div className="flex flex-col gap-6 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-          <section className="flex flex-col gap-2">
-            <Header title="Network" titleSize="text-heading-100" />
-            {/* Textarea (not Input) because the server contract is a
-                newline-separated CIDR/IP list — a single-line input would
-                silently strip newlines on type and paste. */}
-            <Textarea
-              id="manage-site-network-config"
-              label="Network"
-              initValue={draft.networkConfig}
-              onChange={(v) => onNetworkConfigChange(v)}
-              rows={6}
-              maxLength={16384}
-              disabled={saving}
-              testId="manage-site-network-config-input"
-            />
-          </section>
-
-          <section className="flex flex-col gap-2" data-testid="manage-site-modal-buildings-section">
-            <div className="flex items-center justify-between">
-              <Header title="Buildings" titleSize="text-heading-100" />
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                text="Add building"
-                onClick={onAddBuilding ?? (() => undefined)}
-                disabled={!onAddBuilding || saving || mode === "create"}
-                testId="manage-site-modal-add-building"
+    <>
+      <FullScreenTwoPaneModal
+        open={open}
+        title="Manage Site"
+        onDismiss={onDismiss}
+        isBusy={saving}
+        buttons={[
+          {
+            text: "Delete site",
+            variant: variants.secondaryDanger,
+            onClick: onDeleteRequested,
+            disabled: saving,
+            testId: "manage-site-modal-delete",
+          },
+          {
+            text: "Site settings",
+            variant: variants.secondary,
+            onClick: onEditDetails,
+            disabled: saving,
+            testId: "manage-site-modal-edit-details",
+          },
+          {
+            text: "Manage buildings",
+            variant: variants.secondary,
+            onClick: () => setShowManageBuildings(true),
+            // Only blocked while the building list is still loading
+            // (sortedEntries undefined).
+            disabled: saving || sortedEntries === undefined,
+            testId: "manage-site-modal-manage-buildings",
+          },
+          {
+            // Placeholder. Building membership now commits in the picker (and
+            // row-level Remove commits on click), so this modal owns only
+            // building placement within the site — which has no backend yet and
+            // is not tracked by an issue. Until then Save writes nothing and
+            // just closes; deliberately no success toast, since there's nothing
+            // to report.
+            text: "Save",
+            variant: variants.primary,
+            onClick: onDismiss,
+            disabled: buildingsBusy,
+            testId: "manage-site-modal-save",
+          },
+        ]}
+        primaryPane={
+          <div className="flex flex-col gap-6 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
+            <section className="flex flex-col gap-3" data-testid="manage-site-modal-buildings-section">
+              <Header
+                title={`${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}`}
+                titleSize="text-heading-100"
               />
-            </div>
-            {mode === "create" ? (
-              <div className="rounded-xl border border-dashed border-border-5 p-4 text-300 text-text-primary-50">
-                Save the site first to add buildings.
-              </div>
-            ) : displayBuildings === undefined ? (
-              <div className="text-300 text-text-primary-50">Loading…</div>
-            ) : displayBuildings.length === 0 ? (
-              <div className="text-300 text-text-primary-50">No buildings in this site yet.</div>
-            ) : (
-              <ul className="flex flex-col" data-testid="manage-site-modal-buildings-list">
-                {displayBuildings.map((b) => {
-                  const id = (b.building?.id ?? 0n).toString();
-                  const name = b.building?.name ?? "(unnamed)";
-                  const rackCount = b.rackCount.toString();
-                  const clickable = !!onEditBuilding;
-                  return (
-                    <li
-                      key={id}
-                      role={clickable ? "button" : undefined}
-                      tabIndex={clickable ? 0 : undefined}
-                      className={`flex h-12 items-center justify-between gap-3 border-b border-border-5 ${
-                        clickable ? "hover:bg-surface-base-hover cursor-pointer" : ""
-                      }`}
-                      onClick={clickable ? () => onEditBuilding?.(b) : undefined}
-                      onKeyDown={
-                        clickable
-                          ? (e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                onEditBuilding?.(b);
-                              }
-                            }
-                          : undefined
-                      }
-                      data-testid={`manage-site-modal-building-row-${id}`}
-                    >
-                      <span className="truncate text-emphasis-300">{name}</span>
-                      <span className="shrink-0 text-300 text-text-primary-50">{rackCount} racks</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-      }
-      secondaryPane={
-        <div className="flex h-full min-h-0 flex-col">
-          {/* Negative ml escapes wrapper laptop:pl-6 → labels land 20px from pane edge. */}
-          <div className="flex shrink-0 items-start justify-between gap-4 pt-5 pr-5 pl-5 laptop:-ml-6 laptop:pl-5">
-            <span className="min-w-0 truncate text-300 text-text-primary-50">
-              {[previewTitle, previewLocation].filter((s) => s && s !== "—").join(", ") || previewTitle}
-            </span>
-            <span className="shrink-0 truncate text-300 text-text-primary-50">
-              {[previewCapacity, `${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}`]
-                .filter((s) => s && s !== "—")
-                .join(", ")}
-            </span>
-          </div>
-
-          {/* Center the FPO building tiles both axes inside the remaining
-              space so the preview reads as a centered floor plan. Real
-              BuildingCard component lands in #263. */}
-          <div className="flex flex-1 items-center justify-center p-5">
-            <div className="flex flex-wrap justify-center gap-3" data-testid="manage-site-modal-building-grid">
-              {displayBuildings === undefined ? (
-                <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
-              ) : displayBuildings.length === 0 ? (
-                <PlaceholderBlock
-                  label={mode === "create" ? "No buildings yet" : "No buildings in this site"}
-                  className="h-20 w-[120px]"
-                />
-              ) : (
-                displayBuildings.map((b) => (
-                  <PlaceholderBlock
-                    key={(b.building?.id ?? 0n).toString()}
-                    label={b.building?.name ?? "(unnamed)"}
-                    className="h-20 w-[120px]"
+              {sortedEntries === undefined ? (
+                <div className="text-300 text-text-primary-50">Loading…</div>
+              ) : sortedEntries.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-50">
+                  <span>No buildings added to this site</span>
+                  {/* Single affordance — the picker itself carries the
+                      "New building" hand-off for creating one from scratch. */}
+                  <Button
+                    variant={variants.primary}
+                    size={sizes.compact}
+                    text="Add buildings"
+                    onClick={() => setShowManageBuildings(true)}
+                    disabled={buildingsBusy}
+                    testId="manage-site-modal-empty-state-add"
                   />
-                ))
+                </div>
+              ) : (
+                <div className="flex flex-col divide-y divide-border-5" data-testid="manage-site-modal-buildings-list">
+                  {sortedEntries.map((b) => (
+                    <BuildingRow
+                      key={b.buildingId.toString()}
+                      buildingId={b.buildingId}
+                      label={b.label}
+                      rackCount={b.rackCount}
+                      saving={saving}
+                      onRemove={handleRemoveBuilding}
+                    />
+                  ))}
+                </div>
               )}
+              {unassignedRackCount ? (
+                <p className="text-200 text-text-primary-50" data-testid="manage-site-unassigned-racks">
+                  {unassignedRackCount} {unassignedRackCount === 1 ? "rack" : "racks"} unassigned to a building
+                </p>
+              ) : null}
+              {unassignedMinerCount ? (
+                <p className="text-200 text-text-primary-50" data-testid="manage-site-unassigned-miners">
+                  {unassignedMinerCount} {unassignedMinerCount === 1 ? "miner" : "miners"} unassigned to a building
+                </p>
+              ) : null}
+            </section>
+          </div>
+        }
+        secondaryPane={
+          <div className="flex h-full min-h-0 flex-col">
+            {/* Negative ml escapes wrapper laptop:pl-6 → labels land 20px from pane edge. */}
+            <div className="flex shrink-0 items-start justify-between gap-4 pt-5 pr-5 pl-5 laptop:-ml-6 laptop:pl-5">
+              <span className="min-w-0 truncate text-300 text-text-primary-50">
+                {[previewTitle, previewLocation].filter((s) => s && s !== "—").join(", ") || previewTitle}
+              </span>
+              <span className="shrink-0 truncate text-300 text-text-primary-50">
+                {[previewCapacity, `${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}`]
+                  .filter((s) => s && s !== "—")
+                  .join(", ")}
+              </span>
+            </div>
+
+            {/* Center the FPO building tiles both axes inside the remaining
+                space so the preview reads as a centered floor plan. Real
+                BuildingCard component lands in #263. */}
+            <div className="flex flex-1 items-center justify-center p-5">
+              <div className="flex flex-wrap justify-center gap-3" data-testid="manage-site-modal-building-grid">
+                {sortedEntries === undefined ? (
+                  <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
+                ) : sortedEntries.length === 0 ? (
+                  <p className="text-200 whitespace-nowrap text-text-primary-50">No buildings in this site</p>
+                ) : (
+                  sortedEntries.map((b) => (
+                    <PlaceholderBlock key={b.buildingId.toString()} label={b.label} className="h-20 w-[120px]" />
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      }
-    />
+        }
+      />
+
+      {showManageBuildings ? (
+        <ManageBuildingsModal
+          open={showManageBuildings}
+          siteId={site.id}
+          initialSelectedBuildingIds={currentBuildingIds}
+          onDismiss={() => setShowManageBuildings(false)}
+          onConfirm={handleManageBuildingsConfirm}
+          saving={saving}
+          // Either create button swaps the picker for the create modal,
+          // abandoning any unsaved checkbox changes — the picker's Save is what
+          // commits membership, so leaving without it writes nothing.
+          onCreateNewLaunch={() => {
+            setShowManageBuildings(false);
+            setCreateBuilding("single");
+          }}
+          // Only offered when the host wired the batch RPC; without it the
+          // create modal has no Multiple side to open on.
+          onCreateMultipleLaunch={
+            onCreateBuildings
+              ? () => {
+                  setShowManageBuildings(false);
+                  setCreateBuilding("multiple");
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
+      {createBuilding ? (
+        // Create a building already attached to this site. The Site dropdown is
+        // locked to `site` (initialSiteId set), matching the site-scoped
+        // building-create entry point elsewhere.
+        <BuildingSettingsModal
+          open
+          mode="create"
+          initialValues={emptyBuildingFormValues()}
+          sites={buildingCreateSites}
+          initialSiteId={site.id}
+          parentSiteLabel={previewTitle}
+          onSave={async (values) => {
+            await handleCreateBuildingSave(values);
+          }}
+          // Present only when the host wired the batch RPC — that's what shows
+          // the Single / Multiple toggle inside the create modal.
+          onSaveBulk={onCreateBuildings ? (buildings) => handleCreateBuildingsSave(buildings) : undefined}
+          initialCreateVariant={createBuilding}
+          existingBuildingNames={existingBuildingNames}
+          onDismiss={() => setCreateBuilding(null)}
+          saving={saving}
+        />
+      ) : null}
+    </>
   );
 };
 

@@ -81,11 +81,11 @@ const SelectRow = ({
               "cursor-pointer": !disabled,
               "cursor-not-allowed opacity-[0.4]": disabled,
               "border border-border-20": isRadio && !isSelected,
-              "bg-core-accent-fill": isRadio && isSelected && !disabled,
+              "bg-core-accent-fill": isRadio && isSelected,
             })}
             disabled={disabled}
             type={type}
-            checked={isSelected ? !disabled : false}
+            checked={isSelected}
             onChange={handleChange}
           />
           <div

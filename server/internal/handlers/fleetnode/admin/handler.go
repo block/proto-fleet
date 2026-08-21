@@ -36,13 +36,14 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	code, expiresAt, err := h.enrollment.CreateCode(ctx, info.UserID, info.OrganizationID, 0)
+	code, pendingEnrollmentID, expiresAt, err := h.enrollment.CreateCodeWithEnrollmentID(ctx, info.UserID, info.OrganizationID, 0)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.CreateEnrollmentCodeResponse{
-		Code:      code,
-		ExpiresAt: timestamppb.New(expiresAt),
+		Code:                code,
+		ExpiresAt:           timestamppb.New(expiresAt),
+		PendingEnrollmentId: pendingEnrollmentID,
 	}), nil
 }
 
@@ -64,6 +65,9 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			IdentityFingerprint: enrollment.IdentityFingerprint(n.IdentityPubkey),
 			CreatedAt:           timestamppb.New(n.CreatedAt),
 		}
+		if n.PendingEnrollmentID != nil {
+			summary.PendingEnrollmentId = n.PendingEnrollmentID
+		}
 		if n.LastSeenAt != nil {
 			summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
 		}
@@ -77,7 +81,7 @@ func (h *Handler) ConfirmFleetNode(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	apiKey, expiresAt, err := h.enrollment.Confirm(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID)
+	apiKey, expiresAt, err := h.enrollment.ConfirmExpected(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID, req.Msg.GetPendingEnrollmentId())
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +97,14 @@ func (h *Handler) RevokeFleetNode(ctx context.Context, req *connect.Request[pb.R
 	if err != nil {
 		return nil, err
 	}
-	if err := h.enrollment.RevokeFleetNode(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID); err != nil {
+	fleetNodeID := req.Msg.GetFleetNodeId()
+	if req.Msg.PendingEnrollmentId != nil {
+		if err := h.enrollment.RevokeFleetNodeForEnrollment(ctx, fleetNodeID, info.OrganizationID, req.Msg.GetPendingEnrollmentId()); err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(&pb.RevokeFleetNodeResponse{}), nil
+	}
+	if err := h.enrollment.RevokeFleetNode(ctx, fleetNodeID, info.OrganizationID); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.RevokeFleetNodeResponse{}), nil

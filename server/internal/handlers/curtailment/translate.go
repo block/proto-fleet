@@ -18,6 +18,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
+const maxCurtailmentScopeEntries = 1024
+
 // toRequestMode validates the proto mode and returns the domain mode plus the
 // FIXED_KW params (nil for FULL_FLEET). FIXED_KW (and the unspecified default)
 // require fixed_kw params; FULL_FLEET takes none.
@@ -67,18 +69,24 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.PreviewRequest{}, err
+	}
 
 	out := curtailment.PreviewRequest{
-		OrgID:                   orgID,
-		Scope:                   scope,
-		Mode:                    mode,
-		Strategy:                strategyName(msg.GetStrategy()),
-		Level:                   levelName(msg.GetLevel()),
-		Priority:                priorityName(msg.GetPriority()),
-		TargetKW:                fixedKw.GetTargetKw(),
-		ToleranceKW:             tolerance,
-		IncludeMaintenance:      msg.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		OrgID:                       orgID,
+		Scope:                       scope,
+		Mode:                        mode,
+		Strategy:                    strategyName(msg.GetStrategy()),
+		Level:                       levelName(msg.GetLevel()),
+		Priority:                    priorityName(msg.GetPriority()),
+		TargetKW:                    fixedKw.GetTargetKw(),
+		ToleranceKW:                 tolerance,
+		IncludeMaintenance:          msg.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     msg.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: msg.GetForceIncludeAllPairedMiners(),
+		PostEventCooldownSec:        postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Defense-in-depth: proto validator already caps below MaxInt32,
@@ -95,29 +103,35 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 }
 
 func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		scope, err := toTerminalScope(scopes)
+		if err != nil {
+			return curtailment.Scope{}, err
+		}
+		scope.SchemaVersion = msg.GetScopeSchemaVersion()
+		return scope, nil
+	}
+	var scope curtailment.Scope
 	switch s := msg.GetScope().(type) {
 	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
-		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
-	case *pb.PreviewCurtailmentPlanRequest_DeviceSetIds:
-		return curtailment.Scope{
-			Type:         models.ScopeTypeDeviceSets,
-			DeviceSetIDs: s.DeviceSetIds.GetDeviceSetIds(),
-		}, nil
+		scope = curtailment.Scope{Type: models.ScopeTypeWholeOrg}
 	case *pb.PreviewCurtailmentPlanRequest_DeviceIdentifiers:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
-		}, nil
+		}
 	case *pb.PreviewCurtailmentPlanRequest_Site:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:   models.ScopeTypeSite,
 			SiteID: s.Site.GetSiteId(),
-		}, nil
+		}
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
 		)
 	}
+	scope.SchemaVersion = msg.GetScopeSchemaVersion()
+	return scope, nil
 }
 
 // toStartRequest converts the proto request to a service StartRequest,
@@ -136,18 +150,24 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 
 	preview := curtailment.PreviewRequest{
-		OrgID:                   info.OrganizationID,
-		Scope:                   scope,
-		Mode:                    mode,
-		Strategy:                strategyName(msg.GetStrategy()),
-		Level:                   levelName(msg.GetLevel()),
-		Priority:                priorityName(msg.GetPriority()),
-		TargetKW:                fixedKw.GetTargetKw(),
-		ToleranceKW:             tolerance,
-		IncludeMaintenance:      msg.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		OrgID:                       info.OrganizationID,
+		Scope:                       scope,
+		Mode:                        mode,
+		Strategy:                    strategyName(msg.GetStrategy()),
+		Level:                       levelName(msg.GetLevel()),
+		Priority:                    priorityName(msg.GetPriority()),
+		TargetKW:                    fixedKw.GetTargetKw(),
+		ToleranceKW:                 tolerance,
+		IncludeMaintenance:          msg.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     msg.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: msg.GetForceIncludeAllPairedMiners(),
+		PostEventCooldownSec:        postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Proto validator already bounds this; backstop for non-Connect callers.
@@ -168,25 +188,57 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	if msg.CurtailBatchSize == nil && msg.CurtailBatchIntervalSec != nil {
+		return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec requires curtail_batch_size",
+		)
+	}
+	curtailBatchSize, err := optionalUint32ToInt32("curtail_batch_size", msg.CurtailBatchSize)
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	curtailBatchIntervalSec, err := optionalUint32ToInt32Default(
+		"curtail_batch_interval_sec",
+		msg.CurtailBatchIntervalSec,
+		0,
+	)
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 	minCurtailedDurationSec, err := uint32ToInt32Strict("min_curtailed_duration_sec", msg.GetMinCurtailedDurationSec())
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	fanOffDelaySec, err := uint32ToInt32Strict("fan_off_delay_sec", msg.GetFanOffDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	fanRestoreDelaySec, err := uint32ToInt32Strict("fan_restore_delay_sec", msg.GetFanRestoreDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	hasProfileCurtailSettings := msg.CurtailBatchSize != nil
 
 	out := curtailment.StartRequest{
-		PreviewRequest:          preview,
-		Reason:                  msg.GetReason(),
-		RestoreBatchSize:        restoreBatchSize,
-		RestoreBatchIntervalSec: restoreBatchIntervalSec,
-		MinCurtailedDurationSec: minCurtailedDurationSec,
-		AllowUnbounded:          msg.GetAllowUnbounded(),
-		IdempotencyKey:          nonEmptyPtr(msg.GetIdempotencyKey()),
-		ExternalSource:          nonEmptyPtr(msg.GetExternalSource()),
-		ExternalReference:       nonEmptyPtr(msg.GetExternalReference()),
-		SourceActorType:         deriveSourceActorType(info),
-		SourceActorID:           deriveSourceActorID(info),
-		CreatedByUserID:         info.UserID,
-		CanUseAdminControls:     canUseAdminControls(info),
+		PreviewRequest:            preview,
+		Reason:                    msg.GetReason(),
+		CurtailBatchSize:          curtailBatchSize,
+		CurtailBatchIntervalSec:   curtailBatchIntervalSec,
+		UseProfileCurtailSettings: hasProfileCurtailSettings,
+		RestoreBatchSize:          restoreBatchSize,
+		RestoreBatchIntervalSec:   restoreBatchIntervalSec,
+		MinCurtailedDurationSec:   minCurtailedDurationSec,
+		FacilityFanDeviceIDs:      append([]int64(nil), msg.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:            fanOffDelaySec,
+		FanRestoreDelaySec:        fanRestoreDelaySec,
+		AllowUnbounded:            msg.GetAllowUnbounded(),
+		IdempotencyKey:            nonEmptyPtr(msg.GetIdempotencyKey()),
+		ExternalSource:            nonEmptyPtr(msg.GetExternalSource()),
+		ExternalReference:         nonEmptyPtr(msg.GetExternalReference()),
+		SourceActorType:           deriveSourceActorType(info),
+		SourceActorID:             deriveSourceActorID(info),
+		CreatedByUserID:           info.UserID,
+		CanUseAdminControls:       canUseAdminControls(info),
 	}
 
 	// max_duration_seconds=0 is the sentinel: "use org default" when
@@ -208,79 +260,229 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 // toStartScope mirrors toScope. The two oneofs are structurally identical
 // but typed separately by protoc-gen-go, so the switches can't merge.
 func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		scope, err := toTerminalScope(scopes)
+		if err != nil {
+			return curtailment.Scope{}, err
+		}
+		scope.SchemaVersion = msg.GetScopeSchemaVersion()
+		return scope, nil
+	}
+	var scope curtailment.Scope
 	switch s := msg.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
-		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
-	case *pb.StartCurtailmentRequest_DeviceSetIds:
-		return curtailment.Scope{
-			Type:         models.ScopeTypeDeviceSets,
-			DeviceSetIDs: s.DeviceSetIds.GetDeviceSetIds(),
-		}, nil
+		scope = curtailment.Scope{Type: models.ScopeTypeWholeOrg}
 	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
-		}, nil
+		}
 	case *pb.StartCurtailmentRequest_Site:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:   models.ScopeTypeSite,
 			SiteID: s.Site.GetSiteId(),
-		}, nil
+		}
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
+		)
+	}
+	scope.SchemaVersion = msg.GetScopeSchemaVersion()
+	return scope, nil
+}
+
+func toTerminalScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
+	if len(scopes) == 0 {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
+		)
+	}
+	if len(scopes) > maxCurtailmentScopeEntries {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentErrorf(
+			"scopes must contain at most %d entries",
+			maxCurtailmentScopeEntries,
+		)
+	}
+	var siteIDs []int64
+	var buildingIDs []int64
+	var rackIDs []int64
+	var groupIDs []int64
+	var deviceIdentifiers []string
+	var wholeOrgSelected, siteSelected, buildingSelected, rackSelected, groupSelected, deviceSelected bool
+	for _, scope := range scopes {
+		if scope == nil {
+			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must be set")
+		}
+		switch s := scope.GetScope().(type) {
+		case *pb.CurtailmentScope_WholeOrg:
+			wholeOrgSelected = true
+		case *pb.CurtailmentScope_DeviceIdentifiers:
+			deviceSelected = true
+			identifiers := s.DeviceIdentifiers.GetDeviceIdentifiers()
+			if len(identifiers) > curtailment.ScopeDeviceIdentifiersMax-len(deviceIdentifiers) {
+				return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+					"device_identifiers must contain at most 10000 entries",
+				)
+			}
+			deviceIdentifiers = append(deviceIdentifiers, identifiers...)
+		case *pb.CurtailmentScope_Site:
+			siteSelected = true
+			siteIDs = append(siteIDs, s.Site.GetSiteId())
+		case *pb.CurtailmentScope_Building:
+			buildingSelected = true
+			buildingIDs = append(buildingIDs, s.Building.GetBuildingId())
+		case *pb.CurtailmentScope_Rack:
+			rackSelected = true
+			rackIDs = append(rackIDs, s.Rack.GetRackId())
+		case *pb.CurtailmentScope_Group:
+			groupSelected = true
+			groupIDs = append(groupIDs, s.Group.GetGroupId())
+		default:
+			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must set a selector")
+		}
+	}
+	if len(siteIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(buildingIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(rackIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(groupIDs) > curtailment.ScopeTopologyIDsPerTypeMax {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"site, building, rack, and group scopes must contain at most 256 entries per type",
+		)
+	}
+	selectorTypeCount := 0
+	for _, selected := range []bool{
+		wholeOrgSelected,
+		siteSelected,
+		buildingSelected,
+		rackSelected,
+		groupSelected,
+		deviceSelected,
+	} {
+		if selected {
+			selectorTypeCount++
+		}
+	}
+	if selectorTypeCount != 1 {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scopes must contain exactly one selector type",
+		)
+	}
+	if wholeOrgSelected {
+		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
+	}
+	switch {
+	case len(buildingIDs) > 0:
+		return curtailment.Scope{
+			Type:        models.ScopeTypeMixed,
+			BuildingIDs: buildingIDs,
+		}, nil
+	case len(rackIDs) > 0:
+		return curtailment.Scope{
+			Type:    models.ScopeTypeMixed,
+			RackIDs: rackIDs,
+		}, nil
+	case len(groupIDs) > 0:
+		return curtailment.Scope{Type: models.ScopeTypeMixed, GroupIDs: groupIDs}, nil
+	case len(siteIDs) > 1:
+		return curtailment.Scope{Type: models.ScopeTypeMixed, SiteIDs: siteIDs}, nil
+	case len(siteIDs) == 1:
+		return curtailment.Scope{Type: models.ScopeTypeSite, SiteID: siteIDs[0], SiteIDs: siteIDs}, nil
+	case len(deviceIdentifiers) > 0:
+		return curtailment.Scope{Type: models.ScopeTypeDeviceList, DeviceIdentifiers: deviceIdentifiers}, nil
+	default:
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
 		)
 	}
 }
 
-// startResponseState mirrors the persisted state for the synchronous Start
-// response: a FULL_FLEET event with nothing eligible is COMPLETED on arrival;
-// everything else is PENDING and the reconciler drives it.
-func startResponseState(mode pb.CurtailmentMode, selected int) pb.CurtailmentEventState {
-	if mode == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET && selected == 0 {
+// startResponseState mirrors the persisted state for the synchronous Start response.
+func startResponseState(req *pb.StartCurtailmentRequest, selected, unavailable int) pb.CurtailmentEventState {
+	// Mirrors buildInsertParams: an all-paired start whose every paired
+	// miner is currently unavailable persists as PENDING (no started_at)
+	// so the max-duration clock does not run before anything dispatches.
+	if req.GetForceIncludeAllPairedMiners() && selected > 0 && unavailable == selected {
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+	}
+	if isClosedLoopFullFleetStartResponse(req) {
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
+	}
+	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET && selected == 0 {
 		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
 	}
 	return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+}
+
+func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
+	if req.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		return false
+	}
+	if scopes := req.GetScopes(); len(scopes) > 0 {
+		scope, err := toTerminalScope(scopes)
+		if err != nil {
+			return false
+		}
+		return scope.Type == models.ScopeTypeWholeOrg || curtailment.IsSiteOnlyScope(scope)
+	}
+	switch req.GetScope().(type) {
+	case *pb.StartCurtailmentRequest_WholeOrg, *pb.StartCurtailmentRequest_Site:
+		return true
+	default:
+		return false
+	}
 }
 
 // toStartResponse renders a newly persisted Plan + request as the
 // response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
-		State:                   startResponseState(req.GetMode(), len(plan.Selected)),
-		Mode:                    requestModeProto(req.GetMode()),
-		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
-		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
-		Priority:                resolvePriority(req.GetPriority()),
-		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, req),
-		CurtailBatchSize:        int32PtrToUint32Ptr(plan.EffectiveCurtailBatchSize),
-		CurtailBatchIntervalSec: uint32Saturating(plan.EffectiveCurtailBatchIntervalSec),
-		RestoreBatchSize:        req.GetRestoreBatchSize(),
-		RestoreBatchIntervalSec: effectiveRestoreBatchIntervalSec(plan, req),
-		MinCurtailedDurationSec: req.GetMinCurtailedDurationSec(),
-		IncludeMaintenance:      req.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: req.GetForceIncludeMaintenance(),
-		Reason:                  req.GetReason(),
-		ExternalSource:          req.GetExternalSource(),
-		ExternalReference:       req.GetExternalReference(),
-		IdempotencyKey:          req.GetIdempotencyKey(),
-		EffectiveBatchSize:      uint32Saturating(plan.EffectiveBatchSize),
+		State:                       startResponseState(req, len(plan.Selected), plan.UnavailableTargetCount),
+		Mode:                        requestModeProto(req.GetMode()),
+		Strategy:                    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:                       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority:                    resolvePriority(req.GetPriority()),
+		MaxDurationSeconds:          effectiveMaxDurationSeconds(plan, req),
+		CurtailBatchSize:            int32PtrToUint32Ptr(plan.EffectiveCurtailBatchSize),
+		CurtailBatchIntervalSec:     uint32Saturating(plan.EffectiveCurtailBatchIntervalSec),
+		RestoreBatchSize:            req.GetRestoreBatchSize(),
+		RestoreBatchIntervalSec:     effectiveRestoreBatchIntervalSec(plan, req),
+		MinCurtailedDurationSec:     req.GetMinCurtailedDurationSec(),
+		IncludeMaintenance:          req.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     req.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: req.GetForceIncludeAllPairedMiners(),
+		ScopeSchemaVersion:          req.GetScopeSchemaVersion(),
+		FacilityFanDeviceIds:        append([]int64(nil), req.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:              req.GetFanOffDelaySec(),
+		FanRestoreDelaySec:          req.GetFanRestoreDelaySec(),
+		Reason:                      req.GetReason(),
+		ExternalSource:              req.GetExternalSource(),
+		ExternalReference:           req.GetExternalReference(),
+		IdempotencyKey:              req.GetIdempotencyKey(),
+		EffectiveBatchSize:          uint32Saturating(plan.EffectiveBatchSize),
 	}
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
+	if plan.StartedAt != nil {
+		event.StartedAt = timestamppb.New(*plan.StartedAt)
+	}
 	if plan.EndedAt != nil {
 		event.EndedAt = timestamppb.New(*plan.EndedAt)
 	}
-	switch s := req.GetScope().(type) {
-	case *pb.StartCurtailmentRequest_WholeOrg:
-		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
-	case *pb.StartCurtailmentRequest_DeviceSetIds:
-		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
-	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
-		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
-	case *pb.StartCurtailmentRequest_Site:
-		event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+	if scopes := req.GetScopes(); len(scopes) > 0 {
+		event.Scopes = scopes
+		if len(scopes) == 1 {
+			populateSingularEventScopeFromComposite(event, scopes[0])
+		}
+	} else {
+		switch s := req.GetScope().(type) {
+		case *pb.StartCurtailmentRequest_WholeOrg:
+			event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
+		case *pb.StartCurtailmentRequest_DeviceIdentifiers:
+			event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
+		case *pb.StartCurtailmentRequest_Site:
+			event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+		}
 	}
 	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
 		event.ModeParams = &pb.CurtailmentEvent_FullFleet{FullFleet: &pb.FullFleetParams{}}
@@ -288,29 +490,69 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 
-	// All targets are PENDING at Start; reconciler updates them in-place.
-	targets := make([]*pb.CurtailmentTarget, len(plan.Selected))
-	for i, sel := range plan.Selected {
-		t := &pb.CurtailmentTarget{
-			DeviceIdentifier: sel.DeviceIdentifier,
-			TargetType:       "miner",
-			State:            pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
-			DesiredState:     pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED,
+	var targets []*pb.CurtailmentTarget
+	if !isClosedLoopFullFleetStartResponse(req) {
+		// Open-loop starts persist targets immediately; reconciler updates them in-place.
+		targets = make([]*pb.CurtailmentTarget, len(plan.Selected))
+		for i, sel := range plan.Selected {
+			state := targetStateProto(sel.TargetState)
+			if state == pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED {
+				state = pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+			}
+			t := &pb.CurtailmentTarget{
+				DeviceIdentifier: sel.DeviceIdentifier,
+				TargetType:       "miner",
+				State:            state,
+				DesiredState:     pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED,
+			}
+			if sel.PowerW > 0 {
+				v := sel.PowerW
+				t.BaselinePowerW = &v
+			}
+			if sel.LastError != "" {
+				t.LastError = sel.LastError
+			}
+			targets[i] = t
 		}
-		if sel.PowerW > 0 {
-			v := sel.PowerW
-			t.BaselinePowerW = &v
-		}
-		targets[i] = t
 	}
 	event.Targets = targets
-	rollup := lenToInt32Saturating(len(targets))
+	unavailableCount := 0
+	totalCount := len(targets)
+	for _, target := range targets {
+		if target.GetState() == pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE {
+			unavailableCount++
+		}
+	}
+	// Non-unavailable targets in a synchronous Start response are all pending;
+	// deriving by subtraction keeps a future enum value from being dropped
+	// from both buckets.
+	pendingCount := totalCount - unavailableCount
+	if len(targets) == 0 && req.GetForceIncludeAllPairedMiners() {
+		pendingCount = len(plan.Selected) - plan.UnavailableTargetCount
+		unavailableCount = plan.UnavailableTargetCount
+		totalCount = plan.PolicyTargetCount
+	}
 	event.TargetRollup = &pb.CurtailmentTargetRollup{
-		Pending: rollup,
-		Total:   rollup,
+		Pending:     lenToInt32Saturating(pendingCount),
+		Unavailable: lenToInt32Saturating(unavailableCount),
+		Total:       lenToInt32Saturating(totalCount),
 	}
 
 	return &pb.StartCurtailmentResponse{Event: event}
+}
+
+func populateSingularEventScopeFromComposite(event *pb.CurtailmentEvent, scope *pb.CurtailmentScope) {
+	if event == nil || scope == nil {
+		return
+	}
+	switch s := scope.GetScope().(type) {
+	case *pb.CurtailmentScope_WholeOrg:
+		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
+	case *pb.CurtailmentScope_DeviceIdentifiers:
+		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
+	case *pb.CurtailmentScope_Site:
+		event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+	}
 }
 
 func effectiveRestoreBatchIntervalSec(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
@@ -412,20 +654,24 @@ func deriveSourceActorID(info *session.Info) *string {
 // toPreviewResponse maps the service Plan to the proto response.
 func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
 	reasonSelected := strategyReasonLabel(req.GetStrategy())
-	candidates := make([]*pb.CurtailmentCandidate, len(plan.Selected))
-	for i, c := range plan.Selected {
-		candidates[i] = &pb.CurtailmentCandidate{
-			DeviceIdentifier: c.DeviceIdentifier,
-			CurrentPowerW:    c.PowerW,
-			EfficiencyJh:     c.EfficiencyJH,
-			ReasonSelected:   reasonSelected,
+	var candidates []*pb.CurtailmentCandidate
+	var skipped []*pb.SkippedCandidate
+	if !req.GetForceIncludeAllPairedMiners() {
+		candidates = make([]*pb.CurtailmentCandidate, len(plan.Selected))
+		for i, c := range plan.Selected {
+			candidates[i] = &pb.CurtailmentCandidate{
+				DeviceIdentifier: c.DeviceIdentifier,
+				CurrentPowerW:    c.PowerW,
+				EfficiencyJh:     c.EfficiencyJH,
+				ReasonSelected:   reasonSelected,
+			}
 		}
-	}
-	skipped := make([]*pb.SkippedCandidate, len(plan.Skipped))
-	for i, s := range plan.Skipped {
-		skipped[i] = &pb.SkippedCandidate{
-			DeviceIdentifier: s.DeviceIdentifier,
-			Reason:           string(s.Reason),
+		skipped = make([]*pb.SkippedCandidate, len(plan.Skipped))
+		for i, s := range plan.Skipped {
+			skipped[i] = &pb.SkippedCandidate{
+				DeviceIdentifier: s.DeviceIdentifier,
+				Reason:           string(s.Reason),
+			}
 		}
 	}
 	resp := &pb.PreviewCurtailmentPlanResponse{
@@ -434,6 +680,8 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 		EstimatedRemainingPowerKw: plan.EstimatedRemainingPowerKW,
 		Mode:                      requestModeProto(req.GetMode()),
 		SkippedCandidates:         skipped,
+		PolicyTargetCount:         uint32SaturatingInt64(int64(plan.PolicyTargetCount)),
+		UnavailableTargetCount:    uint32SaturatingInt64(int64(plan.UnavailableTargetCount)),
 	}
 	// Echo FIXED_KW params so the UI can render the undershoot delta.
 	if fk := req.GetFixedKw(); fk != nil {
@@ -569,6 +817,21 @@ func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.I
 	}, nil
 }
 
+func toForceReleaseRequest(
+	msg *pb.ForceReleaseCurtailmentOwnershipRequest,
+	info *session.Info,
+	eventUUID uuid.UUID,
+) (curtailment.ForceReleaseRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.ForceReleaseRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	return curtailment.ForceReleaseRequest{
+		OrgID:     info.OrganizationID,
+		EventUUID: eventUUID,
+		Reason:    msg.GetReason(),
+	}, nil
+}
+
 // toUpdateRequest maps the proto request to the service-layer shape.
 // Optional proto fields preserve "set vs absent" semantics; the service
 // handles all bounds validation.
@@ -643,10 +906,15 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 }
 
 // toListActiveCurtailmentsResponse builds the active-events response: event
-// metadata + scope, no per-device targets or decision snapshot (use
-// GetActiveCurtailment for detail). Replay handles are scrubbed as in the
-// history list — a list view doesn't expose webhook trigger metadata.
-func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
+// metadata + scope + mode params + target-site coverage + live target rollup,
+// no per-device targets or decision snapshot (use GetCurtailmentEvent for
+// detail). The rollup describes the event's current target set so active
+// polling reflects closed-loop claims and all-paired policy changes; on
+// whole-org events it aggregates across every site, so it is omitted unless
+// the caller's read permission is org-wide (unnarrowed). Replay handles are
+// scrubbed as in the history list — a list view doesn't expose webhook
+// trigger metadata.
+func toListActiveCurtailmentsResponse(events []*models.Event, orgWideRead bool) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{
 		Events: make([]*pb.CurtailmentEvent, len(events)),
 	}
@@ -654,10 +922,21 @@ func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurt
 		e := toEventProto(ev)
 		populateEventScope(e, ev)
 		populateEventModeParams(e, ev)
+		if orgWideRead || !isWholeOrgScopedEvent(ev) {
+			populateEventTargetRollup(e, ev)
+		}
+		populateEventTargetSiteCoverage(e, ev)
 		scrubListSensitiveFields(e)
 		out.Events[i] = e
 	}
 	return out
+}
+
+// isWholeOrgScopedEvent mirrors populateEventScope's whole-org handling: an
+// empty scope type renders as whole-org on the wire, so it is treated as
+// whole-org for rollup exposure too.
+func isWholeOrgScopedEvent(event *models.Event) bool {
+	return event.ScopeType == models.ScopeTypeWholeOrg || event.ScopeType == ""
 }
 
 // toEventProtoListItem populates the list-view shape (no targets).
@@ -669,6 +948,7 @@ func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshot(out, event)
+	populateEventTargetSiteCoverage(out, event)
 	return out
 }
 
@@ -683,20 +963,24 @@ func scrubListSensitiveFields(out *pb.CurtailmentEvent) {
 // use toEventProtoWithTargets for the full shape including targets.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
-		EventUuid:               event.EventUUID.String(),
-		State:                   eventStateProto(event.State),
-		Mode:                    modeProto(event.Mode),
-		Strategy:                strategyProto(event.Strategy),
-		Level:                   levelProto(event.Level),
-		Priority:                priorityProto(event.Priority),
-		CurtailBatchSize:        int32PtrToUint32Ptr(event.CurtailBatchSize),
-		CurtailBatchIntervalSec: uint32Saturating(event.CurtailBatchIntervalSec),
-		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
-		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
-		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),
-		IncludeMaintenance:      event.IncludeMaintenance,
-		ForceIncludeMaintenance: event.ForceIncludeMaintenance,
-		Reason:                  event.Reason,
+		EventUuid:                   event.EventUUID.String(),
+		State:                       eventStateProto(event.State),
+		Mode:                        modeProto(event.Mode),
+		Strategy:                    strategyProto(event.Strategy),
+		Level:                       levelProto(event.Level),
+		Priority:                    priorityProto(event.Priority),
+		CurtailBatchSize:            int32PtrToUint32Ptr(event.CurtailBatchSize),
+		CurtailBatchIntervalSec:     uint32Saturating(event.CurtailBatchIntervalSec),
+		RestoreBatchSize:            uint32Saturating(event.RestoreBatchSize),
+		RestoreBatchIntervalSec:     uint32Saturating(event.RestoreBatchIntervalSec),
+		MinCurtailedDurationSec:     uint32Saturating(event.MinCurtailedDurationSec),
+		IncludeMaintenance:          event.IncludeMaintenance,
+		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		FacilityFanDeviceIds:        append([]int64(nil), event.FacilityFanDeviceIDs...),
+		FanOffDelaySec:              uint32Saturating(event.FanOffDelaySec),
+		FanRestoreDelaySec:          uint32Saturating(event.FanRestoreDelaySec),
+		Reason:                      event.Reason,
 	}
 	if event.MaxDurationSeconds != nil {
 		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
@@ -722,6 +1006,18 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	if event.EndedAt != nil {
 		out.EndedAt = timestamppb.New(*event.EndedAt)
 	}
+	if event.FanOffSentAt != nil {
+		out.FanOffSentAt = timestamppb.New(*event.FanOffSentAt)
+	}
+	if event.FanOnSentAt != nil {
+		out.FanOnSentAt = timestamppb.New(*event.FanOnSentAt)
+	}
+	if event.FanAirflowReopenedAt != nil {
+		out.FanAirflowReopenedAt = timestamppb.New(*event.FanAirflowReopenedAt)
+	}
+	if event.FanLastError != nil {
+		out.FanLastError = *event.FanLastError
+	}
 	out.CreatedAt = timestamppb.New(event.CreatedAt)
 	out.UpdatedAt = timestamppb.New(event.UpdatedAt)
 	return out
@@ -734,40 +1030,99 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 	populateEventDecisionSnapshot(out, event)
 	populateEventTargets(out, targets)
 	populateEventTargetRollup(out, event)
+	populateEventTargetSiteCoverage(out, event)
+	return out
+}
+
+func toForceReleaseEventProto(event *models.Event) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
+	populateEventTargetRollup(out, event)
+	populateEventTargetSiteCoverage(out, event)
 	return out
 }
 
 func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, "":
-		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+		wholeOrg := &pb.ScopeWholeOrg{}
+		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: wholeOrg}
+		out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: wholeOrg}}}
+		if scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON); err == nil && hasScope {
+			out.ScopeSchemaVersion = scope.SchemaVersion
+		}
 	case models.ScopeTypeSite:
 		var payload struct {
-			SiteID int64 `json:"site_id"`
+			SiteID             int64  `json:"site_id"`
+			ScopeSchemaVersion uint32 `json:"scope_schema_version"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_Site{
-				Site: &pb.ScopeSite{SiteId: payload.SiteID},
-			}
+			site := &pb.ScopeSite{SiteId: payload.SiteID}
+			out.Scope = &pb.CurtailmentEvent_Site{Site: site}
+			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Site{Site: site}}}
+			out.ScopeSchemaVersion = payload.ScopeSchemaVersion
 		}
 	case models.ScopeTypeDeviceList:
 		var payload struct {
-			DeviceIdentifiers []string `json:"device_identifiers"`
+			DeviceIdentifiers  []string `json:"device_identifiers"`
+			ScopeSchemaVersion uint32   `json:"scope_schema_version"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{
-				DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers},
-			}
+			devices := &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers}
+			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: devices}
+			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: devices}}}
+			out.ScopeSchemaVersion = payload.ScopeSchemaVersion
 		}
-	case models.ScopeTypeDeviceSets:
-		var payload struct {
-			DeviceSetIDs []string `json:"device_set_ids"`
+	case models.ScopeTypeMixed:
+		if scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON); err == nil && hasScope {
+			out.Scopes = protoScopesFromDomainScope(scope)
+			out.ScopeSchemaVersion = scope.SchemaVersion
 		}
-		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_DeviceSetIds{
-				DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: payload.DeviceSetIDs},
-			}
+	}
+}
+
+func protoScopesFromDomainScope(scope curtailment.Scope) []*pb.CurtailmentScope {
+	switch scope.Type {
+	case models.ScopeTypeWholeOrg, "":
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}}}
+	case models.ScopeTypeSite:
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: scope.SiteID}}}}
+	case models.ScopeTypeDeviceList:
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: scope.DeviceIdentifiers},
+		}}}
+	case models.ScopeTypeMixed:
+		out := make([]*pb.CurtailmentScope, 0,
+			len(scope.SiteIDs)+len(scope.BuildingIDs)+len(scope.RackIDs)+len(scope.GroupIDs)+1)
+		for _, siteID := range scope.SiteIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Site{
+				Site: &pb.ScopeSite{SiteId: siteID},
+			}})
 		}
+		for _, buildingID := range scope.BuildingIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Building{
+				Building: &pb.ScopeBuilding{BuildingId: buildingID},
+			}})
+		}
+		for _, rackID := range scope.RackIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Rack{
+				Rack: &pb.ScopeRack{RackId: rackID},
+			}})
+		}
+		for _, groupID := range scope.GroupIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Group{
+				Group: &pb.ScopeGroup{GroupId: groupID},
+			}})
+		}
+		if len(scope.DeviceIdentifiers) > 0 {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+				DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: scope.DeviceIdentifiers},
+			}})
+		}
+		return out
+	default:
+		return nil
 	}
 }
 
@@ -821,6 +1176,8 @@ func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 			pageRollup.Confirmed++
 		case models.TargetStateDrifted:
 			pageRollup.Drifted++
+		case models.TargetStateUnavailable:
+			pageRollup.Unavailable++
 		case models.TargetStateResolved:
 			pageRollup.Resolved++
 		case models.TargetStateReleased:
@@ -840,16 +1197,38 @@ func populateEventTargetRollup(out *pb.CurtailmentEvent, event *models.Event) {
 	out.TargetRollup = targetRollupProto(event.TargetRollup)
 }
 
+func populateEventTargetSiteCoverage(out *pb.CurtailmentEvent, event *models.Event) {
+	if event.TargetSiteCoverage == nil {
+		return
+	}
+	out.TargetSiteCoverage = &pb.CurtailmentTargetSiteCoverage{
+		Complete:           event.TargetSiteCoverage.Complete,
+		TargetCount:        uint32SaturatingInt64(event.TargetSiteCoverage.TargetCount),
+		MappedTargetCount:  uint32SaturatingInt64(event.TargetSiteCoverage.MappedTargetCount),
+		UnknownTargetCount: uint32SaturatingInt64(event.TargetSiteCoverage.UnknownTargetCount()),
+	}
+}
+
 func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup {
+	unavailableReasons := make([]*pb.CurtailmentUnavailableReason, 0, len(rollup.UnavailableReasons))
+	for _, reason := range rollup.UnavailableReasons {
+		unavailableReasons = append(unavailableReasons, &pb.CurtailmentUnavailableReason{
+			Reason: reason.Reason,
+			Count:  int64ToInt32Saturating(reason.Count),
+		})
+	}
+
 	return &pb.CurtailmentTargetRollup{
-		Pending:       int64ToInt32Saturating(rollup.Pending),
-		Dispatched:    int64ToInt32Saturating(rollup.Dispatched),
-		Confirmed:     int64ToInt32Saturating(rollup.Confirmed),
-		Drifted:       int64ToInt32Saturating(rollup.Drifted),
-		Resolved:      int64ToInt32Saturating(rollup.Resolved),
-		Released:      int64ToInt32Saturating(rollup.Released),
-		RestoreFailed: int64ToInt32Saturating(rollup.RestoreFailed),
-		Total:         int64ToInt32Saturating(rollup.Total),
+		Pending:            int64ToInt32Saturating(rollup.Pending),
+		Dispatched:         int64ToInt32Saturating(rollup.Dispatched),
+		Confirmed:          int64ToInt32Saturating(rollup.Confirmed),
+		Drifted:            int64ToInt32Saturating(rollup.Drifted),
+		Resolved:           int64ToInt32Saturating(rollup.Resolved),
+		Released:           int64ToInt32Saturating(rollup.Released),
+		RestoreFailed:      int64ToInt32Saturating(rollup.RestoreFailed),
+		Unavailable:        int64ToInt32Saturating(rollup.Unavailable),
+		Total:              int64ToInt32Saturating(rollup.Total),
+		UnavailableReasons: unavailableReasons,
 	}
 }
 
@@ -937,6 +1316,16 @@ func uint32Saturating(v int32) uint32 {
 	return uint32(v) // #nosec G115 -- bounds-checked above
 }
 
+func uint32SaturatingInt64(v int64) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
 func int32PtrToUint32Ptr(v *int32) *uint32 {
 	if v == nil {
 		return nil
@@ -1020,6 +1409,8 @@ func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED
 	case models.TargetStateDrifted:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED
+	case models.TargetStateUnavailable:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE
 	case models.TargetStateResolved:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED
 	case models.TargetStateReleased:

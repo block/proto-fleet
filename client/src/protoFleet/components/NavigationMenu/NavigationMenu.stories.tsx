@@ -18,7 +18,7 @@ export default {
   argTypes: {},
   decorators: [
     (Story: ElementType) => (
-      <MemoryRouter initialEntries={["/settings/general"]}>
+      <MemoryRouter initialEntries={["/settings/network"]}>
         <Story />
       </MemoryRouter>
     ),

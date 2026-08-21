@@ -1,7 +1,8 @@
 import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { isNavItemAllowedByPermissions, type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
@@ -14,17 +15,19 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const permissions = usePermissions();
+  const featureEnabled = useNavFeatureEnabled();
 
   // Hide on mobile and tablet since secondary nav items are shown in main menu
   if (isPhone || isTablet) return null;
 
-  // Filter items by current-path parent and required permission.
+  // Filter items by current-path parent, required permission, and feature gate.
   const visibleItems = items.filter((item) => {
     const _pathname = stripLeadingSlash(pathname);
     const _parent = stripLeadingSlash(item.parent);
     const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
-    const permissionMatch = !item.requiredPermission || permissions.includes(item.requiredPermission);
-    return pathMatch && permissionMatch;
+    const permissionMatch = isNavItemAllowedByPermissions(item, permissions);
+    const featureMatch = !item.requiredFeature || featureEnabled[item.requiredFeature];
+    return pathMatch && permissionMatch && featureMatch;
   });
 
   const isCurrentPath = (path: string) => {
@@ -37,24 +40,44 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   // dont render anything
   if (visibleItems.length === 0) return null;
 
+  const visibleGroups = visibleItems.reduce<Array<{ section?: string; items: SecondaryNavItem[] }>>((groups, item) => {
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.section === item.section) {
+      lastGroup.items.push(item);
+      return groups;
+    }
+
+    groups.push({ section: item.section, items: [item] });
+    return groups;
+  }, []);
+
   return (
     <nav aria-label="Settings">
       <ul
         data-testid="secondary-nav"
-        className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-3 px-3 pt-3 text-text-primary-70"
+        className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-8 px-3 pt-6 text-text-primary-70"
       >
-        {visibleItems.map((item) => {
+        {visibleGroups.map((group, groupIndex) => {
           return (
-            <li key={item.path}>
-              <Link
-                to={"/" + stripLeadingSlash(item.path)}
-                aria-current={isCurrentPath(item.path) ? "page" : undefined}
-                className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
-                  "bg-core-primary-5": isCurrentPath(item.path),
-                })}
-              >
-                {item.label}
-              </Link>
+            <li key={group.section ?? `group-${groupIndex}`}>
+              {group.section ? (
+                <div className="px-2 pb-2 text-300 font-medium text-text-primary-50">{group.section}</div>
+              ) : null}
+              <ul className="flex flex-col">
+                {group.items.map((item) => (
+                  <li key={item.path}>
+                    <Link
+                      to={"/" + stripLeadingSlash(item.path)}
+                      aria-current={isCurrentPath(item.path) ? "page" : undefined}
+                      className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
+                        "bg-core-primary-5": isCurrentPath(item.path),
+                      })}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </li>
           );
         })}

@@ -9,8 +9,17 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
 
 type DeviceRackDetails struct {
-	Label    string
-	Position string
+	ID            int64
+	Label         string
+	Position      string
+	BuildingID    *int64
+	BuildingLabel string
+	Zone          string
+}
+
+type DeviceGroupRef struct {
+	ID    int64
+	Label string
 }
 
 // RackPlacement captures the rack's current site/building/zone assignment.
@@ -55,14 +64,17 @@ type ZoneRefRow struct {
 }
 
 // DeviceSetFilter is the rack-list / collection-list filter input.
-// Mirrors the MinerFilter shape but joined directly on
-// device_set_rack — no device membership traversal needed since the
-// list query already returns one row per rack.
+// For racks, site/building/zone predicates apply to device_set_rack.
+// For groups, site predicates apply as a membership semi-join so row
+// inclusion is scoped without changing org-wide group counts.
 type DeviceSetFilter struct {
 	ErrorComponentTypes []int32   // OR across types; surfaces racks with any device having an open error of those types
+	SiteIDs             []int64   // OR across sites. Valid for RACK and GROUP collections.
+	IncludeUnassigned   bool      // Include rows where the relevant site_id is NULL. OR'd with SiteIDs.
 	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
 	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
 	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.
+	TelemetryRanges     []NumericRange
 }
 
 // CollectionStore provides database operations for device collections (groups and racks).
@@ -75,6 +87,13 @@ type CollectionStore interface {
 	// CreateRackExtension creates the rack extension record with dimensions and placement.
 	// Must be called after CreateCollection for rack-type collections.
 	CreateRackExtension(ctx context.Context, params CreateRackExtensionParams) error
+
+	// ListTakenLabels returns the subset of labels already used by a live
+	// collection of this type in the org. Bulk create calls it to report
+	// collisions per row instead of surfacing one opaque AlreadyExists from
+	// the unique index. Labels are unique per (org, type), so this is
+	// deliberately not scoped to a site or building.
+	ListTakenLabels(ctx context.Context, orgID int64, collectionType pb.CollectionType, labels []string) ([]string, error)
 
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
@@ -100,6 +119,35 @@ type CollectionStore interface {
 	// atomically.
 	UpdateRackPlacement(ctx context.Context, collectionID, orgID int64, siteID, buildingID *int64, zone string) error
 
+	// UpdateRackPlacementBulkForBuilding writes site_id, building_id,
+	// and zone in one statement for every rack in rackIDs. Semantics
+	// mirror the per-row UpdateRackPlacement with the
+	// AssignRacksToBuilding-specific rules in SQL:
+	//   * targetBuildingID == nil keeps each rack's current site_id.
+	//   * Zone clears to NULL for racks transitioning to a different (or
+	//     NULL) building; preserved otherwise. NULL (not '') matches the
+	//     per-row path so collection_sort.go's "zone NULLS LAST"
+	//     ordering keeps racks-without-a-building in the trailing
+	//     bucket.
+	//   * Grid position clears when building_id changes.
+	// Caller is expected to have locked every rack via
+	// LockRackPlacementForWrite before invoking. Returns the row count
+	// the UPDATE touched so callers can verify every requested rack id
+	// resolved (defense-in-depth against stale or cross-org ids).
+	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error)
+
+	// UpdateRackPlacementBulkForSite stamps every rack in rackIDs with
+	// the target site, clears building_id + grid placement. Zone clears
+	// only for racks that were actually in a building (leaving or
+	// crossing a building) — matching the per-row UpdateRackPlacement
+	// semantics, since zone is building-scoped. Racks with building_id
+	// IS NULL preserve their zone so building-less zone metadata (which
+	// ListRackZoneRefs surfaces) isn't silently wiped, and NULL (not '')
+	// preserves the collection_sort.go "zone NULLS LAST" ordering.
+	// Caller is expected to pass only racks whose site is actually
+	// changing.
+	UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error
+
 	// UnassignDeviceSitesByRack nulls device.site_id for paired rack
 	// members that match the rack's stamped site. No-op when the rack
 	// has no site or no members.
@@ -108,6 +156,33 @@ type CollectionStore interface {
 	// CascadeRackDeviceSites rewrites device.site_id to targetSiteID for
 	// rack members where the value differs. Returns the affected count.
 	CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error)
+
+	// CascadeRackDeviceSitesBulk is the multi-rack variant: rewrites
+	// device.site_id to targetSiteID for every paired member of every
+	// rack in rackIDs where the current value differs.
+	CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error)
+
+	// UnassignDeviceBuildingsByRack is the building peer of
+	// UnassignDeviceSitesByRack: nulls device.building_id for paired
+	// rack members whose value matches the rack's stamped building.
+	// Preserves direct "Add miners to building" assignments that
+	// diverged from the rack.
+	UnassignDeviceBuildingsByRack(ctx context.Context, collectionID, orgID int64) (int64, error)
+
+	// CascadeRackDeviceBuildings is the building peer of
+	// CascadeRackDeviceSites: rewrites device.building_id to
+	// targetBuildingID for paired members of the rack.
+	CascadeRackDeviceBuildings(ctx context.Context, collectionID, orgID int64, targetBuildingID *int64) (int64, error)
+
+	// CascadeRackDeviceBuildingsBulk is the multi-rack building peer
+	// of CascadeRackDeviceSitesBulk.
+	CascadeRackDeviceBuildingsBulk(ctx context.Context, orgID int64, rackIDs []int64, targetBuildingID *int64) (int64, error)
+
+	// CascadeAddedDeviceBuildings is the building peer of
+	// CascadeAddedDeviceSites: rewrites device.building_id to
+	// rack.building_id for newly added rack members where the value
+	// differs. No-op for groups or building-less racks.
+	CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error)
 
 	// GetDeviceSiteIDsByMembership returns device_identifier + current
 	// site_id for every rack member.
@@ -161,6 +236,12 @@ type CollectionStore interface {
 	// Returns the number of devices actually added (excludes duplicates and non-existent devices).
 	AddDevicesToCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
+	// AddDevicesToCollectionReturningAdded adds devices and returns the
+	// identifiers whose membership was newly inserted (excludes already-members
+	// and non-existent devices). Used to scope activity events to the devices
+	// that actually changed (#538).
+	AddDevicesToCollectionReturningAdded(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error)
+
 	// RemoveAllDevicesFromCollection removes all devices from a collection.
 	// Returns the number of devices removed.
 	RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error)
@@ -168,6 +249,12 @@ type CollectionStore interface {
 	// RemoveDevicesFromCollection removes devices from a collection.
 	// Returns the number of devices actually removed.
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
+
+	// RemoveDevicesFromCollectionReturningRemoved removes devices and returns
+	// the identifiers whose membership was actually deleted (excludes
+	// non-members). Used to scope activity events to the devices that actually
+	// changed (#538).
+	RemoveDevicesFromCollectionReturningRemoved(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error)
 
 	// RemoveDevicesFromAnyRack deletes the given devices' rack
 	// membership rows regardless of which rack they currently sit in,
@@ -182,19 +269,60 @@ type CollectionStore interface {
 	// (caller intends to unassign).
 	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
 
+	// FindDevicesWithSiteOrBuilding returns the requested identifiers
+	// whose device.site_id OR device.building_id is currently non-NULL.
+	// AssignDevicesToRack uses it to detect miners that would lose a
+	// placement by joining a site-less rack (the force path clears both
+	// columns), so the caller can confirm before stripping.
+	FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
+	// LockDevicesForReassign takes a FOR UPDATE row lock on every matching
+	// live device for the rest of the surrounding transaction. SaveRack
+	// calls it before FindDevicesWithSiteOrBuilding so the site-strip
+	// conflict check and the later placement cascade observe one stable
+	// snapshot: without it a concurrent direct site assignment
+	// (sites.AssignDevicesToSite, which locks the same rows) could commit
+	// between the check and the cascade and be silently stripped back to
+	// NULL despite force being false. An empty result means none of the
+	// identifiers exist; the caller still wants the lock side-effect.
+	LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error
+
+	// ClearDeviceSitesAndBuildings nulls device.site_id and
+	// device.building_id for the given identifiers (skipping rows already
+	// fully cleared). AssignDevicesToRack's force path calls it when
+	// adding miners to a site-less rack — the rack dictates no placement,
+	// so members can't keep a direct site/building. Returns the count
+	// actually stripped.
+	ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error)
+
+	// LockRacksForReparent takes FOR UPDATE locks on every rack involved
+	// in a reparent -- every source rack currently holding any of the
+	// given devices PLUS targetRackID (when non-zero) -- in ascending
+	// device_set_id order, and returns the locked ids.
+	// AssignDevicesToRack calls this as the FIRST tx operation. Locking
+	// source and target together in one globally sorted acquisition is
+	// what prevents two concurrent reparent calls moving devices in
+	// opposite directions between the same rack pair from deadlocking
+	// (tx A locking source 1 then target 2 while tx B locks source 2
+	// then target 1). Pass 0 for targetRackID in the clear-rack path
+	// where there is no target. The subsequent
+	// LockRackPlacementForWrite call on the target still happens for
+	// its placement read; this query handles the rack-id locks.
+	LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error)
+
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).
-	ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error)
+	ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string, filter *DeviceSetFilter) ([]*pb.CollectionMember, string, error)
 
 	// GetDeviceCollections returns all collections a device belongs to, ordered by label.
 	// If collectionType is UNSPECIFIED, returns all types.
 	GetDeviceCollections(ctx context.Context, orgID int64, deviceIdentifier string, collectionType pb.CollectionType) ([]*pb.DeviceCollection, error)
 
-	// GetGroupLabelsForDevices returns a map of device_identifier -> slice of group labels.
+	// GetGroupRefsForDevices returns a map of device_identifier -> slice of group refs.
 	// Used for batch lookup when building MinerStateSnapshot list.
-	GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error)
+	GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]DeviceGroupRef, error)
 
-	// GetRackDetailsForDevices returns a map of device_identifier -> rack label and formatted position.
+	// GetRackDetailsForDevices returns a map of device_identifier -> rack ref, building ref, and formatted position.
 	// Each device can only be in one rack due to the partial unique index.
 	GetRackDetailsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]DeviceRackDetails, error)
 

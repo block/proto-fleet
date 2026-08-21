@@ -47,6 +47,8 @@ export type ScheduleFormValues = {
   rackTargetIds: string[];
   groupTargetIds: string[];
   minerTargetIds: string[];
+  siteTargetIds: string[];
+  buildingTargetIds: string[];
 };
 
 export type ScheduleFormErrors = Partial<
@@ -180,6 +182,8 @@ const getDefaultValues = (timeZone: string): ScheduleFormValues => {
     rackTargetIds: [],
     groupTargetIds: [],
     minerTargetIds: [],
+    siteTargetIds: [],
+    buildingTargetIds: [],
   };
 };
 
@@ -282,21 +286,34 @@ export const createScheduleFormValuesFromSchedule = (schedule: Schedule): Schedu
     minerTargetIds: schedule.targets
       .filter((target) => target.targetType === ScheduleTargetType.MINER)
       .map((target) => target.targetId),
+    siteTargetIds: schedule.targets
+      .filter((target) => target.targetType === ScheduleTargetType.SITE)
+      .map((target) => target.targetId),
+    buildingTargetIds: schedule.targets
+      .filter((target) => target.targetType === ScheduleTargetType.BUILDING)
+      .map((target) => target.targetId),
   };
 };
 
 export const describeSelectedTargets = (
-  values: Pick<ScheduleFormValues, "rackTargetIds" | "groupTargetIds" | "minerTargetIds">,
+  values: Pick<
+    ScheduleFormValues,
+    "rackTargetIds" | "groupTargetIds" | "minerTargetIds" | "siteTargetIds" | "buildingTargetIds"
+  >,
 ) => {
+  const siteCount = values.siteTargetIds.length;
+  const buildingCount = values.buildingTargetIds.length;
   const rackCount = values.rackTargetIds.length;
   const groupCount = values.groupTargetIds.length;
   const minerCount = values.minerTargetIds.length;
 
-  if (rackCount === 0 && groupCount === 0 && minerCount === 0) {
+  if (siteCount === 0 && buildingCount === 0 && rackCount === 0 && groupCount === 0 && minerCount === 0) {
     return "Applies to all miners";
   }
 
   const parts = [
+    siteCount > 0 ? `${siteCount} ${siteCount === 1 ? "site" : "sites"}` : null,
+    buildingCount > 0 ? `${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}` : null,
     rackCount > 0 ? `${rackCount} ${rackCount === 1 ? "rack" : "racks"}` : null,
     groupCount > 0 ? `${groupCount} ${groupCount === 1 ? "group" : "groups"}` : null,
     minerCount > 0 ? `${minerCount} ${minerCount === 1 ? "miner" : "miners"}` : null,
@@ -419,7 +436,22 @@ export const buildScheduleRequest = (values: ScheduleFormValues, scheduleId?: st
   const action = toProtoAction(values.action);
   const scheduleType = toProtoScheduleType(values.scheduleType);
 
+  // Emit broad → narrow (site, building, rack, group, miner) so the server's
+  // order-preserving expansion produces deduped device order matching how the
+  // "Apply to" section presents the targets.
   const targets = [
+    ...values.siteTargetIds.map((targetId) =>
+      create(ScheduleTargetSchema, {
+        targetType: ScheduleTargetType.SITE,
+        targetId,
+      }),
+    ),
+    ...values.buildingTargetIds.map((targetId) =>
+      create(ScheduleTargetSchema, {
+        targetType: ScheduleTargetType.BUILDING,
+        targetId,
+      }),
+    ),
     ...values.rackTargetIds.map((targetId) =>
       create(ScheduleTargetSchema, {
         targetType: ScheduleTargetType.RACK,

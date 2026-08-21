@@ -18,6 +18,10 @@ type ErrorStore interface {
 	// Returns the full error record after the operation.
 	UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error)
 
+	// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
+	// This prevents the stale closer from resolving errors that were omitted from a partial snapshot.
+	RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error)
+
 	// QueryErrors retrieves errors matching filter criteria using AND logic.
 	// All provided filter criteria must match for an error to be returned.
 	// Time range and include_closed filters are always applied.

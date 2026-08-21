@@ -26,20 +26,24 @@ func NewHandler(service *inventory.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) ListParts(ctx context.Context, req *connect.Request[pb.ListPartsRequest]) (*connect.Response[pb.ListPartsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+func (h *Handler) ListInventoryParts(ctx context.Context, req *connect.Request[pb.ListInventoryPartsRequest]) (*connect.Response[pb.ListInventoryPartsResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListParts(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter, err := toListFilter(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.service.ListParts(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(toListPartsResponse(rows)), nil
 }
 
-func (h *Handler) GetPart(ctx context.Context, req *connect.Request[pb.GetPartRequest]) (*connect.Response[pb.GetPartResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+func (h *Handler) GetInventoryPart(ctx context.Context, req *connect.Request[pb.GetInventoryPartRequest]) (*connect.Response[pb.GetInventoryPartResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -47,13 +51,13 @@ func (h *Handler) GetPart(ctx context.Context, req *connect.Request[pb.GetPartRe
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.GetPartResponse{
+	return connect.NewResponse(&pb.GetInventoryPartResponse{
 		Part: toProtoPart(part),
 	}), nil
 }
 
-func (h *Handler) GetInsights(ctx context.Context, req *connect.Request[pb.GetInsightsRequest]) (*connect.Response[pb.GetInsightsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+func (h *Handler) GetInventoryInsights(ctx context.Context, _ *connect.Request[pb.GetInventoryInsightsRequest]) (*connect.Response[pb.GetInventoryInsightsResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +69,7 @@ func (h *Handler) GetInsights(ctx context.Context, req *connect.Request[pb.GetIn
 }
 
 func (h *Handler) ListPartsBySite(ctx context.Context, req *connect.Request[pb.ListPartsBySiteRequest]) (*connect.Response[pb.ListPartsBySiteResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +80,8 @@ func (h *Handler) ListPartsBySite(ctx context.Context, req *connect.Request[pb.L
 	return connect.NewResponse(toListPartsBySiteResponse(rows)), nil
 }
 
-func (h *Handler) CreatePart(ctx context.Context, req *connect.Request[pb.CreatePartRequest]) (*connect.Response[pb.CreatePartResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+func (h *Handler) CreateInventoryPart(ctx context.Context, req *connect.Request[pb.CreateInventoryPartRequest]) (*connect.Response[pb.CreateInventoryPartResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -85,13 +89,13 @@ func (h *Handler) CreatePart(ctx context.Context, req *connect.Request[pb.Create
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.CreatePartResponse{
+	return connect.NewResponse(&pb.CreateInventoryPartResponse{
 		Part: toProtoPart(part),
 	}), nil
 }
 
-func (h *Handler) UpdatePart(ctx context.Context, req *connect.Request[pb.UpdatePartRequest]) (*connect.Response[pb.UpdatePartResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+func (h *Handler) UpdateInventoryPart(ctx context.Context, req *connect.Request[pb.UpdateInventoryPartRequest]) (*connect.Response[pb.UpdateInventoryPartResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -99,24 +103,24 @@ func (h *Handler) UpdatePart(ctx context.Context, req *connect.Request[pb.Update
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.UpdatePartResponse{
+	return connect.NewResponse(&pb.UpdateInventoryPartResponse{
 		Part: toProtoPart(part),
 	}), nil
 }
 
-func (h *Handler) DeletePart(ctx context.Context, req *connect.Request[pb.DeletePartRequest]) (*connect.Response[pb.DeletePartResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+func (h *Handler) DeleteInventoryPart(ctx context.Context, req *connect.Request[pb.DeleteInventoryPartRequest]) (*connect.Response[pb.DeleteInventoryPartResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
 	if err := h.service.DeletePart(ctx, info.OrganizationID, req.Msg.GetId()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.DeletePartResponse{}), nil
+	return connect.NewResponse(&pb.DeleteInventoryPartResponse{}), nil
 }
 
-func (h *Handler) ImportCsvPreview(ctx context.Context, req *connect.Request[pb.ImportCsvPreviewRequest]) (*connect.Response[pb.ImportCsvPreviewResponse], error) {
-	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+func (h *Handler) ImportInventoryCsv(ctx context.Context, req *connect.Request[pb.ImportInventoryCsvRequest]) (*connect.Response[pb.ImportInventoryCsvResponse], error) {
+	_, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -127,17 +131,20 @@ func (h *Handler) ImportCsvPreview(ctx context.Context, req *connect.Request[pb.
 	return connect.NewResponse(toImportCsvPreviewResponse(rows)), nil
 }
 
-func (h *Handler) ConfirmCsvImport(ctx context.Context, req *connect.Request[pb.ConfirmCsvImportRequest]) (*connect.Response[pb.ConfirmCsvImportResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+func (h *Handler) ConfirmInventoryImport(ctx context.Context, req *connect.Request[pb.ConfirmInventoryImportRequest]) (*connect.Response[pb.ConfirmInventoryImportResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	previewRows := fromProtoPreviewRows(req.Msg.GetRows())
+	previewRows, err := h.service.ParseCsvPreview(ctx, req.Msg.GetCsvData())
+	if err != nil {
+		return nil, err
+	}
 	created, err := h.service.ConfirmCsvImport(ctx, info.OrganizationID, previewRows)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.ConfirmCsvImportResponse{
-		CreatedCount: created,
+	return connect.NewResponse(&pb.ConfirmInventoryImportResponse{
+		ImportedCount: created,
 	}), nil
 }

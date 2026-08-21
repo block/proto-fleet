@@ -149,7 +149,6 @@ const makeMiner = (deviceIdentifier: string, name: string, workerName = "", over
     model: "S19",
     macAddress: `${deviceIdentifier}-mac`,
     serialNumber: `${deviceIdentifier}-serial`,
-    rackLabel: "",
     rackPosition: "",
     ...overrides,
   });

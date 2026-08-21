@@ -50,10 +50,10 @@ const (
 type WarrantyStatus int16
 
 const (
-	WarrantyStatusUnspecified  WarrantyStatus = 0
-	WarrantyStatusInWarranty   WarrantyStatus = 1
+	WarrantyStatusUnspecified   WarrantyStatus = 0
+	WarrantyStatusInWarranty    WarrantyStatus = 1
 	WarrantyStatusOutOfWarranty WarrantyStatus = 2
-	WarrantyStatusExpiringSoon WarrantyStatus = 3
+	WarrantyStatusExpiringSoon  WarrantyStatus = 3
 )
 
 // RepairTicket is the canonical domain shape for a repair_ticket row.
@@ -67,7 +67,7 @@ type RepairTicket struct {
 	Component       string
 	Diagnosis       *string
 	MinerIdentifier *string
-	AlertID         *int64
+	AlertID         *string
 	AssigneeUserID  *int64
 	WarrantyStatus  WarrantyStatus
 	Resolution      TicketResolution
@@ -131,7 +131,7 @@ type CreateParams struct {
 	Component       string
 	Diagnosis       *string
 	MinerIdentifier *string
-	AlertID         *int64
+	AlertID         *string
 	AssigneeUserID  *int64
 	WarrantyStatus  WarrantyStatus
 	DailyImpactUsd  float64

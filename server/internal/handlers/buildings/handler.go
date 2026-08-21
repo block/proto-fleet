@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -32,7 +33,17 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListBuildings(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter := toListFilter(req.Msg, info.OrganizationID)
+	filter.IncludeStats = true
+	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
+	if err != nil {
+		return nil, err
+	}
+	includeStatsForSite := func(siteID *int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: siteID})
+		return err == nil
+	}
+	rows, err := h.service.ListBuildings(ctx, filter, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}
@@ -58,12 +69,57 @@ func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.Cr
 	if err != nil {
 		return nil, err
 	}
-	building, err := h.service.CreateBuilding(ctx, toCreateParams(req.Msg, info.OrganizationID))
+	// An optional device seed can force-clear conflicting rack memberships,
+	// which deletes device_set_membership rows in the same transaction. Gate
+	// that behind rack:manage the same way AssignDevicesToBuilding does so a
+	// site-only operator can't bypass rack auth via the create-and-seed path.
+	// A plain create, or a seed without the force flag, needs only
+	// site:manage — matching the standalone AssignRacksToBuilding /
+	// AssignDevicesToBuilding surfaces.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	result, conflicts, err := h.service.CreateBuilding(ctx, toCreateParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
+	if len(conflicts) > 0 {
+		// A seed hit an unresolvable conflict — the whole tx rolled back and
+		// nothing was created, so building stays unset.
+		return connect.NewResponse(&pb.CreateBuildingResponse{
+			Conflicts: toProtoBuildingConflicts(conflicts),
+		}), nil
+	}
 	return connect.NewResponse(&pb.CreateBuildingResponse{
-		Building: toProtoBuilding(building),
+		Building:                  toProtoBuilding(result.Building),
+		AssignedRackCount:         result.AssignedRackCount,
+		ReassignedDeviceCount:     result.ReassignedDeviceCount,
+		SiteReassignedDeviceCount: result.SiteReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) CreateBuildings(ctx context.Context, req *connect.Request[pb.CreateBuildingsRequest]) (*connect.Response[pb.CreateBuildingsResponse], error) {
+	// Authorize against the target site, not the org: bulk create always names
+	// a site, so a site-scoped site:manage operator is admitted at their own
+	// site and an assignment narrowing an org-wide grant is respected.
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &req.Msg.SiteId})
+	if err != nil {
+		return nil, err
+	}
+	// No rack:manage escalation, unlike CreateBuilding: no rack/device seed.
+	created, rejected, err := h.service.CreateBuildings(ctx, toCreateBuildingsParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(rejected) > 0 {
+		return connect.NewResponse(&pb.CreateBuildingsResponse{
+			Errors: toProtoBuildingCreateErrors(rejected),
+		}), nil
+	}
+	return connect.NewResponse(&pb.CreateBuildingsResponse{
+		Buildings: toProtoBuildings(created),
 	}), nil
 }
 
@@ -123,6 +179,35 @@ func (h *Handler) AssignRacksToBuilding(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 	return connect.NewResponse(&pb.AssignRacksToBuildingResponse{
+		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) AssignDevicesToBuilding(ctx context.Context, req *connect.Request[pb.AssignDevicesToBuildingRequest]) (*connect.Response[pb.AssignDevicesToBuildingResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// force_clear_conflicting_rack_membership deletes
+	// device_set_membership rows as a side effect — same auth gate
+	// pattern as AssignDevicesToSite so site-only operators can't
+	// bypass rack auth via this flag.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	out, conflicts, err := h.service.AssignDevicesToBuilding(ctx, toAssignDevicesToBuildingParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(conflicts) > 0 {
+		return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+			Conflicts: toProtoBuildingConflicts(conflicts),
+		}), nil
+	}
+	return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+		ReassignedCount:           out.ReassignedCount,
 		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
 	}), nil
 }
@@ -192,21 +277,28 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 		})
 	}
 	return connect.NewResponse(&pb.GetBuildingStatsResponse{
-		BuildingId:               out.BuildingID,
-		RackCount:                out.RackCount,
-		DeviceCount:              out.DeviceCount,
-		ReportingCount:           out.ReportingCount,
-		HashrateReportingCount:   out.HashrateReportingCount,
-		EfficiencyReportingCount: out.EfficiencyReportingCount,
-		PowerReportingCount:      out.PowerReportingCount,
-		TotalHashrateThs:         out.TotalHashrateThs,
-		AvgEfficiencyJth:         out.AvgEfficiencyJth,
-		TotalPowerKw:             out.TotalPowerKw,
-		HashingCount:             out.HashingCount,
-		BrokenCount:              out.BrokenCount,
-		OfflineCount:             out.OfflineCount,
-		SleepingCount:            out.SleepingCount,
-		RackHealth:               rackHealth,
-		DeviceIdentifiers:        out.DeviceIdentifiers,
+		BuildingId:                out.BuildingID,
+		RackCount:                 out.RackCount,
+		DeviceCount:               out.DeviceCount,
+		ReportingCount:            out.ReportingCount,
+		HashrateReportingCount:    out.HashrateReportingCount,
+		EfficiencyReportingCount:  out.EfficiencyReportingCount,
+		PowerReportingCount:       out.PowerReportingCount,
+		TemperatureReportingCount: out.TemperatureReportingCount,
+		TotalHashrateThs:          out.TotalHashrateThs,
+		AvgEfficiencyJth:          out.AvgEfficiencyJth,
+		TotalPowerKw:              out.TotalPowerKw,
+		MinTemperatureC:           out.MinTemperatureC,
+		MaxTemperatureC:           out.MaxTemperatureC,
+		HashingCount:              out.HashingCount,
+		BrokenCount:               out.BrokenCount,
+		OfflineCount:              out.OfflineCount,
+		SleepingCount:             out.SleepingCount,
+		ControlBoardIssueCount:    out.ControlBoardIssueCount,
+		FanIssueCount:             out.FanIssueCount,
+		HashBoardIssueCount:       out.HashBoardIssueCount,
+		PsuIssueCount:             out.PsuIssueCount,
+		RackHealth:                rackHealth,
+		DeviceIdentifiers:         out.DeviceIdentifiers,
 	}), nil
 }

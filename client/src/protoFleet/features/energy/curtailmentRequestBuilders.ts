@@ -1,15 +1,19 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  type CurtailmentScopeSelection,
+  normalizeCurtailmentSelectionValues,
+  parseCurtailmentTargetId,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
   type UpdateCurtailmentEventRequest,
@@ -26,7 +30,16 @@ type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1]
 
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
-  "scope" | "mode" | "strategy" | "level" | "priority" | "modeParams" | "includeMaintenance" | "forceIncludeMaintenance"
+  | "scopes"
+  | "scopeSchemaVersion"
+  | "mode"
+  | "strategy"
+  | "level"
+  | "priority"
+  | "modeParams"
+  | "includeMaintenance"
+  | "forceIncludeMaintenance"
+  | "forceIncludeAllPairedMiners"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -37,6 +50,14 @@ const minCurtailedDurationOptions: OptionalUint32FieldOptions = {
   label: "min curtailed duration",
   max: curtailmentNumericFieldLimits.minDurationSec,
 };
+const curtailBatchSizeOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch size",
+  max: curtailmentNumericFieldLimits.curtailBatchSize,
+};
+const curtailBatchIntervalOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch interval",
+  max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+};
 const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
   label: "restore batch size",
   max: curtailmentNumericFieldLimits.restoreBatchSize,
@@ -45,18 +66,14 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
-const maxInt64 = 9_223_372_036_854_775_807n;
-const baseTenIntegerPattern = /^[0-9]+$/;
-
-export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
-  const trimmed = value?.trim() ?? "";
-  if (!baseTenIntegerPattern.test(trimmed)) {
-    return undefined;
-  }
-
-  const parsed = BigInt(trimmed);
-  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
-}
+const fanOffDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan off delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan restore delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -77,6 +94,15 @@ function getOptionalUpdateUint32Setting(value: string, options: OptionalUint32Fi
   return parsedField.parsed;
 }
 
+function getOptionalPositiveUint32Setting(value: string, options: OptionalUint32FieldOptions): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  return nextValue;
+}
+
 function getChangedUpdateStringSetting(value: string, initialValue?: string): string | undefined {
   const trimmedValue = value.trim();
   if (initialValue === undefined) {
@@ -84,6 +110,23 @@ function getChangedUpdateStringSetting(value: string, initialValue?: string): st
   }
 
   return trimmedValue === initialValue.trim() ? undefined : trimmedValue;
+}
+
+function getChangedParsedUpdateUint32Setting(
+  nextValue: number | undefined,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  if (initialValue === undefined || initialValue.trim() === "") {
+    return nextValue;
+  }
+
+  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
+  if (nextValue === undefined || nextValue === previousValue) {
+    return undefined;
+  }
+
+  return nextValue;
 }
 
 function getChangedUpdatePositiveUint32Setting(
@@ -96,16 +139,16 @@ function getChangedUpdatePositiveUint32Setting(
     throw new Error(`Enter ${options.label} greater than 0.`);
   }
 
-  if (initialValue === undefined || initialValue.trim() === "") {
-    return nextValue;
-  }
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
+}
 
-  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
-  if (nextValue === undefined || nextValue === previousValue) {
-    return undefined;
-  }
-
-  return nextValue;
+function getChangedUpdateUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -119,34 +162,61 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["scope"] {
-  switch (values.scopeType) {
-    case "wholeOrg":
-      return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
-    case "site":
-      {
-        const siteId = parseCurtailmentSiteId(values.siteId);
-        if (siteId !== undefined) {
-          return { case: "site", value: create(ScopeSiteSchema, { siteId }) };
-        }
-      }
-      break;
-    case "explicitMiners":
-      if (values.deviceIdentifiers.length > 0) {
-        return {
-          case: "deviceIdentifiers",
-          value: create(ScopeDeviceListSchema, { deviceIdentifiers: values.deviceIdentifiers }),
-        };
-      }
-      break;
-    case "deviceSet":
-      break;
+// Logical placement scopes can back the durable all-paired policy. Explicit
+// miner lists remain snapshots until their closed-loop lifecycle is supported.
+export function supportsAllPairedTargeting(
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+): boolean {
+  if (values.curtailmentMode !== "fullFleet") {
+    return false;
+  }
+  const scopes = buildCurtailmentScopes(values);
+  return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
+}
+
+function supportsAllPairedExecution(
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+): boolean {
+  if (!supportsAllPairedTargeting(values)) {
+    return false;
   }
 
-  throw new Error("Unsupported curtailment target scope.");
+  const scopes = buildCurtailmentScopes(values);
+  return (
+    scopes !== undefined && scopes.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site")
+  );
+}
+
+// Targeting all paired miners also opts in miners flagged for maintenance:
+// parking them as unavailable would contradict the operator's explicit
+// "all paired" choice, and both flags sit behind the same server-side admin
+// gate as the all-paired control itself.
+//
+// The maintenance pair derives SOLELY from the all-paired flag: the UI no
+// longer exposes an independent maintenance toggle, so a stale
+// values.includeMaintenance (hydrated from a profile or past event saved when
+// the pair was coupled) must not survive unchecking "Target all paired
+// miners" — it would silently keep the admin-gated maintenance inclusion with
+// nothing in the UI showing it.
+export function buildForceInclusionFields(
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
+): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
+  // Topology profiles may persist this policy now, but Preview and Start must
+  // omit it until the server's topology lifecycle can honor it.
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedExecution(values);
+  // The proto validator requires include_maintenance == force_include_maintenance.
+  return {
+    includeMaintenance: forceIncludeAllPairedMiners,
+    forceIncludeMaintenance: forceIncludeAllPairedMiners,
+    forceIncludeAllPairedMiners,
+  };
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
+  const scopes = buildCurtailmentScopes(values);
+  if (scopes === undefined) {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const fixedKwModeFields =
     values.curtailmentMode === "fixedKwReduction"
       ? {
@@ -162,24 +232,50 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
         };
 
   return {
-    scope: buildScope(values),
+    scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeMaintenance: values.includeMaintenance,
+    ...buildForceInclusionFields(values),
   };
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
+  const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
+    values.curtailBatchIntervalSec,
+    curtailBatchIntervalOptions,
+  );
+  if (curtailBatchSize === undefined && curtailBatchIntervalSec !== undefined) {
+    throw new Error("Enter curtail batch size before adding a curtail batch interval.");
+  }
+
+  const facilityFanDeviceIds = [
+    ...new Set(
+      normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
+        const id = parseCurtailmentTargetId(value);
+        if (id === undefined) {
+          throw new Error("Facility fan IDs must be positive integers.");
+        }
+        return id;
+      }),
+    ),
+  ];
+
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    curtailBatchSize,
+    curtailBatchIntervalSec,
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
     minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    facilityFanDeviceIds,
+    fanOffDelaySec: getOptionalUint32Setting(values.fanOffDelaySec ?? "", fanOffDelayOptions),
+    fanRestoreDelaySec: getOptionalUint32Setting(values.fanRestoreDelaySec ?? "", fanRestoreDelayOptions),
     reason: values.reason.trim(),
   });
 }
@@ -197,7 +293,7 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
+    restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
       restoreBatchIntervalOptions,

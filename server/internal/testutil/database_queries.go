@@ -61,7 +61,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	testUser.Username = username
 	testUser.Password = password
 
-	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
+	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q sqlc.Querier) error {
 		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
 			UserID:       externalUserID,
 			Username:     username,
@@ -74,9 +74,8 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 		testUser.DatabaseID = userID
 
 		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
-			Name:                organizationName,
-			OrgID:               organizationName,
-			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
+			Name:  organizationName,
+			OrgID: organizationName,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
@@ -133,7 +132,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 	testUser.Username = username
 	testUser.Password = password
 
-	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
+	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q sqlc.Querier) error {
 		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
 			UserID:       externalUserID,
 			Username:     username,
@@ -146,9 +145,8 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 		testUser.DatabaseID = userID
 
 		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
-			Name:                organizationName,
-			OrgID:               organizationName,
-			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
+			Name:  organizationName,
+			OrgID: organizationName,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
@@ -192,7 +190,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 
 func (s *DatabaseService) CreateDevice(organizationID int64, driverName string) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
-	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
+	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q sqlc.Querier) (DeviceIdentification, error) {
 		// Use unique IP per device to prevent constraint violations on (org_id, ip_address, port)
 		// Use atomic counter to ensure true uniqueness even in parallel tests
 		ipSuffix := atomic.AddUint64(&testDeviceIPCounter, 1)
@@ -238,7 +236,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, driverName string) 
 }
 
 func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress string, port string, urlScheme networking.Protocol) {
-	err := db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(context.Background(), s.DB, func(q sqlc.Querier) error {
 		return q.UpdateDeviceIPAssignment(context.Background(), sqlc.UpdateDeviceIPAssignmentParams{
 			IpAddress: ipAddress,
 			Port:      port,
@@ -250,13 +248,13 @@ func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress str
 }
 
 func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID int64) (sqlc.PairingStatusEnum, error) {
-	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (sqlc.PairingStatusEnum, error) {
+	return db2.WithTransaction(context.Background(), s.DB, func(q sqlc.Querier) (sqlc.PairingStatusEnum, error) {
 		return q.GetDevicePairingStatusByDeviceDatabaseID(context.Background(), databaseDeviceID)
 	})
 }
 
 func (s *DatabaseService) GetTotalDevicePairings(orgID int64, _ int32) (int, error) {
-	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (int, error) {
+	return db2.WithTransaction(context.Background(), s.DB, func(q sqlc.Querier) (int, error) {
 		count, err := q.GetTotalPairedDevices(context.Background(), sqlc.GetTotalPairedDevicesParams{
 			OrgID: orgID,
 		})
@@ -322,7 +320,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		}
 		s.createDeviceIPAssignment(device.DatabaseID, uniqueHost, portStr, protocol)
 
-		err = db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
+		err = db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q sqlc.Querier) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      device.DatabaseID,
 				PairingStatus: sqlc.PairingStatusEnumPAIRED,

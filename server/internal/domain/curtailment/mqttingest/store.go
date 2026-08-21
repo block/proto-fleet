@@ -113,6 +113,22 @@ type SettingsStore interface {
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 }
 
+// RigConfigReconciliationStore owns the durable latest-generation outbox.
+type RigConfigReconciliationStore interface {
+	RequestRigConfigReconciliation(ctx context.Context, orgID, requestedBy int64) error
+	ClaimRigConfigReconciliation(ctx context.Context) (RigConfigReconciliation, error)
+	CompleteRigConfigReconciliation(ctx context.Context, orgID, generation int64) error
+	RetryRigConfigReconciliation(ctx context.Context, orgID, generation int64, lastError string) error
+}
+
+// RigConfigReconciliation is one leased snapshot-enqueue request. Source
+// mutations increment DesiredGeneration atomically with their settings write.
+type RigConfigReconciliation struct {
+	OrganizationID    int64
+	RequestedBy       int64
+	DesiredGeneration int64
+}
+
 // ErrSourceStateNotFound means cold start.
 var ErrSourceStateNotFound = errors.New("mqttingest: source state not found")
 
@@ -128,19 +144,27 @@ var ErrSourceConfigDeleteBlocked = errors.New("mqttingest: enabled source cannot
 // ErrSourceConfigReferenced means an automation rule still references a source.
 var ErrSourceConfigReferenced = errors.New("mqttingest: source config is referenced by automation")
 
+// ErrRigConfigReconciliationNotFound means no durable delivery work is due.
+var ErrRigConfigReconciliationNotFound = errors.New("mqttingest: no rig config reconciliation is due")
+
 const mqttSourceConfigOrgNameConstraint = "uq_curtailment_mqtt_source_config_org_name"
 
 type sqlcStore struct {
-	queries *sqlc.Queries
+	queries sqlc.Querier
 }
 
 // NewSQLCStore returns a Store backed by sqlc.
-func NewSQLCStore(queries *sqlc.Queries) Store {
+func NewSQLCStore(queries sqlc.Querier) Store {
 	return &sqlcStore{queries: queries}
 }
 
 // NewSQLCSettingsStore returns a settings CRUD store backed by sqlc.
-func NewSQLCSettingsStore(queries *sqlc.Queries) SettingsStore {
+func NewSQLCSettingsStore(queries sqlc.Querier) SettingsStore {
+	return &sqlcStore{queries: queries}
+}
+
+// NewSQLCRigConfigReconciliationStore returns a durable rig-config outbox store.
+func NewSQLCRigConfigReconciliationStore(queries sqlc.Querier) RigConfigReconciliationStore {
 	return &sqlcStore{queries: queries}
 }
 
@@ -199,7 +223,7 @@ func (s *sqlcStore) CreateSourceConfig(ctx context.Context, source SourceConfig)
 	if err != nil {
 		return SourceConfig{}, sourceConfigPersistError("insert mqtt source config", err)
 	}
-	return sourceConfigFromRow(row), nil
+	return sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig(row)), nil
 }
 
 func (s *sqlcStore) UpdateSourceConfig(ctx context.Context, source SourceConfig) (SourceConfig, error) {
@@ -211,7 +235,7 @@ func (s *sqlcStore) UpdateSourceConfig(ctx context.Context, source SourceConfig)
 		}
 		return SourceConfig{}, sourceConfigPersistError("update mqtt source config", err)
 	}
-	return sourceConfigFromRow(row), nil
+	return sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig(row)), nil
 }
 
 func (s *sqlcStore) SetSourceConfigEnabled(ctx context.Context, orgID, sourceID int64, enabled bool) (SourceConfig, error) {
@@ -226,7 +250,7 @@ func (s *sqlcStore) SetSourceConfigEnabled(ctx context.Context, orgID, sourceID 
 		}
 		return SourceConfig{}, fmt.Errorf("set mqtt source config enabled: %w", err)
 	}
-	return sourceConfigFromRow(row), nil
+	return sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig(row)), nil
 }
 
 func (s *sqlcStore) DeleteDisabledSourceConfig(ctx context.Context, orgID, sourceID int64) error {
@@ -259,6 +283,52 @@ func (s *sqlcStore) CountAutomationRulesByMQTTSource(ctx context.Context, orgID,
 		return 0, fmt.Errorf("count curtailment automation rules by mqtt source: %w", err)
 	}
 	return count, nil
+}
+
+func (s *sqlcStore) RequestRigConfigReconciliation(ctx context.Context, orgID, requestedBy int64) error {
+	if err := s.queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
+		OrganizationID: orgID,
+		RequestedBy:    requestedBy,
+	}); err != nil {
+		return fmt.Errorf("request rig config reconciliation: %w", err)
+	}
+	return nil
+}
+
+func (s *sqlcStore) ClaimRigConfigReconciliation(ctx context.Context) (RigConfigReconciliation, error) {
+	row, err := s.queries.ClaimRigConfigReconciliation(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RigConfigReconciliation{}, ErrRigConfigReconciliationNotFound
+		}
+		return RigConfigReconciliation{}, fmt.Errorf("claim rig config reconciliation: %w", err)
+	}
+	return RigConfigReconciliation{
+		OrganizationID:    row.OrganizationID,
+		RequestedBy:       row.RequestedBy,
+		DesiredGeneration: row.DesiredGeneration,
+	}, nil
+}
+
+func (s *sqlcStore) CompleteRigConfigReconciliation(ctx context.Context, orgID, generation int64) error {
+	if err := s.queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
+		OrganizationID:     orgID,
+		EnqueuedGeneration: generation,
+	}); err != nil {
+		return fmt.Errorf("complete rig config reconciliation: %w", err)
+	}
+	return nil
+}
+
+func (s *sqlcStore) RetryRigConfigReconciliation(ctx context.Context, orgID, generation int64, lastError string) error {
+	if err := s.queries.RetryRigConfigReconciliation(ctx, sqlc.RetryRigConfigReconciliationParams{
+		OrganizationID:    orgID,
+		DesiredGeneration: generation,
+		LastError:         sql.NullString{String: lastError, Valid: lastError != ""},
+	}); err != nil {
+		return fmt.Errorf("retry rig config reconciliation: %w", err)
+	}
+	return nil
 }
 
 func (s *sqlcStore) GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error) {
@@ -315,6 +385,7 @@ func isSourceConfigNameUniqueViolation(err error) bool {
 const (
 	defaultBrokerPort            int32 = 1883
 	defaultStalenessThresholdSec int32 = 240
+	maxStalenessThresholdSec     int32 = 24 * 60 * 60
 )
 
 func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {

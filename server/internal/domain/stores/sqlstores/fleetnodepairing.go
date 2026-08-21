@@ -19,7 +19,7 @@ func NewSQLFleetNodePairingStore(conn *sql.DB) *SQLFleetNodePairingStore {
 	return &SQLFleetNodePairingStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLFleetNodePairingStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodePairingStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -37,6 +37,13 @@ func (s *SQLFleetNodePairingStore) TransferDiscoveredDeviceAttribution(ctx conte
 		FleetNodeID: fleetNodeID,
 		DeviceID:    deviceID,
 		OrgID:       orgID,
+	})
+}
+
+func (s *SQLFleetNodePairingStore) DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, deviceID, orgID int64) (int64, error) {
+	return s.q(ctx).DeleteMinerCredentialsByDeviceIDAndOrgID(ctx, sqlc.DeleteMinerCredentialsByDeviceIDAndOrgIDParams{
+		ID:    deviceID,
+		OrgID: orgID,
 	})
 }
 
@@ -83,14 +90,24 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, identifiers []string, cursorID, limit *int64, excludeAuthNeeded bool) ([]pairing.FleetNodeDiscoveredDevice, error) {
+func (s *SQLFleetNodePairingStore) GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error) {
+	return s.q(ctx).GetFleetNodePairedDeviceIdentifier(ctx, sqlc.GetFleetNodePairedDeviceIdentifierParams{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+	})
+}
+
+func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter pairing.FleetNodeDiscoveredDeviceFilter) ([]pairing.FleetNodeDiscoveredDevice, error) {
 	rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, sqlc.ListFleetNodeDiscoveredDevicesParams{
 		OrgID:             orgID,
 		FleetNodeID:       ptrToNullInt64(fleetNodeID),
-		Identifiers:       identifiers,
-		CursorID:          ptrToNullInt64(cursorID),
-		Limit:             ptrToNullInt64(limit),
-		ExcludeAuthNeeded: sql.NullBool{Bool: excludeAuthNeeded, Valid: excludeAuthNeeded},
+		Identifiers:       filter.Identifiers,
+		CursorID:          ptrToNullInt64(filter.CursorID),
+		Limit:             ptrToNullInt64(filter.Limit),
+		ExcludeAuthNeeded: sql.NullBool{Bool: filter.ExcludeAuthNeeded, Valid: filter.ExcludeAuthNeeded},
+		PairingStatuses:   filter.PairingStatuses,
+		Models:            filter.Models,
+		Manufacturers:     filter.Manufacturers,
 	})
 	if err != nil {
 		return nil, err

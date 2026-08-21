@@ -4,6 +4,7 @@ package device
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type Device struct {
 	deviceInfo sdk.DeviceInfo
 	config     *config.VirtualMinerConfig
 	simulator  *virtual.Simulator
+	latencyRNG *rand.Rand
 
 	// Simulated state
 	isMining        bool
@@ -38,7 +40,8 @@ type Device struct {
 	lastStatus   *sdk.DeviceMetrics
 	lastStatusAt time.Time
 
-	mutex sync.Mutex
+	mutex     sync.Mutex
+	latencyMu sync.Mutex
 }
 
 // New creates a new virtual device instance.
@@ -48,6 +51,7 @@ func New(id string, deviceInfo sdk.DeviceInfo, cfg *config.VirtualMinerConfig) *
 		deviceInfo:      deviceInfo,
 		config:          cfg,
 		simulator:       virtual.NewSimulator(cfg),
+		latencyRNG:      rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 1)),
 		isMining:        true, // Start in mining state by default
 		coolingMode:     sdk.CoolingModeAirCooled,
 		performanceMode: sdk.PerformanceModeMaximumHashrate,
@@ -61,7 +65,10 @@ func (d *Device) ID() string {
 }
 
 // DescribeDevice implements sdk.DeviceCore.
-func (d *Device) DescribeDevice(_ context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+	if err := d.waitForLatency(ctx, false); err != nil {
+		return sdk.DeviceInfo{}, nil, err
+	}
 	return d.deviceInfo, sdk.Capabilities{
 		sdk.CapabilityPollingHost:       true,
 		sdk.CapabilityReboot:            true,
@@ -84,7 +91,11 @@ func (d *Device) DescribeDevice(_ context.Context) (sdk.DeviceInfo, sdk.Capabili
 }
 
 // Status implements sdk.DeviceCore.
-func (d *Device) Status(_ context.Context) (sdk.DeviceMetrics, error) {
+func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return sdk.DeviceMetrics{}, err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -108,7 +119,11 @@ func (d *Device) Close(_ context.Context) error {
 }
 
 // StartMining implements sdk.DeviceControl.
-func (d *Device) StartMining(_ context.Context) error {
+func (d *Device) StartMining(ctx context.Context) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -120,7 +135,11 @@ func (d *Device) StartMining(_ context.Context) error {
 }
 
 // StopMining implements sdk.DeviceControl.
-func (d *Device) StopMining(_ context.Context) error {
+func (d *Device) StopMining(ctx context.Context) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -132,13 +151,20 @@ func (d *Device) StopMining(_ context.Context) error {
 }
 
 // BlinkLED implements sdk.DeviceControl.
-func (d *Device) BlinkLED(_ context.Context) error {
+func (d *Device) BlinkLED(ctx context.Context) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
 	slog.Info("Virtual miner LED blink triggered", "device_id", d.id)
 	return nil
 }
 
 // Reboot implements sdk.DeviceControl.
-func (d *Device) Reboot(_ context.Context) error {
+func (d *Device) Reboot(ctx context.Context) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -155,9 +181,12 @@ func (d *Device) Reboot(_ context.Context) error {
 }
 
 // Curtail honors FULL and rejects reserved levels.
-func (d *Device) Curtail(_ context.Context, req sdk.CurtailRequest) error {
+func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 	if req.Level != sdk.CurtailLevelFull {
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
+	}
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
 	}
 
 	d.mutex.Lock()
@@ -175,7 +204,11 @@ func (d *Device) Curtail(_ context.Context, req sdk.CurtailRequest) error {
 }
 
 // Uncurtail clears curtailment; duplicate calls are no-ops.
-func (d *Device) Uncurtail(_ context.Context, _ sdk.UncurtailRequest) error {
+func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -201,7 +234,11 @@ func (d *Device) clearCurtailmentStateLocked() {
 }
 
 // GetCoolingMode implements sdk.DeviceConfiguration.
-func (d *Device) GetCoolingMode(_ context.Context) (sdk.CoolingMode, error) {
+func (d *Device) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return sdk.CoolingModeUnspecified, err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -209,7 +246,11 @@ func (d *Device) GetCoolingMode(_ context.Context) (sdk.CoolingMode, error) {
 }
 
 // SetCoolingMode implements sdk.DeviceConfiguration.
-func (d *Device) SetCoolingMode(_ context.Context, mode sdk.CoolingMode) error {
+func (d *Device) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -219,7 +260,11 @@ func (d *Device) SetCoolingMode(_ context.Context, mode sdk.CoolingMode) error {
 }
 
 // SetPowerTarget implements sdk.DeviceConfiguration.
-func (d *Device) SetPowerTarget(_ context.Context, mode sdk.PerformanceMode) error {
+func (d *Device) SetPowerTarget(ctx context.Context, mode sdk.PerformanceMode) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -229,7 +274,11 @@ func (d *Device) SetPowerTarget(_ context.Context, mode sdk.PerformanceMode) err
 }
 
 // UpdateMiningPools implements sdk.DeviceConfiguration.
-func (d *Device) UpdateMiningPools(_ context.Context, pools []sdk.MiningPoolConfig) error {
+func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolConfig) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -239,7 +288,11 @@ func (d *Device) UpdateMiningPools(_ context.Context, pools []sdk.MiningPoolConf
 }
 
 // GetMiningPools implements sdk.DeviceConfiguration.
-func (d *Device) GetMiningPools(_ context.Context) ([]sdk.ConfiguredPool, error) {
+func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return nil, err
+	}
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -255,24 +308,36 @@ func (d *Device) GetMiningPools(_ context.Context) ([]sdk.ConfiguredPool, error)
 }
 
 // UpdateMinerPassword implements sdk.DeviceConfiguration.
-func (d *Device) UpdateMinerPassword(_ context.Context, _, _ string) error {
+func (d *Device) UpdateMinerPassword(ctx context.Context, _, _ string) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
 	slog.Info("Virtual miner password update requested (no-op)", "device_id", d.id)
 	return nil
 }
 
 // DownloadLogs implements sdk.DeviceMaintenance.
-func (d *Device) DownloadLogs(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+func (d *Device) DownloadLogs(ctx context.Context, _ *time.Time, _ string) (string, bool, error) {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return "", false, err
+	}
 	return "Virtual miner log data - no actual logs available", false, nil
 }
 
 // FirmwareUpdate implements sdk.DeviceMaintenance.
-func (d *Device) FirmwareUpdate(_ context.Context, _ sdk.FirmwareFile) error {
+func (d *Device) FirmwareUpdate(ctx context.Context, _ sdk.FirmwareFile) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
 	slog.Info("Virtual miner firmware update requested (no-op)", "device_id", d.id)
 	return nil
 }
 
 // Unpair implements sdk.DeviceMaintenance.
-func (d *Device) Unpair(_ context.Context) error {
+func (d *Device) Unpair(ctx context.Context) error {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return err
+	}
 	slog.Info("Virtual miner unpaired", "device_id", d.id)
 	return nil
 }
@@ -280,11 +345,40 @@ func (d *Device) Unpair(_ context.Context) error {
 // GetErrors implements sdk.DeviceErrorReporting.
 // Virtual miners report errors based on error injection configuration.
 // Currently returns an empty list - error injection affects telemetry health status instead.
-func (d *Device) GetErrors(_ context.Context) (sdk.DeviceErrors, error) {
+func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	if err := d.waitForLatency(ctx, true); err != nil {
+		return sdk.DeviceErrors{}, err
+	}
 	return sdk.DeviceErrors{
 		DeviceID: d.id,
 		Errors:   []sdk.DeviceError{},
 	}, nil
+}
+
+func (d *Device) waitForLatency(ctx context.Context, includeInternal bool) error {
+	delay := d.sampleLatency(includeInternal)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (d *Device) sampleLatency(includeInternal bool) time.Duration {
+	d.latencyMu.Lock()
+	defer d.latencyMu.Unlock()
+
+	delay := d.config.Behavior.NetworkLatency.Sample(d.latencyRNG)
+	if includeInternal {
+		delay += d.config.Behavior.InternalLatency.Sample(d.latencyRNG)
+	}
+	return delay
 }
 
 // TryBatchStatus implements sdk.DeviceOptional.

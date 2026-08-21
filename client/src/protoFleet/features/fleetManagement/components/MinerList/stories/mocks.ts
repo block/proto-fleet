@@ -20,6 +20,7 @@ export const miners: MinerStateSnapshot[] = [
     manufacturer: "Bitmain",
     workerName: "worker-01",
     driverName: "antminer",
+    embeddedWebViewAvailable: false,
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -59,10 +60,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -77,6 +75,7 @@ export const miners: MinerStateSnapshot[] = [
     manufacturer: "Bitmain",
     workerName: "worker-02",
     driverName: "antminer",
+    embeddedWebViewAvailable: false,
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -116,10 +115,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -134,6 +130,7 @@ export const miners: MinerStateSnapshot[] = [
     manufacturer: "Bitmain",
     workerName: "worker-03",
     driverName: "antminer",
+    embeddedWebViewAvailable: false,
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -173,10 +170,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -191,6 +185,7 @@ export const miners: MinerStateSnapshot[] = [
     manufacturer: "Bitmain",
     workerName: "worker-04",
     driverName: "antminer",
+    embeddedWebViewAvailable: false,
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -230,9 +225,6 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
 ];

@@ -92,8 +92,8 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 		return err
 	}
 
-	payload, err := proto.Marshal(&pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_Discover{Discover: normalized},
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Discover{Discover: normalized},
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)

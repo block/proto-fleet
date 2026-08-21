@@ -98,6 +98,115 @@ func TestEffective_NarrowingOrgScopeActionNotShadowed(t *testing.T) {
 		"org-scope action is satisfied by the org-scope assignment regardless of site-scope rows")
 }
 
+func TestEffective_HasOrgWideHonorsSiteNarrowing(t *testing.T) {
+	cases := []struct {
+		name        string
+		assignments []authz.Assignment
+		want        bool
+	}{
+		{
+			name:        "plain org grant is org-wide",
+			assignments: []authz.Assignment{orgScope(authz.PermCurtailmentManage)},
+			want:        true,
+		},
+		{
+			name: "matching narrowed site grant stays org-wide",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermCurtailmentManage),
+				siteScope(1, authz.PermCurtailmentManage),
+			},
+			want: true,
+		},
+		{
+			name: "narrowed site without permission is not org-wide",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermCurtailmentManage),
+				siteScope(1),
+			},
+			want: false,
+		},
+		{
+			name:        "site-only grant is not org-wide",
+			assignments: []authz.Assignment{siteScope(1, authz.PermCurtailmentManage)},
+			want:        false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eff := authz.NewEffectivePermissions(tc.assignments)
+			require.Equal(t, tc.want, eff.HasOrgWide(authz.PermCurtailmentManage))
+		})
+	}
+}
+
+func TestEffective_SiteScopeFor(t *testing.T) {
+	cases := []struct {
+		name        string
+		assignments []authz.Assignment
+		wantOrgWide bool
+		wantSites   []int64
+	}{
+		{
+			name:        "org grant with no narrowing: org-wide, empty denylist",
+			assignments: []authz.Assignment{orgScope(authz.PermSiteRead)},
+			wantOrgWide: true,
+			wantSites:   nil,
+		},
+		{
+			name: "org grant narrowed away at two sites: sorted denylist",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermSiteRead),
+				siteScope(9), // zero-permission assignment still narrows
+				siteScope(3, authz.PermFleetRead),
+			},
+			wantOrgWide: true,
+			wantSites:   []int64{3, 9},
+		},
+		{
+			name: "org grant with matching site grant: site not in denylist",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermSiteRead),
+				siteScope(3, authz.PermSiteRead),
+			},
+			wantOrgWide: true,
+			wantSites:   nil,
+		},
+		{
+			name: "site-only grants: sorted allowlist of granting sites",
+			assignments: []authz.Assignment{
+				siteScope(5, authz.PermSiteRead),
+				siteScope(3, authz.PermSiteRead),
+				siteScope(9, authz.PermFleetRead), // different key: not readable
+			},
+			wantOrgWide: false,
+			wantSites:   []int64{3, 5},
+		},
+		{
+			name:        "no assignments: deny everything",
+			assignments: nil,
+			wantOrgWide: false,
+			wantSites:   nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eff := authz.NewEffectivePermissions(tc.assignments)
+			orgWide, sites := eff.SiteScopeFor(authz.PermSiteRead)
+			require.Equal(t, tc.wantOrgWide, orgWide)
+			require.Equal(t, tc.wantSites, sites)
+		})
+	}
+}
+
+func TestEffective_SiteScopeForNilReceiver(t *testing.T) {
+	var eff *authz.EffectivePermissions
+	orgWide, sites := eff.SiteScopeFor(authz.PermSiteRead)
+	require.False(t, orgWide, "nil EffectivePermissions denies everything")
+	require.Nil(t, sites)
+}
+
 func TestEffective_MultipleSiteAssignmentsUnionAtTheirOwnSites(t *testing.T) {
 	// User has ADMIN @ Site-A and FIELD_TECH @ Site-B (no org-scope row).
 	// miner:reboot is in ADMIN's seed but not FIELD_TECH's.
@@ -157,17 +266,16 @@ func TestEffective_UnknownPermissionDenied(t *testing.T) {
 	require.False(t, eff.Has("synthetic:not_in_catalog", orgResource()))
 }
 
-func TestEffective_FlatPermissionsForUserInfo(t *testing.T) {
-	// UserInfo.permissions is described in the plan as "the flat union of
-	// permission keys across all assignments." Test that the projection is
-	// deterministic and dedupes.
+func TestEffective_KeysForUserInfo(t *testing.T) {
+	// UserInfo.permissions is the default/org projection the client uses for
+	// org-scoped RPC gates. Site-only permissions must not leak into it.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
 		orgScope(authz.PermFleetRead, authz.PermMinerRead),
 		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerBlinkLED),
 	})
-	got := eff.FlatKeys()
-	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerBlinkLED, authz.PermMinerRead}, got)
+	got := eff.Keys()
+	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, got)
 }
 
 // FIELD_TECH on the AE (a tech can call BlinkLED but not Reboot).

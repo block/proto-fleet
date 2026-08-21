@@ -8,7 +8,8 @@ import {
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
-  formatCurtailmentMinerCount as formatMinerCount,
+  formatCurtailmentAppliesToSummary,
+  formatCurtailmentFacilityFanCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
@@ -30,7 +31,13 @@ export interface CurtailmentHistoryEvent {
   priority: CurtailmentPriority;
   scopeLabel: string;
   selectedMiners: number;
+  facilityFanDeviceCount?: number;
   estimatedReductionKw: number;
+  targetMetricsAvailable: boolean;
+  // Distinct from targetMetricsAvailable: live rollups prove counts without
+  // proving a kW estimate (active-list rows scrub the decision snapshot).
+  // Optional so fixture-driven surfaces default to the count signal.
+  estimatedReductionAvailable?: boolean;
   targetKw?: number;
   sourceLabel: string;
   startedAt?: string;
@@ -42,6 +49,7 @@ export interface CurtailmentHistoryEvent {
 interface CurtailmentHistoryProps {
   events: CurtailmentHistoryEvent[];
   activeEventId?: string;
+  activeEventIds?: string[];
   pageSize?: number;
   currentPage?: number;
   hasNextPage?: boolean;
@@ -59,11 +67,17 @@ interface CurtailmentHistoryProps {
    */
   onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
   /**
+   * Called from the detail modal for active restoring events that cannot be
+   * edited or stopped directly. The parent owns selecting/hydrating the event.
+   */
+  onSelectActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+  /**
    * Called after the operator confirms stopping the active event. The parent
    * owns persistence. Return a promise only after an actual stop request
    * starts; a rejected promise re-enables retry controls.
    */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
+  onStopActiveEventRequested?: (event: CurtailmentHistoryEvent) => void;
 }
 
 interface DotProps {
@@ -81,13 +95,14 @@ interface CurtailmentSummaryModalProps {
   open: boolean;
   onDismiss: () => void;
   onManage?: () => void;
+  onSelectActive?: () => void;
   onStop?: () => void;
   stopDisabled?: boolean;
 }
 
 interface CurtailmentHistoryRowProps {
   event: CurtailmentHistoryEvent;
-  activeEventId?: string;
+  activeEventIds: Set<string>;
   onOpenSummary: (event: CurtailmentHistoryEvent) => void;
   onRequestStop?: (event: CurtailmentHistoryEvent) => void;
   stopDisabled?: boolean;
@@ -103,9 +118,11 @@ interface CurtailmentSummaryModalButton {
 
 const defaultPageSize = 50;
 const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
-const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
+const selectableEventStates = new Set<CurtailmentEventState>(["restoring"]);
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+const unavailableTargetMetricsLabel = "Target details unavailable";
 
 const priorityLabels: Record<CurtailmentPriority, string> = {
   normal: "Normal",
@@ -158,6 +175,34 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
       </div>
     </div>
   );
+}
+
+function formatHistoryAppliesToSummary(event: CurtailmentHistoryEvent): string {
+  const facilityFanDeviceCount = event.facilityFanDeviceCount ?? 0;
+
+  if (event.targetMetricsAvailable) {
+    return formatCurtailmentAppliesToSummary(event.selectedMiners, facilityFanDeviceCount);
+  }
+
+  if (facilityFanDeviceCount > 0) {
+    return `${unavailableTargetMetricsLabel}, ${formatCurtailmentFacilityFanCount(facilityFanDeviceCount)}`;
+  }
+
+  return unavailableTargetMetricsLabel;
+}
+
+function formatHistoryTargetVsActual(event: CurtailmentHistoryEvent): string {
+  if (!event.targetMetricsAvailable) {
+    return unavailableTargetMetricsLabel;
+  }
+
+  // Summary-only active rows carry live counts but no kW estimate; showing
+  // "target / 0.0 kW" would fabricate a zero estimate.
+  if (event.estimatedReductionAvailable === false) {
+    return unavailableTargetMetricsLabel;
+  }
+
+  return formatTargetVsActual(event);
 }
 
 function getDateTime(value?: string): Date | undefined {
@@ -225,12 +270,16 @@ function sortHistoryEvents(events: CurtailmentHistoryEvent[]): CurtailmentHistor
   return [...events].sort(compareStartedAtDesc);
 }
 
-function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventId?: string): boolean {
-  return event.id === activeEventId && stoppableEventStates.has(event.state);
+function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
+  return activeEventIds.has(event.id) && stoppableEventStates.has(event.state);
 }
 
-function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventId?: string): boolean {
-  return event.id === activeEventId && manageableEventStates.has(event.state);
+function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
+  return activeEventIds.has(event.id) && manageableEventStates.has(event.state);
+}
+
+function isActiveSelectableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
+  return activeEventIds.has(event.id) && selectableEventStates.has(event.state);
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
@@ -257,6 +306,10 @@ function normalizeStatusFilters(filters: string[]): CurtailmentEventState[] {
   return filters.filter(isCurtailmentEventState);
 }
 
+function getActiveEventIdSet(activeEventId?: string, activeEventIds: readonly string[] = []): Set<string> {
+  return new Set([activeEventId, ...activeEventIds].filter((eventId): eventId is string => Boolean(eventId)));
+}
+
 function shouldIgnoreRowActivation(eventTarget: EventTarget | null, currentTarget: HTMLTableRowElement): boolean {
   if (!(eventTarget instanceof Element) || !currentTarget.contains(eventTarget)) {
     return true;
@@ -273,6 +326,7 @@ function CurtailmentSummaryModal({
   open,
   onDismiss,
   onManage,
+  onSelectActive,
   onStop,
   stopDisabled,
 }: CurtailmentSummaryModalProps): ReactElement {
@@ -303,6 +357,15 @@ function CurtailmentSummaryModal({
     });
   }
 
+  if (onSelectActive) {
+    buttons.push({
+      text: "View active event",
+      variant: variants.primary,
+      onClick: onSelectActive,
+      dismissModalOnClick: false,
+    });
+  }
+
   return (
     <Modal
       open={open}
@@ -317,8 +380,8 @@ function CurtailmentSummaryModal({
         <div className="rounded-xl border border-border-5 px-4">
           <DetailRow label="Event" value={event.reason} />
           <DetailRow label="ID" value={event.id} />
-          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatMinerCount(event.selectedMiners)} />
-          <DetailRow label="Power target vs actual" value={formatTargetVsActual(event)} />
+          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatHistoryAppliesToSummary(event)} />
+          <DetailRow label="Power target vs actual" value={formatHistoryTargetVsActual(event)} />
           <DetailRow label="Status" value={eventStateConfig.label} />
           <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
           {scheduledAt ? <DetailRow label="Scheduled" value={scheduledAt} /> : null}
@@ -333,12 +396,12 @@ function CurtailmentSummaryModal({
 
 function CurtailmentHistoryRow({
   event,
-  activeEventId,
+  activeEventIds,
   onOpenSummary,
   onRequestStop,
   stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
-  const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
+  const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventIds);
   const eventStateConfig = getHistoryEventStateConfig(event);
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
@@ -391,9 +454,9 @@ function CurtailmentHistoryRow({
         <div className="truncate text-text-primary" title={event.scopeLabel}>
           {event.scopeLabel}
         </div>
-        <div className="text-200 text-text-primary-50">{formatMinerCount(event.selectedMiners)}</div>
+        <div className="text-200 text-text-primary-50">{formatHistoryAppliesToSummary(event)}</div>
       </td>
-      <td className="py-4 pr-6 align-top text-text-primary">{formatTargetVsActual(event)}</td>
+      <td className="py-4 pr-6 align-top text-text-primary">{formatHistoryTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
         <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
           <Dot className={eventStateConfig.dotClassName} />
@@ -422,6 +485,7 @@ function CurtailmentHistoryRow({
 function CurtailmentHistory({
   events,
   activeEventId,
+  activeEventIds: activeEventIdList = [],
   pageSize = defaultPageSize,
   currentPage: controlledCurrentPage = 0,
   hasNextPage: controlledHasNextPage = false,
@@ -434,13 +498,19 @@ function CurtailmentHistory({
   onStatusFilterChange,
   onStatusFiltersChange,
   onManageActiveEvent,
+  onSelectActiveEvent,
   onStopActiveEvent,
+  onStopActiveEventRequested,
 }: CurtailmentHistoryProps): ReactElement {
   const [localSelectedStatusFilters, setLocalSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
   const [selectedStopEventId, setSelectedStopEventId] = useState<string>();
-  const [pendingStopEventId, setPendingStopEventId] = useState<string>();
+  const [pendingStopEventIds, setPendingStopEventIds] = useState<Set<string>>(() => new Set());
+  const activeEventIds = useMemo(
+    () => getActiveEventIdSet(activeEventId, activeEventIdList),
+    [activeEventId, activeEventIdList],
+  );
   const normalizedPageSize = getNormalizedPageSize(pageSize);
   const selectedDetailEvent = useMemo(
     () => events.find((event) => event.id === selectedDetailEventId),
@@ -451,16 +521,8 @@ function CurtailmentHistory({
     [events, selectedStopEventId],
   );
   const selectedStopEventIsStoppable = Boolean(
-    selectedStopEvent && isActiveStoppableEvent(selectedStopEvent, activeEventId),
+    selectedStopEvent && isActiveStoppableEvent(selectedStopEvent, activeEventIds),
   );
-  const pendingStopEvent = useMemo(
-    () => events.find((event) => event.id === pendingStopEventId),
-    [events, pendingStopEventId],
-  );
-  const pendingStopEventIsStoppable = Boolean(
-    pendingStopEvent && isActiveStoppableEvent(pendingStopEvent, activeEventId),
-  );
-  const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
   const usesControlledPagination = Boolean(onPageChange);
   const usesServerStatusFilter = Boolean(onStatusFiltersChange || onStatusFilterChange);
   const selectedStatusFilters = useMemo(
@@ -548,29 +610,39 @@ function CurtailmentHistory({
   const handleDismissSummary = () => setSelectedDetailEventId(undefined);
 
   const handleOpenStopConfirmation = (event: CurtailmentHistoryEvent) => {
-    if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventId) || pendingStoppableEventId === event.id) {
+    if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventIds) || pendingStopEventIds.has(event.id)) {
       return;
     }
 
+    onStopActiveEventRequested?.(event);
     setSelectedStopEventId(event.id);
   };
 
   const handleDismissStopConfirmation = () => setSelectedStopEventId(undefined);
 
   const handleConfirmStop = () => {
-    if (!selectedStopEvent || !onStopActiveEvent || !isActiveStoppableEvent(selectedStopEvent, activeEventId)) {
+    if (!selectedStopEvent || !onStopActiveEvent || !isActiveStoppableEvent(selectedStopEvent, activeEventIds)) {
       return;
     }
 
     const event = selectedStopEvent;
+    if (pendingStopEventIds.has(event.id)) {
+      setSelectedStopEventId(undefined);
+      return;
+    }
+
     setSelectedStopEventId(undefined);
-    setPendingStopEventId(event.id);
+    setPendingStopEventIds((currentEventIds) => new Set(currentEventIds).add(event.id));
 
     let stopRequest: void | PromiseLike<unknown>;
     try {
       stopRequest = onStopActiveEvent(event);
     } catch {
-      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
       return;
     }
 
@@ -579,23 +651,35 @@ function CurtailmentHistory({
     }
 
     void Promise.resolve(stopRequest).catch(() => {
-      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
     });
   };
 
   const handleManageSelectedDetailEvent =
     selectedDetailEvent &&
     onManageActiveEvent &&
-    isActiveManageableEvent(selectedDetailEvent, activeEventId) &&
-    selectedDetailEvent.id !== pendingStoppableEventId
+    isActiveManageableEvent(selectedDetailEvent, activeEventIds) &&
+    !pendingStopEventIds.has(selectedDetailEvent.id)
       ? () => {
           setSelectedDetailEventId(undefined);
           onManageActiveEvent(selectedDetailEvent);
         }
       : undefined;
 
+  const handleSelectActiveDetailEvent =
+    selectedDetailEvent && onSelectActiveEvent && isActiveSelectableEvent(selectedDetailEvent, activeEventIds)
+      ? () => {
+          setSelectedDetailEventId(undefined);
+          onSelectActiveEvent(selectedDetailEvent);
+        }
+      : undefined;
+
   const handleStopSelectedDetailEvent =
-    selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventId)
+    selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventIds)
       ? () => handleOpenStopConfirmation(selectedDetailEvent)
       : undefined;
 
@@ -642,10 +726,10 @@ function CurtailmentHistory({
               <CurtailmentHistoryRow
                 key={event.id}
                 event={event}
-                activeEventId={activeEventId}
+                activeEventIds={activeEventIds}
                 onOpenSummary={handleOpenSummary}
                 onRequestStop={onStopActiveEvent ? handleOpenStopConfirmation : undefined}
-                stopDisabled={event.id === pendingStoppableEventId}
+                stopDisabled={pendingStopEventIds.has(event.id)}
               />
             ))}
             {visibleEvents.length === 0 ? (
@@ -702,8 +786,9 @@ function CurtailmentHistory({
           open
           onDismiss={handleDismissSummary}
           onManage={handleManageSelectedDetailEvent}
+          onSelectActive={handleSelectActiveDetailEvent}
           onStop={handleStopSelectedDetailEvent}
-          stopDisabled={selectedDetailEvent.id === pendingStoppableEventId}
+          stopDisabled={pendingStopEventIds.has(selectedDetailEvent.id)}
         />
       ) : null}
 

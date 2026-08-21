@@ -23,6 +23,8 @@ type DropdownFilterPopoverProps = {
   popoverRef: RefObject<HTMLDivElement>;
   optionsMaxHeight?: number;
   position?: Position;
+  freezePosition?: boolean;
+  closePopover?: () => void;
 };
 
 const DropdownFilterPopover = ({
@@ -39,6 +41,8 @@ const DropdownFilterPopover = ({
   popoverRef,
   optionsMaxHeight,
   position = "bottom right",
+  freezePosition = false,
+  closePopover,
 }: DropdownFilterPopoverProps) => {
   return (
     <Popover
@@ -47,6 +51,8 @@ const DropdownFilterPopover = ({
       offset={8}
       size={popoverSizes.small}
       className="!space-y-0 !rounded-2xl px-2 pt-2 pb-1"
+      freezePosition={freezePosition}
+      closePopover={closePopover}
       buttonGroupVariant={groupVariants.fill}
       buttons={
         withButtons

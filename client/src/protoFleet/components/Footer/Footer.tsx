@@ -6,7 +6,7 @@ import BuildVersionInfo from "@/shared/components/BuildVersionInfo";
  */
 const Footer = () => {
   return (
-    <footer className="mt-auto border-t border-gray-200 px-4 py-3 text-center">
+    <footer className="mt-auto border-t border-border-5 px-4 py-3 text-center">
       <BuildVersionInfo compact />
     </footer>
   );

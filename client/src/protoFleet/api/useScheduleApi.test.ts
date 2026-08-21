@@ -234,6 +234,36 @@ describe("useScheduleApi", () => {
     expect(result.current.schedules[1].nextRunSummary).toBe(formatExpectedNextRunSummary("2026-04-01T02:00:00.000Z"));
   });
 
+  it("summarizes site and building targets instead of falling back to all miners", async () => {
+    mockListSchedules.mockResolvedValue(
+      create(ListSchedulesResponseSchema, {
+        schedules: [
+          createScheduleMessage({
+            id: 1n,
+            priority: 1,
+            name: "Site cap",
+            action: ProtoScheduleAction.SET_POWER_TARGET,
+            status: ProtoScheduleStatus.ACTIVE,
+            createdBy: 1n,
+            startDate: "2026-03-30",
+            startTime: "07:00",
+            targets: [
+              { targetType: ScheduleTargetType.SITE, targetId: "7" },
+              { targetType: ScheduleTargetType.BUILDING, targetId: "9" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const { result } = renderHook(() => useScheduleApi());
+    await act(async () => {
+      await result.current.listSchedules();
+    });
+
+    expect(result.current.schedules[0].targetSummary).toBe("Applies to 1 site and 1 building");
+  });
+
   it("prefers the server-provided creator username when schedules include it", async () => {
     mockListSchedules.mockResolvedValue(
       create(ListSchedulesResponseSchema, {

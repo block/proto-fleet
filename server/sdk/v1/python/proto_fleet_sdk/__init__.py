@@ -30,7 +30,6 @@ __author__ = "Proto Fleet Team"
 
 # Re-export commonly used types and functions for convenience
 from proto_fleet_sdk.capabilities import (
-    CAP_ASYMMETRIC_AUTH,
     CAP_BASIC_AUTH,
     CAP_BATCH_STATUS,
     CAP_COOLING_MODE_AIR,
@@ -185,7 +184,6 @@ __all__ = [
     "CAP_GET_DEFAULT_CREDENTIALS",
     "CAP_GET_CAPABILITIES_FOR_MODEL",
     "CAP_BASIC_AUTH",
-    "CAP_ASYMMETRIC_AUTH",
     "CAP_IMMERSION_COOLING",
     "CAP_PERFORMANCE_PROFILES",
     "CAP_CUSTOM_FAN_CURVES",

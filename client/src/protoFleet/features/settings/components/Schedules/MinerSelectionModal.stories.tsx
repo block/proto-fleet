@@ -30,8 +30,8 @@ export const Default = () => {
           action("onDismiss")();
           setOpen(false);
         }}
-        onSave={(minerIds) => {
-          action("onSave")(minerIds);
+        onSave={(selection) => {
+          action("onSave")(selection);
           setOpen(false);
         }}
       />
@@ -58,8 +58,8 @@ export const WithPreselected = () => {
           action("onDismiss")();
           setOpen(false);
         }}
-        onSave={(minerIds) => {
-          action("onSave")(minerIds);
+        onSave={(selection) => {
+          action("onSave")(selection);
           setOpen(false);
         }}
       />

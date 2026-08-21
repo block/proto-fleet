@@ -245,7 +245,7 @@ func TestGetBuildingSite(t *testing.T) {
 	require.NotNil(t, siteID)
 	assert.Equal(t, site.ID, *siteID)
 
-	_, err = buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
+	_, _, err = buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
 	require.NoError(t, err)
 	_, err = collectionStore.GetBuildingSite(ctx, orgID, building.ID)
 	assert.Error(t, err, "GetBuildingSite must NotFound for soft-deleted buildings")
@@ -334,4 +334,83 @@ func TestUnassignDeviceSitesByRack_ClearsRackMembersOnly(t *testing.T) {
 	var remaining int
 	require.NoError(t, row.Scan(&remaining))
 	assert.Equal(t, 1, remaining, "the non-member device retains its site_id")
+}
+
+// TestLockRacksForReparent_ReturnsSourceAndTargetIDs pins the wrapper's
+// row-id surface across the inner join to device_set_rack +
+// FOR UPDATE OF ds, dsr. The added join aligns lock-acquisition order
+// with LockRackPlacementForWrite (which locks {device_set_rack,
+// device_set}); the regen must NOT change the wrapper's row shape —
+// callers still receive `[]int64` of distinct rack ids covering every
+// source rack owning a requested device + the target rack id. Every
+// live rack has a device_set_rack row by lifecycle invariant, so the
+// inner join doesn't drop any real-world rows.
+func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
+	require.NoError(t, err)
+
+	// Two source racks each owning one of the requested devices, plus
+	// a separate target rack. All three carry a device_set_rack row —
+	// the inner join requires it, and the rack lifecycle creates the
+	// extension alongside the device_set entry in production.
+	rackA, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "RackA", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rackA.Id, Rows: 4, Columns: 8, Zone: "Z1", SiteID: &site.ID,
+	}))
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, rackA.Id, deviceIDs[:1])
+	require.NoError(t, err)
+
+	rackB, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "RackB", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: "Z3", SiteID: &site.ID,
+	}))
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, rackB.Id, deviceIDs[1:2])
+	require.NoError(t, err)
+
+	target, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Target", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: target.Id, Rows: 4, Columns: 8, Zone: "Z2", SiteID: &site.ID,
+	}))
+
+	// FOR UPDATE OF is only valid inside a tx.
+	err = transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		ids, lockErr := collectionStore.LockRacksForReparent(txCtx, orgID, deviceIDs[:2], target.Id)
+		if lockErr != nil {
+			return lockErr
+		}
+		// Must include both source racks plus the target rack.
+		assert.ElementsMatch(t, []int64{rackA.Id, rackB.Id, target.Id}, ids,
+			"wrapper must surface source + target ids in the lock set")
+		return nil
+	})
+	require.NoError(t, err)
+
+	// Clear-rack path: target_rack_id=0 omits the UNION target arm and
+	// returns only source ids — wrapper still returns a non-nil slice.
+	err = transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		ids, lockErr := collectionStore.LockRacksForReparent(txCtx, orgID, deviceIDs[:1], 0)
+		if lockErr != nil {
+			return lockErr
+		}
+		assert.Equal(t, []int64{rackA.Id}, ids)
+		return nil
+	})
+	require.NoError(t, err)
 }

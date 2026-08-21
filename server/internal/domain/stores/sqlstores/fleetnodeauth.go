@@ -21,7 +21,7 @@ func NewSQLFleetNodeAuthStore(conn *sql.DB) *SQLFleetNodeAuthStore {
 	return &SQLFleetNodeAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLFleetNodeAuthStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodeAuthStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -71,10 +71,11 @@ func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHa
 		return nil, err
 	}
 	return &auth.ResolvedFleetNode{
-		FleetNodeID:    row.FleetNodeID,
-		OrgID:          row.OrgID,
-		Name:           row.Name,
-		IdentityPubkey: row.IdentityPubkey,
+		FleetNodeID:      row.FleetNodeID,
+		OrgID:            row.OrgID,
+		Name:             row.Name,
+		IdentityPubkey:   row.IdentityPubkey,
+		SessionExpiresAt: row.ExpiresAt,
 	}, nil
 }
 

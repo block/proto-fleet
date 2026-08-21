@@ -122,7 +122,13 @@ func (s *updateStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.
 func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Update handler tests")
 }
-func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *updateStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by Update handler tests")
+}
+func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Update handler tests")
 }
 func (s *updateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -134,8 +140,29 @@ func (s *updateStubStore) ListCandidates(context.Context, interfaces.ListCandida
 func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Update handler tests")
 }
-func (s *updateStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
-	panic("GetActiveEvent not exercised by Update handler tests")
+func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
+}
+func (s *updateStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
+}
+func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")
@@ -146,10 +173,16 @@ func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) 
 func (s *updateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Update handler tests")
 }
+func (s *updateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvent not exercised by Update handler tests")
+}
+func (s *updateStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by Update handler tests")
+}
 func (s *updateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Update handler tests")
 }
-func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by Update handler tests")
 }
 func (s *updateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
@@ -167,6 +200,9 @@ func (s *updateStubStore) ListEvents(context.Context, interfaces.ListEventsParam
 func (s *updateStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by Update handler tests")
 }
+func (s *updateStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by Update handler tests")
+}
 func (s *updateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by Update handler tests")
 }
@@ -178,6 +214,9 @@ func (s *updateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurt
 }
 func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Update handler tests")
+}
+func (s *updateStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
+	panic("ForceReleaseEvent not exercised by Update handler tests")
 }
 func (s *updateStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
 	panic("GetEventByIdempotencyKey not exercised by Update handler tests")

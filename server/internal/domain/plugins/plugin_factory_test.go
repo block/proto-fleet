@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
@@ -53,4 +54,16 @@ func TestClassifyNewDeviceError(t *testing.T) {
 			assert.True(t, tt.want(got), "got: %v", got)
 		})
 	}
+}
+
+func TestNewPluginMinerWithCredentials_BasicAuthRequiresStoredCredentials(t *testing.T) {
+	_, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
+		DeviceIdentifier: "device-1",
+		DevicePort:       "443",
+		DeviceScheme:     "https",
+		Caps:             sdk.Capabilities{sdk.CapabilityBasicAuth: true},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAuthenticationError(err), "got: %v", err)
 }

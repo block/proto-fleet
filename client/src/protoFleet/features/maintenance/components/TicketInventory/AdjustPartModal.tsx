@@ -25,7 +25,7 @@ const AdjustPartModal = ({ part, onDismiss, onSuccess }: AdjustPartModalProps) =
   const [reorderPoint, setReorderPoint] = useState(String(part.reorderPoint));
   const [binLocation, setBinLocation] = useState(part.binLocation);
   const [reason, setReason] = useState("");
-  const [notes, setNotes] = useState("");
+  const [, setNotes] = useState("");
 
   const handleSave = useCallback(() => {
     // TODO: wire to API

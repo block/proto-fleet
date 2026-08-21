@@ -1,0 +1,90 @@
+name: proto-fleet-ha
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+    compress: "true"
+
+services:
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.6.14@sha256:a491baeaa0cb0c9cd89c0062ac44ece53886e3e5bddad18d2daf36678ce665b6
+    network_mode: host
+    command:
+      - /usr/local/bin/etcd
+      - --name=${HA_NODE_NAME}
+      - --data-dir=/var/lib/etcd
+      - --listen-client-urls=https://${HA_NODE_IP}:2379
+      - --advertise-client-urls=https://${HA_NODE_IP}:2379
+      - --listen-peer-urls=https://${HA_NODE_IP}:2380
+      - --initial-advertise-peer-urls=https://${HA_NODE_IP}:2380
+      - --initial-cluster=ha-a=https://${HA_DB_A_IP}:2380,ha-b=https://${HA_DB_B_IP}:2380,ha-c=https://${HA_DCS_C_IP}:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=proto-fleet-ha-v1
+      - --auth-token=jwt,pub-key=/run/proto-fleet-ha/etcd-jwt.pub,priv-key=/run/proto-fleet-ha/etcd-jwt.key,sign-method=RS256,ttl=10m
+      - --cert-file=/run/proto-fleet-ha/etcd-server.crt
+      - --key-file=/run/proto-fleet-ha/etcd-server.key
+      - --peer-client-cert-auth=true
+      - --peer-trusted-ca-file=/run/proto-fleet-ha/service-ca.crt
+      - --peer-cert-file=/run/proto-fleet-ha/etcd-peer.crt
+      - --peer-key-file=/run/proto-fleet-ha/etcd-peer.key
+    volumes:
+      - ${HA_DATA_DIR}/etcd:/var/lib/etcd
+      - ${HA_SECRETS_DIR}/service-ca.crt:/run/proto-fleet-ha/service-ca.crt:ro
+      - ${HA_SECRETS_DIR}/etcd-server.crt:/run/proto-fleet-ha/etcd-server.crt:ro
+      - ${HA_SECRETS_DIR}/etcd-server.key:/run/proto-fleet-ha/etcd-server.key:ro
+      - ${HA_SECRETS_DIR}/etcd-peer.crt:/run/proto-fleet-ha/etcd-peer.crt:ro
+      - ${HA_SECRETS_DIR}/etcd-peer.key:/run/proto-fleet-ha/etcd-peer.key:ro
+      - ${HA_SECRETS_DIR}/etcd-jwt.pub:/run/proto-fleet-ha/etcd-jwt.pub:ro
+      - ${HA_SECRETS_DIR}/etcd-jwt.key:/run/proto-fleet-ha/etcd-jwt.key:ro
+    stop_grace_period: 10s
+    # Systemd starts etcd only after the firewall and authentication gate.
+    # Recover process failures, but do not bypass that gate after Docker restarts.
+    restart: on-failure
+    logging: *logging
+
+  patroni:
+    profiles:
+      - database
+    # Release packaging replaces this local-build tag with the bundle version.
+    image: proto-fleet-timescaledb-ha:latest
+    network_mode: host
+    # Bootstrap needs root to copy host-owned 0600 secrets; the entrypoint drops to postgres.
+    user: root
+    environment:
+      HA_NODE_NAME: ${HA_NODE_NAME}
+      HA_NODE_IP: ${HA_NODE_IP}
+      HA_DB_A_IP: ${HA_DB_A_IP}
+      HA_DB_B_IP: ${HA_DB_B_IP}
+      HA_DCS_C_IP: ${HA_DCS_C_IP}
+      HA_SECRETS_SOURCE: /run/proto-fleet-ha-source
+    volumes:
+      - ${HA_DATA_DIR}/postgres:/home/postgres/pgdata/data
+      - ${HA_SECRETS_DIR}/service-ca.crt:/run/proto-fleet-ha-source/service-ca.crt:ro
+      - ${HA_SECRETS_DIR}/patroni-rest.crt:/run/proto-fleet-ha-source/patroni-rest.crt:ro
+      - ${HA_SECRETS_DIR}/patroni-rest.key:/run/proto-fleet-ha-source/patroni-rest.key:ro
+      - ${HA_SECRETS_DIR}/postgres.crt:/run/proto-fleet-ha-source/postgres.crt:ro
+      - ${HA_SECRETS_DIR}/postgres.key:/run/proto-fleet-ha-source/postgres.key:ro
+      - ${HA_SECRETS_DIR}/patroni-etcd-password:/run/proto-fleet-ha-source/patroni-etcd-password:ro
+      - ${HA_SECRETS_DIR}/patroni-rest-password:/run/proto-fleet-ha-source/patroni-rest-password:ro
+      - ${HA_SECRETS_DIR}/postgres-superuser-password:/run/proto-fleet-ha-source/postgres-superuser-password:ro
+      - ${HA_SECRETS_DIR}/postgres-replication-password:/run/proto-fleet-ha-source/postgres-replication-password:ro
+      - ${HA_SECRETS_DIR}/fleet-db-password:/run/proto-fleet-ha-source/fleet-db-password:ro
+      - ${HA_SECRETS_DIR}/grafana-db-password:/run/proto-fleet-ha-source/grafana-db-password:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --fail --silent --show-error
+          --cacert /run/proto-fleet-ha/service-ca.crt
+          https://${HA_NODE_IP}:8008/patroni >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 60s
+    stop_grace_period: 30s
+    # Systemd reruns the quorum/auth gate after Docker restarts. This policy
+    # still recovers a failed Patroni process without bypassing that gate.
+    restart: on-failure
+    logging: *logging

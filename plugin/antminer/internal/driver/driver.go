@@ -358,7 +358,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	d.devices[deviceID] = dev
 	d.mutex.Unlock()
 
-	slog.Info("Antminer device instance created", "deviceID", deviceID, "host", deviceInfo.Host, "username", credentials.Username)
 	return sdk.NewDeviceResult{Device: dev}, nil
 }
 

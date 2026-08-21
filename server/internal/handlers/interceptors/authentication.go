@@ -289,6 +289,9 @@ func (i *AuthInterceptor) parseSessionCookie(requestHeader http.Header) (string,
 // and Internal for transient store failures, so callers can distinguish between invalid
 // credentials and backend outages.
 func classifyLookupError(err error, logMsg string, userID int64) error {
+	if fleeterror.IsCanceledError(err) {
+		return fleeterror.NewCanceledError()
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		slog.Warn(logMsg, "user_id", userID, "error", err)
 		return fleeterror.NewUnauthenticatedError("authentication failed")

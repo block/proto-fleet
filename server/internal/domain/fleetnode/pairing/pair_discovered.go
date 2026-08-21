@@ -2,22 +2,27 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-// maxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
+// MaxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
 // max_items so a pair_all on a huge fleet can't balloon one ControlCommand; the
 // operator re-issues for the remainder (paired devices drop from the listing).
-const maxPairBatch = 1024
+const MaxPairBatch = 1024
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
 // from the not-yet-paired devices the node discovered (the listing already
@@ -30,7 +35,7 @@ func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int
 		limit *int64
 	)
 	if pairAllUnpaired {
-		l := int64(maxPairBatch)
+		l := int64(MaxPairBatch)
 		limit = &l
 	} else {
 		// Non-nil (even empty) so the SQL filter means "only these", not "all".
@@ -45,31 +50,116 @@ func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int
 	// the node's secretBundleFor); explicit selection still targets them.
 	usableCredentials := credentials != nil && credentials.Password != nil
 	excludeAuthNeeded := pairAllUnpaired && !usableCredentials
-	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, ids, nil, limit, excludeAuthNeeded)
+	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		Identifiers:       ids,
+		Limit:             limit,
+		ExcludeAuthNeeded: excludeAuthNeeded,
+	})
 	if err != nil {
 		return nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
 	}
-	targets := make([]*pairingpb.FleetNodePairTarget, 0, len(candidates))
-	for _, c := range candidates {
+	return pairTargetsFromDiscoveredDevices(candidates), nil
+}
+
+// ResolvePairTargetsByFilterPage returns pairable node-discovered targets that
+// match the DeviceFilter shape PairingService.Pair accepts for allDevices
+// requests. nextCursor is non-nil when another page may exist. Fleet-node-
+// discovered rows do not have every fleet-list attribute, so this intentionally
+// supports only filters represented in the discovered-device table/listing.
+// Unsupported/unsatisfiable filters return no targets so the caller can safely
+// leave those requests to the server-local pairing path.
+func (s *Service) ResolvePairTargetsByFilterPage(ctx context.Context, fleetNodeID, orgID int64, filter *minercommandv1.DeviceFilter, credentials *pairingpb.Credentials, cursorID *int64) ([]*pairingpb.FleetNodePairTarget, *int64, error) {
+	if filter == nil || unsupportedFleetNodePairFilter(filter) {
+		return nil, nil, nil
+	}
+	statuses, supported := pairingStatusFilterValues(filter.GetPairingStatus())
+	if !supported {
+		return nil, nil, nil
+	}
+
+	usableCredentials := credentials != nil && credentials.Password != nil
+	excludeAuthNeeded := !usableCredentials
+	limit := int64(MaxPairBatch)
+	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		PairingStatuses:   statuses,
+		Models:            nonEmptyStrings(filter.GetModels()),
+		Manufacturers:     nonEmptyStrings(filter.GetManufacturers()),
+		CursorID:          cursorID,
+		Limit:             &limit,
+		ExcludeAuthNeeded: excludeAuthNeeded,
+	})
+	if err != nil {
+		return nil, nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
+	}
+	var nextCursor *int64
+	if len(candidates) == MaxPairBatch {
+		last := candidates[len(candidates)-1].ID
+		nextCursor = &last
+	}
+	return pairTargetsFromDiscoveredDevices(candidates), nextCursor, nil
+}
+
+func nonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func unsupportedFleetNodePairFilter(filter *minercommandv1.DeviceFilter) bool {
+	return len(filter.GetDeviceStatus()) > 0
+}
+
+func pairTargetsFromDiscoveredDevices(devices []FleetNodeDiscoveredDevice) []*pairingpb.FleetNodePairTarget {
+	targets := make([]*pairingpb.FleetNodePairTarget, 0, len(devices))
+	for _, d := range devices {
 		targets = append(targets, &pairingpb.FleetNodePairTarget{
-			DeviceIdentifier: c.DeviceIdentifier,
-			IpAddress:        c.IPAddress,
-			Port:             c.Port,
-			UrlScheme:        c.URLScheme,
-			DriverName:       c.DriverName,
-			Manufacturer:     c.Manufacturer,
-			FirmwareVersion:  c.FirmwareVersion,
+			DeviceIdentifier: d.DeviceIdentifier,
+			IpAddress:        d.IPAddress,
+			Port:             d.Port,
+			UrlScheme:        d.URLScheme,
+			DriverName:       d.DriverName,
+			Manufacturer:     d.Manufacturer,
+			FirmwareVersion:  d.FirmwareVersion,
 		})
 	}
-	return targets, nil
+	return targets
+}
+
+func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]string, bool) {
+	if len(statuses) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		switch status { //nolint:exhaustive // Unsupported pairing statuses intentionally fail closed.
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
+			out = append(out, StatusAuthenticationNeeded)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_UNPAIRED:
+			out = append(out, "", StatusUnpaired)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_FAILED:
+			out = append(out, StatusFailed)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_UNSPECIFIED,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_PENDING,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD:
+			continue
+		default:
+			return nil, false
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }
 
 // PersistFleetNodePairResult records one device's reported pairing outcome in a
 // single transaction and returns the resulting status. PAIRED binds the device to
-// the node and stores basic-auth credentials; AUTH_NEEDED/AUTH_FAILED record
-// AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
+// the node and stores node-encrypted credentials when reported; AUTH_NEEDED/AUTH_FAILED
+// record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
 func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64) (string, error) {
-	if s.deviceStore == nil || s.discoveredDeviceStore == nil || s.encryptService == nil {
+	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
 	identifier := result.GetDeviceIdentifier()
@@ -80,13 +170,21 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: identifier, OrgID: orgID}
 	// Default to the outcome's status; the downgrade guard below may override it.
-	persisted := StatusAuthenticationNeeded
+	defaultPersisted := StatusAuthenticationNeeded
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
-		persisted = StatusPaired
+		defaultPersisted = StatusPaired
+		if result.DefaultPasswordActive != nil && result.GetDefaultPasswordActive() {
+			defaultPersisted = StatusDefaultPassword
+		}
 	}
+	persisted := defaultPersisted
 	conflict := false
 	var boundDeviceID int64
 	txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		persisted = defaultPersisted
+		conflict = false
+		boundDeviceID = 0
+
 		dd, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -104,6 +202,21 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return fleeterror.LogInternal(component, "lookup device", clientErrLookupDeviceForPairing, err)
 		}
 
+		// default_password_active is tri-state: absent means the node/plugin could
+		// not determine whether factory credentials are still active. Preserve an
+		// existing DEFAULT_PASSWORD remediation state unless the report explicitly
+		// says false.
+		if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && result.DefaultPasswordActive == nil && existing != nil {
+			status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+			if err != nil {
+				if !fleeterror.IsNotFoundError(err) {
+					return fleeterror.LogInternal(component, "load existing pairing status", clientErrPair, err)
+				}
+			} else if status == StatusDefaultPassword {
+				persisted = StatusDefaultPassword
+			}
+		}
+
 		// A non-PAIRED report must not downgrade an already-PAIRED device: between
 		// target resolution and now, the cloud or another node may have paired it.
 		// Check before any write and return its real status untouched. A freshly
@@ -118,7 +231,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 				return fleeterror.LogInternal(component, "check active pairing", clientErrPair, err)
 			}
 			if paired {
-				persisted = StatusPaired
+				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+				if err != nil {
+					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+				}
+				persisted = status
 				return nil
 			}
 		}
@@ -147,14 +264,18 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 		if outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 			// Closes the TOCTOU left by the guard read above: if a concurrent pair
-			// turned this device PAIRED meanwhile, the write no-ops (applied == false)
-			// and we report the real PAIRED status instead of downgrading it.
+			// turned this device paired-like meanwhile, the write no-ops (applied == false)
+			// and we report the real paired-like status instead of downgrading it.
 			applied, err := s.deviceStore.SetDevicePairingAuthNeededIfNotPaired(ctx, &dd.Device, orgID)
 			if err != nil {
 				return fleeterror.LogInternal(component, "set auth-needed", clientErrPair, err)
 			}
 			if !applied {
-				persisted = StatusPaired
+				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+				if err != nil {
+					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+				}
+				persisted = status
 			}
 			return nil
 		}
@@ -169,13 +290,13 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return err
 		}
 		boundDeviceID = deviceID
-		if creds := nodeUsedCredentials(result); creds != nil {
-			if err := s.saveMinerCredentials(ctx, &dd.Device, orgID, creds); err != nil {
+		if encrypted := result.GetEncryptedCredentials(); encrypted != nil {
+			if err := s.saveFleetNodeEncryptedCredentials(ctx, &dd.Device, orgID, encrypted); err != nil {
 				return err
 			}
 		}
-		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, StatusPaired); err != nil {
-			return fleeterror.LogInternal(component, "set paired", clientErrPair, err)
+		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, persisted); err != nil {
+			return fleeterror.LogInternal(component, "set pairing status", clientErrPair, err)
 		}
 		// Reachable during pairing, so seed an ACTIVE status.
 		if err := s.deviceStore.UpsertDeviceStatus(ctx, minermodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""); err != nil {
@@ -200,33 +321,27 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	if boundDeviceID != 0 && s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, boundDeviceID)
 	}
+	if boundDeviceID != 0 {
+		s.scheduleTelemetryIdentifierBestEffort(ctx, telemetrymodels.DeviceIdentifier(identifier), boundDeviceID, orgID)
+		s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy)
+	}
 	return persisted, nil
 }
 
-// nodeUsedCredentials returns the credentials to persist for a successful pairing.
-// The cloud can't verify a driver's auth mechanism in server mode, so the node's
-// used_credentials presence is the password-auth signal: present (even blank) ->
-// store as reported; nil -> asymmetric auth, store nothing.
-func nodeUsedCredentials(result *gatewaypb.FleetNodePairResult) *pairingpb.Credentials {
-	uc := result.GetUsedCredentials()
-	if uc == nil {
-		return nil
+func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+	encodedUsername, encodedPassword, err := credentialblob.Encode(encrypted)
+	if errors.Is(err, credentialblob.ErrMissingCredentials) {
+		return fleeterror.NewFailedPreconditionError("encrypted credentials must include username and password")
 	}
-	pw := uc.GetPassword()
-	return &pairingpb.Credentials{Username: uc.GetUsername(), Password: &pw}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("encode fleet node credentials: %v", err)
+	}
+	return s.upsertMinerCredentialStrings(ctx, device, orgID, encodedUsername, encodedPassword, "save fleet node credentials")
 }
 
-func (s *Service) saveMinerCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, creds *pairingpb.Credentials) error {
-	encUser, err := s.encryptService.Encrypt([]byte(creds.GetUsername()))
-	if err != nil {
-		return fleeterror.NewInternalErrorf("encrypt username: %v", err)
-	}
-	encPass, err := s.encryptService.Encrypt([]byte(creds.GetPassword()))
-	if err != nil {
-		return fleeterror.NewInternalErrorf("encrypt password: %v", err)
-	}
-	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, encUser, secrets.NewText(encPass)); err != nil {
-		return fleeterror.LogInternal(component, "save credentials", clientErrPair, err)
+func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pairingpb.Device, orgID int64, username, password, operation string) error {
+	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, username, secrets.NewText(password)); err != nil {
+		return fleeterror.LogInternal(component, operation, clientErrPair, err)
 	}
 	return nil
 }

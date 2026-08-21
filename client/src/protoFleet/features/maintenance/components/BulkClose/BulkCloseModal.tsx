@@ -21,7 +21,7 @@ const RESOLUTIONS = [
 
 const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps) => {
   const [resolution, setResolution] = useState("");
-  const [notes, setNotes] = useState("");
+  const [, setNotes] = useState("");
 
   const handleSubmit = useCallback(() => {
     if (!resolution) return;
@@ -74,12 +74,7 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
             </label>
           ))}
         </div>
-        <Textarea
-          id="bulk-close-notes"
-          label="Notes (optional)"
-          onChange={(value) => setNotes(value)}
-          rows={2}
-        />
+        <Textarea id="bulk-close-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
       </div>
     </Dialog>
   );

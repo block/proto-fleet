@@ -200,11 +200,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
-	// Effective permission keys for the caller, projected from every
-	// assignment the user holds in this org. The client uses these for
-	// show/hide gating; the server still enforces scope per-request via
-	// RequirePermission, so this projection is intentionally coarse
-	// (union across scopes).
+	// Default/org-scoped permission keys for the caller. The client uses
+	// this projection for UI gates that map to org-scoped RPCs; narrower
+	// resource-scoped grants should be exposed through a dedicated surface.
 	eff, err := s.permResolver.LoadEffective(ctx, user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error loading effective permissions: %v", err)
@@ -232,7 +230,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
-			Permissions:            eff.FlatKeys(),
+			Permissions:            eff.Keys(),
 		},
 	}, cookie, nil
 }
@@ -295,6 +293,9 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	if len(req.Password) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("password is required but not provided")
 	}
+	if err := ValidatePassword(req.Password); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(err.Error())
+	}
 
 	// generate salted password hash
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -305,16 +306,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	externalUserID := id.GenerateID()
 	externalOrgID := id.GenerateID()
 	orgName := generateDefaultOrgName(externalOrgID)
-
-	minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
-	}
-
-	encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
-	}
 
 	created, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		hasUser, err := s.userStore.HasUser(ctx)
@@ -333,7 +324,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			string(hashedPassword),
 			orgName,
 			externalOrgID,
-			encryptedMinerAuthPrivateKey,
 			SuperAdminRoleName,
 			"Super admin role",
 		)
@@ -481,6 +471,9 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 			connect.CodeInvalidArgument,
 			int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
 		)
+	}
+	if err := ValidatePassword(r.NewPassword); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
@@ -711,7 +704,7 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	orgID := orgs[0].ID
 
 	// Generate temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +850,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Generate new temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -870,7 +863,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
 		if err := s.sessionSvc.RevokeAllSessions(ctx, user.ID); err != nil {

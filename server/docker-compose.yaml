@@ -36,10 +36,10 @@ services:
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
-      AUTH_MINER_EXPIRATION_PERIOD: "168h" # Override to 168h for development
       DB_USERNAME: "fleet"
       DB_PASSWORD: "fleet"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
+      INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"
@@ -83,6 +83,11 @@ services:
       - "timescaledb.max_background_workers=4"
       - "-c"
       - "work_mem=32MB"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,pg_stat_statements"
+      # Utility statements can embed secrets; keep them out of pg_stat_statements
+      - "-c"
+      - "pg_stat_statements.track_utility=off"
     volumes:
       - timescaledb-data:/home/postgres/pgdata/data
       # Use tmpfs for temporary files to speed up operations
@@ -105,6 +110,7 @@ services:
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
       HTTP_PORT: "8080"
+      FAKE_RIG_PASSWORD: "proto"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
@@ -131,7 +137,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S19 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root19"
       PASSWORD: "root19"
     healthcheck:
@@ -161,7 +167,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S17"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_BOARD_TEMP: "96.0"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
@@ -182,7 +188,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S21"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_HW_PERCENT: "6.5"
       ERROR_HW_COUNT: "1500"
     healthcheck:
@@ -204,7 +210,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S21 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root21"
       PASSWORD: "root21"
       ERROR_BOARD_NOT_ALIVE: "true"
@@ -227,7 +233,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S17 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root17"
       PASSWORD: "root17"
       ERROR_POOL_NOT_ALIVE: "true"
@@ -254,7 +260,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S18"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_REJECTED_PERCENT: "12.0"
       ERROR_STALE_COUNT: "150"
     healthcheck:
@@ -277,6 +283,7 @@ services:
     environment:
       HTTP_PORT: "8080"
       SERIAL_NUMBER: "PROTO-SIM-001"
+      FAKE_RIG_PASSWORD: "proto"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
@@ -302,7 +309,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S19"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s

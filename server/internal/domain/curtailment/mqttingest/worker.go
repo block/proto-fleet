@@ -37,6 +37,12 @@ const observationChannelBuffer = 256
 const initialBrokerRetryMax = 30 * time.Second
 const edgeExecutorRetryMax = 5 * time.Minute
 
+// RepeatedOffMinInterval bounds fresh OFF heartbeat work while a source is
+// already OFF. Reassertions outside this window still reach automation so stale
+// or restoring events can be repaired without allowing per-second publisher
+// heartbeats to drive per-second executor/database work.
+const RepeatedOffMinInterval = 30 * time.Second
+
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
 
@@ -225,6 +231,7 @@ func jitterRetryDelay(base time.Duration, rng *rand.Rand) time.Duration {
 }
 
 func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation, subscriptions chan<- struct{}) {
+	w.attachRuntimeStatusReporter(ctx, client, host)
 	retryEvery := w.startupRetryEvery()
 	rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // jitter only; not security-sensitive
 	for {
@@ -268,6 +275,29 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 		}
 		return
 	}
+}
+
+func (w *sourceWorker) attachRuntimeStatusReporter(ctx context.Context, client MQTTClient, host string) {
+	reportingClient, ok := client.(runtimeStatusReportingMQTTClient)
+	if !ok {
+		return
+	}
+	reportingClient.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		if ctx.Err() != nil {
+			return
+		}
+		errorMessage := ""
+		if err != nil {
+			errorMessage = err.Error()
+		}
+		w.reportRuntimeStatus(RuntimeStatusUpdate{
+			SourceID:   w.source.ID,
+			Broker:     host,
+			Connected:  connected,
+			Subscribed: subscribed,
+			Error:      errorMessage,
+		})
+	})
 }
 
 func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
@@ -358,7 +388,13 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
+	suppressRepeatedOff := shouldSuppressRepeatedOffReassert(prior, canonical, alreadyProcessed)
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
+	if suppressRepeatedOff {
+		direction = EdgeNone
+	} else if shouldAssertRepeatedOff(prior, canonical, alreadyProcessed) {
+		direction = EdgeReassertOff
+	}
 
 	// Each target value may be processed once per seconds-precision publisher
 	// timestamp. This keeps a real same-second flip, but suppresses a later QoS
@@ -373,7 +409,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// was live.
 	state = w.advanceLiveness(state, canonical, liveness)
 
-	if settled && direction == EdgeNone {
+	if settled && direction == EdgeNone && !suppressRepeatedOff {
 		recordProcessedTarget(&state, canonical)
 
 		// Failed settlements and debounced flips must not settle the source target.
@@ -567,12 +603,20 @@ func (w *sourceWorker) settlePendingEdge(
 ) SourceState {
 	state := prior
 	state.PendingEdge = nil
-	state.LastEdgeAt = pending.ReceivedAt
+	if !isRepeatedOffAssertion(prior, pending) {
+		state.LastEdgeAt = pending.ReceivedAt
+	}
 	state.LastReceivedAt = pending.ReceivedAt
 	state.LastReceivedBroker = pending.ReceivedBroker
 	state.LastTarget = target
 	recordProcessedTarget(&state, pending.canonical())
 	return state
+}
+
+func isRepeatedOffAssertion(prior SourceState, pending *PendingEdge) bool {
+	return pending != nil &&
+		pending.Target == TargetOff &&
+		prior.LastTarget == TargetOff
 }
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
@@ -635,13 +679,13 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 		return false
 	}
 	if c.Target != prior.LastTarget {
-		if c.Target == TargetOff {
-			return false
-		}
 		for _, target := range prior.LastProcessedTargets {
 			if target == c.Target {
 				return true
 			}
+		}
+		if c.Target == TargetOff {
+			return false
 		}
 		return prior.LastTarget != TargetUnknown &&
 			prior.LastProcessedTarget == c.Target &&
@@ -653,6 +697,19 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 		}
 	}
 	return c.Target == prior.LastProcessedTarget
+}
+
+func shouldAssertRepeatedOff(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {
+	return c.Target == TargetOff &&
+		prior.LastTarget == TargetOff &&
+		!alreadyProcessed
+}
+
+func shouldSuppressRepeatedOffReassert(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {
+	if !shouldAssertRepeatedOff(prior, c, alreadyProcessed) || prior.LastTargetAt.IsZero() || c.PublishedAt.IsZero() {
+		return false
+	}
+	return c.PublishedAt.Sub(prior.LastTargetAt) < RepeatedOffMinInterval
 }
 
 func recordProcessedTarget(state *SourceState, c CanonicalState) {

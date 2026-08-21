@@ -118,8 +118,13 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 }
 
 func configureStartupAuthState(state *MinerState) {
+	// FAKE_RIG_DEFAULT_PASSWORD leaves the default-password gate active;
+	// FAKE_RIG_PASSWORD seeds an already-changed password with the gate off.
 	if defaultPassword := os.Getenv("FAKE_RIG_DEFAULT_PASSWORD"); defaultPassword != "" {
 		state.SeedDefaultPassword(defaultPassword)
+	}
+	if password := os.Getenv("FAKE_RIG_PASSWORD"); password != "" {
+		state.SetPassword(password)
 	}
 }
 

@@ -32,11 +32,11 @@ import (
 
 const (
 	testClientTokenExpirationPeriod = 5 * time.Minute
-	testMinerTokenExpirationPeriod  = 5 * time.Minute
 	testMaxWorkers                  = 50
 	testWorkerExecutionTimeout      = 30 * time.Second
 	testMasterPollingInterval       = time.Second
 	testBatchStatusUpdateInterval   = time.Second
+	testExecutionShutdownTimeout    = 10 * time.Second
 	testDequeueLimit                = 500
 	testMaxFailureRetries           = 5
 	testSessionDuration             = 5 * time.Minute
@@ -54,7 +54,6 @@ type ServiceProvider struct {
 	PairingService         *pairing.Service
 	OnboardingService      *onboarding.Service
 	CommandService         *command.Service
-	ExecutionServiceCancel context.CancelFunc
 	EncryptService         *encrypt.Service
 	FleetManagementService *fleetmanagement.Service
 	DeviceStore            *sqlstores.SQLDeviceStore
@@ -71,7 +70,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 			SecretKey:        config.AuthTokenSecretKey,
 			ExpirationPeriod: testClientTokenExpirationPeriod,
 		},
-		MinerTokenExpirationPeriod: testMinerTokenExpirationPeriod,
 	}
 	tokenService, err := token.NewService(tokenConfig)
 	assert.NoError(t, err)
@@ -132,7 +130,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	pluginManager := plugins.NewManager(pluginConfig)
 	pluginService := plugins.NewService(pluginManager)
 
-	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginManager)
+	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, pluginManager)
 
 	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, discoverer, pluginService, listenerMock, protoPairer)
 
@@ -151,9 +149,15 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService, deviceStore, nil, filesService)
+	executionService := command.NewExecutionService(commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService, deviceStore, nil, filesService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
+	t.Cleanup(func() {
+		executionServiceCancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), testExecutionShutdownTimeout)
+		defer stopCancel()
+		assert.NoError(t, executionService.Stop(stopCtx))
+	})
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService, activitySvc)
@@ -164,6 +168,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
 	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandService, activitySvc)
+	// Mirror main.go: wire the rich-filter resolver so command dispatch and
+	// capability checks can resolve the all_matching_filter selector case.
+	commandService.SetDeviceIdentifierResolver(fleetManagementService)
 
 	return &ServiceProvider{
 		DB:                     db,
@@ -174,7 +181,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		PairingService:         pairingService,
 		OnboardingService:      onboardingService,
 		CommandService:         commandService,
-		ExecutionServiceCancel: executionServiceCancel,
 		EncryptService:         encryptService,
 		FleetManagementService: fleetManagementService,
 		DeviceStore:            deviceStore,

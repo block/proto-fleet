@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import clsx from "clsx";
 
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
+import type { LocationInfoProps } from "./InfoItem/LocationInfo";
 import type { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
 import type { MinerNameInfoProps } from "./InfoItem/MinerNameInfo";
 import type { VersionInfoProps } from "./InfoItem/VersionInfo";
@@ -12,6 +13,7 @@ import { usePreventScroll } from "@/shared/hooks/usePreventScroll";
 interface FloatingNavigationProps {
   closeMenu?: () => void;
   ipAddressInfo?: IpAddressInfoProps;
+  locationInfo?: LocationInfoProps;
   macInfo?: MacAddressInfoProps;
   minerNameInfo?: MinerNameInfoProps;
   type: NavigationMenuType;
@@ -21,6 +23,7 @@ interface FloatingNavigationProps {
 const FloatingNavigation = ({
   closeMenu,
   ipAddressInfo,
+  locationInfo,
   macInfo,
   minerNameInfo,
   type,
@@ -56,6 +59,7 @@ const FloatingNavigation = ({
       >
         <Navigation
           ipAddressInfo={ipAddressInfo}
+          locationInfo={locationInfo}
           macInfo={macInfo}
           minerNameInfo={minerNameInfo}
           onItemClick={handleCloseMenu}

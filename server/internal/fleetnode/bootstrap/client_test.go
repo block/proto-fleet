@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -117,4 +119,31 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGatewayHTTPClient_ConfiguresHTTP2ConnectionHealthChecks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("h2c", func(t *testing.T) {
+		t.Parallel()
+
+		client, err := newGatewayHTTPClient("http://127.0.0.1:4000/api-proxy")
+		require.NoError(t, err)
+		transport, ok := client.Transport.(*http2.Transport)
+		require.True(t, ok)
+		assert.Equal(t, 30*time.Second, transport.ReadIdleTimeout)
+		assert.Equal(t, 10*time.Second, transport.PingTimeout)
+	})
+
+	t.Run("https", func(t *testing.T) {
+		t.Parallel()
+
+		client, err := newGatewayHTTPClient("https://fleet.example.com/api-proxy")
+		require.NoError(t, err)
+		transport, ok := client.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.HTTP2)
+		assert.Equal(t, 30*time.Second, transport.HTTP2.SendPingTimeout)
+		assert.Equal(t, 10*time.Second, transport.HTTP2.PingTimeout)
+	})
 }

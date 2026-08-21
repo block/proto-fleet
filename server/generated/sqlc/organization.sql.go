@@ -10,19 +10,18 @@ import (
 )
 
 const createOrganization = `-- name: CreateOrganization :one
-INSERT INTO organization (org_id, name, miner_auth_private_key)
-VALUES ($1, $2, $3)
+INSERT INTO organization (org_id, name)
+VALUES ($1, $2)
 RETURNING id
 `
 
 type CreateOrganizationParams struct {
-	OrgID               string
-	Name                string
-	MinerAuthPrivateKey string
+	OrgID string
+	Name  string
 }
 
 func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error) {
-	row := q.queryRow(ctx, q.createOrganizationStmt, createOrganization, arg.OrgID, arg.Name, arg.MinerAuthPrivateKey)
+	row := q.queryRow(ctx, q.createOrganizationStmt, createOrganization, arg.OrgID, arg.Name)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -40,7 +39,7 @@ func (q *Queries) DeleteOrganization(ctx context.Context, id int64) error {
 }
 
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, org_id, name, miner_auth_private_key, created_at, updated_at, deleted_at
+SELECT id, org_id, name, created_at, updated_at, deleted_at
 FROM organization
 WHERE id = $1
   AND deleted_at IS NULL
@@ -53,7 +52,6 @@ func (q *Queries) GetOrganizationByID(ctx context.Context, id int64) (Organizati
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
-		&i.MinerAuthPrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -62,7 +60,7 @@ func (q *Queries) GetOrganizationByID(ctx context.Context, id int64) (Organizati
 }
 
 const getOrganizationByName = `-- name: GetOrganizationByName :one
-SELECT id, org_id, name, miner_auth_private_key, created_at, updated_at, deleted_at
+SELECT id, org_id, name, created_at, updated_at, deleted_at
 FROM organization
 WHERE name = $1
   AND deleted_at IS NULL
@@ -75,7 +73,6 @@ func (q *Queries) GetOrganizationByName(ctx context.Context, name string) (Organ
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
-		&i.MinerAuthPrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -84,7 +81,7 @@ func (q *Queries) GetOrganizationByName(ctx context.Context, name string) (Organ
 }
 
 const getOrganizationByOrgID = `-- name: GetOrganizationByOrgID :one
-SELECT id, org_id, name, miner_auth_private_key, created_at, updated_at, deleted_at
+SELECT id, org_id, name, created_at, updated_at, deleted_at
 FROM organization
 WHERE org_id = $1
   AND deleted_at IS NULL
@@ -97,7 +94,6 @@ func (q *Queries) GetOrganizationByOrgID(ctx context.Context, orgID string) (Org
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
-		&i.MinerAuthPrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -105,21 +101,8 @@ func (q *Queries) GetOrganizationByOrgID(ctx context.Context, orgID string) (Org
 	return i, err
 }
 
-const getOrganizationPrivateKey = `-- name: GetOrganizationPrivateKey :one
-SELECT miner_auth_private_key
-FROM organization
-where id = $1
-`
-
-func (q *Queries) GetOrganizationPrivateKey(ctx context.Context, id int64) (string, error) {
-	row := q.queryRow(ctx, q.getOrganizationPrivateKeyStmt, getOrganizationPrivateKey, id)
-	var miner_auth_private_key string
-	err := row.Scan(&miner_auth_private_key)
-	return miner_auth_private_key, err
-}
-
 const listOrganizations = `-- name: ListOrganizations :many
-SELECT id, org_id, name, miner_auth_private_key, created_at, updated_at, deleted_at
+SELECT id, org_id, name, created_at, updated_at, deleted_at
 FROM organization
 WHERE deleted_at IS NULL
 ORDER BY name
@@ -138,7 +121,6 @@ func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error)
 			&i.ID,
 			&i.OrgID,
 			&i.Name,
-			&i.MinerAuthPrivateKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,

@@ -46,9 +46,6 @@ const (
 	// CurtailmentServiceStopCurtailmentProcedure is the fully-qualified name of the
 	// CurtailmentService's StopCurtailment RPC.
 	CurtailmentServiceStopCurtailmentProcedure = "/curtailment.v1.CurtailmentService/StopCurtailment"
-	// CurtailmentServiceGetActiveCurtailmentProcedure is the fully-qualified name of the
-	// CurtailmentService's GetActiveCurtailment RPC.
-	CurtailmentServiceGetActiveCurtailmentProcedure = "/curtailment.v1.CurtailmentService/GetActiveCurtailment"
 	// CurtailmentServiceListActiveCurtailmentsProcedure is the fully-qualified name of the
 	// CurtailmentService's ListActiveCurtailments RPC.
 	CurtailmentServiceListActiveCurtailmentsProcedure = "/curtailment.v1.CurtailmentService/ListActiveCurtailments"
@@ -61,6 +58,9 @@ const (
 	// CurtailmentServiceAdminTerminateEventProcedure is the fully-qualified name of the
 	// CurtailmentService's AdminTerminateEvent RPC.
 	CurtailmentServiceAdminTerminateEventProcedure = "/curtailment.v1.CurtailmentService/AdminTerminateEvent"
+	// CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure is the fully-qualified name of the
+	// CurtailmentService's ForceReleaseCurtailmentOwnership RPC.
+	CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure = "/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership"
 	// CurtailmentServiceIngestCurtailmentSignalProcedure is the fully-qualified name of the
 	// CurtailmentService's IngestCurtailmentSignal RPC.
 	CurtailmentServiceIngestCurtailmentSignalProcedure = "/curtailment.v1.CurtailmentService/IngestCurtailmentSignal"
@@ -134,8 +134,6 @@ type CurtailmentServiceClient interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -159,6 +157,11 @@ type CurtailmentServiceClient interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// Admin recovery RPC: immediately release curtailment ownership without
+	// issuing restore commands. This is distinct from StopCurtailment
+	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
+	// recovery). Session-only, Admin role; reason required.
+	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
 	// IngestCurtailmentSignal starts a curtailment event from an
 	// external dispatch signal. signal_payload is provider-opaque;
 	// per-provider adapters decode it. Idempotent on
@@ -223,11 +226,6 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceStopCurtailmentProcedure,
 			opts...,
 		),
-		getActiveCurtailment: connect.NewClient[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse](
-			httpClient,
-			baseURL+CurtailmentServiceGetActiveCurtailmentProcedure,
-			opts...,
-		),
 		listActiveCurtailments: connect.NewClient[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse](
 			httpClient,
 			baseURL+CurtailmentServiceListActiveCurtailmentsProcedure,
@@ -246,6 +244,11 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 		adminTerminateEvent: connect.NewClient[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse](
 			httpClient,
 			baseURL+CurtailmentServiceAdminTerminateEventProcedure,
+			opts...,
+		),
+		forceReleaseCurtailmentOwnership: connect.NewClient[v1.ForceReleaseCurtailmentOwnershipRequest, v1.ForceReleaseCurtailmentOwnershipResponse](
+			httpClient,
+			baseURL+CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
 			opts...,
 		),
 		ingestCurtailmentSignal: connect.NewClient[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse](
@@ -352,11 +355,11 @@ type curtailmentServiceClient struct {
 	startCurtailment                    *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
 	updateCurtailmentEvent              *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
 	stopCurtailment                     *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
-	getActiveCurtailment                *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
 	listActiveCurtailments              *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
 	listCurtailmentEvents               *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
 	getCurtailmentEvent                 *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
 	adminTerminateEvent                 *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
+	forceReleaseCurtailmentOwnership    *connect.Client[v1.ForceReleaseCurtailmentOwnershipRequest, v1.ForceReleaseCurtailmentOwnershipResponse]
 	ingestCurtailmentSignal             *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
 	listMqttCurtailmentSources          *connect.Client[v1.ListMqttCurtailmentSourcesRequest, v1.ListMqttCurtailmentSourcesResponse]
 	getMqttCurtailmentSource            *connect.Client[v1.GetMqttCurtailmentSourceRequest, v1.GetMqttCurtailmentSourceResponse]
@@ -398,11 +401,6 @@ func (c *curtailmentServiceClient) StopCurtailment(ctx context.Context, req *con
 	return c.stopCurtailment.CallUnary(ctx, req)
 }
 
-// GetActiveCurtailment calls curtailment.v1.CurtailmentService.GetActiveCurtailment.
-func (c *curtailmentServiceClient) GetActiveCurtailment(ctx context.Context, req *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return c.getActiveCurtailment.CallUnary(ctx, req)
-}
-
 // ListActiveCurtailments calls curtailment.v1.CurtailmentService.ListActiveCurtailments.
 func (c *curtailmentServiceClient) ListActiveCurtailments(ctx context.Context, req *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
 	return c.listActiveCurtailments.CallUnary(ctx, req)
@@ -421,6 +419,12 @@ func (c *curtailmentServiceClient) GetCurtailmentEvent(ctx context.Context, req 
 // AdminTerminateEvent calls curtailment.v1.CurtailmentService.AdminTerminateEvent.
 func (c *curtailmentServiceClient) AdminTerminateEvent(ctx context.Context, req *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return c.adminTerminateEvent.CallUnary(ctx, req)
+}
+
+// ForceReleaseCurtailmentOwnership calls
+// curtailment.v1.CurtailmentService.ForceReleaseCurtailmentOwnership.
+func (c *curtailmentServiceClient) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error) {
+	return c.forceReleaseCurtailmentOwnership.CallUnary(ctx, req)
 }
 
 // IngestCurtailmentSignal calls curtailment.v1.CurtailmentService.IngestCurtailmentSignal.
@@ -545,8 +549,6 @@ type CurtailmentServiceHandler interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -570,6 +572,11 @@ type CurtailmentServiceHandler interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// Admin recovery RPC: immediately release curtailment ownership without
+	// issuing restore commands. This is distinct from StopCurtailment
+	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
+	// recovery). Session-only, Admin role; reason required.
+	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
 	// IngestCurtailmentSignal starts a curtailment event from an
 	// external dispatch signal. signal_payload is provider-opaque;
 	// per-provider adapters decode it. Idempotent on
@@ -630,11 +637,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.StopCurtailment,
 		opts...,
 	)
-	curtailmentServiceGetActiveCurtailmentHandler := connect.NewUnaryHandler(
-		CurtailmentServiceGetActiveCurtailmentProcedure,
-		svc.GetActiveCurtailment,
-		opts...,
-	)
 	curtailmentServiceListActiveCurtailmentsHandler := connect.NewUnaryHandler(
 		CurtailmentServiceListActiveCurtailmentsProcedure,
 		svc.ListActiveCurtailments,
@@ -653,6 +655,11 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 	curtailmentServiceAdminTerminateEventHandler := connect.NewUnaryHandler(
 		CurtailmentServiceAdminTerminateEventProcedure,
 		svc.AdminTerminateEvent,
+		opts...,
+	)
+	curtailmentServiceForceReleaseCurtailmentOwnershipHandler := connect.NewUnaryHandler(
+		CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
+		svc.ForceReleaseCurtailmentOwnership,
 		opts...,
 	)
 	curtailmentServiceIngestCurtailmentSignalHandler := connect.NewUnaryHandler(
@@ -760,8 +767,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceUpdateCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceStopCurtailmentProcedure:
 			curtailmentServiceStopCurtailmentHandler.ServeHTTP(w, r)
-		case CurtailmentServiceGetActiveCurtailmentProcedure:
-			curtailmentServiceGetActiveCurtailmentHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListActiveCurtailmentsProcedure:
 			curtailmentServiceListActiveCurtailmentsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListCurtailmentEventsProcedure:
@@ -770,6 +775,8 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceGetCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceAdminTerminateEventProcedure:
 			curtailmentServiceAdminTerminateEventHandler.ServeHTTP(w, r)
+		case CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure:
+			curtailmentServiceForceReleaseCurtailmentOwnershipHandler.ServeHTTP(w, r)
 		case CurtailmentServiceIngestCurtailmentSignalProcedure:
 			curtailmentServiceIngestCurtailmentSignalHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListMqttCurtailmentSourcesProcedure:
@@ -833,10 +840,6 @@ func (UnimplementedCurtailmentServiceHandler) StopCurtailment(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.StopCurtailment is not implemented"))
 }
 
-func (UnimplementedCurtailmentServiceHandler) GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetActiveCurtailment is not implemented"))
-}
-
 func (UnimplementedCurtailmentServiceHandler) ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListActiveCurtailments is not implemented"))
 }
@@ -851,6 +854,10 @@ func (UnimplementedCurtailmentServiceHandler) GetCurtailmentEvent(context.Contex
 
 func (UnimplementedCurtailmentServiceHandler) AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.AdminTerminateEvent is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ForceReleaseCurtailmentOwnership is not implemented"))
 }
 
 func (UnimplementedCurtailmentServiceHandler) IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error) {

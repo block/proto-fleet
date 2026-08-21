@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -211,6 +213,7 @@ type fakeDevice struct {
 	startMiningFunc         func(ctx context.Context) error
 	setCoolingModeFunc      func(ctx context.Context, mode CoolingMode) error
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword, newPassword string) error
+	firmwareUpdateFunc      func(ctx context.Context, firmware FirmwareFile) error
 }
 
 func (f fakeDevice) ID() string { return "device-123" }
@@ -254,6 +257,18 @@ func (f fakeCurtailingDevice) Uncurtail(ctx context.Context, req UncurtailReques
 	return nil
 }
 
+type fakeCurtailmentConfigDevice struct {
+	fakeDevice
+	applyFunc func(ctx context.Context, config CurtailmentConfig) error
+}
+
+func (f fakeCurtailmentConfigDevice) ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error {
+	if f.applyFunc != nil {
+		return f.applyFunc(ctx, config)
+	}
+	return nil
+}
+
 func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error {
 	if f.setCoolingModeFunc != nil {
 		return f.setCoolingModeFunc(ctx, mode)
@@ -279,9 +294,14 @@ func (f fakeDevice) GetMiningPools(ctx context.Context) ([]ConfiguredPool, error
 func (f fakeDevice) DownloadLogs(ctx context.Context, since *time.Time, batchLogUUID string) (string, bool, error) {
 	return "", false, nil
 }
-func (f fakeDevice) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error { return nil }
-func (f fakeDevice) Unpair(ctx context.Context) error                                { return nil }
-func (f fakeDevice) GetErrors(ctx context.Context) (DeviceErrors, error)             { return DeviceErrors{}, nil }
+func (f fakeDevice) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error {
+	if f.firmwareUpdateFunc != nil {
+		return f.firmwareUpdateFunc(ctx, firmware)
+	}
+	return nil
+}
+func (f fakeDevice) Unpair(ctx context.Context) error                    { return nil }
+func (f fakeDevice) GetErrors(ctx context.Context) (DeviceErrors, error) { return DeviceErrors{}, nil }
 func (f fakeDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
@@ -1180,6 +1200,131 @@ func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailmen
 	require.True(t, ok, "should be able to extract gRPC status from %v", err)
 	assert.Equal(t, codes.Unimplemented, st.Code())
 	assert.Contains(t, st.Message(), "device does not support curtailment")
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfig(t *testing.T) {
+	device := fakeCurtailmentConfigDevice{
+		applyFunc: func(_ context.Context, config CurtailmentConfig) error {
+			assert.True(t, config.Enabled)
+			assert.Equal(t, "closed", config.FailPolicy)
+			require.Len(t, config.Providers, 1)
+			assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, config.Providers[0].Brokers)
+			assert.Equal(t, "secret", config.Providers[0].Password)
+			return nil
+		},
+	}
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": device},
+	}
+
+	_, err := server.ApplyCurtailmentConfig(context.Background(), &pb.ApplyCurtailmentConfigRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+		Config: &pb.CurtailmentConfig{
+			Enabled:    true,
+			FailPolicy: "closed",
+			Providers: []*pb.CurtailmentProviderConfig{{
+				Name:     "maestro",
+				Brokers:  []string{"10.0.0.1", "10.0.0.2"},
+				Password: "secret",
+			}},
+		},
+	})
+
+	require.NoError(t, err)
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfigRejectsUnsupportedDevice(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.ApplyCurtailmentConfig(context.Background(), &pb.ApplyCurtailmentConfigRequest{
+		Ref:    &pb.DeviceRef{DeviceId: "device-123"},
+		Config: &pb.CurtailmentConfig{},
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfigRejectsIncompleteRequest(t *testing.T) {
+	server := &DriverGRPCServer{}
+	tests := map[string]*pb.ApplyCurtailmentConfigRequest{
+		"nil request":    nil,
+		"missing ref":    {Config: &pb.CurtailmentConfig{}},
+		"missing config": {Ref: &pb.DeviceRef{DeviceId: "device-123"}},
+	}
+
+	for name, req := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := server.ApplyCurtailmentConfig(t.Context(), req)
+
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok, "should be able to extract gRPC status from %v", err)
+			assert.Equal(t, codes.InvalidArgument, st.Code())
+		})
+	}
+}
+
+func TestCurtailmentConfigProtoRoundTrip(t *testing.T) {
+	config := CurtailmentConfig{
+		Enabled:               true,
+		FailPolicy:            "closed",
+		RestorePolicy:         "respect_manual_stop",
+		NATSURL:               "nats://localhost:4222",
+		MCDDGRPCAddress:       "127.0.0.1:2122",
+		StatusPublishInterval: "15s",
+		Providers: []CurtailmentProviderConfig{{
+			Name:             "maestro",
+			Type:             "maestro_mqtt",
+			Enabled:          true,
+			Brokers:          []string{"10.0.0.1", "10.0.0.2"},
+			Port:             1883,
+			Username:         "operator",
+			Password:         "secret",
+			Topic:            "maestro/target",
+			QOS:              1,
+			StaleAfter:       "4m",
+			ReconnectBackoff: "5s",
+		}},
+	}
+
+	assert.Equal(t, config, curtailmentConfigFromProto(curtailmentConfigToProto(config)))
+}
+
+func TestDriverGRPCServer_UpdateFirmwarePreservesMetadata(t *testing.T) {
+	firmwarePath := filepath.Join(t.TempDir(), "update.swu")
+	require.NoError(t, os.WriteFile(firmwarePath, []byte("firmware"), 0600))
+
+	device := fakeDevice{
+		firmwareUpdateFunc: func(_ context.Context, firmware FirmwareFile) error {
+			assert.Equal(t, "firmware-1", firmware.ID)
+			assert.Equal(t, "update.swu", firmware.Filename)
+			assert.Equal(t, int64(8), firmware.Size)
+			assert.Equal(t, "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c", firmware.SHA256)
+			assert.Equal(t, firmwarePath, firmware.FilePath)
+			return nil
+		},
+	}
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": device},
+	}
+
+	_, err := server.UpdateFirmware(context.Background(), &pb.UpdateFirmwareRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+		Firmware: &pb.FirmwareFileInfo{
+			FilePath:         firmwarePath,
+			OriginalFilename: "update.swu",
+			FileSize:         8,
+			Id:               "firmware-1",
+			Sha256:           "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c",
+		},
+	})
+
+	require.NoError(t, err)
 }
 
 // Control RPCs should preserve SDKError status codes across gRPC.

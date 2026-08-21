@@ -2,6 +2,24 @@ syntax = "proto3";
 
 package common.v1;
 
+// Lightweight identity + display label for related resources embedded in
+// list rows. Full resource RPCs remain the source of editable metadata.
+message ResourceRef {
+  int64 id = 1;
+  string label = 2;
+}
+
+// Shared placement references for fleet list rows.
+message PlacementRefs {
+  ResourceRef site = 1;
+  ResourceRef building = 2;
+  ResourceRef rack = 3;
+  repeated ResourceRef groups = 4;
+  // Rack zone label; empty when the rack has no zone or the device is
+  // not in a rack. Populated where the producing RPC documents it.
+  string zone = 5;
+}
+
 message FleetErrorDetails {
   oneof code {
     FleetErrorCode common = 1;
@@ -12,4 +30,5 @@ message FleetErrorDetails {
 
 enum FleetErrorCode {
   FLEET_ERROR_CODE_UNSPECIFIED = 0;
+  FLEET_ERROR_CODE_NOT_ACTIVE = 1;
 }

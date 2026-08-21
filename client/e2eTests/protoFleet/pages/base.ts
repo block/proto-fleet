@@ -1,7 +1,9 @@
-import { expect, Page } from "@playwright/test";
+import { expect, type Locator, Page } from "@playwright/test";
 import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
 const FLEET_TAB_ROUTE = /.*\/fleet\/(?:sites|buildings|racks|miners)(?:[/?#].*)?$/;
+const OVERLAY_DISMISS_TIMEOUT = DEFAULT_TIMEOUT / 6;
+const LOGOUT_ACTION_TIMEOUT = 2_000;
 
 export class BasePage {
   constructor(
@@ -13,6 +15,375 @@ export class BasePage {
     await this.page.reload();
   }
 
+  async validateActiveFilter(filterLabel: string) {
+    await expect(this.activeFilterEditButton(filterLabel)).toBeVisible();
+  }
+
+  async validateActiveFilterSummary(filterValue: string, expectedSummary: string) {
+    await expect(await this.visibleTestIdLocator(`active-filter-${filterValue}-edit`)).toHaveText(expectedSummary);
+  }
+
+  async validateActiveFilterNotVisible(filterLabel: string) {
+    await expect(this.activeFilterEditButton(filterLabel)).toHaveCount(0);
+  }
+
+  async validateNoResultsEmptyState() {
+    await expect(this.page.getByText("No results", { exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Clear all filters", exact: true })).toBeVisible();
+  }
+
+  async clickClearAllFilters() {
+    await expect
+      .poll(
+        async () => {
+          const button = await this.findVisibleButton("Clear all filters");
+          return button ? "visible" : "hidden";
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: 'Expected a visible "Clear all filters" button.',
+        },
+      )
+      .toBe("visible");
+
+    await expect(async () => {
+      const clearAllFiltersButton = await this.findVisibleButton("Clear all filters");
+      if (!clearAllFiltersButton) {
+        throw new Error('Expected a visible "Clear all filters" button.');
+      }
+
+      await clearAllFiltersButton.scrollIntoViewIfNeeded();
+      await this.dismissVisibleToastIfPresent();
+
+      try {
+        await clearAllFiltersButton.click({ timeout: OVERLAY_DISMISS_TIMEOUT });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          (!error.message.includes("intercepts pointer events") && !error.message.includes("element was detached"))
+        ) {
+          throw error;
+        }
+
+        await this.dismissVisibleToastIfPresent();
+        throw error;
+      }
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
+  }
+
+  async clearActiveFilter(filterValue: string) {
+    const clearButton = await this.findVisibleTestIdLocator(`active-filter-${filterValue}-clear`);
+    if (clearButton) {
+      await clearButton.scrollIntoViewIfNeeded();
+      await clearButton.click();
+      await this.waitForActiveFilterToClear(filterValue);
+      return;
+    }
+
+    if (!this.isMobile) {
+      throw new Error(`Expected a visible clear button for the active "${filterValue}" filter chip.`);
+    }
+
+    const editButton = await this.visibleTestIdLocator(`active-filter-${filterValue}-edit`);
+    await editButton.click();
+
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+
+    const options = popover.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+
+    for (let i = 0; i < count; i++) {
+      const option = options.nth(i);
+      const checkbox = option.locator('input[type="checkbox"]');
+      if (await checkbox.isChecked().catch(() => false)) {
+        await option.click();
+      }
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await editButton.click();
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.dismissMobilePopoverSheet("dropdown-filter-popover");
+    }
+    await expect
+      .poll(async () => await popover.isVisible().catch(() => false), {
+        timeout: OVERLAY_DISMISS_TIMEOUT,
+        message: "Expected the dropdown filter popover to close on mobile.",
+      })
+      .toBe(false);
+  }
+
+  async clickNewSavedViewButton() {
+    const emptyState = this.viewsEmptyStateNewButton();
+    if (await emptyState.isVisible().catch(() => false)) {
+      await emptyState.click();
+      return;
+    }
+
+    await this.openViewsPopover();
+    await this.page.getByTestId("fleet-view-tabs-popover-new-view").click();
+  }
+
+  async clickClearActiveView() {
+    await this.openViewsPopover();
+    await this.page.getByTestId("fleet-view-tabs-popover-clear-view").click();
+  }
+
+  async validateViewModalOpened(title: "New view" | "Update view" | "Rename view") {
+    const modal = this.page.getByTestId("view-modal");
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText(title);
+  }
+
+  async inputViewName(name: string) {
+    await this.page.locator("#view-name").fill(name);
+  }
+
+  async saveNewView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Save", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  async updateSavedView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Update", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  async confirmRenameView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Rename", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  async validateViewTabVisible(viewName: string) {
+    await this.openViewsPopover();
+    await expect(this.viewRow(viewName)).toBeVisible();
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+    } else {
+      await this.fleetViewTabsTrigger().click();
+    }
+    await expect(this.viewsPopover()).toBeHidden();
+  }
+
+  async validateViewTabActive(viewName: string) {
+    await expect(this.fleetViewTabsTrigger()).toContainText(viewName);
+  }
+
+  async clickViewTab(viewName: string) {
+    await this.openViewsPopover();
+    await this.viewRow(viewName).click();
+  }
+
+  async clickResetViewAction(viewName: string) {
+    await this.validateViewTabActive(viewName);
+    await this.openKebabPopover();
+    await this.page.getByTestId("fleet-view-tabs-reset-action").click();
+  }
+
+  async clickUpdateViewAction(viewName: string) {
+    await this.validateViewTabActive(viewName);
+    await this.openKebabPopover();
+    await this.page.getByTestId("fleet-view-tabs-update-action").click();
+  }
+
+  async clickRenameViewAction(viewName: string) {
+    await this.validateViewTabActive(viewName);
+    await this.openKebabPopover();
+    await this.page.getByTestId("fleet-view-tabs-rename-action").click();
+  }
+
+  async clickDeleteViewAction(viewName: string) {
+    await this.validateViewTabActive(viewName);
+    await this.openKebabPopover();
+    await this.page.getByTestId("fleet-view-tabs-delete-action").click();
+  }
+
+  async validateViewTabNotVisible(viewName: string) {
+    const trigger = this.fleetViewTabsTrigger();
+    if (await trigger.isVisible().catch(() => false)) {
+      await expect(trigger).not.toContainText(viewName);
+      await trigger.click();
+      const popover = this.viewsPopover();
+      if (await popover.isVisible().catch(() => false)) {
+        await expect(this.viewRow(viewName)).toHaveCount(0);
+        if (this.isMobile) {
+          await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+        } else {
+          await trigger.click();
+        }
+        await expect(popover).toBeHidden();
+      }
+      return;
+    }
+
+    await expect(this.viewsEmptyStateNewButton()).toBeVisible();
+  }
+
+  async validateDeleteViewDialogOpened(viewName: string) {
+    const dialog = this.page.getByTestId("fleet-view-tabs-delete-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Delete the view "${viewName}"? This can't be undone.`);
+  }
+
+  async confirmDeleteView() {
+    const dialog = this.page.getByTestId("fleet-view-tabs-delete-dialog");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  }
+
+  protected async setNestedCheckboxFilterSelection(categoryKey: string, targetLabels: string[]) {
+    if (targetLabels.length !== 1) {
+      throw new Error(
+        `Expected exactly one target label for "${categoryKey}" filter, received ${targetLabels.length}.`,
+      );
+    }
+
+    const [targetLabel] = targetLabels;
+    const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    const hadActiveFilter = Boolean(activeEditButton);
+    if (activeEditButton) {
+      const currentSummary = ((await activeEditButton.textContent()) ?? "").replace(/\s+/g, " ").trim();
+      if (currentSummary === targetLabel) {
+        return;
+      }
+
+      await this.clearActiveFilter(categoryKey);
+      await this.waitForActiveFilterToClear(categoryKey);
+    }
+
+    const addFilterPopover = await this.openVisibleAddFilter();
+    const submenu = await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
+    await this.waitForCheckboxFilterOptions(submenu, categoryKey, targetLabels);
+    if (hadActiveFilter) {
+      await this.waitForCheckboxFilterSelectionState(submenu, categoryKey, []);
+    }
+    const targetOption = (await this.readCheckboxFilterOptionStates(submenu)).find(
+      ({ label }) => label === targetLabel,
+    );
+    if (!targetOption) {
+      throw new Error(`Could not find "${targetLabel}" in the visible "${categoryKey}" filter options.`);
+    }
+
+    await (await this.visibleContainerTestIdLocator(submenu, `filter-option-${targetOption.id}`)).click();
+    await this.dismissNestedAddFilterPopover();
+  }
+
+  protected async toggleAllNestedCheckboxFilterOptions(categoryKey: string) {
+    const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    if (activeEditButton) {
+      await this.clearActiveFilter(categoryKey);
+      return;
+    }
+
+    const addFilterPopover = await this.openVisibleAddFilter();
+    const submenu = await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
+    await this.toggleVisibleCheckboxFilterOptions(submenu);
+    await this.dismissNestedAddFilterPopover();
+  }
+
+  private async toggleVisibleCheckboxFilterOptions(container: Locator) {
+    const options = container.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+    if (count === 0) {
+      return;
+    }
+
+    let anyChecked = false;
+    for (let i = 0; i < count; i++) {
+      if (
+        await options
+          .nth(i)
+          .locator('input[type="checkbox"]')
+          .isChecked()
+          .catch(() => false)
+      ) {
+        anyChecked = true;
+        break;
+      }
+    }
+
+    for (let i = 0; i < count; i++) {
+      const option = options.nth(i);
+      const isChecked = await option
+        .locator('input[type="checkbox"]')
+        .isChecked()
+        .catch(() => false);
+      if (isChecked === anyChecked) {
+        await option.click();
+      }
+    }
+  }
+
+  private async waitForCheckboxFilterOptions(container: Locator, categoryKey: string, targetLabels: string[]) {
+    await expect
+      .poll(
+        async () => {
+          const visibleOptions = await this.readCheckboxFilterOptionStates(container);
+          const visibleLabels = new Set(visibleOptions.map(({ label }) => label));
+          return targetLabels.filter((label) => !visibleLabels.has(label));
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected the visible "${categoryKey}" filter options to include: ${targetLabels.join(", ")}.`,
+        },
+      )
+      .toEqual([]);
+  }
+
+  private async waitForCheckboxFilterSelectionState(
+    container: Locator,
+    categoryKey: string,
+    expectedCheckedLabels: string[],
+  ) {
+    const expected = [...expectedCheckedLabels].sort();
+    await expect
+      .poll(
+        async () =>
+          (await this.readCheckboxFilterOptionStates(container))
+            .filter(({ checked }) => checked)
+            .map(({ label }) => label)
+            .sort(),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected the visible "${categoryKey}" filter selection to be ${expected.join(", ") || "empty"}.`,
+        },
+      )
+      .toEqual(expected);
+  }
+
+  private async readCheckboxFilterOptionStates(container: Locator) {
+    const options = container.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+    const visibleOptions = new Map<string, { id: string; label: string; checked: boolean }>();
+
+    for (let i = 0; i < count; i++) {
+      const option = options.nth(i);
+      if (!(await option.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      const testId = await option.getAttribute("data-testid");
+      if (!testId) {
+        continue;
+      }
+
+      const id = testId.replace(/^filter-option-/, "");
+      visibleOptions.set(id, {
+        id,
+        label: ((await option.textContent()) ?? "").replace(/\s+/g, " ").trim(),
+        checked: await option
+          .locator('input[type="checkbox"]')
+          .isChecked()
+          .catch(() => false),
+      });
+    }
+
+    return [...visibleOptions.values()];
+  }
+
   async validateLoggedIn(timeout: number = DEFAULT_TIMEOUT) {
     if (this.isMobile) {
       await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible({ timeout });
@@ -22,8 +393,44 @@ export class BasePage {
   }
 
   async logout() {
-    await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("logout-button").click();
+    const loginForm = this.page.locator("#username");
+    const isLoggedOut = async () =>
+      this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false));
+
+    if (await isLoggedOut()) {
+      return;
+    }
+
+    const logoutButton = this.page.getByTestId("logout-button");
+
+    // A server-invalidated session can redirect to /auth between any locator
+    // probe and click. Retry short actions so each attempt can re-check the
+    // logged-out state instead of waiting on a navigation control that vanished.
+    await expect(async () => {
+      if (await isLoggedOut()) {
+        return;
+      }
+
+      if (await logoutButton.isVisible().catch(() => false)) {
+        await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
+      } else {
+        if (!this.isMobile) {
+          await this.page.goto("/auth");
+          await expect(loginForm).toBeVisible({ timeout: LOGOUT_ACTION_TIMEOUT });
+          return;
+        }
+
+        await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
+
+        if (await isLoggedOut()) {
+          return;
+        }
+
+        await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
+      }
+
+      await expect.poll(isLoggedOut, { timeout: LOGOUT_ACTION_TIMEOUT, intervals: [100] }).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async validateTitle(expectedTitle: string) {
@@ -54,9 +461,50 @@ export class BasePage {
     await expect(this.page.getByText(text)).toBeVisible();
   }
 
-  async validateTextInToast(text: string) {
-    const toast = this.page.getByTestId("toast").getByText(text);
-    await expect(toast).toBeVisible();
+  async validateTextInToast(text: string, timeout: number = DEFAULT_TIMEOUT) {
+    await expect
+      .poll(
+        async () => {
+          const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+
+          const groupedHeader = this.page.getByTestId("grouped-toaster-header");
+          if (await groupedHeader.isVisible().catch(() => false)) {
+            const headerText = normalize(await groupedHeader.textContent().catch(() => ""));
+            if (headerText.includes(text)) {
+              return true;
+            }
+          }
+
+          const toastContainer = this.page.getByTestId("toaster-container");
+          if (await toastContainer.isVisible().catch(() => false)) {
+            const containerText = normalize(await toastContainer.textContent().catch(() => ""));
+            if (containerText.includes(text)) {
+              return true;
+            }
+          }
+
+          const toasts = this.page.getByTestId("toast");
+          const count = await toasts.count();
+          for (let i = count - 1; i >= 0; i -= 1) {
+            const toast = toasts.nth(i);
+            if (!(await toast.isVisible().catch(() => false))) {
+              continue;
+            }
+
+            const toastText = normalize(await toast.textContent().catch(() => ""));
+            if (toastText.includes(text)) {
+              return true;
+            }
+          }
+
+          return false;
+        },
+        {
+          timeout,
+          message: `Expected a visible toast containing "${text}".`,
+        },
+      )
+      .toBe(true);
   }
 
   async validateTextInToastGroup(text: string) {
@@ -75,50 +523,266 @@ export class BasePage {
       .toBe(true);
   }
 
+  // Toasts stack, and validateTextInToast matches any visible one carrying the
+  // text, so a loop that repeats the same action can pass on the toast a previous
+  // pass left behind. Clearing between passes keeps each assertion about the
+  // toast that pass produced.
+  async clearToasts() {
+    await this.dismissVisibleToastIfPresent();
+  }
+
   async dismissToast() {
-    const toast = this.page.getByTestId("toaster-container");
-    const dismissButton = this.page.getByRole("button", { name: "Dismiss" });
-    if (!(await dismissButton.isVisible())) {
-      await toast.click();
+    const toastContainer = this.page.getByTestId("toaster-container");
+    const groupedDismissButton = toastContainer.getByRole("button", { name: "Dismiss", exact: true });
+    const inlineDismissButton = toastContainer.getByTestId("toast").locator("button").first();
+
+    if (await groupedDismissButton.isVisible().catch(() => false)) {
+      await groupedDismissButton.click();
+      return;
     }
-    await toast.getByRole("button", { name: "Dismiss" }).click();
+
+    if (await inlineDismissButton.isVisible().catch(() => false)) {
+      await inlineDismissButton.click();
+      return;
+    }
+
+    await toastContainer.click({ position: { x: 8, y: 8 } });
+
+    if (await groupedDismissButton.isVisible().catch(() => false)) {
+      await groupedDismissButton.click();
+      return;
+    }
+
+    if (await inlineDismissButton.isVisible().catch(() => false)) {
+      await inlineDismissButton.click();
+      return;
+    }
+
+    throw new Error("Expected a visible toast dismiss control.");
   }
 
   async validateTextInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeVisible();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(true);
   }
 
   async validateTextNotInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeHidden();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" not to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(false);
+  }
+
+  private async modalHasVisibleText(text: string) {
+    const matches = this.page.getByTestId("modal").getByText(text);
+    const count = await matches.count();
+    for (let index = 0; index < count; index += 1) {
+      if (
+        await matches
+          .nth(index)
+          .isVisible()
+          .catch(() => false)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async dismissVisibleToastIfPresent() {
+    const toastContainer = this.page.getByTestId("toaster-container");
+    if (await toastContainer.isVisible().catch(() => false)) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await this.dismissToast().catch(() => undefined);
+        await toastContainer.waitFor({ state: "hidden", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+
+        if (!(await toastContainer.isVisible().catch(() => false))) {
+          break;
+        }
+      }
+    }
+
+    const basicToasts = this.page.getByTestId("toast");
+    const count = await basicToasts.count();
+    for (let index = count - 1; index >= 0; index -= 1) {
+      const toast = basicToasts.nth(index);
+      if (await toast.isVisible().catch(() => false)) {
+        await toast
+          .locator("button")
+          .last()
+          .evaluate((button: Element) => {
+            (button as HTMLElement).click();
+          })
+          .catch(() => undefined);
+      }
+    }
+
+    await this.page
+      .waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('[data-testid="toast"]')).every((toast) => {
+            const element = toast as HTMLElement;
+            const style = window.getComputedStyle(element);
+            return (
+              element.getClientRects().length === 0 ||
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.opacity === "0"
+            );
+          }),
+        undefined,
+        { timeout: OVERLAY_DISMISS_TIMEOUT },
+      )
+      .catch(() => undefined);
   }
 
   async validateButtonIsVisible(text: string) {
     await expect(this.page.getByRole("button", { name: text })).toBeVisible();
   }
 
-  async clickNavigationMenuIfMobile() {
-    if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu-button").click();
+  async clickNavigationMenuIfMobile(timeout?: number) {
+    if (!this.isMobile) {
+      return;
     }
+
+    if (
+      await this.page
+        .getByTestId("navigation-menu")
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    const navigationMenuButton = this.page.getByTestId("navigation-menu-button");
+    if (await navigationMenuButton.isVisible().catch(() => false)) {
+      await navigationMenuButton.click({ timeout });
+      return;
+    }
+
+    if (
+      await this.page
+        .locator(`//input[@id='username']`)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    await navigationMenuButton.click({ timeout });
   }
 
   async clickExpandSettingsIfMobile() {
-    if (this.isMobile && !this.page.url().includes("/settings")) {
-      await this.page.getByTestId("navigation-menu").getByText("Settings").click();
+    if (!this.isMobile || this.page.url().includes("/settings")) {
+      return;
     }
+
+    const secondaryNav = this.page.getByTestId("secondary-nav");
+    let lastToggleError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await this.clickNavigationMenuIfMobile();
+      const settingsToggle = this.page.getByTestId("navigation-menu").getByRole("button", {
+        name: "Settings menu toggle",
+      });
+      await settingsToggle.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await settingsToggle
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastToggleError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastToggleError = error;
+        });
+      await secondaryNav.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      if (await secondaryNav.isVisible().catch(() => false)) {
+        return;
+      }
+    }
+
+    if (lastToggleError instanceof Error && lastToggleError.message.includes("Element is not attached to the DOM")) {
+      throw lastToggleError;
+    }
+    await expect(secondaryNav).toBeVisible();
+  }
+
+  private async clickSettingsSubnavLink(path: string) {
+    const link = this.page.getByTestId("secondary-nav").locator(`a[href="${path}"]`);
+    if (!this.isMobile) {
+      await link.click();
+      return;
+    }
+
+    let lastClickError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await link.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await link
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastClickError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastClickError = error;
+        });
+
+      if (lastClickError === undefined) {
+        return;
+      }
+    }
+
+    if (lastClickError instanceof Error) {
+      throw lastClickError;
+    }
+    await link.click();
+  }
+
+  protected async waitForMobileNavigationMenuToClose() {
+    if (!this.isMobile) {
+      return;
+    }
+
+    await expect(this.page.getByRole("dialog", { name: "Navigation menu" })).toHaveCount(0);
+    await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
   }
 
   async navigateToHomePage() {
     await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/"]').click();
-    await expect(this.page).toHaveURL(/.*\/$/);
+    await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
+    await expect(this.page).toHaveURL(/.*\/dashboard$/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToFleetPage() {
+    if (
+      FLEET_TAB_ROUTE.test(this.page.url()) &&
+      (await this.page
+        .getByTestId("fleet-layout")
+        .isVisible()
+        .catch(() => false))
+    ) {
+      return;
+    }
+
+    const fleetLink = this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]');
+
     await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]').click();
+    if (await fleetLink.isVisible().catch(() => false)) {
+      await fleetLink.click();
+    } else {
+      await this.page.goto("/fleet/sites");
+    }
     await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
     await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToMinersPage() {
@@ -131,6 +795,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/groups"]').click();
     await expect(this.page).toHaveURL(/.*\/groups/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToRacksPage() {
@@ -143,17 +808,19 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/activity"]').click();
     await expect(this.page).toHaveURL(/.*\/activity/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToSettingsPage() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu").locator('a[href="/settings/general"]').click();
+      await this.page.getByTestId("navigation-menu").locator('a[href="/settings/network"]').click();
     } else {
       await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
     }
     await expect(this.page).toHaveURL(/.*\/settings/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateSettingsIfDesktop() {
@@ -167,15 +834,31 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
+    await this.clickSettingsSubnavLink("/settings/security");
     await expect(this.page).toHaveURL(/.*\/settings\/security/);
+  }
+
+  async navigateToNetworkSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.clickSettingsSubnavLink("/settings/network");
+    await expect(this.page).toHaveURL(/.*\/settings\/network/);
+  }
+
+  async navigateToPreferencesSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.clickSettingsSubnavLink("/settings/preferences");
+    await expect(this.page).toHaveURL(/.*\/settings\/preferences/);
   }
 
   async navigateToTeamSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
+    await this.clickSettingsSubnavLink("/settings/team");
     await expect(this.page).toHaveURL(/.*\/settings\/team/);
   }
 
@@ -183,7 +866,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
+    await this.clickSettingsSubnavLink("/settings/mining-pools");
     await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
@@ -191,35 +874,74 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/firmware"]').click();
+    await this.clickSettingsSubnavLink("/settings/firmware");
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
+  }
+
+  async navigateToNodesSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/nodes"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/nodes/);
   }
 
   async navigateToApiKeysSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/api-keys"]').click();
-    await expect(this.page).toHaveURL(/.*\/settings\/api-keys/);
+    await this.clickSettingsSubnavLink("/settings/integrations");
+    await expect(this.page).toHaveURL(/.*\/settings\/integrations/);
   }
 
   async navigateToSchedulesSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]').click();
+    await this.clickSettingsSubnavLink("/settings/schedules");
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
+  }
+
+  async navigateToCurtailmentSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.clickSettingsSubnavLink("/settings/curtailment");
+    await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
+  }
+
+  async navigateToAlertsSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.clickSettingsSubnavLink("/settings/alerts");
+    await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
+  }
+
+  async navigateToUpdatesSettings() {
+    await this.page.goto("/settings/updates");
+    await expect(this.page).toHaveURL(/.*\/settings\/updates/);
   }
 
   async navigateToServerLogsSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/server-logs"]').click();
+    await this.clickSettingsSubnavLink("/settings/server-logs");
     await expect(this.page).toHaveURL(/.*\/settings\/server-logs/);
   }
 
   async clickButton(text: string) {
+    const visibleButton = await this.findVisibleButton(text);
+    if (visibleButton) {
+      await visibleButton.click();
+      return;
+    }
+
+    if (this.isMobile && (await this.clickOverflowAction(text))) {
+      return;
+    }
+
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
 
@@ -248,6 +970,23 @@ export class BasePage {
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
+  async dismissModalIfVisible() {
+    const modal = this.page.getByTestId("modal");
+    if (!(await modal.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const headerDismiss = modal.getByTestId("header-icon-button");
+    if (await headerDismiss.isVisible().catch(() => false)) {
+      await headerDismiss.click();
+      await this.validateModalIsClosed();
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    await this.validateModalIsClosed();
+  }
+
   async clickSaveInModal() {
     await this.clickIn("Save", "modal");
   }
@@ -265,5 +1004,370 @@ export class BasePage {
     } finally {
       this.page.setDefaultTimeout(originalTimeout);
     }
+  }
+
+  private activeFilterEditButton(filterLabel: string): Locator {
+    return this.page
+      .locator('button[data-testid^="active-filter-"][data-testid$="-edit"]')
+      .filter({ hasText: filterLabel });
+  }
+
+  private fleetViewTabsContainer(): Locator {
+    return this.page.getByTestId(this.isMobile ? "fleet-view-tabs-mobile" : "fleet-view-tabs-desktop");
+  }
+
+  private fleetViewTabsTrigger(): Locator {
+    return this.fleetViewTabsContainer().getByTestId("fleet-view-tabs-trigger");
+  }
+
+  private viewsEmptyStateNewButton(): Locator {
+    return this.fleetViewTabsContainer().getByTestId("fleet-view-tabs-new-view-button");
+  }
+
+  private viewsPopover(): Locator {
+    return this.page.getByTestId("fleet-view-tabs-views-popover");
+  }
+
+  private kebabButton(): Locator {
+    return this.fleetViewTabsContainer().getByTestId("fleet-view-tabs-kebab");
+  }
+
+  private kebabPopover(): Locator {
+    return this.page.getByTestId("fleet-view-tabs-kebab-popover");
+  }
+
+  private viewRow(viewName: string): Locator {
+    return this.viewsPopover().locator('[data-testid^="fleet-view-row-"]').filter({ hasText: viewName });
+  }
+
+  private async openViewsPopover() {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+    }
+
+    await this.fleetViewTabsTrigger().click();
+    await expect(this.viewsPopover()).toBeVisible();
+  }
+
+  private async openKebabPopover() {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-kebab-popover");
+    }
+
+    await this.kebabButton().click();
+    await expect(this.kebabPopover()).toBeVisible();
+  }
+
+  private async getVisibleAddFilterTrigger(): Promise<Locator> {
+    const namedButtons = this.page.getByRole("button", { name: "Add Filter", exact: true });
+    const namedButtonCount = await namedButtons.count();
+    for (let i = 0; i < namedButtonCount; i++) {
+      const button = namedButtons.nth(i);
+      if (await button.isVisible().catch(() => false)) {
+        return button;
+      }
+    }
+
+    const triggers = this.page.getByTestId("filter-nested-add-filter");
+    let visibleIndex = -1;
+
+    await expect
+      .poll(
+        async () => {
+          const count = await triggers.count();
+
+          for (let i = 0; i < count; i++) {
+            const trigger = triggers.nth(i);
+            if (await trigger.isVisible().catch(() => false)) {
+              visibleIndex = i;
+              return "visible";
+            }
+          }
+
+          return "hidden";
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: "Expected a visible Add Filter trigger.",
+        },
+      )
+      .toBe("visible");
+
+    return triggers.nth(visibleIndex);
+  }
+
+  private async openVisibleAddFilter() {
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    return popover;
+  }
+
+  private async openNestedFilterSubmenu(popover: Locator, categoryKey: string) {
+    await popover.getByTestId(`nested-dropdown-filter-row-${categoryKey}`).click();
+    const desktopSubmenu = this.page.getByTestId(`nested-dropdown-filter-submenu-${categoryKey}`);
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+
+    if (await desktopSubmenu.isVisible().catch(() => false)) {
+      return desktopSubmenu;
+    }
+
+    return popover;
+  }
+
+  private async dismissNestedAddFilterPopover() {
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("nested-dropdown-filter-popover");
+      await expect(popover).toBeHidden();
+      return;
+    }
+
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
+    await expect(popover).toBeHidden();
+  }
+
+  protected async dismissMobilePopoverSheet(popoverTestId: string) {
+    const popover = this.page.getByTestId(popoverTestId);
+    const sheet = this.page.getByTestId(`${popoverTestId}-sheet`);
+
+    const isClosed = async () =>
+      !(await sheet.isVisible().catch(() => false)) && !(await popover.isVisible().catch(() => false));
+
+    if (await isClosed()) {
+      return;
+    }
+
+    try {
+      await sheet.click({ position: { x: 1, y: 1 }, timeout: 1000 });
+    } catch {
+      if (!(await sheet.isVisible().catch(() => false))) {
+        return;
+      }
+
+      await this.page.mouse.click(1, 1).catch(() => undefined);
+    }
+
+    if (await isClosed()) {
+      return;
+    }
+
+    if (await sheet.isVisible().catch(() => false)) {
+      await this.page.keyboard.press("Escape").catch(() => undefined);
+    }
+
+    await expect
+      .poll(isClosed, {
+        timeout: OVERLAY_DISMISS_TIMEOUT,
+        message: `Expected the ${popoverTestId} mobile sheet to close.`,
+      })
+      .toBe(true);
+  }
+
+  protected async clickOverflowAction(text: string) {
+    const overflowTriggers = this.page.getByTestId("overflow-menu-trigger");
+    const count = await overflowTriggers.count();
+
+    for (let i = 0; i < count; i++) {
+      const overflowTrigger = overflowTriggers.nth(i);
+      if (!(await overflowTrigger.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      try {
+        await overflowTrigger.click({ timeout: 1000 });
+      } catch {
+        continue;
+      }
+
+      const sheetContent = await this.findVisibleActionSheetContent(1000).catch(() => null);
+      const action = sheetContent?.getByRole("button", { name: text, disabled: false, exact: true });
+      if (action && (await action.isVisible().catch(() => false))) {
+        await action.click();
+        return true;
+      }
+
+      await this.dismissVisibleActionSheet();
+    }
+
+    return false;
+  }
+
+  protected async clickResponsiveTestId(testId: string, container?: Locator) {
+    const root = container ?? this.page;
+    const mobileButton = root.getByTestId(`${testId}-mobile`);
+
+    if (this.isMobile && (await mobileButton.isVisible().catch(() => false))) {
+      await mobileButton.click();
+      return;
+    }
+
+    await root.getByTestId(testId).click();
+  }
+
+  private async findVisibleButton(text: string) {
+    const buttons = this.page.getByRole("button", { name: text, disabled: false, exact: true });
+    const count = await buttons.count();
+
+    for (let i = 0; i < count; i++) {
+      const button = buttons.nth(i);
+      if (await button.isVisible().catch(() => false)) {
+        return button;
+      }
+    }
+
+    return null;
+  }
+
+  private async findVisibleActionSheetContent(timeout: number = DEFAULT_TIMEOUT) {
+    const sheetContentTestIds = [
+      "modal-overflow-sheet-content",
+      "responsive-action-sheet-content",
+      "action-sheet-content",
+      "building-page-action-sheet-content",
+      "list-header-action-sheet-content",
+      "rack-slot-actions-sheet-content",
+      "site-map-action-sheet-content",
+    ];
+
+    await expect
+      .poll(
+        async () => {
+          for (const testId of sheetContentTestIds) {
+            if (
+              await this.page
+                .getByTestId(testId)
+                .isVisible()
+                .catch(() => false)
+            ) {
+              return testId;
+            }
+          }
+
+          return "";
+        },
+        { timeout, message: "Expected a visible action sheet content area." },
+      )
+      .not.toBe("");
+
+    for (const testId of sheetContentTestIds) {
+      const content = this.page.getByTestId(testId);
+      if (await content.isVisible().catch(() => false)) {
+        return content;
+      }
+    }
+
+    return null;
+  }
+
+  private async dismissVisibleActionSheet() {
+    const sheetTestIds = [
+      "modal-overflow-sheet",
+      "responsive-action-sheet",
+      "action-sheet",
+      "building-page-action-sheet",
+      "list-header-action-sheet",
+      "rack-slot-actions-sheet",
+      "site-map-action-sheet",
+    ];
+
+    for (const testId of sheetTestIds) {
+      const sheet = this.page.getByTestId(testId);
+      if (await sheet.isVisible().catch(() => false)) {
+        try {
+          await sheet.click({ position: { x: 1, y: 1 }, timeout: 1000 });
+        } catch {
+          if (!(await sheet.isVisible().catch(() => false))) {
+            return;
+          }
+
+          await this.page.mouse.click(1, 1).catch(() => undefined);
+        }
+
+        if (await sheet.isVisible().catch(() => false)) {
+          await this.page.keyboard.press("Escape").catch(() => undefined);
+          await expect(sheet).toBeHidden();
+        }
+
+        return;
+      }
+    }
+  }
+
+  private async waitForActiveFilterToClear(categoryKey: string) {
+    await expect
+      .poll(
+        async () => ((await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`)) ? "visible" : "hidden"),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected active "${categoryKey}" filter chip to clear.`,
+        },
+      )
+      .toBe("hidden");
+  }
+
+  private async findVisibleTestIdLocator(testId: string): Promise<Locator | null> {
+    const matches = this.page.getByTestId(testId);
+    const count = await matches.count();
+    const visibleIndexes: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const candidate = matches.nth(i);
+      if (await candidate.isVisible().catch(() => false)) {
+        visibleIndexes.push(i);
+      }
+    }
+
+    if (visibleIndexes.length === 0) {
+      return null;
+    }
+
+    if (visibleIndexes.length > 1) {
+      throw new Error(`Expected a single visible locator for test id "${testId}", found ${visibleIndexes.length}.`);
+    }
+
+    return matches.nth(visibleIndexes[0]);
+  }
+
+  private async visibleTestIdLocator(testId: string): Promise<Locator> {
+    await expect
+      .poll(async () => ((await this.findVisibleTestIdLocator(testId)) ? "single" : "none"), {
+        timeout: DEFAULT_TIMEOUT,
+        message: `Expected a single visible locator for test id "${testId}".`,
+      })
+      .toBe("single");
+
+    const match = await this.findVisibleTestIdLocator(testId);
+    if (!match) {
+      throw new Error(`Expected a visible locator for test id "${testId}".`);
+    }
+
+    return match;
+  }
+
+  private async visibleContainerTestIdLocator(container: Locator, testId: string): Promise<Locator> {
+    const matches = container.getByTestId(testId);
+    const count = await matches.count();
+    const visibleIndexes: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const candidate = matches.nth(i);
+      if (await candidate.isVisible().catch(() => false)) {
+        visibleIndexes.push(i);
+      }
+    }
+
+    if (visibleIndexes.length !== 1) {
+      throw new Error(`Expected a single visible locator for test id "${testId}" within the current filter container.`);
+    }
+
+    return matches.nth(visibleIndexes[0]);
   }
 }

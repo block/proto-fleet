@@ -10,6 +10,7 @@ import {
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 vi.mock("@/shared/components/Popover", () => ({
   PopoverProvider: ({ children }: { children: ReactNode }) => <Fragment>{children}</Fragment>,
@@ -97,26 +98,45 @@ const PathProbe = () => {
 
 type EditBuildingCallback = (building: BuildingWithCounts) => void;
 
-const renderList = ({ onEditBuilding }: { onEditBuilding?: EditBuildingCallback } = {}) =>
+const renderList = ({
+  onEditBuilding,
+  selectedIds,
+  onSelectedIdsChange,
+  activeSite,
+  initialEntry = "/fleet/buildings",
+  routePath = "/fleet/buildings",
+}: {
+  onEditBuilding?: EditBuildingCallback;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+  activeSite?: ActiveSite;
+  initialEntry?: string;
+  routePath?: string;
+} = {}) =>
   render(
-    <MemoryRouter initialEntries={["/fleet/buildings"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
-          path="/fleet/buildings"
+          path={routePath}
           element={
             <>
               <BuildingList
                 buildings={[makeBuilding(42, "Alpha", 7)]}
                 sites={[makeSite(7, "North")]}
                 onEditBuilding={onEditBuilding}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={onSelectedIdsChange}
+                activeSite={activeSite}
               />
               <PathProbe />
             </>
           }
         />
         <Route path="/buildings/:id" element={<PathProbe />} />
-        <Route path="/racks" element={<PathProbe />} />
-        <Route path="/miners" element={<PathProbe />} />
+        <Route path="/fleet/racks" element={<PathProbe />} />
+        <Route path="/fleet/miners" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/racks" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/miners" element={<PathProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -143,18 +163,29 @@ describe("BuildingList row actions menu", () => {
     }
   });
 
-  it("View racks scopes the /racks redirect to the building", () => {
+  it("View racks scopes the /fleet/racks redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/racks?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/racks?building=42");
   });
 
-  it("View miners scopes the /miners redirect to the building", () => {
+  it("View racks preserves the active site path scope", () => {
+    renderList({
+      activeSite: { kind: "site", id: "7", slug: "north" },
+      initialEntry: "/north/fleet/buildings",
+      routePath: "/:siteScope/fleet/buildings",
+    });
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByText("View racks"));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/north/fleet/racks?building=42");
+  });
+
+  it("View miners scopes the /fleet/miners redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View miners"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/miners?building=42");
   });
 
   it("View building navigates to the detail page", () => {
@@ -178,5 +209,15 @@ describe("BuildingList row actions menu", () => {
     renderList();
     fireEvent.click(trigger());
     expect(screen.queryByText("Edit building")).not.toBeInTheDocument();
+  });
+
+  it("shows controlled row checkboxes when selection props are supplied", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ selectedIds: [], onSelectedIdsChange });
+
+    const checkbox = screen.getByTestId("list-body").querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
   });
 });

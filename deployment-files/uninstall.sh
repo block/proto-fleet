@@ -12,6 +12,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOYMENT_PATH=""
 INSTALL_ROOT=""
 DRY_RUN=false
+HOST_UPDATER_PRESENT=false
+HOST_UPDATER_PRIVILEGE=()
+HOST_UPDATER_RESTORE_PENDING=false
+HOST_UPDATER_REMOVAL_STARTED=false
+HOST_UPDATER_ORIGINAL_ACTIVE=false
+HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=disabled
+USER_SYSTEMD_UID=""
+USER_SYSTEMD_NAME=""
+USER_SYSTEMD_HOME=""
+HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
+HOST_UPDATER_ENV_PATH=/etc/proto-fleet/updater.env
+HOST_UPDATER_STATE_DIR=/var/lib/proto-fleet-updater
+HOST_UPDATER_RUNTIME_DIR=/run/proto-fleet-updater
+HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+HOST_UPDATER_SYSTEMD_RUNTIME_DIR=/run/systemd/system
+HOST_UPDATER_BINARY_PATHS=(
+  /usr/local/libexec/proto-fleet/proto-fleet-updater
+  /usr/local/libexec/proto-fleet-updater
+)
+HOST_UPDATER_SELF_UPDATE_SUFFIXES=(
+  .previous
+  .candidate
+  .handoff
+  .handoff.tmp
+  .restore
+)
 
 # =====================================================================
 # Output Helpers
@@ -429,32 +455,522 @@ teardown_docker_stack() {
   print_success "Containers, images, and volumes removed."
 }
 
+resolve_user_systemd_context() {
+  local current_uid target_uid target_name passwd_entry passwd_name passwd_uid target_home
+
+  current_uid=$(id -u) || return 1
+  target_uid="$current_uid"
+  target_name=$(id -un) || return 1
+  if [[ "$current_uid" -eq 0 && -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    case "${SUDO_UID:-}" in
+      ""|*[!0-9]*|0)
+        print_error "Could not determine the invoking user's UID for systemd cleanup."
+        return 1
+        ;;
+    esac
+    target_uid="$SUDO_UID"
+    target_name="$SUDO_USER"
+    if [[ "$(id -u "$target_name" 2>/dev/null || true)" != "$target_uid" ]]; then
+      print_error "The invoking user's name and UID do not identify the same account."
+      return 1
+    fi
+  fi
+
+  if command -v getent &>/dev/null; then
+    passwd_entry=$(getent passwd "$target_uid" 2>/dev/null || true)
+  else
+    passwd_entry=""
+  fi
+  if [[ -n "$passwd_entry" ]]; then
+    IFS=: read -r passwd_name _ passwd_uid _ _ target_home _ <<< "$passwd_entry"
+    if [[ "$passwd_name" != "$target_name" || "$passwd_uid" != "$target_uid" ]]; then
+      print_error "Could not validate the invoking user's account for systemd cleanup."
+      return 1
+    fi
+  elif [[ "$target_uid" == "$current_uid" && -n "${HOME:-}" ]]; then
+    target_home="$HOME"
+  else
+    print_error "Could not resolve the invoking user's home for systemd cleanup."
+    return 1
+  fi
+  if [[ -z "$target_home" || "$target_home" == / || ! -d "$target_home" ]]; then
+    print_error "The invoking user's home is unavailable for systemd cleanup: $target_home"
+    return 1
+  fi
+  if [[ "$target_uid" != "$current_uid" ]] && ! command -v sudo &>/dev/null; then
+    print_error "sudo is required to clean up the invoking user's systemd units."
+    return 1
+  fi
+
+  USER_SYSTEMD_UID="$target_uid"
+  USER_SYSTEMD_NAME="$target_name"
+  USER_SYSTEMD_HOME="$target_home"
+}
+
+user_systemctl() {
+  if [[ "$USER_SYSTEMD_UID" == "$(id -u)" ]]; then
+    HOME="$USER_SYSTEMD_HOME" \
+      XDG_RUNTIME_DIR="/run/user/$USER_SYSTEMD_UID" \
+      systemctl --user "$@"
+    return
+  fi
+  sudo -n -u "$USER_SYSTEMD_NAME" env \
+    "HOME=$USER_SYSTEMD_HOME" \
+    "XDG_RUNTIME_DIR=/run/user/$USER_SYSTEMD_UID" \
+    systemctl --user "$@"
+}
+
 remove_systemd_units() {
   if ! command -v systemctl &>/dev/null; then
     print_success "systemctl not found, skipping systemd cleanup."
     return
   fi
+  if [[ -z "$USER_SYSTEMD_UID" ]] && ! resolve_user_systemd_context; then
+    return 1
+  fi
 
-  local units
-  units="$(systemctl --user list-unit-files --type=service --no-legend 2>/dev/null \
-    | awk '{print $1}' \
-    | grep -E '^(protofleet|proto-fleet|fleet).*\.service$' || true)"
+  local unit_files="" units="" systemd_cleanup_complete=true
+  if unit_files="$(user_systemctl list-unit-files \
+      --type=service --no-legend 2>/dev/null)"; then
+    units="$(printf '%s\n' "$unit_files" \
+      | awk '{print $1}' \
+      | grep -E '^(protofleet|proto-fleet|fleet).*\.service$' || true)"
+  else
+    systemd_cleanup_complete=false
+  fi
 
   if [[ -n "$units" ]]; then
     while IFS= read -r unit; do
       [[ -z "$unit" ]] && continue
-      systemctl --user disable --now "$unit" 2>/dev/null || true
+      user_systemctl disable --now "$unit" 2>/dev/null \
+        || systemd_cleanup_complete=false
     done <<< "$units"
   fi
 
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user reset-failed 2>/dev/null || true
+  if ! rm -f \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/protofleet*.service \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/proto-fleet*.service \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/fleet*.service 2>/dev/null; then
+    print_error "Could not remove systemd units from $USER_SYSTEMD_HOME."
+    return 1
+  fi
+  user_systemctl daemon-reload 2>/dev/null || systemd_cleanup_complete=false
+  user_systemctl reset-failed 2>/dev/null || systemd_cleanup_complete=false
 
-  rm -f ~/.config/systemd/user/protofleet*.service \
-        ~/.config/systemd/user/proto-fleet*.service \
-        ~/.config/systemd/user/fleet*.service 2>/dev/null || true
+  if $systemd_cleanup_complete; then
+    print_success "Systemd user units cleaned up for $USER_SYSTEMD_NAME."
+  else
+    print_warn "Unit files were removed, but $USER_SYSTEMD_NAME's systemd manager could not be fully reconciled."
+  fi
+}
 
-  print_success "Systemd user units cleaned up."
+host_updater_binary_artifact_paths() {
+  local binary_path suffix
+  for binary_path in "${HOST_UPDATER_BINARY_PATHS[@]}"; do
+    printf '%s\n' "$binary_path"
+    for suffix in "${HOST_UPDATER_SELF_UPDATE_SUFFIXES[@]}"; do
+      printf '%s%s\n' "$binary_path" "$suffix"
+    done
+  done
+}
+
+host_updater_binary_artifacts_present() {
+  local path
+  while IFS= read -r path; do
+    [[ -e "$path" || -L "$path" ]] && return 0
+  done < <(host_updater_binary_artifact_paths)
+  return 1
+}
+
+remove_host_updater_binary_artifacts_with() {
+  local privilege=("$@")
+  local path
+  local artifacts=()
+  while IFS= read -r path; do
+    artifacts+=("$path")
+  done < <(host_updater_binary_artifact_paths)
+
+  ${privilege[@]+"${privilege[@]}"} rm -f -- "${artifacts[@]}"
+}
+
+parse_host_updater_install_root() {
+  local contents="$1"
+  local key_re='^[[:space:]]*PROTO_FLEET_INSTALL_ROOT[[:space:]]*='
+  local assignment_re='^PROTO_FLEET_INSTALL_ROOT="(([^"\\]|\\["\\])*)"$'
+  local line encoded decoded char
+  local found=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ $key_re ]] || continue
+    [[ "$found" -eq 0 ]] || return 1
+    [[ "$line" =~ $assignment_re ]] || return 1
+    encoded="${BASH_REMATCH[1]}"
+    decoded=""
+    while [[ -n "$encoded" ]]; do
+      char="${encoded:0:1}"
+      encoded="${encoded:1}"
+      if [[ "$char" == '\' ]]; then
+        [[ -n "$encoded" ]] || return 1
+        char="${encoded:0:1}"
+        encoded="${encoded:1}"
+        [[ "$char" == '\' || "$char" == '"' ]] || return 1
+      fi
+      decoded="${decoded}${char}"
+    done
+    [[ -n "$decoded" ]] || return 1
+    found=1
+  done <<< "$contents"
+
+  [[ "$found" -eq 1 ]] || return 1
+  printf '%s\n' "$decoded"
+}
+
+read_host_updater_install_root_with() {
+  local privilege=("$@")
+  local contents
+  if ! contents="$(${privilege[@]+"${privilege[@]}"} \
+      cat -- "$HOST_UPDATER_ENV_PATH" 2>/dev/null)"; then
+    return 1
+  fi
+  parse_host_updater_install_root "$contents"
+}
+
+verify_host_updater_ownership_with() {
+  local privilege=("$@")
+  local configured_root configured_resolved selected_resolved
+  if ! configured_root="$(read_host_updater_install_root_with \
+      ${privilege[@]+"${privilege[@]}"})"; then
+    print_error "Could not read a valid updater install root from $HOST_UPDATER_ENV_PATH."
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if ! configured_resolved="$(canonicalize_existing_dir "$configured_root")"; then
+    print_error "The updater install root cannot be resolved: $configured_root"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if ! selected_resolved="$(canonicalize_existing_dir "$INSTALL_ROOT")"; then
+    print_error "The selected install root cannot be resolved: $INSTALL_ROOT"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if [[ "${configured_resolved%/}" != "${selected_resolved%/}" ]]; then
+    print_error "The host updater belongs to a different Proto Fleet installation."
+    print_error "  Updater install root: $configured_resolved"
+    print_error "  Selected install root: $selected_resolved"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+}
+
+host_updater_staging_artifacts_present() {
+  local path name
+  [[ -n "$INSTALL_ROOT" ]] || return 1
+  for path in "${INSTALL_ROOT%/}"/.proto-fleet-upgrade-*; do
+    [[ -e "$path" || -L "$path" ]] || continue
+    name="${path##*/}"
+    [[ "$name" =~ $HOST_UPDATER_STAGING_NAME_RE ]] && return 0
+  done
+  return 1
+}
+
+host_updater_artifacts_present() {
+  local path load_state
+  host_updater_binary_artifacts_present && return 0
+  for path in \
+    /etc/systemd/system/proto-fleet-updater.service \
+    "$HOST_UPDATER_ENV_PATH" \
+    "$HOST_UPDATER_STATE_DIR" \
+    "$HOST_UPDATER_RUNTIME_DIR"; do
+    [[ -e "$path" || -L "$path" ]] && return 0
+  done
+  host_updater_staging_artifacts_present && return 0
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
+    if ! load_state="$(systemctl show --property=LoadState --value \
+      proto-fleet-updater.service 2>/dev/null)"; then
+      return 2
+    fi
+    [[ "$load_state" != "not-found" ]] && return 0
+  fi
+  return 1
+}
+
+verify_host_updater_process_lock_free_with() {
+  local privilege=("$@")
+
+  if ! validate_host_updater_process_lock_prerequisites_with \
+      ${privilege[@]+"${privilege[@]}"}; then
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_LOCK_PATH" \
+    && ! ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH"; then
+    return 0
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} flock -n \
+      "$HOST_UPDATER_LOCK_PATH" true; then
+    print_error "The host updater still holds its lifetime lock; no files were removed."
+    return 1
+  fi
+}
+
+validate_host_updater_process_lock_prerequisites_with() {
+  local privilege=("$@")
+
+  if ! ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_LOCK_PATH" \
+    && ! ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH"; then
+    return 0
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH" \
+    || ! ${privilege[@]+"${privilege[@]}"} test -f "$HOST_UPDATER_LOCK_PATH"; then
+    print_error "The updater lifetime lock is not a regular, non-symlink file; no files were removed."
+    return 1
+  fi
+  if ! command -v flock &>/dev/null; then
+    print_error "Cannot verify the updater lifetime lock because flock is unavailable; no files were removed."
+    return 1
+  fi
+}
+
+restore_host_updater_service_if_needed() {
+  [[ "$HOST_UPDATER_RESTORE_PENDING" == true ]] || return 0
+  [[ "$HOST_UPDATER_REMOVAL_STARTED" != true ]] || return 0
+
+  local status=0
+  case "$HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE" in
+    enabled)
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable proto-fleet-updater.service || status=1
+      ;;
+    enabled-runtime)
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable --runtime proto-fleet-updater.service || status=1
+      ;;
+  esac
+  if [[ "$HOST_UPDATER_ORIGINAL_ACTIVE" == true ]]; then
+    ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl start proto-fleet-updater.service || status=1
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    print_error "Could not restore the host updater after uninstall aborted; manual systemd recovery may be required."
+    return 1
+  fi
+  HOST_UPDATER_RESTORE_PENDING=false
+}
+
+uninstall_exit_cleanup() {
+  local run_status=$?
+  local status="$run_status"
+  trap - EXIT HUP INT TERM
+  if ! restore_host_updater_service_if_needed; then
+    status=1
+  fi
+  exit "$status"
+}
+
+# Acquire all privilege and stop the updater before Docker or deployment
+# teardown begins. A failed stop can mean an activation is still replacing
+# this deployment, so continuing would race the privileged updater.
+prepare_host_updater_removal() {
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_RESTORE_PENDING=false
+  HOST_UPDATER_REMOVAL_STARTED=false
+  HOST_UPDATER_ORIGINAL_ACTIVE=false
+  HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=disabled
+  local artifact_status
+  if host_updater_artifacts_present; then
+    :
+  else
+    artifact_status=$?
+    if [[ "$artifact_status" -eq 2 ]]; then
+      print_error "Could not inspect the host updater service; no Docker or deployment files were removed."
+      return 1
+    fi
+    return 0
+  fi
+  HOST_UPDATER_PRESENT=true
+
+  if [[ "$(id -u)" -ne 0 ]]; then
+    # Use one privilege boundary for the complete destructive workflow.
+    print_error "The host updater is installed; re-run the complete uninstaller as root (flags preserved):"
+    echo ""
+    echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
+    echo ""
+    return 1
+  fi
+
+  if ! verify_host_updater_ownership_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
+  # Validate the lock path and flock availability before changing systemd.
+  # The lock cannot be required to be free until the updater has stopped.
+  if ! validate_host_updater_process_lock_prerequisites_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
+
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
+    local load_state active_state unit_file_state=disabled
+    if ! load_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl show --property=LoadState --value proto-fleet-updater.service 2>/dev/null)"; then
+      print_error "Could not inspect the host updater service; no Docker or deployment files were removed."
+      return 1
+    fi
+    if [[ -z "$load_state" ]]; then
+      print_error "Host updater service inspection returned no state; no Docker or deployment files were removed."
+      return 1
+    fi
+    if ! active_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl show --property=ActiveState --value proto-fleet-updater.service 2>/dev/null)"; then
+      print_error "Could not inspect the host updater process; no Docker or deployment files were removed."
+      return 1
+    fi
+    if [[ "$load_state" != "not-found" ]]; then
+      if ! unit_file_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=UnitFileState --value proto-fleet-updater.service 2>/dev/null)"; then
+        print_error "Could not inspect whether the host updater is enabled; no Docker or deployment files were removed."
+        return 1
+      fi
+      case "$unit_file_state" in
+        enabled|enabled-runtime|disabled) ;;
+        *)
+          print_error "The host updater has an unsupported unit-file state '$unit_file_state'; no Docker or deployment files were removed."
+          return 1
+          ;;
+      esac
+    fi
+    HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE="$unit_file_state"
+    case "$active_state" in
+      inactive|failed) ;;
+      active|activating|reloading|deactivating)
+        HOST_UPDATER_ORIGINAL_ACTIVE=true
+        HOST_UPDATER_RESTORE_PENDING=true
+        if ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+          systemctl stop proto-fleet-updater.service; then
+          print_error "Could not stop the host updater; no Docker or deployment files were removed."
+          return 1
+        fi
+        ;;
+      *)
+        print_error "The host updater has an unexpected active state; no Docker or deployment files were removed."
+        return 1
+        ;;
+    esac
+    if [[ "$unit_file_state" == "enabled" || "$unit_file_state" == "enabled-runtime" ]]; then
+      HOST_UPDATER_RESTORE_PENDING=true
+    fi
+    if [[ "$load_state" != "not-found" ]] \
+      && ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl disable proto-fleet-updater.service; then
+      print_error "Could not disable the host updater; no Docker or deployment files were removed."
+      return 1
+    fi
+    if ! active_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl show --property=ActiveState --value proto-fleet-updater.service 2>/dev/null)"; then
+      print_error "Could not verify that the host updater stopped; no Docker or deployment files were removed."
+      return 1
+    fi
+    case "$active_state" in
+      inactive|failed) ;;
+      *)
+        print_error "The host updater is still active; no Docker or deployment files were removed."
+        return 1
+        ;;
+    esac
+  fi
+  if ! verify_host_updater_process_lock_free_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
+}
+
+remove_host_updater() {
+  if [[ "$HOST_UPDATER_PRESENT" != true ]]; then
+    print_success "Host updater is not installed; privileged cleanup skipped."
+    return 0
+  fi
+
+  local privilege=()
+  if (( ${#HOST_UPDATER_PRIVILEGE[@]} )); then
+    privilege=("${HOST_UPDATER_PRIVILEGE[@]}")
+  fi
+  # Past this point privileged artifacts may be partially removed, so
+  # restarting the old service is no longer safe or reliably possible.
+  HOST_UPDATER_REMOVAL_STARTED=true
+  HOST_UPDATER_RESTORE_PENDING=false
+  if ! remove_host_updater_binary_artifacts_with ${privilege[@]+"${privilege[@]}"}; then
+    print_error "Could not remove host updater binaries; deployment removal was aborted."
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} rm -f -- \
+    /etc/systemd/system/proto-fleet-updater.service; then
+    print_error "Could not remove the host updater unit; deployment removal was aborted."
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} rm -rf \
+    "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_RUNTIME_DIR"; then
+    print_error "Could not remove host updater state; deployment removal was aborted."
+    return 1
+  fi
+
+  # The privileged updater stages extracted releases as exact, hash-suffixed
+  # siblings of deployment/. Remove only that closed naming contract; leave
+  # operator-created files and lookalikes untouched.
+  local staging_path staging_name
+  for staging_path in "${INSTALL_ROOT%/}"/.proto-fleet-upgrade-*; do
+    [[ -e "$staging_path" || -L "$staging_path" ]] || continue
+    staging_name="${staging_path##*/}"
+    [[ "$staging_name" =~ $HOST_UPDATER_STAGING_NAME_RE ]] || continue
+    if ! ${privilege[@]+"${privilege[@]}"} rm -rf -- "$staging_path"; then
+      print_error "Could not remove host updater staging directory: $staging_path"
+      return 1
+    fi
+  done
+  if host_updater_staging_artifacts_present; then
+    print_error "Host updater staging directories remain after cleanup."
+    return 1
+  fi
+
+  ${privilege[@]+"${privilege[@]}"} rmdir /usr/local/libexec/proto-fleet 2>/dev/null || true
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
+    if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload; then
+      print_error "Could not finalize host updater removal; deployment removal was aborted."
+      return 1
+    fi
+  fi
+
+  local path
+  while IFS= read -r path; do
+    if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
+      || ${privilege[@]+"${privilege[@]}"} test -L "$path"; then
+      print_error "Host updater artifact remains after cleanup: $path"
+      return 1
+    fi
+  done < <(host_updater_binary_artifact_paths)
+  for path in \
+    /etc/systemd/system/proto-fleet-updater.service \
+    "$HOST_UPDATER_STATE_DIR" \
+    "$HOST_UPDATER_RUNTIME_DIR"; do
+    if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
+      || ${privilege[@]+"${privilege[@]}"} test -L "$path"; then
+      print_error "Host updater artifact remains after cleanup: $path"
+      return 1
+    fi
+  done
+
+  # Keep ownership proof until all other privileged cleanup succeeds.
+  if ! ${privilege[@]+"${privilege[@]}"} rm -f -- "$HOST_UPDATER_ENV_PATH"; then
+    print_error "Could not remove the host updater ownership configuration; deployment removal was aborted."
+    return 1
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_ENV_PATH" \
+    || ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_ENV_PATH"; then
+    print_error "Host updater ownership configuration remains after cleanup: $HOST_UPDATER_ENV_PATH"
+    return 1
+  fi
+  ${privilege[@]+"${privilege[@]}"} rmdir /etc/proto-fleet 2>/dev/null || true
+  print_success "Host updater service and state removed."
 }
 
 remove_deployment_files() {
@@ -465,6 +981,13 @@ remove_deployment_files() {
     print_success "Deployment directory removed: $DEPLOYMENT_PATH"
   else
     print_warn "Deployment directory not found: $DEPLOYMENT_PATH"
+  fi
+
+  # Remove the updater's one exact recovery deployment without a glob.
+  local previous_deployment="${INSTALL_ROOT%/}/deployment.previous"
+  if [[ -d "$previous_deployment" ]]; then
+    rm -rf "$previous_deployment"
+    print_success "Previous deployment backup removed: $previous_deployment"
   fi
 
   # Remove install root if it's now empty
@@ -501,6 +1024,7 @@ echo "  - Docker containers (Proto Fleet services)"
 echo "  - Docker images used by Proto Fleet"
 echo "  - Docker volumes (ALL Proto Fleet data)"
 echo "  - systemd user unit files matching protofleet/proto-fleet/fleet*.service"
+echo "  - Proto Fleet host updater service, logs, and state"
 echo "  - Deployment directory: $DEPLOYMENT_PATH"
 echo ""
 
@@ -513,8 +1037,17 @@ if ! $DRY_RUN; then
     echo "Uninstall canceled."
     exit 0
   fi
+  trap uninstall_exit_cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if command -v systemctl &>/dev/null; then
+    resolve_user_systemd_context || exit 1
+  fi
+  prepare_host_updater_removal || exit 1
 fi
 
+run_action "Removing Proto Fleet host updater..." remove_host_updater
 run_action "Tearing down Proto Fleet Docker stack (containers/images/volumes)..." teardown_docker_stack
 run_action "Removing Proto Fleet systemd units..." remove_systemd_units
 run_action "Removing Proto Fleet deployment files..." remove_deployment_files

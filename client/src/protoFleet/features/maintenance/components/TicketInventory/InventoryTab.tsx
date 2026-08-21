@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
+import { mockInventoryParts } from "../../mockData";
 import AdjustPartModal from "./AdjustPartModal";
 import ImportCsvModal from "./ImportCsvModal";
-import { mockInventoryParts } from "../../mockData";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import type { ButtonFilterItem, DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
+import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 
 type InventoryColumns = "name" | "type" | "site" | "onHand" | "allocated" | "available" | "reorderPoint";
 
@@ -64,11 +64,7 @@ const InventoryTab = () => {
         component: (part) => {
           const available = part.onHand - part.allocated;
           const isLow = available <= part.reorderPoint;
-          return (
-            <span className={`text-300 ${isLow ? "text-text-critical font-medium" : ""}`}>
-              {available}
-            </span>
-          );
+          return <span className={`text-300 ${isLow ? "font-medium text-text-critical" : ""}`}>{available}</span>;
         },
         width: "w-20",
       },
@@ -121,7 +117,10 @@ const InventoryTab = () => {
       <div className="flex gap-4">
         <InsightCard label="Total on hand" value={String(parts.reduce((s, p) => s + p.onHand, 0))} />
         <InsightCard label="Allocated" value={String(parts.reduce((s, p) => s + p.allocated, 0))} />
-        <InsightCard label="Low stock" value={String(parts.filter((p) => p.onHand - p.allocated <= p.reorderPoint).length)} />
+        <InsightCard
+          label="Low stock"
+          value={String(parts.filter((p) => p.onHand - p.allocated <= p.reorderPoint).length)}
+        />
         <InsightCard label="Sites" value={String(new Set(parts.map((p) => p.siteName)).size)} />
       </div>
 
@@ -147,20 +146,17 @@ const InventoryTab = () => {
         }
       />
 
-      {adjustPart && (
+      {adjustPart ? (
         <AdjustPartModal
           part={adjustPart}
           onDismiss={() => setAdjustPart(null)}
           onSuccess={() => setAdjustPart(null)}
         />
-      )}
+      ) : null}
 
-      {showImport && (
-        <ImportCsvModal
-          onDismiss={() => setShowImport(false)}
-          onSuccess={() => setShowImport(false)}
-        />
-      )}
+      {showImport ? (
+        <ImportCsvModal onDismiss={() => setShowImport(false)} onSuccess={() => setShowImport(false)} />
+      ) : null}
     </div>
   );
 };

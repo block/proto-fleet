@@ -26,8 +26,8 @@ export const CreateNew = () => {
           action("onDismiss")();
           setShow(false);
         }}
-        onContinue={(formData) => {
-          action("onContinue")(formData);
+        onSubmit={(formData) => {
+          action("onSubmit")(formData);
           setShow(false);
         }}
       />

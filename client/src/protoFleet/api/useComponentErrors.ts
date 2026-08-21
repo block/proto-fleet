@@ -31,6 +31,10 @@ interface UseComponentErrorsReturn extends Partial<ComponentErrorCounts> {
 interface UseComponentErrorsOptions {
   /** Optional device identifiers to scope errors to specific devices (e.g., a group's members) */
   deviceIdentifiers?: string[];
+  /** Scope errors to specific sites (OR). Empty = all sites. Resolved to devices server-side. */
+  siteIds?: bigint[];
+  /** Include errors for devices with no site assignment. */
+  includeUnassigned?: boolean;
   /** Optional polling interval in milliseconds */
   pollIntervalMs?: number;
   /**
@@ -50,23 +54,26 @@ interface UseComponentErrorsOptions {
  */
 export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComponentErrorsReturn => {
   const deviceIdentifiers = options?.deviceIdentifiers;
+  const siteIds = options?.siteIds;
+  const includeUnassigned = options?.includeUnassigned ?? false;
   const enabled = options?.enabled ?? true;
   const isEmptyScope = deviceIdentifiers !== undefined && deviceIdentifiers.length === 0;
-  // Key the scope cache off enabled too so flipping enabled (e.g. scope
-  // becoming known after stats land) re-fetches.
+  // Key the scope cache off enabled and the site scope too, so changing the
+  // active site (or flipping enabled once scope is known) re-fetches.
+  const siteScopeKey = `${siteIds?.map(String).join(",") ?? ""}|${includeUnassigned}`;
   const deviceIdentifiersKey = enabled
-    ? deviceIdentifiers === undefined
-      ? "__undefined__"
-      : deviceIdentifiers.join(",")
+    ? `${deviceIdentifiers === undefined ? "__undefined__" : deviceIdentifiers.join(",")}#${siteScopeKey}`
     : "__disabled__";
 
   const authLoading = useFleetStore((state) => state.auth.authLoading);
   const { handleAuthErrors } = useAuthErrors();
 
-  // Ref so fetchComponentErrors reads latest deviceIdentifiers without needing it as a dependency
+  // Refs so fetchComponentErrors reads the latest scope without needing it as a dependency
   const deviceIdentifiersRef = useRef(deviceIdentifiers);
+  const siteScopeRef = useRef({ siteIds, includeUnassigned });
   useEffect(() => {
     deviceIdentifiersRef.current = deviceIdentifiers;
+    siteScopeRef.current = { siteIds, includeUnassigned };
   });
 
   // Local state for error counts
@@ -143,12 +150,15 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
 
     try {
       const currentDeviceIdentifiers = deviceIdentifiersRef.current;
+      const currentSiteScope = siteScopeRef.current;
       const request = create(QueryRequestSchema, {
         resultView: ResultView.COMPONENT,
         filter: {
           simple: {
             ...(currentDeviceIdentifiers &&
               currentDeviceIdentifiers.length > 0 && { deviceIdentifiers: currentDeviceIdentifiers }),
+            siteIds: currentSiteScope.siteIds ?? [],
+            includeUnassigned: currentSiteScope.includeUnassigned,
           },
           includeClosed: false,
         },

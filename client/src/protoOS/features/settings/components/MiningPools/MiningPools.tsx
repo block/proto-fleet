@@ -3,10 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { STATUS_MESSAGES } from "./constants";
+import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
 import { useCreatePools, useEditPool, usePoolsInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-
+import { apiPoolToPoolInfo } from "@/protoOS/api/poolAdapters";
 import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+
 import { Alert } from "@/shared/assets/icons";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, ToastStatusType } from "@/shared/features/toaster";
@@ -24,6 +27,7 @@ const SettingsMiningPools = () => {
   const toastId = useRef<number | null>(null);
   const skipSuccessToastRef = useRef(false);
 
+  const { isFleetHosted } = useMinerHosting();
   const { data: poolsInfo, pending: poolsInfoPending, error: poolsInfoError } = usePoolsInfo();
   const { createPools } = useCreatePools();
   const { editPool } = useEditPool();
@@ -31,16 +35,7 @@ const SettingsMiningPools = () => {
 
   useEffect(() => {
     if (poolsInfo?.length) {
-      const newPools = [...Array(3)].map((_, index) => {
-        const pool = poolsInfo?.[index];
-        return {
-          name: pool?.name || "",
-          url: pool?.url || "",
-          username: pool?.user || "",
-          password: "",
-          priority: pool?.priority || index,
-        };
-      });
+      const newPools = [...Array(3)].map((_, index) => apiPoolToPoolInfo(poolsInfo[index], index));
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local pools when upstream poolsInfo query resolves
       setPools(newPools);
       setPreviousPools(newPools);
@@ -59,7 +54,8 @@ const SettingsMiningPools = () => {
         current.name !== previous.name ||
         current.url !== previous.url ||
         current.username !== previous.username ||
-        current.password !== previous.password
+        current.password !== previous.password ||
+        current.v2_authority_pubkey !== previous.v2_authority_pubkey
       ) {
         changedIndex = i;
         changesCount++;
@@ -88,13 +84,7 @@ const SettingsMiningPools = () => {
       if (isValidPool(changedPool)) {
         editPool({
           poolId: changedPoolIndex,
-          poolInfo: {
-            name: changedPool.name,
-            url: changedPool.url,
-            username: changedPool.username,
-            password: changedPool.password,
-            priority: changedPool.priority,
-          },
+          poolInfo: changedPool,
           onSuccess: () => {
             setCreatePoolsError(undefined);
             setIsStalePools(true);
@@ -200,6 +190,14 @@ const SettingsMiningPools = () => {
     },
     [debouncedSubmitPools],
   );
+
+  // Fleet-hosted: pool writes are blocked at the proxy (edits go through Fleet's
+  // audited flow), so show the miner's current pools read-only rather than an
+  // editable form that would fail on save.
+  if (isFleetHosted) {
+    const fleetPoolsLoading = poolsInfoPending && !pools.some(isValidPool);
+    return <ReadOnlyMiningPools pools={pools} loading={fleetPoolsLoading} />;
+  }
 
   return (
     <MiningPools

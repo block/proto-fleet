@@ -9,12 +9,12 @@ import "time"
 type AdjustmentReason int16
 
 const (
-	AdjustmentReasonUnspecified       AdjustmentReason = 0
-	AdjustmentReasonReceivedShipment  AdjustmentReason = 1
-	AdjustmentReasonCycleCount        AdjustmentReason = 2
-	AdjustmentReasonDamagedScrapped   AdjustmentReason = 3
+	AdjustmentReasonUnspecified        AdjustmentReason = 0
+	AdjustmentReasonReceivedShipment   AdjustmentReason = 1
+	AdjustmentReasonCycleCount         AdjustmentReason = 2
+	AdjustmentReasonDamagedScrapped    AdjustmentReason = 3
 	AdjustmentReasonReturnedFromRepair AdjustmentReason = 4
-	AdjustmentReasonOther             AdjustmentReason = 5
+	AdjustmentReasonOther              AdjustmentReason = 5
 )
 
 // Valid reports whether the value matches one of the defined enum

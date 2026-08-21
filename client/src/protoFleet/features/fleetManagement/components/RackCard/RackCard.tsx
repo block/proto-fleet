@@ -19,6 +19,12 @@ interface RackCardProps {
   efficiency?: string;
   power?: string;
   temperature?: string;
+  /**
+   * Show the telemetry footer (hashrate / efficiency / power / temperature).
+   * Defaults to true for the full fleet card; the dashboard renders a
+   * simplified card without it.
+   */
+  showMetrics?: boolean;
   onClick?: () => void;
 }
 
@@ -34,6 +40,7 @@ const RackCard = ({
   efficiency,
   power,
   temperature,
+  showMetrics = true,
   onClick,
 }: RackCardProps) => {
   const isEmpty = !loading && (slots.length === 0 || slots.every((s) => s === "empty"));
@@ -105,14 +112,18 @@ const RackCard = ({
       </div>
 
       {/* Stats 2×2 grid */}
-      <div className="grid grid-cols-2 border-t border-border-5">
-        <span className="border-r border-b border-border-5 px-4 py-3.5 text-300 text-text-primary-70">
-          {hashrate ?? "—"}
-        </span>
-        <span className="border-b border-border-5 px-4 py-3.5 text-300 text-text-primary-70">{efficiency ?? "—"}</span>
-        <span className="border-r border-border-5 px-4 py-3.5 text-300 text-text-primary-70">{power ?? "—"}</span>
-        <span className="px-4 py-3.5 text-300 text-text-primary-70">{temperature ?? "—"}</span>
-      </div>
+      {showMetrics ? (
+        <div className="grid grid-cols-2 border-t border-border-5">
+          <span className="border-r border-b border-border-5 px-4 py-3.5 text-300 text-text-primary-70">
+            {hashrate ?? "—"}
+          </span>
+          <span className="border-b border-border-5 px-4 py-3.5 text-300 text-text-primary-70">
+            {efficiency ?? "—"}
+          </span>
+          <span className="border-r border-border-5 px-4 py-3.5 text-300 text-text-primary-70">{power ?? "—"}</span>
+          <span className="px-4 py-3.5 text-300 text-text-primary-70">{temperature ?? "—"}</span>
+        </div>
+      ) : null}
     </div>
   );
 };

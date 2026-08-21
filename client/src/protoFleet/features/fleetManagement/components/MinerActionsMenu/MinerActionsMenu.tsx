@@ -6,7 +6,7 @@ import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
-import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
+import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
 import MinerActionModalStack from "./MinerActionModalStack";
 import MinerReparentPicker from "./MinerReparentPicker";
 import { useMinerActions } from "./useMinerActions";
@@ -25,12 +25,27 @@ import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
+// Manage security's "all"-mode selector is a thin model/manufacturer/status
+// DeviceFilter that can't carry the rich MinerListFilter (MinerListFilter has no
+// manufacturer field), so under a scoped/filtered "select all" it would target
+// the whole model across the fleet. Disable it in that state until the filter is
+// threaded through. (Add to group is handled: it resolves the filter to an
+// explicit device list, like the rack/site/building reparent flow.)
+const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([settingsActions.security]);
+
 interface MinerActionsMenuProps {
   selectedMiners: string[];
   selectionMode: SelectionMode;
-  /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
+  /**
+   * Size of an "all"-mode selection — the scoped/filtered total when a filter is
+   * active, else the whole-fleet total. Drives confirmation-dialog counts.
+   */
   totalCount?: number;
-  /** Active UI filter — forwarded for "all" mode unpair */
+  /**
+   * Active scoped filter (URL chips ∩ SitePicker scope). In "all" mode, command
+   * dispatch, capability checks, and pool assignment target this set across
+   * pages; undefined means whole fleet.
+   */
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;
@@ -78,7 +93,7 @@ const MinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [bulkWorkerNameTarget, setBulkWorkerNameTarget] = useState<BulkWorkerNameTarget | null>(null);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
-  const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
+  const [reparentKind, setReparentKind] = useState<"rack" | "site" | "building" | null>(null);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
@@ -170,12 +185,19 @@ const MinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
-    // Inserted before addToGroup so the cluster reads site → rack → group.
+    // Inserted before addToGroup so the cluster reads site → building → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
       action: groupActions.addToRack,
       title: "Add to rack",
       icon: <Plus />,
       actionHandler: () => setReparentKind("rack"),
+      requiresConfirmation: false,
+    };
+    const addToBuildingAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToBuilding,
+      title: "Add to building",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("building"),
       requiresConfirmation: false,
     };
     const addToSiteAction: BulkAction<SupportedAction> = {
@@ -191,7 +213,8 @@ const MinerActionsMenu = ({
 
     const baseActions = actionsWithRenameBeforeGroup !== actions ? actionsWithRenameBeforeGroup : actions;
     const withAddToRack = insertActionBefore(baseActions, groupActions.addToGroup, addToRackAction);
-    const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
+    const withAddToBuilding = insertActionBefore(withAddToRack, groupActions.addToRack, addToBuildingAction);
+    const withAddToSite = insertActionBefore(withAddToBuilding, groupActions.addToBuilding, addToSiteAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
       return withAddToSite;
@@ -211,18 +234,42 @@ const MinerActionsMenu = ({
 
   const permittedActions = usePermittedActions(actionsWithBulkRename);
 
+  // A scoped/filtered "all" selection: currentFilter carries the URL chips ∩
+  // SitePicker scope, so its presence in "all" mode means the selection is a
+  // subset of the fleet.
+  const filteredAllModeActive = selectionMode === "all" && currentFilter !== undefined;
+
   const visibleActions = useMemo(() => {
-    if (!selectionIncludesUnauthenticatedMiner) return permittedActions;
-    return permittedActions.map((action) =>
-      action.action === deviceActions.unpair
-        ? action
-        : {
-            ...action,
-            disabled: true,
-            disabledReason: "Selection includes miners that need authentication.",
-          },
-    );
-  }, [permittedActions, selectionIncludesUnauthenticatedMiner]);
+    let result = permittedActions;
+    // Add to group (device_set selector's all-devices is a plain flag) and
+    // Manage security (thin model/status filter) can't yet carry the rich
+    // filter, so under a scoped/filtered "select all" they would expand to the
+    // whole fleet. Disable them until the rich filter is threaded through those
+    // paths; individual selection still works.
+    if (filteredAllModeActive) {
+      result = result.map((action) =>
+        FILTER_UNSUPPORTED_ALL_MODE_ACTIONS.has(action.action)
+          ? {
+              ...action,
+              disabled: true,
+              disabledReason: "Not yet available for a filtered Select all. Select miners individually.",
+            }
+          : action,
+      );
+    }
+    if (selectionIncludesUnauthenticatedMiner) {
+      result = result.map((action) =>
+        action.action === deviceActions.unpair
+          ? action
+          : {
+              ...action,
+              disabled: true,
+              disabledReason: "Selection includes miners that need authentication.",
+            },
+      );
+    }
+    return result;
+  }, [permittedActions, selectionIncludesUnauthenticatedMiner, filteredAllModeActive]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
@@ -236,7 +283,8 @@ const MinerActionsMenu = ({
     const quickActionOrder: SupportedAction[] = [
       deviceActions.blinkLEDs,
       deviceActions.reboot,
-      performanceActions.managePower,
+      deviceActions.shutdown,
+      deviceActions.wakeUp,
     ];
     const actionMap = new Map(visibleActions.map((action) => [action.action, action]));
 
@@ -281,11 +329,12 @@ const MinerActionsMenu = ({
                 })
               : null
           }
-          renderPopover={(beforeEach) => (
+          renderPopover={(beforeEach, closePopover) => (
             <BulkActionsPopover<SupportedAction>
               actions={visibleActions}
               beforeEach={beforeEach}
               testId="actions-menu-popover"
+              closePopover={closePopover}
             />
           )}
           testId="actions-menu"
@@ -297,7 +346,12 @@ const MinerActionsMenu = ({
       <PoolSelectionPageWrapper
         open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
-        selectionMode={selectionMode}
+        // Once capability filtering narrows to explicit supported ids, dispatch
+        // to exactly those (subset) rather than re-expanding via the selector.
+        selectionMode={poolFilteredDeviceIds ? "subset" : selectionMode}
+        // Scoped/filtered "all" pool assignment resolves the set server-side
+        // (all_matching_filter); only when not already narrowed to explicit ids.
+        minerListFilter={selectionMode === "all" && !poolFilteredDeviceIds ? currentFilter : undefined}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
         userUsername={fleetCredentials?.username}
         userPassword={fleetCredentials?.password}
@@ -311,6 +365,7 @@ const MinerActionsMenu = ({
         selectedMinerIds={selectedMiners}
         selectionMode={selectionMode}
         displayCount={displayCount}
+        currentFilter={currentFilter}
       />
       {/* The second AuthenticateFleetModal is specific to the worker-name
           flow, which only this menu hosts — keep it inline. */}
@@ -367,9 +422,11 @@ const MinerActionsMenu = ({
               ? `${totalCount} ${totalCount === 1 ? "miner" : "miners"}`
               : `${selectedMiners.length} ${selectedMiners.length === 1 ? "miner" : "miners"}`
           }
-          successMessage={(count, target) =>
-            target === "site" ? `Moved ${count} miners to selected site.` : `Added ${count} miners to selected rack.`
-          }
+          successMessage={(count, target) => {
+            if (target === "site") return `Moved ${count} miners to selected site.`;
+            if (target === "building") return `Moved ${count} miners to selected building.`;
+            return `Added ${count} miners to selected rack.`;
+          }}
           onClose={() => setReparentKind(null)}
           onRefetchMiners={onRefetchMiners}
         />

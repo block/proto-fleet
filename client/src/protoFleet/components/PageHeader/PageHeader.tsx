@@ -1,135 +1,249 @@
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { type ReactElement, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
+import ActiveAlertsPill from "./ActiveAlertsPill";
 import CurtailmentPill from "./CurtailmentPill";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
-import LocationSelector from "./LocationSelector";
+import {
+  getPhoneHeaderWidgetRowCount,
+  getPhoneHeaderWidgetRowHeightClass,
+  getVisibleHeaderWidgetCount,
+  shouldInlineFirstPhoneHeaderWidget,
+  shouldStackPhoneHeaderWidgets,
+} from "./headerWidgetLayout";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
+import type { UseActiveAlertsPillDataResult } from "./useActiveAlertsPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
+import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
-import { Pause } from "@/shared/assets/icons";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+import { Menu } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
+  activeAlertsPillData?: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
+  updatePill?: UpdatePillData | null;
+}
+
+export interface UpdatePillData {
+  onClick: () => void;
+  version: string;
 }
 
 interface HeaderWidgetsProps {
+  activeAlertsPillData: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent: CurtailmentPillEvent | null;
+  align?: "start" | "end";
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
+  onSelectAlertGroup: (group: ActiveAlertGroup) => void;
   schedulePillData: UseSchedulePillDataResult;
+  stacked?: boolean;
+  testId?: string;
+  updatePill?: UpdatePillData | null;
+  widgets: HeaderWidgetKind[];
 }
 
 const headerWidgetEnabled = true;
+const noActiveAlerts: UseActiveAlertsPillDataResult = {
+  groups: [],
+  error: null,
+  hasMore: false,
+  hasVisiblePill: false,
+};
+type HeaderWidgetKind = "alerts" | "curtailment" | "schedule" | "update" | "setup";
 
 function HeaderWidgets({
+  activeAlertsPillData,
   activeCurtailmentEvent,
+  align = "start",
   canReadCurtailment,
   className,
   dismissedSetup,
   onContinueSetup,
+  onSelectAlertGroup,
   schedulePillData,
+  stacked = false,
+  testId,
+  updatePill,
+  widgets,
 }: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
+  const alignEnd = align === "end";
+  const storedActiveSite = useFleetStore((state) => state.ui.activeSite);
+  const routeScope = useRouteSiteScope();
+  const energyPath = scopedPath("/energy", routeScope ?? storedActiveSite);
 
   return (
-    <div className={clsx("flex space-x-3", className)}>
-      {activeCurtailmentEvent && canReadCurtailment ? (
-        <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" />
-      ) : null}
-      {pillSchedule ? (
-        <SchedulePill
-          pillSchedule={pillSchedule}
-          sections={sections}
-          pendingScheduleId={pendingScheduleId}
-          onToggleScheduleStatus={onToggleScheduleStatus}
-        />
-      ) : null}
-      {dismissedSetup ? (
-        <Button variant={variants.secondary} size={sizes.compact} text="Continue setup" onClick={onContinueSetup} />
-      ) : null}
+    <div
+      className={clsx(
+        "flex",
+        stacked ? "flex-col gap-2" : "items-center gap-3",
+        alignEnd && !stacked && "justify-end",
+        stacked && (alignEnd ? "items-end" : "items-start"),
+        className,
+      )}
+      data-testid={testId}
+    >
+      {widgets.map((widget) => {
+        switch (widget) {
+          case "alerts":
+            return (
+              <ActiveAlertsPill
+                key={widget}
+                groups={activeAlertsPillData.groups}
+                error={activeAlertsPillData.error}
+                hasMore={activeAlertsPillData.hasMore}
+                onSelectGroup={onSelectAlertGroup}
+              />
+            );
+          case "curtailment":
+            return activeCurtailmentEvent && canReadCurtailment ? (
+              <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
+            ) : null;
+          case "schedule":
+            return pillSchedule ? (
+              <SchedulePill
+                key={widget}
+                pillSchedule={pillSchedule}
+                sections={sections}
+                pendingScheduleId={pendingScheduleId}
+                onToggleScheduleStatus={onToggleScheduleStatus}
+              />
+            ) : null;
+          case "update":
+            return updatePill ? (
+              <Button
+                key={widget}
+                ariaLabel={`Open update settings for ${updatePill.version}`}
+                className="max-w-full min-w-0 overflow-hidden"
+                prefixIcon={<span className="h-2.5 w-2.5 rounded-full bg-intent-info-fill" />}
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={updatePill.onClick}
+                testId="update-available-pill"
+              >
+                <span className="block min-w-0 truncate">Update available</span>
+              </Button>
+            ) : null;
+          case "setup":
+            return dismissedSetup ? (
+              <Button
+                key={widget}
+                className="max-w-full min-w-0 overflow-hidden"
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={onContinueSetup}
+              >
+                <span className="block min-w-0 truncate">Continue setup</span>
+              </Button>
+            ) : null;
+        }
+      })}
     </div>
   );
 }
 
 function PageHeader({
+  activeAlertsPillData = noActiveAlerts,
   activeCurtailmentEvent = null,
   isMenuOpen,
   openMenu,
   schedulePillData,
+  updatePill = null,
 }: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
+  // The Dashboard renders its own heading-style site selector, so the topbar
+  // picker is hidden there to avoid two selectors competing.
+  const { pathname } = useLocation();
+  const isDashboard = unscopedScopablePath(pathname) === "/dashboard";
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
+  // Owned here, not in the pill the header drops once the last alert resolves, so a drill-in survives that.
+  const [drilledInAlertGroup, setDrilledInAlertGroup] = useState<ActiveAlertGroup | null>(null);
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  // ListSites is server-gated on org-scoped site:read; without it we skip the
+  // fetch and hide the picker so non-site readers keep a clean header.
+  const canReadSites = useHasPermission("site:read");
 
-  // Multi-site: the SitePicker replaces today's LocationSelector when the
-  // feature flag is on. Sites are fetched once on mount and held here so the
-  // picker doesn't re-fire ListSites on every route change. `undefined`
-  // means "still loading" (the picker renders a skeleton); `[]` means "no
-  // sites" (the picker hides itself unless `sitesError` is non-null, in
-  // which case it shows the retry affordance).
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        setSites([]);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-
-  useEffect(() => {
-    if (!MULTI_SITE_ENABLED) return;
-    return fetchSites();
-  }, [fetchSites]);
+  // The site catalog is owned by the shell-level SitesProvider (one fetch +
+  // poll shared with the routed pages), so the picker just reads it here.
+  // `undefined` means "still loading" (the picker renders a skeleton); `[]`
+  // means "no sites" (the picker hides itself unless `sitesError` is non-null,
+  // in which case it shows the retry affordance).
+  const { sites, sitesError, refetchSites } = useSitesContext();
 
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
   };
 
   const headerWidgetsProps = {
+    activeAlertsPillData,
     activeCurtailmentEvent,
     canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
+    onSelectAlertGroup: setDrilledInAlertGroup,
     schedulePillData,
+    updatePill,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
-  const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasVisibleCurtailmentPill);
+  const hasVisibleUpdatePill = updatePill !== null;
+  // Alerts lead: only the first widget stays inline in the phone top bar, and a firing alert outranks the rest.
+  const headerWidgetKinds: HeaderWidgetKind[] = [
+    ...(activeAlertsPillData.hasVisiblePill ? (["alerts"] as const) : []),
+    ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
+    ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
+    ...(hasVisibleUpdatePill ? (["update"] as const) : []),
+    ...(hasDismissedSetup ? (["setup"] as const) : []),
+  ];
+  const headerWidgetCount = getVisibleHeaderWidgetCount({
+    hasDismissedSetup,
+    hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
+    hasVisibleUpdatePill,
+    hasVisibleCurtailmentPill,
+    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
+  });
+  const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
+  const phoneTopWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(0, 1) : [];
+  const phoneRowWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(1) : headerWidgetKinds;
+  const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
+  const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
+  const showPhoneWidgets = isPhone && phoneRowWidgetCount > 0;
 
   return (
     <>
       <div className="flex h-12 items-center laptop:h-15">
-        <div className="flex grow items-center px-4">
-          <div className="flex grow items-center">
+        <div
+          className={clsx(
+            "w-full px-4",
+            inlineFirstPhoneWidget
+              ? "grid grid-cols-[minmax(0,1fr)_minmax(0,min(15rem,45vw))] items-center gap-3"
+              : "flex grow items-center",
+          )}
+          data-testid="page-header-content"
+        >
+          <div
+            className={clsx("flex min-w-0 items-center", !inlineFirstPhoneWidget && "flex-1")}
+            data-testid="page-header-location-area"
+          >
             {isPhone || isTablet ? (
-              <Pause
+              <Menu
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"
                 className="mr-2 text-text-primary"
@@ -137,19 +251,46 @@ function PageHeader({
                 testId="navigation-menu-button"
               />
             ) : null}
-            {MULTI_SITE_ENABLED ? (
-              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
-            ) : (
-              <LocationSelector />
-            )}
+            <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
+              {isDashboard || !canReadSites ? null : (
+                <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} />
+              )}
+            </div>
           </div>
-          {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
+          {!isPhone && headerWidgetEnabled ? (
+            <HeaderWidgets testId="page-header-desktop-widgets" widgets={headerWidgetKinds} {...headerWidgetsProps} />
+          ) : null}
+          {inlineFirstPhoneWidget ? (
+            <HeaderWidgets
+              className="min-w-0 justify-end overflow-hidden"
+              testId="page-header-inline-widgets"
+              widgets={phoneTopWidgetKinds}
+              {...headerWidgetsProps}
+            />
+          ) : null}
         </div>
       </div>
       {showPhoneWidgets ? (
-        <div className={clsx("flex h-[57px] items-center", bgClass)}>
-          <HeaderWidgets className="ml-5" {...headerWidgetsProps} />
+        <div
+          className={clsx(
+            "flex items-start justify-end px-4",
+            getPhoneHeaderWidgetRowHeightClass(phoneRowWidgetCount, stackPhoneWidgets),
+            bgClass,
+          )}
+          data-testid="phone-header-widget-row"
+        >
+          <HeaderWidgets
+            align="end"
+            stacked={stackPhoneWidgets}
+            testId="page-header-mobile-widgets"
+            widgets={phoneRowWidgetKinds}
+            {...headerWidgetsProps}
+          />
         </div>
+      ) : null}
+
+      {drilledInAlertGroup ? (
+        <AlertInstancesModal group={drilledInAlertGroup} onClose={() => setDrilledInAlertGroup(null)} />
       ) : null}
     </>
   );

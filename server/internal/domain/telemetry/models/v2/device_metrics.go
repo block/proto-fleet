@@ -21,6 +21,10 @@ type DeviceMetrics struct {
 	Health       HealthStatus `json:"health"`
 	HealthReason *string      `json:"health_reason,omitempty"` // Human-readable reason for health status
 
+	// DefaultPasswordActive is non-nil only when determined: true = still on the
+	// factory password; nil = undetermined.
+	DefaultPasswordActive *bool `json:"default_password_active,omitempty"`
+
 	// Device-level metrics (aggregated from components)
 	HashrateHS   *MetricValue `json:"hashrate_hs,omitempty"`   // H/s - sum of all hashrates
 	TempC        *MetricValue `json:"temp_c,omitempty"`        // °C - max of all temps
