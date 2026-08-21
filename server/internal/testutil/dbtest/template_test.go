@@ -469,9 +469,19 @@ func TestEvictTemplateSessionsSpareRebuildsButClearStrays(t *testing.T) {
 	var alive int
 	assert.NoError(t, rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive))
 
-	// Unsealed: a build is in progress, so nothing may be evicted.
+	// Hold the preparation lock, as a real builder does: unsealed *plus* the
+	// lock is what distinguishes a live build from an abandoned one.
+	lockConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer lockConn.Close()
+	_, err = lockConn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", templateLockKey(name))
+	assert.NoError(t, err)
+	defer func() {
+		_, _ = lockConn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", templateLockKey(name))
+	}()
+
 	assert.True(t, templateRebuildInProgress(ctx, adminConfig, name),
-		"an unsealed template should read as a rebuild in progress")
+		"unsealed while the preparation lock is held should read as a build in progress")
 	evictTemplateSessions(ctx, adminConfig, name)
 
 	assert.NoError(t, rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive),
@@ -483,6 +493,8 @@ func TestEvictTemplateSessionsSpareRebuildsButClearStrays(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, templateRebuildInProgress(ctx, adminConfig, name),
 		"a sealed template is not being rebuilt")
+	assert.Equal(t, templateStatePublished, inspectTemplateBuildState(ctx, adminConfig, name),
+		"a sealed template is published")
 
 	evictTemplateSessions(ctx, adminConfig, name)
 
@@ -531,4 +543,155 @@ func TestIsTemplatePermissionError(t *testing.T) {
 	// Must not be swallowed by the generic retry path: retrying cannot grant
 	// permissions, so it needs the fallback instead.
 	assert.False(t, isRetryableCreateError(denied))
+}
+
+// TestCreateTestDatabaseRebuildsAbandonedTemplate covers a template left
+// connectable by a build that died: nobody holds its preparation lock, so there
+// is nothing to wait for. The clone must diagnose that and move on rather than
+// spending its wait budget on a build that will never finish.
+//
+// It plants a private abandoned template rather than sabotaging the live one,
+// which other packages and checkouts are cloning concurrently.
+func TestCreateTestDatabaseRebuildsAbandonedTemplate(t *testing.T) {
+	const abandoned = "fleet_test_tmpl_eeeeeeeeeeee"
+
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	// An interrupted build: the template exists, is unsealed, and has a session
+	// on it, but nobody holds its preparation lock.
+	_, _ = adminDB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(abandoned))
+	_, err = adminDB.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(abandoned))
+	assert.NoError(t, err)
+
+	strandedConfig := *adminConfig
+	strandedConfig.Name = abandoned
+	strandedDB, err := db.ConnectToDatabase(&strandedConfig)
+	assert.NoError(t, err)
+	defer strandedDB.Close()
+	var alive int
+	assert.NoError(t, strandedDB.QueryRowContext(ctx, "SELECT 1").Scan(&alive))
+
+	assert.Equal(t, templateStateAbandoned, inspectTemplateBuildState(ctx, adminConfig, abandoned),
+		"unsealed with nobody holding its preparation lock is abandoned, not building")
+
+	dbName := generateTestDBName(t.Name())
+	t.Cleanup(func() {
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		cleanupDB, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err)
+		defer cleanupDB.Close()
+		for _, name := range []string{dbName, abandoned} {
+			_, err := cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+			assert.NoError(t, err, "dropping %s", name)
+		}
+	})
+
+	// Cloning from the abandoned template fails; recovery must replace it and
+	// still produce the database, promptly.
+	start := time.Now()
+	used := createTestDatabase(t, adminConfig, dbName, abandoned)
+	elapsed := time.Since(start)
+
+	assert.NotEqual(t, abandoned, used, "an abandoned template should have been replaced")
+	assert.True(t, elapsed < templateRebuildWaitTimeout,
+		"should not have waited out the rebuild budget (%s) for an abandoned template, took %s",
+		templateRebuildWaitTimeout, elapsed)
+
+	adminConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer adminConn.Close()
+	assert.True(t, databaseExists(t, adminConn, dbName),
+		"the test database should have been created despite the abandoned template")
+}
+
+// TestRecoveryBudgetIsSeparateFromRetryBudget pins the invariant behind
+// recoveries not consuming DDL retries: a recovery on the last retry must still
+// get an attempt with the configuration it repaired.
+func TestRecoveryBudgetIsSeparateFromRetryBudget(t *testing.T) {
+	assert.True(t, templateRecoveryMaxAttempts > 0,
+		"recoveries need their own budget, or a recovery on the final retry never gets tried")
+
+	// Worst case must stay well inside Go's default 10m package timeout: every
+	// recovery may wait, but all waits share one deadline.
+	worstCase := templateRebuildWaitTimeout +
+		time.Duration(migrationMaxRetries*migrationMaxRetries)*migrationRetryBaseDelay
+	assert.True(t, worstCase < 5*time.Minute,
+		"worst-case create budget %s leaves too little of the package timeout", worstCase)
+}
+
+// TestInspectTemplateBuildStateDistinguishesAbandonedFromBuilding is the
+// distinction the recovery path turns on: an unsealed template is only worth
+// waiting for while somebody holds the preparation lock.
+func TestInspectTemplateBuildStateDistinguishesAbandonedFromBuilding(t *testing.T) {
+	const name = "fleet_test_tmpl_dddddddddddd"
+
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	_, _ = adminDB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+	_, err = adminDB.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name))
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		cleanupDB, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err)
+		defer cleanupDB.Close()
+		_, err = cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+		assert.NoError(t, err)
+	})
+
+	// Unsealed, nobody holding the lock: an interrupted build.
+	assert.Equal(t, templateStateAbandoned, inspectTemplateBuildState(ctx, adminConfig, name))
+
+	lockConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer lockConn.Close()
+	_, err = lockConn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", templateLockKey(name))
+	assert.NoError(t, err)
+
+	// Unsealed while the lock is held: a live build.
+	assert.Equal(t, templateStateBuilding, inspectTemplateBuildState(ctx, adminConfig, name))
+
+	_, err = lockConn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", templateLockKey(name))
+	assert.NoError(t, err)
+	assert.Equal(t, templateStateAbandoned, inspectTemplateBuildState(ctx, adminConfig, name))
+
+	// Sealed: published, regardless of the lock.
+	_, err = adminDB.ExecContext(ctx, "ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS false")
+	assert.NoError(t, err)
+	assert.Equal(t, templateStatePublished, inspectTemplateBuildState(ctx, adminConfig, name))
+	_, err = adminDB.ExecContext(ctx, "ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS true")
+	assert.NoError(t, err)
+
+	assert.Equal(t, templateStatePublished, inspectTemplateBuildState(ctx, adminConfig, ""),
+		"no template means nothing in the way")
+}
+
+// TestTemplateLockKeyIsPerTemplate pins that build detection is specific to one
+// template: with a single global key, a process building template A would make
+// an abandoned template B look like it was under construction, and clones of B
+// would wait instead of rebuilding it.
+func TestTemplateLockKeyIsPerTemplate(t *testing.T) {
+	a := templateLockKey("fleet_test_tmpl_aaaaaaaaaaaa")
+	b := templateLockKey("fleet_test_tmpl_bbbbbbbbbbbb")
+
+	assert.NotEqual(t, a, b, "different templates must not share a preparation lock")
+	assert.Equal(t, a, templateLockKey("fleet_test_tmpl_aaaaaaaaaaaa"), "keys must be stable")
+
+	// The pg_locks reconstruction ((classid << 32) | objid) yields a positive
+	// bigint, so the key must never be negative.
+	for _, key := range []int64{a, b, templateLockKey(""), templateLockKey(strings.Repeat("x", 200))} {
+		assert.True(t, key >= 0, "advisory lock key %d must be non-negative", key)
+	}
 }

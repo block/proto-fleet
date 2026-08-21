@@ -254,7 +254,21 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 	t.Helper()
 
 	var lastErr error
-	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+
+	// Two independent budgets. Retries hope a transient failure passes, so they
+	// are few. Recoveries *change the situation* — rebuild a swept template, give
+	// up on cloning, wait out somebody's build — and each one deserves a fresh
+	// attempt: charging them to the retry counter meant a recovery on the final
+	// attempt fell out of the loop and failed the test with the stale error,
+	// having never tried the configuration it just repaired.
+	attempts := 0
+	recoveries := 0
+
+	// One deadline for every rebuild wait belonging to this database, so repeated
+	// waits cannot accumulate into a stall that outlives the package timeout.
+	rebuildWaitDeadline := time.Now().Add(templateRebuildWaitTimeout)
+
+	for {
 		// Wait for the server before issuing admin DDL.
 		waitForServerReady(t.Context(), t, adminConfig)
 
@@ -263,50 +277,102 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 			return template
 		}
 
-		// The template vanished mid-run: another checkout on a different
-		// migration set swept it as stale. Rebuild it and try again rather than
-		// failing a test for someone else's cleanup.
-		if isMissingTemplateError(lastErr.Error(), template) {
-			t.Logf("template database %s disappeared, rebuilding: %v", template, lastErr)
-			invalidateTemplateDatabase(template)
-			template = templateDatabase(t, adminConfig)
-			continue
+		if recoveries < templateRecoveryMaxAttempts {
+			recovered, updatedTemplate := recoverTemplateForClone(
+				t, adminConfig, template, lastErr, rebuildWaitDeadline)
+			if recovered {
+				recoveries++
+				template = updatedTemplate
+				continue
+			}
 		}
 
-		// We are not allowed to copy this template — it belongs to another role
-		// and we are not a superuser. No amount of retrying changes that, so stop
-		// cloning for the rest of the process and migrate directly.
-		if isTemplatePermissionError(lastErr.Error(), template) {
-			t.Logf("not permitted to copy template database %s (%v); "+
-				"migrating test databases directly for the rest of this process", template, lastErr)
-			disableTemplateCloning()
-			template = ""
-			continue
-		}
-
-		if !isRetryableCreateError(lastErr.Error()) || attempt == migrationMaxRetries {
+		attempts++
+		if !isRetryableCreateError(lastErr.Error()) || attempts >= migrationMaxRetries {
 			break
 		}
 
-		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v",
+			attempts, migrationMaxRetries, lastErr)
 
-		// A clone is blocked by whatever is attached to the template. If that is
-		// a rebuild (the template is not sealed), wait for it to publish: killing
-		// it would abort legitimate work, and the retry budget here is far shorter
-		// than a migration run. Otherwise the session is a stray — a TimescaleDB
-		// worker that slipped in — and gets evicted.
-		if templateRebuildInProgress(t.Context(), adminConfig, template) {
-			t.Logf("template %s is being rebuilt by another process, waiting for it", template)
-			waitForTemplateRebuild(t.Context(), adminConfig, template)
-			continue
-		}
-
+		// Whatever is attached to the template is not a live build (that is a
+		// recovery case handled above), so it is a stray — a TimescaleDB worker
+		// that slipped in — and gets evicted.
 		evictTemplateSessions(t.Context(), adminConfig, template)
-		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
+		time.Sleep(time.Duration(attempts) * migrationRetryBaseDelay)
 	}
 
 	assert.NoError(t, lastErr, "error creating test database")
 	return template
+}
+
+// recoverTemplateForClone handles the clone failures that a changed template can
+// fix. It reports whether it did something, along with the template the next
+// attempt should use ("" meaning migrate directly).
+func recoverTemplateForClone(
+	t *testing.T,
+	adminConfig *db.Config,
+	template string,
+	createErr error,
+	rebuildWaitDeadline time.Time,
+) (bool, string) {
+	t.Helper()
+
+	msg := createErr.Error()
+
+	// The template vanished mid-run: another checkout on a different migration
+	// set swept it as stale. Rebuild it rather than failing a test for someone
+	// else's cleanup.
+	if isMissingTemplateError(msg, template) {
+		t.Logf("template database %s disappeared, rebuilding: %v", template, createErr)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+	}
+
+	// We are not allowed to copy this template — it belongs to another role and
+	// we are not a superuser. No amount of retrying changes that, so stop cloning
+	// for the rest of the process and migrate directly.
+	if isTemplatePermissionError(msg, template) {
+		t.Logf("not permitted to copy template database %s (%v); "+
+			"migrating test databases directly for the rest of this process", template, createErr)
+		disableTemplateCloning()
+		return true, ""
+	}
+
+	if !isRetryableCreateError(msg) || template == "" {
+		return false, template
+	}
+
+	switch inspectTemplateBuildState(t.Context(), adminConfig, template) {
+	case templateStateBuilding:
+		// Somebody holds the preparation lock and is migrating right now. Wait for
+		// them to publish: killing the build would abort legitimate work, and the
+		// retry budget is far shorter than a migration run.
+		if remaining := time.Until(rebuildWaitDeadline); remaining > 0 {
+			t.Logf("template %s is being rebuilt by another process, waiting up to %s", template, remaining)
+			waitForTemplateRebuild(t.Context(), adminConfig, template, rebuildWaitDeadline)
+			return true, template
+		}
+
+		// Waited as long as we are prepared to. Stop waiting and rebuild.
+		t.Logf("template %s still unpublished after %s, rebuilding it", template, templateRebuildWaitTimeout)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+
+	case templateStateAbandoned:
+		// Unsealed with nobody building it: a build died and left a partially
+		// migrated database that nothing will ever finish or clean up. Its stray
+		// session is not evictable either (eviction spares unsealed templates), so
+		// rebuilding is the only way forward — dropping it disconnects the session.
+		t.Logf("template %s was left unpublished by an interrupted build, rebuilding it", template)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+
+	case templateStatePublished:
+		return false, template
+	}
+
+	return false, template
 }
 
 // dropTestDatabase drops the test database at cleanup, waiting out and

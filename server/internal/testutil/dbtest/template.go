@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -39,10 +41,9 @@ const (
 	// migration sets can be identified and dropped.
 	templateDBPrefix = "fleet_test_tmpl_"
 
-	// templateAdvisoryLockKey is an arbitrary fixed key. Any process preparing a
-	// template database holds this session-level advisory lock, so concurrent
-	// test binaries build the template once rather than racing.
-	templateAdvisoryLockKey = int64(7264051893001)
+	// templateAdvisoryLockNamespace seeds the per-template advisory lock keys, so
+	// they cannot collide with advisory locks taken for other purposes.
+	templateAdvisoryLockNamespace = "dbtest-template-preparation:7264051893001"
 
 	// templateFingerprintLength is how much of the migration-set hash goes into
 	// the template name; 12 hex chars is collision-safe here and keeps the name
@@ -85,6 +86,12 @@ const (
 	// negligible amount of the speedup for bounded staleness.
 	templateMaxAge = 15 * time.Minute
 
+	// templateRebuildWaitTimeout is the total time one test database will wait
+	// for other processes' rebuilds of its template, shared across every wait so
+	// repeated waits cannot add up. It has to exceed a migration run, since that
+	// is what we are waiting for, while staying well inside the package timeout.
+	templateRebuildWaitTimeout = 90 * time.Second
+
 	// templateStaleAfter is how old a template must be before another run may
 	// sweep it. Cleanup is bounded by age (recorded in the database comment when
 	// the template is sealed) rather than "different fingerprint", so two
@@ -101,11 +108,15 @@ const (
 	templateDetachTimeout  = 30 * time.Second
 	templateDetachInterval = 100 * time.Millisecond
 
-	// templateRebuildWaitTimeout bounds how long a clone waits for somebody
-	// else's in-progress rebuild of the same template to publish. It has to
-	// exceed a full migration run, since that is what we are waiting for.
-	templateRebuildWaitTimeout  = 2 * time.Minute
+	// templateRebuildWaitInterval is the poll interval while waiting for
+	// somebody else's rebuild to publish.
 	templateRebuildWaitInterval = 100 * time.Millisecond
+
+	// templateRecoveryMaxAttempts bounds how many times one test database may
+	// repair its template situation (rebuild a swept template, wait out a live
+	// build, abandon cloning). Separate from the DDL retry budget: recoveries
+	// change the situation rather than retrying the same thing.
+	templateRecoveryMaxAttempts = 4
 )
 
 // templateNamePattern is the exact shape of a template database name. It gates
@@ -254,11 +265,12 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	}
 	defer adminConn.Close()
 
-	if _, err := adminConn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", templateAdvisoryLockKey); err != nil {
+	lockKey := templateLockKey(name)
+	if _, err := adminConn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
 		return fmt.Errorf("acquire template advisory lock: %w", err)
 	}
 	defer func() {
-		_, _ = adminConn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", templateAdvisoryLockKey)
+		_, _ = adminConn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", lockKey)
 	}()
 
 	reusable, err := templateIsReusable(ctx, adminConn, name)
@@ -541,35 +553,104 @@ func terminateTemplateBuildSessions(ctx context.Context, adminConfig *db.Config,
 	`, name)
 }
 
-// templateRebuildInProgress reports whether the template exists but is not
-// sealed, i.e. some process is mid-rebuild. Used to wait for that build rather
-// than fighting it.
-func templateRebuildInProgress(ctx context.Context, adminConfig *db.Config, template string) bool {
+// templateBuildState describes what a clone is up against when its source is
+// unusable.
+type templateBuildState int
+
+const (
+	// templateStatePublished covers a sealed template (or one that is missing
+	// entirely): nothing about the build is in the way.
+	templateStatePublished templateBuildState = iota
+	// templateStateBuilding means a process holds the preparation lock and is
+	// migrating the template right now. Worth waiting for.
+	templateStateBuilding
+	// templateStateAbandoned means the template is unsealed but nobody is
+	// building it — a build died mid-flight, leaving a partially migrated
+	// database that will stay that way forever. Must be rebuilt; waiting would
+	// burn the clone's whole budget for nothing.
+	templateStateAbandoned
+)
+
+// inspectTemplateBuildState distinguishes a live build from an abandoned one.
+// Being unsealed is not sufficient evidence of a build: an active builder also
+// holds the preparation advisory lock.
+func inspectTemplateBuildState(ctx context.Context, adminConfig *db.Config, template string) templateBuildState {
 	if template == "" {
-		return false
+		return templateStatePublished
 	}
 
 	conn, err := db.ConnectToDatabase(adminConfig)
 	if err != nil {
-		return false
+		return templateStatePublished
 	}
 	defer conn.Close()
 
 	var allowConnections bool
 	if err := conn.QueryRowContext(ctx,
 		"SELECT datallowconn FROM pg_database WHERE datname = $1", template).Scan(&allowConnections); err != nil {
+		return templateStatePublished
+	}
+	if !allowConnections {
+		return templateStatePublished
+	}
+
+	if preparationLockHeld(ctx, conn, template) {
+		return templateStateBuilding
+	}
+	return templateStateAbandoned
+}
+
+// templateRebuildInProgress reports whether some process is actively rebuilding
+// the template, meaning it is worth waiting for.
+func templateRebuildInProgress(ctx context.Context, adminConfig *db.Config, template string) bool {
+	return inspectTemplateBuildState(ctx, adminConfig, template) == templateStateBuilding
+}
+
+// preparationLockHeld reports whether any session is building this specific
+// template. PostgreSQL splits a bigint advisory key across pg_locks.classid
+// (high 32 bits) and objid (low 32 bits).
+func preparationLockHeld(ctx context.Context, conn *sql.DB, template string) bool {
+	var held bool
+	if err := conn.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_locks
+			WHERE locktype = 'advisory'
+			  AND granted
+			  AND ((classid::bigint << 32) | objid::bigint) = $1
+		)
+	`, templateLockKey(template)).Scan(&held); err != nil {
 		return false
 	}
-	return allowConnections
+	return held
+}
+
+// templateLockKey derives the advisory lock key for one template name.
+//
+// The key is per template rather than global for two reasons: a global key makes
+// every concurrent build serialise even when they are building *different*
+// templates (different roles, or different migration sets across checkouts), and
+// — worse — it makes "somebody holds the lock" useless as evidence that *this*
+// template is being built, which is what tells a live build apart from one that
+// died and left the database unsealed.
+func templateLockKey(name string) int64 {
+	sum := sha256.Sum256([]byte(templateAdvisoryLockNamespace + name))
+	// Mask off the sign bit first: the pg_locks reconstruction treats the key as
+	// a positive bigint built from two unsigned halves, and masking before the
+	// conversion keeps it in int64 range by construction.
+	const maxInt64 = uint64(math.MaxInt64)
+	// nolint: gosec // masked to 63 bits on the line above, so it always fits.
+	return int64(binary.BigEndian.Uint64(sum[:8]) & maxInt64)
 }
 
 // waitForTemplateRebuild blocks until the template is sealed (the rebuild
-// published it), disappears (the rebuild failed and dropped it), or the wait
-// times out. Cloning cannot proceed while a rebuild holds the source, and the
-// clone retry budget is far shorter than a full migration run, so waiting here
-// is what keeps a concurrent rebuild from failing tests.
-func waitForTemplateRebuild(ctx context.Context, adminConfig *db.Config, template string) {
-	deadline := time.Now().Add(templateRebuildWaitTimeout)
+// published it), disappears (the rebuild failed and dropped it), or the shared
+// deadline passes. Cloning cannot proceed while a rebuild holds the source, and
+// the clone retry budget is far shorter than a full migration run, so waiting
+// here is what keeps a concurrent rebuild from failing tests.
+//
+// The deadline is supplied by the caller and shared across every wait for one
+// test database, so repeated waits cannot add up past it.
+func waitForTemplateRebuild(ctx context.Context, adminConfig *db.Config, template string, deadline time.Time) {
 	for time.Now().Before(deadline) {
 		if !templateRebuildInProgress(ctx, adminConfig, template) {
 			return
