@@ -404,7 +404,7 @@ func TestSQLCurtailmentStore_ClosedLoopMixedSiteScopeHierarchyConflicts(t *testi
 		"mixed-sites",
 	)
 	mixedSites.ScopeJSON = []byte(fmt.Sprintf(
-		`{"site_ids":[%d,%d],"device_identifiers":null}`,
+		`{"site_ids":[%d,%d]}`,
 		siteA.ID,
 		siteB.ID,
 	))
@@ -428,7 +428,7 @@ func TestSQLCurtailmentStore_ClosedLoopMixedSiteScopeHierarchyConflicts(t *testi
 		"mixed-site-overlap",
 	)
 	overlappingMixed.ScopeJSON = []byte(fmt.Sprintf(
-		`{"site_ids":[%d,%d],"device_identifiers":null}`,
+		`{"site_ids":[%d,%d]}`,
 		siteB.ID,
 		siteC.ID,
 	))
@@ -484,7 +484,7 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevicesIncludesTargetlessMixedSi
 		"mixed-active-devices",
 	)
 	mixedSites.ScopeJSON = []byte(fmt.Sprintf(
-		`{"site_ids":[%d,%d],"device_identifiers":null}`,
+		`{"site_ids":[%d,%d]}`,
 		siteA.ID,
 		siteB.ID,
 	))

@@ -542,6 +542,7 @@ type CurtailmentEvent struct {
 	FanAirflowReopenedAt         sql.NullTime
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
+	AuthorizationEnvelopeJsonb   json.RawMessage
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -624,6 +625,7 @@ type CurtailmentResponseProfile struct {
 	FacilityFanDeviceIds        []int64
 	FanOffDelaySec              int32
 	FanRestoreDelaySec          int32
+	AuthorizationEnvelopeJsonb  json.RawMessage
 }
 
 type CurtailmentRigConfigReconciliation struct {

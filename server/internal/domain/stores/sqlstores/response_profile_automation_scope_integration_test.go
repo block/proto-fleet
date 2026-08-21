@@ -1,13 +1,16 @@
 package sqlstores_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -23,14 +26,26 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	database := testContext.DatabaseService.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	orgID := user.OrganizationID
+	site, err := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
+		OrgID: orgID,
+		Name:  "Topology profile site",
+	})
+	require.NoError(t, err)
+	building, err := sqlstores.NewSQLBuildingStore(database).CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID:  orgID,
+		SiteID: &site.ID,
+		Name:   "Topology profile building",
+	})
+	require.NoError(t, err)
 	sourceID := seedMQTTSourceConfig(t, database, orgID, user.DatabaseID, "topology-profile-source", true)
 	topologyProfileID := seedResponseProfile(t, database, orgID, "topology-profile")
 	topologyProfile, err := store.GetResponseProfile(ctx, orgID, topologyProfileID)
 	require.NoError(t, err)
-	topologyProfile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	topologyProfile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
 	_, err = store.UpdateResponseProfile(
 		ctx,
 		*topologyProfile,
+		nil,
 		nil,
 		topologyProfile.SiteID,
 		[]byte(`{}`),
@@ -72,6 +87,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	_, err = store.UpdateResponseProfile(
 		ctx,
 		*cleanProfile,
+		nil,
 		nil,
 		cleanProfile.SiteID,
 		[]byte(`{}`),

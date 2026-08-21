@@ -183,6 +183,7 @@ INSERT INTO curtailment_event (
     loop_type,
     scope_type,
     scope_jsonb,
+    authorization_envelope_jsonb,
     mode_params_jsonb,
     curtail_batch_size,
     curtail_batch_interval_sec,
@@ -222,6 +223,7 @@ INSERT INTO curtailment_event (
     sqlc.arg('loop_type'),
     sqlc.arg('scope_type'),
     sqlc.arg('scope_jsonb'),
+    sqlc.arg('authorization_envelope_jsonb'),
     sqlc.arg('mode_params_jsonb'),
     sqlc.narg('curtail_batch_size'),
     sqlc.arg('curtail_batch_interval_sec'),
@@ -332,7 +334,7 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
@@ -539,7 +541,7 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)
@@ -577,7 +579,7 @@ SELECT
     ce.source_actor_type, ce.source_actor_id,
     ce.external_source, ce.external_reference, ce.idempotency_key,
     ce.supersedes_event_id, ce.reason, ce.scheduled_start_at, ce.started_at, ce.ended_at,
-    ce.created_at, ce.updated_at, ce.created_by_user_id,
+    ce.created_at, ce.updated_at, ce.created_by_user_id, ce.authorization_envelope_jsonb,
     COALESCE(rollup.pending, 0)::BIGINT AS rollup_pending,
     COALESCE(rollup.dispatched, 0)::BIGINT AS rollup_dispatched,
     COALESCE(rollup.confirmed, 0)::BIGINT AS rollup_confirmed,
@@ -1629,6 +1631,80 @@ SELECT 0 AS selector_id,
        m.device_id AS member_device_id
 FROM members m
 ORDER BY selector_id, member_device_id;
+
+-- name: LockCurtailmentTopologyMemberDeviceSitesByOrg :many
+-- Stabilizes the current member rows while an authorization envelope and its
+-- event targets/profile row are persisted. The query mirrors the executable
+-- topology selector predicates and locks in device.id order, matching the
+-- canonical device-reassignment lock order used by site/building/rack writes.
+SELECT d.device_identifier, d.site_id
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = sqlc.arg('org_id')
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY(sqlc.arg('group_ids')::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001
+FOR UPDATE;
+
+-- name: LockCurtailmentGroupsForWrite :many
+-- Serializes group membership changes with topology target/envelope writes.
+-- AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
+-- RemoveAllDevicesFromDeviceSet take the same device_set row lock before
+-- mutating memberships.
+SELECT id
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = 'group'
+  AND deleted_at IS NULL
+  AND id = ANY(sqlc.arg('group_ids')::BIGINT[])
+ORDER BY id
+FOR UPDATE;
 
 -- name: ListCurtailmentRackScopeCoverage :many
 WITH selected_racks AS (
