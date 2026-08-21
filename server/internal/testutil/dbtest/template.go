@@ -74,6 +74,17 @@ const (
 	// slow, and capping their total runtime would fail valid work.
 	templateLockTimeout = time.Minute
 
+	// templateMaxAge bounds how long a template may be *reused*. Cloning copies
+	// rows a migration seeded with CURRENT_TIMESTAMP — e.g. the
+	// curtailment_reconciler_heartbeat row from 000042 — so a clone inherits the
+	// template's build time rather than "now", as replaying migrations per test
+	// used to give. Rebuilding on a short cadence keeps that skew small without
+	// having to enumerate (and keep up with) every time-dependent seed.
+	//
+	// The cost is one ~1s rebuild per interval per process, so this trades a
+	// negligible amount of the speedup for bounded staleness.
+	templateMaxAge = 15 * time.Minute
+
 	// templateStaleAfter is how old a template must be before another run may
 	// sweep it. Cleanup is bounded by age (recorded in the database comment when
 	// the template is sealed) rather than "different fingerprint", so two
@@ -231,11 +242,11 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		_, _ = adminConn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", templateAdvisoryLockKey)
 	}()
 
-	ready, err := templateDatabaseReady(ctx, adminConn, name)
+	reusable, err := templateIsReusable(ctx, adminConn, name)
 	if err != nil {
 		return err
 	}
-	if ready {
+	if reusable {
 		return nil
 	}
 
@@ -293,22 +304,49 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	return nil
 }
 
-// templateDatabaseReady reports whether a usable template exists. A template is
-// usable only once connections have been disabled on it, which happens after
-// migrations succeed — so a database that exists but still allows connections is
-// treated as incomplete and rebuilt.
-func templateDatabaseReady(ctx context.Context, adminConn *sql.Conn, name string) (bool, error) {
+// templateIsReusable reports whether an existing template can be cloned as-is.
+// Two conditions must hold:
+//
+//   - connections are disabled, which only happens after migrations succeed, so
+//     a database that still allows them is incomplete and must be rebuilt;
+//   - it was built within templateMaxAge, so clones do not inherit badly stale
+//     CURRENT_TIMESTAMP seed data.
+//
+// A template with no recognisable creation stamp (an older format, or one built
+// before stamping existed) is rebuilt rather than trusted.
+func templateIsReusable(ctx context.Context, adminConn *sql.Conn, name string) (bool, error) {
 	var allowConnections bool
-	err := adminConn.QueryRowContext(ctx,
-		"SELECT datallowconn FROM pg_database WHERE datname = $1", name).Scan(&allowConnections)
+	var comment sql.NullString
+	err := adminConn.QueryRowContext(ctx, `
+		SELECT datallowconn, shobj_description(oid, 'pg_database')
+		FROM pg_database
+		WHERE datname = $1
+	`, name).Scan(&allowConnections, &comment)
 	switch {
 	case err == nil:
-		return !allowConnections, nil
+		if allowConnections {
+			return false, nil
+		}
+		created, ok := templateCreatedAt(comment)
+		return ok && time.Since(created) <= templateMaxAge, nil
 	case strings.Contains(err.Error(), sql.ErrNoRows.Error()):
 		return false, nil
 	default:
 		return false, fmt.Errorf("inspect template database: %w", err)
 	}
+}
+
+// templateCreatedAt parses the creation time we stamp into a template's comment.
+func templateCreatedAt(comment sql.NullString) (time.Time, bool) {
+	if !comment.Valid || !strings.HasPrefix(comment.String, templateCommentPrefix) {
+		return time.Time{}, false
+	}
+
+	created, err := time.Parse(time.RFC3339Nano, strings.TrimPrefix(comment.String, templateCommentPrefix))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return created, true
 }
 
 // abandonTemplate drops a template that failed to build. It deliberately does
@@ -498,12 +536,8 @@ func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep s
 // comment, a foreign comment, or an unparseable timestamp is left in place
 // rather than guessed about.
 func templateIsStale(comment sql.NullString) bool {
-	if !comment.Valid || !strings.HasPrefix(comment.String, templateCommentPrefix) {
-		return false
-	}
-
-	created, err := time.Parse(time.RFC3339Nano, strings.TrimPrefix(comment.String, templateCommentPrefix))
-	if err != nil {
+	created, ok := templateCreatedAt(comment)
+	if !ok {
 		return false
 	}
 	return time.Since(created) > templateStaleAfter

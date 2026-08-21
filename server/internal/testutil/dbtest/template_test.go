@@ -282,23 +282,24 @@ func TestTemplateIsStale(t *testing.T) {
 	}
 }
 
-// TestGetTestDBRecoversFromSweptTemplate simulates a concurrent run on a
-// different migration set sweeping our template between clones: the next test
-// must rebuild it rather than fail with "database does not exist" (SQLSTATE
-// 3D000), which is not in the generic retry set.
-func TestGetTestDBRecoversFromSweptTemplate(t *testing.T) {
-	// Establishes the template as a side effect.
-	_ = GetTestDB(t)
-
-	templateMu.Lock()
-	prepared, name := templatePrepared, templateDBName
-	templateMu.Unlock()
-
-	if !prepared {
-		t.Skip("no template was prepared; nothing to sweep")
-	}
+// TestCreateTestDatabaseRecoversFromMissingTemplate exercises the recovery path
+// for a template that vanished mid-run (a concurrent checkout on a different
+// migration set sweeping it, say). It names a private template that never
+// existed rather than dropping the live one, which every other package and
+// checkout on this server is cloning: dropping that would race their clones and
+// force them to rebuild or replay migrations.
+func TestCreateTestDatabaseRecoversFromMissingTemplate(t *testing.T) {
+	const missing = "fleet_test_tmpl_ffffffffffff" // right shape, never created
 
 	adminConfig := adminConfigForTest(t)
+	dbName := generateTestDBName(t.Name())
+
+	// Recovery must not fail the test: the missing template is diagnosed,
+	// discarded, and replaced by whatever templateDatabase can offer (the real
+	// template, or "" to migrate directly).
+	used := createTestDatabase(t, adminConfig, dbName, missing)
+	assert.NotEqual(t, missing, used, "a missing template should have been replaced")
+
 	adminDB, err := db.ConnectToDatabase(adminConfig)
 	assert.NoError(t, err)
 	defer adminDB.Close()
@@ -307,17 +308,52 @@ func TestGetTestDBRecoversFromSweptTemplate(t *testing.T) {
 	assert.NoError(t, err)
 	defer adminConn.Close()
 
-	_, err = adminConn.ExecContext(t.Context(), "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
-	assert.NoError(t, err, "sweeping the template out from under the harness")
-	assert.False(t, databaseExists(t, adminConn, name), "template should be gone before the next clone")
+	t.Cleanup(func() {
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		cleanupDB, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err)
+		defer cleanupDB.Close()
+		_, err = cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(dbName))
+		assert.NoError(t, err)
+	})
 
-	// Must succeed despite the template having vanished mid-run.
-	conn := GetTestDB(t)
-	var one int
-	assert.NoError(t, conn.QueryRowContext(t.Context(), "SELECT 1").Scan(&one))
-	assert.Equal(t, 1, one)
+	assert.True(t, databaseExists(t, adminConn, dbName),
+		"the test database should have been created despite the missing template")
+	assert.False(t, databaseExists(t, adminConn, missing),
+		"recovery must not resurrect a template that never existed")
+}
 
-	assert.True(t, databaseExists(t, adminConn, name), "template should have been rebuilt")
+// TestInvalidateTemplateDatabaseOnlyForgetsTheNamedTemplate makes sure recovery
+// for one template cannot discard a different, still-valid cached one.
+func TestInvalidateTemplateDatabaseOnlyForgetsTheNamedTemplate(t *testing.T) {
+	templateMu.Lock()
+	savedName, savedPrepared := templateDBName, templatePrepared
+	templateDBName, templatePrepared = "fleet_test_tmpl_aaaaaaaaaaaa", true
+	templateMu.Unlock()
+
+	t.Cleanup(func() {
+		templateMu.Lock()
+		templateDBName, templatePrepared = savedName, savedPrepared
+		templateMu.Unlock()
+	})
+
+	invalidateTemplateDatabase("fleet_test_tmpl_bbbbbbbbbbbb")
+
+	templateMu.Lock()
+	name, prepared := templateDBName, templatePrepared
+	templateMu.Unlock()
+
+	assert.True(t, prepared, "invalidating another name must not clear the cached template")
+	assert.Equal(t, "fleet_test_tmpl_aaaaaaaaaaaa", name)
+
+	invalidateTemplateDatabase("fleet_test_tmpl_aaaaaaaaaaaa")
+
+	templateMu.Lock()
+	prepared = templatePrepared
+	templateMu.Unlock()
+
+	assert.False(t, prepared, "invalidating the cached name must clear it")
 }
 
 func databaseExists(t *testing.T, adminConn *sql.Conn, name string) bool {
@@ -358,4 +394,32 @@ func TestPrepareAttemptTimeoutStaysWithinProcessBudget(t *testing.T) {
 		"preparation budget must leave room for the fallback path to run")
 	assert.True(t, templatePrepareTimeout <= templatePrepareBudget,
 		"a single attempt must not be able to consume more than the whole budget")
+}
+
+func TestTemplateCreatedAt(t *testing.T) {
+	want := time.Now().UTC().Truncate(time.Millisecond)
+	got, ok := templateCreatedAt(sql.NullString{
+		String: templateCommentPrefix + want.Format(time.RFC3339Nano),
+		Valid:  true,
+	})
+	assert.True(t, ok)
+	assert.Equal(t, want, got.UTC())
+
+	for _, comment := range []sql.NullString{
+		{},
+		{String: "someone else's database", Valid: true},
+		{String: templateCommentPrefix + "not-a-timestamp", Valid: true},
+	} {
+		if _, ok := templateCreatedAt(comment); ok {
+			t.Errorf("templateCreatedAt(%v) should not have parsed", comment)
+		}
+	}
+}
+
+// TestTemplateAgeBoundsAreConsistent pins the relationship between reuse and
+// cleanup: a template must stop being reused long before another run may sweep
+// it, or a live template could be swept while still considered current.
+func TestTemplateAgeBoundsAreConsistent(t *testing.T) {
+	assert.True(t, templateMaxAge < templateStaleAfter,
+		"reuse window (%s) must be shorter than the sweep threshold (%s)", templateMaxAge, templateStaleAfter)
 }
