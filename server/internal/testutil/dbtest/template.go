@@ -49,10 +49,17 @@ const (
 	// well inside PostgreSQL's 63-character identifier limit.
 	templateFingerprintLength = 12
 
-	// templatePrepareTimeout bounds waiting for the advisory lock. It sits well
-	// below Go's default 10m package timeout so a stuck preparation still leaves
-	// room for callers to fall back to migrating their own database.
-	templatePrepareTimeout = 4 * time.Minute
+	// templatePrepareBudget is the total time this process will ever spend trying
+	// to prepare a template, across all attempts and all tests. It is a single
+	// process-wide budget rather than a per-attempt timeout: N attempts of N
+	// minutes each could otherwise add up past Go's 10m package timeout and
+	// reproduce the very hang this harness exists to avoid.
+	templatePrepareBudget = 3 * time.Minute
+
+	// templatePrepareTimeout caps a single attempt (in practice: waiting for
+	// another process's advisory lock). The effective deadline is whichever of
+	// this and the remaining budget is smaller.
+	templatePrepareTimeout = 90 * time.Second
 
 	// templateLockTimeout bounds how long migrating the template waits on any
 	// single lock. db.ConnectAndMigrate is not context-aware (it runs migrations
@@ -103,6 +110,10 @@ var (
 	// templateFailures counts consecutive failures so a genuinely broken setup
 	// stops paying the preparation cost on every test.
 	templateFailures int
+	// templateBudgetDeadline is when this process stops trying, set on the first
+	// attempt. Shared across tests so the total cost is bounded no matter how
+	// many tests ask.
+	templateBudgetDeadline time.Time
 )
 
 // templatePrepareMaxAttempts bounds retries across tests once preparation keeps
@@ -126,13 +137,27 @@ func templateDatabase(t *testing.T, adminConfig *db.Config) string {
 		return ""
 	}
 
+	if templateBudgetDeadline.IsZero() {
+		templateBudgetDeadline = time.Now().Add(templatePrepareBudget)
+	}
+
+	attemptTimeout, withinBudget := prepareAttemptTimeout(templateBudgetDeadline, time.Now())
+	if !withinBudget {
+		// Budget spent: stop trying for the rest of the process rather than
+		// letting queued tests keep paying for it.
+		templateFailures = templatePrepareMaxAttempts
+		t.Logf("template preparation budget of %s exhausted; "+
+			"migrating test databases directly for the rest of this process", templatePrepareBudget)
+		return ""
+	}
+
 	name := templateDBPrefix + migrationSetFingerprint()
 
 	// Deliberately not t.Context(): the template outlives the test that
 	// happens to build it, and cancelling that test must not abandon a
 	// half-migrated template for every other test in the binary.
 	// nolint: usetesting
-	ctx, cancel := context.WithTimeout(context.Background(), templatePrepareTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 	defer cancel()
 
 	// The very first connection of the run can land while the server is still
@@ -142,6 +167,16 @@ func templateDatabase(t *testing.T, adminConfig *db.Config) string {
 
 	start := time.Now()
 	if err := prepareTemplateDatabase(ctx, adminConfig, name); err != nil {
+		if ctx.Err() != nil {
+			// A deadline failure means time, not luck, ran out: retrying cannot
+			// help, so open the circuit now instead of after N attempts.
+			templateFailures = templatePrepareMaxAttempts
+			t.Logf("template database %s hit its %s preparation deadline (%v); "+
+				"migrating test databases directly for the rest of this process",
+				name, attemptTimeout, err)
+			return ""
+		}
+
 		templateFailures++
 		t.Logf("could not prepare template database %s (attempt %d/%d: %v); "+
 			"migrating this test database directly",
@@ -217,13 +252,13 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET lock_timeout = %s",
 		quoteIdentifier(name),
 		quoteLiteral(fmt.Sprintf("%dms", templateLockTimeout.Milliseconds())))); err != nil {
-		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		abandonTemplate(adminConfig, name)
 		return fmt.Errorf("set template lock timeout: %w", err)
 	}
 
-	if err := migrateTemplateDatabase(adminConfig, name); err != nil {
+	if err := migrateTemplateDatabase(ctx, adminConfig, name); err != nil {
 		// Leave nothing half-migrated behind for the next run to trust.
-		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		abandonTemplate(adminConfig, name)
 		return err
 	}
 
@@ -232,7 +267,7 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	// to the source, and a template is only ever published in this state.
 	if _, err := adminConn.ExecContext(ctx,
 		"ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS false"); err != nil {
-		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		abandonTemplate(adminConfig, name)
 		return fmt.Errorf("seal template database: %w", err)
 	}
 
@@ -241,7 +276,7 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	// would fail with "source database is being accessed by other users". Evict
 	// it now that ALLOW_CONNECTIONS false stops the launcher reattaching.
 	if err := detachTemplateSessions(ctx, adminConn, name); err != nil {
-		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		abandonTemplate(adminConfig, name)
 		return err
 	}
 
@@ -250,7 +285,7 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("COMMENT ON DATABASE %s IS %s",
 		quoteIdentifier(name),
 		quoteLiteral(templateCommentPrefix+time.Now().UTC().Format(time.RFC3339Nano)))); err != nil {
-		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		abandonTemplate(adminConfig, name)
 		return fmt.Errorf("record template metadata: %w", err)
 	}
 
@@ -276,14 +311,66 @@ func templateDatabaseReady(ctx context.Context, adminConn *sql.Conn, name string
 	}
 }
 
+// abandonTemplate drops a template that failed to build. It deliberately does
+// not reuse the preparation context: the most common reason to get here is that
+// very context expiring, and a cleanup on a dead context silently leaves a
+// half-built template behind. Leaving one is not a correctness problem (an
+// unsealed template is treated as incomplete and rebuilt), but it wastes disk
+// until the next run.
+func abandonTemplate(adminConfig *db.Config, name string) {
+	// nolint: usetesting
+	ctx, cancel := context.WithTimeout(context.Background(), templateDetachTimeout)
+	defer cancel()
+
+	_ = tryDropTestDatabase(ctx, adminConfig, name)
+}
+
+// prepareAttemptTimeout returns how long the next preparation attempt may take:
+// the smaller of the per-attempt cap and what is left of the process-wide
+// budget. The bool reports whether any budget remains at all.
+func prepareAttemptTimeout(deadline time.Time, now time.Time) (time.Duration, bool) {
+	remaining := deadline.Sub(now)
+	if remaining <= 0 {
+		return 0, false
+	}
+	if remaining > templatePrepareTimeout {
+		return templatePrepareTimeout, true
+	}
+	return remaining, true
+}
+
 // migrateTemplateDatabase runs the full migration set against the template and
 // closes the connection, leaving no session attached to it.
-func migrateTemplateDatabase(adminConfig *db.Config, name string) error {
+//
+// db.ConnectAndMigrate is not context-aware, so ctx is enforced out-of-band: a
+// watchdog terminates the migrating backend if the deadline passes. Together
+// with the template's lock_timeout that bounds both lock waits and any other
+// stall, and it is what lets preparation fail (and callers fall back) instead of
+// hanging until Go's package timeout.
+func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name string) error {
 	templateConfig := *adminConfig
 	templateConfig.Name = name
 
+	migrationDone := make(chan struct{})
+	defer close(migrationDone)
+
+	go func() {
+		select {
+		case <-migrationDone:
+		case <-ctx.Done():
+			// The parent context is spent, so give the eviction its own.
+			// nolint: usetesting
+			evictCtx, cancel := context.WithTimeout(context.Background(), templateDetachTimeout)
+			defer cancel()
+			evictTemplateSessions(evictCtx, adminConfig, name)
+		}
+	}()
+
 	conn, err := db.ConnectAndMigrate(&templateConfig)
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("migrate template database: deadline exceeded, migration backend terminated: %w", err)
+		}
 		return fmt.Errorf("migrate template database: %w", err)
 	}
 	if err := conn.Close(); err != nil {

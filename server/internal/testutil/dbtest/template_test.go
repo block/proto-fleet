@@ -329,3 +329,33 @@ func databaseExists(t *testing.T, adminConn *sql.Conn, name string) bool {
 	assert.NoError(t, err, fmt.Sprintf("checking whether %s exists", name))
 	return exists
 }
+
+// TestPrepareAttemptTimeoutStaysWithinProcessBudget pins the arithmetic that
+// keeps preparation from outliving Go's package timeout: attempts share one
+// process-wide budget instead of each getting a fresh deadline.
+func TestPrepareAttemptTimeoutStaysWithinProcessBudget(t *testing.T) {
+	now := time.Now()
+
+	// Plenty of budget left: capped by the per-attempt limit.
+	got, ok := prepareAttemptTimeout(now.Add(templatePrepareBudget), now)
+	assert.True(t, ok)
+	assert.Equal(t, templatePrepareTimeout, got)
+
+	// Nearly spent: the remaining budget wins, never the per-attempt cap.
+	got, ok = prepareAttemptTimeout(now.Add(5*time.Second), now)
+	assert.True(t, ok)
+	assert.Equal(t, 5*time.Second, got)
+
+	// Spent, exactly and then past: no further attempts.
+	_, ok = prepareAttemptTimeout(now, now)
+	assert.False(t, ok)
+	_, ok = prepareAttemptTimeout(now.Add(-time.Minute), now)
+	assert.False(t, ok)
+
+	// The worst case must stay clear of Go's default 10m package timeout: the
+	// budget bounds *all* attempts, so it is the only number that matters.
+	assert.True(t, templatePrepareBudget < 10*time.Minute,
+		"preparation budget must leave room for the fallback path to run")
+	assert.True(t, templatePrepareTimeout <= templatePrepareBudget,
+		"a single attempt must not be able to consume more than the whole budget")
+}
