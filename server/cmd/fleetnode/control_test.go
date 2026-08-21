@@ -211,6 +211,20 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	}
 }
 
+func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {
+	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}
+	cmd := &RunCmd{discoverer: disc}
+	fake := &controlFakeGateway{}
+	fake.setBehavior(controlFakeBehavior{acceptedLiveness: 2})
+	fake.queue(discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"})))
+
+	runControlLoopOnce(t, cmd, fake)
+
+	require.Len(t, fake.acksCopy(), 1, "liveness frames must not interrupt later commands")
+}
+
 func TestResolveAndValidatePorts(t *testing.T) {
 	t.Parallel()
 
@@ -520,6 +534,7 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 
 type controlFakeBehavior struct {
 	closeAfterAccepted bool
+	acceptedLiveness   int
 	// closeOnSignal lets tests force a server-side stream close at a precise
 	// moment (e.g., after the agent has started executing a command). The
 	// fake closes its ControlStream handler when this channel becomes ready.
@@ -640,11 +655,17 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Lock()
 	closeNow := f.behavior.closeAfterAccepted
 	closeOnSignal := f.behavior.closeOnSignal
+	acceptedLiveness := f.behavior.acceptedLiveness
 	pending := f.pending
 	f.pending = nil
 	f.mu.Unlock()
 	if closeNow {
 		return nil
+	}
+	for range acceptedLiveness {
+		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+			return fmt.Errorf("send accepted liveness: %w", err)
+		}
 	}
 
 	for _, p := range pending {
@@ -952,15 +973,21 @@ func TestReportFromDiscovered(t *testing.T) {
 // blockingDiscoverer holds Probe open per-IP so tests can observe Receive
 // drain and ctx-cancel behavior while a command is in flight.
 type blockingDiscoverer struct {
-	mu      sync.Mutex
-	started map[string]chan struct{}
-	release map[string]chan struct{}
+	mu        sync.Mutex
+	started   map[string]chan struct{}
+	cancelled map[string]chan struct{}
+	release   map[string]chan struct{}
 }
 
 func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
-	d := &blockingDiscoverer{started: map[string]chan struct{}{}, release: map[string]chan struct{}{}}
+	d := &blockingDiscoverer{
+		started:   map[string]chan struct{}{},
+		cancelled: map[string]chan struct{}{},
+		release:   map[string]chan struct{}{},
+	}
 	for _, ip := range ips {
 		d.started[ip] = make(chan struct{}, 1)
+		d.cancelled[ip] = make(chan struct{}, 1)
 		d.release[ip] = make(chan struct{})
 	}
 	return d
@@ -969,6 +996,7 @@ func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
 func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.DiscoveredDeviceReport, error) {
 	b.mu.Lock()
 	start, ok := b.started[ip]
+	cancelled := b.cancelled[ip]
 	release := b.release[ip]
 	b.mu.Unlock()
 	if !ok {
@@ -982,6 +1010,10 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	case <-release:
 		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
 	case <-ctx.Done():
+		select {
+		case cancelled <- struct{}{}:
+		default:
+		}
 		return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
 	}
 }
@@ -999,6 +1031,18 @@ func (b *blockingDiscoverer) waitStarted(t *testing.T, ip string) {
 	case <-start:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("probe for %s never started", ip)
+	}
+}
+
+func (b *blockingDiscoverer) waitCancelled(t *testing.T, ip string) {
+	t.Helper()
+	b.mu.Lock()
+	cancelled := b.cancelled[ip]
+	b.mu.Unlock()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("probe for %s did not observe session cancellation", ip)
 	}
 }
 
@@ -1463,13 +1507,10 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	disc.waitStarted(t, "10.0.0.42")
 	close(streamClose)
 
-	// Assert: with sessionCtx wiring, the dropped stream cancels the
-	// in-flight probe via the session-scoped ctx, the worker exits within
-	// the supervisor budget, runControlSession returns, and runControlLoop
-	// backs off and reconnects. helloCount reaching 2 within 4 seconds
-	// requires the unblock path -- without it, the loop's defer would
-	// hang for commandTimeout (30s) before reconnect.
+	// Assert: reconnect happens promptly, and the old probe independently
+	// observes session cancellation before the daemon's parent is cancelled.
 	require.Eventually(t, func() bool { return fake.helloCount() >= 2 }, 4*time.Second, 50*time.Millisecond)
+	disc.waitCancelled(t, "10.0.0.42")
 	cancel()
 	<-done
 	cmd.waitForControlWorkers(discardLogger(t))

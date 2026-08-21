@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
@@ -50,6 +51,11 @@ func TestCompleteAuthHandshakeDisconnectsReplacedSessionStream(t *testing.T) {
 		t.Fatal("replaced session's ControlStream remains connected")
 	}
 	require.Empty(t, registry.ConnectedFleetNodeIDs())
+	newStream, err := registry.RegisterAuthenticated(fleetNodeID, auth.SessionFingerprint("replacement-token"))
+	require.NoError(t, err)
+	newStream.Unregister()
+	_, err = registry.RegisterAuthenticated(fleetNodeID, auth.SessionFingerprint("old-token"))
+	require.Error(t, err)
 }
 
 func TestCompleteAuthHandshakeFailureKeepsCurrentStream(t *testing.T) {

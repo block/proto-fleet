@@ -85,5 +85,6 @@ func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader 
 		OrgID:               resolved.OrgID,
 		Name:                resolved.Name,
 		IdentityFingerprint: enrollment.IdentityFingerprint(resolved.IdentityPubkey),
+		SessionFingerprint:  resolved.SessionFingerprint,
 	}), resolved.SessionExpiresAt, nil
 }

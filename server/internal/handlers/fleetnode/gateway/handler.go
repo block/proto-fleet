@@ -104,7 +104,7 @@ func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	h.registry.Disconnect(fleetNodeID)
+	h.registry.ReplaceSession(fleetNodeID, auth.SessionFingerprint(token))
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: token,
 		ExpiresAt:    timestamppb.New(expiresAt),
@@ -662,10 +662,16 @@ func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
 	}
 }
 
-// HelloTimeout bounds the wait for the agent's first Hello, so a node that
-// opens the stream and never sends one can't pin a goroutine + HTTP/2 stream
-// indefinitely. Var so tests can shrink it.
-var HelloTimeout = 5 * time.Second
+var (
+	// HelloTimeout bounds the wait for the agent's first Hello, so a node that
+	// opens the stream and never sends one can't pin a goroutine + HTTP/2 stream
+	// indefinitely. Vars so tests can shrink them.
+	HelloTimeout = 5 * time.Second
+
+	// ControlStreamLivenessInterval keeps data moving across the fleetd-to-NGINX
+	// hop so NGINX can detect a stalled upstream within its read timeout.
+	ControlStreamLivenessInterval = 30 * time.Second
+)
 
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	subject, err := auth.GetSubject(ctx)
@@ -705,12 +711,17 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
 
-	regHandle := h.registry.Register(subject.FleetNodeID)
+	regHandle, err := h.registry.RegisterAuthenticated(subject.FleetNodeID, subject.SessionFingerprint)
+	if err != nil {
+		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
+	}
 	defer regHandle.Unregister()
 
 	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
 		return err
 	}
+	liveness := time.NewTicker(ControlStreamLivenessInterval)
+	defer liveness.Stop()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
 	// can't block forever on a full channel after the main loop exits.
@@ -737,6 +748,10 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			// Newest-wins eviction or Unregister fired; let the handler
 			// exit so connect-go closes the stream.
 			return controlStreamExitError(ctx, nil)
+		case <-liveness.C:
+			if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+				return err
+			}
 		case cmd := <-regHandle.Outgoing:
 			if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); sendErr != nil {
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send command: %v", sendErr))

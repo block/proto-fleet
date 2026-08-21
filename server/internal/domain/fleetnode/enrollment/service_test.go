@@ -78,7 +78,7 @@ func TestRevokeFleetNodeInvalidatesControlStreamAfterPersistence(t *testing.T) {
 			store := &revokeFleetNodeStore{pending: test.pending}
 			apiKeyService := apikey.NewService(revokeAPIKeyStore{}, nil)
 			service := NewService(store, apiKeyService, inlineTransactor{}, nil)
-			service.WithControlStreamInvalidator(registry.Disconnect)
+			service.WithControlStreamInvalidator(registry.RevokeSession)
 
 			err := test.revoke(t.Context(), service)
 
@@ -96,7 +96,7 @@ func TestRevokeFleetNodeFailurePreservesControlStream(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(42)
 	service := NewService(nil, nil, failingTransactor{}, nil)
-	service.WithControlStreamInvalidator(registry.Disconnect)
+	service.WithControlStreamInvalidator(registry.RevokeSession)
 
 	err := service.RevokeFleetNode(t.Context(), 42, 7)
 

@@ -68,6 +68,9 @@ func TestFleetNodeAuthInterceptorExpiresAuthenticatedStream(t *testing.T) {
 	conn := fleetNodeStreamingConn{procedure: procedure, header: header}
 
 	wrapper := interceptor.WrapStreamingHandler(func(ctx context.Context, _ connect.StreamingHandlerConn) error {
+		subject, err := auth.GetSubject(ctx)
+		require.NoError(t, err)
+		require.Equal(t, auth.SessionFingerprint("session-token"), subject.SessionFingerprint)
 		deadline, ok := ctx.Deadline()
 		require.True(t, ok)
 		require.WithinDuration(t, expiresAt, deadline, time.Millisecond)

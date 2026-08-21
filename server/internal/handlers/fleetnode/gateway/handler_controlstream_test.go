@@ -275,6 +275,26 @@ func TestControlStream_ReturnsStructuredNotActive(t *testing.T) {
 	})
 }
 
+func TestControlStream_SendsPeriodicLiveness(t *testing.T) {
+	previous := gateway.ControlStreamLivenessInterval
+	gateway.ControlStreamLivenessInterval = 20 * time.Millisecond
+	t.Cleanup(func() { gateway.ControlStreamLivenessInterval = previous })
+
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+
+	first, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, first.GetAccepted())
+	second, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, second.GetAccepted())
+}
+
 func requireStructuredNotActive(t *testing.T, err error) {
 	t.Helper()
 	require.Error(t, err)
