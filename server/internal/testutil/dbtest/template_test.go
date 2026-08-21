@@ -717,3 +717,98 @@ func TestTemplateLockKeyIsPerTemplate(t *testing.T) {
 		assert.True(t, key >= 0, "advisory lock key %d must be non-negative", key)
 	}
 }
+
+// TestTemplatePublicationIsAtomic pins the property the staging-name build
+// exists for: the published name never appears in a clonable-but-incomplete
+// state. An unsealed database with no sessions attached is exactly what
+// PostgreSQL will happily clone, so if the published name could ever look like
+// that, a concurrent process could copy an empty or dirty schema.
+func TestTemplatePublicationIsAtomic(t *testing.T) {
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+	name := templateNameFor(adminConfig)
+	staging := templateBuildPrefix + strings.TrimPrefix(name, templateDBPrefix)
+
+	assert.False(t, templateNamePattern.MatchString(staging),
+		"the staging name must not look like a published template, or cleanup and clones would pick it up")
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	// Force a rebuild, then watch the published name while it happens: it must
+	// only ever be absent or sealed, never present-and-connectable.
+	_, err = adminDB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+	assert.NoError(t, err)
+
+	templateMu.Lock()
+	savedName, savedPrepared, savedFailures := templateDBName, templatePrepared, templateFailures
+	templateDBName, templatePrepared, templateFailures = "", false, 0
+	templateMu.Unlock()
+	t.Cleanup(func() {
+		templateMu.Lock()
+		templateDBName, templatePrepared, templateFailures = savedName, savedPrepared, savedFailures
+		templateMu.Unlock()
+	})
+
+	type observation struct {
+		exists      bool
+		connectable bool
+	}
+	observations := make(chan observation, 4096)
+	watching := make(chan struct{})
+
+	go func() {
+		defer close(watching)
+		watcher, err := db.ConnectToDatabase(adminConfig)
+		if err != nil {
+			return
+		}
+		defer watcher.Close()
+
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			var exists, connectable bool
+			row := watcher.QueryRowContext(ctx, `
+				SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1),
+				       COALESCE((SELECT datallowconn FROM pg_database WHERE datname = $1), false)
+			`, name)
+			if err := row.Scan(&exists, &connectable); err != nil {
+				return
+			}
+			select {
+			case observations <- observation{exists: exists, connectable: connectable}:
+			default:
+				return
+			}
+			if exists && !connectable {
+				return // published; nothing more to see
+			}
+		}
+	}()
+
+	built := templateDatabase(t, adminConfig)
+	assert.Equal(t, name, built, "the template should have been built")
+	<-watching
+	close(observations)
+
+	seen := 0
+	for obs := range observations {
+		seen++
+		if obs.exists && obs.connectable {
+			t.Fatalf("published template %s was observed existing and connectable, "+
+				"so a concurrent clone could have copied an incomplete schema", name)
+		}
+	}
+	assert.True(t, seen > 0, "the watcher should have sampled the published name at least once")
+
+	adminConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer adminConn.Close()
+	assert.False(t, databaseExists(t, adminConn, staging),
+		"the staging database should have been renamed away, not left behind")
+
+	reusable, err := templateIsReusable(ctx, adminConn, name)
+	assert.NoError(t, err)
+	assert.True(t, reusable, "the published template should be immediately reusable")
+}

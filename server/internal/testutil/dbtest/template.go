@@ -41,6 +41,11 @@ const (
 	// migration sets can be identified and dropped.
 	templateDBPrefix = "fleet_test_tmpl_"
 
+	// templateBuildPrefix namespaces the staging database a template is built
+	// under. Publication is a rename from this name to templateDBPrefix, so the
+	// published name never exists in a partial state — see buildTemplateDatabase.
+	templateBuildPrefix = "fleet_test_bld_"
+
 	// templateAdvisoryLockNamespace seeds the per-template advisory lock keys, so
 	// they cannot collide with advisory locks taken for other purposes.
 	templateAdvisoryLockNamespace = "dbtest-template-preparation:7264051893001"
@@ -281,12 +286,41 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		return nil
 	}
 
-	// Either absent or left half-built by an interrupted run: rebuild it.
-	if err := tryDropTestDatabase(ctx, adminConfig, name); err != nil {
-		return fmt.Errorf("drop stale template: %w", err)
+	// Absent, aged out, or left half-built by an interrupted run: build a
+	// replacement under a staging name and publish it with a rename.
+	if err := buildTemplateDatabase(ctx, adminConn, adminConfig, name); err != nil {
+		return err
 	}
-	if _, err := adminConn.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name)); err != nil {
-		return fmt.Errorf("create template database: %w", err)
+
+	dropStaleTemplateDatabases(ctx, adminConn, name)
+	return nil
+}
+
+// buildTemplateDatabase migrates a fresh template under a staging name and only
+// then renames it to the published name.
+//
+// The rename is what makes publication atomic. Building in place would leave the
+// published name pointing at a database that is empty (before the migration
+// connects) or dirty (after an interrupted build), and PostgreSQL happily clones
+// either of those whenever no session happens to be attached: an empty clone
+// silently replays every migration, and a clone of a golang-migrate "dirty"
+// database fails outright. With a staging name, the published name only ever
+// exists fully migrated and sealed.
+func buildTemplateDatabase(
+	ctx context.Context,
+	adminConn *sql.Conn,
+	adminConfig *db.Config,
+	name string,
+) error {
+	staging := templateBuildPrefix + strings.TrimPrefix(name, templateDBPrefix)
+
+	// Any leftover staging database belongs to a dead build of this same
+	// template, whose lock we now hold, so it is ours to discard.
+	if err := tryDropTestDatabase(ctx, adminConfig, staging); err != nil {
+		return fmt.Errorf("drop stale template build: %w", err)
+	}
+	if _, err := adminConn.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(staging)); err != nil {
+		return fmt.Errorf("create template build database: %w", err)
 	}
 
 	// Bound the migrating session inside PostgreSQL, since we cannot cancel it
@@ -301,16 +335,16 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		"statement_timeout": templatePrepareTimeout,
 	} {
 		if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET %s = %s",
-			quoteIdentifier(name), setting,
+			quoteIdentifier(staging), setting,
 			quoteLiteral(fmt.Sprintf("%dms", limit.Milliseconds())))); err != nil {
-			abandonTemplate(adminConfig, name)
-			return fmt.Errorf("set template %s: %w", setting, err)
+			abandonTemplate(adminConfig, staging)
+			return fmt.Errorf("set template build %s: %w", setting, err)
 		}
 	}
 
-	if err := migrateTemplateDatabase(ctx, adminConfig, name); err != nil {
+	if err := migrateTemplateDatabase(ctx, adminConfig, staging); err != nil {
 		// Leave nothing half-migrated behind for the next run to trust.
-		abandonTemplate(adminConfig, name)
+		abandonTemplate(adminConfig, staging)
 		return err
 	}
 
@@ -318,30 +352,45 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	// marker: CREATE DATABASE ... TEMPLATE fails while any session is connected
 	// to the source, and a template is only ever published in this state.
 	if _, err := adminConn.ExecContext(ctx,
-		"ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS false"); err != nil {
-		abandonTemplate(adminConfig, name)
+		"ALTER DATABASE "+quoteIdentifier(staging)+" WITH ALLOW_CONNECTIONS false"); err != nil {
+		abandonTemplate(adminConfig, staging)
 		return fmt.Errorf("seal template database: %w", err)
 	}
 
 	// Creating the extension started a TimescaleDB background worker scheduler
-	// inside the template, and that counts as a connected session: every clone
-	// would fail with "source database is being accessed by other users". Evict
-	// it now that ALLOW_CONNECTIONS false stops the launcher reattaching.
-	if err := detachTemplateSessions(ctx, adminConn, name); err != nil {
-		abandonTemplate(adminConfig, name)
+	// inside the database, and that counts as a connected session: every clone
+	// would fail with "source database is being accessed by other users", and
+	// the rename below would fail too. Evict it now that ALLOW_CONNECTIONS false
+	// stops the launcher reattaching.
+	if err := detachTemplateSessions(ctx, adminConn, staging); err != nil {
+		abandonTemplate(adminConfig, staging)
 		return err
 	}
 
 	// Ownership metadata: marks the database as ours and records when it was
-	// built, which is what makes age-bounded cleanup possible.
+	// built, which is what makes age-bounded cleanup possible. Comments follow
+	// the object, so this survives the rename.
 	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("COMMENT ON DATABASE %s IS %s",
-		quoteIdentifier(name),
+		quoteIdentifier(staging),
 		quoteLiteral(templateCommentPrefix+time.Now().UTC().Format(time.RFC3339Nano)))); err != nil {
-		abandonTemplate(adminConfig, name)
+		abandonTemplate(adminConfig, staging)
 		return fmt.Errorf("record template metadata: %w", err)
 	}
 
-	dropStaleTemplateDatabases(ctx, adminConn, name)
+	// Publish. Dropping the old name is what a concurrent clone may notice (it
+	// gets "database does not exist" and rebuilds or waits, both handled),
+	// whereas a partially built database under the published name would be
+	// cloned silently. The rename itself is atomic.
+	if err := tryDropTestDatabase(ctx, adminConfig, name); err != nil {
+		abandonTemplate(adminConfig, staging)
+		return fmt.Errorf("drop superseded template: %w", err)
+	}
+	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s RENAME TO %s",
+		quoteIdentifier(staging), quoteIdentifier(name))); err != nil {
+		abandonTemplate(adminConfig, staging)
+		return fmt.Errorf("publish template database: %w", err)
+	}
+
 	return nil
 }
 
