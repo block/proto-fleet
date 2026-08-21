@@ -289,13 +289,23 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		return fmt.Errorf("create template database: %w", err)
 	}
 
-	// Applies to the migrating session below, which we cannot cancel from Go.
+	// Bound the migrating session inside PostgreSQL, since we cannot cancel it
+	// from Go. These are the only guarantees that do not depend on the watchdog
+	// below succeeding: whatever happens, the server itself gives up eventually.
 	// Milliseconds, not Duration.String(): PostgreSQL rejects Go's "1m0s" form.
-	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET lock_timeout = %s",
-		quoteIdentifier(name),
-		quoteLiteral(fmt.Sprintf("%dms", templateLockTimeout.Milliseconds())))); err != nil {
-		abandonTemplate(adminConfig, name)
-		return fmt.Errorf("set template lock timeout: %w", err)
+	for setting, limit := range map[string]time.Duration{
+		"lock_timeout": templateLockTimeout,
+		// Derived from the per-attempt deadline. Migrations run against an empty
+		// database and take milliseconds each, so a single statement outliving
+		// this is wedged, not slow.
+		"statement_timeout": templatePrepareTimeout,
+	} {
+		if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET %s = %s",
+			quoteIdentifier(name), setting,
+			quoteLiteral(fmt.Sprintf("%dms", limit.Milliseconds())))); err != nil {
+			abandonTemplate(adminConfig, name)
+			return fmt.Errorf("set template %s: %w", setting, err)
+		}
 	}
 
 	if err := migrateTemplateDatabase(ctx, adminConfig, name); err != nil {
@@ -427,6 +437,7 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 
 	migrationDone := make(chan struct{})
 	var watchdog sync.WaitGroup
+	var watchdogErr error
 	watchdog.Add(1)
 
 	go func() {
@@ -441,7 +452,7 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 			// Not evictTemplateSessions: that one deliberately spares unsealed
 			// templates, and the template is unsealed for the whole of this
 			// migration, so it would never match the backend we need to stop.
-			terminateTemplateBuildSessions(killCtx, adminConfig, name)
+			watchdogErr = terminateTemplateBuildSessions(killCtx, adminConfig, name)
 		}
 	}()
 
@@ -453,9 +464,22 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 
 	if err != nil {
 		if ctx.Err() != nil {
+			if watchdogErr != nil {
+				// Worth surfacing: if termination failed, the statement and lock
+				// timeouts set on the template are what ended the migration.
+				return fmt.Errorf("migrate template database: deadline exceeded "+
+					"(terminating the migration backend also failed: %v): %w", watchdogErr, err)
+			}
 			return fmt.Errorf("migrate template database: deadline exceeded, migration backend terminated: %w", err)
 		}
 		return fmt.Errorf("migrate template database: %w", err)
+	}
+
+	if watchdogErr != nil {
+		// The deadline passed and we failed to stop the migration, yet it finished
+		// anyway. Treat the template as untrustworthy rather than publishing it.
+		return fmt.Errorf("migrate template database: deadline passed and terminating the "+
+			"migration backend failed: %w", watchdogErr)
 	}
 	if err := conn.Close(); err != nil {
 		return fmt.Errorf("close template connection: %w", err)
@@ -535,22 +559,45 @@ func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template
 // building this template, and clones never connect to their source. It exists
 // solely so the deadline watchdog can stop a migration that Go cannot cancel,
 // db.ConnectAndMigrate not being context-aware.
-func terminateTemplateBuildSessions(ctx context.Context, adminConfig *db.Config, name string) {
+// It reports failures rather than swallowing them: if the migration cannot be
+// stopped, the template must not be published, and the caller needs to say so.
+// The statement and lock timeouts set on the template are the backstop that does
+// not depend on this succeeding.
+func terminateTemplateBuildSessions(ctx context.Context, adminConfig *db.Config, name string) error {
 	if name == "" {
-		return
+		return nil
 	}
 
 	conn, err := db.ConnectToDatabase(adminConfig)
 	if err != nil {
-		return
+		return fmt.Errorf("connect to admin database to terminate template build: %w", err)
 	}
 	defer conn.Close()
 
-	_, _ = conn.ExecContext(ctx, `
-		SELECT pg_terminate_backend(pid)
-		FROM pg_stat_activity
-		WHERE datname = $1 AND pid <> pg_backend_pid()
-	`, name)
+	var lastErr error
+	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+		var remaining int
+		lastErr = conn.QueryRowContext(ctx, `
+			WITH terminated AS (
+				SELECT pg_terminate_backend(pid) AS stopped
+				FROM pg_stat_activity
+				WHERE datname = $1 AND pid <> pg_backend_pid()
+			)
+			SELECT count(*) FILTER (WHERE NOT stopped) FROM terminated
+		`, name).Scan(&remaining)
+		if lastErr == nil && remaining == 0 {
+			return nil
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		time.Sleep(templateDetachInterval)
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("terminate template build sessions: %w", lastErr)
+	}
+	return fmt.Errorf("terminate template build sessions: sessions still attached to %s", name)
 }
 
 // templateBuildState describes what a clone is up against when its source is

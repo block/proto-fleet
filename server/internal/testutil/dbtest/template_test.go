@@ -2,7 +2,9 @@ package dbtest
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +14,25 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
+
+// fixtureTemplateName returns a template-shaped database name unique to this
+// test invocation. Constant names collide when the package runs concurrently
+// against one cluster (parallel checkouts, or a repeated run), so each test owns
+// its fixtures and cleans up only what it created.
+func fixtureTemplateName(t *testing.T) string {
+	t.Helper()
+
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatalf("generating fixture suffix: %v", err)
+	}
+
+	name := templateDBPrefix + hex.EncodeToString(suffix)
+	if !templateNamePattern.MatchString(name) {
+		t.Fatalf("fixture name %q does not match the template pattern", name)
+	}
+	return name
+}
 
 // TestTemplateNamePatternOnlyMatchesOwnTemplates guards the cleanup filter. A
 // LIKE pattern cannot be used here: every underscore in `fleet_test_tmpl_%` is a
@@ -196,11 +217,12 @@ func adminConfigForTest(t *testing.T) *db.Config {
 // per category cleanup has to distinguish and asserts only a genuinely old,
 // owned template is dropped.
 func TestDropStaleTemplateDatabasesOnlySweepsOldOwnedTemplates(t *testing.T) {
-	const (
-		stale       = "fleet_test_tmpl_deadbeef1234" // ours, past the age gate: drop
-		fresh       = "fleet_test_tmpl_deadbeef5678" // ours, another run's live one: keep
-		uncommented = "fleet_test_tmpl_deadbeef9abc" // right shape, not ours: keep
-		lookalike   = "fleet_test_tmplxdeadbeef1234" // matches LIKE only: keep
+	var (
+		stale       = fixtureTemplateName(t) // ours, past the age gate: drop
+		fresh       = fixtureTemplateName(t) // ours, another run's live one: keep
+		uncommented = fixtureTemplateName(t) // right shape, not ours: keep
+		// Matches the old wildcard-underscore LIKE pattern but not ours: keep.
+		lookalike = strings.Replace(fixtureTemplateName(t), "tmpl_", "tmplx", 1)
 	)
 	fixtures := []string{stale, fresh, uncommented, lookalike}
 
@@ -289,7 +311,7 @@ func TestTemplateIsStale(t *testing.T) {
 // checkout on this server is cloning: dropping that would race their clones and
 // force them to rebuild or replay migrations.
 func TestCreateTestDatabaseRecoversFromMissingTemplate(t *testing.T) {
-	const missing = "fleet_test_tmpl_ffffffffffff" // right shape, never created
+	missing := fixtureTemplateName(t) // right shape, never created
 
 	adminConfig := adminConfigForTest(t)
 	dbName := generateTestDBName(t.Name())
@@ -431,7 +453,7 @@ func TestTemplateAgeBoundsAreConsistent(t *testing.T) {
 // (otherwise every clone fails, which is what the TimescaleDB background worker
 // caused originally).
 func TestEvictTemplateSessionsSpareRebuildsButClearStrays(t *testing.T) {
-	const name = "fleet_test_tmpl_cccccccccccc"
+	name := fixtureTemplateName(t)
 
 	adminConfig := adminConfigForTest(t)
 	ctx := t.Context()
@@ -553,7 +575,7 @@ func TestIsTemplatePermissionError(t *testing.T) {
 // It plants a private abandoned template rather than sabotaging the live one,
 // which other packages and checkouts are cloning concurrently.
 func TestCreateTestDatabaseRebuildsAbandonedTemplate(t *testing.T) {
-	const abandoned = "fleet_test_tmpl_eeeeeeeeeeee"
+	abandoned := fixtureTemplateName(t)
 
 	adminConfig := adminConfigForTest(t)
 	ctx := t.Context()
@@ -629,7 +651,7 @@ func TestRecoveryBudgetIsSeparateFromRetryBudget(t *testing.T) {
 // distinction the recovery path turns on: an unsealed template is only worth
 // waiting for while somebody holds the preparation lock.
 func TestInspectTemplateBuildStateDistinguishesAbandonedFromBuilding(t *testing.T) {
-	const name = "fleet_test_tmpl_dddddddddddd"
+	name := fixtureTemplateName(t)
 
 	adminConfig := adminConfigForTest(t)
 	ctx := t.Context()
