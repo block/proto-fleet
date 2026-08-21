@@ -1,7 +1,8 @@
 // Package dbtest provides the per-test database harness: it creates a unique
-// database per test, migrates it, and drops it at cleanup, retrying each step
-// across transient server restarts (crash-recovery under heavy concurrent
-// migration load). It lives in a leaf package — importing only
+// database per test by cloning a migrated template database (see template.go),
+// and drops it at cleanup, retrying each step across transient server restarts
+// (crash-recovery under heavy concurrent migration load). It lives in a leaf
+// package — importing only
 // infrastructure/db — so tests in packages that testutil itself imports
 // (e.g. domain/command) can use the same hardened harness without an import
 // cycle. Most tests should keep using testutil.GetTestDB, which delegates here.
@@ -47,16 +48,22 @@ func GetTestDB(t *testing.T) *sql.DB {
 	// admin DDL before reaching the migration retry below.
 	adminConfig := config
 	adminConfig.Name = "postgres"
-	createTestDatabase(t, &adminConfig, dbName)
 
-	// Connect and run migrations with retry. TimescaleDB continuous aggregate
-	// DDL acquires instance-level catalog locks that can deadlock when parallel
-	// tests migrate concurrently; a transient server restart is also tolerated.
-	// On failure we drop and recreate the database for a clean slate (avoids
-	// golang-migrate dirty flag issues).
+	// Clone the migrated template so this test skips the migration replay
+	// entirely. Falls back to an empty database (migrated below) when no
+	// template could be prepared.
+	template := createTestDatabase(t, &adminConfig, dbName, templateDatabase(t, &adminConfig))
+
+	// Connect and run migrations with retry. Cloned databases are already at the
+	// latest version, so this is a no-op version check that also self-heals a
+	// stale clone; without a template it runs the full migration set. TimescaleDB
+	// continuous aggregate DDL acquires instance-level catalog locks that can
+	// deadlock when parallel tests migrate concurrently; a transient server
+	// restart is also tolerated. On failure we drop and recreate the database for
+	// a clean slate (avoids golang-migrate dirty flag issues).
 	testDBConfig := config
 	testDBConfig.Name = dbName
-	conn, err := connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
+	conn, err := connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName, template)
 	assert.NoError(t, err)
 
 	// Clean up the database when the test is done
@@ -76,7 +83,12 @@ const (
 	migrationRetryBaseDelay = 200 * time.Millisecond
 
 	pgInternalError                   = "XX000"
+	pgObjectInUse                     = "55006"
+	pgUndefinedDatabase               = "3D000"
+	pgInsufficientPrivilege           = "42501"
+	templateCopyDenied                = "permission denied to copy database"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
+	templateSourceInUse               = "is being accessed by other users"
 
 	// serverReadyTimeout bounds how long we wait for the database server to
 	// start accepting connections again after a transient restart before a
@@ -120,6 +132,7 @@ func connectAndMigrateWithRetry(
 	testDBConfig *db.Config,
 	adminConfig *db.Config,
 	dbName string,
+	template string,
 ) (*sql.DB, error) {
 	t.Helper()
 
@@ -138,7 +151,7 @@ func connectAndMigrateWithRetry(
 		t.Logf("retryable migration error (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
 		// Recreate the database for a clean slate (clears any dirty migration
 		// state), waiting out / retrying a transient server restart.
-		createTestDatabase(t, adminConfig, dbName)
+		template = createTestDatabase(t, adminConfig, dbName, template)
 
 		delay := time.Duration(attempt) * migrationRetryBaseDelay
 		time.Sleep(delay)
@@ -226,32 +239,140 @@ func pingAdminDatabase(ctx context.Context, adminConfig *db.Config) error {
 }
 
 // createTestDatabase drops any existing database with the given name and
-// creates a fresh one. It waits for the server to accept connections and
-// retries the admin DDL across a transient server restart (the same
-// 57P03 / "bad connection" / startup window connectAndMigrateWithRetry
-// tolerates), so a test that starts while the server is recovering survives the
-// blip instead of failing on the very first DROP/CREATE.
-func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+// creates a fresh one, cloning template when non-empty. It waits for the server
+// to accept connections and retries the admin DDL across a transient server
+// restart (the same 57P03 / "bad connection" / startup window
+// connectAndMigrateWithRetry tolerates), so a test that starts while the server
+// is recovering survives the blip instead of failing on the very first
+// DROP/CREATE.
+//
+// It returns the template actually used, which can differ from the one passed
+// in: a template swept by a concurrent run on a different migration set is
+// rebuilt (or given up on, yielding "") so the caller migrates the database
+// itself.
+func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, template string) string {
 	t.Helper()
 
 	var lastErr error
-	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+
+	// Two independent budgets. Retries hope a transient failure passes, so they
+	// are few. Recoveries *change the situation* — rebuild a swept template, give
+	// up on cloning, wait out somebody's build — and each one deserves a fresh
+	// attempt: charging them to the retry counter meant a recovery on the final
+	// attempt fell out of the loop and failed the test with the stale error,
+	// having never tried the configuration it just repaired.
+	attempts := 0
+	recoveries := 0
+
+	// One deadline for every rebuild wait belonging to this database, so repeated
+	// waits cannot accumulate into a stall that outlives the package timeout.
+	rebuildWaitDeadline := time.Now().Add(templateRebuildWaitTimeout)
+
+	for {
 		// Wait for the server before issuing admin DDL.
 		waitForServerReady(t.Context(), t, adminConfig)
 
-		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName)
+		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName, template)
 		if lastErr == nil {
-			return
+			return template
 		}
-		if !isTransientServerError(lastErr.Error()) || attempt == migrationMaxRetries {
+
+		if recoveries < templateRecoveryMaxAttempts {
+			recovered, updatedTemplate := recoverTemplateForClone(
+				t, adminConfig, template, lastErr, rebuildWaitDeadline)
+			if recovered {
+				recoveries++
+				template = updatedTemplate
+				continue
+			}
+		}
+
+		attempts++
+		if !isRetryableCreateError(lastErr.Error()) || attempts >= migrationMaxRetries {
 			break
 		}
 
-		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
-		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
+		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v",
+			attempts, migrationMaxRetries, lastErr)
+
+		// Whatever is attached to the template is not a live build (that is a
+		// recovery case handled above), so it is a stray — a TimescaleDB worker
+		// that slipped in — and gets evicted.
+		evictTemplateSessions(t.Context(), adminConfig, template)
+		time.Sleep(time.Duration(attempts) * migrationRetryBaseDelay)
 	}
 
 	assert.NoError(t, lastErr, "error creating test database")
+	return template
+}
+
+// recoverTemplateForClone handles the clone failures that a changed template can
+// fix. It reports whether it did something, along with the template the next
+// attempt should use ("" meaning migrate directly).
+func recoverTemplateForClone(
+	t *testing.T,
+	adminConfig *db.Config,
+	template string,
+	createErr error,
+	rebuildWaitDeadline time.Time,
+) (bool, string) {
+	t.Helper()
+
+	msg := createErr.Error()
+
+	// The template vanished mid-run: another checkout on a different migration
+	// set swept it as stale. Rebuild it rather than failing a test for someone
+	// else's cleanup.
+	if isMissingTemplateError(msg, template) {
+		t.Logf("template database %s disappeared, rebuilding: %v", template, createErr)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+	}
+
+	// We are not allowed to copy this template — it belongs to another role and
+	// we are not a superuser. No amount of retrying changes that, so stop cloning
+	// for the rest of the process and migrate directly.
+	if isTemplatePermissionError(msg, template) {
+		t.Logf("not permitted to copy template database %s (%v); "+
+			"migrating test databases directly for the rest of this process", template, createErr)
+		disableTemplateCloning()
+		return true, ""
+	}
+
+	if !isRetryableCreateError(msg) || template == "" {
+		return false, template
+	}
+
+	switch inspectTemplateBuildState(t.Context(), adminConfig, template) {
+	case templateStateBuilding:
+		// Somebody holds the preparation lock and is migrating right now. Wait for
+		// them to publish: killing the build would abort legitimate work, and the
+		// retry budget is far shorter than a migration run.
+		if remaining := time.Until(rebuildWaitDeadline); remaining > 0 {
+			t.Logf("template %s is being rebuilt by another process, waiting up to %s", template, remaining)
+			waitForTemplateRebuild(t.Context(), adminConfig, template, rebuildWaitDeadline)
+			return true, template
+		}
+
+		// Waited as long as we are prepared to. Stop waiting and rebuild.
+		t.Logf("template %s still unpublished after %s, rebuilding it", template, templateRebuildWaitTimeout)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+
+	case templateStateAbandoned:
+		// Unsealed with nobody building it: a build died and left a partially
+		// migrated database that nothing will ever finish or clean up. Its stray
+		// session is not evictable either (eviction spares unsealed templates), so
+		// rebuilding is the only way forward — dropping it disconnects the session.
+		t.Logf("template %s was left unpublished by an interrupted build, rebuilding it", template)
+		invalidateTemplateDatabase(template)
+		return true, templateDatabase(t, adminConfig)
+
+	case templateStatePublished:
+		return false, template
+	}
+
+	return false, template
 }
 
 // dropTestDatabase drops the test database at cleanup, waiting out and
@@ -292,15 +413,16 @@ func tryDropTestDatabase(ctx context.Context, adminConfig *db.Config, dbName str
 	defer conn.Close()
 
 	// Best effort: lingering connections just make the DROP fail, which the
-	// caller retries.
-	_, _ = conn.ExecContext(ctx, fmt.Sprintf(`
+	// caller retries. The name is bound as a parameter here; the DDL below has
+	// to interpolate it, so it goes through quoteIdentifier.
+	_, _ = conn.ExecContext(ctx, `
 		SELECT pg_terminate_backend(pg_stat_activity.pid)
 		FROM pg_stat_activity
-		WHERE pg_stat_activity.datname = '%s'
+		WHERE pg_stat_activity.datname = $1
 		AND pid <> pg_backend_pid()
-	`, dbName))
+	`, dbName)
 
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
+	if _, err := conn.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(dbName)); err != nil {
 		return fmt.Errorf("drop test database: %w", err)
 	}
 	return nil
@@ -309,8 +431,9 @@ func tryDropTestDatabase(ctx context.Context, adminConfig *db.Config, dbName str
 // tryCreateTestDatabase drops any existing database with the given name (after
 // terminating lingering connections) and creates a fresh one, returning any
 // error rather than failing the test so the caller can retry transient
-// failures.
-func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
+// failures. When template is non-empty the new database is a clone of it, which
+// skips the migration replay.
+func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string, template string) error {
 	if err := tryDropTestDatabase(ctx, adminConfig, dbName); err != nil {
 		return err
 	}
@@ -321,10 +444,42 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 	}
 	defer conn.Close()
 
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
+	create := "CREATE DATABASE " + quoteIdentifier(dbName)
+	if template != "" {
+		create += " TEMPLATE " + quoteIdentifier(template)
+	}
+	if _, err := conn.ExecContext(ctx, create); err != nil {
 		return fmt.Errorf("create test database: %w", err)
 	}
 	return nil
+}
+
+// isRetryableCreateError extends the transient-server check with the contention
+// PostgreSQL reports when a database is cloned while another session touches the
+// source (SQLSTATE 55006). Parallel tests all clone the same template, so this
+// is expected under load rather than a real failure.
+func isRetryableCreateError(msg string) bool {
+	return isTransientServerError(msg) ||
+		strings.Contains(msg, pgObjectInUse) ||
+		strings.Contains(msg, templateSourceInUse)
+}
+
+// isMissingTemplateError reports whether a clone failed because its source
+// template no longer exists (SQLSTATE 3D000). Only meaningful when cloning: the
+// database we are creating cannot itself be the undefined one.
+func isMissingTemplateError(msg string, template string) bool {
+	return template != "" && strings.Contains(msg, pgUndefinedDatabase)
+}
+
+// isTemplatePermissionError reports whether a clone failed because the
+// connecting role may not copy the template (SQLSTATE 42501). PostgreSQL only
+// permits copying a database you own unless you are a superuser, so this is what
+// a foreign template looks like.
+func isTemplatePermissionError(msg string, template string) bool {
+	if template == "" {
+		return false
+	}
+	return strings.Contains(msg, pgInsufficientPrivilege) || strings.Contains(msg, templateCopyDenied)
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.
