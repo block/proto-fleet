@@ -3,11 +3,13 @@ package driver
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -24,27 +26,32 @@ type simMinerContainer struct {
 }
 
 // The sim miner image is built once per test binary and reused by every
-// container, under a fixed tag that Terminate must not delete.
+// container, under a tag that Terminate must not delete.
 //
 // Building per container is unsafe here. Every build uses the same context and
 // Dockerfile, so the cache resolves them all to a single image digest, and
-// testcontainers tags each one with a fresh UUID by default. Terminate removes
-// a built image unless KeepImage is set, and it removes it by ID, so tearing
-// down one container deletes the digest the others still reference. A later
-// build then resolves to that same digest while the removal is still in
-// flight, and container creation fails with:
+// testcontainers tags each one with a fresh UUID by default. Terminate then
+// removes that tag with force and PruneChildren unless KeepImage is set, and
+// because the throwaway tag was the digest's only reference, the digest itself
+// is deleted. A later build resolves to that same digest while the removal is
+// still in flight, and container creation fails with:
 //
 //	failed to get digest sha256:...: open /var/lib/docker/image/overlay2/imagedb/content/sha256/...: no such file or directory
-const (
-	simMinerImageRepo = "proto-fleet-fake-proto-rig"
-	simMinerImageTag  = "driver-tests"
-)
+const simMinerImageRepo = "proto-fleet-fake-proto-rig"
 
 var (
 	simMinerImageOnce sync.Once
 	simMinerImageRef  string
 	simMinerImageErr  error
 )
+
+// simMinerImageTag scopes the tag to this test binary. Two invocations sharing
+// a Docker daemon (parallel packages, or a public and a downstream checkout on
+// one machine) would otherwise retag the same name and start containers from
+// each other's revision.
+func simMinerImageTag() string {
+	return fmt.Sprintf("driver-tests-%d", os.Getpid())
+}
 
 // simMinerImage builds the fake-proto-rig image on first use and returns the
 // tag every sim miner container should run from.
@@ -62,7 +69,7 @@ func simMinerImage(ctx context.Context) (string, error) {
 				Context:    "../../../..",
 				Dockerfile: "server/fake-proto-rig/Dockerfile",
 				Repo:       simMinerImageRepo,
-				Tag:        simMinerImageTag,
+				Tag:        simMinerImageTag(),
 				KeepImage:  true,
 			},
 		}
@@ -77,6 +84,23 @@ func simMinerImage(ctx context.Context) (string, error) {
 	})
 
 	return simMinerImageRef, simMinerImageErr
+}
+
+// TestMain drops the retained image once every test in the binary is done.
+// Nothing else deletes it, since KeepImage suppresses Terminate's cleanup.
+// Removing by tag only untags when another tag shares the digest, so this
+// cannot pull the image out from under a concurrent test binary.
+func TestMain(m *testing.M) {
+	code := m.Run()
+
+	if simMinerImageRef != "" {
+		if provider, err := testcontainers.NewDockerProvider(); err == nil {
+			_, _ = provider.Client().ImageRemove(context.Background(), simMinerImageRef, client.ImageRemoveOptions{})
+			_ = provider.Close()
+		}
+	}
+
+	os.Exit(code)
 }
 
 // startSimMiner starts a sim miner container and returns connection details
