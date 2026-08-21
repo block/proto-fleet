@@ -71,10 +71,11 @@ func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHa
 		return nil, err
 	}
 	return &auth.ResolvedFleetNode{
-		FleetNodeID:    row.FleetNodeID,
-		OrgID:          row.OrgID,
-		Name:           row.Name,
-		IdentityPubkey: row.IdentityPubkey,
+		FleetNodeID:      row.FleetNodeID,
+		OrgID:            row.OrgID,
+		Name:             row.Name,
+		IdentityPubkey:   row.IdentityPubkey,
+		SessionExpiresAt: row.ExpiresAt,
 	}, nil
 }
 

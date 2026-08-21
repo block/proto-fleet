@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,8 +21,10 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -214,6 +217,119 @@ func TestControlStream_RequiresHelloFirst(t *testing.T) {
 	var connErr *connect.Error
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
+}
+
+type controlledAdmissionGate struct {
+	active context.Context //nolint:containedctx // Test-owned activation lifetime.
+	reject bool
+}
+
+func (g controlledAdmissionGate) Admit(ctx context.Context) (context.Context, func(), error) {
+	if g.reject {
+		return nil, nil, errors.New("passive")
+	}
+	requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(ctx, g.active))
+	stop := context.AfterFunc(g.active, cancelRequest)
+	return requestCtx, func() {
+		stop()
+		cancelRequest()
+	}, nil
+}
+
+func TestControlStream_ReturnsStructuredNotActive(t *testing.T) {
+	t.Run("passive admission", func(t *testing.T) {
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{reject: true})
+		stream := client.ControlStream(t.Context())
+		// Admission can reject before the first client write completes. In that
+		// race Send returns EOF, while Receive still carries the structured RPC
+		// status this test is asserting.
+		_ = stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}})
+
+		_, err := stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+
+	t.Run("demotion before hello", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(nil), "start the RPC without sending Hello")
+
+		cancelActive()
+		_, err := stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+
+	t.Run("accepted stream demotion", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+		accepted, err := stream.Receive()
+		require.NoError(t, err)
+		require.NotNil(t, accepted.GetAccepted())
+
+		cancelActive()
+		_, err = stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+}
+
+func TestControlStream_SendsPeriodicLiveness(t *testing.T) {
+	previous := gateway.ControlStreamLivenessInterval
+	gateway.ControlStreamLivenessInterval = 20 * time.Millisecond
+	t.Cleanup(func() { gateway.ControlStreamLivenessInterval = previous })
+
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+
+	first, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, first.GetAccepted())
+	second, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, second.GetAccepted())
+}
+
+func requireStructuredNotActive(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	require.Equal(t, connect.CodeUnavailable, connectErr.Code())
+	for _, detail := range connectErr.Details() {
+		value, valueErr := detail.Value()
+		require.NoError(t, valueErr)
+		if fleetDetails, ok := value.(*commonpb.FleetErrorDetails); ok {
+			require.Equal(t, commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE, fleetDetails.GetCommon())
+			return
+		}
+	}
+	t.Fatal("missing FleetErrorDetails")
+}
+
+func startControlServerWithAdmission(t *testing.T, gate controlledAdmissionGate) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+	t.Helper()
+	const fleetNodeID = 42
+	subject := &auth.Subject{FleetNodeID: fleetNodeID, OrgID: 1, Name: "agent-control"}
+	mux := http.NewServeMux()
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
+		gateway.NewHandler(nil, nil, nil, control.NewRegistry(), nil),
+		connect.WithInterceptors(
+			interceptors.NewErrorMappingInterceptor(),
+			interceptors.NewActiveInterceptor(gate),
+			agentSubjectInjector{subject: subject},
+		),
+	))
+	srv := testutil.NewH2CServer(t, mux)
+	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
 }
 
 func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID string, payload []byte) *control.Session {
