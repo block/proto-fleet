@@ -86,7 +86,9 @@ function normalizeUnits(units: MetricUnit): string {
 /**
  * Detect the type of unit (temperature, power, hashrate, efficiency, etc.)
  */
-function getUnitType(units: string): "temperature" | "power" | "hashrate" | "efficiency" | "percentage" | "unknown" {
+function getUnitType(
+  units: string,
+): "temperature" | "power" | "hashrate" | "efficiency" | "percentage" | "voltage" | "unknown" {
   switch (units) {
     case "c":
     case "f":
@@ -96,6 +98,10 @@ function getUnitType(units: string): "temperature" | "power" | "hashrate" | "eff
     case "kw":
     case "mw":
       return "power";
+
+    case "v":
+    case "mv":
+      return "voltage";
 
     case "th/s":
     case "gh/s":
@@ -177,6 +183,17 @@ function performUnitConversion(value: number, fromUnits: string, toUnits: string
     // TH/s to MH/s
     if (fromUnits === "th/s" && toUnits === "mh/s") {
       return value * 1000000;
+    }
+  }
+
+  if (unitType === "voltage") {
+    // V to mV
+    if (fromUnits === "v" && toUnits === "mv") {
+      return value * 1000;
+    }
+    // mV to V
+    if (fromUnits === "mv" && toUnits === "v") {
+      return value / 1000;
     }
   }
 

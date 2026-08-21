@@ -94,7 +94,7 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
         />
         <AsicPopoverRow
           label="Voltage"
-          value={asic.voltage?.latest ? formatValue(asic.voltage.latest, true) : undefined}
+          value={asic.voltage?.latest ? convertAndFormatMeasurement(asic.voltage.latest, "mV", true) : undefined}
           className="text-text-primary"
         />
         <AsicPopoverRow
