@@ -79,6 +79,8 @@ const buildTypeOptions = (eventTypes: EventTypeOption[]): ActivityTypeFilterOpti
 interface ActivityFiltersProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
+  // Search only covers activity descriptions; hidden for viewers whose feed carries no activities.
+  hideSearch?: boolean;
   eventTypes: EventTypeOption[];
   scopeTypes: string[];
   users: UserOption[];
@@ -94,6 +96,7 @@ interface ActivityFiltersProps {
 const ActivityFilters = ({
   searchValue,
   onSearchChange,
+  hideSearch = false,
   eventTypes,
   scopeTypes,
   users,
@@ -185,17 +188,19 @@ const ActivityFilters = ({
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
-      <div className="w-full min-w-0" data-testid="activity-search-row">
-        <Input
-          id="activity-search"
-          label="Search activity"
-          hideLabelOnFocus
-          className="!h-8 !rounded-3xl"
-          initValue={searchValue}
-          onChange={(value) => onSearchChange(value)}
-          onKeyDown={handleClearSearch}
-        />
-      </div>
+      {hideSearch ? null : (
+        <div className="w-full min-w-0" data-testid="activity-search-row">
+          <Input
+            id="activity-search"
+            label="Search activity"
+            hideLabelOnFocus
+            className="!h-8 !rounded-3xl"
+            initValue={searchValue}
+            onChange={(value) => onSearchChange(value)}
+            onKeyDown={handleClearSearch}
+          />
+        </div>
+      )}
       <div
         className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2"
         data-testid="activity-toolbar-row"

@@ -291,16 +291,16 @@ const ScheduleModal = ({
   const { listRacks, listGroups } = useDeviceSets();
   // Soft default from the topbar SitePicker (store-driven; settings routes are
   // unscoped, so this reads the stored selection). A single selected site
-  // pre-filters the rack/miner selection modals; "all sites" passes the empty
+  // pre-filters the target selection modals; "all sites" passes the empty
   // filter and shows everything. Selections already on the schedule are not
   // pruned by site — a schedule may legitimately span sites — and the schedule
   // list itself stays org-wide (see issue #524).
   const { activeSite } = useActiveSite({});
   const scope = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
-  // The Site/Building/Rack/Miner pickers all filter their options to the active
+  // The Site/Building/Rack/Group/Miner pickers all filter their options to the active
   // site (via `scope`) — including the Site picker, which narrows to the one
   // selected site so it behaves like the others rather than being hidden or
-  // forcing a whole-site selection. Groups stay cross-site (#524).
+  // forcing a whole-site selection.
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
@@ -947,16 +947,11 @@ const ScheduleModal = ({
         />
       ) : null}
 
-      {/*
-        Group selection is intentionally NOT site-scoped yet: ListGroups gains
-        { siteIds, includeUnassigned } in issue #520. Once that lands, thread
-        `scope` through here (and decide the per-group count semantics — counts
-        stay org-wide under a site filter). Tracked in issue #524.
-      */}
       {showGroupSelectionModal ? (
         <GroupSelectionModal
           open={showGroupSelectionModal}
           selectedGroupIds={values.groupTargetIds}
+          scope={scope}
           onDismiss={() => setShowGroupSelectionModal(false)}
           onSave={(groupTargetIds) => {
             setNextValues((current) => ({ ...current, groupTargetIds }));

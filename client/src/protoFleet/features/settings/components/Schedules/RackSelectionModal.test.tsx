@@ -144,4 +144,44 @@ describe("RackSelectionModal", () => {
     // deleted, so it's preserved rather than silently dropped.
     expect(onSave).toHaveBeenCalledWith(["1", "9"]);
   });
+
+  it("filters racks by the selected parent buildings", async () => {
+    listRacksMock.mockImplementation(
+      ({ buildingIds, onSuccess, onFinally }: ListRacksCallbacks & { buildingIds?: bigint[] }) => {
+        expect(buildingIds).toEqual([11n, 12n]);
+        onSuccess?.([createRack(1n, "Rack 1")]);
+        onFinally?.();
+      },
+    );
+
+    render(
+      <RackSelectionModal open selectedRackIds={[]} buildingIds={[11n, 12n]} onDismiss={vi.fn()} onSave={vi.fn()} />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Rack 1")).toBeVisible());
+  });
+
+  it("renders and explicitly removes an unavailable selection when no racks remain", async () => {
+    listRacksMock.mockImplementation(({ onSuccess, onFinally }: ListRacksCallbacks) => {
+      onSuccess?.([]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <RackSelectionModal
+        open
+        selectedRackIds={["99"]}
+        preserveMissingSelections
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(await screen.findByText("Unavailable rack (99)"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(onSave).toHaveBeenCalledWith([]);
+  });
 });

@@ -38,7 +38,7 @@ type StoredNotification struct {
 }
 
 // ActiveAlertGroup is one firing rule's rollup: its blast radius across the fleet rather than a single instance.
-// Identity and counts only; per-instance detail (severity, summary) belongs to the drill-in rows that carry it.
+// Per-instance detail belongs to the drill-in rows that carry it, except on a group with no miners to drill into.
 type ActiveAlertGroup struct {
 	AlertName string
 	RuleGroup string
@@ -46,6 +46,10 @@ type ActiveAlertGroup struct {
 	AlertCount     int64
 	DeviceCount    int64
 	FirstStartedAt time.Time
+	// The newest instance's summary and the template it came from, both empty unless DeviceCount is 0. A
+	// device-less instance is not on its own proof the text names no miner, so the template gates it.
+	Summary  string
+	Template string
 }
 
 type ActiveAlertFilter struct {

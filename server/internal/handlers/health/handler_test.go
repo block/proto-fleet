@@ -238,12 +238,13 @@ func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 
-			NewActiveHandler(fakeActiveState(test.active))(
+			NewActiveHandler("v1.2.3", fakeActiveState(test.active))(
 				recorder,
 				httptest.NewRequest(http.MethodGet, "/health/active", nil),
 			)
 
 			require.Equal(t, test.statusCode, recorder.Code)
+			require.Equal(t, "v1.2.3", recorder.Header().Get("X-Proto-Fleet-Version"))
 		})
 	}
 }

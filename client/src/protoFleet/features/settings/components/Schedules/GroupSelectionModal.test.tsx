@@ -118,4 +118,50 @@ describe("GroupSelectionModal", () => {
 
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("filters the group catalog by the selected parent sites", async () => {
+    listGroupsMock.mockImplementation(
+      ({ siteIds, onSuccess, onFinally }: ListGroupsCallbacks & { siteIds?: bigint[] }) => {
+        expect(siteIds).toEqual([7n]);
+        onSuccess?.([createGroup(1n, "Group 1")]);
+        onFinally?.();
+      },
+    );
+
+    render(
+      <GroupSelectionModal
+        open
+        selectedGroupIds={[]}
+        scope={{ siteIds: [7n], includeUnassigned: false }}
+        onDismiss={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Group 1")).toBeVisible());
+  });
+
+  it("renders and explicitly removes an unavailable selection when no groups remain", async () => {
+    listGroupsMock.mockImplementation(({ onSuccess, onFinally }: ListGroupsCallbacks) => {
+      onSuccess?.([]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <GroupSelectionModal
+        open
+        selectedGroupIds={["99"]}
+        preserveMissingSelections
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(await screen.findByText("Unavailable group (99)"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(onSave).toHaveBeenCalledWith([]);
+  });
 });

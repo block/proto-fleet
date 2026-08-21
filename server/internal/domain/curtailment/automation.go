@@ -327,6 +327,16 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if err != nil {
 		return err
 	}
+	if startReq.Scope.Type == models.ScopeTypeDeviceList {
+		startReq.AuthorizedDeviceSites, err = s.profiles.ListDeviceSites(
+			ctx,
+			rule.OrgID,
+			startReq.Scope.DeviceIdentifiers,
+		)
+		if err != nil {
+			return err
+		}
+	}
 	if startReq.Mode == models.ModeFullFleet {
 		startReq.AllowUnbounded = true
 		startReq.MaxDurationSeconds = nil
@@ -491,6 +501,15 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
 	if profile == nil {
 		return nil
+	}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		return err
+	}
+	if hasTopologySelectors(scope) {
+		return fleeterror.NewFailedPreconditionError(
+			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
+		)
 	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil

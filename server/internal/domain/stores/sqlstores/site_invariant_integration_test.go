@@ -131,9 +131,20 @@ func TestDeleteSite_BlocksWholeOrgProfileInfrastructureReferences(t *testing.T) 
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO curtailment_response_profile (
-			org_id, profile_name, mode, scope_json, facility_fan_device_ids
-		) VALUES ($1, 'Whole-org response', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint])
-	`, orgID, infrastructureDeviceID)
+			org_id, profile_name, mode, scope_json, facility_fan_device_ids,
+			authorization_envelope_jsonb
+		) VALUES (
+			$1, 'Whole-org response', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($3::bigint),
+				'facility_fan_scope_unbounded', false
+			)
+		)
+	`, orgID, infrastructureDeviceID, site.ID)
 	require.NoError(t, err)
 
 	_, err = sitesService.DeleteSite(ctx, orgID, site.ID)
@@ -173,11 +184,15 @@ func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testin
 			site_id,
 			scope_json,
 			mode,
-			target_kw
+			target_kw,
+			authorization_envelope_jsonb
 		) VALUES
-			($1, 'Legacy site', $2, jsonb_build_object('site_ids', jsonb_build_array($2::bigint)), 'FIXED_KW', 100),
-			($1, 'Scoped site list', NULL, jsonb_build_object('site_ids', jsonb_build_array($2::bigint, $3::bigint)), 'FIXED_KW', 100),
-			($1, 'Other site', NULL, jsonb_build_object('site_ids', jsonb_build_array($3::bigint)), 'FIXED_KW', 100)
+			($1, 'Legacy site', $2, jsonb_build_object('site_ids', jsonb_build_array($2::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($2::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false)),
+			($1, 'Scoped site list', NULL, jsonb_build_object('site_ids', jsonb_build_array($2::bigint, $3::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($2::bigint, $3::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false)),
+			($1, 'Other site', NULL, jsonb_build_object('site_ids', jsonb_build_array($3::bigint)), 'FIXED_KW', 100,
+			 jsonb_build_object('schema_version', 1, 'selected_resource_site_ids', jsonb_build_array($3::bigint), 'current_member_site_ids', '[]'::jsonb, 'miner_scope_unbounded', false, 'facility_fan_site_ids', '[]'::jsonb, 'facility_fan_scope_unbounded', false))
 	`, orgID, siteA.ID, siteB.ID)
 	require.NoError(t, err)
 
@@ -227,14 +242,23 @@ func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProf
 			site_id,
 			scope_json,
 			mode,
-			target_kw
+			target_kw,
+			authorization_envelope_jsonb
 		) VALUES (
 			$1,
 			'Automation profile',
 			NULL,
 			jsonb_build_object('site_ids', jsonb_build_array($2::bigint)),
 			'FIXED_KW',
-			100
+			100,
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', jsonb_build_array($2::bigint),
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', false,
+				'facility_fan_site_ids', '[]'::jsonb,
+				'facility_fan_scope_unbounded', false
+			)
 		)
 		RETURNING id
 	`, orgID, site.ID).Scan(&profileID)

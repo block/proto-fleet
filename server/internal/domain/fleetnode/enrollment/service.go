@@ -84,7 +84,8 @@ type Service struct {
 	transactor  stores.Transactor
 	activitySvc *activity.Service
 
-	invalidateMiner func(context.Context, int64)
+	invalidateMiner         func(context.Context, int64)
+	invalidateControlStream func(int64)
 }
 
 func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor, activitySvc *activity.Service) *Service {
@@ -96,6 +97,11 @@ func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transa
 // for those devices must be evicted before another command can reuse its descriptor.
 func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) {
 	s.invalidateMiner = invalidate
+}
+
+// WithControlStreamInvalidator wires active stream eviction for node revocation.
+func (s *Service) WithControlStreamInvalidator(invalidate func(int64)) {
+	s.invalidateControlStream = invalidate
 }
 
 func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, int64, time.Time, error) {
@@ -331,6 +337,9 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		return nil
 	}); err != nil {
 		return err
+	}
+	if s.invalidateControlStream != nil {
+		s.invalidateControlStream(agentID)
 	}
 	if s.invalidateMiner != nil {
 		for _, deviceID := range deviceIDs {

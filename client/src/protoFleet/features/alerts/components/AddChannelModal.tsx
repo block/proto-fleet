@@ -50,7 +50,7 @@ const AddChannelModal = ({ open, onDismiss, onCreate }: AddChannelModalProps) =>
   } | null => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setErrorMsg("Add a name for this channel");
+      setErrorMsg("Add a name for this destination");
       return null;
     }
     let webhook: WebhookConfig | null = null;
@@ -107,7 +107,7 @@ const AddChannelModal = ({ open, onDismiss, onCreate }: AddChannelModalProps) =>
       onDismiss();
     } catch (error) {
       pushToast({
-        message: getErrorMessage(error, "Failed to save channel"),
+        message: getErrorMessage(error, "Failed to save destination"),
         status: STATUSES.error,
       });
       setSaving(false);
@@ -120,8 +120,8 @@ const AddChannelModal = ({ open, onDismiss, onCreate }: AddChannelModalProps) =>
     <Modal
       open={open}
       onDismiss={onDismiss}
-      title="Add channel"
-      description="Pick a destination. Test the channel before saving so you don't ship a dead receiver into the live config."
+      title="Add destination"
+      description="Choose a destination. Test it before saving so you don't ship a dead receiver into the live config."
       buttons={[
         ...(canTest
           ? [
@@ -137,7 +137,7 @@ const AddChannelModal = ({ open, onDismiss, onCreate }: AddChannelModalProps) =>
             ]
           : []),
         {
-          text: saving ? "Saving…" : "Save channel",
+          text: saving ? "Saving…" : "Save destination",
           onClick: () => {
             void handleSave();
           },

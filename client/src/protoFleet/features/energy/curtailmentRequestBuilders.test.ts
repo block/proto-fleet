@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CurtailmentMode } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { CurtailmentMode, type CurtailmentScope } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
@@ -11,6 +11,9 @@ const baseValues: CurtailmentSubmitValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
   siteId: "",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -30,11 +33,25 @@ const baseValues: CurtailmentSubmitValues = {
   forceIncludeAllPairedMiners: false,
 };
 
+function getTopologyScopeId(scope: CurtailmentScope): bigint | undefined {
+  switch (scope.scope.case) {
+    case "building":
+      return scope.scope.value.buildingId;
+    case "rack":
+      return scope.scope.value.rackId;
+    case "group":
+      return scope.scope.value.groupId;
+    default:
+      return undefined;
+  }
+}
+
 describe("curtailmentRequestBuilders", () => {
   it("builds fixed-kW start requests with fixed-kW mode params", () => {
     const request = buildStartCurtailmentRequest(baseValues);
 
     expect(request.mode).toBe(CurtailmentMode.FIXED_KW);
+    expect(request.scopeSchemaVersion).toBe(1);
     expect(request.modeParams.case).toBe("fixedKw");
     if (request.modeParams.case !== "fixedKw") {
       throw new Error("Expected fixedKw mode params");
@@ -91,13 +108,32 @@ describe("curtailmentRequestBuilders", () => {
     expect(allPairedRequest.forceIncludeMaintenance).toBe(true);
   });
 
-  it("strips all-paired targeting for explicit miner scopes", () => {
+  it("drops all-paired targeting for explicit miner scopes until their closed-loop lifecycle is supported", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       curtailmentMode: "fullFleet",
       targetKw: "",
       scopeType: "explicitMiners",
       deviceIdentifiers: ["miner-1"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
+  it.each([
+    { scopeType: "building" as const, field: "buildingTargetIds" as const },
+    { scopeType: "rack" as const, field: "rackTargetIds" as const },
+    { scopeType: "group" as const, field: "groupTargetIds" as const },
+  ])("defers all-paired execution fields for $scopeType scopes", ({ scopeType, field }) => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType,
+      [field]: ["7"],
       forceIncludeAllPairedMiners: true,
     });
 
@@ -217,7 +253,22 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.scopes[0].scope.value.siteId).toBe(42n);
   });
 
-  it("builds combined site and miner scopes without expanding sites", () => {
+  it.each([
+    ["building", "buildingTargetIds", "building"],
+    ["rack", "rackTargetIds", "rack"],
+    ["group", "groupTargetIds", "group"],
+  ] as const)("builds %s-scoped start requests", (scopeType, field, protoCase) => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      scopeType,
+      [field]: ["7", "8", "7"],
+    });
+
+    expect(request.scopes.map((scope) => scope.scope.case)).toEqual([protoCase, protoCase]);
+    expect(request.scopes.map(getTopologyScopeId)).toEqual([7n, 8n]);
+  });
+
+  it("uses miners as the terminal scope and keeps the selected site as navigation only", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       scopeType: "explicitMiners",
@@ -227,17 +278,15 @@ describe("curtailmentRequestBuilders", () => {
       deviceIdentifiers: ["miner-1", "miner-1", "miner-2"],
     });
 
-    expect(request.scopes).toHaveLength(2);
-    expect(request.scopes[0]?.scope.case).toBe("site");
-    expect(request.scopes[1]?.scope.case).toBe("deviceIdentifiers");
-    if (request.scopes[0]?.scope.case !== "site" || request.scopes[1]?.scope.case !== "deviceIdentifiers") {
-      throw new Error("Expected site and deviceIdentifiers scopes");
+    expect(request.scopes).toHaveLength(1);
+    expect(request.scopes[0]?.scope.case).toBe("deviceIdentifiers");
+    if (request.scopes[0]?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(request.scopes[0].scope.value.siteId).toBe(42n);
-    expect(request.scopes[1].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(request.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
-  it("builds multiple site scopes with explicit miner scopes without expanding sites", () => {
+  it("does not submit multiple parent sites with an explicit miner scope", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       scopeType: "explicitMiners",
@@ -248,42 +297,30 @@ describe("curtailmentRequestBuilders", () => {
       deviceIdentifiers: ["miner-1", "miner-2"],
     });
 
-    expect(request.scopes).toHaveLength(3);
-    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
-    if (
-      request.scopes[0]?.scope.case !== "site" ||
-      request.scopes[1]?.scope.case !== "site" ||
-      request.scopes[2]?.scope.case !== "deviceIdentifiers"
-    ) {
-      throw new Error("Expected two site scopes and one deviceIdentifiers scope");
+    expect(request.scopes).toHaveLength(1);
+    if (request.scopes[0]?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(request.scopes[0].scope.value.siteId).toBe(42n);
-    expect(request.scopes[1].scope.value.siteId).toBe(43n);
-    expect(request.scopes[2].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(request.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
   it("builds all-sites scopes from the selected site ids", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
-      scopeType: "explicitMiners",
+      scopeType: "site",
       siteSelection: "allSites",
       siteId: "42",
       siteIds: ["42", "43"],
-      deviceIdentifiers: ["miner-1", "miner-2"],
+      deviceIdentifiers: [],
     });
 
-    expect(request.scopes).toHaveLength(3);
-    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
-    if (
-      request.scopes[0]?.scope.case !== "site" ||
-      request.scopes[1]?.scope.case !== "site" ||
-      request.scopes[2]?.scope.case !== "deviceIdentifiers"
-    ) {
+    expect(request.scopes).toHaveLength(2);
+    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site"]);
+    if (request.scopes[0]?.scope.case !== "site" || request.scopes[1]?.scope.case !== "site") {
       throw new Error("Expected all-sites scope to preserve selected sites");
     }
     expect(request.scopes[0].scope.value.siteId).toBe(42n);
     expect(request.scopes[1].scope.value.siteId).toBe(43n);
-    expect(request.scopes[2].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
   it("collapses all-miner selection to whole org without sending page-loaded miner ids", () => {

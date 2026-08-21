@@ -67,6 +67,10 @@ var (
 	// ErrNoActiveStream: no ControlStream for the fleet_node (callers map to FailedPrecondition).
 	ErrNoActiveStream = errors.New("no active control stream for fleet_node")
 
+	// errSessionInvalidated: the authenticated session was replaced or revoked
+	// before its ControlStream could register.
+	errSessionInvalidated = errors.New("fleet_node session was replaced or revoked")
+
 	// errNoInFlightCommand: AdmitReport's command_id isn't an in-flight report-bearing
 	// command. Unexported; callers map it to FailedPrecondition like any non-quota admit failure.
 	errNoInFlightCommand = errors.New("no in-flight command for fleet_node")
@@ -202,13 +206,20 @@ func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 type Registry struct {
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
+	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
+}
+
+type sessionFence struct {
+	fingerprint string
+	revoked     bool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
 		conns:                    make(map[int64]*connection),
+		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
 	}

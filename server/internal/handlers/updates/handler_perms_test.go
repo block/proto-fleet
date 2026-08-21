@@ -55,6 +55,7 @@ func TestTriggerUpgradeRequiresInstanceUpdate(t *testing.T) {
 	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerRead)
 
 	_, err := h.TriggerUpgrade(ctx, connect.NewRequest(&instancev1.TriggerUpgradeRequest{
+		OperationId:   "11111111-1111-4111-8111-111111111111",
 		TargetVersion: "v1.1.0",
 	}))
 	requirePermissionDenied(t, err)
@@ -112,4 +113,17 @@ func TestSetReleaseChannelRejectsUnspecified(t *testing.T) {
 	_, err := h.SetReleaseChannel(ctx, connect.NewRequest(&instancev1.SetReleaseChannelRequest{}))
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestAcknowledgeUpgradeRequiresInstanceUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerRead)
+
+	_, err := h.AcknowledgeUpgrade(ctx, connect.NewRequest(&instancev1.AcknowledgeUpgradeRequest{
+		OperationId:             "11111111-1111-4111-8111-111111111111",
+		ExpectedOutcomeRevision: 1,
+	}))
+	requirePermissionDenied(t, err)
 }

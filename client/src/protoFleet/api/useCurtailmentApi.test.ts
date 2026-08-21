@@ -23,7 +23,9 @@ import {
   CurtailmentUnavailableReasonSchema,
   FixedKwParamsSchema,
   FullFleetParamsSchema,
+  ScopeBuildingSchema,
   ScopeDeviceListSchema,
+  ScopeRackSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -157,6 +159,7 @@ function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): Curtailmen
     },
     startedAt: timestamp("2026-05-01T12:00:00Z"),
     createdAt: timestamp("2026-05-01T11:58:00Z"),
+    scopeSchemaVersion: overrides.scopes?.length ? 1 : 0,
   });
 
   return Object.assign(event, overrides);
@@ -649,12 +652,9 @@ describe("useCurtailmentApi", () => {
     );
   });
 
-  it("uses combined scope labels for mixed site and miner active and history events", async () => {
-    const mixedScopedEvent = curtailmentEvent({
+  it("maps explicit-miner terminal scopes for active and history events", async () => {
+    const minerScopedEvent = curtailmentEvent({
       scopes: [
-        create(CurtailmentScopeSchema, {
-          scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
-        }),
         create(CurtailmentScopeSchema, {
           scope: {
             case: "deviceIdentifiers",
@@ -663,11 +663,10 @@ describe("useCurtailmentApi", () => {
         }),
       ],
     });
-    mockListActiveCurtailments.mockResolvedValueOnce({ event: mixedScopedEvent });
-    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [mixedScopedEvent], nextPageToken: "" });
-    const siteNameById = new Map([["101", "Calgary"]]);
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: minerScopedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [minerScopedEvent], nextPageToken: "" });
 
-    const { result } = renderHook(() => useCurtailmentApi({ siteNameById }));
+    const { result } = renderHook(() => useCurtailmentApi());
 
     await act(async () => {
       await result.current.refreshCurtailment();
@@ -675,23 +674,67 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEvent).toEqual(
       expect.objectContaining({
-        scopeLabel: "Calgary + 1 miner",
+        scopeLabel: "1 miner",
       }),
     );
     expect(result.current.activeEventFormValues).toEqual(
       expect.objectContaining({
         scopeType: "explicitMiners",
-        scopeId: "Calgary",
-        siteSelection: "site",
-        siteId: "101",
+        siteSelection: "none",
+        siteId: "",
         deviceIdentifiers: ["miner-1"],
       }),
     );
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
-        scopeLabel: "Calgary + 1 miner",
+        scopeLabel: "1 miner",
       }),
     );
+  });
+
+  it("keeps invalid mixed-scope events visible but disables form hydration", async () => {
+    const mixedScopeEvent = curtailmentEvent({
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+        }),
+        create(CurtailmentScopeSchema, {
+          scope: { case: "rack", value: create(ScopeRackSchema, { rackId: 8n }) },
+        }),
+      ],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: mixedScopeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [mixedScopeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(expect.objectContaining({ scopeLabel: "1 building + 1 rack" }));
+    expect(result.current.activeEventFormValues).toBeNull();
+  });
+
+  it("keeps topology-scoped events visible but disables form hydration", async () => {
+    const topologyScopeEvent = curtailmentEvent({
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+        }),
+      ],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: topologyScopeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [topologyScopeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(expect.objectContaining({ scopeLabel: "1 building" }));
+    expect(result.current.activeEventFormValues).toBeNull();
   });
 
   it("falls back to Site id labels for site-scoped events without a loaded site name", async () => {

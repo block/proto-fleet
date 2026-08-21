@@ -7,13 +7,21 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
+)
+
+const (
+	validSV2AuthorityPublicKey      = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+	invalidSecp256k1SV2AuthorityKey = "9caKLbMD1LpCeqMFyyWo8R62MKGZ4ya3EGCfhVnPUQifpnNF7GT"
 )
 
 func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
@@ -938,12 +946,12 @@ func TestHandleTestPoolConnection_InvalidURL_Returns400(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
 	}
 
-	var resp ErrorResponse
+	var resp MessageResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
 	}
-	if resp.Error.Message != "Invalid pool URL" {
-		t.Fatalf("expected error message %q, got %q", "Invalid pool URL", resp.Error.Message)
+	if resp.Message != "Invalid pool URL" {
+		t.Fatalf("expected error message %q, got %q", "Invalid pool URL", resp.Message)
 	}
 }
 
@@ -957,6 +965,71 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTestPoolConnection_SupportsSV2DefaultPortAndAuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	for _, tc := range []struct {
+		name        string
+		body        string
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:       "remote pool with valid key",
+			body:       fmt.Sprintf(`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`, validSV2AuthorityPublicKey),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "remote pool without key",
+			body:        `{"url":"stratum2+tcp://pool.example.com"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "an authority public key is required for remote SV2 pools",
+		},
+		{
+			name:        "remote pool with invalid key",
+			body:        `{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":"not-a-valid-key"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "invalid Stratum V2 authority public key",
+		},
+		{
+			name:        "remote pool with invalid secp256k1 key",
+			body:        fmt.Sprintf(`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`, invalidSecp256k1SV2AuthorityKey),
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "invalid Stratum V2 authority public key",
+		},
+		{
+			name:       "loopback pool without key",
+			body:       `{"url":"stratum2+tcp://127.0.0.1"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "SV1 pool without explicit port",
+			body:       `{"url":"stratum+tcp://pool.example.com"}`,
+			wantStatus: http.StatusOK,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection", strings.NewReader(tc.body))
+			h.handleTestPoolConnection(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected %d, got %d; body=%s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMessage != "" {
+				var response MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+					t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+				}
+				if response.Message != tc.wantMessage {
+					t.Fatalf("expected message %q, got %q", tc.wantMessage, response.Message)
+				}
+			}
+		})
 	}
 }
 
@@ -1217,6 +1290,84 @@ func TestCreatePools_PersistsConfiguredPriorities(t *testing.T) {
 	if resp.Pools[0].Priority != 2 || resp.Pools[1].Priority != 0 || resp.Pools[2].Priority != 1 {
 		t.Fatalf("expected response priorities [2 0 1], got [%d %d %d]", resp.Pools[0].Priority, resp.Pools[1].Priority, resp.Pools[2].Priority)
 	}
+	if resp.Pools[0].Protocol != poolProtocolStratumV1 {
+		t.Fatalf("expected protocol %q, got %q", poolProtocolStratumV1, resp.Pools[0].Protocol)
+	}
+}
+
+func TestCreatePools_RejectsRemoteSV2WithoutAuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "existing"})
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/pools",
+		strings.NewReader(`[{"url":"stratum2+tcp://pool.example.com","username":"replacement"}]`),
+	)
+	h.createPools(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	var response MessageResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+	if response.Message != "an authority public key is required for remote SV2 pools" {
+		t.Fatalf("unexpected response message %q", response.Message)
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 || pools[0].Username != "existing" {
+		t.Fatalf("expected existing pool to remain unchanged, got %+v", pools)
+	}
+}
+
+func TestCreatePools_PersistsSV2AuthorityKeyAndProtocol(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/pools",
+		strings.NewReader(fmt.Sprintf(
+			`[{"url":"stratum2+tcp://pool.example.com","username":"worker","v2_authority_pubkey":%q}]`,
+			validSV2AuthorityPublicKey,
+		)),
+	)
+	h.createPools(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key %q, got %q", validSV2AuthorityPublicKey, pools[0].V2AuthorityPubkey)
+	}
+
+	getRR := httptest.NewRecorder()
+	h.getPools(getRR, httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil))
+
+	var response PoolsList
+	if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+	if len(response.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(response.Pools))
+	}
+	if response.Pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected response authority key %q, got %q", validSV2AuthorityPublicKey, response.Pools[0].V2AuthorityPubkey)
+	}
+	if response.Pools[0].Protocol != "Stratum V2" {
+		t.Fatalf("expected protocol %q, got %q", "Stratum V2", response.Pools[0].Protocol)
+	}
 }
 
 func TestGetPools_UsesSpecShareFieldNames(t *testing.T) {
@@ -1313,6 +1464,80 @@ func TestUpdatePool_PersistsPriorityAndSerializesIt(t *testing.T) {
 	}
 	if resp.Pool.Priority != 2 {
 		t.Fatalf("expected serialized pool priority 2, got %d", resp.Pool.Priority)
+	}
+}
+
+func TestUpdatePool_PersistsSV2AuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	updateRR := httptest.NewRecorder()
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/pools/0",
+		strings.NewReader(fmt.Sprintf(
+			`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`,
+			validSV2AuthorityPublicKey,
+		)),
+	)
+	h.updatePool(updateRR, updateReq, 0)
+
+	if updateRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, updateRR.Code, updateRR.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key %q, got %q", validSV2AuthorityPublicKey, pools[0].V2AuthorityPubkey)
+	}
+
+	getRR := httptest.NewRecorder()
+	h.getPool(getRR, httptest.NewRequest(http.MethodGet, "/api/v1/pools/0", nil), 0)
+
+	var response PoolResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+	if response.Pool.V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected response authority key %q, got %q", validSV2AuthorityPublicKey, response.Pool.V2AuthorityPubkey)
+	}
+	if response.Pool.Protocol != "Stratum V2" {
+		t.Fatalf("expected protocol %q, got %q", "Stratum V2", response.Pool.Protocol)
+	}
+}
+
+func TestUpdatePool_RejectsClearingRemoteSV2AuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{
+		Idx:               0,
+		Url:               "stratum2+tcp://pool.example.com",
+		Username:          "worker",
+		V2AuthorityPubkey: validSV2AuthorityPublicKey,
+	})
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/pools/0", strings.NewReader(`{"v2_authority_pubkey":""}`))
+	h.updatePool(rr, req, 0)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	var response MessageResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+	if response.Message != "an authority public key is required for remote SV2 pools" {
+		t.Fatalf("unexpected response message %q", response.Message)
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 || pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key to remain unchanged, got %+v", pools)
 	}
 }
 
@@ -2473,49 +2698,93 @@ func TestHandleSystem_SwUpdateStatusUsesSpecFieldNames(t *testing.T) {
 	}
 }
 
-func TestStagedFirmwareVersion_UsesFilenameVersionWhenPresent(t *testing.T) {
+func TestExplicitFirmwareVersion(t *testing.T) {
 	tests := []struct {
-		name           string
-		filename       string
-		currentVersion string
-		want           string
+		name     string
+		filename string
+		content  string
+		want     string
+		wantOK   bool
 	}{
 		{
-			name:           "plain semantic version",
-			filename:       "protoos-1.9.0.swu",
-			currentVersion: "1.8.0",
-			want:           "1.9.0",
+			name:     "plain semantic version",
+			filename: "protoos-1.9.0.swu",
+			content:  `firmware_version=9.9.9`,
+			want:     "1.9.0",
+			wantOK:   true,
 		},
 		{
-			name:           "v-prefixed semantic version",
-			filename:       "firmware-update-v2.0.2.swu",
-			currentVersion: "1.8.0",
-			want:           "2.0.2",
+			name:     "v-prefixed semantic version",
+			filename: "firmware-update-v2.0.2.swu",
+			want:     "2.0.2",
+			wantOK:   true,
 		},
 		{
-			name:           "fallback when filename has no version",
-			filename:       "protoos-update.swu",
-			currentVersion: "1.8.0",
-			want:           defaultNextFirmwareVersion,
+			name:     "key value payload marker",
+			filename: "protoos-update.swu",
+			content:  "bundle header\nfirmware_version=1.4.4\nbinary data",
+			want:     "1.4.4",
+			wantOK:   true,
 		},
 		{
-			name:           "fallback increments non-default current version",
-			filename:       "protoos-update.swu",
-			currentVersion: "2.3.4",
-			want:           "2.3.5",
+			name:     "JSON payload marker",
+			filename: "protoos-update.swu",
+			content:  `{"firmware_version":"2.5.7"}`,
+			want:     "2.5.7",
+			wantOK:   true,
 		},
 		{
-			name:           "does not extract partial four-part version",
-			filename:       "protoos-1.2.3.4.swu",
-			currentVersion: "1.8.0",
-			want:           defaultNextFirmwareVersion,
+			name:     "plain semantic version payload marker",
+			filename: "protoos-update.swu",
+			content:  "fake firmware bundle\nv3.6.9\n",
+			want:     "3.6.9",
+			wantOK:   true,
+		},
+		{
+			name:     "no explicit version",
+			filename: "protoos-update.swu",
+			content:  "fake firmware bundle",
+		},
+		{
+			name:     "does not extract partial four-part version",
+			filename: "protoos-1.2.3.4.swu",
+			content:  "fake firmware bundle",
+		},
+		{
+			name:     "ignores payload marker beyond bounded prefix",
+			filename: "protoos-update.swu",
+			content:  strings.Repeat("x", int(firmwareVersionScanLimit)) + "\nfirmware_version=8.8.8\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := stagedFirmwareVersion(tt.filename, tt.currentVersion); got != tt.want {
-				t.Fatalf("expected staged version %q, got %q", tt.want, got)
+			got, ok, err := explicitFirmwareVersion(tt.filename, strings.NewReader(tt.content))
+			if err != nil {
+				t.Fatalf("explicitFirmwareVersion returned an error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected explicit version %q, got %q", tt.want, got)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("expected explicit version present=%t, got %t", tt.wantOK, ok)
+			}
+		})
+	}
+}
+
+func TestNextFirmwareVersion(t *testing.T) {
+	for _, tt := range []struct {
+		current string
+		want    string
+	}{
+		{current: defaultFirmwareVersion, want: defaultNextFirmwareVersion},
+		{current: "2.3.4", want: "2.3.5"},
+		{current: "invalid", want: defaultNextFirmwareVersion},
+	} {
+		t.Run(tt.current, func(t *testing.T) {
+			if got := nextFirmwareVersion(tt.current); got != tt.want {
+				t.Fatalf("expected next version %q, got %q", tt.want, got)
 			}
 		})
 	}
@@ -2667,73 +2936,655 @@ func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *test
 	}
 }
 
-func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-	const uploadedVersion = "2.4.6"
+func newFirmwareUploadRequest(t *testing.T, filename, content string) *http.Request {
+	t.Helper()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "protoos-"+uploadedVersion+".swu")
+	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		t.Fatalf("failed to create multipart file: %v", err)
 	}
-	if _, err := part.Write([]byte("fake firmware bundle")); err != nil {
+	if _, err := part.Write([]byte(content)); err != nil {
 		t.Fatalf("failed to write multipart file: %v", err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("failed to close multipart writer: %v", err)
 	}
 
-	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	h.handleUpdate(rr, req)
+	return req
+}
+
+func assertFirmwareUploadDidNotMutateState(t *testing.T, state *MinerState, wantNextOutcome string) {
+	t.Helper()
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "" {
+		t.Errorf("expected no firmware lifecycle, got status %q", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "" {
+		t.Errorf("expected no staged version, got %q", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != wantNextOutcome {
+		t.Errorf("expected one-shot outcome to remain %q, got %q", wantNextOutcome, state.FWNextUpdateOutcome)
+	}
+}
+
+func TestHandleUpdate_PutConsumesCompleteStreamBeforeResponding(t *testing.T) {
+	tests := []struct {
+		name             string
+		filename         string
+		contentVersion   string
+		wantVersion      string
+		pauseAfterHeader bool
+	}{
+		{
+			name:           "content version",
+			filename:       "protoos-update.swu",
+			contentVersion: "3.4.5",
+			wantVersion:    "3.4.5",
+		},
+		{
+			name:             "filename version wins",
+			filename:         "protoos-2.4.6.swu",
+			contentVersion:   "9.9.9",
+			wantVersion:      "2.4.6",
+			pauseAfterHeader: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+			state.mu.Unlock()
+
+			h := NewRESTApiHandler(state)
+			h.firmwareStepDelay = time.Hour
+
+			uploadReader, uploadWriter := io.Pipe()
+			multipartWriter := multipart.NewWriter(uploadWriter)
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+			req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+			rr := httptest.NewRecorder()
+
+			streamPaused := make(chan struct{})
+			resumeStream := make(chan struct{})
+			writerDone := make(chan error, 1)
+			go func() {
+				part, err := multipartWriter.CreateFormFile("file", tt.filename)
+				if err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+
+				if tt.pauseAfterHeader {
+					close(streamPaused)
+					<-resumeStream
+				}
+
+				marker := "firmware_version=" + tt.contentVersion + "\n"
+				prefix := marker + strings.Repeat("x", int(firmwareVersionScanLimit)-len(marker))
+				if _, err = io.WriteString(part, prefix); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+
+				if !tt.pauseAfterHeader {
+					close(streamPaused)
+					<-resumeStream
+				}
+
+				if _, err = io.WriteString(part, strings.Repeat("y", int(4*firmwareVersionScanLimit))); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+				if err = multipartWriter.Close(); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+				writerDone <- uploadWriter.Close()
+			}()
+
+			handlerDone := make(chan struct{})
+			go func() {
+				h.handleUpdate(rr, req)
+				_ = uploadReader.Close()
+				close(handlerDone)
+			}()
+
+			select {
+			case <-streamPaused:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the upload stream to pause")
+			}
+
+			respondedEarly := false
+			select {
+			case <-handlerDone:
+				respondedEarly = true
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			state.mu.RLock()
+			statusBeforeCompletion := state.FWUpdateStatus
+			versionBeforeCompletion := state.FWNewVersion
+			outcomeBeforeCompletion := state.FWNextUpdateOutcome
+			state.mu.RUnlock()
+
+			close(resumeStream)
+
+			var writerErr error
+			select {
+			case writerErr = <-writerDone:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the upload writer")
+			}
+			if !respondedEarly {
+				select {
+				case <-handlerDone:
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for the upload handler")
+				}
+			}
+
+			if respondedEarly {
+				t.Error("handler responded before the complete multipart file was available")
+			}
+			if statusBeforeCompletion != "" {
+				t.Errorf("firmware lifecycle started before upload completion: status=%q", statusBeforeCompletion)
+			}
+			if versionBeforeCompletion != "" {
+				t.Errorf("firmware version staged before upload completion: version=%q", versionBeforeCompletion)
+			}
+			if outcomeBeforeCompletion != firmwareUpdateOutcomeAttention {
+				t.Errorf("one-shot outcome consumed before upload completion: got %q", outcomeBeforeCompletion)
+			}
+			if writerErr != nil {
+				t.Errorf("upload writer failed before sending the complete file: %v", writerErr)
+			}
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+
+			state.mu.RLock()
+			gotStatus := state.FWUpdateStatus
+			gotVersion := state.FWNewVersion
+			gotNextOutcome := state.FWNextUpdateOutcome
+			state.mu.RUnlock()
+			if gotStatus != "downloaded" {
+				t.Errorf("expected status %q after complete upload, got %q", "downloaded", gotStatus)
+			}
+			if gotVersion != tt.wantVersion {
+				t.Errorf("expected staged version %q, got %q", tt.wantVersion, gotVersion)
+			}
+			if gotNextOutcome != firmwareUpdateOutcomeSuccess {
+				t.Errorf("expected one-shot outcome to reset after complete upload, got %q", gotNextOutcome)
+			}
+		})
+	}
+}
+
+func TestHandleUpdate_PutConsumesTrailingPartsBeforeResponding(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+
+	h := NewRESTApiHandler(state)
+	h.firmwareStepDelay = time.Hour
+
+	uploadReader, uploadWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(uploadWriter)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	trailingPartPaused := make(chan struct{})
+	resumeTrailingPart := make(chan struct{})
+	finalBoundaryWritten := make(chan struct{})
+	closeUploadStream := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		file, err := multipartWriter.CreateFormFile("file", "protoos-2.4.6.swu")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+
+		trailing, err := multipartWriter.CreateFormField("metadata")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if _, err = io.WriteString(trailing, "metadata-start"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(trailingPartPaused)
+		<-resumeTrailingPart
+		if _, err = io.WriteString(trailing, "-and-end"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if err = multipartWriter.Close(); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(finalBoundaryWritten)
+		<-closeUploadStream
+		writerDone <- uploadWriter.Close()
+	}()
+
+	handlerDone := make(chan struct{})
+	go func() {
+		h.handleUpdate(rr, req)
+		_ = uploadReader.Close()
+		close(handlerDone)
+	}()
+
+	select {
+	case <-trailingPartPaused:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for trailing multipart part to pause")
+	}
+
+	select {
+	case <-handlerDone:
+		t.Fatal("handler responded before the trailing multipart part reached final EOF")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+
+	close(resumeTrailingPart)
+	select {
+	case <-finalBoundaryWritten:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for final multipart boundary")
+	}
+	select {
+	case <-handlerDone:
+		t.Fatal("handler responded before the upload stream reached EOF")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+
+	close(closeUploadStream)
+	select {
+	case err := <-writerDone:
+		if err != nil {
+			t.Fatalf("upload writer failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upload writer")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upload handler")
+	}
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "downloaded" {
+		t.Errorf("expected status %q after complete upload, got %q", "downloaded", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "2.4.6" {
+		t.Errorf("expected staged version %q, got %q", "2.4.6", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Errorf("expected one-shot outcome to reset after complete upload, got %q", state.FWNextUpdateOutcome)
+	}
+}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		info := getSystemInfo(t, h)
-		swUpdate, ok := info["sw_update_status"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
-		}
+func TestHandleUpdate_PutRejectsInvalidMultipartRemainder(t *testing.T) {
+	tests := []struct {
+		name      string
+		remainder func(boundary string) string
+	}{
+		{
+			name: "missing final boundary",
+			remainder: func(boundary string) string {
+				return "\r\n--" + boundary + "\r\n" +
+					"Content-Disposition: form-data; name=\"metadata\"\r\n\r\n" +
+					"truncated trailing data"
+			},
+		},
+		{
+			name: "malformed trailing part headers",
+			remainder: func(boundary string) string {
+				return "\r\n--" + boundary + "\r\n" +
+					"not-a-valid-mime-header\r\n\r\n" +
+					"trailing data\r\n--" + boundary + "--\r\n"
+			},
+		},
+	}
 
-		if got := swUpdate["new_version"]; got != uploadedVersion {
-			t.Fatalf("expected new_version %q after upload, got %v", uploadedVersion, got)
-		}
-
-		if swUpdate["status"] == "installed" {
-			rebootRR := httptest.NewRecorder()
-			rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
-			h.handleReboot(rebootRR, rebootReq)
-
-			if rebootRR.Code != http.StatusAccepted {
-				t.Fatalf("expected %d from reboot, got %d; body=%s", http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
-			}
-
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 			state.mu.Lock()
-			state.Rebooting = false
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
 			state.mu.Unlock()
+			h := NewRESTApiHandler(state)
 
-			info = getSystemInfo(t, h)
-			swUpdate, ok = info["sw_update_status"].(map[string]any)
-			if !ok {
-				t.Fatalf("expected sw_update_status object after reboot, got: %v", info["sw_update_status"])
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+			if err != nil {
+				t.Fatalf("failed to create multipart file: %v", err)
 			}
-			if got := swUpdate["current_version"]; got != uploadedVersion {
-				t.Fatalf("expected current_version %q after reboot, got %v", uploadedVersion, got)
+			if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+				t.Fatalf("failed to write multipart file: %v", err)
 			}
-			if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
-				t.Fatalf("expected previous_version %q after reboot, got %v", defaultFirmwareVersion, got)
+			if _, err = io.WriteString(&body, tt.remainder(writer.Boundary())); err != nil {
+				t.Fatalf("failed to write multipart remainder: %v", err)
 			}
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			rr := httptest.NewRecorder()
+			h.handleUpdate(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			}
+			assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+		})
+	}
+}
+
+func TestHandleUpdate_SlowMarkerlessUploadUsesFinalCurrentVersion(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	h.firmwareStepDelay = time.Hour
+
+	uploadReader, uploadWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(uploadWriter)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	streamPaused := make(chan struct{})
+	resumeStream := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		part, err := multipartWriter.CreateFormFile("file", "protoos-update.swu")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
 			return
 		}
+		if _, err = io.WriteString(part, strings.Repeat("x", int(firmwareVersionScanLimit))); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(streamPaused)
+		<-resumeStream
+		if err = multipartWriter.Close(); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		writerDone <- uploadWriter.Close()
+	}()
 
-		time.Sleep(200 * time.Millisecond)
+	handlerDone := make(chan struct{})
+	go func() {
+		h.handleUpdate(rr, req)
+		_ = uploadReader.Close()
+		close(handlerDone)
+	}()
+
+	select {
+	case <-streamPaused:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload to pause")
+	}
+
+	state.mu.Lock()
+	state.FWUpdateStatus = "installed"
+	state.FWNewVersion = "2.0.0"
+	state.mu.Unlock()
+	rebootRR := httptest.NewRecorder()
+	h.handleReboot(rebootRR, httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil))
+	if rebootRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d from overlapping reboot, got %d; body=%s",
+			http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
+	}
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	close(resumeStream)
+	select {
+	case err := <-writerDone:
+		if err != nil {
+			t.Fatalf("upload writer failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload writer")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload handler")
+	}
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWCurrentVersion != "2.0.0" {
+		t.Fatalf("expected current version %q, got %q", "2.0.0", state.FWCurrentVersion)
+	}
+	if state.FWNewVersion != "2.0.1" {
+		t.Fatalf("expected markerless upload to stage %q, got %q", "2.0.1", state.FWNewVersion)
+	}
+}
+
+func TestHandleUpdate_PutStreamFailureDoesNotMutateFirmwareState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+	h := NewRESTApiHandler(state)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "protoos-update.swu")
+	if err != nil {
+		t.Fatalf("failed to create multipart file: %v", err)
+	}
+	marker := "firmware_version=4.5.6\n"
+	payload := marker + strings.Repeat("x", int(2*firmwareVersionScanLimit)-len(marker))
+	if _, err = io.WriteString(part, payload); err != nil {
+		t.Fatalf("failed to write multipart file: %v", err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	payloadOffset := bytes.Index(body.Bytes(), []byte(marker))
+	if payloadOffset < 0 {
+		t.Fatal("failed to locate firmware payload in multipart body")
+	}
+	streamErr := errors.New("simulated upload stream failure")
+	readBeforeFailure := int64(payloadOffset) + firmwareVersionScanLimit
+	interruptedBody := io.MultiReader(
+		io.LimitReader(bytes.NewReader(body.Bytes()), readBeforeFailure),
+		iotest.ErrReader(streamErr),
+	)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", interruptedBody)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected %d for interrupted upload, got %d; body=%s",
+			http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "" {
+		t.Errorf("expected no firmware lifecycle after stream failure, got status %q", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "" {
+		t.Errorf("expected no staged version after stream failure, got %q", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeAttention {
+		t.Errorf("expected stream failure not to consume one-shot outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestHandleUpdate_PutOversizeDeclarationDoesNotMutateFirmwareState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+	h := NewRESTApiHandler(state)
+
+	req := newFirmwareUploadRequest(t, "protoos-2.4.6.swu", "fake firmware bundle")
+	req.ContentLength = maxFirmwareUploadBytes + 1
+	rr := httptest.NewRecorder()
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected %d for oversized upload, got %d; body=%s",
+			http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
+	}
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+}
+
+func TestHandleUpdate_PutStreamedOversizeDoesNotMutateFirmwareState(t *testing.T) {
+	const uploadLimit = int64(1024)
+
+	tests := []struct {
+		name      string
+		writeBody func(t *testing.T, writer *multipart.Writer)
+	}{
+		{
+			name: "file part",
+			writeBody: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+				if err != nil {
+					t.Fatalf("failed to create multipart file: %v", err)
+				}
+				if _, err = io.WriteString(file, strings.Repeat("x", int(2*uploadLimit))); err != nil {
+					t.Fatalf("failed to write multipart file: %v", err)
+				}
+			},
+		},
+		{
+			name: "trailing part",
+			writeBody: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+				if err != nil {
+					t.Fatalf("failed to create multipart file: %v", err)
+				}
+				if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+					t.Fatalf("failed to write multipart file: %v", err)
+				}
+				trailing, err := writer.CreateFormField("metadata")
+				if err != nil {
+					t.Fatalf("failed to create trailing multipart part: %v", err)
+				}
+				if _, err = io.WriteString(trailing, strings.Repeat("x", int(2*uploadLimit))); err != nil {
+					t.Fatalf("failed to write trailing multipart part: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+			state.mu.Unlock()
+			h := NewRESTApiHandler(state)
+			h.firmwareUploadLimit = uploadLimit
+
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			tt.writeBody(t, writer)
+			if err := writer.Close(); err != nil {
+				t.Fatalf("failed to close multipart writer: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", bytes.NewReader(body.Bytes()))
+			req.ContentLength = -1
+			req.TransferEncoding = []string{"chunked"}
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			rr := httptest.NewRecorder()
+			h.handleUpdate(rr, req)
+
+			if rr.Code != http.StatusRequestEntityTooLarge {
+				t.Errorf("expected %d, got %d; body=%s",
+					http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
+			}
+			assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+		})
+	}
+}
+
+func getFirmwareStatus(state *MinerState) string {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.FWUpdateStatus
+}
+
+func waitForFirmwareStatus(t *testing.T, state *MinerState, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if getFirmwareStatus(state) == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("expected firmware status to reach %q, got %q", want, getFirmwareStatus(state))
+}
+
+func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	h.firmwareStepDelay = 20 * time.Millisecond
+	h.firmwareInstallDelay = 50 * time.Millisecond
+	const uploadedVersion = "2.4.6"
+
+	rr := httptest.NewRecorder()
+	h.handleUpdate(rr, newFirmwareUploadRequest(t, "protoos-"+uploadedVersion+".swu", "fake firmware bundle"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 
 	info := getSystemInfo(t, h)
@@ -2741,7 +3592,57 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
 	}
-	t.Fatalf("expected uploaded firmware to reach %q, got %v", "installed", swUpdate["status"])
+	if got := swUpdate["status"]; got != "downloaded" {
+		t.Fatalf("expected status %q immediately after upload, got %v", "downloaded", got)
+	}
+	if got := swUpdate["new_version"]; got != uploadedVersion {
+		t.Fatalf("expected new_version %q after upload, got %v", uploadedVersion, got)
+	}
+
+	waitForFirmwareStatus(t, state, "installing")
+	waitForFirmwareStatus(t, state, "installed")
+
+	rebootRR := httptest.NewRecorder()
+	rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
+	h.handleReboot(rebootRR, rebootReq)
+	if rebootRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d from reboot, got %d; body=%s", http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
+	}
+
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	info = getSystemInfo(t, h)
+	swUpdate, ok = info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object after reboot, got: %v", info["sw_update_status"])
+	}
+	if got := swUpdate["status"]; got != "current" {
+		t.Fatalf("expected status %q after reboot, got %v", "current", got)
+	}
+	if got := swUpdate["current_version"]; got != uploadedVersion {
+		t.Fatalf("expected current_version %q after reboot, got %v", uploadedVersion, got)
+	}
+	if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
+		t.Fatalf("expected previous_version %q after reboot, got %v", defaultFirmwareVersion, got)
+	}
+	osInfo, ok := info["os"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected os object after reboot, got: %v", info["os"])
+	}
+	if got := osInfo["version"]; got != uploadedVersion {
+		t.Fatalf("expected os.version %q after reboot, got %v", uploadedVersion, got)
+	}
+	for _, component := range []string{"mining_driver_sw", "web_server", "web_dashboard", "pool_interface_sw"} {
+		componentInfo, ok := info[component].(map[string]any)
+		if !ok {
+			t.Fatalf("expected %s object after reboot, got: %v", component, info[component])
+		}
+		if got := componentInfo["version"]; got != uploadedVersion {
+			t.Fatalf("expected %s.version %q after reboot, got %v", component, uploadedVersion, got)
+		}
+	}
 }
 
 func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
@@ -2752,6 +3653,7 @@ func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
 	state.mu.Unlock()
 
 	h := NewRESTApiHandler(state)
+	h.firmwareInstallDelay = 10 * time.Millisecond
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
@@ -2761,52 +3663,235 @@ func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		state.mu.RLock()
-		status := state.FWUpdateStatus
-		state.mu.RUnlock()
-		if status == "installed" {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	state.mu.RLock()
-	gotStatus := state.FWUpdateStatus
-	state.mu.RUnlock()
-	t.Fatalf("expected firmware status to reach %q, got %q", "installed", gotStatus)
+	waitForFirmwareStatus(t, state, "installed")
 }
 
-func TestHandleUpdate_PutWhileDownloading_Rejects(t *testing.T) {
+func TestHandleUpdate_PutWhilePending_RejectsAndPreservesStagedVersion(t *testing.T) {
+	for _, pendingStatus := range []string{"downloading", "downloaded", "installing", "installed"} {
+		t.Run(pendingStatus, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWUpdateStatus = pendingStatus
+			state.FWNewVersion = defaultNextFirmwareVersion
+			state.mu.Unlock()
+
+			h := NewRESTApiHandler(state)
+			rr := httptest.NewRecorder()
+			h.handleUpdate(rr, newFirmwareUploadRequest(t, "protoos-9.9.9.swu", "fake firmware bundle"))
+
+			if rr.Code != http.StatusConflict {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusConflict, rr.Code, rr.Body.String())
+			}
+
+			state.mu.RLock()
+			gotStatus := state.FWUpdateStatus
+			gotVersion := state.FWNewVersion
+			state.mu.RUnlock()
+			if gotStatus != pendingStatus {
+				t.Fatalf("expected status to remain %q, got %q", pendingStatus, gotStatus)
+			}
+			if gotVersion != defaultNextFirmwareVersion {
+				t.Fatalf("expected staged version to remain %q, got %q", defaultNextFirmwareVersion, gotVersion)
+			}
+		})
+	}
+}
+
+func newFirmwareOutcomeControlMux(t *testing.T, enabled bool) (*MinerState, *http.ServeMux) {
+	t.Helper()
+	envValue := ""
+	if enabled {
+		envValue = "true"
+	}
+	t.Setenv(fakeRigEnableTestControlsEnv, envValue)
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	state.mu.Lock()
-	state.FWUpdateStatus = "downloading"
-	state.FWNewVersion = defaultNextFirmwareVersion
-	state.mu.Unlock()
-
+	state.SetAccessToken("test-token")
 	h := NewRESTApiHandler(state)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return state, mux
+}
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "protoos-update.swu")
-	if err != nil {
-		t.Fatalf("failed to create multipart file: %v", err)
-	}
-	if _, err := part.Write([]byte("fake firmware bundle")); err != nil {
-		t.Fatalf("failed to write multipart file: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("failed to close multipart writer: %v", err)
-	}
-
+func requestFirmwareOutcomeControl(mux *http.ServeMux, body string, authenticated bool) *httptest.ResponseRecorder {
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	h.handleUpdate(rr, req)
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/fake-api/v1/test/firmware-update/outcome",
+		strings.NewReader(body),
+	)
+	if authenticated {
+		req.Header.Set("Authorization", "Bearer test-token")
+	}
+	mux.ServeHTTP(rr, req)
+	return rr
+}
 
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusConflict, rr.Code, rr.Body.String())
+func TestFakeFirmwareUpdateOutcomeRoute_DisabledByDefault(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, false)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, true)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected %d when test controls are disabled, got %d; body=%s",
+			http.StatusNotFound, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected disabled control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_EnabledRequiresBearerAuth(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, false)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d without bearer auth, got %d; body=%s",
+			http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected unauthorized control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_EnabledAcceptsAuthenticatedRequest(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, true)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d with test controls and bearer auth, got %d; body=%s",
+			http.StatusOK, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeError {
+		t.Fatalf("expected authenticated control to set outcome %q, got %q",
+			firmwareUpdateOutcomeError, state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_RejectsOversizedBody(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	body := `{"outcome":"` + strings.Repeat("x", int(maxTestControlRequestBytes))
+	rr := requestFirmwareOutcomeControl(mux, body, true)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected %d for oversized control body, got %d; body=%s",
+			http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected oversized control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_RejectsTrailingJSONValue(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(
+		mux,
+		`{"outcome":"error"} {"outcome":"attention"}`,
+		true,
+	)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d for trailing JSON value, got %d; body=%s",
+			http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected rejected control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcome_FailsNextUpdateWithoutPromoting(t *testing.T) {
+	t.Setenv(fakeRigEnableTestControlsEnv, "true")
+	tests := []struct {
+		outcome       string
+		expectedError string
+	}{
+		{outcome: firmwareUpdateOutcomeError, expectedError: firmwareUpdateFailureMessage},
+		{outcome: firmwareUpdateOutcomeAttention, expectedError: firmwareUpdateAttentionMessage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.outcome, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.SetAccessToken("test-token")
+			h := NewRESTApiHandler(state)
+			h.firmwareStepDelay = 5 * time.Millisecond
+			h.firmwareInstallDelay = 5 * time.Millisecond
+
+			mux := http.NewServeMux()
+			h.RegisterRoutes(mux)
+			controlRR := requestFirmwareOutcomeControl(
+				mux,
+				fmt.Sprintf(`{"outcome":%q}`, tt.outcome),
+				true,
+			)
+			if controlRR.Code != http.StatusOK {
+				t.Fatalf("expected %d from fake outcome control, got %d; body=%s",
+					http.StatusOK, controlRR.Code, controlRR.Body.String())
+			}
+
+			uploadRR := httptest.NewRecorder()
+			h.handleUpdate(
+				uploadRR,
+				newFirmwareUploadRequest(t, "protoos-update.swu", "firmware_version=4.5.6\n"),
+			)
+			if uploadRR.Code != http.StatusOK {
+				t.Fatalf("expected %d from upload, got %d; body=%s",
+					http.StatusOK, uploadRR.Code, uploadRR.Body.String())
+			}
+			waitForFirmwareStatus(t, state, "error")
+
+			info := getSystemInfo(t, h)
+			swUpdate, ok := info["sw_update_status"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+			}
+			if got := swUpdate["new_version"]; got != "4.5.6" {
+				t.Fatalf("expected payload version %q, got %v", "4.5.6", got)
+			}
+			if got := swUpdate["error"]; got != tt.expectedError {
+				t.Fatalf("expected update error %q, got %v", tt.expectedError, got)
+			}
+
+			state.mu.RLock()
+			nextOutcome := state.FWNextUpdateOutcome
+			state.mu.RUnlock()
+			if nextOutcome != firmwareUpdateOutcomeSuccess {
+				t.Fatalf("expected one-shot outcome to reset to %q, got %q",
+					firmwareUpdateOutcomeSuccess, nextOutcome)
+			}
+
+			rebootRR := httptest.NewRecorder()
+			h.handleReboot(
+				rebootRR,
+				httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil),
+			)
+			if rebootRR.Code != http.StatusAccepted {
+				t.Fatalf("expected %d from reboot, got %d", http.StatusAccepted, rebootRR.Code)
+			}
+			state.mu.Lock()
+			state.Rebooting = false
+			state.mu.Unlock()
+
+			info = getSystemInfo(t, h)
+			swUpdate, ok = info["sw_update_status"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected sw_update_status object after reboot, got: %v", info["sw_update_status"])
+			}
+			if got := swUpdate["current_version"]; got != defaultFirmwareVersion {
+				t.Fatalf("expected failed update to keep current version %q, got %v", defaultFirmwareVersion, got)
+			}
+			if _, present := swUpdate["previous_version"]; present {
+				t.Fatalf("expected no previous version after failed update, got %v", swUpdate["previous_version"])
+			}
+		})
 	}
 }
 

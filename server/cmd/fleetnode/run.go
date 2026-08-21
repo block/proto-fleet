@@ -25,6 +25,9 @@ const (
 	sessionRefreshLeeway     = 1 * time.Hour
 )
 
+// Var so the bounded-shutdown path can be exercised without a 10-second test.
+var controlWorkerShutdownTimeout = 10 * time.Second
+
 type RunCmd struct {
 	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
 	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
@@ -44,8 +47,15 @@ type RunCmd struct {
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 	firmwareTempRoot         string                                                                   `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
+	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+
+	controlSessionCancel context.CancelCauseFunc `kong:"-"`
+
+	controlConcurrencyOnce sync.Once      `kong:"-"`
+	controlCommandSlots    chan struct{}  `kong:"-"`
+	controlDiscoverySlot   chan struct{}  `kong:"-"`
+	controlWorkers         sync.WaitGroup `kong:"-"`
 }
 
 type gatewayClient interface {
@@ -242,11 +252,43 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 
 	wg.Wait()
 	close(errCh)
+	var loopErr error
 	for err := range errCh {
-		return err
+		if loopErr == nil {
+			loopErr = err
+		}
+	}
+	r.waitForControlWorkers(logger)
+	if loopErr != nil {
+		return loopErr
 	}
 	logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
 	return nil
+}
+
+func (r *RunCmd) initControlConcurrency() {
+	r.controlConcurrencyOnce.Do(func() {
+		r.controlCommandSlots = make(chan struct{}, commandPoolSize)
+		r.controlDiscoverySlot = make(chan struct{}, 1)
+	})
+}
+
+func (r *RunCmd) waitForControlWorkers(logger *slog.Logger) {
+	r.initControlConcurrency()
+	done := make(chan struct{})
+	go func() {
+		r.controlWorkers.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(controlWorkerShutdownTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		logger.Warn("control command handlers still running; continuing daemon shutdown",
+			"timeout", controlWorkerShutdownTimeout.String(),
+			"workers", len(r.controlCommandSlots)+len(r.controlDiscoverySlot))
+	}
 }
 
 func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
@@ -288,7 +330,11 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	// Snapshot under the lock so SaveState's yaml.Marshal doesn't race the
 	// tokenSource goroutine that the control loop will add later.
 	snapshot := *st
+	cancelControlSession := r.controlSessionCancel
 	r.stateMu.Unlock()
+	if cancelControlSession != nil {
+		cancelControlSession(errControlSessionRotated)
+	}
 	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}

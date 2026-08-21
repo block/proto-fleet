@@ -1,4 +1,5 @@
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 
@@ -132,6 +133,10 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
     const username = displayName(entry, "target_username");
     return username ? `Reset password for ${username}` : "Reset password";
   },
+  cli_reset_password: (entry) => {
+    const username = displayName(entry, "target_username");
+    return username ? `Break-glass password reset for ${username}` : "Break-glass password reset";
+  },
   deactivate_user: (entry) => withTarget("Deactivated user", displayName(entry, "target_username")),
   update_user_role: (entry) => {
     const username = displayName(entry, "target_username");
@@ -202,6 +207,10 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
       ? "Command ran with skipped miners"
       : `Command ran with ${minerCountLabel(skippedCount)} skipped`;
   },
+
+  // Alert descriptions carry user-authored rule names; pass them through untouched.
+  [ALERT_FIRING_EVENT_TYPE]: (entry) => entry.description,
+  [ALERT_RESOLVED_EVENT_TYPE]: (entry) => entry.description,
 };
 
 function replaceCountToken(value: string, token: string, singular: string, plural = `${singular}s`): string {

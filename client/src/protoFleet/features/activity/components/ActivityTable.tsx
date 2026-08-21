@@ -80,6 +80,11 @@ function ActivityTypeCell({ entry }: { entry: ActivityEntry }) {
 const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
   const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null);
   const handleDismiss = useCallback(() => setSelectedEntry(null), []);
+  // A row that leaves the feed (a revoked grant clears rows, a filter hides them) takes its open
+  // detail modal with it; resetting during render keeps the withdrawn entry from painting again.
+  if (selectedEntry && !activities.some((entry) => entry.eventId === selectedEntry.eventId)) {
+    setSelectedEntry(null);
+  }
   const grouped = useMemo(() => groupActivities(activities), [activities]);
   const colConfig: ColConfig<ActivityEntry, string, ActivityColumn> = useMemo(
     () => ({

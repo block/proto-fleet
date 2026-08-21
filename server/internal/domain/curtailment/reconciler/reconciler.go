@@ -1466,7 +1466,7 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 			return interfaces.ListCandidatesParams{}, false
 		}
 		return interfaces.ListCandidatesParams{SiteIDs: scope.SiteIDs}, true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceList:
 		return interfaces.ListCandidatesParams{}, false
 	default:
 		return interfaces.ListCandidatesParams{}, false

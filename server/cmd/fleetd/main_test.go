@@ -77,23 +77,24 @@ logging:
   json: true
 `)
 
-	config := &Config{}
+	cli := &fleetdCLI{}
 	parser, err := kong.New(
-		config,
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, configPath),
+		kong.Configuration(fleetdYAMLLoader, configPath),
 	)
 	require.NoError(t, err)
 
-	_, err = parser.Parse([]string{
+	ctx, err := parser.Parse(normalizeFleetdArgs([]string{
 		"--http-address=127.0.0.1:8081",
 		"--http-write-byte-timeout=1m",
 		"--logging-json=false",
-	})
+	}))
 	require.NoError(t, err)
-	require.Equal(t, "127.0.0.1:8081", config.HTTP.Address)
-	require.Equal(t, time.Minute, config.HTTP.WriteByteTimeout)
-	require.False(t, config.Log.JSON)
+	require.Equal(t, "server", ctx.Command())
+	require.Equal(t, "127.0.0.1:8081", cli.Server.HTTP.Address)
+	require.Equal(t, time.Minute, cli.Server.HTTP.WriteByteTimeout)
+	require.False(t, cli.Server.Log.JSON)
 }
 
 func TestFleetdLoadsExplicitDBDSNFromEnv(t *testing.T) {
@@ -109,17 +110,18 @@ auth:
 encrypt:
   service-master-key: "test-master-key"
 `)
-	config := &Config{}
+	cli := &fleetdCLI{}
 	parser, err := kong.New(
-		config,
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, configPath),
+		kong.Configuration(fleetdYAMLLoader, configPath),
 	)
 	require.NoError(t, err)
 
-	_, err = parser.Parse(nil)
+	ctx, err := parser.Parse(nil)
 	require.NoError(t, err)
-	require.Equal(t, explicitDSN, config.DB.ExplicitDSN)
+	require.Equal(t, "server", ctx.Command())
+	require.Equal(t, explicitDSN, cli.Server.DB.ExplicitDSN)
 }
 
 func TestFleetdParsesHAEnabledFromEnv(t *testing.T) {

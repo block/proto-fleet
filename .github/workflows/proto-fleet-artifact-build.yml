@@ -202,7 +202,7 @@ jobs:
           chmod +x server/proto-plugin-* server/antminer-plugin-* server/virtual-plugin-*
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build asicrs plugin binary
         run: |
@@ -370,7 +370,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build TimescaleDB images
         run: |
@@ -421,7 +421,7 @@ jobs:
 
   build-proto-fleet:
     name: Build ProtoFleet deployment bundle (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs:
       - metadata
       - build-proto-fleet-server
@@ -430,7 +430,11 @@ jobs:
       - build-timescaledb-image
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       CHANNEL: ${{ needs.metadata.outputs.channel }}
@@ -511,12 +515,13 @@ jobs:
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/reset-super-admin-password.sh deployment/
           cp deployment-files/uninstall.sh deployment/
           cp -r deployment-files/scripts deployment/
           cp -r deployment-files/profiles deployment/
           cp -r deployment-files/ha deployment/
           mv deployment/server/fleet-ha deployment/ha/fleet-ha
-          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
+          chmod +x deployment/run-fleet.sh deployment/reset-super-admin-password.sh deployment/uninstall.sh deployment/scripts/*.sh
           chmod +x deployment/ha/scripts/*.sh deployment/ha/tests/*.sh
           chmod +x deployment/updater/proto-fleet-updater
 
@@ -524,6 +529,29 @@ jobs:
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
 
           deployment/scripts/pin-release-images.sh deployment "$VERSION"
+
+      - name: Build Fleet images
+        run: |
+          cp deployment/client/nginx.https.conf deployment/client/nginx.conf
+          docker build --tag "proto-fleet-api:${VERSION}" deployment/server
+          docker build --tag "proto-fleet-client:${VERSION}" deployment/client
+
+          docker save \
+            --output fleet-${{ matrix.arch }}.tar \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"
+
+          archive_manifest=$(tar -xOf fleet-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$archive_manifest"; then
+              echo "::error::Fleet image archive is missing ${image}."
+              exit 1
+            fi
+          done
+          gzip -9 fleet-${{ matrix.arch }}.tar
+          mv fleet-${{ matrix.arch }}.tar.gz deployment/images/fleet.tar.gz
 
       - name: Create version file
         run: |
@@ -535,18 +563,7 @@ jobs:
           fi
 
       - name: Create immutable deployment manifest
-        run: |
-          cd deployment
-          unsupported_entries=$(find . ! -type f ! -type d -print)
-          if [ -n "$unsupported_entries" ]; then
-            echo "Deployment bundle contains unsupported non-regular entries:" >&2
-            printf '  %s\n' "$unsupported_entries" >&2
-            exit 1
-          fi
-          find . -type f ! -path './deployment-manifest.sha256' -print0 \
-            | LC_ALL=C sort -z \
-            | xargs -0 sha256sum \
-            > deployment-manifest.sha256
+        run: deployment/scripts/create-release-manifest.sh deployment
 
       - name: Package ProtoFleet deployment bundle
         run: |
@@ -558,6 +575,8 @@ jobs:
           tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
           for required_path in \
             deployment/docker-compose.updater.yaml \
+            deployment/reset-super-admin-password.sh \
+            deployment/images/fleet.tar.gz \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do
             if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then

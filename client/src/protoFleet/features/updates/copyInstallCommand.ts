@@ -13,7 +13,7 @@ export const copyInstallCommand = (installCommand: string) => {
     })
     .catch(() => {
       pushToast({
-        message: "Failed to copy install command",
+        message: "Couldn't copy install command",
         status: STATUSES.error,
       });
     });

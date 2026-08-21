@@ -3,6 +3,7 @@ import AddChannelModal from "./AddChannelModal";
 import ChannelEditableCell from "./ChannelEditableCell";
 import ChannelStatusBadge from "./ChannelStatusBadge";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { useChannels } from "@/protoFleet/features/alerts/api/useChannels";
 import type { Channel } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -35,6 +36,7 @@ const destinationPlaceholder = (c: Channel) => {
 
 const ChannelsSection = () => {
   const { channels, refresh, createChannel, updateChannel, testChannel, removeChannel } = useChannels();
+  const { refresh: refreshAlerts } = useAlertsContext();
   const canManage = useHasPermission("alert:manage");
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -61,7 +63,7 @@ const ChannelsSection = () => {
         pushToast({ message: `Renamed: ${next}`, status: STATUSES.success });
       } catch (error) {
         pushToast({
-          message: getErrorMessage(error, "Failed to rename channel"),
+          message: getErrorMessage(error, "Failed to rename destination"),
           status: STATUSES.error,
         });
       }
@@ -143,15 +145,27 @@ const ChannelsSection = () => {
     async (channel: Channel) => {
       try {
         await removeChannel(channel.id);
-        pushToast({ message: `Deleted channel "${channel.name}"`, status: STATUSES.success });
       } catch (error) {
         pushToast({
-          message: getErrorMessage(error, "Failed to delete channel"),
+          message: getErrorMessage(error, "Failed to delete destination"),
+          status: STATUSES.error,
+        });
+        return;
+      }
+
+      pushToast({ message: `Deleted destination "${channel.name}"`, status: STATUSES.success });
+      try {
+        // ListRules filters soft-deleted channel ids from custom routes. Refreshing here keeps
+        // the rule's Muted/Active badge aligned with the delivery path after a channel delete.
+        await refreshAlerts();
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Destination deleted, but alert rules could not be refreshed"),
           status: STATUSES.error,
         });
       }
     },
-    [removeChannel],
+    [removeChannel, refreshAlerts],
   );
 
   const actions: ListAction<Channel>[] = useMemo(
@@ -220,18 +234,18 @@ const ChannelsSection = () => {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
       <div className="flex items-center justify-between">
-        <Header title="Channels" titleSize="text-heading-200" />
+        <Header title="Destinations" titleSize="text-heading-200" />
         {canManage ? (
           <Button
             variant={variants.secondary}
             size={sizes.compact}
-            text="Add channel"
+            text="Add destination"
             onClick={() => setShowAddModal(true)}
           />
         ) : null}
       </div>
       <p className="text-300 text-text-primary-50">
-        Webhook and Slack destinations for alert delivery. Every rule delivers to every channel unless it has custom
+        Webhook and Slack destinations for alert delivery. Every rule delivers to every destination unless it has custom
         delivery set in the Rules section above. "Test" sends a synthetic alert directly to the destination.
       </p>
 
@@ -242,10 +256,10 @@ const ChannelsSection = () => {
         colTitles={colTitles}
         colConfig={colConfig}
         total={channels.length}
-        itemName={{ singular: "channel", plural: "channels" }}
+        itemName={{ singular: "destination", plural: "destinations" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No channels yet — add a webhook or Slack URL to start getting alerts.
+            No destinations yet — add a webhook or Slack URL to start getting alerts.
           </div>
         }
         actions={canManage ? actions : []}

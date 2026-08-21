@@ -41,7 +41,7 @@ func TestHandleUpgradeRejectsTrailingContentAndAllowsWhitespace(t *testing.T) {
 		{
 			name:      "trailing whitespace",
 			body:      "{\"operation_id\":\"11111111-1111-4111-8111-111111111111\",\"target_version\":\"invalid\"}\n\t ",
-			wantError: "target version must be a stable or RC release tag",
+			wantError: "target version must be a valid semantic release tag",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -159,16 +159,21 @@ func TestHandleUpgradeUsesCallerOperationID(t *testing.T) {
 func TestHandleUpgradeRejectsInvalidOperationID(t *testing.T) {
 	t.Parallel()
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/upgrade",
-		strings.NewReader(`{"operation_id":"not-a-uuid","target_version":"v1.1.0"}`),
-	)
-	NewServer(&Manager{}).handleUpgrade(recorder, request)
+	for _, operationID := range []string{"not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
+		t.Run(operationID, func(t *testing.T) {
+			t.Parallel()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/upgrade",
+				strings.NewReader(fmt.Sprintf(`{"operation_id":%q,"target_version":"v1.1.0"}`, operationID)),
+			)
+			NewServer(&Manager{}).handleUpgrade(recorder, request)
 
-	assert.Equal(t, http.StatusBadRequest, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "operation id must be a canonical UUID")
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "operation id must be a canonical UUID")
+		})
+	}
 }
 
 func TestHandleUpgradeRequiresOperationID(t *testing.T) {
@@ -480,4 +485,152 @@ func shortSocketPath(t *testing.T) string {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(directory)) })
 	return filepath.Join(directory, "updater.sock")
+}
+
+func TestHandleAcknowledge(t *testing.T) {
+	t.Parallel()
+
+	newFailedOperationManager := func(t *testing.T) *Manager {
+		t.Helper()
+		installRoot := t.TempDir()
+		writeCurrentDeployment(t, installRoot, "v1.0.0")
+		stateDir := filepath.Join(t.TempDir(), "state")
+		writeFailedOperationState(t, stateDir)
+		manager, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    stateDir,
+			GOARCH:      "amd64",
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+		return manager
+	}
+
+	t.Run("acknowledges the current terminal operation", func(t *testing.T) {
+		t.Parallel()
+		server := NewServer(newFailedOperationManager(t))
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
+		server.handleAcknowledge(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response updaterapi.AcknowledgeResponse
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.Equal(t, "failed-operation", response.Operation.ID)
+		assert.Equal(t, uint64(1), response.Operation.OutcomeRevision)
+		assert.True(t, response.Operation.Acknowledged)
+		assert.False(t, response.AlreadyAcknowledged)
+
+		// A retry reports the dismissal as already in place.
+		recorder = httptest.NewRecorder()
+		request = httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
+		server.handleAcknowledge(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		response = updaterapi.AcknowledgeResponse{}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.True(t, response.Operation.Acknowledged)
+		assert.True(t, response.AlreadyAcknowledged)
+	})
+
+	t.Run("unknown operation maps to 404", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"other","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusNotFound, recorder.Code)
+		var response updaterapi.ErrorResponse
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.Equal(t, updaterapi.ErrorCodeOperationNotFound, response.Code)
+	})
+
+	t.Run("active operation maps to 409", func(t *testing.T) {
+		t.Parallel()
+		manager := newFailedOperationManager(t)
+		manager.mu.Lock()
+		manager.operation.Phase = updaterapi.PhaseActivating
+		manager.mu.Unlock()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
+		NewServer(manager).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusConflict, recorder.Code)
+	})
+
+	t.Run("stale outcome revision maps to 409", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":2}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusConflict, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "outcome revision changed")
+	})
+
+	t.Run("missing outcome revision maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z"}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "expected_outcome_revision")
+	})
+
+	t.Run("missing operation start time maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "expected_started_at")
+	})
+
+	t.Run("invalid operation start time maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"not-a-time","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+
+	t.Run("stale operation incarnation maps to 409", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:01Z","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusConflict, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "start time changed")
+	})
+
+	t.Run("malformed body maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"x"}{}`))
+		NewServer(&Manager{}).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+
+	t.Run("empty operation id maps to 400, not 404", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{}`))
+		NewServer(&Manager{}).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+
+	t.Run("non-POST maps to 405", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/v1/acknowledge", nil)
+		NewServer(&Manager{}).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+	})
 }

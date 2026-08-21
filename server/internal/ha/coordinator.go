@@ -305,16 +305,8 @@ func (c *Coordinator) renewActive(ctx context.Context, expectedCtx context.Conte
 	observed, err := c.observer.ObserveAndRun(
 		activeCtx,
 		func(actionCtx context.Context, observed WriterObservation) error {
-			if observed.DCSClusterID != current.DCSClusterID ||
-				observed.WriterGeneration != current.Token.WriterGeneration {
-				return fmt.Errorf(
-					"%w: held %s@%d, observed %s@%d",
-					ErrWriterChanged,
-					current.DCSClusterID,
-					current.Token.WriterGeneration,
-					observed.DCSClusterID,
-					observed.WriterGeneration,
-				)
+			if err := validateObservedWriter(current, observed); err != nil {
+				return err
 			}
 			requestStarted = time.Now()
 			var renewErr error
@@ -328,6 +320,13 @@ func (c *Coordinator) renewActive(ctx context.Context, expectedCtx context.Conte
 		},
 	)
 	if err != nil {
+		if errors.Is(err, ErrTimelineMismatch) {
+			if writerErr := validateObservedWriter(current, observed); writerErr != nil {
+				c.deactivate(writerErr)
+				return writerErr
+			}
+			return c.markActiveObservationUnavailable(activeCtx)
+		}
 		c.deactivate(err)
 		return err
 	}
@@ -340,6 +339,31 @@ func (c *Coordinator) renewActive(ctx context.Context, expectedCtx context.Conte
 		c.deactivate(err)
 		return err
 	}
+	return nil
+}
+
+func validateObservedWriter(current Ownership, observed WriterObservation) error {
+	if observed.DCSClusterID == current.DCSClusterID &&
+		observed.WriterGeneration == current.Token.WriterGeneration {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: held %s@%d, observed %s@%d",
+		ErrWriterChanged,
+		current.DCSClusterID,
+		current.Token.WriterGeneration,
+		observed.DCSClusterID,
+		observed.WriterGeneration,
+	)
+}
+
+func (c *Coordinator) markActiveObservationUnavailable(expectedCtx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activeCtx != expectedCtx {
+		return ErrOwnershipLost
+	}
+	c.observed = false
 	return nil
 }
 

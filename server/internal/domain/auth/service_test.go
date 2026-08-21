@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 // noopTransactor runs the callback directly without a real DB transaction.
@@ -567,6 +568,32 @@ func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid current password")
+}
+
+func TestService_UpdatePasswordRejectsInvalidNewPasswordBeforeLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := &Service{
+		userStore:  mocks.NewMockUserStore(ctrl),
+		transactor: mocks.NewMockTransactor(ctrl),
+	}
+
+	_, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+		CurrentPassword: "current-password",
+		NewPassword:     "short",
+	}, "test-agent", "127.0.0.1")
+
+	require.ErrorContains(t, err, "at least 8 characters")
+}
+
+func TestService_CreateAdminUserRejectsInvalidPasswordBeforePersistence(t *testing.T) {
+	service := &Service{}
+
+	_, err := service.CreateAdminUser(context.Background(), &onboardingv1.CreateAdminLoginRequest{
+		Username: "admin",
+		Password: "short",
+	})
+
+	require.ErrorContains(t, err, "at least 8 characters")
 }
 
 func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) {

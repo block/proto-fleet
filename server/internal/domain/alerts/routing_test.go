@@ -89,7 +89,7 @@ func routingService(t *testing.T) (*Service, *fakeRouteStore, *fakeGrafanaRules)
 		require.NoError(t, err)
 	}
 	routes := newFakeRouteStore()
-	return NewService(fake.server(t), channels, routes, nil, nil, nil, nil, DestinationPolicy{}), routes, fake
+	return NewService(fake.server(t), channels, routes, nil, nil, nil, nil, nil, DestinationPolicy{}), routes, fake
 }
 
 func TestSetRuleRoutingPersistsCustomAndNone(t *testing.T) {
@@ -124,6 +124,9 @@ func TestSetRuleRoutingValidation(t *testing.T) {
 	// Custom requires at least one channel.
 	_, err := svc.SetRuleRouting(ctx, 7, "pfu-mine", RouteModeCustom, nil)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "custom routing requires at least one destination", fleetErr.DebugMessage)
 
 	// Default/none reject channel ids.
 	_, err = svc.SetRuleRouting(ctx, 7, "pfu-mine", RouteModeNone, []string{"1"})
@@ -210,7 +213,7 @@ func TestCreateRuleCleansPolicyWhenCreateFails(t *testing.T) {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
 	routes := newFakeRouteStore()
-	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800), RouteModeNone, nil)
 	require.Error(t, err)
@@ -225,7 +228,7 @@ func TestCreateRuleCleansPolicyWhenConfigWriteFails(t *testing.T) {
 	routes := newFakeRouteStore()
 	configs := newFakeRuleConfigStore()
 	configs.upsertErr = errors.New("db down")
-	svc := NewService(fake.server(t), nil, routes, configs, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, routes, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("r", 1800), RouteModeNone, nil)
 	require.Error(t, err)
@@ -280,7 +283,7 @@ func (s *spyInvalidator) InvalidatePolicyCache(orgID int64) {
 func TestSetRuleRoutingInvalidatesDeliveryCache(t *testing.T) {
 	spy := &spyInvalidator{}
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{userRuleFixture("pfu-mine", "7")}}
-	svc := NewService(fake.server(t), nil, newFakeRouteStore(), nil, nil, spy, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, newFakeRouteStore(), nil, nil, nil, spy, nil, DestinationPolicy{})
 
 	_, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
 	require.NoError(t, err)
@@ -293,7 +296,7 @@ func TestSetRuleRoutingInvalidatesDeliveryCache(t *testing.T) {
 func TestSetRuleRoutingUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{userRuleFixture("pfu-mine", "7")}, getRuleGone: true}
 	routes := newFakeRouteStore()
-	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
 	assert.ErrorIs(t, err, ErrNotFound)

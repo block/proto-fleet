@@ -29,8 +29,7 @@ vi.mock("@/protoFleet/api/useOnboardedStatus", () => ({
   useOnboardedStatus: () => ({ devicePaired: true, statusLoaded: true }),
 }));
 
-// site:read gates whether the org catalog is fetched (and the picker mounts);
-// keep everything else denied so ActiveAlertsCard stays out.
+// site:read gates whether the org catalog is fetched (and the picker mounts).
 const permMock = vi.hoisted(() => ({ current: (_key: string): boolean => true }));
 vi.mock("@/protoFleet/store", () => ({
   useDuration: () => "24h",
@@ -38,7 +37,6 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (key: string) => permMock.current(key),
 }));
 
-vi.mock("@/protoFleet/features/alerts/api/useAlertsEnabled", () => ({ useAlertsEnabled: () => false }));
 vi.mock("@/shared/hooks/useStickyState", () => ({
   useStickyState: () => ({ refs: { vertical: { start: { current: null }, end: { current: null } } } }),
 }));

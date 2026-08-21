@@ -42,7 +42,7 @@ jobs:
         uses: ./.github/actions/go-cache-setup
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       # buildx's type=gha cache backend reads ACTIONS_RUNTIME_TOKEN and
       # ACTIONS_CACHE_URL (aka ACTIONS_RESULTS_URL) from the environment. These

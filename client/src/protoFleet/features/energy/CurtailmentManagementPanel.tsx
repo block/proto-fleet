@@ -231,6 +231,10 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     name: profile.name,
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
+    scopeType: "wholeOrg",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
     siteSelection: "none",
@@ -528,6 +532,7 @@ function CurtailmentManagementPanel({
 }: CurtailmentManagementPanelProps): ReactElement {
   const navigate = useNavigate();
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadRackCatalog = useHasPermission("rack:read");
   const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
   const [loadedSiteNameById, setLoadedSiteNameById] = useState(() => new Map<string, string>());
@@ -616,7 +621,10 @@ function CurtailmentManagementPanel({
     void listInfrastructureDevices().catch(() => {});
   }, [listInfrastructureDevices]);
   const responseProfileOptions = useMemo(
-    () => responseProfiles.map(createCurtailmentResponseProfileOption),
+    () =>
+      responseProfiles
+        .filter((profile) => !profile.isReadOnly && profile.formValues !== undefined)
+        .map(createCurtailmentResponseProfileOption),
     [responseProfiles],
   );
   const defaultSiteScope = useMemo(
@@ -1096,6 +1104,8 @@ function CurtailmentManagementPanel({
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           siteOptions={siteOptions}
+          buildingScopeEnabled={canReadSiteCatalog}
+          rackAndGroupScopeEnabled={canReadRackCatalog}
           infrastructureDevices={infrastructureDevices}
           isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
           infrastructureDevicesError={infrastructureDevicesError}

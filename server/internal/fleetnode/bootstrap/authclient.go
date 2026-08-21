@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
@@ -18,11 +19,34 @@ func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) 
 	if err != nil {
 		return nil, err
 	}
-	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
+	authOption := connect.WithInterceptors(bearerInterceptor(tokenSource))
+	connectClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
 		httpClient,
 		serverURL,
-		connect.WithInterceptors(bearerInterceptor(tokenSource)),
-	), nil
+		authOption,
+	)
+	grpcClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
+		httpClient,
+		serverURL,
+		authOption,
+		connect.WithGRPC(),
+	)
+	return &controlStreamGRPCClient{
+		FleetNodeGatewayServiceClient: connectClient,
+		controlStreamClient:           grpcClient,
+	}, nil
+}
+
+// controlStreamGRPCClient keeps the existing Connect protocol for every Fleet
+// Node RPC except the long-lived bidirectional ControlStream, which requires
+// native gRPC so NGINX can proxy it over HTTP/2 without changing the public URL.
+type controlStreamGRPCClient struct {
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceClient
+	controlStreamClient fleetnodegatewayv1connect.FleetNodeGatewayServiceClient
+}
+
+func (c *controlStreamGRPCClient) ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse] {
+	return c.controlStreamClient.ControlStream(ctx)
 }
 
 func bearerInterceptor(tokenSource func() string) connect.Interceptor {
