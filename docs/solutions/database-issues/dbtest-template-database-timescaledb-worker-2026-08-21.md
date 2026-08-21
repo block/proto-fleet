@@ -108,7 +108,8 @@ migration set; `GetTestDB` clones it instead of replaying migrations.
    shutdown.
 5. **Retry clones on SQLSTATE 55006** (`isRetryableCreateError`, plus the
    "is being accessed by other users" text) and evict template sessions before
-   each retry.
+   each retry. **Rebuild on SQLSTATE 3D000**: a concurrent checkout on another
+   migration set may have swept the template between clones.
 6. **Keep `ConnectAndMigrate` on the clone.** It is a no-op version check on an
    already-current database (a couple of queries), and it self-heals if a clone
    is ever behind — which is what makes the whole change safe: if a template is
@@ -142,6 +143,21 @@ a third of it, and the budget no longer grows with each new migration.
 - **Per-test DB cost is O(tests × migrations) by default.** If a DB-backed
   package creeps toward the 10m Go timeout, count migration replays in the log
   before suspecting a specific test.
+- **`LIKE 'prefix_%'` is not a prefix match.** Every `_` is a single-character
+  wildcard, so `fleet_test_tmpl_%` also matches `fleetXtestYtmplZanything`. Any
+  query that feeds `DROP DATABASE` must use an anchored regex (`datname ~
+  '^fleet_test_tmpl_[0-9a-f]{12}$'`), re-validate in Go, and quote the
+  identifier — database names cannot be bound as DDL parameters.
+- **Content-addressed templates need a recovery path, not just a lock.** Two
+  checkouts on different migration sets sharing one PostgreSQL server will sweep
+  each other's templates between clones (a sealed template has no sessions, so
+  the drop succeeds). The clone then fails with SQLSTATE **3D000**, which is
+  *not* in the transient-retry set — handle it by rebuilding the template.
+- **Don't cache preparation failures in `sync.Once`.** A single blip while the
+  first test runs would push every remaining test in the binary back onto the
+  slow path — exactly the timeout this change removes. Cache only success (mutex
+  plus a `prepared` flag), bound the retries, and wait for server readiness
+  before the first attempt.
 - `CREATE DATABASE … TEMPLATE` does **not** copy `datallowconn` or per-database
   GUCs to the clone; clones are normal, connectable databases.
 - Prefer the default `STRATEGY = WAL_LOG` for a template this size (16MB);

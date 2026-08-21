@@ -1,9 +1,88 @@
 package dbtest
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/alecthomas/assert/v2"
+	"github.com/alecthomas/kong"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
+
+// TestTemplateNamePatternOnlyMatchesOwnTemplates guards the cleanup filter. A
+// LIKE pattern cannot be used here: every underscore in `fleet_test_tmpl_%` is a
+// single-character wildcard, so LIKE matches unrelated databases that this
+// harness must never drop.
+func TestTemplateNamePatternOnlyMatchesOwnTemplates(t *testing.T) {
+	matching := []string{
+		"fleet_test_tmpl_0123456789ab",
+		"fleet_test_tmpl_deadbeef1234",
+	}
+	notMatching := []string{
+		"fleet",                             // the real database
+		"fleetXtestYtmplZproduction",        // matches LIKE, must not match here
+		"fleet_test_tmplXdeadbeef1234",      // ditto
+		"fleet_test_tmpl_deadbeef1234_prod", // suffixed
+		"xfleet_test_tmpl_deadbeef1234",     // prefixed
+		"fleet_test_tmpl_DEADBEEF1234",      // uppercase hex is not what we emit
+		"fleet_test_tmpl_zzzzzzzzzzzz",      // non-hex
+		"fleet_test_tmpl_dead",              // too short
+		`fleet_test_tmpl_"; DROP DATABASE fleet; --`,
+		"fleet_test_somestore_ab12", // a per-test database
+	}
+
+	for _, name := range matching {
+		if !templateNamePattern.MatchString(name) {
+			t.Errorf("templateNamePattern should match own template %q", name)
+		}
+	}
+	for _, name := range notMatching {
+		if templateNamePattern.MatchString(name) {
+			t.Errorf("templateNamePattern must not match %q", name)
+		}
+	}
+
+	// The name we actually generate has to satisfy its own pattern.
+	if got := templateDBPrefix + migrationSetFingerprint(); !templateNamePattern.MatchString(got) {
+		t.Errorf("generated template name %q does not match templateNamePattern", got)
+	}
+}
+
+func TestQuoteIdentifier(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{in: "fleet_test_tmpl_deadbeef1234", want: `"fleet_test_tmpl_deadbeef1234"`},
+		{in: `weird"name`, want: `"weird""name"`},
+		{in: `"; DROP DATABASE fleet; --`, want: `"""; DROP DATABASE fleet; --"`},
+	}
+
+	for _, tt := range tests {
+		if got := quoteIdentifier(tt.in); got != tt.want {
+			t.Errorf("quoteIdentifier(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestIsMissingTemplateError(t *testing.T) {
+	missing := `create test database: ERROR: database "fleet_test_tmpl_abc" does not exist (SQLSTATE 3D000)`
+
+	if !isMissingTemplateError(missing, "fleet_test_tmpl_abc") {
+		t.Error("a swept template must be recognised so the clone can rebuild it")
+	}
+	if isMissingTemplateError(missing, "") {
+		t.Error("without a template there is nothing to rebuild")
+	}
+	if isMissingTemplateError("create test database: ERROR: permission denied (SQLSTATE 42501)", "tmpl") {
+		t.Error("unrelated failures must not be treated as a missing template")
+	}
+	// A missing template is not in the generic retry set: it needs the rebuild
+	// path, and retrying the same CREATE would fail identically.
+	if isRetryableCreateError(missing) {
+		t.Error("missing template should be handled by rebuild, not blind retry")
+	}
+}
 
 func TestIsRetryableCreateError(t *testing.T) {
 	tests := []struct {
@@ -93,4 +172,118 @@ func TestMigrationFileNamesAreSortedAndNonEmpty(t *testing.T) {
 			t.Fatalf("migration file names not strictly sorted at %d: %q >= %q", i, names[i-1], names[i])
 		}
 	}
+}
+
+// adminConfigForTest builds the "postgres" admin config the harness itself uses.
+func adminConfigForTest(t *testing.T) *db.Config {
+	t.Helper()
+
+	cli := struct {
+		DB db.Config `envprefix:"DB_" embed:""`
+	}{}
+	parser, err := kong.New(&cli)
+	assert.NoError(t, err)
+	_, err = parser.Parse(nil)
+	assert.NoError(t, err)
+
+	config := cli.DB
+	config.Name = "postgres"
+	return &config
+}
+
+// TestDropStaleTemplateDatabasesLeavesLookalikesAlone plants a database whose
+// name matches the LIKE pattern this cleanup used to use, but not the anchored
+// pattern it uses now, and asserts cleanup drops only what it owns.
+func TestDropStaleTemplateDatabasesLeavesLookalikesAlone(t *testing.T) {
+	const (
+		stale     = "fleet_test_tmpl_deadbeef1234" // ours: must be dropped
+		lookalike = "fleet_test_tmplxdeadbeef1234" // matches LIKE only: must survive
+	)
+
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	adminConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer adminConn.Close()
+
+	for _, name := range []string{stale, lookalike} {
+		_, _ = adminConn.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+		_, err = adminConn.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name))
+		assert.NoError(t, err, "creating fixture database %s", name)
+	}
+	t.Cleanup(func() {
+		// A fresh connection: the deferred adminDB.Close() above already ran by
+		// the time cleanups fire, so reusing it would silently leak the fixtures.
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		cleanupDB, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err)
+		defer cleanupDB.Close()
+
+		for _, name := range []string{stale, lookalike} {
+			_, err := cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+			assert.NoError(t, err, "dropping fixture database %s", name)
+		}
+	})
+
+	// Keep the template belonging to the current migration set, as a real run would.
+	dropStaleTemplateDatabases(ctx, adminConn, templateDBPrefix+migrationSetFingerprint())
+
+	assert.False(t, databaseExists(t, adminConn, stale),
+		"stale template %s should have been dropped", stale)
+	assert.True(t, databaseExists(t, adminConn, lookalike),
+		"database %s only matches the wildcard-underscore LIKE pattern and must not be dropped", lookalike)
+}
+
+// TestGetTestDBRecoversFromSweptTemplate simulates a concurrent run on a
+// different migration set sweeping our template between clones: the next test
+// must rebuild it rather than fail with "database does not exist" (SQLSTATE
+// 3D000), which is not in the generic retry set.
+func TestGetTestDBRecoversFromSweptTemplate(t *testing.T) {
+	// Establishes the template as a side effect.
+	_ = GetTestDB(t)
+
+	templateMu.Lock()
+	prepared, name := templatePrepared, templateDBName
+	templateMu.Unlock()
+
+	if !prepared {
+		t.Skip("no template was prepared; nothing to sweep")
+	}
+
+	adminConfig := adminConfigForTest(t)
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	adminConn, err := adminDB.Conn(t.Context())
+	assert.NoError(t, err)
+	defer adminConn.Close()
+
+	_, err = adminConn.ExecContext(t.Context(), "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+	assert.NoError(t, err, "sweeping the template out from under the harness")
+	assert.False(t, databaseExists(t, adminConn, name), "template should be gone before the next clone")
+
+	// Must succeed despite the template having vanished mid-run.
+	conn := GetTestDB(t)
+	var one int
+	assert.NoError(t, conn.QueryRowContext(t.Context(), "SELECT 1").Scan(&one))
+	assert.Equal(t, 1, one)
+
+	assert.True(t, databaseExists(t, adminConn, name), "template should have been rebuilt")
+}
+
+func databaseExists(t *testing.T, adminConn *sql.Conn, name string) bool {
+	t.Helper()
+
+	var exists bool
+	err := adminConn.QueryRowContext(t.Context(),
+		"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists)
+	assert.NoError(t, err, fmt.Sprintf("checking whether %s exists", name))
+	return exists
 }

@@ -52,8 +52,7 @@ func GetTestDB(t *testing.T) *sql.DB {
 	// Clone the migrated template so this test skips the migration replay
 	// entirely. Falls back to an empty database (migrated below) when no
 	// template could be prepared.
-	template := templateDatabase(t, &adminConfig)
-	createTestDatabase(t, &adminConfig, dbName, template)
+	template := createTestDatabase(t, &adminConfig, dbName, templateDatabase(t, &adminConfig))
 
 	// Connect and run migrations with retry. Cloned databases are already at the
 	// latest version, so this is a no-op version check that also self-heals a
@@ -85,6 +84,7 @@ const (
 
 	pgInternalError                   = "XX000"
 	pgObjectInUse                     = "55006"
+	pgUndefinedDatabase               = "3D000"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
 	templateSourceInUse               = "is being accessed by other users"
 
@@ -149,7 +149,7 @@ func connectAndMigrateWithRetry(
 		t.Logf("retryable migration error (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
 		// Recreate the database for a clean slate (clears any dirty migration
 		// state), waiting out / retrying a transient server restart.
-		createTestDatabase(t, adminConfig, dbName, template)
+		template = createTestDatabase(t, adminConfig, dbName, template)
 
 		delay := time.Duration(attempt) * migrationRetryBaseDelay
 		time.Sleep(delay)
@@ -243,7 +243,12 @@ func pingAdminDatabase(ctx context.Context, adminConfig *db.Config) error {
 // connectAndMigrateWithRetry tolerates), so a test that starts while the server
 // is recovering survives the blip instead of failing on the very first
 // DROP/CREATE.
-func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, template string) {
+//
+// It returns the template actually used, which can differ from the one passed
+// in: a template swept by a concurrent run on a different migration set is
+// rebuilt (or given up on, yielding "") so the caller migrates the database
+// itself.
+func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, template string) string {
 	t.Helper()
 
 	var lastErr error
@@ -253,8 +258,19 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 
 		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName, template)
 		if lastErr == nil {
-			return
+			return template
 		}
+
+		// The template vanished mid-run: another checkout on a different
+		// migration set swept it as stale. Rebuild it and try again rather than
+		// failing a test for someone else's cleanup.
+		if isMissingTemplateError(lastErr.Error(), template) {
+			t.Logf("template database %s disappeared, rebuilding: %v", template, lastErr)
+			invalidateTemplateDatabase(template)
+			template = templateDatabase(t, adminConfig)
+			continue
+		}
+
 		if !isRetryableCreateError(lastErr.Error()) || attempt == migrationMaxRetries {
 			break
 		}
@@ -267,6 +283,7 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 	}
 
 	assert.NoError(t, lastErr, "error creating test database")
+	return template
 }
 
 // dropTestDatabase drops the test database at cleanup, waiting out and
@@ -307,15 +324,16 @@ func tryDropTestDatabase(ctx context.Context, adminConfig *db.Config, dbName str
 	defer conn.Close()
 
 	// Best effort: lingering connections just make the DROP fail, which the
-	// caller retries.
-	_, _ = conn.ExecContext(ctx, fmt.Sprintf(`
+	// caller retries. The name is bound as a parameter here; the DDL below has
+	// to interpolate it, so it goes through quoteIdentifier.
+	_, _ = conn.ExecContext(ctx, `
 		SELECT pg_terminate_backend(pg_stat_activity.pid)
 		FROM pg_stat_activity
-		WHERE pg_stat_activity.datname = '%s'
+		WHERE pg_stat_activity.datname = $1
 		AND pid <> pg_backend_pid()
-	`, dbName))
+	`, dbName)
 
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
+	if _, err := conn.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(dbName)); err != nil {
 		return fmt.Errorf("drop test database: %w", err)
 	}
 	return nil
@@ -337,9 +355,9 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 	}
 	defer conn.Close()
 
-	create := fmt.Sprintf("CREATE DATABASE %s", dbName)
+	create := "CREATE DATABASE " + quoteIdentifier(dbName)
 	if template != "" {
-		create += fmt.Sprintf(" TEMPLATE %s", template)
+		create += " TEMPLATE " + quoteIdentifier(template)
 	}
 	if _, err := conn.ExecContext(ctx, create); err != nil {
 		return fmt.Errorf("create test database: %w", err)
@@ -355,6 +373,13 @@ func isRetryableCreateError(msg string) bool {
 	return isTransientServerError(msg) ||
 		strings.Contains(msg, pgObjectInUse) ||
 		strings.Contains(msg, templateSourceInUse)
+}
+
+// isMissingTemplateError reports whether a clone failed because its source
+// template no longer exists (SQLSTATE 3D000). Only meaningful when cloning: the
+// database we are creating cannot itself be the undefined one.
+func isMissingTemplateError(msg string, template string) bool {
+	return template != "" && strings.Contains(msg, pgUndefinedDatabase)
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.

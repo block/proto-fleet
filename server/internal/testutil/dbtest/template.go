@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -57,12 +59,30 @@ const (
 	templateDetachInterval = 100 * time.Millisecond
 )
 
+// templateNamePattern is the exact shape of a template database name. It gates
+// both the cleanup query and the identifiers we interpolate into DDL, so a
+// catalog row can never steer either.
+var templateNamePattern = regexp.MustCompile(`^` + templateDBPrefix + `[0-9a-f]{` +
+	strconv.Itoa(templateFingerprintLength) + `}$`)
+
 var (
-	templatePrepareOnce sync.Once
-	// templateDBName is the prepared template's name, or "" when preparation
-	// failed and callers must fall back to migrating each test database.
+	templateMu sync.Mutex
+	// templateDBName is the prepared template's name, valid only while
+	// templatePrepared is true.
 	templateDBName string
+	// templatePrepared records a *successful* preparation. Failures are not
+	// cached, so a later test can retry: a transient blip while the first test
+	// happens to run must not force every remaining test in the binary back onto
+	// the slow migrate-everything path.
+	templatePrepared bool
+	// templateFailures counts consecutive failures so a genuinely broken setup
+	// stops paying the preparation cost on every test.
+	templateFailures int
 )
+
+// templatePrepareMaxAttempts bounds retries across tests once preparation keeps
+// failing; after this we accept the fallback for the rest of the process.
+const templatePrepareMaxAttempts = 3
 
 // templateDatabase returns the name of a fully migrated template database that
 // test databases can be cloned from, preparing it on first use. It returns ""
@@ -71,27 +91,58 @@ var (
 func templateDatabase(t *testing.T, adminConfig *db.Config) string {
 	t.Helper()
 
-	templatePrepareOnce.Do(func() {
-		name := templateDBPrefix + migrationSetFingerprint()
+	templateMu.Lock()
+	defer templateMu.Unlock()
 
-		// Deliberately not t.Context(): the template outlives the test that
-		// happens to build it, and cancelling that test must not abandon a
-		// half-migrated template for every other test in the binary.
-		// nolint: usetesting
-		ctx, cancel := context.WithTimeout(context.Background(), templatePrepareTimeout)
-		defer cancel()
+	if templatePrepared {
+		return templateDBName
+	}
+	if templateFailures >= templatePrepareMaxAttempts {
+		return ""
+	}
 
-		start := time.Now()
-		if err := prepareTemplateDatabase(ctx, adminConfig, name); err != nil {
-			t.Logf("could not prepare template database %s (%v); "+
-				"falling back to migrating each test database", name, err)
-			return
-		}
-		templateDBName = name
-		t.Logf("template database %s ready in %s", name, time.Since(start))
-	})
+	name := templateDBPrefix + migrationSetFingerprint()
+
+	// Deliberately not t.Context(): the template outlives the test that
+	// happens to build it, and cancelling that test must not abandon a
+	// half-migrated template for every other test in the binary.
+	// nolint: usetesting
+	ctx, cancel := context.WithTimeout(context.Background(), templatePrepareTimeout)
+	defer cancel()
+
+	// The very first connection of the run can land while the server is still
+	// starting or recovering; wait it out the same way the admin DDL path does
+	// rather than burning an attempt on it.
+	waitForServerReady(ctx, t, adminConfig)
+
+	start := time.Now()
+	if err := prepareTemplateDatabase(ctx, adminConfig, name); err != nil {
+		templateFailures++
+		t.Logf("could not prepare template database %s (attempt %d/%d: %v); "+
+			"migrating this test database directly",
+			name, templateFailures, templatePrepareMaxAttempts, err)
+		return ""
+	}
+
+	templateDBName = name
+	templatePrepared = true
+	templateFailures = 0
+	t.Logf("template database %s ready in %s", name, time.Since(start))
 
 	return templateDBName
+}
+
+// invalidateTemplateDatabase forgets the cached template so the next caller
+// rebuilds it. Used when a clone reports the source is gone — a concurrent run
+// on a different migration set may have swept it as stale.
+func invalidateTemplateDatabase(name string) {
+	templateMu.Lock()
+	defer templateMu.Unlock()
+
+	if templatePrepared && templateDBName == name {
+		templatePrepared = false
+		templateDBName = ""
+	}
 }
 
 // prepareTemplateDatabase makes sure a migrated template database exists for the
@@ -132,7 +183,7 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	if err := tryDropTestDatabase(ctx, adminConfig, name); err != nil {
 		return fmt.Errorf("drop stale template: %w", err)
 	}
-	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", name)); err != nil {
+	if _, err := adminConn.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name)); err != nil {
 		return fmt.Errorf("create template database: %w", err)
 	}
 
@@ -146,7 +197,7 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	// marker: CREATE DATABASE ... TEMPLATE fails while any session is connected
 	// to the source, and a template is only ever published in this state.
 	if _, err := adminConn.ExecContext(ctx,
-		fmt.Sprintf("ALTER DATABASE %s WITH ALLOW_CONNECTIONS false", name)); err != nil {
+		"ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS false"); err != nil {
 		_ = tryDropTestDatabase(ctx, adminConfig, name)
 		return fmt.Errorf("seal template database: %w", err)
 	}
@@ -254,12 +305,22 @@ func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template
 
 // dropStaleTemplateDatabases removes templates built for other migration sets
 // (typically left by an earlier branch or an older checkout) so they do not
-// accumulate on long-lived local databases. Best effort: a template still in use
-// by a concurrently running suite simply fails to drop.
+// accumulate on long-lived local databases.
+//
+// Two constraints shape this. First, matching is by anchored regex rather than
+// LIKE: every underscore in `fleet_test_tmpl_%` is a single-character wildcard,
+// so LIKE also matches unrelated names like `fleetXtestYtmplZsomething`. Second,
+// each name is re-validated in Go and quoted before it reaches DDL, so a catalog
+// row can never steer the statement.
+//
+// A concurrent run on a different migration set can still have one of these
+// templates cached; that run recovers by rebuilding it (see
+// invalidateTemplateDatabase), so cleanup stays best-effort rather than
+// coordinated.
 func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep string) {
 	rows, err := adminConn.QueryContext(ctx,
-		"SELECT datname FROM pg_database WHERE datname LIKE $1 AND datname <> $2",
-		templateDBPrefix+"%", keep)
+		"SELECT datname FROM pg_database WHERE datname ~ $1 AND datname <> $2",
+		templateNamePattern.String(), keep)
 	if err != nil {
 		return
 	}
@@ -271,6 +332,11 @@ func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep s
 		if err := rows.Scan(&name); err != nil {
 			return
 		}
+		// Defence in depth: never interpolate a name the pattern does not own,
+		// even though the query already filtered on it.
+		if !templateNamePattern.MatchString(name) || name == keep {
+			continue
+		}
 		stale = append(stale, name)
 	}
 	if rows.Err() != nil {
@@ -280,8 +346,15 @@ func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep s
 	for _, name := range stale {
 		// Sealed templates have no sessions to terminate, so a plain DROP is
 		// enough; failures mean someone else is mid-clone and we leave it.
-		_, _ = adminConn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
+		_, _ = adminConn.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
 	}
+}
+
+// quoteIdentifier renders a PostgreSQL identifier safely. Database names cannot
+// be bound as parameters in DDL, so anything interpolated into a statement goes
+// through here.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 // migrationSetFingerprint hashes the embedded migration files (names and
