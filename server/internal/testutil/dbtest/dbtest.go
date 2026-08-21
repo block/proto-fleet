@@ -1,7 +1,8 @@
 // Package dbtest provides the per-test database harness: it creates a unique
-// database per test, migrates it, and drops it at cleanup, retrying each step
-// across transient server restarts (crash-recovery under heavy concurrent
-// migration load). It lives in a leaf package — importing only
+// database per test by cloning a migrated template database (see template.go),
+// and drops it at cleanup, retrying each step across transient server restarts
+// (crash-recovery under heavy concurrent migration load). It lives in a leaf
+// package — importing only
 // infrastructure/db — so tests in packages that testutil itself imports
 // (e.g. domain/command) can use the same hardened harness without an import
 // cycle. Most tests should keep using testutil.GetTestDB, which delegates here.
@@ -47,16 +48,23 @@ func GetTestDB(t *testing.T) *sql.DB {
 	// admin DDL before reaching the migration retry below.
 	adminConfig := config
 	adminConfig.Name = "postgres"
-	createTestDatabase(t, &adminConfig, dbName)
 
-	// Connect and run migrations with retry. TimescaleDB continuous aggregate
-	// DDL acquires instance-level catalog locks that can deadlock when parallel
-	// tests migrate concurrently; a transient server restart is also tolerated.
-	// On failure we drop and recreate the database for a clean slate (avoids
-	// golang-migrate dirty flag issues).
+	// Clone the migrated template so this test skips the migration replay
+	// entirely. Falls back to an empty database (migrated below) when no
+	// template could be prepared.
+	template := templateDatabase(t, &adminConfig)
+	createTestDatabase(t, &adminConfig, dbName, template)
+
+	// Connect and run migrations with retry. Cloned databases are already at the
+	// latest version, so this is a no-op version check that also self-heals a
+	// stale clone; without a template it runs the full migration set. TimescaleDB
+	// continuous aggregate DDL acquires instance-level catalog locks that can
+	// deadlock when parallel tests migrate concurrently; a transient server
+	// restart is also tolerated. On failure we drop and recreate the database for
+	// a clean slate (avoids golang-migrate dirty flag issues).
 	testDBConfig := config
 	testDBConfig.Name = dbName
-	conn, err := connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
+	conn, err := connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName, template)
 	assert.NoError(t, err)
 
 	// Clean up the database when the test is done
@@ -76,7 +84,9 @@ const (
 	migrationRetryBaseDelay = 200 * time.Millisecond
 
 	pgInternalError                   = "XX000"
+	pgObjectInUse                     = "55006"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
+	templateSourceInUse               = "is being accessed by other users"
 
 	// serverReadyTimeout bounds how long we wait for the database server to
 	// start accepting connections again after a transient restart before a
@@ -120,6 +130,7 @@ func connectAndMigrateWithRetry(
 	testDBConfig *db.Config,
 	adminConfig *db.Config,
 	dbName string,
+	template string,
 ) (*sql.DB, error) {
 	t.Helper()
 
@@ -138,7 +149,7 @@ func connectAndMigrateWithRetry(
 		t.Logf("retryable migration error (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
 		// Recreate the database for a clean slate (clears any dirty migration
 		// state), waiting out / retrying a transient server restart.
-		createTestDatabase(t, adminConfig, dbName)
+		createTestDatabase(t, adminConfig, dbName, template)
 
 		delay := time.Duration(attempt) * migrationRetryBaseDelay
 		time.Sleep(delay)
@@ -226,12 +237,13 @@ func pingAdminDatabase(ctx context.Context, adminConfig *db.Config) error {
 }
 
 // createTestDatabase drops any existing database with the given name and
-// creates a fresh one. It waits for the server to accept connections and
-// retries the admin DDL across a transient server restart (the same
-// 57P03 / "bad connection" / startup window connectAndMigrateWithRetry
-// tolerates), so a test that starts while the server is recovering survives the
-// blip instead of failing on the very first DROP/CREATE.
-func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+// creates a fresh one, cloning template when non-empty. It waits for the server
+// to accept connections and retries the admin DDL across a transient server
+// restart (the same 57P03 / "bad connection" / startup window
+// connectAndMigrateWithRetry tolerates), so a test that starts while the server
+// is recovering survives the blip instead of failing on the very first
+// DROP/CREATE.
+func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, template string) {
 	t.Helper()
 
 	var lastErr error
@@ -239,15 +251,18 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
 		// Wait for the server before issuing admin DDL.
 		waitForServerReady(t.Context(), t, adminConfig)
 
-		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName)
+		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName, template)
 		if lastErr == nil {
 			return
 		}
-		if !isTransientServerError(lastErr.Error()) || attempt == migrationMaxRetries {
+		if !isRetryableCreateError(lastErr.Error()) || attempt == migrationMaxRetries {
 			break
 		}
 
 		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		// A clone can only be blocked by a session that reached the template, so
+		// clear the way before retrying.
+		evictTemplateSessions(t.Context(), adminConfig, template)
 		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
 	}
 
@@ -309,8 +324,9 @@ func tryDropTestDatabase(ctx context.Context, adminConfig *db.Config, dbName str
 // tryCreateTestDatabase drops any existing database with the given name (after
 // terminating lingering connections) and creates a fresh one, returning any
 // error rather than failing the test so the caller can retry transient
-// failures.
-func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
+// failures. When template is non-empty the new database is a clone of it, which
+// skips the migration replay.
+func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string, template string) error {
 	if err := tryDropTestDatabase(ctx, adminConfig, dbName); err != nil {
 		return err
 	}
@@ -321,10 +337,24 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 	}
 	defer conn.Close()
 
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
+	create := fmt.Sprintf("CREATE DATABASE %s", dbName)
+	if template != "" {
+		create += fmt.Sprintf(" TEMPLATE %s", template)
+	}
+	if _, err := conn.ExecContext(ctx, create); err != nil {
 		return fmt.Errorf("create test database: %w", err)
 	}
 	return nil
+}
+
+// isRetryableCreateError extends the transient-server check with the contention
+// PostgreSQL reports when a database is cloned while another session touches the
+// source (SQLSTATE 55006). Parallel tests all clone the same template, so this
+// is expected under load rather than a real failure.
+func isRetryableCreateError(msg string) bool {
+	return isTransientServerError(msg) ||
+		strings.Contains(msg, pgObjectInUse) ||
+		strings.Contains(msg, templateSourceInUse)
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.
