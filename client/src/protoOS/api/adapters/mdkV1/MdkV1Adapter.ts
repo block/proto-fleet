@@ -14,7 +14,12 @@ import {
   toCanonicalTimeSeries,
   toV1CoolingMode,
 } from "./normalize";
-import { type Api, type TimeSeriesRequest, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
+import {
+  type Api,
+  type GetCurrentTelemetryParams,
+  type TimeSeriesRequest,
+  PerformanceMode as V1PerformanceMode,
+} from "@/protoOS/api/generatedApi";
 import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
@@ -94,7 +99,15 @@ export class MdkV1Adapter implements MinerAdapter {
   }
 
   async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
-    const response = await this.client.getCurrentTelemetry({ level: levels.length ? levels : undefined }, params);
+    // The MDK firmware expects `level` as a single comma-joined value
+    // (`level=miner,hashboard`), i.e. OpenAPI explode:false. Sending the array
+    // the generated type advertises serializes as repeated `level=` params and
+    // the device rejects it with 400 "Query deserialize error: duplicate field
+    // `level`". Join manually; the cast is required because the generated type
+    // does not match the firmware's actual query contract. Verified against a
+    // real rig: the comma form returns miner/hashboards/psus/asics.
+    const level = levels.length ? (levels.join(",") as unknown as GetCurrentTelemetryParams["level"]) : undefined;
+    const response = await this.client.getCurrentTelemetry({ level }, params);
     return toCanonicalTelemetry(response.data);
   }
 

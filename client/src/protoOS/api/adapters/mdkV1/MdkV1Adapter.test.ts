@@ -74,16 +74,16 @@ describe("MdkV1Adapter.getTimeSeries", () => {
 });
 
 describe("MdkV1Adapter.getCurrentTelemetry", () => {
-  test("passes telemetry levels as an array so the client serializes repeated params", async () => {
+  test("joins telemetry levels into a single comma-separated value", async () => {
     const getCurrentTelemetry = vi.fn().mockResolvedValue({ data: {} });
     const adapter = new MdkV1Adapter({ getCurrentTelemetry } as never);
 
     await adapter.getCurrentTelemetry(["miner", "hashboard"]);
 
-    // Must stay an array: the generated client serializes arrays as repeated
-    // `level=` params. A comma-joined string would send a single value the
-    // server can't match against the enum, silently dropping hashboard data.
-    expect(getCurrentTelemetry).toHaveBeenCalledWith({ level: ["miner", "hashboard"] }, {});
+    // Must stay comma-joined (a single value): the firmware rejects repeated
+    // `level=` params with 400 "duplicate field `level`" (OpenAPI explode:false,
+    // contradicting the generated array type). Verified against a real rig.
+    expect(getCurrentTelemetry).toHaveBeenCalledWith({ level: "miner,hashboard" }, {});
   });
 
   test("omits the level param entirely when no levels are requested", async () => {
