@@ -49,9 +49,34 @@ const (
 	// well inside PostgreSQL's 63-character identifier limit.
 	templateFingerprintLength = 12
 
-	// templatePrepareTimeout bounds the whole prepare step (waiting for the
-	// advisory lock plus migrating the template).
-	templatePrepareTimeout = 10 * time.Minute
+	// templatePrepareTimeout bounds waiting for the advisory lock. It sits well
+	// below Go's default 10m package timeout so a stuck preparation still leaves
+	// room for callers to fall back to migrating their own database.
+	templatePrepareTimeout = 4 * time.Minute
+
+	// templateLockTimeout bounds how long migrating the template waits on any
+	// single lock. db.ConnectAndMigrate is not context-aware (it runs migrations
+	// on a background context), so the deadline is enforced inside PostgreSQL
+	// instead: it is set on the template database, which every session that
+	// migrates it inherits. A migration wedged behind a TimescaleDB catalog lock
+	// then fails with lock_not_available, preparation reports an error, and the
+	// caller falls back to migrating its own database rather than every DB-backed
+	// package hanging on the shared template.
+	//
+	// Only lock_timeout is set, not statement_timeout: migrations are legitimately
+	// slow, and capping their total runtime would fail valid work.
+	templateLockTimeout = time.Minute
+
+	// templateStaleAfter is how old a template must be before another run may
+	// sweep it. Cleanup is bounded by age (recorded in the database comment when
+	// the template is sealed) rather than "different fingerprint", so two
+	// checkouts on different migration sets cannot delete each other's live
+	// templates and ping-pong rebuilds.
+	templateStaleAfter = 24 * time.Hour
+
+	// templateCommentPrefix marks a database as ours and carries its creation
+	// time; anything without it is left alone.
+	templateCommentPrefix = "dbtest-template created="
 
 	// templateDetachTimeout bounds how long we wait for sessions to leave the
 	// template after terminating them.
@@ -187,6 +212,15 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		return fmt.Errorf("create template database: %w", err)
 	}
 
+	// Applies to the migrating session below, which we cannot cancel from Go.
+	// Milliseconds, not Duration.String(): PostgreSQL rejects Go's "1m0s" form.
+	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET lock_timeout = %s",
+		quoteIdentifier(name),
+		quoteLiteral(fmt.Sprintf("%dms", templateLockTimeout.Milliseconds())))); err != nil {
+		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		return fmt.Errorf("set template lock timeout: %w", err)
+	}
+
 	if err := migrateTemplateDatabase(adminConfig, name); err != nil {
 		// Leave nothing half-migrated behind for the next run to trust.
 		_ = tryDropTestDatabase(ctx, adminConfig, name)
@@ -209,6 +243,15 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	if err := detachTemplateSessions(ctx, adminConn, name); err != nil {
 		_ = tryDropTestDatabase(ctx, adminConfig, name)
 		return err
+	}
+
+	// Ownership metadata: marks the database as ours and records when it was
+	// built, which is what makes age-bounded cleanup possible.
+	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("COMMENT ON DATABASE %s IS %s",
+		quoteIdentifier(name),
+		quoteLiteral(templateCommentPrefix+time.Now().UTC().Format(time.RFC3339Nano)))); err != nil {
+		_ = tryDropTestDatabase(ctx, adminConfig, name)
+		return fmt.Errorf("record template metadata: %w", err)
 	}
 
 	dropStaleTemplateDatabases(ctx, adminConn, name)
@@ -303,24 +346,33 @@ func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template
 	`, template)
 }
 
-// dropStaleTemplateDatabases removes templates built for other migration sets
-// (typically left by an earlier branch or an older checkout) so they do not
+// dropStaleTemplateDatabases removes *old* templates built for other migration
+// sets (typically left by an earlier branch or an older checkout) so they do not
 // accumulate on long-lived local databases.
 //
-// Two constraints shape this. First, matching is by anchored regex rather than
-// LIKE: every underscore in `fleet_test_tmpl_%` is a single-character wildcard,
-// so LIKE also matches unrelated names like `fleetXtestYtmplZsomething`. Second,
-// each name is re-validated in Go and quoted before it reaches DDL, so a catalog
-// row can never steer the statement.
+// Three constraints shape this:
 //
-// A concurrent run on a different migration set can still have one of these
-// templates cached; that run recovers by rebuilding it (see
-// invalidateTemplateDatabase), so cleanup stays best-effort rather than
-// coordinated.
+// Matching is by anchored regex rather than LIKE, because every underscore in
+// `fleet_test_tmpl_%` is a single-character wildcard and LIKE would also match
+// unrelated names like `fleetXtestYtmplZsomething`. Each name is then
+// re-validated in Go and quoted before it reaches DDL, so a catalog row can
+// never steer the statement.
+//
+// Deletion is gated on age, not on "has a different fingerprint". Cloning does
+// not hold the preparation lock, so two checkouts on different migration sets
+// would otherwise alternate between rebuilding their own template and deleting
+// the other's live one, turning a one-off build into a rebuild storm. A template
+// younger than templateStaleAfter therefore belongs to somebody's current run
+// and is left alone.
+//
+// Only databases carrying our own creation-time comment are considered; anything
+// unrecognised is never touched.
 func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep string) {
-	rows, err := adminConn.QueryContext(ctx,
-		"SELECT datname FROM pg_database WHERE datname ~ $1 AND datname <> $2",
-		templateNamePattern.String(), keep)
+	rows, err := adminConn.QueryContext(ctx, `
+		SELECT datname, shobj_description(oid, 'pg_database')
+		FROM pg_database
+		WHERE datname ~ $1 AND datname <> $2
+	`, templateNamePattern.String(), keep)
 	if err != nil {
 		return
 	}
@@ -329,12 +381,16 @@ func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep s
 	var stale []string
 	for rows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
+		var comment sql.NullString
+		if err := rows.Scan(&name, &comment); err != nil {
 			return
 		}
 		// Defence in depth: never interpolate a name the pattern does not own,
 		// even though the query already filtered on it.
 		if !templateNamePattern.MatchString(name) || name == keep {
+			continue
+		}
+		if !templateIsStale(comment) {
 			continue
 		}
 		stale = append(stale, name)
@@ -350,11 +406,33 @@ func dropStaleTemplateDatabases(ctx context.Context, adminConn *sql.Conn, keep s
 	}
 }
 
+// templateIsStale reports whether a template is old enough for another run to
+// sweep. Only our own comment format counts as evidence: a template with no
+// comment, a foreign comment, or an unparseable timestamp is left in place
+// rather than guessed about.
+func templateIsStale(comment sql.NullString) bool {
+	if !comment.Valid || !strings.HasPrefix(comment.String, templateCommentPrefix) {
+		return false
+	}
+
+	created, err := time.Parse(time.RFC3339Nano, strings.TrimPrefix(comment.String, templateCommentPrefix))
+	if err != nil {
+		return false
+	}
+	return time.Since(created) > templateStaleAfter
+}
+
 // quoteIdentifier renders a PostgreSQL identifier safely. Database names cannot
 // be bound as parameters in DDL, so anything interpolated into a statement goes
 // through here.
 func quoteIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// quoteLiteral renders a PostgreSQL string literal safely, for the DDL
+// statements (COMMENT, ALTER DATABASE SET) that cannot take bind parameters.
+func quoteLiteral(value string) string {
+	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
 }
 
 // migrationSetFingerprint hashes the embedded migration files (names and

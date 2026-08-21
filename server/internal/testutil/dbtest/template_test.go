@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/alecthomas/kong"
@@ -191,14 +192,17 @@ func adminConfigForTest(t *testing.T) *db.Config {
 	return &config
 }
 
-// TestDropStaleTemplateDatabasesLeavesLookalikesAlone plants a database whose
-// name matches the LIKE pattern this cleanup used to use, but not the anchored
-// pattern it uses now, and asserts cleanup drops only what it owns.
-func TestDropStaleTemplateDatabasesLeavesLookalikesAlone(t *testing.T) {
+// TestDropStaleTemplateDatabasesOnlySweepsOldOwnedTemplates plants one database
+// per category cleanup has to distinguish and asserts only a genuinely old,
+// owned template is dropped.
+func TestDropStaleTemplateDatabasesOnlySweepsOldOwnedTemplates(t *testing.T) {
 	const (
-		stale     = "fleet_test_tmpl_deadbeef1234" // ours: must be dropped
-		lookalike = "fleet_test_tmplxdeadbeef1234" // matches LIKE only: must survive
+		stale       = "fleet_test_tmpl_deadbeef1234" // ours, past the age gate: drop
+		fresh       = "fleet_test_tmpl_deadbeef5678" // ours, another run's live one: keep
+		uncommented = "fleet_test_tmpl_deadbeef9abc" // right shape, not ours: keep
+		lookalike   = "fleet_test_tmplxdeadbeef1234" // matches LIKE only: keep
 	)
+	fixtures := []string{stale, fresh, uncommented, lookalike}
 
 	adminConfig := adminConfigForTest(t)
 	ctx := t.Context()
@@ -211,7 +215,7 @@ func TestDropStaleTemplateDatabasesLeavesLookalikesAlone(t *testing.T) {
 	assert.NoError(t, err)
 	defer adminConn.Close()
 
-	for _, name := range []string{stale, lookalike} {
+	for _, name := range fixtures {
 		_, _ = adminConn.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
 		_, err = adminConn.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name))
 		assert.NoError(t, err, "creating fixture database %s", name)
@@ -225,19 +229,57 @@ func TestDropStaleTemplateDatabasesLeavesLookalikesAlone(t *testing.T) {
 		assert.NoError(t, err)
 		defer cleanupDB.Close()
 
-		for _, name := range []string{stale, lookalike} {
+		for _, name := range fixtures {
 			_, err := cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
 			assert.NoError(t, err, "dropping fixture database %s", name)
 		}
 	})
 
+	stamp := func(name string, created time.Time) {
+		_, err := adminConn.ExecContext(ctx, fmt.Sprintf("COMMENT ON DATABASE %s IS %s",
+			quoteIdentifier(name),
+			quoteLiteral(templateCommentPrefix+created.UTC().Format(time.RFC3339Nano))))
+		assert.NoError(t, err, "stamping fixture database %s", name)
+	}
+	stamp(stale, time.Now().Add(-templateStaleAfter-time.Hour))
+	stamp(fresh, time.Now().Add(-time.Minute))
+
 	// Keep the template belonging to the current migration set, as a real run would.
 	dropStaleTemplateDatabases(ctx, adminConn, templateDBPrefix+migrationSetFingerprint())
 
 	assert.False(t, databaseExists(t, adminConn, stale),
-		"stale template %s should have been dropped", stale)
+		"template %s is ours and past the age gate; it should have been dropped", stale)
+	assert.True(t, databaseExists(t, adminConn, fresh),
+		"template %s is recent, so a concurrent run may still be cloning it; sweeping it causes rebuild storms", fresh)
+	assert.True(t, databaseExists(t, adminConn, uncommented),
+		"database %s carries no ownership metadata and must not be dropped", uncommented)
 	assert.True(t, databaseExists(t, adminConn, lookalike),
 		"database %s only matches the wildcard-underscore LIKE pattern and must not be dropped", lookalike)
+}
+
+func TestTemplateIsStale(t *testing.T) {
+	stamp := func(created time.Time) sql.NullString {
+		return sql.NullString{
+			String: templateCommentPrefix + created.UTC().Format(time.RFC3339Nano),
+			Valid:  true,
+		}
+	}
+
+	if !templateIsStale(stamp(time.Now().Add(-templateStaleAfter - time.Minute))) {
+		t.Error("a template older than the age gate should be sweepable")
+	}
+	if templateIsStale(stamp(time.Now().Add(-time.Minute))) {
+		t.Error("a recent template may belong to a concurrent run and must be kept")
+	}
+	if templateIsStale(sql.NullString{}) {
+		t.Error("a database with no comment is not ours to drop")
+	}
+	if templateIsStale(sql.NullString{String: "someone else's database", Valid: true}) {
+		t.Error("a foreign comment is not ours to drop")
+	}
+	if templateIsStale(sql.NullString{String: templateCommentPrefix + "not-a-timestamp", Valid: true}) {
+		t.Error("an unparseable timestamp should be left alone rather than guessed about")
+	}
 }
 
 // TestGetTestDBRecoversFromSweptTemplate simulates a concurrent run on a
