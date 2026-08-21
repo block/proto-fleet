@@ -100,6 +100,12 @@ const (
 	// template after terminating them.
 	templateDetachTimeout  = 30 * time.Second
 	templateDetachInterval = 100 * time.Millisecond
+
+	// templateRebuildWaitTimeout bounds how long a clone waits for somebody
+	// else's in-progress rebuild of the same template to publish. It has to
+	// exceed a full migration run, since that is what we are waiting for.
+	templateRebuildWaitTimeout  = 2 * time.Minute
+	templateRebuildWaitInterval = 100 * time.Millisecond
 )
 
 // templateNamePattern is the exact shape of a template database name. It gates
@@ -453,6 +459,13 @@ func detachTemplateSessions(ctx context.Context, adminConn *sql.Conn, name strin
 // started before ALLOW_CONNECTIONS false took effect, say). Errors are ignored:
 // the caller is already in a retry loop and the CREATE DATABASE it retries
 // reports the real failure.
+//
+// It only ever evicts from a *sealed* template. An unsealed one is being built
+// right now — by this process or another — and the session attached to it is
+// that build's migration. Terminating it would abort a legitimate rebuild,
+// which is how two binaries could otherwise take turns killing each other's
+// migrations. The datallowconn check is part of the same statement so there is
+// no window between deciding and acting.
 func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template string) {
 	if template == "" {
 		return
@@ -465,10 +478,53 @@ func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template
 	defer conn.Close()
 
 	_, _ = conn.ExecContext(ctx, `
-		SELECT pg_terminate_backend(pid)
-		FROM pg_stat_activity
-		WHERE datname = $1 AND pid <> pg_backend_pid()
+		SELECT pg_terminate_backend(activity.pid)
+		FROM pg_stat_activity activity
+		JOIN pg_database database ON database.datname = activity.datname
+		WHERE activity.datname = $1
+		  AND NOT database.datallowconn
+		  AND activity.pid <> pg_backend_pid()
 	`, template)
+}
+
+// templateRebuildInProgress reports whether the template exists but is not
+// sealed, i.e. some process is mid-rebuild. Used to wait for that build rather
+// than fighting it.
+func templateRebuildInProgress(ctx context.Context, adminConfig *db.Config, template string) bool {
+	if template == "" {
+		return false
+	}
+
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	var allowConnections bool
+	if err := conn.QueryRowContext(ctx,
+		"SELECT datallowconn FROM pg_database WHERE datname = $1", template).Scan(&allowConnections); err != nil {
+		return false
+	}
+	return allowConnections
+}
+
+// waitForTemplateRebuild blocks until the template is sealed (the rebuild
+// published it), disappears (the rebuild failed and dropped it), or the wait
+// times out. Cloning cannot proceed while a rebuild holds the source, and the
+// clone retry budget is far shorter than a full migration run, so waiting here
+// is what keeps a concurrent rebuild from failing tests.
+func waitForTemplateRebuild(ctx context.Context, adminConfig *db.Config, template string) {
+	deadline := time.Now().Add(templateRebuildWaitTimeout)
+	for time.Now().Before(deadline) {
+		if !templateRebuildInProgress(ctx, adminConfig, template) {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		time.Sleep(templateRebuildWaitInterval)
+	}
 }
 
 // dropStaleTemplateDatabases removes *old* templates built for other migration

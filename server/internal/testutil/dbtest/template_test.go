@@ -423,3 +423,82 @@ func TestTemplateAgeBoundsAreConsistent(t *testing.T) {
 	assert.True(t, templateMaxAge < templateStaleAfter,
 		"reuse window (%s) must be shorter than the sweep threshold (%s)", templateMaxAge, templateStaleAfter)
 }
+
+// TestEvictTemplateSessionsSpareRebuildsButClearStrays is the regression test for
+// the interaction between clone recovery and in-place rebuilds: a clone that
+// loses the race to an in-progress rebuild must not terminate that rebuild's
+// migration, while a stray session on a published template must still be cleared
+// (otherwise every clone fails, which is what the TimescaleDB background worker
+// caused originally).
+func TestEvictTemplateSessionsSpareRebuildsButClearStrays(t *testing.T) {
+	const name = "fleet_test_tmpl_cccccccccccc"
+
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	_, _ = adminDB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+	_, err = adminDB.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name))
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		cleanupDB, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err)
+		defer cleanupDB.Close()
+		_, _ = cleanupDB.ExecContext(cleanupCtx,
+			"ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS true")
+		_, err = cleanupDB.ExecContext(cleanupCtx, "DROP DATABASE IF EXISTS "+quoteIdentifier(name))
+		assert.NoError(t, err)
+	})
+
+	// Stand in for the migration session of a rebuild in progress.
+	rebuildConfig := *adminConfig
+	rebuildConfig.Name = name
+	rebuildDB, err := db.ConnectToDatabase(&rebuildConfig)
+	assert.NoError(t, err)
+	defer rebuildDB.Close()
+
+	rebuildConn, err := rebuildDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer rebuildConn.Close()
+
+	var alive int
+	assert.NoError(t, rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive))
+
+	// Unsealed: a build is in progress, so nothing may be evicted.
+	assert.True(t, templateRebuildInProgress(ctx, adminConfig, name),
+		"an unsealed template should read as a rebuild in progress")
+	evictTemplateSessions(ctx, adminConfig, name)
+
+	assert.NoError(t, rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive),
+		"eviction must not terminate the migration session of an in-progress rebuild")
+
+	// Sealed: the template is published, so a lingering session is a stray.
+	_, err = adminDB.ExecContext(ctx,
+		"ALTER DATABASE "+quoteIdentifier(name)+" WITH ALLOW_CONNECTIONS false")
+	assert.NoError(t, err)
+	assert.False(t, templateRebuildInProgress(ctx, adminConfig, name),
+		"a sealed template is not being rebuilt")
+
+	evictTemplateSessions(ctx, adminConfig, name)
+
+	// The terminated session may surface the failure on this query or the next,
+	// depending on when the backend notices.
+	if err := rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive); err == nil {
+		err = rebuildConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive)
+		assert.Error(t, err, "a stray session on a sealed template should have been evicted")
+	}
+}
+
+func TestTemplateRebuildInProgressForMissingTemplate(t *testing.T) {
+	adminConfig := adminConfigForTest(t)
+
+	assert.False(t, templateRebuildInProgress(t.Context(), adminConfig, "fleet_test_tmpl_ffffffffffff"),
+		"a template that does not exist is not being rebuilt")
+	assert.False(t, templateRebuildInProgress(t.Context(), adminConfig, ""),
+		"no template means nothing to wait for")
+}

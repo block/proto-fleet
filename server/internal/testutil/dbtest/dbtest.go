@@ -276,8 +276,18 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 		}
 
 		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
-		// A clone can only be blocked by a session that reached the template, so
-		// clear the way before retrying.
+
+		// A clone is blocked by whatever is attached to the template. If that is
+		// a rebuild (the template is not sealed), wait for it to publish: killing
+		// it would abort legitimate work, and the retry budget here is far shorter
+		// than a migration run. Otherwise the session is a stray — a TimescaleDB
+		// worker that slipped in — and gets evicted.
+		if templateRebuildInProgress(t.Context(), adminConfig, template) {
+			t.Logf("template %s is being rebuilt by another process, waiting for it", template)
+			waitForTemplateRebuild(t.Context(), adminConfig, template)
+			continue
+		}
+
 		evictTemplateSessions(t.Context(), adminConfig, template)
 		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
 	}
