@@ -48,6 +48,50 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRegistry_DelayedRegistrationRejectsInvalidatedSession(t *testing.T) {
+	tests := []struct {
+		name       string
+		invalidate func(*Registry)
+	}{
+		{
+			name: "replaced",
+			invalidate: func(r *Registry) {
+				r.ReplaceSession(7, "new-session")
+			},
+		},
+		{
+			name: "revoked",
+			invalidate: func(r *Registry) {
+				r.RevokeSession(7)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := NewRegistry()
+
+			// The old session authenticated before invalidation, but does not
+			// register until its delayed Hello arrives afterward.
+			test.invalidate(r)
+			stream, err := r.RegisterAuthenticated(7, "old-session")
+
+			require.ErrorIs(t, err, errSessionInvalidated)
+			require.Nil(t, stream)
+			require.Empty(t, r.ConnectedFleetNodeIDs())
+		})
+	}
+}
+
+func TestRegistry_ReplacedSessionAllowsCurrentCredential(t *testing.T) {
+	r := NewRegistry()
+	r.ReplaceSession(7, "new-session")
+
+	stream, err := r.RegisterAuthenticated(7, "new-session")
+
+	require.NoError(t, err)
+	defer stream.Unregister()
+}
+
 func TestRegistry_SendWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
