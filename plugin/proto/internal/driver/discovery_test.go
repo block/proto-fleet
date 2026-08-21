@@ -2,7 +2,9 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,17 +23,73 @@ type simMinerContainer struct {
 	mappedPort string
 }
 
+// The sim miner image is built once per test binary and reused by every
+// container, under a fixed tag that Terminate must not delete.
+//
+// Building per container is unsafe here. Every build uses the same context and
+// Dockerfile, so the cache resolves them all to a single image digest, and
+// testcontainers tags each one with a fresh UUID by default. Terminate removes
+// a built image unless KeepImage is set, and it removes it by ID, so tearing
+// down one container deletes the digest the others still reference. A later
+// build then resolves to that same digest while the removal is still in
+// flight, and container creation fails with:
+//
+//	failed to get digest sha256:...: open /var/lib/docker/image/overlay2/imagedb/content/sha256/...: no such file or directory
+const (
+	simMinerImageRepo = "proto-fleet-fake-proto-rig"
+	simMinerImageTag  = "driver-tests"
+)
+
+var (
+	simMinerImageOnce sync.Once
+	simMinerImageRef  string
+	simMinerImageErr  error
+)
+
+// simMinerImage builds the fake-proto-rig image on first use and returns the
+// tag every sim miner container should run from.
+func simMinerImage(ctx context.Context) (string, error) {
+	simMinerImageOnce.Do(func() {
+		provider, err := testcontainers.NewDockerProvider()
+		if err != nil {
+			simMinerImageErr = fmt.Errorf("create docker provider: %w", err)
+			return
+		}
+		defer provider.Close()
+
+		req := testcontainers.ContainerRequest{
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:    "../../../..",
+				Dockerfile: "server/fake-proto-rig/Dockerfile",
+				Repo:       simMinerImageRepo,
+				Tag:        simMinerImageTag,
+				KeepImage:  true,
+			},
+		}
+
+		tag, err := provider.BuildImage(ctx, &req)
+		if err != nil {
+			simMinerImageErr = fmt.Errorf("build sim miner image: %w", err)
+			return
+		}
+
+		simMinerImageRef = tag
+	})
+
+	return simMinerImageRef, simMinerImageErr
+}
+
 // startSimMiner starts a sim miner container and returns connection details
 func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 	if testing.Short() {
 		t.Skip("Skipping sim miner tests in short mode")
 	}
 
+	image, err := simMinerImage(ctx)
+	require.NoError(t, err, "Failed to build sim miner image")
+
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    "../../../..",
-			Dockerfile: "server/fake-proto-rig/Dockerfile",
-		},
+		Image:        image,
 		ExposedPorts: []string{"8080/tcp"},
 		WaitingFor:   wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(2 * time.Minute),
 	}
