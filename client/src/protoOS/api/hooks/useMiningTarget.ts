@@ -62,9 +62,13 @@ const useMiningTarget = () => {
     (newTarget: MiningTargetUpdate) => {
       if (!adapter) return;
 
+      // Clear any prior error first: setError(null) resolves the resource to
+      // "ready", so it must run BEFORE setPending(true) — otherwise it clobbers
+      // the "loading" status and the Apply button never shows its spinner while
+      // the (multi-second) request is in flight.
+      setError(null);
       setPending(true);
       const accept = beginStoreWrite("miningTarget:module:root");
-      setError(null);
       authRetry({
         request: (header) => adapter.updateMiningTarget(newTarget, header),
         onSuccess: (target) => {

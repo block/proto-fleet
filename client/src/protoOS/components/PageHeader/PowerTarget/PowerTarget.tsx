@@ -67,11 +67,17 @@ const PowerTarget = () => {
         updateMiningTarget(miningTarget);
         return;
       }
+      // Reflect the in-flight command immediately so the Apply button disables and
+      // shows its spinner while we resolve the direct-token gate. Without this the
+      // button stays idle until the resume effect finally calls updateMiningTarget
+      // (which sets pending itself), so the click appears to do nothing. Cleared by
+      // updateMiningTarget's success/error path, or by the login-dismiss effect below.
+      setPending(true);
       setLastMiningTarget(miningTarget);
       setPausedAuthAction(AUTH_ACTIONS.miningTarget);
       checkAccess();
     },
-    [isFleetHosted, updateMiningTarget, setPausedAuthAction, checkAccess],
+    [isFleetHosted, updateMiningTarget, setPending, setPausedAuthAction, checkAccess],
   );
 
   useEffect(() => {
