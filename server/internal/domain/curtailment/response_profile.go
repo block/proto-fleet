@@ -187,6 +187,7 @@ func (s *ResponseProfileService) Delete(
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedAuthorizationEnvelopeJSON []byte,
 	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	if s == nil || s.store == nil {
@@ -213,6 +214,7 @@ func (s *ResponseProfileService) Delete(
 		profileID,
 		expectedSiteID,
 		expectedScopeJSON,
+		expectedAuthorizationEnvelopeJSON,
 		expectedFacilityFanSettings,
 	)
 }

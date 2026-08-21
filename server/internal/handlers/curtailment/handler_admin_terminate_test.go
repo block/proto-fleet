@@ -136,10 +136,10 @@ func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
-		return s.authEvent, nil
+		return ensureTestEventAuthorizationEnvelope(s.authEvent, s.targetSiteIDs, s.targetSitesComplete), nil
 	}
 	if s.result != nil && s.result.EventUUID == eventUUID {
-		return s.result, nil
+		return ensureTestEventAuthorizationEnvelope(s.result, s.targetSiteIDs, s.targetSitesComplete), nil
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 }
@@ -591,14 +591,21 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWithFanWhenOrgG
 	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
-func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testing.T) {
+func TestHandler_ForceReleaseCurtailmentOwnership_AllowsMatchingSiteOnlyManage(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID  = int64(42)
 		siteID = int64(7)
 	)
 	eventUUID := uuid.New()
-	store := &adminTerminateStubStore{}
+	store := &adminTerminateStubStore{result: &models.Event{
+		ID:        99,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+		ScopeType: models.ScopeTypeSite,
+		ScopeJSON: siteScopeJSON(t, siteID),
+	}}
 	h := NewHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -612,11 +619,8 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testi
 		Reason:    "operator release",
 	}))
 
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-	assert.Equal(t, 0, store.forceReleaseCalls)
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsNonAdmin(t *testing.T) {
@@ -849,7 +853,7 @@ func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T)
 	}{
 		{"org permission without site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
 		{"matching site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
-		{"site-only permission denies terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site-only permission allows matching terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
 		{"site narrowing without manage denies terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -89,7 +89,7 @@ func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) 
 	if s.getEventErr != nil {
 		return nil, s.getEventErr
 	}
-	return s.event, nil
+	return ensureTestEventAuthorizationEnvelope(s.event, s.targetSiteIDs, s.targetSiteIDsComplete), nil
 }
 func (s *stopStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventDetailByUUID not exercised by Stop handler tests")
@@ -291,7 +291,7 @@ func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
 	}{
 		{"org permission without site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
 		{"matching site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
-		{"site-only permission denies stop", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site-only permission allows matching stop", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
 		{"site narrowing without manage denies stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

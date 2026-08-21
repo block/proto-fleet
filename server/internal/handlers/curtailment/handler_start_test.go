@@ -146,7 +146,7 @@ func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, ke
 	// Default to "no prior match" so Start tests that pass an idempotency
 	// key fall through to the normal insert path. Replay-specific tests
 	// override with a field on the stub.
-	return s.replayByKey[key], nil
+	return ensureTestEventAuthorizationEnvelope(s.replayByKey[key], nil, false), nil
 }
 func (s *startStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
 	// Default to "no prior match" so Start tests that pass an external

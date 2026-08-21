@@ -143,7 +143,22 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 		created.ID,
 		updated.SiteID,
 		updated.ScopeJSON,
+		updated.AuthorizationEnvelopeJSON,
 		responseProfileFanSettings(updated),
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	_, err = service.Get(ctx, orgID, created.ID)
+	require.NoError(t, err)
+
+	err = service.Delete(
+		ctx,
+		orgID,
+		created.ID,
+		replacement.SiteID,
+		replacement.ScopeJSON,
+		updated.AuthorizationEnvelopeJSON,
+		responseProfileFanSettings(replacement),
 	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
