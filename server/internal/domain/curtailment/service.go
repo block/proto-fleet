@@ -84,10 +84,11 @@ type StartRequest struct {
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
 
-	FacilityFanDeviceIDs []int64
-	AuthorizedFanSites   map[int64]int64
-	FanOffDelaySec       int32
-	FanRestoreDelaySec   int32
+	FacilityFanDeviceIDs  []int64
+	AuthorizedDeviceSites map[string]*int64
+	AuthorizedFanSites    map[int64]int64
+	FanOffDelaySec        int32
+	FanRestoreDelaySec    int32
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -2110,6 +2111,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		LoopType:                    models.LoopTypeOpen,
 		ScopeType:                   scope.Type,
 		ScopeJSON:                   scopeJSON,
+		ExpectedDeviceSites:         cloneDeviceSiteMap(req.AuthorizedDeviceSites),
 		ModeParamsJSON:              modeParamsJSON,
 		CurtailBatchSize:            req.CurtailBatchSize,
 		CurtailBatchIntervalSec:     req.CurtailBatchIntervalSec,
@@ -2155,6 +2157,22 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
+}
+
+func cloneDeviceSiteMap(values map[string]*int64) map[string]*int64 {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]*int64, len(values))
+	for identifier, siteID := range values {
+		if siteID == nil {
+			out[identifier] = nil
+			continue
+		}
+		value := *siteID
+		out[identifier] = &value
+	}
+	return out
 }
 
 func cloneInt64Map(values map[int64]int64) map[int64]int64 {

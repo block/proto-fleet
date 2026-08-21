@@ -327,6 +327,16 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if err != nil {
 		return err
 	}
+	if startReq.Scope.Type == models.ScopeTypeDeviceList {
+		startReq.AuthorizedDeviceSites, err = s.profiles.ListDeviceSites(
+			ctx,
+			rule.OrgID,
+			startReq.Scope.DeviceIdentifiers,
+		)
+		if err != nil {
+			return err
+		}
+	}
 	if startReq.Mode == models.ModeFullFleet {
 		startReq.AllowUnbounded = true
 		startReq.MaxDurationSeconds = nil

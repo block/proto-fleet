@@ -46,6 +46,7 @@ type SaveResponseProfileRequest struct {
 	ExpectedSiteID               *int64
 	ExpectedScopeJSON            []byte
 	ExpectedFacilityFanSettings  models.ResponseProfileFanSettings
+	AuthorizedMinerDeviceSites   map[string]*int64
 	AuthorizedFacilityFanDevices map[int64]models.ResponseProfileInfrastructureDevice
 }
 
@@ -129,7 +130,7 @@ func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	return s.store.CreateResponseProfile(ctx, profile, infrastructureDevices)
+	return s.store.CreateResponseProfile(ctx, profile, req.AuthorizedMinerDeviceSites, infrastructureDevices)
 }
 
 func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
@@ -149,6 +150,7 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,
+		req.AuthorizedMinerDeviceSites,
 		infrastructureDevices,
 		req.ExpectedSiteID,
 		req.ExpectedScopeJSON,

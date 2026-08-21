@@ -188,16 +188,27 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	db := testContext.DatabaseService.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
+	fanSiteID, fanID := seedCurtailmentFacilityFan(t, db, orgID, "automation-profile-fan")
 	sourceID := seedMQTTSourceConfig(t, db, orgID, user.DatabaseID, "fan-invariant-source", true)
 	cleanProfileID := seedResponseProfile(t, db, orgID, "fan-free-profile")
 
 	var fanProfileID int64
 	require.NoError(t, db.QueryRowContext(ctx, `
 		INSERT INTO curtailment_response_profile
-			(org_id, profile_name, mode, facility_fan_device_ids)
-		VALUES ($1, 'fan-profile', 'FULL_FLEET', ARRAY[31]::bigint[])
-		RETURNING id`, orgID).Scan(&fanProfileID))
-	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{31}}
+			(org_id, profile_name, mode, facility_fan_device_ids, authorization_envelope_jsonb)
+		VALUES (
+			$1, 'fan-profile', 'FULL_FLEET', ARRAY[$2]::bigint[],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($3::bigint),
+				'facility_fan_scope_unbounded', false
+			)
+		)
+		RETURNING id`, orgID, fanID, fanSiteID).Scan(&fanProfileID))
+	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{fanID}}
 
 	_, err := store.CreateAutomationRule(ctx, models.AutomationRule{
 		OrgID:             orgID,
@@ -251,11 +262,14 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 
 	cleanProfile, err := store.GetResponseProfile(ctx, orgID, cleanProfileID)
 	require.NoError(t, err)
-	cleanProfile.FacilityFanDeviceIDs = []int64{31}
+	cleanProfile.FacilityFanDeviceIDs = []int64{fanID}
+	devices, err := store.ListResponseProfileInfrastructureDevices(ctx, orgID, cleanProfile.FacilityFanDeviceIDs)
+	require.NoError(t, err)
 	_, err = store.UpdateResponseProfile(
 		ctx,
 		*cleanProfile,
 		nil,
+		devices,
 		cleanProfile.SiteID,
 		cleanProfile.ScopeJSON,
 		models.ResponseProfileFanSettings{},

@@ -4410,16 +4410,52 @@ func (q *retryingQuerier) LockCurtailmentFanDevicesForWrite(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentGroupsForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentGroupsForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileAutomationMutation", func() error {
 		return q.next.LockCurtailmentResponseProfileAutomationMutation(ctx, arg)
 	})
 }
 
+func (q *retryingQuerier) LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error) {
+	var result []LockCurtailmentResponseProfileDeviceSitesByOrgRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileDeviceSitesByOrg", func() error {
+		callResult, callErr := q.next.LockCurtailmentResponseProfileDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentScopeForWrite", func() error {
 		return q.next.LockCurtailmentScopeForWrite(ctx, orgID)
 	})
+}
+
+func (q *retryingQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
+	var result []LockCurtailmentTopologyMemberDeviceSitesByOrgRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentTopologyMemberDeviceSitesByOrg", func() error {
+		callResult, callErr := q.next.LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {

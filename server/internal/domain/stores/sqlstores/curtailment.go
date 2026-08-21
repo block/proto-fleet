@@ -226,8 +226,13 @@ func (s *SQLCurtailmentStore) ListResponseProfileInfrastructureDevices(
 func (s *SQLCurtailmentStore) CreateResponseProfile(
 	ctx context.Context,
 	profile models.ResponseProfile,
+	expectedDeviceSites map[string]*int64,
 	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 ) (*models.ResponseProfile, error) {
+	fanSiteIDs, err := validatedResponseProfileFanSiteIDs(profile, expectedInfrastructureDevices)
+	if err != nil {
+		return nil, err
+	}
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
@@ -235,6 +240,20 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(
 		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
+		envelopeJSON, err := buildAuthorizationEnvelopeJSON(
+			ctx,
+			q,
+			profile.OrgID,
+			"",
+			profile.ScopeJSON,
+			fanSiteIDs,
+			expectedDeviceSites,
+			nil,
+		)
+		if err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		profile.AuthorizationEnvelopeJSON = envelopeJSON
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
 	})
 	if err != nil {
@@ -246,11 +265,16 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(
 func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	ctx context.Context,
 	profile models.ResponseProfile,
+	expectedDeviceSites map[string]*int64,
 	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
 	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) (*models.ResponseProfile, error) {
+	fanSiteIDs, err := validatedResponseProfileFanSiteIDs(profile, expectedInfrastructureDevices)
+	if err != nil {
+		return nil, err
+	}
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
@@ -272,6 +296,20 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
+		envelopeJSON, err := buildAuthorizationEnvelopeJSON(
+			ctx,
+			q,
+			profile.OrgID,
+			"",
+			profile.ScopeJSON,
+			fanSiteIDs,
+			expectedDeviceSites,
+			nil,
+		)
+		if err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		profile.AuthorizationEnvelopeJSON = envelopeJSON
 		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(
 			profile,
 			expectedSiteID,
@@ -1134,6 +1172,20 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				return nil, fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already owns this scope")
 			}
 		}
+		authorizationEnvelopeJSON, err := buildAuthorizationEnvelopeJSON(
+			ctx,
+			q,
+			event.OrgID,
+			event.ScopeType,
+			event.ScopeJSON,
+			fanSiteIDs,
+			event.ExpectedDeviceSites,
+			insertTargetDeviceIdentifiers(targets),
+		)
+		if err != nil {
+			return nil, err
+		}
+		event.AuthorizationEnvelopeJSON = authorizationEnvelopeJSON
 		// pq.Array encodes a nil slice as SQL NULL. Keep the empty fan list
 		// non-nil because the column is NOT NULL with an empty-array default.
 		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
@@ -1147,6 +1199,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			LoopType:                    string(event.LoopType),
 			ScopeType:                   string(event.ScopeType),
 			ScopeJsonb:                  event.ScopeJSON,
+			AuthorizationEnvelopeJsonb:  event.AuthorizationEnvelopeJSON,
 			ModeParamsJsonb:             event.ModeParamsJSON,
 			CurtailBatchSize:            ptrToNullInt32(event.CurtailBatchSize),
 			CurtailBatchIntervalSec:     event.CurtailBatchIntervalSec,
@@ -2018,6 +2071,14 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyScope(
 	ctx context.Context,
 	params interfaces.ListCandidatesParams,
 ) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	return resolveCurtailmentTopologyScope(ctx, s.GetQueries(ctx), params)
+}
+
+func resolveCurtailmentTopologyScope(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
 	selectedTypeCount := 0
 	for _, ids := range [][]int64{params.BuildingIDs, params.RackIDs, params.GroupIDs} {
 		if len(ids) > 0 {
@@ -2032,7 +2093,7 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyScope(
 
 	switch {
 	case len(params.BuildingIDs) > 0:
-		rows, err := s.GetQueries(ctx).ListCurtailmentBuildingScopeCoverage(ctx, sqlc.ListCurtailmentBuildingScopeCoverageParams{
+		rows, err := q.ListCurtailmentBuildingScopeCoverage(ctx, sqlc.ListCurtailmentBuildingScopeCoverageParams{
 			OrgID:       params.OrgID,
 			BuildingIds: params.BuildingIDs,
 		})
@@ -2058,7 +2119,7 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyScope(
 			curtailmentTopologyCoverageRules{requireAssignedResource: true},
 		)
 	case len(params.RackIDs) > 0:
-		rows, err := s.GetQueries(ctx).ListCurtailmentRackScopeCoverage(ctx, sqlc.ListCurtailmentRackScopeCoverageParams{
+		rows, err := q.ListCurtailmentRackScopeCoverage(ctx, sqlc.ListCurtailmentRackScopeCoverageParams{
 			OrgID:   params.OrgID,
 			RackIds: params.RackIDs,
 		})
@@ -2086,7 +2147,7 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyScope(
 			curtailmentTopologyCoverageRules{requireAssignedResource: true},
 		)
 	default:
-		rows, err := s.GetQueries(ctx).ListCurtailmentGroupScopeCoverage(ctx, sqlc.ListCurtailmentGroupScopeCoverageParams{
+		rows, err := q.ListCurtailmentGroupScopeCoverage(ctx, sqlc.ListCurtailmentGroupScopeCoverageParams{
 			OrgID:    params.OrgID,
 			GroupIds: params.GroupIDs,
 		})
@@ -2128,7 +2189,8 @@ func buildCurtailmentTopologyScopeCoverage(
 	requestedIDs = uniqueSortedInt64s(requestedIDs)
 	selectorHasMembers := make(map[int64]bool, len(requestedIDs))
 	memberDeviceIDs := make(map[int64]struct{}, interfaces.CurtailmentResolvedMinerMax+1)
-	siteIDs := make(map[int64]struct{})
+	selectedResourceSiteIDs := make(map[int64]struct{})
+	currentMemberSiteIDs := make(map[int64]struct{})
 	requireOrgWide := false
 	resolvedMinerLimitExceeded := false
 	var mismatchedRackID int64
@@ -2141,7 +2203,7 @@ func buildCurtailmentTopologyScopeCoverage(
 			}
 			if rules.requireAssignedResource {
 				if row.resourceSiteID.Valid {
-					siteIDs[row.resourceSiteID.Int64] = struct{}{}
+					selectedResourceSiteIDs[row.resourceSiteID.Int64] = struct{}{}
 				} else {
 					requireOrgWide = true
 				}
@@ -2155,7 +2217,7 @@ func buildCurtailmentTopologyScopeCoverage(
 			resolvedMinerLimitExceeded = true
 		}
 		if row.memberSiteID.Valid {
-			siteIDs[row.memberSiteID.Int64] = struct{}{}
+			currentMemberSiteIDs[row.memberSiteID.Int64] = struct{}{}
 		} else {
 			requireOrgWide = true
 		}
@@ -2190,15 +2252,24 @@ func buildCurtailmentTopologyScopeCoverage(
 			interfaces.CurtailmentResolvedMinerMax,
 		)
 	}
-	coverageSiteIDs := make([]int64, 0, len(siteIDs))
-	for siteID := range siteIDs {
-		coverageSiteIDs = append(coverageSiteIDs, siteID)
-	}
-	sort.Slice(coverageSiteIDs, func(i, j int) bool { return coverageSiteIDs[i] < coverageSiteIDs[j] })
+	selectedSites := sortedInt64Set(selectedResourceSiteIDs)
+	memberSites := sortedInt64Set(currentMemberSiteIDs)
+	coverageSiteIDs := uniqueSortedInt64s(append(append([]int64(nil), selectedSites...), memberSites...))
 	return interfaces.CurtailmentTopologyScopeCoverage{
-		SiteIDs:        coverageSiteIDs,
-		RequireOrgWide: requireOrgWide,
+		SiteIDs:                 coverageSiteIDs,
+		SelectedResourceSiteIDs: selectedSites,
+		CurrentMemberSiteIDs:    memberSites,
+		RequireOrgWide:          requireOrgWide,
 	}, nil
+}
+
+func sortedInt64Set(values map[int64]struct{}) []int64 {
+	out := make([]int64, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {
@@ -3058,6 +3129,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.CreatedByUserID,
 		row.CreatedAt,
 		row.UpdatedAt,
+		row.AuthorizationEnvelopeJsonb,
 	)
 }
 
@@ -3109,6 +3181,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.CreatedByUserID,
 		row.CreatedAt,
 		row.UpdatedAt,
+		row.AuthorizationEnvelopeJsonb,
 	)
 }
 
@@ -3160,6 +3233,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.CreatedByUserID,
 		row.CreatedAt,
 		row.UpdatedAt,
+		row.AuthorizationEnvelopeJsonb,
 	)
 }
 
@@ -3211,6 +3285,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedByUserID,
 		row.CreatedAt,
 		row.UpdatedAt,
+		row.AuthorizationEnvelopeJsonb,
 	)
 	// The active-list query aggregates target counts per row; events with no
 	// target rows carry a zeroed (non-nil) rollup so active displays can trust
@@ -3314,6 +3389,7 @@ func convertEventFields(
 	createdByUserID int64,
 	createdAt time.Time,
 	updatedAt time.Time,
+	authorizationEnvelopeJSON []byte,
 ) *models.Event {
 	return &models.Event{
 		ID:                           id,
@@ -3327,6 +3403,7 @@ func convertEventFields(
 		LoopType:                     models.LoopType(loopType),
 		ScopeType:                    models.ScopeType(scopeType),
 		ScopeJSON:                    scopeJSON,
+		AuthorizationEnvelopeJSON:    append([]byte(nil), authorizationEnvelopeJSON...),
 		ModeParamsJSON:               modeParamsJSON,
 		CurtailBatchSize:             nullInt32ToPtr(curtailBatchSize),
 		CurtailBatchIntervalSec:      curtailBatchIntervalSec,
@@ -3477,6 +3554,7 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		ProfileName:                 row.ProfileName,
 		SiteID:                      nullInt64ToPtr(row.SiteID),
 		ScopeJSON:                   row.ScopeJson,
+		AuthorizationEnvelopeJSON:   append([]byte(nil), row.AuthorizationEnvelopeJsonb...),
 		Mode:                        models.Mode(row.Mode),
 		Strategy:                    models.Strategy(row.Strategy),
 		Level:                       models.Level(row.Level),
@@ -3505,6 +3583,7 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		ProfileName:                 profile.ProfileName,
 		SiteID:                      ptrToNullInt64(profile.SiteID),
 		ScopeJson:                   responseProfileScopeJSON(profile),
+		AuthorizationEnvelopeJsonb:  profile.AuthorizationEnvelopeJSON,
 		Mode:                        string(profile.Mode),
 		Strategy:                    string(profile.Strategy),
 		Level:                       string(profile.Level),
@@ -3542,6 +3621,7 @@ func updateResponseProfileParams(
 		ProfileName:                  profile.ProfileName,
 		SiteID:                       ptrToNullInt64(profile.SiteID),
 		ScopeJson:                    responseProfileScopeJSON(profile),
+		AuthorizationEnvelopeJsonb:   profile.AuthorizationEnvelopeJSON,
 		Mode:                         string(profile.Mode),
 		Strategy:                     string(profile.Strategy),
 		Level:                        string(profile.Level),
@@ -3560,6 +3640,24 @@ func updateResponseProfileParams(
 		FanOffDelaySec:               profile.FanOffDelaySec,
 		FanRestoreDelaySec:           profile.FanRestoreDelaySec,
 	}
+}
+
+func validatedResponseProfileFanSiteIDs(
+	profile models.ResponseProfile,
+	devices map[int64]models.ResponseProfileInfrastructureDevice,
+) ([]int64, error) {
+	if len(profile.FacilityFanDeviceIDs) != len(devices) {
+		return nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
+	}
+	siteIDs := make([]int64, 0, len(devices))
+	for _, deviceID := range profile.FacilityFanDeviceIDs {
+		device, ok := devices[deviceID]
+		if !ok || device.ID != deviceID || device.SiteID <= 0 {
+			return nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
+		}
+		siteIDs = append(siteIDs, device.SiteID)
+	}
+	return uniqueSortedInt64s(siteIDs), nil
 }
 
 func responseProfileFacilityFanDeviceIDs(profile models.ResponseProfile) []int64 {

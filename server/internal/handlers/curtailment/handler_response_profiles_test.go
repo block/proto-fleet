@@ -344,6 +344,44 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_CreateCurtailmentResponseProfileCarriesAuthorizedDeviceSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const allowedSite = int64(7)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"miner-a": ptrHandlerInt64(allowedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-device-snapshot",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Device shed",
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}},
+				},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, store.createdDeviceSites, "miner-a")
+	require.NotNil(t, store.createdDeviceSites["miner-a"])
+	assert.Equal(t, allowedSite, *store.createdDeviceSites["miner-a"])
+}
+
 func TestHandler_CreateCurtailmentResponseProfileRequiresOrgWideForUnassignedDevices(t *testing.T) {
 	t.Parallel()
 
@@ -988,6 +1026,7 @@ type handlerResponseProfileStore struct {
 	siteBelongs                   bool
 	siteCheckCount                int
 	created                       *models.ResponseProfile
+	createdDeviceSites            map[string]*int64
 	updated                       *models.ResponseProfile
 	updateExpectedSiteID          *int64
 	updateExpectedScopeJSON       []byte
@@ -1053,14 +1092,15 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 	return out, nil
 }
 
-func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
 	s.created = &profile
+	s.createdDeviceSites = expectedDeviceSites
 	s.createdInfrastructureDevices = expectedInfrastructureDevices
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[string]*int64, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)

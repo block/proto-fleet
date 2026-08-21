@@ -501,6 +501,28 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"device_identifiers":["miner-a"]}`)
+	h.curtailments.candidatesByOrg[h.orgID] = []*models.Candidate{
+		minerWithEff("miner-a", 3000, 100, 50),
+	}
+	minerSiteID := int64(8)
+	h.profiles.deviceSites["miner-a"] = &minerSiteID
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]*int64{"miner-a": &minerSiteID}, h.curtailments.lastInsertEvent.ExpectedDeviceSites)
+}
+
 func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *testing.T) {
 	t.Parallel()
 

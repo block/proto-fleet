@@ -176,8 +176,8 @@ type ResponseProfileStore interface {
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 	ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error)
 	ListResponseProfileInfrastructureDevices(ctx context.Context, orgID int64, infrastructureDeviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error)
-	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
-	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
+	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
+	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
 	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) error
 	CountAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
@@ -231,13 +231,15 @@ type ListRecentlyResolvedCurtailedDevicesParams struct {
 }
 
 // CurtailmentTopologyScopeCoverage is the authorization envelope derived from
-// a validated topology selector. SiteIDs includes selected-resource and live
-// member sites. RequireOrgWide is set when any selected resource or member is
-// unassigned, or when a group has no members and therefore unbounded future
-// coverage.
+// a validated topology selector. SiteIDs is the combined compatibility view;
+// the split fields preserve why each site is covered. RequireOrgWide is set
+// when any selected resource or member is unassigned, or when a group has no
+// members and therefore unbounded future coverage.
 type CurtailmentTopologyScopeCoverage struct {
-	SiteIDs        []int64
-	RequireOrgWide bool
+	SiteIDs                 []int64
+	SelectedResourceSiteIDs []int64
+	CurrentMemberSiteIDs    []int64
+	RequireOrgWide          bool
 }
 
 // CurtailmentTopologyScopeStore validates topology selectors and derives their

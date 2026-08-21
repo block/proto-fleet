@@ -23,6 +23,7 @@ type ResponseProfile struct {
 	ProfileName                 string
 	SiteID                      *int64
 	ScopeJSON                   []byte
+	AuthorizationEnvelopeJSON   []byte
 	Mode                        Mode
 	Strategy                    Strategy
 	Level                       Level
@@ -241,6 +242,7 @@ type Event struct {
 	LoopType                     LoopType
 	ScopeType                    ScopeType
 	ScopeJSON                    []byte
+	AuthorizationEnvelopeJSON    []byte
 	ModeParamsJSON               []byte
 	CurtailBatchSize             *int32
 	CurtailBatchIntervalSec      int32
@@ -334,6 +336,8 @@ type InsertEventParams struct {
 	LoopType                    LoopType
 	ScopeType                   ScopeType
 	ScopeJSON                   []byte
+	AuthorizationEnvelopeJSON   []byte
+	ExpectedDeviceSites         map[string]*int64
 	ModeParamsJSON              []byte
 	CurtailBatchSize            *int32
 	CurtailBatchIntervalSec     int32
@@ -367,6 +371,20 @@ type InsertEventParams struct {
 	EndedAt            *time.Time
 	CreatedByUserID    int64
 	EffectiveBatchSize int32
+}
+
+const AuthorizationEnvelopeSchemaVersion int32 = 1
+
+// AuthorizationEnvelope is the immutable resource-coverage snapshot captured
+// when a profile or event is persisted. It is deliberately separate from the
+// executable selector so authorization coverage can never widen targeting.
+type AuthorizationEnvelope struct {
+	SchemaVersion             int32   `json:"schema_version"`
+	SelectedResourceSiteIDs   []int64 `json:"selected_resource_site_ids"`
+	CurrentMemberSiteIDs      []int64 `json:"current_member_site_ids"`
+	MinerScopeUnbounded       bool    `json:"miner_scope_unbounded"`
+	FacilityFanSiteIDs        []int64 `json:"facility_fan_site_ids"`
+	FacilityFanScopeUnbounded bool    `json:"facility_fan_scope_unbounded"`
 }
 
 // InsertEventResult is what InsertEventWithTargets returns to the caller.

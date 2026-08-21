@@ -117,6 +117,7 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 	created, err := h.responseProfiles.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile:                      profile,
 		CanUseAdminControls:          canUseAdminControls(info),
+		AuthorizedMinerDeviceSites:   requirements.deviceSites,
 		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
@@ -146,7 +147,11 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		profile.FanOffDelaySec = existing.FanOffDelaySec
 		profile.FanRestoreDelaySec = existing.FanRestoreDelaySec
 	}
-	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
+	requirements, err := h.responseProfileResourceContextRequirements(ctx, info.OrganizationID, &profile, nil, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements); err != nil {
 		return nil, err
 	}
 	authorizedFacilityFanDevices, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs)
@@ -159,6 +164,7 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		ExpectedSiteID:               cloneInt64Ptr(existing.SiteID),
 		ExpectedScopeJSON:            cloneBytes(existing.ScopeJSON),
 		ExpectedFacilityFanSettings:  responseProfileFanSettings(existing),
+		AuthorizedMinerDeviceSites:   requirements.deviceSites,
 		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {

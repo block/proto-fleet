@@ -152,6 +152,7 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	startReq.AuthorizedDeviceSites = requirements.deviceSites
 	startReq.AuthorizedFanSites = make(map[int64]int64, len(authorizedFans))
 	for deviceID, device := range authorizedFans {
 		startReq.AuthorizedFanSites[deviceID] = device.SiteID
@@ -439,6 +440,7 @@ func errCurtailmentNotImplemented(rpc string) error {
 type scopeResourceContextRequirements struct {
 	siteContexts   []authz.ResourceContext
 	requireOrgWide bool
+	deviceSites    map[string]*int64
 }
 
 func (h *Handler) previewResourceContextRequirements(
@@ -534,6 +536,7 @@ func (h *Handler) scopeResourceContextRequirements(
 			return scopeResourceContextRequirements{}, err
 		}
 	}
+	out.deviceSites = deviceSites
 	siteIDs := siteIDsFromResourceContexts(out.siteContexts)
 	for _, deviceIdentifier := range deviceIdentifiers {
 		siteID, ok := deviceSites[deviceIdentifier]
