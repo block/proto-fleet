@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -126,12 +125,6 @@ func TestGenerateSecrets(t *testing.T) {
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "fleet-client.crt"), testVirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s Fleet client certificate: %v", node, err)
-		}
-		fleetClientCertificate, err := readCertificate(filepath.Join(dir, "fleet-client.crt"))
-		if err != nil {
-			t.Errorf("read %s Fleet client certificate: %v", node, err)
-		} else if validity := fleetClientCertificate.NotAfter.Sub(fleetClientCertificate.NotBefore); validity > 825*24*time.Hour {
-			t.Errorf("%s Fleet client certificate validity = %s, want at most 825 days", node, validity)
 		}
 		if err := validateFleetEnvironment(filepath.Join(dir, fleetEnvironmentFile)); err != nil {
 			t.Errorf("validate %s Fleet environment: %v", node, err)

@@ -22,10 +22,9 @@ const (
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
 	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
-	certificateValidity     = 10 * 365 * 24 * time.Hour
 	// Apple's TLS verifier rejects server certificates valid for more than 825 days.
 	// Keep one day of headroom for the one-minute NotBefore backdating below.
-	fleetClientCertificateValidity = 824 * 24 * time.Hour
+	certificateValidity = 824 * 24 * time.Hour
 )
 
 var databasePasswordFiles = []string{
@@ -197,23 +196,23 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		if err := writeFile(filepath.Join(nodeDir, fleetEtcdPasswordFile), fleetEtcdPassword, 0o600); err != nil {
 			return err
 		}
-		if err := issueCertificate(nodeDir, "etcd-server", "etcd-"+host.name, host.address, ca, now, certificateValidity, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		if err := issueCertificate(nodeDir, "etcd-server", "etcd-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
-		if err := issueCertificate(nodeDir, "etcd-peer", "etcd-peer-"+host.name, host.address, ca, now, certificateValidity, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}); err != nil {
+		if err := issueCertificate(nodeDir, "etcd-peer", "etcd-peer-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}); err != nil {
 			return err
 		}
 		if !host.database {
 			continue
 		}
-		if err := issueCertificate(nodeDir, "patroni-rest", "patroni-"+host.name, host.address, ca, now, certificateValidity, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		if err := issueCertificate(nodeDir, "patroni-rest", "patroni-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
-		if err := issueCertificate(nodeDir, "postgres", "postgres-"+host.name, host.address, ca, now, certificateValidity, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		if err := issueCertificate(nodeDir, "postgres", "postgres-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
 		// Each host gets its own keypair, but both certificates identify the VIP.
-		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, vip, ca, now, fleetClientCertificateValidity, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, vip, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
 		if err := writeFile(filepath.Join(nodeDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {
@@ -262,7 +261,7 @@ func newCertificateAuthority(now time.Time) (certificateAuthority, error) {
 	}, nil
 }
 
-func issueCertificate(dir, name, commonName string, address netip.Addr, ca certificateAuthority, now time.Time, validity time.Duration, usages []x509.ExtKeyUsage) error {
+func issueCertificate(dir, name, commonName string, address netip.Addr, ca certificateAuthority, now time.Time, usages []x509.ExtKeyUsage) error {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return fmt.Errorf("generate %s key: %w", name, err)
@@ -275,7 +274,7 @@ func issueCertificate(dir, name, commonName string, address netip.Addr, ca certi
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(validity),
+		NotAfter:              now.Add(certificateValidity),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           usages,
 		BasicConstraintsValid: true,
