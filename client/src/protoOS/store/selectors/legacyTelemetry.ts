@@ -1,3 +1,32 @@
+// =============================================================================
+// Legacy telemetry projection (temporary compatibility bridge)
+// =============================================================================
+//
+// This module projects the *normalized* telemetry contract (`../contract`:
+// entity-keyed metrics with `latest`/`timeSeries` and millisecond timestamps)
+// back into the *old* telemetry view-model (`../types`: `MinerTelemetryData`,
+// `HashboardTelemetryData`, `AsicTelemetryData`, `PsuTelemetryData`,
+// `FanTelemetryData`). Each `*View` function is one entity's shape adaptation
+// (e.g. `latest` -> `{ value, units }`, `timeSeries.points` -> flat `values`
+// plus `startTime`/`endTime`/`bucketSizeMs`).
+//
+// Why it exists: the hardware/telemetry normalization (PR #48) migrated the
+// store to the contract but deliberately did NOT rewrite every telemetry
+// consumer, to bound the blast radius. This bridge lets those consumers keep
+// reading the old shape unchanged. It is consumed only by the selector hooks
+// `store/hooks/useTelemetry.ts` and `store/hooks/useMiner.ts`.
+//
+// TODO(#31): Delete this bridge and the legacy `*TelemetryData` types once the
+// remaining consumers read the normalized contract directly — namely
+// `useTelemetry.ts`/`useMiner.ts` (drop the `*View` mapping) and the component
+// consumers `components/StatusModal/utils.ts`,
+// `components/StatusModal/hooks/useComponentTelemetry.ts`, and the KPI widgets
+// (`Hashrate`/`Efficiency`/`PowerUsage`/`Temperature`). Note the old shape
+// pre-aggregates fields the contract does not (e.g. `maxAsicTemp`/`avgAsicTemp`
+// on a hashboard); those must be derived at the read site or promoted into the
+// contract, so this is a small design decision, not a pure rename.
+// =============================================================================
+
 import type {
   AsicTelemetry,
   FanTelemetry,
