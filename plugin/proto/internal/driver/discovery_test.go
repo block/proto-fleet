@@ -38,7 +38,11 @@ type simMinerContainer struct {
 // still in flight, and container creation fails with:
 //
 //	failed to get digest sha256:...: open /var/lib/docker/image/overlay2/imagedb/content/sha256/...: no such file or directory
-const simMinerImageRepo = "proto-fleet-fake-proto-rig"
+//
+// The localhost registry qualifier marks this as a local image and prevents
+// TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX from rewriting the tag between the
+// direct BuildImage call and GenericContainer.
+const simMinerImageRepo = "localhost:5000/proto-fleet-fake-proto-rig"
 
 var (
 	simMinerImageOnce sync.Once
@@ -98,10 +102,21 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	if simMinerImageRef != "" {
-		if provider, err := testcontainers.NewDockerProvider(); err == nil {
-			_, _ = provider.Client().ImageRemove(context.Background(), simMinerImageRef, client.ImageRemoveOptions{})
+		// The test timeout alarm no longer protects cleanup after m.Run, and the
+		// Docker client has no default HTTP timeout. Keep cleanup best-effort: a
+		// daemon disappearing after successful tests should warn, not fail them.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		provider, err := testcontainers.NewDockerProvider()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: create Docker provider for sim miner image cleanup: %v\n", err)
+		} else {
+			if _, err := provider.Client().ImageRemove(ctx, simMinerImageRef, client.ImageRemoveOptions{}); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "warning: remove retained sim miner image %s: %v\n", simMinerImageRef, err)
+			}
 			_ = provider.Close()
 		}
+		cancel()
 	}
 
 	os.Exit(code)
