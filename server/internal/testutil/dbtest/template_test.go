@@ -47,7 +47,7 @@ func TestTemplateNamePatternOnlyMatchesOwnTemplates(t *testing.T) {
 	}
 
 	// The name we actually generate has to satisfy its own pattern.
-	if got := templateDBPrefix + migrationSetFingerprint(); !templateNamePattern.MatchString(got) {
+	if got := templateNameFor(adminConfigForTest(t)); !templateNamePattern.MatchString(got) {
 		t.Errorf("generated template name %q does not match templateNamePattern", got)
 	}
 }
@@ -137,8 +137,8 @@ func TestIsRetryableCreateError(t *testing.T) {
 // (otherwise every test binary builds its own template) and the resulting
 // database name must fit PostgreSQL's identifier limit.
 func TestMigrationSetFingerprintIsStableAndNamesAValidIdentifier(t *testing.T) {
-	first := migrationSetFingerprint()
-	second := migrationSetFingerprint()
+	first := migrationSetFingerprint("fleet")
+	second := migrationSetFingerprint("fleet")
 
 	if first != second {
 		t.Errorf("fingerprint not stable across calls: %q vs %q", first, second)
@@ -245,7 +245,7 @@ func TestDropStaleTemplateDatabasesOnlySweepsOldOwnedTemplates(t *testing.T) {
 	stamp(fresh, time.Now().Add(-time.Minute))
 
 	// Keep the template belonging to the current migration set, as a real run would.
-	dropStaleTemplateDatabases(ctx, adminConn, templateDBPrefix+migrationSetFingerprint())
+	dropStaleTemplateDatabases(ctx, adminConn, templateNameFor(adminConfig))
 
 	assert.False(t, databaseExists(t, adminConn, stale),
 		"template %s is ours and past the age gate; it should have been dropped", stale)
@@ -501,4 +501,34 @@ func TestTemplateRebuildInProgressForMissingTemplate(t *testing.T) {
 		"a template that does not exist is not being rebuilt")
 	assert.False(t, templateRebuildInProgress(t.Context(), adminConfig, ""),
 		"no template means nothing to wait for")
+}
+
+// TestMigrationSetFingerprintIsScopedToRole pins that the connecting role is
+// part of template identity. PostgreSQL only lets a role copy a database it
+// owns, so two roles sharing one template name would leave the second failing
+// every clone with "permission denied to copy database".
+func TestMigrationSetFingerprintIsScopedToRole(t *testing.T) {
+	fleet := migrationSetFingerprint("fleet")
+	other := migrationSetFingerprint("other_dev")
+
+	assert.NotEqual(t, fleet, other, "different roles must not share a template name")
+	assert.Equal(t, fleet, migrationSetFingerprint("fleet"), "same role must be stable")
+
+	// Role names of any length must still produce a legal identifier.
+	long := migrationSetFingerprint(strings.Repeat("a_very_long_role_name", 10))
+	assert.True(t, templateNamePattern.MatchString(templateDBPrefix+long),
+		"a long role name must not leak into the template name")
+}
+
+func TestIsTemplatePermissionError(t *testing.T) {
+	denied := `create test database: ERROR: permission denied to copy database "fleet_test_tmpl_abc" (SQLSTATE 42501)`
+
+	assert.True(t, isTemplatePermissionError(denied, "fleet_test_tmpl_abc"))
+	assert.False(t, isTemplatePermissionError(denied, ""), "no template means no template permission problem")
+	assert.False(t, isTemplatePermissionError(
+		`create test database: ERROR: database "x" does not exist (SQLSTATE 3D000)`, "tmpl"))
+
+	// Must not be swallowed by the generic retry path: retrying cannot grant
+	// permissions, so it needs the fallback instead.
+	assert.False(t, isRetryableCreateError(denied))
 }

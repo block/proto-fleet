@@ -168,7 +168,7 @@ func templateDatabase(t *testing.T, adminConfig *db.Config) string {
 		return ""
 	}
 
-	name := templateDBPrefix + migrationSetFingerprint()
+	name := templateNameFor(adminConfig)
 
 	// Deliberately not t.Context(): the template outlives the test that
 	// happens to build it, and cancelling that test must not abandon a
@@ -220,6 +220,19 @@ func invalidateTemplateDatabase(name string) {
 		templatePrepared = false
 		templateDBName = ""
 	}
+}
+
+// disableTemplateCloning gives up on cloning for the rest of the process. Used
+// for failures that retrying cannot fix, such as lacking permission to copy the
+// template: without this every remaining test would pay for a clone attempt that
+// is guaranteed to fail before falling back.
+func disableTemplateCloning() {
+	templateMu.Lock()
+	defer templateMu.Unlock()
+
+	templatePrepared = false
+	templateDBName = ""
+	templateFailures = templatePrepareMaxAttempts
 }
 
 // prepareTemplateDatabase makes sure a migrated template database exists for the
@@ -316,21 +329,26 @@ func prepareTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 //   - connections are disabled, which only happens after migrations succeed, so
 //     a database that still allows them is incomplete and must be rebuilt;
 //   - it was built within templateMaxAge, so clones do not inherit badly stale
-//     CURRENT_TIMESTAMP seed data.
+//     CURRENT_TIMESTAMP seed data;
+//   - it is owned by the role we are connecting as, since PostgreSQL refuses to
+//     copy another role's database unless we are a superuser.
 //
 // A template with no recognisable creation stamp (an older format, or one built
 // before stamping existed) is rebuilt rather than trusted.
 func templateIsReusable(ctx context.Context, adminConn *sql.Conn, name string) (bool, error) {
 	var allowConnections bool
+	var ownedByCurrentRole bool
 	var comment sql.NullString
 	err := adminConn.QueryRowContext(ctx, `
-		SELECT datallowconn, shobj_description(oid, 'pg_database')
+		SELECT datallowconn,
+		       pg_catalog.pg_get_userbyid(datdba) = current_user,
+		       shobj_description(oid, 'pg_database')
 		FROM pg_database
 		WHERE datname = $1
-	`, name).Scan(&allowConnections, &comment)
+	`, name).Scan(&allowConnections, &ownedByCurrentRole, &comment)
 	switch {
 	case err == nil:
-		if allowConnections {
+		if allowConnections || !ownedByCurrentRole {
 			return false, nil
 		}
 		created, ok := templateCreatedAt(comment)
@@ -396,21 +414,31 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 	templateConfig.Name = name
 
 	migrationDone := make(chan struct{})
-	defer close(migrationDone)
+	var watchdog sync.WaitGroup
+	watchdog.Add(1)
 
 	go func() {
+		defer watchdog.Done()
 		select {
 		case <-migrationDone:
 		case <-ctx.Done():
-			// The parent context is spent, so give the eviction its own.
+			// The parent context is spent, so give the termination its own.
 			// nolint: usetesting
-			evictCtx, cancel := context.WithTimeout(context.Background(), templateDetachTimeout)
+			killCtx, cancel := context.WithTimeout(context.Background(), templateDetachTimeout)
 			defer cancel()
-			evictTemplateSessions(evictCtx, adminConfig, name)
+			// Not evictTemplateSessions: that one deliberately spares unsealed
+			// templates, and the template is unsealed for the whole of this
+			// migration, so it would never match the backend we need to stop.
+			terminateTemplateBuildSessions(killCtx, adminConfig, name)
 		}
 	}()
 
 	conn, err := db.ConnectAndMigrate(&templateConfig)
+	close(migrationDone)
+	// Let a firing watchdog finish before the caller drops the template, so the
+	// termination cannot land on an unrelated database that reuses the name.
+	watchdog.Wait()
+
 	if err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("migrate template database: deadline exceeded, migration backend terminated: %w", err)
@@ -485,6 +513,32 @@ func evictTemplateSessions(ctx context.Context, adminConfig *db.Config, template
 		  AND NOT database.datallowconn
 		  AND activity.pid <> pg_backend_pid()
 	`, template)
+}
+
+// terminateTemplateBuildSessions unconditionally disconnects everything attached
+// to the template, including an unsealed (in-progress) build.
+//
+// This is only safe for the process holding the preparation advisory lock, which
+// makes the build in question its own: the lock guarantees no other process is
+// building this template, and clones never connect to their source. It exists
+// solely so the deadline watchdog can stop a migration that Go cannot cancel,
+// db.ConnectAndMigrate not being context-aware.
+func terminateTemplateBuildSessions(ctx context.Context, adminConfig *db.Config, name string) {
+	if name == "" {
+		return
+	}
+
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	_, _ = conn.ExecContext(ctx, `
+		SELECT pg_terminate_backend(pid)
+		FROM pg_stat_activity
+		WHERE datname = $1 AND pid <> pg_backend_pid()
+	`, name)
 }
 
 // templateRebuildInProgress reports whether the template exists but is not
@@ -612,11 +666,25 @@ func quoteLiteral(value string) string {
 	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
 }
 
+// templateNameFor returns the template name this configuration may use.
+//
+// The connecting role is part of the identity, not just the migration set:
+// PostgreSQL only lets a role copy a database it owns (or any, for superusers),
+// so two checkouts on one cluster using different roles must not compete for one
+// template name. Without this the second role gets "permission denied to copy
+// database" on every clone.
+func templateNameFor(config *db.Config) string {
+	return templateDBPrefix + migrationSetFingerprint(config.Username)
+}
+
 // migrationSetFingerprint hashes the embedded migration files (names and
-// contents) so that any change to the schema yields a new template database
-// rather than silently reusing a stale one.
-func migrationSetFingerprint() string {
+// contents), plus the owning role, so that any change to the schema — or a
+// different role — yields a new template database rather than silently reusing
+// one that does not match.
+func migrationSetFingerprint(role string) string {
 	hash := sha256.New()
+	_, _ = hash.Write([]byte(role))
+	_, _ = hash.Write([]byte{0})
 
 	names, err := migrationFileNames()
 	if err != nil {

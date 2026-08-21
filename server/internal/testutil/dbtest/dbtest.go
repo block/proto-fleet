@@ -85,6 +85,8 @@ const (
 	pgInternalError                   = "XX000"
 	pgObjectInUse                     = "55006"
 	pgUndefinedDatabase               = "3D000"
+	pgInsufficientPrivilege           = "42501"
+	templateCopyDenied                = "permission denied to copy database"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
 	templateSourceInUse               = "is being accessed by other users"
 
@@ -271,6 +273,17 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string, tem
 			continue
 		}
 
+		// We are not allowed to copy this template — it belongs to another role
+		// and we are not a superuser. No amount of retrying changes that, so stop
+		// cloning for the rest of the process and migrate directly.
+		if isTemplatePermissionError(lastErr.Error(), template) {
+			t.Logf("not permitted to copy template database %s (%v); "+
+				"migrating test databases directly for the rest of this process", template, lastErr)
+			disableTemplateCloning()
+			template = ""
+			continue
+		}
+
 		if !isRetryableCreateError(lastErr.Error()) || attempt == migrationMaxRetries {
 			break
 		}
@@ -390,6 +403,17 @@ func isRetryableCreateError(msg string) bool {
 // database we are creating cannot itself be the undefined one.
 func isMissingTemplateError(msg string, template string) bool {
 	return template != "" && strings.Contains(msg, pgUndefinedDatabase)
+}
+
+// isTemplatePermissionError reports whether a clone failed because the
+// connecting role may not copy the template (SQLSTATE 42501). PostgreSQL only
+// permits copying a database you own unless you are a superuser, so this is what
+// a foreign template looks like.
+func isTemplatePermissionError(msg string, template string) bool {
+	if template == "" {
+		return false
+	}
+	return strings.Contains(msg, pgInsufficientPrivilege) || strings.Contains(msg, templateCopyDenied)
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.
