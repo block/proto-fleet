@@ -54,6 +54,8 @@ type Handler struct {
 	pairing    *pairing.Service
 	registry   *control.Registry
 	files      *files.Service
+	// Keep the persisted session rotation and in-memory fence in the same order.
+	sessionRotationMu sync.Mutex
 }
 
 type authService interface {
@@ -100,6 +102,9 @@ func (h *Handler) BeginAuthHandshake(ctx context.Context, req *connect.Request[p
 }
 
 func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Request[pb.CompleteAuthHandshakeRequest]) (*connect.Response[pb.CompleteAuthHandshakeResponse], error) {
+	h.sessionRotationMu.Lock()
+	defer h.sessionRotationMu.Unlock()
+
 	token, expiresAt, fleetNodeID, err := h.auth.CompleteHandshake(ctx, req.Msg.GetChallenge(), req.Msg.GetSignature())
 	if err != nil {
 		return nil, err

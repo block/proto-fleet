@@ -240,7 +240,10 @@ func TestControlStream_ReturnsStructuredNotActive(t *testing.T) {
 	t.Run("passive admission", func(t *testing.T) {
 		client := startControlServerWithAdmission(t, controlledAdmissionGate{reject: true})
 		stream := client.ControlStream(t.Context())
-		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+		// Admission can reject before the first client write completes. In that
+		// race Send returns EOF, while Receive still carries the structured RPC
+		// status this test is asserting.
+		_ = stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}})
 
 		_, err := stream.Receive()
 
