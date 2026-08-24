@@ -78,22 +78,23 @@ type fakeStore struct {
 	lastCooldownFilter     []string
 	lastCooldownSiteIDs    []int64
 
-	heartbeatCalls            int
-	lastHeartbeatActive       int32
-	lastHeartbeatTickUUID     uuid.UUID
-	lastListCandidatesSiteIDs []int64
-	lastListCandidatesFilter  []string
-	listCandidatesFilters     [][]string
-	topologyCoverage          interfaces.CurtailmentTopologyScopeCoverage
-	topologyCoverageErr       error
-	topologyDispatchErr       error
-	topologyDispatchCalls     int
-	topologyFenceErr          error
-	topologyFenceActive       bool
-	topologyFenceHook         func(event *models.Event)
-	getEventErr               error
-	getEventCalls             int
-	getEventHook              func(call int, event *models.Event)
+	heartbeatCalls               int
+	lastHeartbeatActive          int32
+	lastHeartbeatTickUUID        uuid.UUID
+	lastListCandidatesSiteIDs    []int64
+	lastListCandidatesFilter     []string
+	listCandidatesFilters        [][]string
+	topologyCoverage             interfaces.CurtailmentTopologyScopeCoverage
+	topologyCoverageErr          error
+	topologyDispatchErr          error
+	topologyDispatchCalls        int
+	topologyFenceErr             error
+	topologyFenceAfterCommandErr error
+	topologyFenceActive          bool
+	topologyFenceHook            func(event *models.Event)
+	getEventErr                  error
+	getEventCalls                int
+	getEventHook                 func(call int, event *models.Event)
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -445,10 +446,13 @@ func (f *fakeStore) WithCurtailmentTopologyDispatchFence(
 	}
 	f.topologyFenceActive = true
 	defer func() { f.topologyFenceActive = false }()
-	return command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
+	if err := command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
 		Event:    latest,
 		Topology: topology,
-	})
+	}); err != nil {
+		return err
+	}
+	return f.topologyFenceAfterCommandErr
 }
 
 func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -1276,6 +1280,52 @@ func TestReconciler_TopologyDispatchHoldsFenceThroughCommand(t *testing.T) {
 	assert.True(t, dispatched)
 	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.False(t, store.topologyFenceActive)
+}
+
+func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	store.topologyFenceAfterCommandErr = errors.New("commit failed")
+	store.beginRestoreErr = errors.New("restore transition failed")
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(
+		Config{TickInterval: time.Hour},
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	dispatched := reconciler.dispatchCurtailBatch(
+		t.Context(),
+		event,
+		[]*models.Target{target},
+		models.TargetStatePending,
+		skipPendingDispatchClock,
+	)
+	assert.False(t, dispatched)
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Equal(t, models.TargetStateDispatching, target.State)
+
+	store.beginRestoreErr = nil
+	commandCalls := 0
+	handled, allowed := reconciler.authorizeTopologyCurtailDispatch(
+		t.Context(),
+		event,
+		[]*models.Target{target},
+		[]string{target.DeviceIdentifier},
+		func() { commandCalls++ },
+	)
+	assert.True(t, handled)
+	assert.False(t, allowed)
+	assert.Zero(t, commandCalls)
+	assert.Equal(t, 2, store.beginRestoreCalls)
+	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
+	assert.Equal(t, models.TargetStatePending, target.State)
+	assert.NotNil(t, target.RestorePhase,
+		"a command-attempted target must remain owned by restore after a fence commit error")
 }
 
 func topologyDispatchFixture() (*fakeStore, *models.Event, *models.Target) {

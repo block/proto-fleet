@@ -31,19 +31,23 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 	if ev.ScopeType != models.ScopeTypeMixed {
 		return false, true
 	}
-	reject := func(reason string, cause error) bool {
-		r.topologyDispatchRejects.Store(ev.EventUUID, reason)
-		attrs := []any{"event_id", ev.ID, "event_uuid", ev.EventUUID, "reason", reason}
+	reject := func(rejection topologyDispatchRejection, cause error) bool {
+		r.topologyDispatchRejects.Store(ev.EventUUID, rejection)
+		attrs := []any{"event_id", ev.ID, "event_uuid", ev.EventUUID, "reason", rejection.reason}
 		if cause != nil {
 			attrs = append(attrs, "error", cause)
 		}
 		slog.Error("curtailment reconciler: topology dispatch authorization failed", attrs...)
+		releaseUnsent := knownUnsentDeviceIdentifiers
+		if rejection.preserveRestoreOwnership {
+			releaseUnsent = nil
+		}
 		if _, restoreErr := r.store.BeginRestoreTransition(
 			ctx,
 			ev.OrgID,
 			ev.EventUUID,
 			interfaces.BeginRestoreTransitionParams{
-				KnownUnsentDeviceIdentifiers: knownUnsentDeviceIdentifiers,
+				KnownUnsentDeviceIdentifiers: releaseUnsent,
 			},
 		); restoreErr != nil {
 			slog.Error("curtailment reconciler: failed to restore after topology dispatch authorization failure",
@@ -53,28 +57,34 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		}
 		return false
 	}
-	if rejectedReason, rejected := r.topologyDispatchRejects.Load(ev.EventUUID); rejected {
-		reason, ok := rejectedReason.(string)
+	rejectBeforeCommand := func(reason string, cause error) (bool, bool) {
+		return true, reject(topologyDispatchRejection{reason: reason}, cause)
+	}
+	if rejectedValue, rejected := r.topologyDispatchRejects.Load(ev.EventUUID); rejected {
+		rejection, ok := rejectedValue.(topologyDispatchRejection)
 		if !ok {
-			reason = "previous topology dispatch authorization failure"
+			rejection = topologyDispatchRejection{
+				reason:                   "previous topology dispatch authorization failure",
+				preserveRestoreOwnership: true,
+			}
 		}
-		return true, reject(reason, nil)
+		return true, reject(rejection, nil)
 	}
 	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
 	if err != nil || !hasScope {
-		return true, reject("parse persisted mixed scope", err)
+		return rejectBeforeCommand("parse persisted mixed scope", err)
 	}
 	if !curtailment.IsTopologyScope(scope) {
 		return false, true
 	}
 	filter, err := curtailment.ListCandidatesParamsForScope(scope)
 	if err != nil {
-		return true, reject("parse persisted topology selector", err)
+		return rejectBeforeCommand("parse persisted topology selector", err)
 	}
 	filter.OrgID = ev.OrgID
 	fenceStore, ok := r.store.(interfaces.CurtailmentTopologyDispatchFenceStore)
 	if !ok {
-		return true, reject("topology dispatch fence is not configured", nil)
+		return rejectBeforeCommand("topology dispatch fence is not configured", nil)
 	}
 	dispatchDeviceIdentifiers := make([]string, 0, len(targets))
 	for _, target := range targets {
@@ -84,6 +94,7 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 	}
 	var rejectionReason string
 	var rejectionCause error
+	commandAttempted := false
 	rejectFence := func(reason string, cause error) error {
 		rejectionReason = reason
 		rejectionCause = cause
@@ -130,23 +141,32 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 			if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
 				return rejectFence("event creator no longer has required permissions", nil)
 			}
+			commandAttempted = true
 			command()
 			return nil
 		},
 	)
 	if rejectionReason != "" {
-		return true, reject(rejectionReason, rejectionCause)
+		return rejectBeforeCommand(rejectionReason, rejectionCause)
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 		return true, false
 	}
 	if err != nil {
-		return true, reject("acquire topology dispatch fence", err)
+		return true, reject(topologyDispatchRejection{
+			reason:                   "acquire topology dispatch fence",
+			preserveRestoreOwnership: commandAttempted,
+		}, err)
 	}
 	return true, true
 }
 
 var errTopologyDispatchRejected = errors.New("topology dispatch rejected")
+
+type topologyDispatchRejection struct {
+	reason                   string
+	preserveRestoreOwnership bool
+}
 
 func topologyCoverageWithinEnvelope(
 	coverage interfaces.CurtailmentTopologyScopeCoverage,
