@@ -3369,7 +3369,7 @@ func (q *Queries) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCu
 	return result.RowsAffected()
 }
 
-const releaseUndispatchedAllPairedTargetsForRestore = `-- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
+const releaseUndispatchedTargetsForRestore = `-- name: ReleaseUndispatchedTargetsForRestore :execrows
 UPDATE curtailment_target
 SET state              = 'released',
     last_error         = COALESCE(last_error, 'released without restore: no curtail command dispatched'),
@@ -3378,16 +3378,27 @@ SET state              = 'released',
     curtail_last_error = COALESCE(curtail_last_error, last_error, 'released without restore: no curtail command dispatched')
 WHERE curtailment_event_id = $1
   AND desired_state = 'curtailed'
-  AND state IN ('pending', 'unavailable')
+  AND (
+      state IN ('pending', 'unavailable')
+      OR (
+          state = 'dispatching'
+          AND device_identifier = ANY($2::TEXT[])
+      )
+  )
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
   AND restore_started_at IS NULL
 `
 
-// All-paired policy targets that never received a Curtail command do not need
-// Uncurtail. Release them before the restore reset so graceful Stop does not
-// enqueue no-op restore work for offline/auth-needed miners.
+type ReleaseUndispatchedTargetsForRestoreParams struct {
+	CurtailmentEventID           int64
+	KnownUnsentDeviceIdentifiers []string
+}
+
+// Targets that never received a Curtail command do not need Uncurtail. Release
+// them before the restore reset so graceful Stop does not enqueue commands
+// that could wake miners this event never curtailed.
 //
 // "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 // dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -3402,8 +3413,8 @@ WHERE curtailment_event_id = $1
 // stamp survives that reset — any row that ever entered a restore cycle had
 // a real dispatch in its past and must route through the restore queue, not
 // be terminally released.
-func (q *Queries) ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error) {
-	result, err := q.exec(ctx, q.releaseUndispatchedAllPairedTargetsForRestoreStmt, releaseUndispatchedAllPairedTargetsForRestore, curtailmentEventID)
+func (q *Queries) ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error) {
+	result, err := q.exec(ctx, q.releaseUndispatchedTargetsForRestoreStmt, releaseUndispatchedTargetsForRestore, arg.CurtailmentEventID, pq.Array(arg.KnownUnsentDeviceIdentifiers))
 	if err != nil {
 		return 0, err
 	}

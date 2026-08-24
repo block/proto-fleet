@@ -143,6 +143,9 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
+	// caller knows the physical command boundary was never crossed.
+	KnownUnsentDeviceIdentifiers []string
 }
 
 type AutomationDemandGuard struct {

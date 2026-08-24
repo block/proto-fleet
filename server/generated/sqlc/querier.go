@@ -1329,9 +1329,9 @@ type Querier interface {
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
-	// All-paired policy targets that never received a Curtail command do not need
-	// Uncurtail. Release them before the restore reset so graceful Stop does not
-	// enqueue no-op restore work for offline/auth-needed miners.
+	// Targets that never received a Curtail command do not need Uncurtail. Release
+	// them before the restore reset so graceful Stop does not enqueue commands
+	// that could wake miners this event never curtailed.
 	//
 	// "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 	// dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -1346,7 +1346,7 @@ type Querier interface {
 	// stamp survives that reset — any row that ever entered a restore cycle had
 	// a real dispatch in its past and must route through the restore queue, not
 	// be terminally released.
-	ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error)
+	ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error)
 	RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveAllDevicesFromDeviceSetParams) (int64, error)
 	// Removes the given devices from whatever rack they're currently in,
 	// EXCEPT the target rack (@target_rack_id). AssignDevicesToRack uses

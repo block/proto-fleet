@@ -2879,10 +2879,11 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			return convertEventRow(updated), nil
 		}
 
-		if current.ForceIncludeAllPairedMiners {
-			if _, err := q.ReleaseUndispatchedAllPairedTargetsForRestore(ctx, current.ID); err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to release undispatched all-paired targets for restore: %v", err)
-			}
+		if _, err := q.ReleaseUndispatchedTargetsForRestore(ctx, sqlc.ReleaseUndispatchedTargetsForRestoreParams{
+			CurtailmentEventID:           current.ID,
+			KnownUnsentDeviceIdentifiers: params.KnownUnsentDeviceIdentifiers,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to release undispatched targets for restore: %v", err)
 		}
 
 		if err := q.ResetCurtailmentTargetsForRestore(ctx, current.ID); err != nil {

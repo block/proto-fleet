@@ -4812,10 +4812,10 @@ func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context,
 	return result, err
 }
 
-func (q *retryingQuerier) ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error) {
+func (q *retryingQuerier) ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error) {
 	var result int64
-	err := q.retrier.RetryQuery(ctx, "ReleaseUndispatchedAllPairedTargetsForRestore", func() error {
-		callResult, callErr := q.next.ReleaseUndispatchedAllPairedTargetsForRestore(ctx, curtailmentEventID)
+	err := q.retrier.RetryQuery(ctx, "ReleaseUndispatchedTargetsForRestore", func() error {
+		callResult, callErr := q.next.ReleaseUndispatchedTargetsForRestore(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

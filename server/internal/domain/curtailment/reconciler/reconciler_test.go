@@ -635,7 +635,7 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 // assert the call happened and the event row flips to restoring in-place
 // (mirroring SQL store semantics — the reconciler reads ev again on the next
 // tick). effective_batch_size was stamped at Start; this fake does not touch it.
-func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, _ interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, params interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	f.beginRestoreCalls++
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
@@ -645,10 +645,23 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 		if ev.EventUUID == eventUUID {
 			ev.State = models.EventStateRestoring
 			now := time.Now()
+			knownUnsent := make(map[string]struct{}, len(params.KnownUnsentDeviceIdentifiers))
+			for _, deviceIdentifier := range params.KnownUnsentDeviceIdentifiers {
+				knownUnsent[deviceIdentifier] = struct{}{}
+			}
 			for _, t := range f.targetsByEventID[ev.ID] {
 				if t.State == models.TargetStateResolved ||
 					t.State == models.TargetStateRestoreFailed ||
 					t.State == models.TargetStateReleased {
+					continue
+				}
+				_, explicitlyUnsent := knownUnsent[t.DeviceIdentifier]
+				if t.DesiredState == models.DesiredStateCurtailed &&
+					(t.State == models.TargetStatePending || t.State == models.TargetStateUnavailable ||
+						(t.State == models.TargetStateDispatching && explicitlyUnsent)) &&
+					t.LastDispatchedAt == nil && t.CurtailPhase.DispatchedAt == nil &&
+					t.RetryCount == 0 && t.RestorePhase == nil {
+					t.State = models.TargetStateReleased
 					continue
 				}
 				t.DesiredState = models.DesiredStateActive
@@ -1050,6 +1063,8 @@ func TestReconciler_TopologyDispatchRevalidatesMembershipAndCreatorPermission(t 
 			assert.Equal(t, 0, dispatcher.curtailCalls)
 			assert.Equal(t, 1, store.beginRestoreCalls)
 			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
+			assert.Equal(t, models.TargetStateReleased, store.targetsByEventID[eventID][0].State,
+				"a target rejected before its first Curtail must not enter the Uncurtail queue")
 		})
 	}
 }
@@ -1116,10 +1131,13 @@ func TestReconciler_TopologyDispatchAuthorizationErrorsFailClosed(t *testing.T) 
 				WithDispatchPermissionResolver(tt.configure(store, event)),
 			)
 
-			assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}))
+			assert.False(t, reconciler.authorizeTopologyCurtailDispatch(
+				t.Context(), event, []*models.Target{target}, []string{target.DeviceIdentifier},
+			))
 			assert.Equal(t, 0, dispatcher.curtailCalls)
 			assert.Equal(t, 1, store.beginRestoreCalls)
 			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
+			assert.Equal(t, models.TargetStateReleased, target.State)
 		})
 	}
 }
@@ -1138,15 +1156,20 @@ func TestReconciler_TopologyDispatchRejectionStaysLatchedUntilRestoreStarts(t *t
 		}),
 	)
 
-	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}))
+	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(
+		t.Context(), event, []*models.Target{target}, []string{target.DeviceIdentifier},
+	))
 	assert.Equal(t, models.EventStatePending, event.State)
 
 	store.beginRestoreErr = nil
 	reconciler.permissions = staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
-	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}),
+	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(
+		t.Context(), event, []*models.Target{target}, []string{target.DeviceIdentifier},
+	),
 		"a cleared rejection condition must not resume curtail dispatch")
 	assert.Equal(t, 2, store.beginRestoreCalls)
 	assert.Equal(t, models.EventStateRestoring, event.State)
+	assert.Equal(t, models.TargetStateReleased, target.State)
 }
 
 func TestReconciler_TopologyDispatchRechecksEventAtCommandBoundary(t *testing.T) {

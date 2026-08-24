@@ -24,6 +24,7 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 	ctx context.Context,
 	ev *models.Event,
 	targets []*models.Target,
+	knownUnsentDeviceIdentifiers []string,
 ) bool {
 	if ev.ScopeType != models.ScopeTypeMixed {
 		return true
@@ -39,7 +40,9 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 			ctx,
 			ev.OrgID,
 			ev.EventUUID,
-			interfaces.BeginRestoreTransitionParams{},
+			interfaces.BeginRestoreTransitionParams{
+				KnownUnsentDeviceIdentifiers: knownUnsentDeviceIdentifiers,
+			},
 		); restoreErr != nil {
 			slog.Error("curtailment reconciler: failed to restore after topology dispatch authorization failure",
 				"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", restoreErr)

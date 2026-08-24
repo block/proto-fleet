@@ -105,4 +105,14 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 	_, err = store.GetEventByUUID(ctx, orgID, driftedUUID)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err), "failed topology validation must roll back the event insert")
+
+	_, err = store.BeginRestoreTransition(ctx, orgID, eventUUID, interfaces.BeginRestoreTransitionParams{
+		KnownUnsentDeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+	targets, err = store.ListTargetsByEvent(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, models.TargetStateReleased, targets[0].State,
+		"a dispatch rejection must not queue Uncurtail for a miner that never received Curtail")
 }

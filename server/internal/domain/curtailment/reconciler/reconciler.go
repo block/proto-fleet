@@ -684,7 +684,11 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	// last_dispatched_at is *not* stamped here — only successful enqueues
 	// advance it (used by the restore-batch interval gate).
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	knownUnsentDeviceIdentifiers := make([]string, 0, len(claim))
 	for _, t := range claim {
+		if t.State == models.TargetStatePending {
+			knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, t.DeviceIdentifier)
+		}
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 			State: models.TargetStateDispatching,
 		}
@@ -709,7 +713,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	if !r.eventStillDispatchable(ctx, ev) {
 		return false
 	}
-	if !r.authorizeTopologyCurtailDispatch(ctx, ev, dispatchSet) {
+	if !r.authorizeTopologyCurtailDispatch(ctx, ev, dispatchSet, knownUnsentDeviceIdentifiers) {
 		return false
 	}
 	if !r.eventStillDispatchable(ctx, ev) {

@@ -1208,10 +1208,10 @@ SET desired_state      = 'active',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
--- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
--- All-paired policy targets that never received a Curtail command do not need
--- Uncurtail. Release them before the restore reset so graceful Stop does not
--- enqueue no-op restore work for offline/auth-needed miners.
+-- name: ReleaseUndispatchedTargetsForRestore :execrows
+-- Targets that never received a Curtail command do not need Uncurtail. Release
+-- them before the restore reset so graceful Stop does not enqueue commands
+-- that could wake miners this event never curtailed.
 --
 -- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 -- dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -1234,7 +1234,13 @@ SET state              = 'released',
     curtail_last_error = COALESCE(curtail_last_error, last_error, 'released without restore: no curtail command dispatched')
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND desired_state = 'curtailed'
-  AND state IN ('pending', 'unavailable')
+  AND (
+      state IN ('pending', 'unavailable')
+      OR (
+          state = 'dispatching'
+          AND device_identifier = ANY(sqlc.arg('known_unsent_device_identifiers')::TEXT[])
+      )
+  )
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
