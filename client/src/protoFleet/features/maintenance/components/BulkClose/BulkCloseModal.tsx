@@ -33,7 +33,6 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
       open
       onDismiss={onDismiss}
       title={`Close ${ticketIds.length} ticket${ticketIds.length > 1 ? "s" : ""}`}
-      description="Select a resolution for all selected tickets."
       size="standard"
       buttons={[
         {
@@ -51,33 +50,43 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
         },
       ]}
     >
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-2">
-          {RESOLUTIONS.map((r) => (
-            <label
-              key={r.value}
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                resolution === r.value
-                  ? "border-core-primary-fill bg-core-primary-5"
-                  : "border-border-5 hover:border-border-20"
-              }`}
-            >
-              <div className="mt-0.5">
-                <Radio
-                  selected={resolution === r.value}
-                  onChange={() => setResolution(r.value)}
-                  name="bulk-resolution"
-                  value={r.value}
-                />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-emphasis-300 font-medium">{r.label}</span>
-                <span className="text-200 text-text-primary-70">{r.description}</span>
-              </div>
-            </label>
-          ))}
-        </div>
-        <Textarea id="bulk-close-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
+      <div className="flex flex-col gap-4">
+        <p className="text-right text-300 text-text-primary-70">Select a resolution for all selected tickets.</p>
+
+        <table aria-label="Close ticket resolution options" className="w-full table-fixed border-collapse">
+          <thead className="sr-only">
+            <tr>
+              <th scope="col">Resolution</th>
+              <th scope="col">Description</th>
+            </tr>
+          </thead>
+          <tbody className="border-y border-border-5">
+            {RESOLUTIONS.map((r) => (
+              <tr
+                key={r.value}
+                className="cursor-pointer border-b border-border-5 transition-colors last:border-b-0 hover:bg-surface-5"
+                onClick={() => setResolution(r.value)}
+              >
+                <td className="w-2/5 py-3 pr-3">
+                  <label className="flex cursor-pointer items-center gap-3">
+                    <Radio
+                      selected={resolution === r.value}
+                      onChange={() => setResolution(r.value)}
+                      name="bulk-resolution"
+                      value={r.value}
+                    />
+                    <span className="text-emphasis-300 font-medium">{r.label}</span>
+                  </label>
+                </td>
+                <td className="w-3/5 py-3 pl-3 text-right text-300 text-text-primary-70">{r.description}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {resolution ? (
+          <Textarea id="bulk-close-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
+        ) : null}
       </div>
     </Modal>
   );
