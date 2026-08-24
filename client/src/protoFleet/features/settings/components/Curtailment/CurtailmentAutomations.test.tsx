@@ -52,7 +52,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
-    isExecutionReady: true,
+    isAutomationReady: true,
   },
   {
     id: "partial-reduction",
@@ -62,7 +62,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 10 min",
-    isExecutionReady: true,
+    isAutomationReady: true,
   },
 ];
 
@@ -173,12 +173,12 @@ describe("CurtailmentAutomationsContent", () => {
     expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
   });
 
-  it("excludes profiles whose target scope is not ready for execution", () => {
+  it("excludes profiles whose target scope is not ready for automation", () => {
     const topologyProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "building-shed",
       name: "Building shed",
-      isExecutionReady: false,
+      isAutomationReady: false,
     };
     render(
       <CurtailmentAutomationsContent
@@ -194,12 +194,12 @@ describe("CurtailmentAutomationsContent", () => {
     expect(responseProfileSelect).not.toHaveTextContent("Building shed");
   });
 
-  it("prevents enabling an automation whose response profile is not ready for execution", () => {
+  it("prevents enabling an automation whose response profile is not automation-ready", () => {
     const topologyProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "building-shed",
       name: "Building shed",
-      isExecutionReady: false,
+      isAutomationReady: false,
     };
     const topologyRule: AutomationRule = {
       ...testAutomationRules[0],

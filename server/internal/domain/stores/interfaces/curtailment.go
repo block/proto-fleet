@@ -143,6 +143,9 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
+	// caller knows the physical command boundary was never crossed.
+	KnownUnsentDeviceIdentifiers []string
 }
 
 type AutomationDemandGuard struct {
@@ -250,6 +253,47 @@ type CurtailmentTopologyScopeStore interface {
 		ctx context.Context,
 		params ListCandidatesParams,
 	) (CurtailmentTopologyScopeCoverage, error)
+}
+
+// CurtailmentTopologyDispatchSnapshot is one database snapshot of both the
+// selector's authorization coverage and the subset of the dispatch batch that
+// is still a member. Keeping these reads together prevents a placement change
+// from being authorized against coverage from a different point in time.
+type CurtailmentTopologyDispatchSnapshot struct {
+	Coverage                        CurtailmentTopologyScopeCoverage
+	DispatchMemberDeviceIdentifiers []string
+}
+
+// CurtailmentTopologyDispatchStore performs the live topology check used at
+// the physical command boundary. It is separate from the start-time topology
+// resolver because only the reconciler needs batch membership in the result.
+type CurtailmentTopologyDispatchStore interface {
+	ResolveCurtailmentTopologyDispatch(
+		ctx context.Context,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+	) (CurtailmentTopologyDispatchSnapshot, error)
+}
+
+// CurtailmentTopologyDispatchFenceSnapshot is the event and topology state
+// protected by the dispatch fence for the duration of its callback.
+type CurtailmentTopologyDispatchFenceSnapshot struct {
+	Event    *models.Event
+	Topology CurtailmentTopologyDispatchSnapshot
+}
+
+// CurtailmentTopologyDispatchFenceStore serializes event transitions,
+// topology mutations, and creator permission revocations through the physical
+// Curtail command callback. Implementations must keep referenced user/device
+// rows compatible with the foreign-key locks acquired by command enqueueing.
+type CurtailmentTopologyDispatchFenceStore interface {
+	WithCurtailmentTopologyDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a

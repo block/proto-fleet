@@ -191,7 +191,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 5 min",
-    isExecutionReady: true,
+    isAutomationReady: true,
     formValues: {
       name: "Emergency full shed",
       actionType: "fullFleet",
@@ -223,7 +223,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 15 min",
-    isExecutionReady: true,
+    isAutomationReady: true,
     formValues: {
       name: "Site Alpha 500 kW",
       actionType: "fixedKwReduction",
@@ -257,7 +257,7 @@ const targetedMinersResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore in batches",
   deadlineSummary: "Within 15 min",
-  isExecutionReady: true,
+  isAutomationReady: true,
   formValues: {
     name: "Targeted miners",
     actionType: "fixedKwReduction",
@@ -290,7 +290,7 @@ const siteScopedResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore immediately",
   deadlineSummary: "Within 15 min",
-  isExecutionReady: true,
+  isAutomationReady: true,
   formValues: {
     name: "Site scoped profile",
     actionType: "fixedKwReduction",
@@ -1332,7 +1332,7 @@ describe("CurtailmentSettingsPage", () => {
         siteIds: [],
       },
       isReadOnly: false,
-      isExecutionReady: false,
+      isAutomationReady: false,
     };
 
     render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);

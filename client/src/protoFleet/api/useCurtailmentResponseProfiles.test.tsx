@@ -297,7 +297,7 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.responseProfiles[0]).toMatchObject({
       scope: "2 buildings",
       isReadOnly: false,
-      isExecutionReady: false,
+      isAutomationReady: false,
       formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
     });
   });
@@ -767,21 +767,21 @@ describe("useCurtailmentResponseProfiles", () => {
           name: "Buildings",
           scope: "2 buildings",
           isReadOnly: false,
-          isExecutionReady: false,
+          isAutomationReady: false,
           formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
         }),
         expect.objectContaining({
           name: "Rack",
           scope: "1 rack",
           isReadOnly: false,
-          isExecutionReady: false,
+          isAutomationReady: false,
           formValues: expect.objectContaining({ scopeType: "rack", rackTargetIds: ["9"] }),
         }),
         expect.objectContaining({
           name: "Groups",
           scope: "2 groups",
           isReadOnly: false,
-          isExecutionReady: false,
+          isAutomationReady: false,
           formValues: expect.objectContaining({ scopeType: "group", groupTargetIds: ["10", "11"] }),
         }),
       ]),

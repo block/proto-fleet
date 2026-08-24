@@ -553,6 +553,7 @@ func start(config *Config) (result error) {
 		curtailmentReconciler.WithMetrics(curtailmentMetrics),
 		curtailmentReconciler.WithFacilityFanController(facilityFanController),
 		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
+		curtailmentReconciler.WithDispatchPermissionResolver(permissionResolver),
 		// The confirmation fast path samples device metrics through the
 		// telemetry service's read-only seam (shared worker pool, no
 		// persistence side effects).

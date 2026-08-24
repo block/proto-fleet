@@ -1275,8 +1275,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
 	}
-	if q.releaseUndispatchedAllPairedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedAllPairedTargetsForRestore); err != nil {
-		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedAllPairedTargetsForRestore: %w", err)
+	if q.releaseUndispatchedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedTargetsForRestore); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedTargetsForRestore: %w", err)
 	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
@@ -1304,6 +1304,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.resetReapedFirmwareStatusesStmt, err = db.PrepareContext(ctx, resetReapedFirmwareStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetReapedFirmwareStatuses: %w", err)
+	}
+	if q.resolveCurtailmentTopologyDispatchStmt, err = db.PrepareContext(ctx, resolveCurtailmentTopologyDispatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveCurtailmentTopologyDispatch: %w", err)
 	}
 	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
@@ -3770,9 +3773,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
 		}
 	}
-	if q.releaseUndispatchedAllPairedTargetsForRestoreStmt != nil {
-		if cerr := q.releaseUndispatchedAllPairedTargetsForRestoreStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing releaseUndispatchedAllPairedTargetsForRestoreStmt: %w", cerr)
+	if q.releaseUndispatchedTargetsForRestoreStmt != nil {
+		if cerr := q.releaseUndispatchedTargetsForRestoreStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseUndispatchedTargetsForRestoreStmt: %w", cerr)
 		}
 	}
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
@@ -3818,6 +3821,11 @@ func (q *Queries) Close() error {
 	if q.resetReapedFirmwareStatusesStmt != nil {
 		if cerr := q.resetReapedFirmwareStatusesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetReapedFirmwareStatusesStmt: %w", cerr)
+		}
+	}
+	if q.resolveCurtailmentTopologyDispatchStmt != nil {
+		if cerr := q.resolveCurtailmentTopologyDispatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveCurtailmentTopologyDispatchStmt: %w", cerr)
 		}
 	}
 	if q.resumeCurtailmentFromRestoringStmt != nil {
@@ -4901,7 +4909,7 @@ type Queries struct {
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
-	releaseUndispatchedAllPairedTargetsForRestoreStmt            *sql.Stmt
+	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
@@ -4911,6 +4919,7 @@ type Queries struct {
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resetReapedFirmwareStatusesStmt                              *sql.Stmt
+	resolveCurtailmentTopologyDispatchStmt                       *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
 	resumePausedScheduleStmt                                     *sql.Stmt
 	retryRigConfigReconciliationStmt                             *sql.Stmt
@@ -5459,7 +5468,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
-		releaseUndispatchedAllPairedTargetsForRestoreStmt:            q.releaseUndispatchedAllPairedTargetsForRestoreStmt,
+		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
@@ -5469,6 +5478,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resetReapedFirmwareStatusesStmt:                              q.resetReapedFirmwareStatusesStmt,
+		resolveCurtailmentTopologyDispatchStmt:                       q.resolveCurtailmentTopologyDispatchStmt,
 		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
 		resumePausedScheduleStmt:                                     q.resumePausedScheduleStmt,
 		retryRigConfigReconciliationStmt:                             q.retryRigConfigReconciliationStmt,

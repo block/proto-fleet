@@ -203,6 +203,12 @@ func lockTopologyScopeCoverage(
 	if err != nil {
 		return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment topology members: %v", err)
 	}
+	if len(rows) > interfaces.CurtailmentResolvedMinerMax {
+		return nil, false, fleeterror.NewResourceExhaustedErrorf(
+			"scope resolves to more than %d miners",
+			interfaces.CurtailmentResolvedMinerMax,
+		)
+	}
 	memberSites := make([]int64, 0, len(rows))
 	members := make(map[string]struct{}, len(rows))
 	unbounded := false

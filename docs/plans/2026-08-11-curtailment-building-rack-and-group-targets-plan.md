@@ -130,10 +130,11 @@ When an owned miner leaves scope or becomes unpaired:
 - During that staged rollout, topology-scoped profiles remain visible but
   read-only in Settings and are excluded from the New curtailment profile
   selector until the UI can rehydrate their terminal selector. Once the UI
-  lands, operators may preview and save topology scopes, but Run, Test, and
-  automation remain disabled until topology execution and lifecycle support
-  land. No intermediate adapter may synthesize Whole organization for an
-  unsupported typed scope.
+  lands, operators may preview and save topology scopes. Fixed-kW Run and Test
+  become available with frozen topology execution; FULL_FLEET Run/Test and
+  automation remain disabled until topology-following lifecycle support lands.
+  No intermediate adapter may synthesize Whole organization for an unsupported
+  typed scope.
 
 ### 2. Add the shared drill-down target builder
 

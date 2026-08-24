@@ -981,7 +981,7 @@ type Querier interface {
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
 	// shape, same row order, same narrowing semantics — but takes
-	// FOR UPDATE on every row whose mutation can revoke the caller's
+	// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
 	// effective permissions: the assignment row (uor), the caller's user
 	// row (u), and the caller's role row (r). Concurrent:
 	//
@@ -995,7 +995,7 @@ type Querier interface {
 	//       can't interleave between our recheck and our commit
 	//
 	// The LEFT JOIN sides (role_permission, permission) cannot participate
-	// in FOR UPDATE because they may have no matching row for a
+	// in row locking because they may have no matching row for a
 	// zero-permission assignment. We accept that role_permission edits
 	// via paths other than UpdateCustomRole (none exist today) would race
 	// this check; the practical lock graph through the existing surfaces
@@ -1198,6 +1198,8 @@ type Querier interface {
 	// event targets/profile row are persisted. The query mirrors the executable
 	// topology selector predicates and locks in device.id order, matching the
 	// canonical device-reassignment lock order used by site/building/rack writes.
+	// Topology writes still conflict with this lock, while command queue inserts
+	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
@@ -1329,9 +1331,9 @@ type Querier interface {
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
-	// All-paired policy targets that never received a Curtail command do not need
-	// Uncurtail. Release them before the restore reset so graceful Stop does not
-	// enqueue no-op restore work for offline/auth-needed miners.
+	// Targets that never received a Curtail command do not need Uncurtail. Release
+	// them before the restore reset so graceful Stop does not enqueue commands
+	// that could wake miners this event never curtailed.
 	//
 	// "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 	// dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -1346,7 +1348,7 @@ type Querier interface {
 	// stamp survives that reset — any row that ever entered a restore cycle had
 	// a real dispatch in its past and must route through the restore queue, not
 	// be terminally released.
-	ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error)
+	ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error)
 	RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveAllDevicesFromDeviceSetParams) (int64, error)
 	// Removes the given devices from whatever rack they're currently in,
 	// EXCEPT the target rack (@target_rack_id). AssignDevicesToRack uses
@@ -1378,6 +1380,11 @@ type Querier interface {
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
 	ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error
+	// Returns authorization coverage for the full live selector plus membership
+	// only for the devices in the pending dispatch batch. Both are derived by one
+	// statement snapshot so a concurrent placement change cannot mix old coverage
+	// with new membership. The reconciler validates selector shape before calling.
+	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
