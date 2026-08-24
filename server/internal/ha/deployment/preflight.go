@@ -152,7 +152,7 @@ func validateHostConfiguration(ctx context.Context, config NodeConfig, host host
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
-		ports = append(ports, 80, 443, 4000, 5432, 8008)
+		ports = append(ports, 80, 443, 3030, 4000, 5432, 8008)
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
@@ -308,6 +308,16 @@ func validateFleetEnvironment(path string) error {
 	if err != nil || len(masterKey) != 32 {
 		return errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
 	}
+	for _, key := range []string{
+		"GRAFANA_ADMIN_PASSWORD",
+		"GRAFANA_DB_PASSWORD",
+		"GRAFANA_SECRET_KEY",
+		"FLEET_ALERTS_WEBHOOK_TOKEN",
+	} {
+		if len(values[key]) < 32 {
+			return fmt.Errorf("%s must contain at least 32 characters", key)
+		}
+	}
 	return nil
 }
 
@@ -326,7 +336,12 @@ func loadFleetEnvironment(path string) (map[string]string, error) {
 	}
 	defer file.Close()
 
-	values := make(map[string]string, 3)
+	allowed := map[string]struct{}{
+		"AUTH_CLIENT_SECRET_KEY": {}, "ENCRYPT_SERVICE_MASTER_KEY": {}, "DB_DSN": {},
+		"GRAFANA_ADMIN_PASSWORD": {}, "GRAFANA_DB_PASSWORD": {}, "GRAFANA_SECRET_KEY": {},
+		"FLEET_ALERTS_WEBHOOK_TOKEN": {},
+	}
+	values := make(map[string]string, len(allowed))
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		match := envLine.FindStringSubmatch(scanner.Text())
@@ -334,7 +349,7 @@ func loadFleetEnvironment(path string) (map[string]string, error) {
 			return nil, errors.New("contains a malformed entry")
 		}
 		key := match[1]
-		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
+		if _, ok := allowed[key]; !ok {
 			return nil, fmt.Errorf("contains unknown key: %s", key)
 		}
 		if _, duplicate := values[key]; duplicate {

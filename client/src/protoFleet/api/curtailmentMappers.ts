@@ -1,11 +1,17 @@
-import { parseCurtailmentTerminalScopes } from "@/protoFleet/api/curtailmentScopes";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+
+import {
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeFormFields,
+  getCurtailmentScopeSummary,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
 import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import { timestampToIsoString } from "@/protoFleet/api/timestamps";
 import type {
   ActiveCurtailmentEvent,
   ActiveCurtailmentTargetSiteCoverage,
@@ -59,6 +65,15 @@ interface CurtailmentMapperOptions {
   siteNameById?: SiteNameById;
 }
 
+export function timestampToIsoString(timestamp?: Timestamp): string | undefined {
+  if (!timestamp) {
+    return undefined;
+  }
+
+  const date = new Date(Number(timestamp.seconds) * 1000 + Math.floor(timestamp.nanos / 1_000_000));
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 export function getFixedKwTarget(event: ProtoCurtailmentEvent): number | undefined {
   return event.modeParams.case === "fixedKw" ? event.modeParams.value.targetKw : undefined;
 }
@@ -90,60 +105,56 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): Pick<
-  CurtailmentSubmitValues,
-  | "scopeType"
-  | "scopeId"
-  | "siteSelection"
-  | "siteId"
-  | "siteIds"
-  | "siteNamesById"
-  | "deviceSetIds"
-  | "deviceIdentifiers"
-> {
+):
+  | Pick<
+      CurtailmentSubmitValues,
+      | "scopeType"
+      | "scopeId"
+      | "siteSelection"
+      | "siteId"
+      | "siteIds"
+      | "siteNamesById"
+      | "buildingTargetIds"
+      | "rackTargetIds"
+      | "groupTargetIds"
+      | "deviceSetIds"
+      | "deviceIdentifiers"
+    >
+  | undefined {
   if (event.scopes.length > 0) {
-    const scope = parseCurtailmentTerminalScopes(event.scopes);
-    if (scope.type === "wholeOrg") {
-      return {
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        siteSelection: "allSites",
-        siteId: "",
-        siteIds: [],
-        siteNamesById: {},
-        deviceSetIds: [],
-        deviceIdentifiers: [],
-      };
-    }
-    if (scope.type === "deviceIdentifiers") {
-      return {
-        scopeType: "explicitMiners",
-        scopeId: undefined,
-        siteSelection: "none",
-        siteId: "",
-        siteIds: [],
-        siteNamesById: {},
-        deviceSetIds: [],
-        deviceIdentifiers: scope.deviceIdentifiers,
-      };
-    }
-    if (scope.type !== "site") {
-      throw new Error("Topology curtailment events require the canonical scope UI");
+    if (event.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return undefined;
     }
 
-    const siteId = scope.siteIds[0] ?? "";
+    let scope;
+    try {
+      scope = parseCurtailmentTerminalScopes(event.scopes);
+    } catch {
+      return undefined;
+    }
+    if (scope.type === "building" || scope.type === "rack" || scope.type === "group") {
+      return undefined;
+    }
+    const scopeFields = getCurtailmentScopeFormFields(scope);
+    const siteId = scopeFields.siteIds[0] ?? "";
     const siteNamesById = Object.fromEntries(
-      scope.siteIds.map((currentSiteId) => [currentSiteId, getSiteDisplayName(currentSiteId, options.siteNameById)]),
+      scopeFields.siteIds.map((currentSiteId) => [
+        currentSiteId,
+        getSiteDisplayName(currentSiteId, options.siteNameById),
+      ]),
     );
     return {
-      scopeType: "site",
-      scopeId: scope.siteIds.length === 1 ? siteNamesById[siteId] : `${scope.siteIds.length} sites`,
-      siteSelection: "site",
+      ...scopeFields,
+      scopeId:
+        scope.type === "wholeOrg"
+          ? "whole-org"
+          : scope.type === "site" && scope.siteIds.length === 1
+            ? siteNamesById[siteId]
+            : getCurtailmentScopeSummary(scope, { fallbackLabel: "Unknown scope" }),
+      siteSelection: scope.type === "wholeOrg" ? "allSites" : scope.type === "site" ? "site" : "none",
       siteId,
-      siteIds: scope.siteIds,
       siteNamesById,
       deviceSetIds: [],
-      deviceIdentifiers: [],
     };
   }
 
@@ -157,6 +168,9 @@ function mapCurtailmentEventScopeToFormValues(
         siteId,
         siteIds: [siteId],
         siteNamesById: { [siteId]: getSiteDisplayName(siteId, options.siteNameById) },
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
@@ -169,6 +183,9 @@ function mapCurtailmentEventScopeToFormValues(
         siteId: "",
         siteIds: [],
         siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
       };
@@ -181,6 +198,9 @@ function mapCurtailmentEventScopeToFormValues(
         siteId: "",
         siteIds: [],
         siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
@@ -190,13 +210,17 @@ function mapCurtailmentEventScopeToFormValues(
 export function mapCurtailmentEventToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): CurtailmentSubmitValues {
+): CurtailmentSubmitValues | undefined {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
   const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
+  const scopeValues = mapCurtailmentEventScopeToFormValues(event, options);
+  if (!scopeValues) {
+    return undefined;
+  }
 
   return {
-    ...mapCurtailmentEventScopeToFormValues(event, options),
+    ...scopeValues,
     responseProfileId: "customPlan",
     curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",

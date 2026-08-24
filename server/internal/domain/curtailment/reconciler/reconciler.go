@@ -101,14 +101,15 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg      Config
-	store    interfaces.CurtailmentStore
-	fanStore interfaces.CurtailmentFanStateStore
-	cmd      CommandDispatcher
-	metrics  curtailment.Metrics
-	fans     curtailment.FacilityFanController
-	fanAlert FacilityFanAlertEmitter
-	now      func() time.Time
+	cfg         Config
+	store       interfaces.CurtailmentStore
+	fanStore    interfaces.CurtailmentFanStateStore
+	cmd         CommandDispatcher
+	permissions DispatchPermissionResolver
+	metrics     curtailment.Metrics
+	fans        curtailment.FacilityFanController
+	fanAlert    FacilityFanAlertEmitter
+	now         func() time.Time
 
 	// sampler backs the confirmation fast path (see
 	// confirmation_fast_path.go); required only when
@@ -130,6 +131,10 @@ type Reconciler struct {
 	// eligibility read advances it even when no target promotes, preventing
 	// a nonconfirming page from monopolizing the active pulse.
 	confirmationCursor interfaces.ConfirmationPageCursor
+	// topologyDispatchRejects latches a failed dispatch authorization until
+	// the durable restoring transition succeeds. This prevents a transient
+	// transition failure from letting a later tick resume Curtail commands.
+	topologyDispatchRejects sync.Map
 
 	loopCancel  context.CancelFunc
 	workCancel  context.CancelFunc
@@ -679,7 +684,11 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	// last_dispatched_at is *not* stamped here — only successful enqueues
 	// advance it (used by the restore-batch interval gate).
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	knownUnsentDeviceIdentifiers := make([]string, 0, len(claim))
 	for _, t := range claim {
+		if t.State == models.TargetStatePending {
+			knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, t.DeviceIdentifier)
+		}
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 			State: models.TargetStateDispatching,
 		}
@@ -704,7 +713,6 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	if !r.eventStillDispatchable(ctx, ev) {
 		return false
 	}
-
 	deviceIDs := make([]string, 0, len(dispatchSet))
 	for _, t := range dispatchSet {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
@@ -716,7 +724,25 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 			},
 		},
 	}
-	result, dispatchErr := r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	var result *command.CommandResult
+	var dispatchErr error
+	topologyHandled, topologyAllowed := r.authorizeTopologyCurtailDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		knownUnsentDeviceIdentifiers,
+		func() { result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull) },
+	)
+	if topologyHandled {
+		if !topologyAllowed {
+			return false
+		}
+	} else {
+		if !r.eventStillDispatchable(ctx, ev) {
+			return false
+		}
+		result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: curtail batch dispatch failed",

@@ -2,6 +2,7 @@ import clsx from "clsx";
 
 interface ProgressCircularProps {
   className?: string;
+  color?: "default" | "inverse" | "staticContrast";
   dataTestId?: string;
   size?: number;
   value?: number;
@@ -10,6 +11,7 @@ interface ProgressCircularProps {
 
 const ProgressCircular = ({
   className,
+  color = "default",
   dataTestId,
   size = 20,
   value = 0,
@@ -24,7 +26,17 @@ const ProgressCircular = ({
 
   return (
     <svg
-      className={clsx({ "animate-spin": indeterminate }, className)}
+      // Progress is an activity indicator, not a status indicator. Keep its color
+      // neutral by default, with an explicit inverse option for filled controls.
+      className={clsx(
+        {
+          "!text-core-primary-fill": color === "default",
+          "!text-text-contrast": color === "inverse",
+          "!text-text-base-contrast-static": color === "staticContrast",
+        },
+        { "animate-spin": indeterminate },
+        className,
+      )}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox={`0 0 ${size} ${size}`}

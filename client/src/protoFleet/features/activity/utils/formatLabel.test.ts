@@ -11,6 +11,7 @@ describe("formatLabel", () => {
     expect(formatLabel("devices.reassigned_to_site")).toBe("Reassigned miners to site");
     expect(formatLabel("between_channel_rollout_member.moved")).toBe("Confirmed rollout lane membership");
     expect(formatLabel("between_channel_rollout_member.attention_required")).toBe("Rollout member needs attention");
+    expect(formatLabel("cli_reset_password")).toBe("Break-glass password reset");
   });
 
   it("formats completed event types using the base event label", () => {
@@ -29,6 +30,8 @@ describe("formatLabel", () => {
     expect(formatActivityFilterLabel("between_channel_rollout_member.membership_conflict")).toBe(
       "Review rollout membership change",
     );
+    expect(formatActivityFilterLabel("cli_reset_password")).toBe("Break-glass password reset");
+    expect(formatActivityFilterLabel("alert")).toBe("Alerts");
   });
 
   it("keeps curtailment lifecycle filter labels distinct from curtail commands", () => {

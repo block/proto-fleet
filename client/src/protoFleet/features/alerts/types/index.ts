@@ -110,20 +110,13 @@ export interface Rule {
   config_unknown?: boolean;
 }
 
-export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";
-
-export interface MaintenanceWindowScope {
-  kind: MaintenanceWindowScopeKind;
-  rule_id: string | null;
-  group_id: string | null;
-  site_id: string | null;
-  device_ids: string[];
-}
-
 export interface MaintenanceWindow {
   id: string;
   organization_id: string;
-  scope: MaintenanceWindowScope;
+  // Rules whose alerts the window mutes; empty means every rule.
+  rule_ids: string[];
+  // Channels the window mutes delivery to; empty means every channel.
+  channel_ids: string[];
   starts_at: string;
   ends_at: string | null;
   comment: string;

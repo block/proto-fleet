@@ -40,11 +40,13 @@ func TestUninstallDatabaseNodePreservesPersistentState(t *testing.T) {
 		"rm -f -- "+dockerDropIn+" "+dockerRecoveryDropIn,
 		"systemctl disable --now proto-fleet-ha-firewall.service",
 		"nft delete table inet proto_fleet_ha",
+		"rm -f -- "+serviceUnit+" "+firewallUnit+" "+nftablesDropIn+" "+haActiveInstallMarker,
 	)
 
 	joined := strings.Join(calls, "\n")
 	require.NotContains(t, joined, "rm -rf -- "+dataRoot)
 	require.NotContains(t, joined, "rm -rf -- "+configRoot)
+	require.NotContains(t, joined, "volume rm --force "+haGrafanaVolume)
 	require.NotContains(t, joined, "--volumes")
 	require.NotContains(t, joined, "--rmi")
 	require.NotContains(t, joined, "apt-get")
@@ -68,10 +70,36 @@ func TestUninstallPurgeDeletesPersistentStateLast(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, output.String(), "permanently delete")
 	cleanup := callIndex(calls, "rm -rf -- "+installBase)
+	grafana := callIndex(calls, "docker --host "+localDockerHost+" volume rm --force "+haGrafanaVolume)
 	data := callIndex(calls, "rm -rf -- "+dataRoot)
 	config := callIndex(calls, "rm -rf -- "+configRoot)
+	require.Greater(t, grafana, callIndex(calls, "stop-installed-services"))
+	require.Greater(t, cleanup, grafana)
 	require.Greater(t, data, cleanup)
 	require.Greater(t, config, data)
+}
+
+func TestUninstallPurgePreservesUnownedGrafanaVolume(t *testing.T) {
+	// Arrange
+	var calls []string
+	deps := testUninstallDependencies(t, testUninstallNodeConfig("ha-a"), &calls)
+	lstat := deps.lstat
+	deps.lstat = func(path string) (os.FileInfo, error) {
+		if path == haGrafanaVolumeOwnershipMarker {
+			return nil, os.ErrNotExist
+		}
+		return lstat(path)
+	}
+
+	// Act
+	err := uninstall(t.Context(), true, deps)
+
+	// Assert
+	require.NoError(t, err)
+	joined := strings.Join(calls, "\n")
+	require.NotContains(t, joined, "volume rm --force "+haGrafanaVolume)
+	require.Contains(t, joined, "rm -rf -- "+dataRoot)
+	require.Contains(t, joined, "rm -rf -- "+configRoot)
 }
 
 func TestUninstallWitnessSkipsDatabaseServices(t *testing.T) {
@@ -202,7 +230,8 @@ func testUninstallDependencies(t *testing.T, config NodeConfig, calls *[]string)
 	installed := map[string]bool{
 		serviceUnit: true, firewallUnit: true, nftablesDropIn: true, dockerDropIn: true,
 		infrastructureCompose: true, installRoot + "/ha/fleet-ha": true,
-		keepalivedConfig: config.isDatabaseNode(), keepalivedOverride: config.isDatabaseNode(),
+		haGrafanaVolumeOwnershipMarker: config.isDatabaseNode(),
+		keepalivedConfig:               config.isDatabaseNode(), keepalivedOverride: config.isDatabaseNode(),
 		keepalivedHealthCheck: config.isDatabaseNode(), updaterDropIn: config.isDatabaseNode(),
 		haUpdaterDropIn: config.isDatabaseNode(), updaterBinary: config.isDatabaseNode(),
 		updaterUnit: config.isDatabaseNode(), updaterEnvironment: config.isDatabaseNode(),

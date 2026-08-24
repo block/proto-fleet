@@ -14,3 +14,6 @@ WHERE type = 'channel';
 
 ALTER TABLE device_set_membership
     DROP CONSTRAINT IF EXISTS fk_device_set_membership_device_set_org;
+
+-- Postgres does not support removing enum values. The channel value is safe
+-- to retain after all channel rows and schema objects are removed.

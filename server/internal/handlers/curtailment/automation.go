@@ -61,10 +61,8 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	if err != nil {
 		return nil, err
 	}
-	siteAllowed := make(map[int64]bool)
+	permissionCache := newResourceContextPermissionCache()
 	facilityFanSiteAllowed := make(map[int64]bool)
-	orgWideAllowed := false
-	orgWideChecked := false
 	for _, rule := range rules {
 		requirements, err := h.automationRuleProfileResourceContextRequirements(ctx, info.OrganizationID, rule, deviceSites)
 		if err != nil {
@@ -74,9 +72,7 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 			ctx,
 			authz.PermCurtailmentManage,
 			requirements,
-			siteAllowed,
-			&orgWideAllowed,
-			&orgWideChecked,
+			&permissionCache,
 		)
 		if err != nil {
 			return nil, err

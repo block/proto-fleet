@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -102,10 +103,44 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),
 		"--file", filepath.Join(root, "docker-compose.yaml"),
+		"--file", filepath.Join(root, "docker-compose.alerts.yaml"),
 		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"),
-		"config", "--quiet", "fleet-api", "fleet-client",
+		"config", "--quiet", "fleet-api", "fleet-client", "grafana",
 	}, composeArgs)
 	require.Empty(t, commands)
+}
+
+func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *testing.T) {
+	// Arrange
+	root := testInstallRelease(t)
+	var commands []string
+	deps := installDependencies{
+		readFile: os.ReadFile,
+		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
+			return nil, nil
+		},
+	}
+
+	// Act
+	err := prepareApplicationUpdate(t.Context(), root, deps, func(context.Context, []string) error { return nil })
+
+	// Assert
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(commands, "\n"), haActiveInstallMarker)
+}
+
+func TestUpdateCompatibilityRejectsPreGrafanaProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), fleetEnvironmentFile)
+	require.NoError(t, os.WriteFile(path, []byte(
+		"AUTH_CLIENT_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"+
+			"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"+
+			"DB_DSN=postgresql://fleet:test@db/fleet\n",
+	), 0o600))
+
+	err := requireUpdateCompatibleProfile(path)
+
+	require.ErrorContains(t, err, "reinstall both database hosts")
 }
 
 func TestRecoveryAcceptsHealthyActiveApplication(t *testing.T) {

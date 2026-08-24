@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
@@ -171,6 +172,80 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	assert.Equal(t, 1, h.rules.createCalls)
+}
+
+func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(*automationHarness) error
+	}{
+		{
+			name: "create",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "update",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "enable",
+			run: func(h *automationHarness) error {
+				h.rule.Enabled = false
+				_, err := h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					true,
+					models.ResponseProfileFanSettings{},
+				)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.SiteID = nil
+			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+
+			err := tt.run(h)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
+			assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+			assert.Equal(t, 0, h.rules.createCalls)
+		})
+	}
 }
 
 func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
@@ -425,6 +500,58 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsStaleTopologyProfileBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.Mode = models.ModeFixedKw
+	targetKW := 5.0
+	h.profile.TargetKW = &targetKW
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	h.curtailments.orgConfigByOrg[h.orgID] = defaultOrgConfig(h.orgID)
+	h.curtailments.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	h.curtailments.candidatesByBuilding[h.orgID] = map[int64][]*models.Candidate{
+		7: {minerWithEff("miner-a", 3000, 100, 50)},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "topology-scoped Start is not available for automation")
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"device_identifiers":["miner-a"]}`)
+	h.curtailments.candidatesByOrg[h.orgID] = []*models.Candidate{
+		minerWithEff("miner-a", 3000, 100, 50),
+	}
+	minerSiteID := int64(8)
+	h.profiles.deviceSites["miner-a"] = &minerSiteID
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]*int64{"miner-a": &minerSiteID}, h.curtailments.lastInsertEvent.ExpectedDeviceSites)
 }
 
 func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *testing.T) {

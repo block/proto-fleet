@@ -183,6 +183,7 @@ INSERT INTO curtailment_event (
     loop_type,
     scope_type,
     scope_jsonb,
+    authorization_envelope_jsonb,
     mode_params_jsonb,
     curtail_batch_size,
     curtail_batch_interval_sec,
@@ -222,6 +223,7 @@ INSERT INTO curtailment_event (
     sqlc.arg('loop_type'),
     sqlc.arg('scope_type'),
     sqlc.arg('scope_jsonb'),
+    sqlc.arg('authorization_envelope_jsonb'),
     sqlc.arg('mode_params_jsonb'),
     sqlc.narg('curtail_batch_size'),
     sqlc.arg('curtail_batch_interval_sec'),
@@ -332,7 +334,7 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
@@ -539,7 +541,7 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)
@@ -577,7 +579,7 @@ SELECT
     ce.source_actor_type, ce.source_actor_id,
     ce.external_source, ce.external_reference, ce.idempotency_key,
     ce.supersedes_event_id, ce.reason, ce.scheduled_start_at, ce.started_at, ce.ended_at,
-    ce.created_at, ce.updated_at, ce.created_by_user_id,
+    ce.created_at, ce.updated_at, ce.created_by_user_id, ce.authorization_envelope_jsonb,
     COALESCE(rollup.pending, 0)::BIGINT AS rollup_pending,
     COALESCE(rollup.dispatched, 0)::BIGINT AS rollup_dispatched,
     COALESCE(rollup.confirmed, 0)::BIGINT AS rollup_confirmed,
@@ -1206,10 +1208,10 @@ SET desired_state      = 'active',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
--- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
--- All-paired policy targets that never received a Curtail command do not need
--- Uncurtail. Release them before the restore reset so graceful Stop does not
--- enqueue no-op restore work for offline/auth-needed miners.
+-- name: ReleaseUndispatchedTargetsForRestore :execrows
+-- Targets that never received a Curtail command do not need Uncurtail. Release
+-- them before the restore reset so graceful Stop does not enqueue commands
+-- that could wake miners this event never curtailed.
 --
 -- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 -- dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -1232,7 +1234,13 @@ SET state              = 'released',
     curtail_last_error = COALESCE(curtail_last_error, last_error, 'released without restore: no curtail command dispatched')
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND desired_state = 'curtailed'
-  AND state IN ('pending', 'unavailable')
+  AND (
+      state IN ('pending', 'unavailable')
+      OR (
+          state = 'dispatching'
+          AND device_identifier = ANY(sqlc.arg('known_unsent_device_identifiers')::TEXT[])
+      )
+  )
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
@@ -1454,7 +1462,7 @@ SET last_tick_at          = EXCLUDED.last_tick_at,
 -- name: ListCurtailmentCandidatesByOrg :many
 -- Per-device state for the selector. Returns every in-scope device;
 -- service applies skip-reason attribution. nil power/hash = stale
--- (15-min window). site_ids and device_identifiers nil = whole-org.
+-- (15-min window). All selector arrays nil = whole-org.
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -1502,10 +1510,75 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
     AND (
-        (sqlc.narg('site_ids')::BIGINT[] IS NULL AND sqlc.narg('device_identifiers')::text[] IS NULL)
+        (sqlc.narg('site_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('building_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('rack_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('group_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('device_identifiers')::text[] IS NULL)
         OR (
             sqlc.narg('site_ids')::BIGINT[] IS NOT NULL
             AND d.site_id = ANY(sqlc.narg('site_ids')::BIGINT[])
+        )
+        OR (
+            sqlc.narg('building_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM building b
+                WHERE b.org_id = sqlc.arg('org_id')
+                  AND b.deleted_at IS NULL
+                  AND b.id = ANY(sqlc.narg('building_ids')::BIGINT[])
+                  AND (
+                    d.building_id = b.id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM device_set_membership dsm
+                        JOIN device_set ds
+                          ON ds.id = dsm.device_set_id
+                         AND ds.org_id = dsm.org_id
+                         AND ds.type = 'rack'
+                         AND ds.deleted_at IS NULL
+                        JOIN device_set_rack dsr
+                          ON dsr.device_set_id = ds.id
+                         AND dsr.org_id = ds.org_id
+                        WHERE dsm.org_id = sqlc.arg('org_id')
+                          AND dsm.device_id = d.id
+                          AND dsm.device_set_type = 'rack'
+                          AND dsr.building_id = b.id
+                    )
+                  )
+            )
+        )
+        OR (
+            sqlc.narg('rack_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'rack'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = sqlc.arg('org_id')
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'rack'
+                  AND dsm.device_set_id = ANY(sqlc.narg('rack_ids')::BIGINT[])
+            )
+        )
+        OR (
+            sqlc.narg('group_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'group'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = sqlc.arg('org_id')
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'group'
+                  AND dsm.device_set_id = ANY(sqlc.narg('group_ids')::BIGINT[])
+            )
         )
         OR (
             sqlc.narg('device_identifiers')::text[] IS NOT NULL
@@ -1513,4 +1586,378 @@ WHERE d.org_id = sqlc.arg('org_id')
         )
     )
 -- Stable order so the selector's stable sort is deterministic on ties.
-ORDER BY d.device_identifier;
+ORDER BY d.device_identifier
+LIMIT NULLIF(sqlc.arg('result_limit')::BIGINT, 0);
+
+-- name: ListCurtailmentBuildingScopeCoverage :many
+WITH selected_buildings AS (
+    SELECT b.id, b.site_id
+    FROM building b
+    WHERE b.org_id = sqlc.arg('org_id')
+      AND b.deleted_at IS NULL
+      AND b.id = ANY(sqlc.arg('building_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device d
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND EXISTS (
+          SELECT 1
+          FROM selected_buildings sb
+          WHERE d.building_id = sb.id
+             OR EXISTS (
+                 SELECT 1
+                 FROM device_set_membership dsm
+                 JOIN device_set ds
+                   ON ds.id = dsm.device_set_id
+                  AND ds.org_id = dsm.org_id
+                  AND ds.type = 'rack'
+                  AND ds.deleted_at IS NULL
+                 JOIN device_set_rack dsr
+                   ON dsr.device_set_id = ds.id
+                  AND dsr.org_id = ds.org_id
+                 WHERE dsm.org_id = sqlc.arg('org_id')
+                   AND dsm.device_id = d.id
+                   AND dsm.device_set_type = 'rack'
+                   AND dsr.building_id = sb.id
+             )
+      )
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sb.id AS selector_id,
+       sb.site_id AS resource_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_buildings sb
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;
+
+-- name: LockCurtailmentTopologyMemberDeviceSitesByOrg :many
+-- Stabilizes the current member rows while an authorization envelope and its
+-- event targets/profile row are persisted. The query mirrors the executable
+-- topology selector predicates and locks in device.id order, matching the
+-- canonical device-reassignment lock order used by site/building/rack writes.
+SELECT d.device_identifier, d.site_id
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = sqlc.arg('org_id')
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY(sqlc.arg('group_ids')::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001
+-- Topology writes still conflict with this lock, while command queue inserts
+-- can take the foreign-key KEY SHARE lock on device without self-deadlocking.
+FOR NO KEY UPDATE;
+
+-- name: LockCurtailmentGroupsForWrite :many
+-- Serializes group membership changes with topology target/envelope writes.
+-- AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
+-- RemoveAllDevicesFromDeviceSet take the same device_set row lock before
+-- mutating memberships.
+SELECT id
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = 'group'
+  AND deleted_at IS NULL
+  AND id = ANY(sqlc.arg('group_ids')::BIGINT[])
+ORDER BY id
+FOR UPDATE;
+
+-- name: ListCurtailmentRackScopeCoverage :many
+WITH selected_racks AS (
+    SELECT ds.id,
+           dsr.site_id,
+           dsr.building_id,
+           b.site_id AS building_site_id
+    FROM device_set ds
+    JOIN device_set_rack dsr
+      ON dsr.device_set_id = ds.id
+     AND dsr.org_id = ds.org_id
+    LEFT JOIN building b
+      ON b.id = dsr.building_id
+     AND b.org_id = dsr.org_id
+     AND b.deleted_at IS NULL
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'rack'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_racks sr ON sr.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = sqlc.arg('org_id')
+      AND dsm.device_set_type = 'rack'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.site_id AS resource_site_id,
+       sr.building_id,
+       sr.building_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_racks sr
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       NULL::BIGINT AS building_id,
+       NULL::BIGINT AS building_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;
+
+-- name: ListCurtailmentGroupScopeCoverage :many
+WITH selected_groups AS (
+    SELECT ds.id
+    FROM device_set ds
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'group'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('group_ids')::BIGINT[])
+), selector_rows AS (
+    SELECT sg.id,
+           EXISTS (
+               SELECT 1
+               FROM device_set_membership dsm
+               JOIN device d
+                 ON d.id = dsm.device_id
+                AND d.org_id = dsm.org_id
+                AND d.deleted_at IS NULL
+               WHERE dsm.org_id = sqlc.arg('org_id')
+                 AND dsm.device_set_id = sg.id
+                 AND dsm.device_set_type = 'group'
+           ) AS has_members
+    FROM selected_groups sg
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_groups sg ON sg.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = sqlc.arg('org_id')
+      AND dsm.device_set_type = 'group'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.has_members AS selector_has_members,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selector_rows sr
+UNION ALL
+SELECT 0 AS selector_id,
+       TRUE AS selector_has_members,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;
+
+-- name: ResolveCurtailmentTopologyDispatch :one
+-- Returns authorization coverage for the full live selector plus membership
+-- only for the devices in the pending dispatch batch. Both are derived by one
+-- statement snapshot so a concurrent placement change cannot mix old coverage
+-- with new membership. The reconciler validates selector shape before calling.
+WITH selected_resources AS MATERIALIZED (
+    SELECT 'building'::TEXT AS selector_type,
+           b.id AS selector_id,
+           b.site_id AS resource_site_id,
+           NULL::BIGINT AS building_id,
+           NULL::BIGINT AS building_site_id
+    FROM building b
+    WHERE b.org_id = sqlc.arg('org_id')
+      AND b.deleted_at IS NULL
+      AND b.id = ANY(sqlc.arg('building_ids')::BIGINT[])
+
+    UNION ALL
+
+    SELECT 'rack'::TEXT AS selector_type,
+           ds.id AS selector_id,
+           dsr.site_id AS resource_site_id,
+           dsr.building_id,
+           b.site_id AS building_site_id
+    FROM device_set ds
+    JOIN device_set_rack dsr
+      ON dsr.device_set_id = ds.id
+     AND dsr.org_id = ds.org_id
+    LEFT JOIN building b
+      ON b.id = dsr.building_id
+     AND b.org_id = dsr.org_id
+     AND b.deleted_at IS NULL
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'rack'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+
+    UNION ALL
+
+    SELECT 'group'::TEXT AS selector_type,
+           ds.id AS selector_id,
+           NULL::BIGINT AS resource_site_id,
+           NULL::BIGINT AS building_id,
+           NULL::BIGINT AS building_site_id
+    FROM device_set ds
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'group'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('group_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT
+           d.id AS device_id,
+           d.device_identifier,
+           d.site_id
+    FROM selected_resources sr
+    JOIN device d
+      ON d.org_id = sqlc.arg('org_id')
+     AND d.deleted_at IS NULL
+     AND (
+          (sr.selector_type = 'building' AND (
+              d.building_id = sr.selector_id
+              OR EXISTS (
+                  SELECT 1
+                  FROM device_set_membership dsm
+                  JOIN device_set ds
+                    ON ds.id = dsm.device_set_id
+                   AND ds.org_id = dsm.org_id
+                   AND ds.type = 'rack'
+                   AND ds.deleted_at IS NULL
+                  JOIN device_set_rack dsr
+                    ON dsr.device_set_id = ds.id
+                   AND dsr.org_id = ds.org_id
+                  WHERE dsm.org_id = sqlc.arg('org_id')
+                    AND dsm.device_id = d.id
+                    AND dsm.device_set_type = 'rack'
+                    AND dsr.building_id = sr.selector_id
+              )
+          ))
+          OR (sr.selector_type IN ('rack', 'group') AND EXISTS (
+              SELECT 1
+              FROM device_set_membership dsm
+              WHERE dsm.org_id = sqlc.arg('org_id')
+                AND dsm.device_id = d.id
+                AND dsm.device_set_type::TEXT = sr.selector_type
+                AND dsm.device_set_id = sr.selector_id
+          ))
+     )
+    ORDER BY d.id
+    LIMIT 10001
+), selector_rollup AS (
+    SELECT
+        COALESCE(array_agg(sr.selector_id ORDER BY sr.selector_id), '{}')::BIGINT[] AS existing_selector_ids,
+        COALESCE(
+            array_agg(DISTINCT sr.resource_site_id ORDER BY sr.resource_site_id)
+                FILTER (WHERE sr.resource_site_id IS NOT NULL),
+            '{}'
+        )::BIGINT[] AS selected_resource_site_ids,
+        COALESCE(bool_or(sr.selector_type <> 'group' AND sr.resource_site_id IS NULL), FALSE)::BOOLEAN AS has_unassigned_resource,
+        COALESCE(
+            array_agg(sr.selector_id ORDER BY sr.selector_id)
+                FILTER (WHERE sr.selector_type = 'rack'
+                        AND sr.building_id IS NOT NULL
+                        AND sr.resource_site_id IS NOT NULL
+                        AND sr.building_site_id IS NOT NULL
+                        AND sr.resource_site_id <> sr.building_site_id),
+            '{}'
+        )::BIGINT[] AS mismatched_rack_ids,
+        COALESCE(
+            array_agg(sr.selector_id ORDER BY sr.selector_id)
+                FILTER (WHERE sr.selector_type = 'group'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM device_set_membership dsm
+                            JOIN device d
+                              ON d.id = dsm.device_id
+                             AND d.org_id = dsm.org_id
+                             AND d.deleted_at IS NULL
+                            WHERE dsm.org_id = sqlc.arg('org_id')
+                              AND dsm.device_set_type = 'group'
+                              AND dsm.device_set_id = sr.selector_id
+                        )),
+            '{}'
+        )::BIGINT[] AS empty_group_ids
+    FROM selected_resources sr
+), member_rollup AS (
+    SELECT
+        COUNT(DISTINCT m.device_id)::BIGINT AS member_count,
+        COALESCE(
+            array_agg(DISTINCT m.site_id ORDER BY m.site_id)
+                FILTER (WHERE m.site_id IS NOT NULL),
+            '{}'
+        )::BIGINT[] AS current_member_site_ids,
+        COALESCE(bool_or(m.device_id IS NOT NULL AND m.site_id IS NULL), FALSE)::BOOLEAN AS has_unassigned_member,
+        COALESCE(
+            array_agg(DISTINCT m.device_identifier ORDER BY m.device_identifier)
+                FILTER (WHERE m.device_identifier = ANY(sqlc.arg('dispatch_device_identifiers')::TEXT[])),
+            '{}'
+        )::TEXT[] AS dispatch_member_device_identifiers
+    FROM members m
+)
+SELECT
+    sr.existing_selector_ids,
+    sr.selected_resource_site_ids,
+    sr.has_unassigned_resource,
+    sr.mismatched_rack_ids,
+    sr.empty_group_ids,
+    mr.member_count,
+    mr.current_member_site_ids,
+    mr.has_unassigned_member,
+    mr.dispatch_member_device_identifiers
+FROM selector_rollup sr
+CROSS JOIN member_rollup mr;

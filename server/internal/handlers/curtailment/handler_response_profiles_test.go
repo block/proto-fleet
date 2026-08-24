@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
@@ -343,6 +344,44 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_CreateCurtailmentResponseProfileCarriesAuthorizedDeviceSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const allowedSite = int64(7)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"miner-a": ptrHandlerInt64(allowedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-device-snapshot",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Device shed",
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}},
+				},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, store.createdDeviceSites, "miner-a")
+	require.NotNil(t, store.createdDeviceSites["miner-a"])
+	assert.Equal(t, allowedSite, *store.createdDeviceSites["miner-a"])
+}
+
 func TestHandler_CreateCurtailmentResponseProfileRequiresOrgWideForUnassignedDevices(t *testing.T) {
 	t.Parallel()
 
@@ -449,7 +488,7 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func TestHandler_GetCurtailmentResponseProfileMasksInaccessibleFacilityFans(t *testing.T) {
+func TestHandler_GetCurtailmentResponseProfileChecksPersistedFacilityFanSites(t *testing.T) {
 	t.Parallel()
 
 	profileSiteID := int64(7)
@@ -476,7 +515,8 @@ func TestHandler_GetCurtailmentResponseProfileMasksInaccessibleFacilityFans(t *t
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Zero(t, store.infrastructureDeviceListCalls, "persisted envelopes must not re-resolve facility fans")
 }
 
 func TestHandler_GetCurtailmentResponseProfileChecksStoredCompositeSites(t *testing.T) {
@@ -857,6 +897,7 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	require.NotNil(t, store.deleteExpectedSiteID)
 	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.deleteExpectedScopeJSON))
+	assert.JSONEq(t, string(store.profiles[0].AuthorizationEnvelopeJSON), string(store.deleteExpectedAuthorizationEnvelopeJSON))
 	assert.Equal(t, []int64{31}, store.deleteExpectedFanSettings.FacilityFanDeviceIDs)
 	assert.Equal(t, int32(45), store.deleteExpectedFanSettings.FanOffDelaySec)
 	assert.Equal(t, int32(90), store.deleteExpectedFanSettings.FanRestoreDelaySec)
@@ -984,22 +1025,24 @@ func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs                   bool
-	siteCheckCount                int
-	created                       *models.ResponseProfile
-	updated                       *models.ResponseProfile
-	updateExpectedSiteID          *int64
-	updateExpectedScopeJSON       []byte
-	updateExpectedFanSettings     models.ResponseProfileFanSettings
-	deletedProfileID              int64
-	deleteExpectedSiteID          *int64
-	deleteExpectedScopeJSON       []byte
-	deleteExpectedFanSettings     models.ResponseProfileFanSettings
-	profiles                      []*models.ResponseProfile
-	deviceSites                   map[string]*int64
-	infrastructureDevices         map[int64]models.ResponseProfileInfrastructureDevice
-	infrastructureDeviceListCalls int
-	createdInfrastructureDevices  map[int64]models.ResponseProfileInfrastructureDevice
+	siteBelongs                             bool
+	siteCheckCount                          int
+	created                                 *models.ResponseProfile
+	createdDeviceSites                      map[string]*int64
+	updated                                 *models.ResponseProfile
+	updateExpectedSiteID                    *int64
+	updateExpectedScopeJSON                 []byte
+	updateExpectedFanSettings               models.ResponseProfileFanSettings
+	deletedProfileID                        int64
+	deleteExpectedSiteID                    *int64
+	deleteExpectedScopeJSON                 []byte
+	deleteExpectedAuthorizationEnvelopeJSON []byte
+	deleteExpectedFanSettings               models.ResponseProfileFanSettings
+	profiles                                []*models.ResponseProfile
+	deviceSites                             map[string]*int64
+	infrastructureDevices                   map[int64]models.ResponseProfileInfrastructureDevice
+	infrastructureDeviceListCalls           int
+	createdInfrastructureDevices            map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -1010,16 +1053,83 @@ func newHandlerResponseProfileStore() *handlerResponseProfileStore {
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfiles(context.Context, int64) ([]*models.ResponseProfile, error) {
+	for _, profile := range s.profiles {
+		s.ensureAuthorizationEnvelope(profile)
+	}
 	return s.profiles, nil
 }
 
 func (s *handlerResponseProfileStore) GetResponseProfile(_ context.Context, _ int64, profileID int64) (*models.ResponseProfile, error) {
 	for _, profile := range s.profiles {
 		if profile.ID == profileID {
+			s.ensureAuthorizationEnvelope(profile)
 			return profile, nil
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+}
+
+func (s *handlerResponseProfileStore) ensureAuthorizationEnvelope(profile *models.ResponseProfile) {
+	if profile == nil || len(profile.AuthorizationEnvelopeJSON) > 0 {
+		return
+	}
+	scope, err := domainCurtailment.ResponseProfileScope(*profile)
+	if err != nil {
+		panic(err)
+	}
+	var selectedSiteIDs []int64
+	var currentMemberSiteIDs []int64
+	minerScopeUnbounded := false
+	switch scope.Type {
+	case models.ScopeTypeWholeOrg:
+		minerScopeUnbounded = true
+	case models.ScopeTypeSite:
+		selectedSiteIDs = []int64{scope.SiteID}
+	case models.ScopeTypeMixed:
+		if domainCurtailment.IsSiteOnlyScope(scope) {
+			selectedSiteIDs = append([]int64(nil), scope.SiteIDs...)
+		} else {
+			minerScopeUnbounded = true
+		}
+	case models.ScopeTypeDeviceList:
+		for _, identifier := range scope.DeviceIdentifiers {
+			siteID, ok := s.deviceSites[identifier]
+			if !ok || siteID == nil {
+				minerScopeUnbounded = true
+				continue
+			}
+			currentMemberSiteIDs = append(currentMemberSiteIDs, *siteID)
+		}
+		if len(currentMemberSiteIDs) == 0 {
+			minerScopeUnbounded = true
+		}
+	default:
+		minerScopeUnbounded = true
+	}
+	var fanSiteIDs []int64
+	fanScopeUnbounded := false
+	for _, deviceID := range profile.FacilityFanDeviceIDs {
+		device, ok := s.infrastructureDevices[deviceID]
+		if !ok {
+			fanScopeUnbounded = true
+			continue
+		}
+		fanSiteIDs = append(fanSiteIDs, device.SiteID)
+	}
+	profile.AuthorizationEnvelopeJSON = testAuthorizationEnvelopeJSON(
+		selectedSiteIDs,
+		currentMemberSiteIDs,
+		minerScopeUnbounded,
+		fanSiteIDs,
+		fanScopeUnbounded,
+	)
+}
+
+func (*handlerResponseProfileStore) ListCandidates(
+	context.Context,
+	interfaces.ListCandidatesParams,
+) ([]*models.Candidate, error) {
+	return nil, nil
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {
@@ -1045,14 +1155,15 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 	return out, nil
 }
 
-func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
 	s.created = &profile
+	s.createdDeviceSites = expectedDeviceSites
 	s.createdInfrastructureDevices = expectedInfrastructureDevices
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[string]*int64, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
@@ -1064,10 +1175,11 @@ func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, p
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON, expectedAuthorizationEnvelopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
 	s.deletedProfileID = profileID
 	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.deleteExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.deleteExpectedAuthorizationEnvelopeJSON = cloneBytes(expectedAuthorizationEnvelopeJSON)
 	s.deleteExpectedFanSettings = models.ResponseProfileFanSettings{
 		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
 		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,

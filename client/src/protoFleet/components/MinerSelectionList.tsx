@@ -100,6 +100,10 @@ export interface MinerSelectionListHandle {
 
 export interface MinerSelectionListProps {
   filterConfig?: FilterConfig;
+  // Immutable constraints supplied by the caller, such as the selected
+  // building/rack/group ancestors in a drill-down flow. Interactive facets are
+  // layered on top and must never replace these constraints.
+  initialFilter?: MinerListFilter;
   initialAllSelected?: boolean;
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
@@ -271,12 +275,29 @@ const describeReassignment = (item: DeviceListItem, targetRackLabel?: string): s
   return `Assigning ${name} to ${target} will unassign it from ${current}.`;
 };
 
+const layerUserFilter = (baseFilter: MinerListFilter, userFilter: MinerListFilter): MinerListFilter => {
+  const merged = clone(MinerListFilterSchema, baseFilter);
+
+  if (merged.models.length === 0) merged.models = userFilter.models;
+  if (merged.rackIds.length === 0) merged.rackIds = userFilter.rackIds;
+  if (merged.groupIds.length === 0) merged.groupIds = userFilter.groupIds;
+  if (merged.siteIds.length === 0) merged.siteIds = userFilter.siteIds;
+  if (merged.buildingIds.length === 0) merged.buildingIds = userFilter.buildingIds;
+  if (merged.ipCidrs.length === 0 && merged.ipRanges.length === 0) {
+    merged.ipCidrs = userFilter.ipCidrs;
+    merged.ipRanges = userFilter.ipRanges;
+  }
+
+  return merged;
+};
+
 // --- Component ---
 
 const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionListProps>(
   (
     {
       filterConfig,
+      initialFilter,
       initialAllSelected = false,
       initialSelectedItems,
       isMembersLoading = false,
@@ -293,11 +314,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     },
     ref,
   ) => {
+    const [baseFilter] = useState(() =>
+      initialFilter ? clone(MinerListFilterSchema, initialFilter) : create(MinerListFilterSchema, {}),
+    );
     const {
-      showTypeFilter = true,
+      showTypeFilter: showTypeFilterProp = true,
       showRackFilter: showRackFilterProp = true,
-      showGroupFilter = true,
-      showSubnetFilter = false,
+      showGroupFilter: showGroupFilterProp = true,
+      showSubnetFilter: showSubnetFilterProp = false,
       showSiteFilter: showSiteFilterProp = false,
       showBuildingFilter: showBuildingFilterProp = false,
     } = filterConfig ?? {};
@@ -350,9 +374,16 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // their labels ride on the miner snapshot. The facets stay visible in both
     // toggle states — a facet that conflicts with the target rack's placement is
     // handled by the assignable-only empty state below, not by hiding.
-    const showRackFilter = showRackFilterProp;
-    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
-    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
+    // A caller-provided constraint is a navigation boundary, not an editable
+    // facet. Hide that dimension so an OR-based protobuf id list cannot broaden
+    // the drill-down scope with a second value from the catalog.
+    const showTypeFilter = showTypeFilterProp && baseFilter.models.length === 0;
+    const showRackFilter = showRackFilterProp && baseFilter.rackIds.length === 0;
+    const showGroupFilter = showGroupFilterProp && baseFilter.groupIds.length === 0;
+    const showSubnetFilter =
+      showSubnetFilterProp && baseFilter.ipCidrs.length === 0 && baseFilter.ipRanges.length === 0;
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog && baseFilter.siteIds.length === 0;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog && baseFilter.buildingIds.length === 0;
 
     const { listGroups, listRacks } = useDeviceSets();
     const { listSites } = useSites();
@@ -391,7 +422,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // useFleet dedupes by protobuf value equality, so a fresh object per render
     // only triggers a refetch when the contents actually change.
     const filter = useMemo(() => {
-      const merged = clone(MinerListFilterSchema, userFilter);
+      const merged = layerUserFilter(baseFilter, userFilter);
       // Site scope is the soft baseline; a user-selected Site facet
       // (userFilter.siteIds) is more specific and takes precedence.
       if (merged.siteIds.length === 0) {
@@ -453,6 +484,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       return merged;
     }, [
       userFilter,
+      baseFilter,
       scopeSiteIds,
       scopeIncludeUnassigned,
       showAssigned,
@@ -747,12 +779,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage();
     }, [scrollToTop, goToPrevPage]);
 
-    // Fetch filter options only for enabled filters. Rack/building facet options
+    // Fetch filter options only for enabled filters. Rack/building/group facet options
     // scope to the active site so the dropdowns list only the site's members
-    // (facetIncludeUnassigned, not the list's includeUnassigned); group and site
-    // options stay org-wide until ListGroups gains site filtering (issue #520).
+    // (facetIncludeUnassigned, not the list's includeUnassigned); site options
+    // remain org-wide because the site facet itself defines that scope.
     useEffect(() => {
-      if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
+      if (showGroupFilter)
+        listGroups({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableGroups });
       if (showRackFilter)
         listRacks({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableRacks });
       if (showSiteFilter)

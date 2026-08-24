@@ -65,14 +65,17 @@ const Dialog = ({
     <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
       <motion.div
         {...slideUpAnimation}
-        className={clsx("mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200", className)}
+        className={clsx(
+          "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
+          className,
+        )}
         data-testid={testId}
       >
         <div className="p-6">
           <div className="flex flex-col gap-3">
             {loading ? (
               <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
-                <ProgressCircular indeterminate className="text-text-primary" />
+                <ProgressCircular indeterminate />
               </div>
             ) : null}
             {!loading ? icon : null}

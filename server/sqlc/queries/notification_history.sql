@@ -77,6 +77,8 @@ FROM jsonb_to_recordset(sqlc.arg('rows_jsonb')::JSONB) AS r(
 );
 
 -- name: ListNotificationHistory :many
+-- Resolution rows remain stored so the notification_active trigger can close firing alerts,
+-- but the activity feed records only the alert firing event.
 SELECT
     nh.id,
     nh.received_at,
@@ -106,6 +108,7 @@ LEFT JOIN device d
     AND d.deleted_at IS NULL
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE nh.organization_id = sqlc.arg('organization_id')
+  AND nh.status <> 'resolved'
   AND (sqlc.narg('before_id')::bigint IS NULL OR nh.id < sqlc.narg('before_id'))
 ORDER BY nh.id DESC
 LIMIT sqlc.arg('page_limit');

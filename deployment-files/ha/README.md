@@ -5,7 +5,7 @@ packaged release.
 
 The topology is:
 
-- `ha-a` and `ha-b`: Fleet, PostgreSQL + TimescaleDB managed by Patroni, and etcd;
+- `ha-a` and `ha-b`: Fleet, a loopback-only Grafana sidecar, PostgreSQL + TimescaleDB managed by Patroni, and etcd;
 - `ha-c`: etcd witness only;
 - one stable LAN IPv4 address per host;
 - one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
@@ -33,7 +33,7 @@ stable LAN address is supported.
 ## Install
 
 The installer targets dedicated apt/systemd hosts on amd64 or arm64 with a
-4096-byte page size and the base `sudo` and `iproute2` packages:
+4096-byte page size and the base `sudo`, `curl`, and `iproute2` packages:
 
 - Debian 12 or 13
 - Ubuntu 22.04 or 24.04
@@ -46,78 +46,71 @@ their reported release codename. Installation stops if Docker does not publish
 that suite. RPM-based, non-systemd, and 32-bit hosts are not supported.
 
 Before starting, reserve each node's IPv4 address in DHCP and exclude the VIP
-from the DHCP pool. Download the release archive and its official `.sha256`
-file for each host's architecture. Hosts may mix `amd64` and `arm64`, but every
-host must use the same release version and commit.
+from the DHCP pool. Hosts may mix `amd64` and `arm64`; each host downloads the
+correct artifact for its architecture and the installer pins every node to the
+same release.
 
 ### 1. Prepare and install `ha-a`
 
-From the operator machine, transfer the release and run the guided installer.
-Replace `VERSION`, `ARCH`, and `ha-a` with the downloaded release and SSH host:
+From the operator machine, run the public installer on `ha-a`. Replace the SSH
+destination with the user and address for that host:
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" "${HOST}:/var/tmp/"
+ssh -A -t admin@10.40.0.11 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK bash -s -- --ha'
 ```
 
-```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install"
-```
+`-A` forwards the operator's SSH agent, and `--preserve-env=SSH_AUTH_SOCK`
+makes it available to the peer checks after `sudo`. Normal password and
+host-key prompts still work when the agent has no applicable key.
 
-The wizard asks for the `ha-b` address, `ha-c` address, and VIP, then derives
-`ha-a`'s local address and interface from the route to `ha-b`. It validates the
-host and release, shows the complete topology and planned changes, and waits
-for `INSTALL` before changing the host.
+The wizard asks for the `ha-b` address, `ha-c` address, VIP, and the SSH
+username shared by the peer hosts. It derives `ha-a`'s local address and
+interface, validates the release and all three addresses, and shows the
+topology and planned host changes. Type `INSTALL` to authorize the cluster
+installation.
 
-The wizard then creates protected bundles for all three hosts and a separate
-public service CA certificate. Run the single copy command it prints
-from the operator machine. Return to the wizard and type `COPIED`; it deletes
-the copied peer exports from `ha-a` and continues installing that host. Protect
-the host bundles while installing the peers, then delete the operator copies
-after all three installations succeed.
+Before changing `ha-a`, the installer proves that it can connect to both peers
+using the invoking operator's normal SSH identity. It then transfers a
+role-scoped bundle to each peer, installs `ha-a`, and prints the two commands
+needed to finish the cluster. It never copies release archives or SSH keys
+between hosts.
 
 ### 2. Install `ha-b` and `ha-c`
 
-For each peer, transfer the release, official checksum, and matching host
-bundle. For example, for `ha-b`:
+Run the first command printed by `ha-a` to install `ha-b`, then run the second
+to install `ha-c`. Each command downloads and verifies the architecture-specific
+artifact for the exact release selected by `ha-a`, then consumes the prepared
+bundle already on that host. No extra confirmation or configuration editing is
+required.
+
+The database-node commands return after the local HA service has started; the
+cluster keeps converging under systemd as the remaining nodes join. The
+`ha-c` command returns after Fleet is active and reachable through the VIP.
+
+### 3. Trust the public service CA
+
+When `ha-a` creates the cluster, it prints the SHA-256 fingerprint of the
+public service CA. After `ha-c` proves that the VIP is ready, it prints commands
+like these for the operator machine:
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json "${HOST}:/var/tmp/"
+curl --insecure --fail --noproxy '*' --output proto-fleet-ha-service-ca.download https://10.40.0.50/proto-fleet-ha-service-ca.crt
+openssl x509 -in proto-fleet-ha-service-ca.download -out proto-fleet-ha-service-ca.crt
+rm proto-fleet-ha-service-ca.download
+openssl x509 -in proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
 ```
 
-```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install /var/tmp/proto-fleet-ha-ha-b.json"
-```
-
-Repeat with `HOST=ha-c` and the `ha-c` bundle. Each installer verifies the
-bundle, derives the local interface, shows its plan, and waits for `INSTALL`.
-No environment or secret file is edited by hand.
-
-### 3. Trust the service CA on clients
-
-The copied `proto-fleet-ha-service-ca.crt` is public and is safe to distribute
-to browsers and API clients. Verify that its fingerprint matches the value
-printed in the authenticated `ha-a` installer session:
-
-```bash
-openssl x509 -in proto-fleet-ha-bundles/proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
-```
-
-Import only this certificate into each client's trusted root store. On
-Debian-based clients:
-
-```bash
-sudo install -m 0644 proto-fleet-ha-bundles/proto-fleet-ha-service-ca.crt /usr/local/share/ca-certificates/proto-fleet-ha-service-ca.crt
-sudo update-ca-certificates
-```
-
-Use the platform trust-store UI or equivalent managed policy on other clients.
-Never distribute or import a host bundle; it contains that node's private keys
-and cluster credentials.
+The initial download permits the cluster's private CA only for this request.
+Compare the displayed fingerprint with the value from the authenticated
+`ha-a` session before importing `proto-fleet-ha-service-ca.crt` into a browser
+or operating-system trust store. Import only that canonical certificate. The
+VIP exposes no private key or service credential, and the installer does not
+modify client trust stores.
 
 ### Installer behavior and failure handling
 
-The official archive checksum verified in the commands above is the release
-integrity check. Before changing the host, the installer checks the packaged
+The installer verifies the official archive checksum before executing the
+packaged HA binary. Before changing the host, it checks the packaged
 entrypoints, Linux platform, apt/systemd prerequisites, architecture, page
 size, network identity and routes, free ports, empty data paths, and the exact
 host secret file set. A 16K-page host is rejected with instructions to boot a
@@ -136,14 +129,14 @@ repository plus the HA networking packages, then installs the release at
 `/opt/proto-fleet/deployment`, configuration at `/etc/proto-fleet/ha`, and data
 at `/var/lib/proto-fleet/ha`. Docker requires the HA firewall unit, and Docker
 restarts propagate through the role-aware HA service before keepalived can
-return. That service starts etcd, then Patroni and Fleet on `ha-a` and `ha-b`.
+return. That service starts etcd, then Patroni, Fleet, and Grafana on `ha-a` and `ha-b`.
 keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
-Only allowlisted host secret files are installed. A successful install consumes
-the copied host bundle. The one-time etcd root password is also removed from
-`/etc/proto-fleet/ha` after authentication is enabled.
+Only allowlisted host secret files are installed. A successful peer install
+consumes its prepared host bundle. The one-time etcd root password is removed
+from `/etc/proto-fleet/ha` after authentication is enabled.
 
-If installation fails after changing the host, the copied inputs are retained
+If installation fails after changing the host, its inputs are retained
 for diagnosis. The installer intentionally has no resume or rollback state
 machine. An interrupted install may require reimaging the dedicated host and
 running the guided install again.
@@ -165,6 +158,34 @@ The Docker repository setup follows the official instructions for
 [Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
 [64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
 
+### HA readiness alerts
+
+Each database host runs the same file-provisioned Grafana rule. The active
+Fleet runtime evaluates the full `fleet-ha status` failover-readiness check
+every 30 seconds and writes `fleet_ha_failover_ready` to the shared TimescaleDB
+metric table. The first value of zero, or no fresh sample for two minutes,
+creates the **HA Failover Readiness Degraded** alert for every active
+organization. Its dedicated five-second notification group normally delivers
+within 5–35 seconds of a failed sample without increasing status-probe load.
+
+Grafana remains standalone on each host and listens only on
+`127.0.0.1:3030`. Both instances use the same ordered two-host PostgreSQL
+datasource, so either Patroni member can serve the replicated metric table.
+Each Grafana posts its webhook to the local Fleet API; only the active Fleet
+runtime accepts and delivers it. Configure an alert channel in Proto Fleet as
+usual. No Datadog integration or separate HA monitoring service is required.
+
+Only the file-provisioned HA readiness rule is identical on both hosts.
+Grafana silences, UI-created rules, and other SQLite-backed Grafana state stay
+local to one host and do not follow Fleet ownership during failover.
+
+Alerting is deliberately best-effort and does not replace the operator status
+contract. If the active host's local PostgreSQL is unavailable, Grafana falls
+back to the peer PostgreSQL member. A complete PostgreSQL outage or loss of the
+active host's Grafana or Fleet delivery path can still delay notification until
+an evaluator and active Fleet delivery path are available on the same host. Use
+`fleet-ha status` for the authoritative current reason codes.
+
 ## Update a passive Fleet host
 
 HA disables application-triggered updates. On the passive database host, run:
@@ -176,9 +197,9 @@ sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11
 The local updater downloads the release from the fixed Proto Fleet GitHub
 release origin, verifies its SHA256 checksum, builds and persists the staged
 Fleet images, then rechecks that this host is passive. It stops and replaces
-only `fleet-api` and `fleet-client`; etcd, Patroni, PostgreSQL, and keepalived
-remain running. The command returns only after the target version is healthy
-and passive.
+`fleet-api`, `fleet-client`, and the local Grafana sidecar; etcd, Patroni,
+PostgreSQL, and keepalived remain running. The command returns only after the
+target version is healthy and passive.
 
 After the peer is confirmed on the target release, complete the update from
 the old active host:
@@ -194,6 +215,12 @@ The source release must already contain this HA update protocol. HA is being
 introduced for new deployments, so an older experimental HA installation that
 predates `update --complete` must be reinstalled at the supported baseline
 rather than upgraded through this workflow.
+
+An HA profile installed from a release without the bundled Grafana readiness
+alert cannot adopt it through an application-only update: the fresh install
+creates shared Grafana credentials and the read-only `grafana_ha_ro` database
+role. Reinstall both database hosts at this baseline before using later rolling
+updates.
 
 The updater stages everything first, stops the local Fleet containers, and
 waits for the updated peer to serve the VIP with the target version. Only then
@@ -220,16 +247,20 @@ sudo ./deployment/ha/fleet-ha uninstall --purge-data
 ```
 
 Use `--purge-data` when preparing the host for a fresh guided installation. It
-removes the HA configuration, credentials, PostgreSQL and etcd data only after
-the local services and firewall have stopped successfully. Without the flag,
-the command preserves `/etc/proto-fleet/ha` and `/var/lib/proto-fleet/ha` as
+removes the HA configuration, credentials, PostgreSQL and etcd data, plus the
+exact HA Grafana volume when the installed HA profile's ownership marker is
+present, only after the local services have stopped successfully. Older HA
+profiles without that marker leave any same-named Grafana volume untouched.
+Without the flag, the command preserves
+`/etc/proto-fleet/ha`, `/var/lib/proto-fleet/ha`, and Grafana's local state as
 inert local state. That retained state blocks a fresh install and cannot be
 purged by a later uninstall invocation.
 
-The command preserves Docker, installed packages, images, volumes, unrelated
-nftables configuration, host networking, and SSH access. For a complete
-three-host reset, run it on the witness, then the passive Fleet host, then the
-active Fleet host. It does not connect to or modify the peer hosts.
+The command preserves Docker, installed packages, images, unrelated Docker
+volumes, unrelated nftables configuration, host networking, and SSH access.
+For a complete three-host reset, run it on the witness, then the passive Fleet
+host, then the active Fleet host. It does not connect to or modify the peer
+hosts.
 
 The uninstaller supports intact HA installations only. Missing or corrupt
 installation ownership files still require manual recovery or reimaging.

@@ -153,7 +153,8 @@ class ReviewPolicyTest(unittest.TestCase):
             "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}",
         )
         self.assertEqual(
-            checkout_step["with"]["ref"], "${{ steps.pr.outputs.default_branch }}"
+            checkout_step["with"]["ref"],
+            "${{ github.event.repository.default_branch }}",
         )
         self.assertNotIn(
             "Review policy only evaluates PRs based on the repository default branch",

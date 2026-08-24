@@ -117,7 +117,7 @@ func TestGenerateSecrets(t *testing.T) {
 	}
 	for i, node := range []string{"ha-a", "ha-b"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "patroni-etcd-password"} {
+		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "grafana-db-password", "patroni-etcd-password"} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "postgres.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
@@ -146,6 +146,16 @@ func TestGenerateSecrets(t *testing.T) {
 	)
 	if !strings.Contains(string(offlineFleetEnvironment), wantDatabaseDSN) {
 		t.Fatal("generated Fleet environment does not contain the HA database DSN")
+	}
+	for _, key := range []string{
+		"GRAFANA_ADMIN_PASSWORD=",
+		"GRAFANA_DB_PASSWORD=",
+		"GRAFANA_SECRET_KEY=",
+		"FLEET_ALERTS_WEBHOOK_TOKEN=",
+	} {
+		if !strings.Contains(string(offlineFleetEnvironment), key) {
+			t.Fatalf("generated Fleet environment does not contain %s", key)
+		}
 	}
 	for _, node := range []string{"ha-a", "ha-b"} {
 		nodeFleetEnvironment, err := os.ReadFile(filepath.Join(output, node, fleetEnvironmentFile))
@@ -283,7 +293,7 @@ func TestPreflight(t *testing.T) {
 	if !slices.Equal(arpingArgs, []string{"arping", "-D", "-I", "eth0", "-c", "2", "10.40.0.100"}) {
 		t.Fatalf("arping arguments = %q", arpingArgs)
 	}
-	for _, port := range []int{80, 443} {
+	for _, port := range []int{80, 443, 3030} {
 		listeners = fmt.Sprintf("LISTEN 0 4096 0.0.0.0:%d 0.0.0.0:*\n", port)
 		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
 			t.Fatalf("preflight(occupied Fleet port %d) error = %v", port, err)

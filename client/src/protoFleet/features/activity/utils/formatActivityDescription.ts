@@ -1,4 +1,5 @@
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 
@@ -122,7 +123,8 @@ const formatDeletedBuilding = (entry: ActivityEntry): string | undefined => {
 const rolloutModelLabel = (entry: ActivityEntry): string | undefined => {
   const manufacturer = entry.manufacturer?.trim() || metadataString(entry, "manufacturer");
   const model = entry.model?.trim() || metadataString(entry, "model");
-  return [manufacturer, model].filter(Boolean).join(" ") || undefined;
+  const modelIdentity = entry.modelIdentityKey?.trim() || metadataString(entry, "model_identity_key");
+  return [manufacturer, model].filter(Boolean).join(" ") || modelIdentity;
 };
 
 const formatRolloutChildActivity =
@@ -144,6 +146,10 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   reset_password: (entry) => {
     const username = displayName(entry, "target_username");
     return username ? `Reset password for ${username}` : "Reset password";
+  },
+  cli_reset_password: (entry) => {
+    const username = displayName(entry, "target_username");
+    return username ? `Break-glass password reset for ${username}` : "Break-glass password reset";
   },
   deactivate_user: (entry) => withTarget("Deactivated user", displayName(entry, "target_username")),
   update_user_role: (entry) => {
@@ -228,6 +234,10 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   "rollout_child.reverting": formatRolloutChildActivity("Reverting"),
   "rollout_child.completed": formatRolloutChildActivity("Completed"),
   "rollout_child.completed_with_failures": formatRolloutChildActivity("Completed"),
+
+  // Alert descriptions carry user-authored rule names; pass them through untouched.
+  [ALERT_FIRING_EVENT_TYPE]: (entry) => entry.description,
+  [ALERT_RESOLVED_EVENT_TYPE]: (entry) => entry.description,
 };
 
 function replaceCountToken(value: string, token: string, singular: string, plural = `${singular}s`): string {

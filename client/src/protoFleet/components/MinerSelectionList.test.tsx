@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import MinerSelectionList from "./MinerSelectionList";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   FLEET_SELECTABLE_PAIRING_STATUSES,
   FLEET_VISIBLE_PAIRING_STATUSES,
@@ -103,7 +104,7 @@ describe("MinerSelectionList site scope", () => {
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false }));
   });
 
-  it("scopes the miner list and rack facet options to the selected site", async () => {
+  it("scopes the miner list and rack/group facet options to the selected site", async () => {
     render(<MinerSelectionList scope={{ siteIds: [7n], includeUnassigned: false }} />);
 
     const filter = lastFleetFilter();
@@ -112,6 +113,7 @@ describe("MinerSelectionList site scope", () => {
 
     await waitFor(() => expect(listRacksMock).toHaveBeenCalled());
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+    expect(listGroupsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
   });
 
   it("includes site-unassigned miners in the list but keeps rack facet options within the site", async () => {
@@ -126,6 +128,45 @@ describe("MinerSelectionList site scope", () => {
 
     await waitFor(() => expect(listRacksMock).toHaveBeenCalled());
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+    expect(listGroupsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+  });
+
+  it("keeps drill-down ancestors when an interactive facet changes", async () => {
+    const initialFilter = create(MinerListFilterSchema, {
+      buildingIds: [11n],
+      rackIds: [21n],
+      groupIds: [31n],
+    });
+    render(<MinerSelectionList initialFilter={initialFilter} filterConfig={{ showBuildingFilter: true }} />);
+
+    const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
+      filters: { children?: { title: string }[] }[];
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+    const filterTitles = listProps.filters[0]?.children?.map((filter) => filter.title) ?? [];
+    expect(filterTitles).not.toContain("Building");
+    expect(filterTitles).not.toContain("Rack");
+    expect(filterTitles).not.toContain("Group");
+
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { model: ["S21"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    const filter = lastFleetFilter();
+    expect(filter.models).toEqual(["S21"]);
+    expect(filter.buildingIds).toEqual([11n]);
+    expect(filter.rackIds).toEqual([21n]);
+    expect(filter.groupIds).toEqual([31n]);
   });
 
   it("re-applies the filter when the active site changes mid-modal", () => {

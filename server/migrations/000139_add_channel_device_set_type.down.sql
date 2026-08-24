@@ -1,3 +1,0 @@
--- Postgres does not support removing values from an enum type.
--- The channel value is safe to leave in place after channel rows and indexes
--- are removed by the companion schema migration.

@@ -219,6 +219,7 @@ type runtimeJobLifecycles struct {
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
+	haReadiness               runtimejobs.Lifecycle
 	releaseChecker            runtimejobs.Lifecycle
 }
 
@@ -270,6 +271,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.haReadiness != nil {
+		if err := add("ha-readiness", lifecycles.haReadiness); err != nil {
 			return nil, err
 		}
 	}

@@ -1,3 +1,8 @@
+-- Channel collections are introduced with the release-channel schema. Keep
+-- the enum change in this migration so the rollout sequence remains unique
+-- after main claimed migration 000139.
+ALTER TYPE device_set_type ADD VALUE IF NOT EXISTS 'channel';
+
 ALTER TABLE device_set_membership
     ADD CONSTRAINT fk_device_set_membership_device_set_org
     FOREIGN KEY (device_set_id, org_id)

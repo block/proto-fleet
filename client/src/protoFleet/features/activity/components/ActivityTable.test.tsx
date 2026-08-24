@@ -88,6 +88,24 @@ describe("ActivityTable", () => {
     expect(within(modal).getByText("Credentials didn't match.")).toBeInTheDocument();
   });
 
+  it("closes the detail modal when its entry leaves the feed", () => {
+    const entry = create(ActivityEntrySchema, {
+      ...baseEntry,
+      eventId: "activity-1",
+      eventType: "reboot.completed",
+      description: "Reboot completed miners",
+    });
+
+    const { rerender } = render(<ActivityTable activities={[entry]} />);
+    fireEvent.click(screen.getByTestId("list-row"));
+    expect(screen.getByTestId("modal")).toBeInTheDocument();
+
+    // A revoked grant clears the rows; the withdrawn entry must not stay visible in the modal.
+    rerender(<ActivityTable activities={[]} />);
+
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+  });
+
   it("renders standalone dash table values in muted text", () => {
     const entry = create(ActivityEntrySchema, {
       eventId: "activity-1",

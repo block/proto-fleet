@@ -1,23 +1,7 @@
-import StatusDot from "@/protoFleet/features/alerts/components/StatusDot";
 import type { AlertHistoryEntry } from "@/protoFleet/features/alerts/types";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
-// Shared alert-row cells, reused by the history table and the affected-miners modal.
-export const StatusCell = (entry: Pick<AlertHistoryEntry, "status">) => (
-  <StatusDot dotClass={entry.status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill"}>
-    {entry.status === "resolved" ? "Resolved" : "Firing"}
-  </StatusDot>
-);
-
-export const AlertNameCell = (entry: AlertHistoryEntry) => (
-  <span className="flex items-center gap-2">
-    <span className="text-emphasis-300 text-text-primary">{entry.alert_name}</span>
-    {entry.severity ? (
-      <span className="rounded bg-surface-5 px-2 py-0.5 text-200 text-text-primary-50">{entry.severity}</span>
-    ) : null}
-  </span>
-);
-
+// Shared alert-row cells for the affected-miners modal's per-instance tables.
 export const TimestampText = ({ iso }: { iso: string }) => (
   <span className="text-text-primary-50">{formatTimestamp(isoToEpochSeconds(iso))}</span>
 );

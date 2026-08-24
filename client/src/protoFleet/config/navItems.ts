@@ -98,8 +98,9 @@ export const primaryNavItems: NavItem[] = [
     path: "/activity",
     label: "Activity",
     icon: Activity,
-    // ActivityService is server-gated on activity:read (PR #347).
-    requiredPermission: "activity:read",
+    // The page carries two feeds, each server-gated on its own read: ActivityService on
+    // activity:read (PR #347) and alert history on alert:read.
+    requiredAnyPermission: ["activity:read", "alert:read"],
     scopable: true,
   },
   {
@@ -207,7 +208,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   },
   {
     path: "/settings/updates",
-    label: "Updates",
+    label: "Software Update",
     parent: "/settings",
     section: "Admin",
     // The page's backing RPCs (GetUpdateStatus, SetReleaseChannel) are

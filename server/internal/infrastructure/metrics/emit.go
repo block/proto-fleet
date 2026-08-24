@@ -190,6 +190,17 @@ func (p *Provider) EmitSystemHeartbeat(_ context.Context) {
 	})
 }
 
+// EmitHAFailoverReady records the full fleet-ha failover-ready predicate.
+// It stays unthrottled so the alert rule can distinguish recovery from a
+// collector that stopped reporting.
+func (p *Provider) EmitHAFailoverReady(_ context.Context, ready bool) {
+	value := 0.0
+	if ready {
+		value = 1
+	}
+	p.record(Sample{Metric: MetricHAFailoverReady, Value: value})
+}
+
 // emitSystemPercent stays unthrottled: system gauges are host-scoped (one
 // series each) and the heartbeat's staleness IS the alert signal.
 func (p *Provider) emitSystemPercent(metric string, percent float64) {

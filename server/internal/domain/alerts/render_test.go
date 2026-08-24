@@ -66,12 +66,15 @@ func TestRenderSlackTitleLinksTheInstanceName(t *testing.T) {
 		sectionText(t, blocks[0]))
 
 	body := mustJSON(t, msg)
-	// Firing alerts need no heading — the title counts them — but the resolved ones must stay separable.
+	// Firing alerts need no heading — the title counts them — and resolved rows carry their status in the name.
 	assert.NotContains(t, body, "*Firing*")
-	assert.Contains(t, body, "*Resolved*")
+	assert.NotContains(t, body, "*Resolved*")
 	assert.Contains(t, body, "*Device Temperature High* _(warning)_ — miner-02 (`11:22:33:44:55:66`)")
 	assert.Contains(t, body, "Max sensor temperature is above 90C.")
-	assert.Contains(t, body, "*Device Offline* _(warning)_ — miner-01 (`aa:bb:cc:dd:ee:ff`)")
+	resolvedText := sectionText(t, blocks[len(blocks)-1])
+	assert.Equal(t, "*Resolved: Device Offline* — miner-01 (`aa:bb:cc:dd:ee:ff`)", resolvedText)
+	assert.NotContains(t, resolvedText, "warning")
+	assert.NotContains(t, resolvedText, "Device is offline for at least five minutes.")
 }
 
 func TestRenderSlackOmitsLinkWhenNoPublicURL(t *testing.T) {
@@ -241,6 +244,22 @@ func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
 	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
 	assert.Contains(t, text, "*Curtailment Source Unreachable* _(critical)_ — 2 instances")
 	// The rule interpolates the source into summary, so naming only one would leave the other unreported.
+	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
+	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
+}
+
+func TestRenderSlackResolvedDevicelessAlertsKeepIdentifyingSummaries(t *testing.T) {
+	source := func(kind string) Alert {
+		return Alert{
+			Status:      "resolved",
+			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
+		}
+	}
+	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
+
+	assert.Contains(t, text, "*Resolved: Curtailment Source Unreachable* — 2 instances")
+	assert.NotContains(t, text, "_(critical)_", "resolved alerts omit severity")
 	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
 	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
 }

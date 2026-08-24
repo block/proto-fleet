@@ -10,6 +10,7 @@ const labelMap: Record<string, string> = {
   step_up_auth_failed: "Couldn't verify authentication",
   update_password: "Updated password",
   reset_password: "Reset password",
+  cli_reset_password: "Break-glass password reset",
   deactivate_user: "Deactivated user",
   update_user_role: "Updated user role",
   create_api_key: "Created API key",
@@ -108,6 +109,7 @@ const filterLabelMap: Record<string, string> = {
   step_up_auth_failed: "Couldn't verify authentication",
   update_password: "Update password",
   reset_password: "Reset password",
+  cli_reset_password: "Break-glass password reset",
   deactivate_user: "Deactivate user",
   update_user_role: "Update user role",
   create_api_key: "Create API key",
@@ -179,6 +181,7 @@ const filterLabelMap: Record<string, string> = {
   "between_channel_rollout_member.attention_required": "Review rollout member attention",
   "between_channel_rollout_member.cancelled": "Cancel rollout lane membership",
   "between_channel_rollout_member.membership_conflict": "Review rollout membership change",
+  alert: "Alerts",
 };
 
 const acronymMap: Record<string, string> = {

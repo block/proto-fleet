@@ -37,6 +37,9 @@ const baseValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
   siteId: "",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -110,6 +113,7 @@ describe("useCurtailmentPlanPreview", () => {
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
     expect(wholeFleetRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
+    expect(wholeFleetRequest?.scopeSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);
     expect(wholeFleetRequest?.modeParams.case).toBe("fixedKw");
     if (wholeFleetRequest?.modeParams.case !== "fixedKw") {
@@ -181,6 +185,14 @@ describe("useCurtailmentPlanPreview", () => {
     });
 
     expect(allSitesRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site"]);
+
+    const buildingRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "building",
+      buildingTargetIds: ["7", "8", "7"],
+    });
+
+    expect(buildingRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["building", "building"]);
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {
@@ -242,6 +254,19 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
     expect(minerScopedRequest?.includeMaintenance).toBe(false);
     expect(minerScopedRequest?.forceIncludeMaintenance).toBe(false);
+
+    const topologyScopedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "building",
+      buildingTargetIds: ["7"],
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
+    expect(topologyScopedRequest?.includeMaintenance).toBe(false);
+    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(false);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -360,6 +385,23 @@ describe("useCurtailmentPlanPreview", () => {
     }
     expect(request.scopes[0].scope.value.siteId).toBe(42n);
     expect(result.current.preview).toEqual(expect.objectContaining({ scopeLabel: "from Austin, TX" }));
+  });
+
+  it("uses the canonical topology count in preview labels", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "building",
+      buildingTargetIds: ["7", "8", "7", "08"],
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview?.scopeLabel).toBe("from 2 selected buildings");
+    });
+
+    const request = mockPreviewCurtailmentPlan.mock.calls[0][0];
+    expect(request.scopes).toHaveLength(2);
   });
 
   it("uses the terminal miner label when a site is only navigation context", async () => {

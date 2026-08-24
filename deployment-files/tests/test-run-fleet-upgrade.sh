@@ -122,12 +122,14 @@ make_stage() {
     HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
     HARNESS_UPDATER_ENABLED_FILE="$runtime/updater-enabled"
     HARNESS_UPDATER_ENV_FILE="$runtime/updater.env"
-    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/scripts" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
     printf 'false\n' > "$HARNESS_UPDATER_ENABLED_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
+    cp "$DEPLOY_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
+    cp "$DEPLOY_DIR/scripts/docker-daemon.sh" "$STAGE/scripts/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
             printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
@@ -158,6 +160,11 @@ make_stage() {
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
+
+if [ "${1:-}" = "info" ]; then
+    printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
+    exit 0
+fi
 
 if [ "${FAKE_NONEMPTY_STARTUP_MARKER_SLOT:-false}" = "true" ] && \
     [ "${1:-}" = "builder" ] && [ "${2:-}" = "prune" ]; then
@@ -562,10 +569,27 @@ assert_not_contains "source-tree run cannot target an installed deployment proje
 assert_contains "source-tree run reaches teardown in its isolated project" "$HARNESS_CALL_LOG" " down --remove-orphans"
 assert_not_contains "source-tree run does not inspect the packaged updater" \
     "$HARNESS_CALL_LOG" "proto-fleet-updater.service"
+if grep -qFx 'proto-fleet-docker-daemon-v1:test-daemon' "$STAGE/.docker-daemon-id"; then
+    pass "successful run persists the selected Docker daemon identity"
+else
+    fail "successful run should persist the selected Docker daemon identity"
+fi
+daemon_marker_mode=$(stat -c '%a' "$STAGE/.docker-daemon-id" 2>/dev/null || stat -f '%Lp' "$STAGE/.docker-daemon-id")
+if [ "$daemon_marker_mode" = "600" ]; then
+    pass "Docker daemon identity is private"
+else
+    fail "Docker daemon identity mode should be 600, got $daemon_marker_mode"
+fi
+: > "$HARNESS_CALL_LOG"
+if FAKE_DOCKER_ID=other-daemon FAKE_SOURCE_INSTALL=true run_stage "$STAGE" --non-interactive; then
+    fail "run-fleet accepted a Docker daemon that does not own the installation"
+else
+    pass "run-fleet rejects a mismatched Docker daemon"
+fi
+assert_not_contains "daemon mismatch fails before Compose operations" "$HARNESS_CALL_LOG" " compose "
 
-# Existing process-level overrides remain authoritative and are reused by
-# volume detection. Do not persist a new multi-install identity here: the
-# surrounding migration and uninstall tools do not support that contract.
+# Existing process-level overrides remain authoritative, are reused by volume
+# detection, and become the durable identity for upgrades and recovery tools.
 make_stage project-override
 printf 'COMPOSE_PROJECT_NAME=persisted-project\n' >> "$STAGE/.env"
 if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -575,6 +599,12 @@ else
 fi
 assert_contains "explicit project override reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 assert_not_contains "process project override beats persisted identity" "$HARNESS_CALL_LOG" "compose --project-name persisted-project"
+if [ "$(grep -c '^COMPOSE_PROJECT_NAME=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^COMPOSE_PROJECT_NAME=fleet-blue$' "$STAGE/.env"; then
+    pass "explicit project override is persisted for recovery"
+else
+    fail "explicit project override should become the durable project identity"
+fi
 
 # Compose historically accepted a project identity from the deployment .env.
 # Preserve its last non-empty assignment when the process has no override.
@@ -1141,8 +1171,20 @@ if DB_PASSWORD= run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "process credential precedence matches Compose and fails closed"
 fi
-assert_contains "empty process credential is validated as effective" "$HARNESS_OUTPUT_LOG" "Missing or empty required key in environment file: DB_PASSWORD"
+assert_contains "empty process credential is rejected as transient" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_PASSWORD differs from the persisted deployment configuration"
 assert_not_contains "empty process credential prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage transient-db-target
+if DB_DSN='postgres://other-database/fleet' run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a transient database target should fail"
+else
+    pass "database targeting must be persisted for recovery"
+fi
+assert_contains "transient database target is diagnosed without its value" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_DSN differs from the persisted deployment configuration"
+assert_not_contains "transient database target is not printed" "$HARNESS_OUTPUT_LOG" "other-database"
+assert_not_contains "transient database target prevents Docker activity" "$HARNESS_CALL_LOG" "docker "
 
 make_stage project-volume
 printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"

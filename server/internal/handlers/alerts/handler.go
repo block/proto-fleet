@@ -751,12 +751,17 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	out := &alertsv1.MaintenanceWindow{
 		Id:             s.ID,
 		OrganizationId: s.OrganizationID,
-		Scope:          scopeToProto(s.Scope),
-		StartsAt:       timestamppb.New(s.StartsAt),
-		Comment:        s.Comment,
-		CreatedBy:      s.CreatedBy,
-		CreatedAt:      timestamppb.New(s.CreatedAt),
-		Active:         s.Active,
+		Scope: &alertsv1.MaintenanceWindowScope{
+			RuleIds:     s.RuleIDs,
+			ChannelIds:  s.ChannelIDs,
+			AllRules:    len(s.RuleIDs) == 0,
+			AllChannels: len(s.ChannelIDs) == 0,
+		},
+		StartsAt:  timestamppb.New(s.StartsAt),
+		Comment:   s.Comment,
+		CreatedBy: s.CreatedBy,
+		CreatedAt: timestamppb.New(s.CreatedAt),
+		Active:    s.Active,
 	}
 	if !s.EndsAt.IsZero() {
 		out.EndsAt = timestamppb.New(s.EndsAt)
@@ -764,43 +769,38 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	return out
 }
 
-func scopeToProto(sc alerts.MaintenanceWindowScope) *alertsv1.MaintenanceWindowScope {
-	return &alertsv1.MaintenanceWindowScope{
-		Kind:      scopeKindToProto(sc.Kind),
-		RuleId:    sc.RuleID,
-		GroupId:   sc.GroupID,
-		SiteId:    sc.SiteID,
-		DeviceIds: sc.DeviceIDs,
-	}
-}
-
 func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (alerts.MaintenanceWindow, error) {
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
 	}
-	dk, err := protoToScopeKind(scope.GetKind())
-	if err != nil {
+	if err := validateMaintenanceWindowTargetSelection("rules", scope.GetAllRules(), scope.GetRuleIds()); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if err := validateMaintenanceWindowTargetSelection("destinations", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
 		return alerts.MaintenanceWindow{}, err
 	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
 	}
 	dom := alerts.MaintenanceWindow{
-		ID: id,
-		Scope: alerts.MaintenanceWindowScope{
-			Kind:      dk,
-			RuleID:    scope.GetRuleId(),
-			GroupID:   scope.GetGroupId(),
-			SiteID:    scope.GetSiteId(),
-			DeviceIDs: scope.GetDeviceIds(),
-		},
-		StartsAt: startsAt.AsTime(),
-		Comment:  comment,
+		ID:         id,
+		RuleIDs:    scope.GetRuleIds(),
+		ChannelIDs: scope.GetChannelIds(),
+		StartsAt:   startsAt.AsTime(),
+		Comment:    comment,
 	}
 	if endsAt != nil {
 		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
+}
+
+func validateMaintenanceWindowTargetSelection(name string, all bool, ids []string) error {
+	if all == (len(ids) > 0) {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"scope must select either all %s or a non-empty %s list", name, name)
+	}
+	return nil
 }
 
 // includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,
@@ -852,6 +852,7 @@ var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
 	alerts.RuleTemplateCurtailmentFanRestore: {},
 	alerts.RuleTemplateTelemetryPoll:         {},
 	alerts.RuleTemplateMetricIngest:          {},
+	alerts.RuleTemplateHAReadiness:           {},
 }
 
 // isDeviceLessTemplate reports whether the template's summary is safe to show without miner:read. The label
@@ -881,7 +882,7 @@ func protoToChannelKind(k alertsv1.ChannelKind) (alerts.ChannelKind, error) {
 	// SMTP is not offered in this slice; it ships in the SMTP channel slice.
 	case alertsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED, alertsv1.ChannelKind_CHANNEL_KIND_SMTP:
 	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
+	return "", fleeterror.NewInvalidArgumentErrorf("unknown destination kind: %s", k)
 }
 
 func httpStatusToInt32(code int) int32 {
@@ -926,36 +927,7 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
 	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
 	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
-	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest:
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
-}
-
-func scopeKindToProto(k alerts.MaintenanceWindowScopeKind) alertsv1.MaintenanceWindowScopeKind {
-	switch k {
-	case alerts.MaintenanceWindowScopeRule:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE
-	case alerts.MaintenanceWindowScopeGroup:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP
-	case alerts.MaintenanceWindowScopeSite:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE
-	case alerts.MaintenanceWindowScopeDevice:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE
-	}
-	return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED
-}
-
-func protoToScopeKind(k alertsv1.MaintenanceWindowScopeKind) (alerts.MaintenanceWindowScopeKind, error) {
-	switch k {
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE:
-		return alerts.MaintenanceWindowScopeRule, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP:
-		return alerts.MaintenanceWindowScopeGroup, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE:
-		return alerts.MaintenanceWindowScopeSite, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE:
-		return alerts.MaintenanceWindowScopeDevice, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED:
-	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %s", k)
 }

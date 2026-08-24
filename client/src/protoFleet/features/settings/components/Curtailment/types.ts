@@ -1,3 +1,5 @@
+import { type CurtailmentTerminalScopeType, isCurtailmentTopologyScopeType } from "@/protoFleet/api/curtailmentScopes";
+
 export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
 
@@ -40,11 +42,20 @@ export type ResponseProfileSelectionStrategy = "leastEfficientFirst";
 export type ResponseProfileMinerSelectionMode = "subset" | "all";
 export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automaticImmediateRestore";
 export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
+export type ResponseProfileScopeType = CurtailmentTerminalScopeType;
+
+export function isResponseProfileAutomationReady(scopeType: ResponseProfileScopeType | undefined): boolean {
+  return scopeType !== undefined && !isCurtailmentTopologyScopeType(scopeType);
+}
 
 export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
+  scopeType: ResponseProfileScopeType;
+  buildingTargetIds: string[];
+  rackTargetIds: string[];
+  groupTargetIds: string[];
   deviceIdentifiers: string[];
   minerSelectionMode?: ResponseProfileMinerSelectionMode;
   siteSelection?: ResponseProfileSiteSelection;
@@ -78,6 +89,7 @@ export type ResponseProfile = {
   deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
   isReadOnly?: boolean;
+  isAutomationReady: boolean;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";

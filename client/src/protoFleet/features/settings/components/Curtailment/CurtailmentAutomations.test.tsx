@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
@@ -52,6 +52,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
   },
   {
     id: "partial-reduction",
@@ -61,6 +62,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 10 min",
+    isAutomationReady: true,
   },
 ];
 
@@ -169,6 +171,69 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
     const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
     expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
+  });
+
+  it("excludes profiles whose target scope is not ready for automation", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isAutomationReady: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[topologyProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+
+    expect(responseProfileSelect).toHaveTextContent("Standard shed");
+    expect(responseProfileSelect).not.toHaveTextContent("Building shed");
+  });
+
+  it("prevents enabling an automation whose response profile is not automation-ready", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isAutomationReady: false,
+    };
+    const topologyRule: AutomationRule = {
+      ...testAutomationRules[0],
+      responseProfileId: topologyProfile.id,
+      enabled: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[topologyRule]}
+        sources={testSources}
+        responseProfiles={[topologyProfile]}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).toBeDisabled();
+  });
+
+  it("allows disabling an enabled automation when its response profile is unavailable", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false);
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {

@@ -29,6 +29,34 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
+func TestEntryToProtoPrefersCurrentRolloutMetadataAndSupportsLegacyKeys(t *testing.T) {
+	current := entryToProto(models.Entry{
+		Metadata: json.RawMessage(`{
+			"parent_id":"parent-current",
+			"parent_rollout_id":"parent-legacy",
+			"child_id":"child-current",
+			"child_rollout_id":"child-legacy",
+			"model_identity_key":"identity",
+			"manufacturer":"Proto",
+			"model":"Alpha"
+		}`),
+	})
+	assert.Equal(t, "parent-current", current.GetParentRolloutId())
+	assert.Equal(t, "child-current", current.GetChildRolloutId())
+	assert.Equal(t, "identity", current.GetModelIdentityKey())
+	assert.Equal(t, "Proto", current.GetManufacturer())
+	assert.Equal(t, "Alpha", current.GetModel())
+
+	legacy := entryToProto(models.Entry{
+		Metadata: json.RawMessage(`{
+			"parent_rollout_id":"parent-legacy",
+			"child_rollout_id":"child-legacy"
+		}`),
+	})
+	assert.Equal(t, "parent-legacy", legacy.GetParentRolloutId())
+	assert.Equal(t, "child-legacy", legacy.GetChildRolloutId())
+}
+
 const testOrgID = int64(42)
 
 var testTime = time.Date(2026, 3, 23, 21, 30, 0, 0, time.UTC)

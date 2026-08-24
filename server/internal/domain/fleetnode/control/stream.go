@@ -26,6 +26,23 @@ type Stream struct {
 func (r *Registry) Register(fleetNodeID int64) *Stream {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.registerLocked(fleetNodeID)
+}
+
+// RegisterAuthenticated installs a connection only if its bearer session has
+// not been replaced or revoked since authentication. A missing fence is valid:
+// the database-backed authentication check is authoritative after process start.
+func (r *Registry) RegisterAuthenticated(fleetNodeID int64, sessionFingerprint string) (*Stream, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fence, exists := r.sessionFences[fleetNodeID]
+	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
+		return nil, errSessionInvalidated
+	}
+	return r.registerLocked(fleetNodeID), nil
+}
+
+func (r *Registry) registerLocked(fleetNodeID int64) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
@@ -36,6 +53,40 @@ func (r *Registry) Register(fleetNodeID int64) *Stream {
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
+}
+
+// ReplaceSession fences out streams authenticated with older credentials and
+// disconnects the currently registered stream, if any.
+func (r *Registry) ReplaceSession(fleetNodeID int64, sessionFingerprint string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessionFences[fleetNodeID] = sessionFence{fingerprint: sessionFingerprint}
+	r.disconnectLocked(fleetNodeID)
+}
+
+// RevokeSession fences out every authenticated session and disconnects the
+// currently registered stream, if any.
+func (r *Registry) RevokeSession(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessionFences[fleetNodeID] = sessionFence{revoked: true}
+	r.disconnectLocked(fleetNodeID)
+}
+
+// Disconnect tears down the active ControlStream for fleetNodeID, if any.
+func (r *Registry) Disconnect(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.disconnectLocked(fleetNodeID)
+}
+
+func (r *Registry) disconnectLocked(fleetNodeID int64) {
+	conn, ok := r.conns[fleetNodeID]
+	if !ok {
+		return
+	}
+	teardown(conn)
+	delete(r.conns, fleetNodeID)
 }
 
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if

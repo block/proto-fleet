@@ -2,7 +2,7 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
+import { type CurtailmentScopeSelection, getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -31,6 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isResponseProfileAutomationReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
@@ -162,6 +163,10 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   name: "",
   actionType: "fullFleet",
   targetKw: "",
+  scopeType: "wholeOrg",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
   siteSelection: "none",
@@ -328,6 +333,16 @@ function createResponseProfileId(name: string, existingProfiles: ResponseProfile
   return candidate;
 }
 
+function cloneTopologyTargetIds(
+  values: Pick<CurtailmentScopeSelection, "buildingTargetIds" | "rackTargetIds" | "groupTargetIds">,
+) {
+  return {
+    buildingTargetIds: [...(values.buildingTargetIds ?? [])],
+    rackTargetIds: [...(values.rackTargetIds ?? [])],
+    groupTargetIds: [...(values.groupTargetIds ?? [])],
+  };
+}
+
 function createResponseProfileFromFormValues(
   values: ResponseProfileFormValues,
   existingProfiles: ResponseProfile[],
@@ -340,6 +355,7 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -374,6 +390,7 @@ function createResponseProfileFromFormValues(
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
     formValues: normalizedValues,
+    isAutomationReady: isResponseProfileAutomationReady(normalizedValues.scopeType),
   };
 }
 
@@ -384,6 +401,7 @@ function removeResponseProfileScope(values: ResponseProfileFormValues): Response
 
   return {
     ...values,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -412,6 +430,10 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     name: profile.name,
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
+    scopeType: "wholeOrg",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
     siteSelection: "none",
@@ -471,13 +493,15 @@ function createCurtailmentFormValuesFromResponseProfile(
         : "none";
 
   return {
-    scopeType: hasAllMinersSelected
-      ? "wholeOrg"
-      : deviceIdentifiers.length > 0
-        ? "explicitMiners"
-        : siteIds.length > 0
-          ? "site"
-          : "wholeOrg",
+    scopeType:
+      values.scopeType ??
+      (hasAllMinersSelected
+        ? "wholeOrg"
+        : deviceIdentifiers.length > 0
+          ? "explicitMiners"
+          : siteIds.length > 0
+            ? "site"
+            : "wholeOrg"),
     scopeId: hasAllMinersSelected
       ? "whole-org"
       : siteIds.length > 0
@@ -491,6 +515,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     siteId,
     siteIds,
     siteNamesById,
+    ...cloneTopologyTargetIds(values),
     deviceSetIds: [],
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
@@ -530,6 +555,9 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
+  if (values.scopeType === "deviceSet") {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
@@ -551,6 +579,8 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
+    scopeType: values.scopeType,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected ? "allSites" : values.siteSelection,
@@ -810,7 +840,7 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
-          ariaLabel={profile.isReadOnly ? "Editing topology-scoped profiles is not available yet" : "Edit"}
+          ariaLabel={profile.isReadOnly ? "Editing this profile is unavailable" : "Edit"}
           className="!h-8 !px-3 !py-0"
           disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
@@ -1285,6 +1315,8 @@ type CurtailmentSettingsContentProps = {
   updatingAutomationRuleIds?: ReadonlySet<string>;
   siteOptions?: CurtailmentSiteOption[];
   defaultResponseProfileSiteScope?: CurtailmentSiteOption;
+  buildingScopeEnabled?: boolean;
+  rackAndGroupScopeEnabled?: boolean;
   isLoadingSiteOptions?: boolean;
   siteScopeDisabledReason?: string;
   infrastructureDevices?: FacilityFanDeviceOption[];
@@ -1354,6 +1386,8 @@ export function CurtailmentSettingsContent({
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
   siteOptions = [],
   defaultResponseProfileSiteScope,
+  buildingScopeEnabled = true,
+  rackAndGroupScopeEnabled = true,
   isLoadingSiteOptions = false,
   siteScopeDisabledReason,
   infrastructureDevices = [],
@@ -1725,6 +1759,8 @@ export function CurtailmentSettingsContent({
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
         siteOptions={siteOptions}
+        buildingScopeEnabled={buildingScopeEnabled}
+        rackAndGroupScopeEnabled={rackAndGroupScopeEnabled}
         defaultSiteScope={responseProfileModalMode === "create" ? defaultResponseProfileSiteScope : undefined}
         siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
@@ -1765,6 +1801,7 @@ export function CurtailmentSettingsContent({
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadRackCatalog = useHasPermission("rack:read");
   const navigate = useNavigate();
   const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
@@ -2111,6 +2148,8 @@ function CurtailmentSettingsPage(): ReactElement {
       updatingAutomationRuleIds={updatingAutomationRuleIds}
       siteOptions={effectiveSiteOptions}
       defaultResponseProfileSiteScope={defaultResponseProfileSiteScope}
+      buildingScopeEnabled={canReadSiteCatalog}
+      rackAndGroupScopeEnabled={canReadRackCatalog}
       isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
       siteScopeDisabledReason={siteScopeDisabledReason}
       infrastructureDevices={infrastructureDevices}

@@ -143,6 +143,9 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
+	// caller knows the physical command boundary was never crossed.
+	KnownUnsentDeviceIdentifiers []string
 }
 
 type AutomationDemandGuard struct {
@@ -173,11 +176,12 @@ type ListTargetsByEventPageParams struct {
 type ResponseProfileStore interface {
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
+	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 	ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error)
 	ListResponseProfileInfrastructureDevices(ctx context.Context, orgID int64, infrastructureDeviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error)
-	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
-	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
-	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) error
+	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
+	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
+	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON, expectedAuthorizationEnvelopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) error
 	CountAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 }
@@ -205,13 +209,21 @@ type AutomationStore interface {
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 
-// ListCandidatesParams scopes selector candidate reads. Empty SiteIDs and
-// DeviceIdentifiers means whole-org. When both are present, results are the
-// union of matching sites and explicit device identifiers.
+const CurtailmentResolvedMinerMax = 10000
+
+// ListCandidatesParams scopes selector candidate reads. Empty selector slices
+// mean whole-org. Curtailment validates that no more than one selector type is
+// set before crossing the store boundary.
 type ListCandidatesParams struct {
-	OrgID             int64
+	OrgID int64
+	// ResultLimit is zero for no limit; selector entry points use max+1 so
+	// they can distinguish an exact-bound result from overflow.
+	ResultLimit       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+	BuildingIDs       []int64
+	RackIDs           []int64
+	GroupIDs          []int64
 }
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
@@ -219,6 +231,69 @@ type ListRecentlyResolvedCurtailedDevicesParams struct {
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+}
+
+// CurtailmentTopologyScopeCoverage is the authorization envelope derived from
+// a validated topology selector. SiteIDs is the combined compatibility view;
+// the split fields preserve why each site is covered. RequireOrgWide is set
+// when any selected resource or member is unassigned, or when a group has no
+// members and therefore unbounded future coverage.
+type CurtailmentTopologyScopeCoverage struct {
+	SiteIDs                 []int64
+	SelectedResourceSiteIDs []int64
+	CurrentMemberSiteIDs    []int64
+	RequireOrgWide          bool
+}
+
+// CurtailmentTopologyScopeStore validates topology selectors and derives their
+// current authorization coverage. It is separate from CurtailmentStore so
+// non-topology test stores do not need to implement an unused capability.
+type CurtailmentTopologyScopeStore interface {
+	ResolveCurtailmentTopologyScope(
+		ctx context.Context,
+		params ListCandidatesParams,
+	) (CurtailmentTopologyScopeCoverage, error)
+}
+
+// CurtailmentTopologyDispatchSnapshot is one database snapshot of both the
+// selector's authorization coverage and the subset of the dispatch batch that
+// is still a member. Keeping these reads together prevents a placement change
+// from being authorized against coverage from a different point in time.
+type CurtailmentTopologyDispatchSnapshot struct {
+	Coverage                        CurtailmentTopologyScopeCoverage
+	DispatchMemberDeviceIdentifiers []string
+}
+
+// CurtailmentTopologyDispatchStore performs the live topology check used at
+// the physical command boundary. It is separate from the start-time topology
+// resolver because only the reconciler needs batch membership in the result.
+type CurtailmentTopologyDispatchStore interface {
+	ResolveCurtailmentTopologyDispatch(
+		ctx context.Context,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+	) (CurtailmentTopologyDispatchSnapshot, error)
+}
+
+// CurtailmentTopologyDispatchFenceSnapshot is the event and topology state
+// protected by the dispatch fence for the duration of its callback.
+type CurtailmentTopologyDispatchFenceSnapshot struct {
+	Event    *models.Event
+	Topology CurtailmentTopologyDispatchSnapshot
+}
+
+// CurtailmentTopologyDispatchFenceStore serializes event transitions,
+// topology mutations, and creator permission revocations through the physical
+// Curtail command callback. Implementations must keep referenced user/device
+// rows compatible with the foreign-key locks acquired by command enqueueing.
+type CurtailmentTopologyDispatchFenceStore interface {
+	WithCurtailmentTopologyDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a

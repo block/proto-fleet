@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,20 +36,30 @@ type fakeStore struct {
 	cooldownDevicesByOrg map[int64][]string
 	candidatesByOrg      map[int64][]*models.Candidate
 	candidatesBySite     map[int64]map[int64][]*models.Candidate
+	candidatesByBuilding map[int64]map[int64][]*models.Candidate
+	candidatesByRack     map[int64]map[int64][]*models.Candidate
+	candidatesByGroup    map[int64]map[int64][]*models.Candidate
 	sitesByOrg           map[int64]map[int64]bool
+	topologyCoverage     interfaces.CurtailmentTopologyScopeCoverage
+	topologyCoverageErr  error
+	lastTopologyFilter   interfaces.ListCandidatesParams
 
 	// Captures for assertions.
-	listCandidatesCalls       int
-	lastListCandidatesOrgID   int64
-	lastListCandidatesFilter  []string
-	lastListCandidatesSiteIDs []int64
-	cooldownCalls             int
-	lastCooldownOrgID         int64
-	lastCooldownSec           int32
-	lastCooldownFilter        []string
-	lastCooldownSiteIDs       []int64
-	activeDevicesCalls        int
-	lastActiveDevicesOrgID    int64
+	listCandidatesCalls        int
+	lastListCandidatesOrgID    int64
+	lastListCandidatesLimit    int32
+	lastListCandidatesFilter   []string
+	lastListCandidatesSiteIDs  []int64
+	lastListCandidateBuildings []int64
+	lastListCandidateRacks     []int64
+	lastListCandidateGroups    []int64
+	cooldownCalls              int
+	lastCooldownOrgID          int64
+	lastCooldownSec            int32
+	lastCooldownFilter         []string
+	lastCooldownSiteIDs        []int64
+	activeDevicesCalls         int
+	lastActiveDevicesOrgID     int64
 
 	// InsertEventWithTargets state. nextEventID is the synthetic id sequence
 	// returned to the service so plan.EventUUID is populated; Start tests
@@ -405,6 +416,9 @@ func newFakeStore() *fakeStore {
 		cooldownDevicesByOrg:         map[int64][]string{},
 		candidatesByOrg:              map[int64][]*models.Candidate{},
 		candidatesBySite:             map[int64]map[int64][]*models.Candidate{},
+		candidatesByBuilding:         map[int64]map[int64][]*models.Candidate{},
+		candidatesByRack:             map[int64]map[int64][]*models.Candidate{},
+		candidatesByGroup:            map[int64]map[int64][]*models.Candidate{},
 		sitesByOrg:                   map[int64]map[int64]bool{},
 		eventsByUUID:                 map[uuid.UUID]*models.Event{},
 		targetsByEventUUID:           map[uuid.UUID][]*models.Target{},
@@ -450,10 +464,15 @@ func (f *fakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bo
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	f.listCandidatesCalls++
 	f.lastListCandidatesOrgID = params.OrgID
+	f.lastListCandidatesLimit = params.ResultLimit
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
+	f.lastListCandidateBuildings = append([]int64(nil), params.BuildingIDs...)
+	f.lastListCandidateRacks = append([]int64(nil), params.RackIDs...)
+	f.lastListCandidateGroups = append([]int64(nil), params.GroupIDs...)
 	allCandidates := f.candidatesByOrg[params.OrgID]
-	if len(params.SiteIDs) == 0 && len(params.DeviceIdentifiers) == 0 {
+	if len(params.SiteIDs) == 0 && len(params.BuildingIDs) == 0 && len(params.RackIDs) == 0 &&
+		len(params.GroupIDs) == 0 && len(params.DeviceIdentifiers) == 0 {
 		return allCandidates, nil
 	}
 	seen := map[string]struct{}{}
@@ -473,6 +492,21 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 			appendCandidate(candidate)
 		}
 	}
+	for _, buildingID := range params.BuildingIDs {
+		for _, candidate := range f.candidatesByBuilding[params.OrgID][buildingID] {
+			appendCandidate(candidate)
+		}
+	}
+	for _, rackID := range params.RackIDs {
+		for _, candidate := range f.candidatesByRack[params.OrgID][rackID] {
+			appendCandidate(candidate)
+		}
+	}
+	for _, groupID := range params.GroupIDs {
+		for _, candidate := range f.candidatesByGroup[params.OrgID][groupID] {
+			appendCandidate(candidate)
+		}
+	}
 	if len(params.DeviceIdentifiers) == 0 {
 		return out, nil
 	}
@@ -486,6 +520,14 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeStore) ResolveCurtailmentTopologyScope(
+	_ context.Context,
+	params interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	f.lastTopologyFilter = params
+	return f.topologyCoverage, f.topologyCoverageErr
 }
 
 // --- panic stubs for methods Preview / Start do not exercise; Stop tests
@@ -1201,19 +1243,98 @@ func TestService_Preview_RejectsZeroOrNegativeTarget(t *testing.T) {
 
 // --- scope resolution ---
 
-func TestService_Preview_TopologyScopeIsUnimplementedUntilResolverLands(t *testing.T) {
+func TestService_Preview_TopologyScopesResolveCandidatesAndCooldowns(t *testing.T) {
 	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scope     Scope
+		seed      func(*fakeStore, int64, *models.Candidate)
+		assertIDs func(*testing.T, *fakeStore)
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+			assertIDs: func(t *testing.T, store *fakeStore) {
+				assert.Equal(t, []int64{7}, store.lastListCandidateBuildings)
+			},
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+			assertIDs: func(t *testing.T, store *fakeStore) {
+				assert.Equal(t, []int64{8}, store.lastListCandidateRacks)
+			},
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+			assertIDs: func(t *testing.T, store *fakeStore) {
+				assert.Equal(t, []int64{9}, store.lastListCandidateGroups)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validRequest(orgID)
+			req.Scope = tc.scope
+			req.PostEventCooldownSec = 60
+
+			_, err := svc.Preview(t.Context(), req)
+
+			require.NoError(t, err)
+			tc.assertIDs(t, store)
+			assert.Equal(t, orgID, store.lastTopologyFilter.OrgID)
+			assert.Equal(t, []string{tc.name + "-miner"}, store.lastCooldownFilter)
+			assert.Empty(t, store.lastListCandidatesSiteIDs)
+			assert.Empty(t, store.lastListCandidatesFilter)
+		})
+	}
+}
+
+func TestService_Preview_RejectsTopologyExpansionOverResolvedMinerLimit(t *testing.T) {
+	t.Parallel()
+
 	const orgID = int64(1)
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{
+		7: make([]*models.Candidate, ScopeResolvedMinerMax+1),
+	}
+	for i := range store.candidatesByBuilding[orgID][7] {
+		store.candidatesByBuilding[orgID][7][i] = minerWithEff(fmt.Sprintf("miner-%05d", i), 3000, 100, 30)
+	}
 	svc := NewService(store)
 	req := validRequest(orgID)
-	req.Scope = Scope{SchemaVersion: 1, BuildingIDs: []int64{7}}
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+
 	_, err := svc.Preview(t.Context(), req)
+
 	require.Error(t, err)
-	// Topology scope is reported via UnimplementedError; the handler maps
-	// fleeterror codes to Connect codes elsewhere.
-	assert.Contains(t, err.Error(), "building, rack, and group")
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeResourceExhausted, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "more than 10000 miners")
+	assert.Equal(t, int32(ScopeResolvedMinerMax+1), store.lastListCandidatesLimit)
+	assert.Zero(t, store.cooldownCalls)
 }
 
 func TestService_Preview_DeviceListScopePassesFilterToStore(t *testing.T) {

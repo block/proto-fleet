@@ -100,3 +100,5 @@ postgresql:
     - hostssl all postgres ${HA_DB_B_IP}/32 scram-sha-256
     - hostssl all fleet ${HA_DB_A_IP}/32 scram-sha-256
     - hostssl all fleet ${HA_DB_B_IP}/32 scram-sha-256
+    - hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl fleet grafana_ha_ro ${HA_DB_B_IP}/32 scram-sha-256

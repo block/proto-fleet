@@ -18,6 +18,16 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Couldn't log in");
   });
 
+  it("identifies break-glass resets and their target", () => {
+    const entry = create(ActivityEntrySchema, {
+      eventType: "cli_reset_password",
+      description: "Break-glass SUPER_ADMIN password reset",
+      metadata: { target_username: "owner" },
+    });
+
+    expect(formatActivityDescription(entry)).toBe("Break-glass password reset for owner");
+  });
+
   it("uses metadata to avoid backend IDs in site and building descriptions", () => {
     const siteEntry = create(ActivityEntrySchema, {
       eventType: "site.created",
@@ -125,6 +135,9 @@ describe("formatActivityDescription", () => {
     const child = create(ActivityEntrySchema, {
       eventType: "rollout_child.paused",
       description: "Paused rollout child",
+      parentRolloutId: "parent-1",
+      childRolloutId: "child-1",
+      modelIdentityKey: "v1:5:proto:5:alpha",
       manufacturer: "Proto",
       model: "Alpha",
       metadata: {
@@ -138,6 +151,14 @@ describe("formatActivityDescription", () => {
 
     expect(formatActivityDescription(parent)).toBe("Started rollout for 2 models");
     expect(formatActivityDescription(child)).toBe("Paused Proto Alpha rollout");
+
+    const identityOnly = create(ActivityEntrySchema, {
+      eventType: "rollout_child.resumed",
+      description: "Resumed rollout child",
+      modelIdentityKey: "v1:5:proto:4:beta",
+      metadata: { model_identity_key: "stale-identity" },
+    });
+    expect(formatActivityDescription(identityOnly)).toBe("Resumed v1:5:proto:4:beta rollout");
   });
 });
 

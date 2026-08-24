@@ -74,6 +74,8 @@ WHERE a.organization_id = sqlc.arg('org_id')
             a.metadata->>'manufacturer',
             a.metadata->>'model',
             a.metadata->>'model_identity_key',
+            a.metadata->>'parent_id',
+            a.metadata->>'child_id',
             a.metadata->>'parent_rollout_id',
             a.metadata->>'child_rollout_id'
         ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'
@@ -150,6 +152,8 @@ WHERE a.organization_id = sqlc.arg('org_id')
             a.metadata->>'manufacturer',
             a.metadata->>'model',
             a.metadata->>'model_identity_key',
+            a.metadata->>'parent_id',
+            a.metadata->>'child_id',
             a.metadata->>'parent_rollout_id',
             a.metadata->>'child_rollout_id'
         ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'

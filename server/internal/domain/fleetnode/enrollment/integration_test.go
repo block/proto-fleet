@@ -77,9 +77,10 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
 	signature := ed25519.Sign(privKey, challenge)
-	sessionToken, _, err := auth.CompleteHandshake(ctx, challenge, signature)
+	sessionToken, sessionExpiresAt, authenticatedFleetNodeID, err := auth.CompleteHandshake(ctx, challenge, signature)
 	require.NoError(t, err)
 	require.NotEmpty(t, sessionToken)
+	require.Equal(t, agent.ID, authenticatedFleetNodeID)
 
 	// Act 5: session resolves to the same agent
 	resolved, err := auth.ResolveSession(ctx, sessionToken)
@@ -89,6 +90,7 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	require.Equal(t, agent.ID, resolved.FleetNodeID)
 	require.Equal(t, orgID, resolved.OrgID)
 	require.Equal(t, "agent-1", resolved.Name)
+	require.WithinDuration(t, sessionExpiresAt, resolved.SessionExpiresAt, time.Microsecond)
 }
 
 func TestRegisterRejectsReplay(t *testing.T) {
@@ -136,11 +138,11 @@ func TestCompleteHandshakeRejectsReplayedChallenge(t *testing.T) {
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
 	signature := ed25519.Sign(privKey, challenge)
-	_, _, err = auth.CompleteHandshake(ctx, challenge, signature)
+	_, _, _, err = auth.CompleteHandshake(ctx, challenge, signature)
 	require.NoError(t, err)
 
 	// Act
-	_, _, err2 := auth.CompleteHandshake(ctx, challenge, signature)
+	_, _, _, err2 := auth.CompleteHandshake(ctx, challenge, signature)
 
 	// Assert
 	require.Error(t, err2, "second CompleteHandshake with the same challenge must fail")
@@ -403,7 +405,7 @@ func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 	for _, sc := range signedChallenges {
 		go func(sc signed) {
 			defer wg.Done()
-			_, _, _ = auth.CompleteHandshake(ctx, sc.challenge, sc.sig)
+			_, _, _, _ = auth.CompleteHandshake(ctx, sc.challenge, sc.sig)
 		}(sc)
 	}
 	wg.Wait()
@@ -427,7 +429,7 @@ func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, agent.ID, orgID))
 
 	// Act
-	_, _, completeErr := auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
+	_, _, _, completeErr := auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
 
 	// Assert
 	require.Error(t, completeErr)

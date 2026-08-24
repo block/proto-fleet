@@ -3,6 +3,11 @@ import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeSelectionCount,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   CurtailmentMode,
   CurtailmentPriority,
   FixedKwParamsSchema,
@@ -12,10 +17,7 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import {
-  buildCurtailmentScopes,
-  buildForceInclusionFields,
-} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { buildForceInclusionFields } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -34,6 +36,9 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "siteSelection"
   | "siteId"
   | "siteIds"
+  | "buildingTargetIds"
+  | "rackTargetIds"
+  | "groupTargetIds"
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "minerSelectionMode"
@@ -119,6 +124,9 @@ function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): Curtai
   return {
     ...values,
     siteIds: values.siteIds ? [...values.siteIds] : undefined,
+    buildingTargetIds: values.buildingTargetIds ? [...values.buildingTargetIds] : undefined,
+    rackTargetIds: values.rackTargetIds ? [...values.rackTargetIds] : undefined,
+    groupTargetIds: values.groupTargetIds ? [...values.groupTargetIds] : undefined,
     deviceSetIds: [...values.deviceSetIds],
     deviceIdentifiers: [...values.deviceIdentifiers],
   };
@@ -141,6 +149,7 @@ export function buildPreviewCurtailmentPlanRequest(
     // subsequent Start will actually target.
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
+      scopeSchemaVersion: curtailmentScopeSchemaVersion,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
       ...buildForceInclusionFields(values),
@@ -155,6 +164,7 @@ export function buildPreviewCurtailmentPlanRequest(
 
   return create(PreviewCurtailmentPlanRequestSchema, {
     scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
     modeParams: {
@@ -211,6 +221,7 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
         ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
         : `${selectedSiteIds.length} selected sites`;
   const siteLabel = `from ${selectedSiteLabel}`;
+  const canonicalScopeCount = getCurtailmentScopeSelectionCount(values) ?? 0;
   if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
     return formatSelectedMinerScopeLabel(selectedMinerCount);
   }
@@ -219,6 +230,12 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
   }
 
   switch (values.scopeType) {
+    case "building":
+      return formatSelectedScopeLabel(canonicalScopeCount, "building");
+    case "rack":
+      return formatSelectedScopeLabel(canonicalScopeCount, "rack");
+    case "group":
+      return formatSelectedScopeLabel(canonicalScopeCount, "group");
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
@@ -399,6 +416,9 @@ export function useCurtailmentPlanPreview({
       siteSelection: values.siteSelection,
       siteId: values.siteId,
       siteIds: values.siteIds,
+      buildingTargetIds: values.buildingTargetIds,
+      rackTargetIds: values.rackTargetIds,
+      groupTargetIds: values.groupTargetIds,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       minerSelectionMode: values.minerSelectionMode,
@@ -410,13 +430,16 @@ export function useCurtailmentPlanPreview({
       forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
     [
+      values.buildingTargetIds,
       values.deviceSetIds,
       values.deviceIdentifiers,
+      values.groupTargetIds,
       values.minerSelectionMode,
       values.curtailmentMode,
       values.includeMaintenance,
       values.forceIncludeAllPairedMiners,
       values.priority,
+      values.rackTargetIds,
       values.scopeId,
       values.siteSelection,
       values.siteId,

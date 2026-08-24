@@ -783,7 +783,7 @@ function getActiveCurtailmentStatusIcon({
     return <Success className="text-core-primary-fill" />;
   }
 
-  return <ProgressCircular indeterminate className="text-core-primary-fill" />;
+  return <ProgressCircular indeterminate />;
 }
 
 export default function ActiveCurtailmentStatus({

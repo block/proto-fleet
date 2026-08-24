@@ -11,9 +11,9 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
 -- name: LockCurtailmentResponseProfileAutomationMutation :exec
--- Serializes profile fan changes with automation create/update/enable. Both
--- sides re-read their compatibility condition after acquiring this lock so a
--- concurrent pair cannot commit an automation binding to a fan profile.
+-- Serializes profile changes with automation create/update/enable. Both sides
+-- re-read their compatibility conditions after acquiring this lock so a
+-- concurrent pair cannot commit an invalid automation binding.
 SELECT pg_advisory_xact_lock(
     hashtextextended(
         'curtailment_response_profile_automation:'
@@ -32,6 +32,15 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 ORDER BY device_identifier;
 
+-- name: LockCurtailmentResponseProfileDeviceSitesByOrg :many
+SELECT device_identifier, site_id
+FROM device
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+ORDER BY device_identifier
+FOR UPDATE;
+
 -- name: ListResponseProfileInfrastructureDevicesByOrg :many
 SELECT id, site_id, enabled
 FROM infrastructure_device
@@ -46,6 +55,7 @@ INSERT INTO curtailment_response_profile (
     profile_name,
     site_id,
     scope_json,
+    authorization_envelope_jsonb,
     mode,
     strategy,
     level,
@@ -68,6 +78,7 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('profile_name'),
     sqlc.narg('site_id'),
     sqlc.arg('scope_json'),
+    sqlc.arg('authorization_envelope_jsonb'),
     sqlc.arg('mode'),
     sqlc.arg('strategy'),
     sqlc.arg('level'),
@@ -94,6 +105,7 @@ SET
     profile_name = sqlc.arg('profile_name'),
     site_id = sqlc.narg('site_id'),
     scope_json = sqlc.arg('scope_json'),
+    authorization_envelope_jsonb = sqlc.arg('authorization_envelope_jsonb'),
     mode = sqlc.arg('mode'),
     strategy = sqlc.arg('strategy'),
     level = sqlc.arg('level'),
@@ -126,6 +138,7 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
   AND scope_json = sqlc.arg('expected_scope_json')::jsonb
+  AND authorization_envelope_jsonb = sqlc.arg('expected_authorization_envelope_json')::jsonb
   AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]
   AND fan_off_delay_sec = sqlc.arg('expected_fan_off_delay_sec')
   AND fan_restore_delay_sec = sqlc.arg('expected_fan_restore_delay_sec');

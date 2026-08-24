@@ -3,10 +3,11 @@ import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
-  createDeviceCurtailmentScope,
-  createSiteCurtailmentScope,
-  createWholeOrgCurtailmentScope,
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
+  getCurtailmentTerminalScope,
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
@@ -16,7 +17,6 @@ import {
   CurtailmentLevel,
   CurtailmentMode,
   CurtailmentPriority,
-  type CurtailmentScope,
   CurtailmentStrategy,
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
@@ -32,9 +32,10 @@ import {
   immediateRestoreBatchSize,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import type {
-  ResponseProfile,
-  ResponseProfileFormValues,
+import {
+  isResponseProfileAutomationReady,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -67,10 +68,37 @@ interface UseCurtailmentResponseProfilesOptions {
 
 type ResponseProfileScopeValues = Pick<
   ResponseProfileFormValues,
-  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers" | "minerSelectionMode"
+  | "siteSelection"
+  | "siteId"
+  | "siteName"
+  | "siteIds"
+  | "siteNamesById"
+  | "buildingTargetIds"
+  | "rackTargetIds"
+  | "groupTargetIds"
+  | "deviceIdentifiers"
+  | "minerSelectionMode"
 > & {
+  scopeType?: ResponseProfileFormValues["scopeType"];
   readOnlyScopeSummary?: string;
 };
+
+function getUnknownResponseProfileScopeValues(): ResponseProfileScopeValues {
+  return {
+    scopeType: undefined,
+    siteSelection: "none",
+    siteId: "",
+    siteName: "",
+    siteIds: [],
+    siteNamesById: {},
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+    readOnlyScopeSummary: "Unknown scope",
+  };
+}
 
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
@@ -135,25 +163,29 @@ function getResponseProfileSiteNamesById(
 }
 
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const terminalScope = getCurtailmentTerminalScope(values);
+  if (terminalScope === undefined) {
+    throw new Error("Select a curtailment target scope.");
+  }
+  const scopeFields = getCurtailmentScopeFormFields(terminalScope);
+  const siteIds = scopeFields.siteIds;
   const siteId = siteIds[0] ?? "";
-  const siteSelection = hasAllMinersSelected
-    ? "allSites"
-    : values.siteSelection === "allSites"
+  const siteSelection =
+    scopeFields.scopeType === "wholeOrg"
       ? "allSites"
-      : siteIds.length > 0
-        ? "site"
-        : "none";
+      : values.siteSelection === "allSites" && scopeFields.scopeType === "site"
+        ? "allSites"
+        : siteIds.length > 0
+          ? "site"
+          : "none";
 
   return {
     ...values,
     facilityFanDeviceIds: [...new Set(values.facilityFanDeviceIds ?? [])],
     fanOffDelaySec: values.fanOffDelaySec?.trim() ?? "",
     fanRestoreDelaySec: values.fanRestoreDelaySec?.trim() ?? "",
-    deviceIdentifiers: hasAllMinersSelected
-      ? []
-      : [...new Set(values.deviceIdentifiers.map((identifier) => identifier.trim()).filter(Boolean))],
+    ...scopeFields,
+    minerSelectionMode: scopeFields.scopeType === "wholeOrg" ? "all" : "subset",
     siteSelection,
     siteId,
     siteIds,
@@ -176,8 +208,11 @@ function getResponseProfileSiteName(
 
 function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameById?: SiteNameById): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
-  const scopeValues = getApiResponseProfileScopeValues(profile, cachedFormValues, siteNameById);
-  const { readOnlyScopeSummary, siteId, siteName, siteIds, siteNamesById } = scopeValues;
+  const { readOnlyScopeSummary, ...scopeFormValues } = getApiResponseProfileScopeValues(
+    profile,
+    cachedFormValues,
+    siteNameById,
+  );
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
@@ -190,51 +225,49 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
   const targetSummary =
     actionType === "fixedKwReduction" && fixedKw !== undefined ? `${formatKw(fixedKw)} kW target` : "100% reduction";
 
-  const formValues: ResponseProfileFormValues = {
-    name: profile.profileName,
-    actionType,
-    targetKw,
-    deviceIdentifiers: scopeValues.deviceIdentifiers,
-    minerSelectionMode: scopeValues.minerSelectionMode,
-    siteSelection: scopeValues.siteSelection,
-    siteId,
-    siteName,
-    siteIds,
-    siteNamesById,
-    selectionStrategy: "leastEfficientFirst",
-    restoreBehavior,
-    minDurationSec: "",
-    maxDurationSec: "",
-    curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
-    curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
-    restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
-    restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
-    facilityFanDeviceIds: profile.facilityFanDeviceIds.map((id) => id.toString()),
-    fanOffDelaySec: numberToNonNegativeInputValue(profile.fanOffDelaySec),
-    fanRestoreDelaySec: numberToNonNegativeInputValue(profile.fanRestoreDelaySec),
-    responseDeadlineMinutes,
-    includeMaintenance: profile.includeMaintenance,
-    forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
-  };
+  const formValues: ResponseProfileFormValues | undefined = scopeFormValues.scopeType
+    ? {
+        name: profile.profileName,
+        actionType,
+        ...scopeFormValues,
+        scopeType: scopeFormValues.scopeType,
+        targetKw,
+        selectionStrategy: "leastEfficientFirst",
+        restoreBehavior,
+        minDurationSec: "",
+        maxDurationSec: "",
+        curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
+        curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
+        restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
+        restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
+        facilityFanDeviceIds: profile.facilityFanDeviceIds.map((id) => id.toString()),
+        fanOffDelaySec: numberToNonNegativeInputValue(profile.fanOffDelaySec),
+        fanRestoreDelaySec: numberToNonNegativeInputValue(profile.fanRestoreDelaySec),
+        responseDeadlineMinutes,
+        includeMaintenance: profile.includeMaintenance,
+        forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
+      }
+    : undefined;
   const mergedFormValues =
-    cachedFormValues && !readOnlyScopeSummary
+    formValues && cachedFormValues && !readOnlyScopeSummary
       ? {
           ...formValues,
           ...cachedFormValues,
           name: profile.profileName,
-          siteSelection: scopeValues.siteSelection,
-          siteId,
-          siteName,
-          siteIds,
-          siteNamesById,
-          deviceIdentifiers: scopeValues.deviceIdentifiers,
-          minerSelectionMode: scopeValues.minerSelectionMode,
+          ...scopeFormValues,
           facilityFanDeviceIds: formValues.facilityFanDeviceIds,
           fanOffDelaySec: formValues.fanOffDelaySec,
           fanRestoreDelaySec: formValues.fanRestoreDelaySec,
         }
       : formValues;
-  const scope = readOnlyScopeSummary ?? getResponseProfileScopeSummary(mergedFormValues, profile.mode);
+  let scope: string;
+  if (readOnlyScopeSummary) {
+    scope = readOnlyScopeSummary;
+  } else if (mergedFormValues) {
+    scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);
+  } else {
+    throw new Error("Response profile scope is required");
+  }
 
   return {
     id: profile.profileId.toString(),
@@ -246,6 +279,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
     isReadOnly: Boolean(readOnlyScopeSummary),
+    isAutomationReady: isResponseProfileAutomationReady(scopeFormValues.scopeType),
   };
 }
 
@@ -254,70 +288,50 @@ function getApiResponseProfileScopeValues(
   cachedFormValues?: ResponseProfileFormValues,
   siteNameById?: SiteNameById,
 ): ResponseProfileScopeValues {
-  let siteSelection: ResponseProfileFormValues["siteSelection"] = "none";
-  const siteIds: string[] = [];
-  const deviceIdentifiers: string[] = [];
-
-  if (profile.scopes.length > 0) {
-    const scope = parseCurtailmentTerminalScopes(profile.scopes);
-    if (scope.type === "wholeOrg") {
-      return {
-        siteSelection: "allSites",
-        siteId: "",
-        siteName: "",
-        siteIds: [],
-        siteNamesById: {},
-        deviceIdentifiers: [],
-        minerSelectionMode: "all",
-      };
-    }
-    if (scope.type === "site") {
-      siteSelection = "site";
-      siteIds.push(...scope.siteIds);
-    } else if (scope.type === "deviceIdentifiers") {
-      deviceIdentifiers.push(...scope.deviceIdentifiers);
-    } else {
-      return {
-        siteSelection: "none",
-        siteId: "",
-        siteName: "",
-        siteIds: [],
-        siteNamesById: {},
-        deviceIdentifiers: [],
-        minerSelectionMode: "subset",
-        readOnlyScopeSummary: getCurtailmentScopeSummary(scope, {
-          fallbackLabel: getResponseProfileScopeLabel(profile.mode),
-        }),
-      };
-    }
-  } else if (profile.site?.siteId) {
-    siteSelection = "site";
-    siteIds.push(profile.site.siteId.toString());
+  const profileSiteId = profile.site?.siteId;
+  if (profile.scopes.length === 0 && !profileSiteId) {
+    return getUnknownResponseProfileScopeValues();
   }
-  const uniqueSiteIds = [...new Set(siteIds)];
+
+  let terminalScope;
+  if (profile.scopes.length > 0) {
+    if (profile.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return getUnknownResponseProfileScopeValues();
+    }
+    try {
+      terminalScope = parseCurtailmentTerminalScopes(profile.scopes);
+    } catch {
+      return getUnknownResponseProfileScopeValues();
+    }
+  } else {
+    terminalScope = { type: "site" as const, siteIds: [profileSiteId?.toString() ?? ""] };
+  }
+  const scopeFields = getCurtailmentScopeFormFields(terminalScope);
+  let siteSelection: ResponseProfileFormValues["siteSelection"] =
+    scopeFields.scopeType === "wholeOrg" ? "allSites" : scopeFields.scopeType === "site" ? "site" : "none";
+  const siteIds = scopeFields.siteIds;
   if (
     cachedFormValues?.siteSelection === "allSites" &&
     siteSelection === "site" &&
-    hasSameStringSet(uniqueSiteIds, getSelectedResponseProfileSiteIds(cachedFormValues))
+    hasSameStringSet(siteIds, getSelectedResponseProfileSiteIds(cachedFormValues))
   ) {
     siteSelection = "allSites";
   }
-  const siteId = uniqueSiteIds[0] ?? "";
+  const siteId = siteIds[0] ?? "";
   const siteNamesById = Object.fromEntries(
-    uniqueSiteIds.map((currentSiteId) => [
+    siteIds.map((currentSiteId) => [
       currentSiteId,
       getResponseProfileSiteName(currentSiteId, cachedFormValues, siteNameById),
     ]),
   );
-
   return {
+    ...scopeFields,
     siteSelection,
     siteId,
     siteName: siteId ? siteNamesById[siteId] : "",
-    siteIds: uniqueSiteIds,
     siteNamesById,
-    deviceIdentifiers: [...new Set(deviceIdentifiers)],
-    minerSelectionMode: "subset",
+    minerSelectionMode: terminalScope.type === "wholeOrg" ? "all" : "subset",
+    readOnlyScopeSummary: undefined,
   };
 }
 
@@ -387,37 +401,14 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function getResponseProfileScopes(values: ResponseProfileFormValues): CurtailmentScope[] | undefined {
-  const siteIds = getSelectedResponseProfileSiteIds(values);
-  const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
-  if (values.minerSelectionMode === "all") {
-    return [createWholeOrgCurtailmentScope()];
-  }
-
-  const deviceIdentifiers = normalizeCurtailmentSelectionValues(values.deviceIdentifiers);
-  if (deviceIdentifiers.length > 0) {
-    return [createDeviceCurtailmentScope(deviceIdentifiers)];
-  }
-
-  if (siteSelection === "site" || siteSelection === "allSites") {
-    const scopes: CurtailmentScope[] = [];
-    for (const siteId of siteIds) {
-      if (!/^[1-9]\d*$/.test(siteId)) {
-        return undefined;
-      }
-      scopes.push(createSiteCurtailmentScope(BigInt(siteId)));
-    }
-    return scopes.length > 0 ? scopes : undefined;
-  }
-
-  return [createWholeOrgCurtailmentScope()];
-}
-
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
-  const scopes = getResponseProfileScopes(values);
-  // All-paired targeting requires a closed-loop scope (whole org or sites);
-  // the server rejects explicit-miner scopes. Enabling it also opts in
-  // maintenance-flagged miners, mirroring the Start request builders. The
+  const scopes = buildCurtailmentScopes(values);
+  if (scopes === undefined) {
+    throw new Error("Select a curtailment target scope.");
+  }
+  // All-paired targeting requires a logical scope; explicit miner snapshots
+  // remain unsupported. Enabling it also opts in maintenance-flagged miners,
+  // mirroring the Start request builders. The
   // proto validator requires include_maintenance == force_include_maintenance.
   //
   // The maintenance pair derives SOLELY from the all-paired flag: the form
@@ -428,11 +419,12 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   const forceIncludeAllPairedMiners =
     values.actionType === "fullFleet" &&
     Boolean(values.forceIncludeAllPairedMiners) &&
-    (scopes?.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site") ?? false);
+    scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
   const includeMaintenance = forceIncludeAllPairedMiners;
   return {
     profileName: values.name.trim(),
     scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,

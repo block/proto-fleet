@@ -241,8 +241,8 @@ func TestActivityLogs_RolloutModelMetadataSurvivesPersistenceAndSearch(t *testin
 		Result:      models.ResultSuccess,
 		ActorType:   models.ActorUser,
 		Metadata: map[string]any{
-			"parent_rollout_id":  parentID,
-			"child_rollout_id":   childID,
+			"parent_id":          parentID,
+			"child_id":           childID,
 			"model_identity_key": modelIdentityKey,
 			"manufacturer":       manufacturer,
 			"model":              model,
@@ -284,8 +284,8 @@ func TestActivityLogs_RolloutModelMetadataSurvivesPersistenceAndSearch(t *testin
 
 	var persisted map[string]any
 	require.NoError(t, json.Unmarshal(byType["rollout_child.started"].Metadata, &persisted))
-	assert.Equal(t, parentID, persisted["parent_rollout_id"])
-	assert.Equal(t, childID, persisted["child_rollout_id"])
+	assert.Equal(t, parentID, persisted["parent_id"])
+	assert.Equal(t, childID, persisted["child_id"])
 	assert.Equal(t, modelIdentityKey, persisted["model_identity_key"])
 	assert.Equal(t, manufacturer, persisted["manufacturer"])
 	assert.Equal(t, model, persisted["model"])
@@ -295,6 +295,8 @@ func TestActivityLogs_RolloutModelMetadataSurvivesPersistenceAndSearch(t *testin
 	var legacyMetadata map[string]any
 	require.NoError(t, json.Unmarshal(legacy.Metadata, &legacyMetadata))
 	assert.Equal(t, "legacy-rollout-id", legacyMetadata["rollout_id"])
+	assert.NotContains(t, legacyMetadata, "parent_id")
+	assert.NotContains(t, legacyMetadata, "child_id")
 	assert.NotContains(t, legacyMetadata, "parent_rollout_id")
 	assert.NotContains(t, legacyMetadata, "child_rollout_id")
 	assert.NotContains(t, legacyMetadata, "model_identity_key")

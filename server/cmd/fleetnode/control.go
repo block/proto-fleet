@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
@@ -45,10 +47,10 @@ const (
 	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
 	// make the ack itself invalid.
 	maxAckPayloadBytes = 1 << 20
-	// commandPoolSize bounds quick per-miner commands handled concurrently per
-	// session. Discovery does not draw from this pool; it has its own exclusive,
-	// single-flight slot (see runControlSession). Commands past the ceiling are
-	// acked BUSY.
+	// commandPoolSize bounds quick per-miner commands handled concurrently by
+	// the daemon across reconnects. Discovery does not draw from this pool; it
+	// has its own process-wide exclusive slot (see runControlSession). Commands
+	// past the ceiling are acked BUSY.
 	commandPoolSize = 16
 )
 
@@ -70,18 +72,36 @@ type acker interface {
 	Send(req *pb.ControlStreamRequest) error
 }
 
+var errControlSenderClosed = errors.New("control session sender closed")
+
+var (
+	errControlSessionRotated = errors.New("control session credentials rotated")
+	errControlSessionExpired = errors.New("control session credentials expired")
+)
+
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
 // serialize through this wrapper.
 type lockedAcker struct {
-	mu    sync.Mutex
-	inner acker
+	mu     sync.Mutex
+	inner  acker
+	closed atomic.Bool
 }
 
 func (l *lockedAcker) Send(req *pb.ControlStreamRequest) error {
+	if l.closed.Load() {
+		return errControlSenderClosed
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed.Load() {
+		return errControlSenderClosed
+	}
 	return l.inner.Send(req)
+}
+
+func (l *lockedAcker) Close() {
+	l.closed.Store(true)
 }
 
 type endpoint struct{ ip, port string }
@@ -98,6 +118,7 @@ func cmdErr(code pb.AckCode, format string, args ...any) *commandError {
 }
 
 func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, logger *slog.Logger) error {
+	r.initControlConcurrency()
 	loopLogger := logger.With("fleet_node_id", st.FleetNodeID)
 	backoff := controlReconnectInitial
 	// Per-loop rng so tests don't race on math/rand's global source.
@@ -109,7 +130,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 		default:
 		}
 		started := time.Now()
-		err := r.runControlSession(ctx, loopLogger, client)
+		err := r.runControlSession(ctx, loopLogger, client, st)
 		if err == nil {
 			return nil
 		}
@@ -121,10 +142,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			loopLogger.Info("control stream unimplemented by server; running heartbeat-only", "err", err)
 			return nil
 		}
-		if time.Since(started) > stableSessionThreshold {
-			backoff = controlReconnectInitial
-		}
-		sleep := min(backoff+time.Duration(rng.Int63n(int64(backoff/2)+1)), controlReconnectMax)
+		sleep, nextBackoff := controlReconnectDelay(err, time.Since(started), backoff, rng)
 		loopLogger.Warn("control stream disconnected; will reconnect", "backoff", sleep.String(), "err", err)
 		timer := time.NewTimer(sleep)
 		select {
@@ -133,12 +151,50 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			return nil
 		case <-timer.C:
 		}
-		backoff = min(backoff*2, controlReconnectMax)
+		backoff = nextBackoff
 	}
 }
 
-func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient) error {
-	stream := client.ControlStream(ctx)
+func controlReconnectDelay(err error, sessionDuration, backoff time.Duration, rng *rand.Rand) (time.Duration, time.Duration) {
+	if isNotActiveControlError(err) {
+		return jitterControlReconnect(controlReconnectInitial, rng), controlReconnectInitial
+	}
+	if sessionDuration > stableSessionThreshold {
+		backoff = controlReconnectInitial
+	}
+	return jitterControlReconnect(backoff, rng), min(backoff*2, controlReconnectMax)
+}
+
+func jitterControlReconnect(backoff time.Duration, rng *rand.Rand) time.Duration {
+	return min(backoff+time.Duration(rng.Int63n(int64(backoff/2)+1)), controlReconnectMax)
+}
+
+func isNotActiveControlError(err error) bool {
+	if connect.CodeOf(err) != connect.CodeUnavailable {
+		return false
+	}
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	for _, detail := range connectErr.Details() {
+		value, valueErr := detail.Value()
+		if valueErr != nil {
+			continue
+		}
+		fleetDetails, ok := value.(*commonpb.FleetErrorDetails)
+		if ok && fleetDetails.GetCommon() == commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient, st *bootstrap.State) error {
+	r.initControlConcurrency()
+	credentialCtx, endSession := r.beginControlSession(ctx, st)
+	defer endSession()
+	stream := client.ControlStream(credentialCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -148,7 +204,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-ctx.Done():
+		case <-credentialCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
@@ -156,10 +212,22 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while sending hello: %w", cause)
+		}
 		return fmt.Errorf("send hello: %w", err)
 	}
 	first, err := stream.Receive()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
+		}
 		return fmt.Errorf("await accepted: %w", err)
 	}
 	if first.GetAccepted() == nil {
@@ -170,35 +238,34 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(ctx)
-	defer cancelSession()
+	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
+	defer func() {
+		cancelSession()
+		sender.Close()
+	}()
 
-	// Two lanes per session:
-	//   - discovery (and the pairing effort's future pair) is a heavy, report-bearing
-	//     scan; it is single-flight per node via an exclusive slot, so a second
-	//     concurrent discovery is rejected BUSY rather than doubling the scan load.
+	// Two process-wide lanes owned by RunCmd:
+	//   - discovery and pairing are heavy, report-bearing scans that share an
+	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
+	//     doubling the load.
 	//   - quick per-miner commands use a broader pool, so they run concurrently and a
 	//     long discovery never head-of-line-blocks them.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
 	// drops behind in-flight work, so at capacity we ack BUSY.
-	discoverySlot := make(chan struct{}, 1)
-	cmdSem := make(chan struct{}, commandPoolSize)
-	var wg sync.WaitGroup
-	defer func() {
-		cancelSession() // cancel every in-flight handler's ctx
-		wg.Wait()       // drain: handlers ack or abort fast on the cancelled ctx
-	}()
-
 	for {
 		msg, err := stream.Receive()
 		if err != nil {
-			// Watcher closed the stream because ctx is done; clean shutdown.
+			// Parent cancellation is daemon shutdown. Credential rotation or expiry
+			// retires only this stream so the reconnect loop can open a replacement.
 			if ctx.Err() != nil {
 				return nil
+			}
+			if cause := context.Cause(credentialCtx); cause != nil {
+				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return fmt.Errorf("control stream closed by server: %w", err)
@@ -213,17 +280,17 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		slot := cmdSem
+		slot := r.controlCommandSlots
 		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
-			slot = discoverySlot
+			slot = r.controlDiscoverySlot
 		}
 		select {
 		case slot <- struct{}{}:
-			wg.Add(1)
+			r.controlWorkers.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments,
 			// including the acquired lane, so each goroutine releases the same lane.
 			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
-				defer wg.Done()
+				defer r.controlWorkers.Done()
 				defer func() { <-lane }()
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
 			}(cmd, env, parseErr, slot)
@@ -234,10 +301,32 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}
 }
 
+func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
+	r.stateMu.Lock()
+	expiresAt := st.SessionExpiresAt
+
+	deadlineCtx := parent
+	cancelDeadline := func() {}
+	if !expiresAt.IsZero() {
+		deadlineCtx, cancelDeadline = context.WithDeadlineCause(parent, expiresAt, errControlSessionExpired)
+	}
+	sessionCtx, cancelSession := context.WithCancelCause(deadlineCtx)
+	r.controlSessionCancel = cancelSession
+	r.stateMu.Unlock()
+
+	return sessionCtx, func() {
+		cancelSession(context.Canceled)
+		cancelDeadline()
+		r.stateMu.Lock()
+		r.controlSessionCancel = nil
+		r.stateMu.Unlock()
+	}
+}
+
 // decodeAgentCommand unmarshals the ControlCommand.payload envelope. The receive loop
 // decodes once and hands the result to handleCommand so the payload is parsed a single
-// time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
-// kind that takes the exclusive single-flight slot; everything else, including a
+// time. Discovery and pairing are the heavy, report-bearing commands that take the
+// exclusive single-flight slot; everything else, including a
 // malformed payload, takes the per-miner command pool and is acked by handleCommand.
 func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	env := &pb.AgentCommand{}
@@ -570,7 +659,7 @@ func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckC
 		ErrorMessage: errMsg,
 		Code:         code,
 		Payload:      payload,
-	}}}); err != nil {
+	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}
 }

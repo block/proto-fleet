@@ -67,11 +67,12 @@ exposes only its buildings and their racks), but navigation ancestors are not
 submitted as selectors. Changing the terminal type replaces the previous
 miner scope, and duplicate labels include ancestor context.
 
-The builder supports Sites, Buildings, Racks, Groups, and Miners, while
-Infrastructure remains an explicit independent selection. Exact interactions
-and presentation follow the pending design without changing these semantics.
-Schedules keeps its existing multi-type target semantics; only reusable picker
-and filtering behavior is shared.
+The builder reuses the Schedules Apply-to presentation: ordered Sites,
+Buildings, Racks, Groups, and Miners rows open the corresponding multi-select
+picker, and each saved parent selection constrains the next child picker.
+Infrastructure remains an explicit independent selection. Schedules keeps its
+existing multi-type target semantics; only reusable picker and filtering
+behavior is shared.
 
 Resolve topology membership on the backend. Persist logical selectors for
 response profiles and closed-loop events; persist concrete targets for frozen
@@ -128,8 +129,12 @@ When an owned miner leaves scope or becomes unpaired:
   land before the final target-builder visuals are ready.
 - During that staged rollout, topology-scoped profiles remain visible but
   read-only in Settings and are excluded from the New curtailment profile
-  selector until the UI can rehydrate their terminal selector. No intermediate
-  adapter may synthesize Whole organization for an unsupported typed scope.
+  selector until the UI can rehydrate their terminal selector. Once the UI
+  lands, operators may preview and save topology scopes. Fixed-kW Run and Test
+  become available with frozen topology execution; FULL_FLEET Run/Test and
+  automation remain disabled until topology-following lifecycle support lands.
+  No intermediate adapter may synthesize Whole organization for an unsupported
+  typed scope.
 
 ### 2. Add the shared drill-down target builder
 

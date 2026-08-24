@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import {
+  buildCurtailmentScopes,
   type CurtailmentTerminalScope,
+  getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
+  isCurtailmentTopologyScopeType,
+  parseCurtailmentTargetId,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
+  type CurtailmentScope,
   CurtailmentScopeSchema,
   ScopeBuildingSchema,
   ScopeDeviceListSchema,
@@ -15,6 +20,29 @@ import {
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+
+function getTopologyScopeId(scope: CurtailmentScope): bigint | undefined {
+  switch (scope.scope.case) {
+    case "building":
+      return scope.scope.value.buildingId;
+    case "rack":
+      return scope.scope.value.rackId;
+    case "group":
+      return scope.scope.value.groupId;
+    default:
+      return undefined;
+  }
+}
+
+describe("parseCurtailmentTargetId", () => {
+  it.each(["42", " 0042 "])("parses positive decimal ID %j", (value) => {
+    expect(parseCurtailmentTargetId(value)).toBe(42n);
+  });
+
+  it.each([undefined, "", "0", "-1", "+42", "0x2a", "9223372036854775808"])("rejects invalid int64 ID %j", (value) => {
+    expect(parseCurtailmentTargetId(value)).toBeUndefined();
+  });
+});
 
 describe("parseCurtailmentTerminalScopes", () => {
   it("normalizes repeated selectors of one terminal type", () => {
@@ -84,6 +112,80 @@ describe("parseCurtailmentTerminalScopes", () => {
     );
 
     expect(parseCurtailmentTerminalScopes(scopes)).toEqual({ type: "group", groupIds: ["7", "8"] });
+  });
+});
+
+describe("isCurtailmentTopologyScopeType", () => {
+  const cases = [
+    ["building", true],
+    ["rack", true],
+    ["group", true],
+    ["site", false],
+    ["explicitMiners", false],
+    ["deviceIdentifiers", false],
+    ["wholeOrg", false],
+    [undefined, false],
+  ] as const;
+
+  it.each(cases)("classifies %s", (scopeType, expected) => {
+    expect(isCurtailmentTopologyScopeType(scopeType)).toBe(expected);
+  });
+});
+
+describe("buildCurtailmentScopes", () => {
+  it.each([
+    ["building", "buildingTargetIds", "building"],
+    ["rack", "rackTargetIds", "rack"],
+    ["group", "groupTargetIds", "group"],
+  ] as const)("builds deduplicated %s selectors", (scopeType, field, protoCase) => {
+    const scopes = buildCurtailmentScopes({
+      scopeType,
+      [field]: [" 7 ", "8", "7"],
+    });
+
+    expect(scopes?.map((scope) => scope.scope.case)).toEqual([protoCase, protoCase]);
+    expect(scopes?.map(getTopologyScopeId)).toEqual([7n, 8n]);
+  });
+
+  it("fails closed for missing, empty, legacy device-set, and invalid selectors", () => {
+    expect(buildCurtailmentScopes({})).toBeUndefined();
+    expect(buildCurtailmentScopes({ minerSelectionMode: "all" })).toBeUndefined();
+    expect(buildCurtailmentScopes({ scopeType: "building", buildingTargetIds: [] })).toBeUndefined();
+    expect(buildCurtailmentScopes({ scopeType: "rack", rackTargetIds: ["not-an-id"] })).toBeUndefined();
+    expect(buildCurtailmentScopes({ scopeType: "deviceSet" })).toBeUndefined();
+  });
+
+  it("keeps the terminal selector authoritative over retained navigation state", () => {
+    const scopes = buildCurtailmentScopes({
+      scopeType: "building",
+      buildingTargetIds: ["7"],
+      minerSelectionMode: "all",
+    });
+
+    expect(scopes?.map((scope) => scope.scope.case)).toEqual(["building"]);
+  });
+
+  it("deduplicates numeric selectors by parsed identity", () => {
+    const scopes = buildCurtailmentScopes({
+      scopeType: "rack",
+      rackTargetIds: ["7", "07", "007"],
+    });
+
+    expect(scopes).toHaveLength(1);
+    expect(scopes?.[0]?.scope.case).toBe("rack");
+  });
+});
+
+describe("getCurtailmentScopeFormFields", () => {
+  it("hydrates a terminal selector without retaining inactive IDs", () => {
+    expect(getCurtailmentScopeFormFields({ type: "group", groupIds: ["7", "8"] })).toEqual({
+      scopeType: "group",
+      siteIds: [],
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: ["7", "8"],
+      deviceIdentifiers: [],
+    });
   });
 });
 

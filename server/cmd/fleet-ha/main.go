@@ -8,12 +8,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
+	"golang.org/x/term"
 
+	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -31,6 +34,7 @@ type cli struct {
 	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
 	RenderKeepalived  renderKeepalivedCmd  `cmd:"" help:"render the keepalived configuration"`
 	Compose           composeCmd           `cmd:"" help:"run Docker Compose with the installed HA environment" passthrough:""`
+	ResetPassword     resetPasswordCmd     `cmd:"" name:"reset-password" help:"reset the sole SUPER_ADMIN password"`
 	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
 	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
 	Uninstall         uninstallCmd         `cmd:"" help:"remove the local HA runtime"`
@@ -87,6 +91,58 @@ func (c *renderKeepalivedCmd) Run() error {
 
 type composeCmd struct {
 	Args []string `arg:"" name:"compose-arg" help:"arguments passed to Docker Compose"`
+}
+
+type resetPasswordCmd struct {
+	PasswordStdin bool `help:"read the replacement password from standard input"`
+}
+
+func (c *resetPasswordCmd) Run(ctx context.Context) error {
+	// The wrapper enforces this too, but this binary is directly invocable:
+	// an interactive terminal would block without a prompt and echo the typed
+	// password in cleartext.
+	if c.PasswordStdin && term.IsTerminal(int(os.Stdin.Fd())) {
+		return errors.New("--password-stdin requires piped input; an interactive terminal would echo the password")
+	}
+	return runResetPassword(
+		ctx,
+		c.PasswordStdin,
+		os.Stdin,
+		os.Stdout,
+		authDomain.GenerateTemporaryPassword,
+		deployment.ResetSuperAdminPassword,
+	)
+}
+
+func runResetPassword(
+	ctx context.Context,
+	passwordStdin bool,
+	stdin io.Reader,
+	stdout io.Writer,
+	generatePassword func() (string, error),
+	reset func(context.Context, io.Reader) error,
+) error {
+	if passwordStdin {
+		return reset(ctx, stdin)
+	}
+
+	password, err := generatePassword()
+	if err != nil {
+		return fmt.Errorf("generate temporary password: %w", err)
+	}
+	if err := reset(ctx, strings.NewReader(password+"\n")); err != nil {
+		return err
+	}
+	// Unlike fleetd's informational status line, this write IS the credential
+	// delivery, so a failure must keep the nonzero exit -- but it must also say
+	// the reset already committed and how to recover.
+	if _, err := fmt.Fprintf(stdout, "Temporary password: %s\n", password); err != nil {
+		return fmt.Errorf(
+			"the reset already committed but the temporary password could not be delivered: %w; rerun recovery to issue a fresh temporary password",
+			err,
+		)
+	}
+	return nil
 }
 
 func (c *composeCmd) Run(ctx context.Context) error {

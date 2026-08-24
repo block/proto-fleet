@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 
+import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
 import {
   Alert,
@@ -27,6 +28,7 @@ export type ActivityIconTone = "default" | "critical";
 
 const alertEventTypes = new Set([
   "login_failed",
+  ALERT_FIRING_EVENT_TYPE,
   "between_channel_rollout_member.attention_required",
   "between_channel_rollout_member.membership_conflict",
 ]);
@@ -83,6 +85,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   update_username: Lock,
   deactivate_user: MinusFilled,
   reset_password: Lock,
+  cli_reset_password: Lock,
   update_user_role: Lock,
 
   stop_mining: Power,
@@ -116,6 +119,8 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   "between_channel_rollout_member.attention_required": Alert,
   "between_channel_rollout_member.cancelled": MinusFilled,
   "between_channel_rollout_member.membership_conflict": Alert,
+  [ALERT_FIRING_EVENT_TYPE]: Alert,
+  [ALERT_RESOLVED_EVENT_TYPE]: Alert,
 };
 
 export function getActivityIcon(eventType: string, result?: string): (props: IconProps) => ReactNode {

@@ -5,14 +5,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -21,8 +25,13 @@ import (
 
 const (
 	bundleFormatVersion = 1
-	publicCAName        = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize       = 2 << 20
+)
+
+var (
+	sshUsernamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+	releaseVersionPattern = regexp.MustCompile(`^(v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*|nightly-[0-9]{8}-[0-9a-f]{12})$`)
+	releaseCommitPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
 type clusterMetadata struct {
@@ -58,16 +67,19 @@ type hostIdentity struct {
 }
 
 type guidedInstallDependencies struct {
-	input           io.Reader
-	output          io.Writer
-	prompts         io.Writer
-	terminal        func() bool
-	sourceRoot      func() (string, error)
-	primaryIdentity func(context.Context, string) (hostIdentity, error)
-	interfaceForIP  func(string) (string, error)
-	makeExportDir   func(string) (string, error)
-	inspect         func(context.Context, string, NodeConfig) (installedDependencies, error)
-	install         func(context.Context, InstallOptions) error
+	input            io.Reader
+	output           io.Writer
+	prompts          io.Writer
+	terminal         func() bool
+	sourceRoot       func() (string, error)
+	primaryIdentity  func(context.Context, string) (hostIdentity, error)
+	interfaceForIP   func(string) (string, error)
+	makeExportDir    func() (string, error)
+	operatorUsername func() string
+	checkPeer        func(context.Context, string, string) error
+	transferBundle   func(context.Context, string, string, string) error
+	inspect          func(context.Context, string, NodeConfig) (installedDependencies, error)
+	install          func(context.Context, InstallOptions) error
 }
 
 // GuidedInstall prepares a new HA cluster when bundlePath is empty, or installs
@@ -95,8 +107,21 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			}
 			return hostIdentity{address: address, networkInterface: networkInterface}, nil
 		},
-		interfaceForIP: networkInterfaceForIP,
-		makeExportDir:  makeBundleExportDir,
+		interfaceForIP:   networkInterfaceForIP,
+		makeExportDir:    makeBundleExportDir,
+		operatorUsername: invokingUsername,
+		checkPeer: func(ctx context.Context, localUsername, target string) error {
+			return runSSH(ctx, localUsername, nil, target,
+				`command -v curl >/dev/null 2>&1 || { echo "curl is required for Proto Fleet HA installation" >&2; exit 1; }`)
+		},
+		transferBundle: func(ctx context.Context, localUsername, target, bundlePath string) error {
+			bundle, err := os.Open(bundlePath)
+			if err != nil {
+				return fmt.Errorf("open host bundle: %w", err)
+			}
+			defer bundle.Close()
+			return runSSH(ctx, localUsername, bundle, target, remoteBundleInstallCommand)
+		},
 		inspect: func(ctx context.Context, source string, config NodeConfig) (installedDependencies, error) {
 			host := hostEnvironment{
 				goos: runtime.GOOS, localIPs: localAddresses, interfacePrefixes: interfaceIPv4Prefixes,
@@ -115,9 +140,6 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 }
 
 func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDependencies) error {
-	if !deps.terminal() {
-		return errors.New("fleet-ha install requires an interactive terminal; use ssh -t HOST 'fleet-ha install [HOST_BUNDLE]'")
-	}
 	source, err := deps.sourceRoot()
 	if err != nil {
 		return err
@@ -126,10 +148,13 @@ func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDep
 	if err != nil {
 		return err
 	}
-	scanner := bufio.NewScanner(deps.input)
 	if bundlePath != "" {
-		return installPreparedHost(ctx, source, bundlePath, release, scanner, true, deps)
+		return installPreparedHost(ctx, source, bundlePath, release, false, deps)
 	}
+	if !deps.terminal() {
+		return errors.New("fleet-ha install requires an interactive terminal; use ssh -t HOST 'fleet-ha install'")
+	}
+	scanner := bufio.NewScanner(deps.input)
 	return prepareAndInstallCluster(ctx, source, release, scanner, deps)
 }
 
@@ -144,6 +169,14 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	}
 	if metadata.VirtualIP, err = readPrompt(scanner, deps.prompts, "Virtual IPv4 address: "); err != nil {
 		return err
+	}
+	localUsername := deps.operatorUsername()
+	peerUsername, err := readPromptWithDefault(scanner, deps.prompts, "Peer SSH username", localUsername)
+	if err != nil {
+		return err
+	}
+	if !sshUsernamePattern.MatchString(peerUsername) {
+		return errors.New("peer SSH username contains unsupported characters")
 	}
 	identity, err := deps.primaryIdentity(ctx, metadata.DatabaseBIP)
 	if err != nil {
@@ -179,33 +212,58 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := writeInstallerOutput(deps.output, "[bundle generation] Creating protected host bundles...\n"); err != nil {
 		return err
 	}
-	exportDir, err := deps.makeExportDir(source)
+	exportDir, err := deps.makeExportDir()
 	if err != nil {
 		return err
 	}
 	if err := prepareInstallBundles(exportDir, metadata); err != nil {
 		return fmt.Errorf("bundle generation failed; partial exports remain at %s: %w", exportDir, err)
 	}
-	if err := printBundleCopyCommand(deps.output, exportDir, metadata.DatabaseAIP); err != nil {
+	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
+	bundle, err := readHostBundle(haABundle)
+	if err != nil {
+		return fmt.Errorf("read generated ha-a bundle; bundle exports remain at %s: %w", exportDir, err)
+	}
+	fingerprint, err := serviceCAFingerprint(bundle.Secrets["service-ca.crt"])
+	if err != nil {
+		return fmt.Errorf("fingerprint public service CA; bundle exports remain at %s: %w", exportDir, err)
+	}
+	if err := writeInstallerOutput(deps.output, "Public service CA SHA-256 fingerprint: %s\n", fingerprint); err != nil {
 		return err
 	}
-	if err := requireAcknowledgement(scanner, deps.prompts, "Type COPIED after the command succeeds: ", "COPIED"); err != nil {
-		return fmt.Errorf("bundle exports remain at %s: %w", exportDir, err)
+	peers := []struct {
+		role    string
+		address string
+	}{
+		{role: "ha-b", address: metadata.DatabaseBIP},
+		{role: "ha-c", address: metadata.WitnessIP},
+	}
+	for _, peer := range peers {
+		target := peerUsername + "@" + peer.address
+		if err := deps.checkPeer(ctx, localUsername, target); err != nil {
+			return fmt.Errorf("connect to %s for %s; bundle exports remain at %s: %w", target, peer.role, exportDir, err)
+		}
+	}
+	for _, peer := range peers {
+		target := peerUsername + "@" + peer.address
+		bundlePath := filepath.Join(exportDir, hostBundleName(peer.role))
+		if err := deps.transferBundle(ctx, localUsername, target, bundlePath); err != nil {
+			return fmt.Errorf("transfer %s bundle to %s; bundle exports remain at %s: %w", peer.role, target, exportDir, err)
+		}
+	}
+
+	if err := installPreparedHost(ctx, source, haABundle, release, true, deps); err != nil {
+		return err
 	}
 	if err := removeCopiedExports(exportDir); err != nil {
 		return err
 	}
-
-	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
-	if err := installPreparedHost(ctx, source, haABundle, release, scanner, false, deps); err != nil {
-		return err
-	}
 	_ = os.Remove(exportDir)
-	return nil
+	return printPeerInstallCommands(deps.output, peerUsername, metadata)
 }
 
-func makeBundleExportDir(source string) (string, error) {
-	dir, err := os.MkdirTemp(filepath.Dir(source), "proto-fleet-ha-bundles-")
+func makeBundleExportDir() (string, error) {
+	dir, err := os.MkdirTemp("", "proto-fleet-ha-bundles-")
 	if err != nil {
 		return "", fmt.Errorf("create protected bundle export directory: %w", err)
 	}
@@ -221,7 +279,7 @@ func makeBundleExportDir(source string) (string, error) {
 	return absoluteDir, nil
 }
 
-func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, scanner *bufio.Scanner, confirm bool, deps guidedInstallDependencies) error {
+func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, skipPreflight bool, deps guidedInstallDependencies) error {
 	bundle, err := readHostBundle(bundlePath)
 	if err != nil {
 		return err
@@ -250,7 +308,7 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err != nil {
 		return err
 	}
-	if confirm {
+	if !skipPreflight {
 		if err := writeInstallerOutput(deps.output, "[validation] Checking the bundle, release, network, and dedicated host...\n"); err != nil {
 			return err
 		}
@@ -259,9 +317,6 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 			return err
 		}
 		if err := printInstallSummary(deps.prompts, bundle.Metadata, networkInterface, installed); err != nil {
-			return err
-		}
-		if err := requireAcknowledgement(scanner, deps.prompts, "Type INSTALL to continue: ", "INSTALL"); err != nil {
 			return err
 		}
 	}
@@ -349,12 +404,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 		}
 	}
 
-	publicCA, err := os.ReadFile(filepath.Join(secretsRoot, "offline", "service-ca.crt"))
-	if err != nil {
-		return fmt.Errorf("read generated service CA: %w", err)
-	}
-	publicCAPath := filepath.Join(exportDir, publicCAName)
-	return writeFile(publicCAPath, publicCA, 0o644)
+	return nil
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
@@ -404,6 +454,20 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 		return preparedHostBundle{}, errors.New("host bundle rejected: etcd root password is only valid for ha-a")
 	}
 	return bundle, nil
+}
+
+func serviceCAFingerprint(contents []byte) (string, error) {
+	block, _ := pem.Decode(contents)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return "", errors.New("host bundle contains an invalid public service CA")
+	}
+	digest := sha256.Sum256(block.Bytes)
+	encoded := strings.ToUpper(hex.EncodeToString(digest[:]))
+	pairs := make([]string, 0, len(encoded)/2)
+	for index := 0; index < len(encoded); index += 2 {
+		pairs = append(pairs, encoded[index:index+2])
+	}
+	return strings.Join(pairs, ":"), nil
 }
 
 func validateBundleMetadata(metadata bundleMetadata) error {
@@ -457,7 +521,7 @@ func readReleaseIdentity(path string) (clusterMetadata, error) {
 			identity.Commit = strings.TrimSpace(value)
 		}
 	}
-	if identity.Version == "" || identity.Commit == "" || strings.ContainsAny(identity.Version+identity.Commit, " \t\r\n") {
+	if !releaseVersionPattern.MatchString(identity.Version) || !releaseCommitPattern.MatchString(identity.Commit) {
 		return clusterMetadata{}, errors.New("packaged release identity must contain safe version and commit values")
 	}
 	return identity, nil
@@ -510,24 +574,54 @@ func installAction(installed bool) string {
 	return "install"
 }
 
-func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
-	username := "USER"
-	if current, err := user.Current(); err == nil && current.Username != "" {
-		username = current.Username
+func printPeerInstallCommands(output io.Writer, username string, metadata clusterMetadata) error {
+	return writeInstallerOutput(output, "\nRun these commands from your operator machine:\n%s\n%s\n",
+		peerInstallCommand(username, metadata.DatabaseBIP, metadata.Version),
+		peerInstallCommand(username, metadata.WitnessIP, metadata.Version))
+}
+
+func peerInstallCommand(username, address, version string) string {
+	installerURL := fmt.Sprintf("https://github.com/block/proto-fleet/releases/download/%s/install.sh", version)
+	return fmt.Sprintf(`ssh -t %s@%s 'test -f /var/tmp/proto-fleet-ha-host.json || { echo "Prepared HA bundle is missing: /var/tmp/proto-fleet-ha-host.json" >&2; exit 1; }; tmp=$(mktemp /var/tmp/proto-fleet-install.sh.XXXXXX) || exit; trap "rm -f $tmp" EXIT; curl -fsSL %s -o "$tmp" && sudo bash "$tmp" --ha %s'`,
+		username, address, installerURL, version)
+}
+
+func invokingUsername() string {
+	if username := strings.TrimSpace(os.Getenv("SUDO_USER")); username != "" && username != "root" {
+		return username
 	}
-	ca, err := readCertificate(filepath.Join(exportDir, publicCAName))
-	if err != nil {
-		return fmt.Errorf("read exported service CA: %w", err)
+	if current, err := user.Current(); err == nil {
+		return current.Username
 	}
-	digest := sha256.Sum256(ca.Raw)
-	fingerprint := make([]string, len(digest))
-	for index, value := range digest {
-		fingerprint[index] = fmt.Sprintf("%02X", value)
+	return ""
+}
+
+const remoteBundleInstallCommand = `set -eu; umask 077; tmp=$(mktemp /var/tmp/proto-fleet-ha-host.json.XXXXXX); trap 'rm -f "$tmp"' EXIT HUP INT TERM; cat >"$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" /var/tmp/proto-fleet-ha-host.json; trap - EXIT`
+
+func runSSH(ctx context.Context, localUsername string, input io.Reader, args ...string) error {
+	name := "ssh"
+	commandArgs := append([]string{"-o", "ConnectTimeout=10"}, args...)
+	if os.Geteuid() == 0 && localUsername != "" && localUsername != "root" {
+		name = "sudo"
+		commandArgs = []string{"-H", "-u", localUsername}
+		if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" {
+			commandArgs = append(commandArgs, "env", "SSH_AUTH_SOCK="+socket)
+		}
+		commandArgs = append(commandArgs, "ssh", "-o", "ConnectTimeout=10")
+		commandArgs = append(commandArgs, args...)
 	}
-	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
-		"On your operator machine, run this command to copy the host bundles and public service CA from ha-a:\n"+
-		"mkdir -p proto-fleet-ha-bundles && scp -p '%s@%s:%s/*' proto-fleet-ha-bundles/\n",
-		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
+	command := exec.CommandContext(ctx, name, commandArgs...)
+	if input == nil {
+		command.Stdin = os.Stdin
+	} else {
+		command.Stdin = input
+	}
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run SSH command: %w", err)
+	}
+	return nil
 }
 
 func readPrompt(scanner *bufio.Scanner, output io.Writer, prompt string) (string, error) {
@@ -541,6 +635,14 @@ func readPrompt(scanner *bufio.Scanner, output io.Writer, prompt string) (string
 		return "", errors.New("installation canceled: input closed")
 	}
 	return strings.TrimSpace(scanner.Text()), nil
+}
+
+func readPromptWithDefault(scanner *bufio.Scanner, output io.Writer, prompt, defaultValue string) (string, error) {
+	value, err := readPrompt(scanner, output, fmt.Sprintf("%s [%s]: ", prompt, defaultValue))
+	if value == "" {
+		value = defaultValue
+	}
+	return value, err
 }
 
 func writeInstallerOutput(output io.Writer, format string, args ...any) error {
@@ -562,7 +664,7 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 }
 
 func removeCopiedExports(exportDir string) error {
-	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), publicCAName} {
+	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		path := filepath.Join(exportDir, name)
 		if err := os.Remove(path); err != nil {
 			return fmt.Errorf("remove copied bundle export %s: %w", path, err)

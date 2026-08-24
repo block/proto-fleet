@@ -23,7 +23,9 @@ import {
   CurtailmentUnavailableReasonSchema,
   FixedKwParamsSchema,
   FullFleetParamsSchema,
+  ScopeBuildingSchema,
   ScopeDeviceListSchema,
+  ScopeRackSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -157,6 +159,7 @@ function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): Curtailmen
     },
     startedAt: timestamp("2026-05-01T12:00:00Z"),
     createdAt: timestamp("2026-05-01T11:58:00Z"),
+    scopeSchemaVersion: overrides.scopes?.length ? 1 : 0,
   });
 
   return Object.assign(event, overrides);
@@ -687,6 +690,51 @@ describe("useCurtailmentApi", () => {
         scopeLabel: "1 miner",
       }),
     );
+  });
+
+  it("keeps invalid mixed-scope events visible but disables form hydration", async () => {
+    const mixedScopeEvent = curtailmentEvent({
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+        }),
+        create(CurtailmentScopeSchema, {
+          scope: { case: "rack", value: create(ScopeRackSchema, { rackId: 8n }) },
+        }),
+      ],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: mixedScopeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [mixedScopeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(expect.objectContaining({ scopeLabel: "1 building + 1 rack" }));
+    expect(result.current.activeEventFormValues).toBeNull();
+  });
+
+  it("keeps topology-scoped events visible but disables form hydration", async () => {
+    const topologyScopeEvent = curtailmentEvent({
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+        }),
+      ],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: topologyScopeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [topologyScopeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(expect.objectContaining({ scopeLabel: "1 building" }));
+    expect(result.current.activeEventFormValues).toBeNull();
   });
 
   it("falls back to Site id labels for site-scoped events without a loaded site name", async () => {
@@ -2696,6 +2744,59 @@ describe("useCurtailmentApi", () => {
         modeParams: expect.objectContaining({ case: undefined }),
       }),
     );
+  });
+
+  it.each([
+    {
+      scopeType: "building" as const,
+      targetIds: { buildingTargetIds: ["7", "8"] },
+      protoCase: "building",
+      expectedIds: [7n, 8n],
+    },
+    {
+      scopeType: "rack" as const,
+      targetIds: { rackTargetIds: ["9", "10"] },
+      protoCase: "rack",
+      expectedIds: [9n, 10n],
+    },
+    {
+      scopeType: "group" as const,
+      targetIds: { groupTargetIds: ["11", "12"] },
+      protoCase: "group",
+      expectedIds: [11n, 12n],
+    },
+  ])("starts a frozen fixed-kW $scopeType scope with its typed selectors", async (testCase) => {
+    const startedEvent = curtailmentEvent();
+    mockStartCurtailment.mockResolvedValueOnce({ event: startedEvent });
+    mockListActiveCurtailments.mockResolvedValue({ event: startedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [startedEvent], nextPageToken: "" });
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.startCurtailment({
+        ...baseSubmitValues,
+        scopeType: testCase.scopeType,
+        ...testCase.targetIds,
+      });
+    });
+
+    const request = mockStartCurtailment.mock.calls[0]?.[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        mode: CurtailmentMode.FIXED_KW,
+        scopeSchemaVersion: 1,
+      }),
+    );
+    expect(request.scopes.map((scope: { scope: { case?: string } }) => scope.scope.case)).toEqual([
+      testCase.protoCase,
+      testCase.protoCase,
+    ]);
+    expect(
+      request.scopes.map((scope: { scope: { value: { buildingId?: bigint; rackId?: bigint; groupId?: bigint } } }) => {
+        const value = scope.scope.value;
+        return value.buildingId ?? value.rackId ?? value.groupId;
+      }),
+    ).toEqual(testCase.expectedIds);
   });
 
   it("updates active curtailment fields and refreshes listeners", async () => {

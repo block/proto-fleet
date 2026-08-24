@@ -27,6 +27,7 @@ const (
 	ScopeSchemaVersionCurrent  uint32 = 1
 	ScopeTopologyIDsPerTypeMax        = 256
 	ScopeDeviceIdentifiersMax         = 10000
+	ScopeResolvedMinerMax             = interfaces.CurtailmentResolvedMinerMax
 )
 
 // Scope identifies one terminal target type. A terminal type may contain
@@ -83,10 +84,11 @@ type StartRequest struct {
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
 
-	FacilityFanDeviceIDs []int64
-	AuthorizedFanSites   map[int64]int64
-	FanOffDelaySec       int32
-	FanRestoreDelaySec   int32
+	FacilityFanDeviceIDs  []int64
+	AuthorizedDeviceSites map[string]*int64
+	AuthorizedFanSites    map[int64]int64
+	FanOffDelaySec        int32
+	FanRestoreDelaySec    int32
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -194,6 +196,16 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
+	}
+	if hasTopologySelectors(req.Scope) && req.SourceActorType == models.SourceActorAutomation {
+		return nil, fleeterror.NewFailedPreconditionError(
+			"topology-scoped Start is not available for automation",
+		)
+	}
+	if hasTopologySelectors(req.Scope) && req.Mode == models.ModeFullFleet {
+		return nil, fleeterror.NewUnimplementedError(
+			"topology-scoped FULL_FLEET Start requires topology-following lifecycle support",
+		)
 	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
@@ -321,6 +333,25 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		s.metrics.IncMaintenanceOverride()
 	}
 	return plan, nil
+}
+
+// LookupStartReplay returns the persisted event matched by a Start request's
+// idempotency handles. It intentionally does not hydrate targets so handlers
+// can authorize the immutable event envelope before loading response data.
+func (s *Service) LookupStartReplay(ctx context.Context, req StartRequest) (*models.Event, error) {
+	if err := validateStartRequest(req); err != nil {
+		return nil, err
+	}
+	return s.lookupIdempotentReplay(ctx, req)
+}
+
+// RenderStartReplay builds the bounded Start response from an already
+// authorized persisted event.
+func (s *Service) RenderStartReplay(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
+	if event == nil || event.OrgID != orgID {
+		return nil, fleeterror.NewNotFoundError("curtailment event not found")
+	}
+	return s.replayPlanFromPersistedEvent(ctx, orgID, event)
 }
 
 // ListActive returns every non-terminal event for the org, most-recent first.
@@ -1227,29 +1258,15 @@ func (s *Service) ListTargetSiteCoverageByEvents(
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start
 // can resolve max_duration_seconds=0 without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
-	candidateFilter, err := resolveScope(req.Scope)
+	candidateFilter, err := s.resolveScopeForOrg(ctx, req.OrgID, req.Scope)
 	if err != nil {
 		return nil, 0, nil, err
-	}
-	// Empty-but-non-nil would match nothing under the query's `IS NULL` check.
-	if len(candidateFilter.DeviceIdentifiers) == 0 {
-		candidateFilter.DeviceIdentifiers = nil
 	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	for _, siteID := range candidateFilter.SiteIDs {
-		exists, err := s.store.SiteBelongsToOrg(ctx, req.OrgID, siteID)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		if !exists {
-			return nil, 0, nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
-		}
-	}
-
 	// Effective candidate floor: per-org default, admin-overridable.
 	// Handler enforces the admin role gate.
 	minPowerW := orgConfig.CandidateMinPowerW
@@ -1263,9 +1280,12 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 	activeSet := toStringSet(activeDevices)
 
-	candidateFilter.OrgID = req.OrgID
+	candidateFilter.ResultLimit = ScopeResolvedMinerMax + 1
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
 	if err != nil {
+		return nil, 0, nil, err
+	}
+	if err := validateResolvedMinerCount(len(candidates)); err != nil {
 		return nil, 0, nil, err
 	}
 
@@ -1293,14 +1313,13 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 
 	cooldownSet := map[string]struct{}{}
-	if req.PostEventCooldownSec > 0 {
+	if req.PostEventCooldownSec > 0 && len(candidates) > 0 {
 		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
 			ctx,
 			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
 				OrgID:             req.OrgID,
 				CooldownSec:       req.PostEventCooldownSec,
-				DeviceIdentifiers: candidateFilter.DeviceIdentifiers,
-				SiteIDs:           candidateFilter.SiteIDs,
+				DeviceIdentifiers: candidateDeviceIdentifiers(candidates),
 			},
 		)
 		if err != nil {
@@ -1325,6 +1344,26 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
 	return &plan, minPowerW, orgConfig, nil
+}
+
+func candidateDeviceIdentifiers(candidates []*models.Candidate) []string {
+	identifiers := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate != nil && candidate.DeviceIdentifier != "" {
+			identifiers = append(identifiers, candidate.DeviceIdentifier)
+		}
+	}
+	return identifiers
+}
+
+func validateResolvedMinerCount(count int) error {
+	if count <= ScopeResolvedMinerMax {
+		return nil
+	}
+	return fleeterror.NewResourceExhaustedErrorf(
+		"scope resolves to more than %d miners",
+		ScopeResolvedMinerMax,
+	)
 }
 
 // buildMode constructs the selection mode from the request. FULL_FLEET takes
@@ -1646,13 +1685,17 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 		}
 		return interfaces.ListCandidatesParams{DeviceIdentifiers: s.DeviceIdentifiers}, nil
 	case models.ScopeTypeMixed:
-		if hasTopologySelectors(s) {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf(
-				"building, rack, and group scope resolution is not implemented yet",
-			)
-		}
 		if len(s.SiteIDs) == 0 && len(s.DeviceIdentifiers) == 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("scope must include terminal selector IDs")
+			switch {
+			case len(s.BuildingIDs) > 0:
+				return interfaces.ListCandidatesParams{BuildingIDs: s.BuildingIDs}, nil
+			case len(s.RackIDs) > 0:
+				return interfaces.ListCandidatesParams{RackIDs: s.RackIDs}, nil
+			case len(s.GroupIDs) > 0:
+				return interfaces.ListCandidatesParams{GroupIDs: s.GroupIDs}, nil
+			default:
+				return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("scope must include terminal selector IDs")
+			}
 		}
 		return interfaces.ListCandidatesParams{
 			SiteIDs:           s.SiteIDs,
@@ -1661,6 +1704,48 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 	default:
 		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+func (s *Service) resolveScopeForOrg(
+	ctx context.Context,
+	orgID int64,
+	scope Scope,
+) (interfaces.ListCandidatesParams, error) {
+	filter, err := resolveScope(scope)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, err
+	}
+	filter.OrgID = orgID
+	if len(filter.SiteIDs) > 0 {
+		for _, siteID := range filter.SiteIDs {
+			exists, err := s.store.SiteBelongsToOrg(ctx, orgID, siteID)
+			if err != nil {
+				return interfaces.ListCandidatesParams{}, err
+			}
+			if !exists {
+				return interfaces.ListCandidatesParams{}, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+			}
+		}
+		return filter, nil
+	}
+	if !listCandidatesFilterHasTopology(filter) {
+		return filter, nil
+	}
+	topologyStore, ok := s.store.(interfaces.CurtailmentTopologyScopeStore)
+	if !ok {
+		return interfaces.ListCandidatesParams{}, fleeterror.NewInternalErrorf(
+			"curtailment topology scope resolver is not configured",
+		)
+	}
+	_, err = topologyStore.ResolveCurtailmentTopologyScope(ctx, filter)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, err
+	}
+	return filter, nil
+}
+
+func listCandidatesFilterHasTopology(filter interfaces.ListCandidatesParams) bool {
+	return len(filter.BuildingIDs) > 0 || len(filter.RackIDs) > 0 || len(filter.GroupIDs) > 0
 }
 
 func normalizeScope(s Scope) Scope {
@@ -1701,6 +1786,17 @@ func normalizeScope(s Scope) Scope {
 
 func hasTopologySelectors(s Scope) bool {
 	return len(s.BuildingIDs) > 0 || len(s.RackIDs) > 0 || len(s.GroupIDs) > 0
+}
+
+// IsTopologyScope reports whether scope targets buildings, racks, or groups.
+func IsTopologyScope(s Scope) bool {
+	return hasTopologySelectors(s)
+}
+
+// ListCandidatesParamsForScope returns the canonical candidate filter for a
+// validated scope. Callers must set OrgID before querying a store.
+func ListCandidatesParamsForScope(s Scope) (interfaces.ListCandidatesParams, error) {
+	return resolveScope(s)
 }
 
 func validateScopeContract(s Scope) error {
@@ -2050,6 +2146,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		LoopType:                    models.LoopTypeOpen,
 		ScopeType:                   scope.Type,
 		ScopeJSON:                   scopeJSON,
+		ExpectedDeviceSites:         cloneDeviceSiteMap(req.AuthorizedDeviceSites),
 		ModeParamsJSON:              modeParamsJSON,
 		CurtailBatchSize:            req.CurtailBatchSize,
 		CurtailBatchIntervalSec:     req.CurtailBatchIntervalSec,
@@ -2095,6 +2192,22 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
+}
+
+func cloneDeviceSiteMap(values map[string]*int64) map[string]*int64 {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]*int64, len(values))
+	for identifier, siteID := range values {
+		if siteID == nil {
+			out[identifier] = nil
+			continue
+		}
+		value := *siteID
+		out[identifier] = &value
+	}
+	return out
 }
 
 func cloneInt64Map(values map[int64]int64) map[int64]int64 {

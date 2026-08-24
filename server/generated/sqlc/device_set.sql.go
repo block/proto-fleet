@@ -14,16 +14,21 @@ import (
 )
 
 const addDevicesToDeviceSet = `-- name: AddDevicesToDeviceSet :many
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id, device_set.type
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
 FROM device d
-CROSS JOIN device_set ds
+CROSS JOIN locked_device_set ds
 WHERE d.device_identifier = ANY($3::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL
-  AND ds.id = $2
-  AND ds.org_id = $1
-  AND ds.deleted_at IS NULL
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier
 `
@@ -1713,18 +1718,27 @@ func (q *Queries) LockRacksForReparent(ctx context.Context, arg LockRacksForRepa
 }
 
 const removeAllDevicesFromDeviceSet = `-- name: RemoveAllDevicesFromDeviceSet :execrows
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds
+WHERE dsm.device_set_id = ds.id
+  AND dsm.org_id = $1
 `
 
 type RemoveAllDevicesFromDeviceSetParams struct {
-	DeviceSetID int64
 	OrgID       int64
+	DeviceSetID int64
 }
 
 func (q *Queries) RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveAllDevicesFromDeviceSetParams) (int64, error) {
-	result, err := q.exec(ctx, q.removeAllDevicesFromDeviceSetStmt, removeAllDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID)
+	result, err := q.exec(ctx, q.removeAllDevicesFromDeviceSetStmt, removeAllDevicesFromDeviceSet, arg.OrgID, arg.DeviceSetID)
 	if err != nil {
 		return 0, err
 	}
@@ -1763,17 +1777,26 @@ func (q *Queries) RemoveDevicesFromAnyRack(ctx context.Context, arg RemoveDevice
 }
 
 const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :many
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
-  AND device_identifier = ANY($3::text[])
-RETURNING device_identifier
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = $3
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds
+WHERE dsm.device_set_id = ds.id
+  AND dsm.org_id = $1
+  AND dsm.device_identifier = ANY($2::text[])
+RETURNING dsm.device_identifier
 `
 
 type RemoveDevicesFromDeviceSetParams struct {
-	DeviceSetID       int64
 	OrgID             int64
 	DeviceIdentifiers []string
+	DeviceSetID       int64
 }
 
 // RETURNING yields one row per membership actually deleted (identifiers that
@@ -1781,7 +1804,7 @@ type RemoveDevicesFromDeviceSetParams struct {
 // the changed set for activity site scope (#538). Equivalent affected-row
 // count to the prior :execrows shape.
 func (q *Queries) RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error) {
-	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.DeviceSetID)
 	if err != nil {
 		return nil, err
 	}

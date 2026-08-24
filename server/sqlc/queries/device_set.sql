@@ -342,16 +342,21 @@ WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 -- (ON CONFLICT DO NOTHING skips already-members), so callers can both count
 -- the change (len of result) and resolve the changed set for activity site
 -- scope (#538). Equivalent affected-row count to the prior :execrows shape.
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id, device_set.type
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
 FROM device d
-CROSS JOIN device_set ds
+CROSS JOIN locked_device_set ds
 WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL
-  AND ds.id = $2
-  AND ds.org_id = $1
-  AND ds.deleted_at IS NULL
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier;
 
@@ -418,9 +423,18 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.building_id IS DISTINCT FROM dsr.building_id;
 
 -- name: RemoveAllDevicesFromDeviceSet :execrows
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2;
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = sqlc.arg('device_set_id')
+      AND device_set.org_id = sqlc.arg('org_id')
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds
+WHERE dsm.device_set_id = ds.id
+  AND dsm.org_id = sqlc.arg('org_id');
 
 -- name: LockRacksForReparent :many
 -- Locks every rack involved in a reparent (sources + target) FOR UPDATE
@@ -491,11 +505,20 @@ WHERE org_id = $1
 -- were not members match nothing), so callers can count the change and resolve
 -- the changed set for activity site scope (#538). Equivalent affected-row
 -- count to the prior :execrows shape.
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
-  AND device_identifier = ANY(@device_identifiers::text[])
-RETURNING device_identifier;
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = sqlc.arg('device_set_id')
+      AND device_set.org_id = sqlc.arg('org_id')
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds
+WHERE dsm.device_set_id = ds.id
+  AND dsm.org_id = sqlc.arg('org_id')
+  AND dsm.device_identifier = ANY(@device_identifiers::text[])
+RETURNING dsm.device_identifier;
 
 -- name: ListDeviceSetMembersPaginated :many
 SELECT dsm.id, dsm.device_identifier, dsm.created_at,

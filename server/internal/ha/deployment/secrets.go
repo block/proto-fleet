@@ -22,7 +22,9 @@ const (
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
 	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
-	certificateValidity     = 10 * 365 * 24 * time.Hour
+	// Apple's TLS verifier rejects server certificates valid for more than 825 days.
+	// Keep one day of headroom for the one-minute NotBefore backdating below.
+	certificateValidity = 824 * 24 * time.Hour
 )
 
 var databasePasswordFiles = []string{
@@ -31,6 +33,7 @@ var databasePasswordFiles = []string{
 	"postgres-superuser-password",
 	"postgres-replication-password",
 	"fleet-db-password",
+	"grafana-db-password",
 }
 
 type certificateAuthority struct {
@@ -103,6 +106,10 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if err != nil {
 		return fmt.Errorf("read generated Fleet database password: %w", err)
 	}
+	grafanaDatabasePassword, err := readPassword(filepath.Join(offlineDir, "grafana-db-password"))
+	if err != nil {
+		return fmt.Errorf("read generated Grafana database password: %w", err)
+	}
 	// Both Fleet hosts share application identity because they alternate against
 	// the same database and encrypted state.
 	authSecret, err := randomHex(32)
@@ -113,13 +120,29 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if _, err := rand.Read(masterKey); err != nil {
 		return fmt.Errorf("generate Fleet encryption master key: %w", err)
 	}
+	grafanaAdminPassword, err := randomHex(32)
+	if err != nil {
+		return fmt.Errorf("generate Grafana admin password: %w", err)
+	}
+	grafanaSecretKey, err := randomHex(32)
+	if err != nil {
+		return fmt.Errorf("generate Grafana secret key: %w", err)
+	}
+	webhookToken, err := randomHex(32)
+	if err != nil {
+		return fmt.Errorf("generate alert webhook token: %w", err)
+	}
 	fleetEnvironment := []byte(fmt.Sprintf(
-		"AUTH_CLIENT_SECRET_KEY=%s\nENCRYPT_SERVICE_MASTER_KEY=%s\nDB_DSN=postgresql://fleet:%s@%s:5432,%s:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt\n",
+		"AUTH_CLIENT_SECRET_KEY=%s\nENCRYPT_SERVICE_MASTER_KEY=%s\nDB_DSN=postgresql://fleet:%s@%s:5432,%s:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt\nGRAFANA_ADMIN_PASSWORD=%s\nGRAFANA_DB_PASSWORD=%s\nGRAFANA_SECRET_KEY=%s\nFLEET_ALERTS_WEBHOOK_TOKEN=%s\n",
 		authSecret,
 		base64.StdEncoding.EncodeToString(masterKey),
 		fleetDatabasePassword,
 		hostIPs[0],
 		hostIPs[1],
+		grafanaAdminPassword,
+		grafanaDatabasePassword,
+		grafanaSecretKey,
+		webhookToken,
 	))
 	if err := writeFile(filepath.Join(offlineDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {
 		return err

@@ -18,6 +18,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -49,10 +50,17 @@ type Handler struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
 	enrollment *enrollment.Service
-	auth       *auth.Service
+	auth       authService
 	pairing    *pairing.Service
 	registry   *control.Registry
 	files      *files.Service
+	// Keep the persisted session rotation and in-memory fence in the same order.
+	sessionRotationMu sync.Mutex
+}
+
+type authService interface {
+	BeginHandshake(ctx context.Context, apiKeyPlaintext string, identityPubkey []byte) ([]byte, time.Time, error)
+	CompleteHandshake(ctx context.Context, challenge, signature []byte) (string, time.Time, int64, error)
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
@@ -94,10 +102,14 @@ func (h *Handler) BeginAuthHandshake(ctx context.Context, req *connect.Request[p
 }
 
 func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Request[pb.CompleteAuthHandshakeRequest]) (*connect.Response[pb.CompleteAuthHandshakeResponse], error) {
-	token, expiresAt, err := h.auth.CompleteHandshake(ctx, req.Msg.GetChallenge(), req.Msg.GetSignature())
+	h.sessionRotationMu.Lock()
+	defer h.sessionRotationMu.Unlock()
+
+	token, expiresAt, fleetNodeID, err := h.auth.CompleteHandshake(ctx, req.Msg.GetChallenge(), req.Msg.GetSignature())
 	if err != nil {
 		return nil, err
 	}
+	h.registry.ReplaceSession(fleetNodeID, auth.SessionFingerprint(token))
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: token,
 		ExpiresAt:    timestamppb.New(expiresAt),
@@ -655,10 +667,16 @@ func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
 	}
 }
 
-// HelloTimeout bounds the wait for the agent's first Hello, so a node that
-// opens the stream and never sends one can't pin a goroutine + HTTP/2 stream
-// indefinitely. Var so tests can shrink it.
-var HelloTimeout = 5 * time.Second
+var (
+	// HelloTimeout bounds the wait for the agent's first Hello, so a node that
+	// opens the stream and never sends one can't pin a goroutine + HTTP/2 stream
+	// indefinitely. Vars so tests can shrink them.
+	HelloTimeout = 5 * time.Second
+
+	// ControlStreamLivenessInterval keeps data moving across the fleetd-to-NGINX
+	// hop so NGINX can detect a stalled upstream within its read timeout.
+	ControlStreamLivenessInterval = 30 * time.Second
+)
 
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	subject, err := auth.GetSubject(ctx)
@@ -685,27 +703,30 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	var first *pb.ControlStreamRequest
 	select {
 	case <-helloTimer.C:
-		return fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout)
+		return controlStreamExitError(ctx, fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout))
 	case <-ctx.Done():
-		return fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err())
+		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err()))
 	case r := <-helloCh:
 		if r.err != nil {
-			return fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err)
+			return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err))
 		}
 		first = r.msg
 	}
 	if first.GetHello() == nil {
-		return fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello")
+		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
 
-	regHandle := h.registry.Register(subject.FleetNodeID)
+	regHandle, err := h.registry.RegisterAuthenticated(subject.FleetNodeID, subject.SessionFingerprint)
+	if err != nil {
+		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
+	}
 	defer regHandle.Unregister()
 
-	if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
-	}}); sendErr != nil {
-		return fleeterror.NewInternalErrorf("send accepted: %v", sendErr)
+	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+		return err
 	}
+	liveness := time.NewTicker(ControlStreamLivenessInterval)
+	defer liveness.Stop()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
 	// can't block forever on a full channel after the main loop exits.
@@ -727,21 +748,25 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return controlStreamExitError(ctx, nil)
 		case <-regHandle.Done:
 			// Newest-wins eviction or Unregister fired; let the handler
 			// exit so connect-go closes the stream.
-			return nil
+			return controlStreamExitError(ctx, nil)
+		case <-liveness.C:
+			if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+				return err
+			}
 		case cmd := <-regHandle.Outgoing:
 			if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); sendErr != nil {
-				return fleeterror.NewInternalErrorf("send command: %v", sendErr)
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send command: %v", sendErr))
 			}
 		case r := <-incoming:
 			if r.err != nil {
 				if errors.Is(r.err, io.EOF) {
-					return nil
+					return controlStreamExitError(ctx, nil)
 				}
-				return fleeterror.NewInternalErrorf("control stream recv: %v", r.err)
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
@@ -755,4 +780,21 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			}
 		}
 	}
+}
+
+func controlStreamExitError(ctx context.Context, fallback error) error {
+	activeLifetime, admitted := admissionctx.ActiveLifetime(ctx)
+	if admitted && activeLifetime.Err() != nil {
+		return fleeterror.NewNotActiveError()
+	}
+	return fallback
+}
+
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error) error {
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
+		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
+	}}); err != nil {
+		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
+	}
+	return nil
 }
