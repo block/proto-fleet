@@ -209,6 +209,46 @@ func TestRPCContract_RolloutLaneMembershipUsesChannelPermissions(t *testing.T) {
 		authz.PermChannelManage,
 		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceUpdateRolloutLaneMembershipProcedure],
 	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServicePreviewRolloutLaneModelDeclarationProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceCreateRolloutLaneModelDeclarationProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServicePublishRolloutLaneModelTargetProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceUpdateRolloutLaneModelMembershipProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelRead,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceGetRolloutLaneTopologyReadinessProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceRepairRolloutLaneModelBindingProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceEnableRolloutLaneModelTopologyProcedure],
+	)
 }
 
 // mainConnectMountRe captures both the connect-package shortname and

@@ -370,7 +370,8 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 		case rollout.EvidenceStatusAutomationError,
 			rollout.EvidenceStatusUnavailable,
 			rollout.EvidenceStatusHealthy,
-			rollout.EvidenceStatusHeld:
+			rollout.EvidenceStatusHeld,
+			rollout.EvidenceStatusCancelled:
 		case rollout.EvidenceStatusPending,
 			rollout.EvidenceStatusCollecting,
 			rollout.EvidenceStatusObserving,

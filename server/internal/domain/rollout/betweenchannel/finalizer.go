@@ -9,6 +9,7 @@ import (
 	"time"
 
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
@@ -32,14 +33,10 @@ func (c FinalizerConfig) withDefaults() FinalizerConfig {
 	return c
 }
 
-type ActivityLogger interface {
-	Log(ctx context.Context, event activitymodels.Event)
-}
-
 type Finalizer struct {
 	cfg      FinalizerConfig
 	store    FinalizationStore
-	activity ActivityLogger
+	activity rollout.ActivityLogger
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -51,7 +48,7 @@ var _ runtimejobs.Lifecycle = (*Finalizer)(nil)
 func NewFinalizer(
 	cfg FinalizerConfig,
 	store FinalizationStore,
-	activity ActivityLogger,
+	activity rollout.ActivityLogger,
 ) *Finalizer {
 	return &Finalizer{
 		cfg:      cfg.withDefaults(),
@@ -170,6 +167,10 @@ func (f *Finalizer) projectActivity(
 	orgID := result.OrgID
 	scopeType := "rollout_lane"
 	scopeLabel := result.LaneID.String()
+	parentID := ""
+	if result.ParentID != nil {
+		parentID = result.ParentID.String()
+	}
 	f.activity.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategorySystem,
 		Type:           "between_channel_rollout_member." + string(result.Outcome),
@@ -179,11 +180,16 @@ func (f *Finalizer) projectActivity(
 		ActorType:      activitymodels.ActorSystem,
 		OrganizationID: &orgID,
 		Metadata: map[string]any{
-			"rollout_id":        result.RolloutID.String(),
-			"member_id":         result.MemberID,
-			"device_identifier": result.DeviceIdentifier,
-			"source_channel_id": result.SourceChannelID,
-			"target_channel_id": result.TargetChannelID,
+			"parent_id":          parentID,
+			"child_id":           result.RolloutID.String(),
+			"rollout_id":         result.RolloutID.String(),
+			"model_identity_key": result.ModelIdentityKey,
+			"manufacturer":       result.Manufacturer,
+			"model":              result.Model,
+			"member_id":          result.MemberID,
+			"device_identifier":  result.DeviceIdentifier,
+			"source_channel_id":  result.SourceChannelID,
+			"target_channel_id":  result.TargetChannelID,
 		},
 	})
 }

@@ -8,38 +8,58 @@ import {
   AdmitRolloutRequestSchema,
   CompleteRolloutRequestSchema,
   ContinueRolloutRequestSchema,
+  CreateRolloutLaneModelDeclarationRequestSchema,
   CreateRolloutLaneRequestSchema,
   CreateRolloutRequestSchema,
   DeleteRolloutLaneRequestSchema,
+  EnableRolloutLaneModelTopologyRequestSchema,
+  GetRolloutGroupRequestSchema,
   GetRolloutLaneRequestSchema,
+  GetRolloutLaneTopologyReadinessRequestSchema,
   GetRolloutRequestSchema,
+  ListRolloutGroupsRequestSchema,
   ListRolloutLaneMembersRequestSchema,
   ListRolloutLanesRequestSchema,
   ListRolloutsRequestSchema,
   PauseRolloutRequestSchema,
   PreviewRolloutLaneMembershipChangeRequestSchema,
+  PreviewRolloutLaneModelDeclarationRequestSchema,
+  PreviewRolloutLaneModelMembershipChangeRequestSchema,
   PreviewRolloutLaneRequestSchema,
   type Rollout as ProtoRollout,
   type RolloutLane as ProtoRolloutLane,
   RolloutState as ProtoRolloutState,
+  PublishRolloutLaneModelTargetRequestSchema,
+  RepairRolloutLaneModelBindingRequestSchema,
   ResumeRolloutRequestSchema,
   RevertRolloutRequestSchema,
   StartRolloutLaneRequestSchema,
   UpdateRolloutLaneMembershipRequestSchema,
+  UpdateRolloutLaneModelMembershipRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
-import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
+import {
+  assertNotAborted,
+  isAbortError,
+  isAuthOrPermissionError,
+  isPermissionDeniedError,
+  toError,
+} from "@/protoFleet/api/requestErrors";
 import { emitRolloutChanged } from "@/protoFleet/api/rolloutEvents";
 import {
   mapRollout,
+  mapRolloutGroup,
   mapRolloutLane,
   mapRolloutLaneMembershipChangePreview,
   mapRolloutLaneMembershipPage,
   mapRolloutLaneMembershipUpdate,
   mapRolloutLanePreview,
+  mapRolloutLaneTopologyReadiness,
   mapRolloutStateToProto,
 } from "@/protoFleet/api/rolloutMappers";
 import type {
+  PreviewModelDeclaration,
   RolloutBatchEvidenceSummary,
+  RolloutGroup,
   RolloutHashratePolicy,
   RolloutLane,
   RolloutLaneMembershipChangePreview,
@@ -47,6 +67,7 @@ import type {
   RolloutLaneMembershipUpdateResult,
   RolloutLanePreview,
   RolloutLaneReleaseTarget,
+  RolloutLaneTopologyReadiness,
   RolloutLifecycleState,
   RolloutRecord,
 } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -62,6 +83,10 @@ export interface ListRolloutsOptions extends RolloutRequestOptions {
 
 export interface GetRolloutOptions extends RolloutRequestOptions {
   rolloutId: string;
+}
+
+export interface GetRolloutGroupOptions extends RolloutRequestOptions {
+  parentId: string;
 }
 
 export interface GetRolloutLaneOptions extends RolloutRequestOptions {
@@ -117,6 +142,7 @@ export interface PreviewRolloutLaneInput extends RolloutRequestOptions {
 
 export interface ListRolloutLaneMembersOptions extends RolloutRequestOptions {
   laneId: string;
+  laneModelId?: string;
   pageSize?: number;
   pageToken?: string;
   includeTotalCount?: boolean;
@@ -136,14 +162,67 @@ export interface UpdateRolloutLaneMembershipInput extends PreviewRolloutLaneMemb
   reason: string;
 }
 
+export interface RolloutLaneModelSelectorInput {
+  laneModelId?: string;
+  modelIdentityKey?: string;
+}
+
+export interface PreviewRolloutLaneModelDeclarationInput extends RolloutRequestOptions {
+  laneId: string;
+  firmwareFileId: string;
+  deviceIdentifiers: string[];
+}
+
+export interface CreateRolloutLaneModelDeclarationInput extends PreviewRolloutLaneModelDeclarationInput {
+  expectedRevision: bigint;
+  idempotencyKey: string;
+  reason: string;
+  confirmInitialEnforcement: boolean;
+  confirmReassignment: boolean;
+  reassignmentConfirmationToken?: string;
+}
+
+export interface PublishRolloutLaneModelTargetInput extends RolloutRequestOptions, RolloutLaneModelSelectorInput {
+  laneId: string;
+  expectedRevision: bigint;
+  firmwareFileId: string;
+  idempotencyKey: string;
+  reason: string;
+}
+
+export interface PreviewRolloutLaneModelMembershipChangeInput
+  extends RolloutRequestOptions, RolloutLaneModelSelectorInput {
+  laneId: string;
+  addDeviceIdentifiers: string[];
+  removeDeviceIdentifiers: string[];
+}
+
+export interface UpdateRolloutLaneModelMembershipInput extends PreviewRolloutLaneModelMembershipChangeInput {
+  expectedRevision: bigint;
+  confirmFirmware: boolean;
+  confirmReassign: boolean;
+  idempotencyKey: string;
+  reason: string;
+}
+
 export interface StartRolloutLaneInput extends RolloutRequestOptions {
   laneId: string;
   name: string;
-  firmwareFileIds: string[];
-  batches: CreateRolloutBatchInput[];
+  firmwareFileIds?: string[];
+  batches?: CreateRolloutBatchInput[];
+  modelPlans?: StartRolloutLaneModelPlanInput[];
   hashratePolicy?: RolloutHashratePolicy;
   idempotencyKey: string;
   reason: string;
+}
+
+export interface StartRolloutLaneModelPlanInput {
+  laneModelId: string;
+  expectedModelRevision: bigint;
+  firmwareFileId: string;
+  batches: CreateRolloutBatchInput[];
+  hashratePolicy?: RolloutHashratePolicy;
+  modelStartKey: string;
 }
 
 export interface DeleteRolloutLaneInput extends RolloutRequestOptions {
@@ -153,9 +232,32 @@ export interface DeleteRolloutLaneInput extends RolloutRequestOptions {
   reason: string;
 }
 
+export interface RepairRolloutLaneModelBindingInput extends RolloutRequestOptions {
+  laneId: string;
+  laneModelId: string;
+  deviceIdentifier: string;
+  expectedRevision: bigint;
+  idempotencyKey: string;
+  reason: string;
+}
+
+export interface EnableRolloutLaneModelTopologyInput extends RolloutRequestOptions {
+  expectedRevision: bigint;
+  idempotencyKey: string;
+  reason: string;
+}
+
 export interface StartRolloutLaneResult {
   lane: RolloutLane;
   rollout: RolloutRecord;
+  parent?: RolloutGroup;
+  firstBatchId?: bigint;
+  children: StartedRolloutLaneModelResult[];
+}
+
+export interface StartedRolloutLaneModelResult {
+  rollout: RolloutRecord;
+  firstBatchId: bigint;
 }
 
 export interface RolloutControlInput extends RolloutRequestOptions {
@@ -190,6 +292,11 @@ export interface UseRolloutApiResult {
   isMutating: boolean;
   loadError: string | null;
   mutationError: string | null;
+  topologyReadiness: RolloutLaneTopologyReadiness | null;
+  isTopologyReadinessLoading: boolean;
+  topologyReadinessError: string | null;
+  topologyReadinessForbidden: boolean;
+  topologyReadinessStale: boolean;
   permissions: RolloutPermissions;
   listRolloutLanes: (options?: RolloutRequestOptions) => Promise<RolloutLane[]>;
   getRolloutLane: (options: GetRolloutLaneOptions) => Promise<RolloutLane>;
@@ -198,12 +305,28 @@ export interface UseRolloutApiResult {
     input: PreviewRolloutLaneMembershipChangeInput,
   ) => Promise<RolloutLaneMembershipChangePreview>;
   updateRolloutLaneMembership: (input: UpdateRolloutLaneMembershipInput) => Promise<RolloutLaneMembershipUpdateResult>;
+  previewRolloutLaneModelDeclaration: (
+    input: PreviewRolloutLaneModelDeclarationInput,
+  ) => Promise<PreviewModelDeclaration>;
+  createRolloutLaneModelDeclaration: (input: CreateRolloutLaneModelDeclarationInput) => Promise<RolloutLane>;
+  publishRolloutLaneModelTarget: (input: PublishRolloutLaneModelTargetInput) => Promise<RolloutLane>;
+  previewRolloutLaneModelMembershipChange: (
+    input: PreviewRolloutLaneModelMembershipChangeInput,
+  ) => Promise<RolloutLaneMembershipChangePreview>;
+  updateRolloutLaneModelMembership: (
+    input: UpdateRolloutLaneModelMembershipInput,
+  ) => Promise<RolloutLaneMembershipUpdateResult>;
   previewRolloutLane: (input: PreviewRolloutLaneInput) => Promise<RolloutLanePreview>;
   createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
   deleteRolloutLane: (input: DeleteRolloutLaneInput) => Promise<void>;
+  getRolloutLaneTopologyReadiness: (options?: RolloutRequestOptions) => Promise<RolloutLaneTopologyReadiness>;
+  repairRolloutLaneModelBinding: (input: RepairRolloutLaneModelBindingInput) => Promise<RolloutLaneTopologyReadiness>;
+  enableRolloutLaneModelTopology: (input: EnableRolloutLaneModelTopologyInput) => Promise<RolloutLaneTopologyReadiness>;
   startRolloutLane: (input: StartRolloutLaneInput) => Promise<StartRolloutLaneResult>;
   listRollouts: (options?: ListRolloutsOptions) => Promise<RolloutRecord[]>;
   getRollout: (options: GetRolloutOptions) => Promise<RolloutRecord>;
+  getRolloutGroup: (options: GetRolloutGroupOptions) => Promise<RolloutGroup>;
+  listRolloutGroups: (options?: RolloutRequestOptions) => Promise<RolloutGroup[]>;
   createRollout: (input: CreateRolloutInput) => Promise<RolloutRecord>;
   admitRollout: (input: AdmitRolloutInput) => Promise<RolloutRecord>;
   continueRollout: (input: RolloutControlInput) => Promise<RolloutRecord>;
@@ -221,6 +344,16 @@ function rpcOptions(signal?: AbortSignal): { signal: AbortSignal } | undefined {
   return signal ? { signal } : undefined;
 }
 
+function rolloutLaneModelSelector(input: RolloutLaneModelSelectorInput) {
+  if (input.laneModelId && !input.modelIdentityKey) {
+    return { selector: { case: "laneModelId" as const, value: input.laneModelId } };
+  }
+  if (input.modelIdentityKey && !input.laneModelId) {
+    return { selector: { case: "modelIdentityKey" as const, value: input.modelIdentityKey } };
+  }
+  throw new Error("Exactly one rollout lane model selector is required.");
+}
+
 function newestEvidenceSummary(
   existing: RolloutBatchEvidenceSummary | undefined,
   incoming: RolloutBatchEvidenceSummary | undefined,
@@ -229,8 +362,10 @@ function newestEvidenceSummary(
     return existing ?? incoming;
   }
 
-  const existingFinalized = existing.postWindowFinalized || existing.status === "finalized";
-  const incomingFinalized = incoming.postWindowFinalized || incoming.status === "finalized";
+  const existingFinalized =
+    existing.postWindowFinalized || existing.status === "finalized" || existing.status === "cancelled";
+  const incomingFinalized =
+    incoming.postWindowFinalized || incoming.status === "finalized" || incoming.status === "cancelled";
   if (existingFinalized !== incomingFinalized) {
     return existingFinalized ? existing : incoming;
   }
@@ -291,6 +426,54 @@ async function hydrateRolloutLane(
   includeDeviceSetMembers = false,
 ): Promise<RolloutLane> {
   assertNotAborted(signal);
+  if (lane.topologyEnabled) {
+    const releaseTargets: RolloutLaneReleaseTarget[] = lane.models.flatMap((model) =>
+      model.currentFirmwareTarget
+        ? [
+            {
+              firmwareFileId: model.currentFirmwareTarget.firmwareFileId,
+              targetManufacturer: model.manufacturer,
+              targetModel: model.model,
+              firmwareVersion: model.currentFirmwareTarget.firmwareVersion,
+              sha256: model.currentFirmwareTarget.sha256,
+            },
+          ]
+        : [],
+    );
+    const memberIdentifiers = new Set<string>();
+    const modelMemberIdentifiers = new Map<string, string[]>();
+    if (includeDeviceSetMembers) {
+      await Promise.all(
+        lane.models.map(async (model) => {
+          const identifiers: string[] = [];
+          let pageToken = "";
+          do {
+            const response = await rolloutClient.listRolloutLaneMembers(
+              create(ListRolloutLaneMembersRequestSchema, {
+                laneId: lane.laneId,
+                laneModelId: model.laneModelId,
+                pageSize: 250,
+                pageToken,
+              }),
+              rpcOptions(signal),
+            );
+            assertNotAborted(signal);
+            response.members.forEach((member) => {
+              identifiers.push(member.deviceIdentifier);
+              memberIdentifiers.add(member.deviceIdentifier);
+            });
+            pageToken = response.nextPageToken;
+          } while (pageToken);
+          modelMemberIdentifiers.set(model.laneModelId, identifiers.sort());
+        }),
+      );
+    }
+    return mapRolloutLane(lane, {
+      memberIdentifiers: [...memberIdentifiers].sort(),
+      releaseTargets,
+      modelMemberIdentifiers,
+    });
+  }
   if (lane.currentChannelId <= 0n) {
     return mapRolloutLane(lane);
   }
@@ -398,6 +581,11 @@ export function useRolloutApi(): UseRolloutApiResult {
   const [isMutating, setIsMutating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [topologyReadiness, setTopologyReadiness] = useState<RolloutLaneTopologyReadiness | null>(null);
+  const [isTopologyReadinessLoading, setIsTopologyReadinessLoading] = useState(false);
+  const [topologyReadinessError, setTopologyReadinessError] = useState<string | null>(null);
+  const [topologyReadinessForbidden, setTopologyReadinessForbidden] = useState(false);
+  const [topologyReadinessStale, setTopologyReadinessStale] = useState(false);
   const latestListRequestIdRef = useRef(0);
   const activeGetRequestByRolloutRef = useRef(new Map<string, symbol>());
   const latestLaneListRequestIdRef = useRef(0);
@@ -628,12 +816,20 @@ export function useRolloutApi(): UseRolloutApiResult {
   );
 
   const listRolloutLaneMembers = useCallback(
-    ({ laneId, pageSize = 100, pageToken = "", includeTotalCount = false, signal }: ListRolloutLaneMembersOptions) =>
+    ({
+      laneId,
+      laneModelId,
+      pageSize = 100,
+      pageToken = "",
+      includeTotalCount = false,
+      signal,
+    }: ListRolloutLaneMembersOptions) =>
       executeIsolatedRequest(
         async () => {
           const response = await rolloutClient.listRolloutLaneMembers(
             create(ListRolloutLaneMembersRequestSchema, {
               laneId,
+              laneModelId,
               pageSize,
               pageToken,
               includeTotalCount,
@@ -692,6 +888,46 @@ export function useRolloutApi(): UseRolloutApiResult {
       }
     },
     [applyMutationResult, beginLoad, finishLoad, handleFailure],
+  );
+
+  const getRolloutGroup = useCallback(
+    ({ parentId, signal }: GetRolloutGroupOptions) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.getRolloutGroup(
+            create(GetRolloutGroupRequestSchema, { parentId }),
+            rpcOptions(signal),
+          );
+          assertNotAborted(signal);
+          if (!response.parent) {
+            throw new Error("Rollout response was missing an aggregate parent.");
+          }
+          const parent = mapRolloutGroup(response.parent);
+          parent.children.forEach(applyMutationResult);
+          return parent;
+        },
+        signal,
+        "Couldn't load the aggregate rollout.",
+      ),
+    [applyMutationResult, executeIsolatedRequest],
+  );
+
+  const listRolloutGroups = useCallback(
+    ({ signal }: RolloutRequestOptions = {}) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.listRolloutGroups(
+            create(ListRolloutGroupsRequestSchema),
+            rpcOptions(signal),
+          );
+          const parents = response.parents.map(mapRolloutGroup);
+          parents.flatMap((parent) => parent.children).forEach(applyMutationResult);
+          return parents;
+        },
+        signal,
+        "Couldn't load aggregate rollouts.",
+      ),
+    [applyMutationResult, executeIsolatedRequest],
   );
 
   const executeMutation = useCallback(
@@ -883,6 +1119,146 @@ export function useRolloutApi(): UseRolloutApiResult {
     [applyLaneResult, executeMutation],
   );
 
+  const previewRolloutLaneModelDeclaration = useCallback(
+    (input: PreviewRolloutLaneModelDeclarationInput) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.previewRolloutLaneModelDeclaration(
+            create(PreviewRolloutLaneModelDeclarationRequestSchema, {
+              laneId: input.laneId,
+              firmwareFileId: input.firmwareFileId,
+              deviceIdentifiers: input.deviceIdentifiers,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          if (!response.preview) {
+            throw new Error("Rollout lane model declaration preview was missing.");
+          }
+          return {
+            ...mapRolloutLanePreview(response.preview),
+            laneId: response.laneId,
+          };
+        },
+        input.signal,
+        "Couldn't preview the model declaration. Try again.",
+      ),
+    [executeIsolatedRequest],
+  );
+
+  const createRolloutLaneModelDeclaration = useCallback(
+    async (input: CreateRolloutLaneModelDeclarationInput) => {
+      const result = await runLaneMutation(
+        () =>
+          rolloutClient.createRolloutLaneModelDeclaration(
+            create(CreateRolloutLaneModelDeclarationRequestSchema, {
+              laneId: input.laneId,
+              expectedRevision: input.expectedRevision,
+              firmwareFileId: input.firmwareFileId,
+              deviceIdentifiers: input.deviceIdentifiers,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+              confirmInitialEnforcement: input.confirmInitialEnforcement,
+              confirmReassignment: input.confirmReassignment,
+              reassignmentConfirmationToken: input.reassignmentConfirmationToken ?? "",
+            }),
+            rpcOptions(input.signal),
+          ),
+        input.signal,
+        "Couldn't add the model declaration. Try again.",
+        async (response) => {
+          if (!response.lane) {
+            throw new Error("Create rollout lane model declaration response was missing a lane.");
+          }
+          return hydrateRolloutLane(response.lane, input.signal);
+        },
+      );
+      return result.lane;
+    },
+    [runLaneMutation],
+  );
+
+  const publishRolloutLaneModelTarget = useCallback(
+    async (input: PublishRolloutLaneModelTargetInput) => {
+      const result = await runLaneMutation(
+        () =>
+          rolloutClient.publishRolloutLaneModelTarget(
+            create(PublishRolloutLaneModelTargetRequestSchema, {
+              laneId: input.laneId,
+              declaration: rolloutLaneModelSelector(input),
+              expectedRevision: input.expectedRevision,
+              firmwareFileId: input.firmwareFileId,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          ),
+        input.signal,
+        "Couldn't publish the model target. Try again.",
+        async (response) => {
+          if (!response.lane) {
+            throw new Error("Publish rollout lane model target response was missing a lane.");
+          }
+          return hydrateRolloutLane(response.lane, input.signal);
+        },
+      );
+      return result.lane;
+    },
+    [runLaneMutation],
+  );
+
+  const previewRolloutLaneModelMembershipChange = useCallback(
+    (input: PreviewRolloutLaneModelMembershipChangeInput) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.previewRolloutLaneModelMembershipChange(
+            create(PreviewRolloutLaneModelMembershipChangeRequestSchema, {
+              laneId: input.laneId,
+              declaration: rolloutLaneModelSelector(input),
+              addDeviceIdentifiers: input.addDeviceIdentifiers,
+              removeDeviceIdentifiers: input.removeDeviceIdentifiers,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          return mapRolloutLaneMembershipChangePreview(response);
+        },
+        input.signal,
+        "Couldn't preview model membership changes. Try again.",
+      ),
+    [executeIsolatedRequest],
+  );
+
+  const updateRolloutLaneModelMembership = useCallback(
+    (input: UpdateRolloutLaneModelMembershipInput) =>
+      executeMutation(
+        async () => {
+          const response = await rolloutClient.updateRolloutLaneModelMembership(
+            create(UpdateRolloutLaneModelMembershipRequestSchema, {
+              laneId: input.laneId,
+              declaration: rolloutLaneModelSelector(input),
+              expectedRevision: input.expectedRevision,
+              addDeviceIdentifiers: input.addDeviceIdentifiers,
+              removeDeviceIdentifiers: input.removeDeviceIdentifiers,
+              confirmFirmware: input.confirmFirmware,
+              confirmReassign: input.confirmReassign,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          const result = mapRolloutLaneMembershipUpdate(response);
+          applyLaneResult(result.lane, true, input.removeDeviceIdentifiers);
+          emitRolloutChanged();
+          return result;
+        },
+        input.signal,
+        "Couldn't update model membership. Try again.",
+      ),
+    [applyLaneResult, executeMutation],
+  );
+
   const deleteRolloutLane = useCallback(
     (input: DeleteRolloutLaneInput) =>
       executeMutation(
@@ -913,6 +1289,116 @@ export function useRolloutApi(): UseRolloutApiResult {
     [executeMutation, updateLanes],
   );
 
+  const executeTopologyRequest = useCallback(
+    async (
+      request: () => Promise<RolloutLaneTopologyReadiness>,
+      signal: AbortSignal | undefined,
+      fallbackMessage: string,
+      permissionMode: "read" | "manage",
+    ) => {
+      if (permissionMode === "read") {
+        assertNotAborted(signal);
+      }
+      setIsTopologyReadinessLoading(true);
+      setTopologyReadinessError(null);
+      if (permissionMode === "read") {
+        setTopologyReadinessForbidden(false);
+      }
+      try {
+        const mapped = await request();
+        assertNotAborted(signal);
+        setTopologyReadiness(mapped);
+        setTopologyReadinessStale(false);
+        return mapped;
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+        const resolved = toError(error, fallbackMessage);
+        setTopologyReadinessError(resolved.message);
+        if (permissionMode === "read") {
+          setTopologyReadinessForbidden(isPermissionDeniedError(error));
+        }
+        setTopologyReadinessStale(true);
+        throw resolved;
+      } finally {
+        setIsTopologyReadinessLoading(false);
+      }
+    },
+    [],
+  );
+
+  const getRolloutLaneTopologyReadiness = useCallback(
+    ({ signal }: RolloutRequestOptions = {}) =>
+      executeTopologyRequest(
+        async () => {
+          const response = await rolloutClient.getRolloutLaneTopologyReadiness(
+            create(GetRolloutLaneTopologyReadinessRequestSchema),
+            rpcOptions(signal),
+          );
+          if (!response.readiness) {
+            throw new Error("Rollout lane topology readiness response was missing readiness.");
+          }
+          return mapRolloutLaneTopologyReadiness(response.readiness);
+        },
+        signal,
+        "Couldn't load rollout lane readiness.",
+        "read",
+      ),
+    [executeTopologyRequest],
+  );
+
+  const repairRolloutLaneModelBinding = useCallback(
+    (input: RepairRolloutLaneModelBindingInput) =>
+      executeTopologyRequest(
+        async () => {
+          const response = await rolloutClient.repairRolloutLaneModelBinding(
+            create(RepairRolloutLaneModelBindingRequestSchema, {
+              laneId: input.laneId,
+              laneModelId: input.laneModelId,
+              deviceIdentifier: input.deviceIdentifier,
+              expectedRevision: input.expectedRevision,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          );
+          if (!response.readiness) {
+            throw new Error("Rollout lane topology repair response was missing readiness.");
+          }
+          return mapRolloutLaneTopologyReadiness(response.readiness);
+        },
+        input.signal,
+        "Couldn't repair the model binding.",
+        "manage",
+      ),
+    [executeTopologyRequest],
+  );
+
+  const enableRolloutLaneModelTopology = useCallback(
+    (input: EnableRolloutLaneModelTopologyInput) =>
+      executeTopologyRequest(
+        async () => {
+          const response = await rolloutClient.enableRolloutLaneModelTopology(
+            create(EnableRolloutLaneModelTopologyRequestSchema, {
+              expectedRevision: input.expectedRevision,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          );
+          if (!response.readiness) {
+            throw new Error("Rollout lane topology enable response was missing readiness.");
+          }
+          return mapRolloutLaneTopologyReadiness(response.readiness);
+        },
+        input.signal,
+        "Couldn't enable model-based rollout lanes.",
+        "manage",
+      ),
+    [executeTopologyRequest],
+  );
+
   const startRolloutLane = useCallback(
     async (input: StartRolloutLaneInput): Promise<StartRolloutLaneResult> => {
       const result = await runLaneMutation(
@@ -921,9 +1407,10 @@ export function useRolloutApi(): UseRolloutApiResult {
             create(StartRolloutLaneRequestSchema, {
               laneId: input.laneId,
               name: input.name,
-              firmwareFileIds: input.firmwareFileIds,
-              batches: input.batches,
+              firmwareFileIds: input.firmwareFileIds ?? [],
+              batches: input.batches ?? [],
               hashratePolicy: input.hashratePolicy,
+              modelPlans: input.modelPlans ?? [],
               idempotencyKey: input.idempotencyKey,
               reason: input.reason,
             }),
@@ -938,12 +1425,25 @@ export function useRolloutApi(): UseRolloutApiResult {
           return hydrateRolloutLane(response.lane, input.signal);
         },
       );
-      if (!result.response.rollout) {
+      const children = (result.response.children ?? []).flatMap((started) =>
+        started.child ? [{ rollout: mapRollout(started.child), firstBatchId: started.firstBatchId }] : [],
+      );
+      const startedChild = children[0];
+      const child =
+        startedChild?.rollout ?? (result.response.rollout ? mapRollout(result.response.rollout) : undefined);
+      if (!child) {
         throw new Error("Start rollout lane response was missing a rollout.");
       }
-      const mappedRollout = mapRollout(result.response.rollout);
-      applyMutationResult(mappedRollout);
-      return { lane: result.lane, rollout: mappedRollout };
+      const authoritativeChildren =
+        children.length > 0 ? children : [{ rollout: child, firstBatchId: child.batches[0]?.id ?? 0n }];
+      authoritativeChildren.forEach(({ rollout }) => applyMutationResult(rollout));
+      return {
+        lane: result.lane,
+        rollout: child,
+        parent: result.response.parent ? mapRolloutGroup(result.response.parent) : undefined,
+        firstBatchId: startedChild?.firstBatchId,
+        children: authoritativeChildren,
+      };
     },
     [applyMutationResult, runLaneMutation],
   );
@@ -1028,18 +1528,33 @@ export function useRolloutApi(): UseRolloutApiResult {
       isMutating,
       loadError,
       mutationError,
+      topologyReadiness,
+      isTopologyReadinessLoading,
+      topologyReadinessError,
+      topologyReadinessForbidden,
+      topologyReadinessStale,
       permissions,
       listRolloutLanes,
       getRolloutLane,
       listRolloutLaneMembers,
       previewRolloutLaneMembershipChange,
       updateRolloutLaneMembership,
+      previewRolloutLaneModelDeclaration,
+      createRolloutLaneModelDeclaration,
+      publishRolloutLaneModelTarget,
+      previewRolloutLaneModelMembershipChange,
+      updateRolloutLaneModelMembership,
       previewRolloutLane,
       createRolloutLane,
       deleteRolloutLane,
+      getRolloutLaneTopologyReadiness,
+      repairRolloutLaneModelBinding,
+      enableRolloutLaneModelTopology,
       startRolloutLane,
       listRollouts,
       getRollout,
+      getRolloutGroup,
+      listRolloutGroups,
       createRollout,
       admitRollout,
       continueRollout,
@@ -1055,12 +1570,17 @@ export function useRolloutApi(): UseRolloutApiResult {
       completeRollout,
       continueRollout,
       createRolloutLane,
+      createRolloutLaneModelDeclaration,
       createRollout,
       deleteRolloutLane,
+      enableRolloutLaneModelTopology,
       getRolloutLane,
       getRollout,
+      getRolloutGroup,
+      listRolloutGroups,
       isLoading,
       isMutating,
+      isTopologyReadinessLoading,
       lane,
       lanes,
       listRolloutLanes,
@@ -1068,16 +1588,26 @@ export function useRolloutApi(): UseRolloutApiResult {
       listRollouts,
       loadError,
       mutationError,
+      getRolloutLaneTopologyReadiness,
       pauseRollout,
       permissions,
       previewRolloutLane,
+      previewRolloutLaneModelDeclaration,
+      previewRolloutLaneModelMembershipChange,
       previewRolloutLaneMembershipChange,
+      repairRolloutLaneModelBinding,
       resumeRollout,
       revertRollout,
       rollout,
       rollouts,
       startRolloutLane,
+      topologyReadiness,
+      topologyReadinessError,
+      topologyReadinessForbidden,
+      topologyReadinessStale,
       updateRolloutLaneMembership,
+      updateRolloutLaneModelMembership,
+      publishRolloutLaneModelTarget,
     ],
   );
 }

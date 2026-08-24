@@ -32,12 +32,31 @@ type LaneStore interface {
 		ctx context.Context,
 		req UpdateMembershipRequest,
 	) (UpdateMembershipResult, error)
+	CreateModelDeclaration(ctx context.Context, req CreateModelDeclarationRequest) (*Lane, error)
+	PublishModelTarget(ctx context.Context, req PublishModelTargetRequest) (*Lane, error)
+	PreviewModelMembershipChange(
+		ctx context.Context,
+		req PreviewModelMembershipChangeRequest,
+	) (MembershipChangePreview, error)
+	UpdateModelMembership(
+		ctx context.Context,
+		req UpdateModelMembershipRequest,
+	) (UpdateMembershipResult, error)
+	GetTopologyReadiness(ctx context.Context, orgID int64) (TopologyReadiness, error)
+	RepairModelBinding(
+		ctx context.Context,
+		req RepairModelBindingRequest,
+	) (RepairModelBindingResult, error)
+	EnableTopology(
+		ctx context.Context,
+		req EnableTopologyRequest,
+	) (EnableTopologyResult, error)
 	DeleteLane(ctx context.Context, req DeleteLaneRequest) error
 	StartRollout(ctx context.Context, req StartRolloutRequest) (StartRolloutResult, error)
 }
 
 type StrategyStore interface {
-	AdmitBatch(ctx context.Context, req rollout.AdmissionRequest) error
+	AdmitBatch(ctx context.Context, req rollout.AdmissionRequest) rollout.AdmissionResult
 	PrepareRevert(ctx context.Context, req rollout.RevertRequest) error
 	GetCompletionStatus(
 		ctx context.Context,

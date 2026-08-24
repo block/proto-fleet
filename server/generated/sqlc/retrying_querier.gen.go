@@ -68,6 +68,18 @@ func (q *retryingQuerier) AddRolloutLaneMembershipDevices(ctx context.Context, a
 	return result, err
 }
 
+func (q *retryingQuerier) AddRolloutLaneModelMembershipDevices(ctx context.Context, arg AddRolloutLaneModelMembershipDevicesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "AddRolloutLaneModelMembershipDevices", func() error {
+		callResult, callErr := q.next.AddRolloutLaneModelMembershipDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error {
 	return q.retrier.RetryQuery(ctx, "AdminResetUserPassword", func() error {
 		return q.next.AdminResetUserPassword(ctx, arg)
@@ -132,6 +144,30 @@ func (q *retryingQuerier) AdvanceRolloutLaneCurrentChannel(ctx context.Context, 
 	var result RolloutLane
 	err := q.retrier.RetryQuery(ctx, "AdvanceRolloutLaneCurrentChannel", func() error {
 		callResult, callErr := q.next.AdvanceRolloutLaneCurrentChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AdvanceRolloutLaneModelCurrentTarget(ctx context.Context, arg AdvanceRolloutLaneModelCurrentTargetParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "AdvanceRolloutLaneModelCurrentTarget", func() error {
+		callResult, callErr := q.next.AdvanceRolloutLaneModelCurrentTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AdvanceRolloutLaneModelTarget(ctx context.Context, arg AdvanceRolloutLaneModelTargetParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "AdvanceRolloutLaneModelTarget", func() error {
+		callResult, callErr := q.next.AdvanceRolloutLaneModelTarget(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -278,6 +314,18 @@ func (q *retryingQuerier) AttachBetweenChannelRevertEnforcements(ctx context.Con
 	return result, err
 }
 
+func (q *retryingQuerier) AttachFirmwareRolloutGroupModelChild(ctx context.Context, arg AttachFirmwareRolloutGroupModelChildParams) (FirmwareRolloutGroupModel, error) {
+	var result FirmwareRolloutGroupModel
+	err := q.retrier.RetryQuery(ctx, "AttachFirmwareRolloutGroupModelChild", func() error {
+		callResult, callErr := q.next.AttachFirmwareRolloutGroupModelChild(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "BeginCurtailmentRestoration", func() error {
@@ -398,10 +446,46 @@ func (q *retryingQuerier) BumpRolloutLaneMembershipRevisions(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) BumpRolloutLaneModelRevision(ctx context.Context, arg BumpRolloutLaneModelRevisionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "BumpRolloutLaneModelRevision", func() error {
+		callResult, callErr := q.next.BumpRolloutLaneModelRevision(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) BumpRolloutLaneModelRevisions(ctx context.Context, arg BumpRolloutLaneModelRevisionsParams) ([]BumpRolloutLaneModelRevisionsRow, error) {
+	var result []BumpRolloutLaneModelRevisionsRow
+	err := q.retrier.RetryQuery(ctx, "BumpRolloutLaneModelRevisions", func() error {
+		callResult, callErr := q.next.BumpRolloutLaneModelRevisions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CancelEnrollmentForFleetNode(ctx context.Context, arg CancelEnrollmentForFleetNodeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CancelEnrollmentForFleetNode", func() error {
 		callResult, callErr := q.next.CancelEnrollmentForFleetNode(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CancelFirmwareRolloutEvidence(ctx context.Context, arg CancelFirmwareRolloutEvidenceParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CancelFirmwareRolloutEvidence", func() error {
+		callResult, callErr := q.next.CancelFirmwareRolloutEvidence(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -662,6 +746,18 @@ func (q *retryingQuerier) ClaimRigConfigReconciliation(ctx context.Context) (Cur
 	return result, err
 }
 
+func (q *retryingQuerier) ClaimRolloutLaneActiveParent(ctx context.Context, arg ClaimRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error) {
+	var result RolloutLaneActiveParent
+	err := q.retrier.RetryQuery(ctx, "ClaimRolloutLaneActiveParent", func() error {
+		callResult, callErr := q.next.ClaimRolloutLaneActiveParent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error) {
 	var result string
 	err := q.retrier.RetryQuery(ctx, "ClassifyFleetRuntimeLeaseAcquisition", func() error {
@@ -782,6 +878,18 @@ func (q *retryingQuerier) CompleteFirmwareRolloutBatches(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) CompleteFirmwareRolloutEvidenceRows(ctx context.Context, arg CompleteFirmwareRolloutEvidenceRowsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CompleteFirmwareRolloutEvidenceRows", func() error {
+		callResult, callErr := q.next.CompleteFirmwareRolloutEvidenceRows(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CompleteFirmwareRolloutRevertMembers(ctx context.Context, arg CompleteFirmwareRolloutRevertMembersParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CompleteFirmwareRolloutRevertMembers", func() error {
@@ -876,6 +984,30 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveCurtailmentEventsByInfrastructureDevices", func() error {
 		callResult, callErr := q.next.CountActiveCurtailmentEventsByInfrastructureDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountActiveLegacyRolloutLaneWork(ctx context.Context, orgID int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveLegacyRolloutLaneWork", func() error {
+		callResult, callErr := q.next.CountActiveLegacyRolloutLaneWork(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountActiveRolloutLaneModelBindings(ctx context.Context, arg CountActiveRolloutLaneModelBindingsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveRolloutLaneModelBindings", func() error {
+		callResult, callErr := q.next.CountActiveRolloutLaneModelBindings(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1076,6 +1208,18 @@ func (q *retryingQuerier) CountFirmwareRolloutDurableRevertWork(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) CountFirmwareRolloutSucceededMembers(ctx context.Context, arg CountFirmwareRolloutSucceededMembersParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountFirmwareRolloutSucceededMembers", func() error {
+		callResult, callErr := q.next.CountFirmwareRolloutSucceededMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountInfrastructureDevicesBySite", func() error {
@@ -1184,6 +1328,18 @@ func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevices(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) CountRolloutLaneActiveParentsForTest(ctx context.Context, arg CountRolloutLaneActiveParentsForTestParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountRolloutLaneActiveParentsForTest", func() error {
+		callResult, callErr := q.next.CountRolloutLaneActiveParentsForTest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountRolloutLaneMembers(ctx context.Context, arg CountRolloutLaneMembersParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountRolloutLaneMembers", func() error {
@@ -1212,6 +1368,18 @@ func (q *retryingQuerier) CountRolloutLaneNonCurrentMembers(ctx context.Context,
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountRolloutLaneNonCurrentMembers", func() error {
 		callResult, callErr := q.next.CountRolloutLaneNonCurrentMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountRolloutLaneTopologyAnomalies(ctx context.Context, orgID int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountRolloutLaneTopologyAnomalies", func() error {
+		callResult, callErr := q.next.CountRolloutLaneTopologyAnomalies(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1406,6 +1574,30 @@ func (q *retryingQuerier) CreateFirmwareRolloutControl(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) CreateFirmwareRolloutGroup(ctx context.Context, arg CreateFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "CreateFirmwareRolloutGroup", func() error {
+		callResult, callErr := q.next.CreateFirmwareRolloutGroup(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateFirmwareRolloutGroupModel(ctx context.Context, arg CreateFirmwareRolloutGroupModelParams) (FirmwareRolloutGroupModel, error) {
+	var result FirmwareRolloutGroupModel
+	err := q.retrier.RetryQuery(ctx, "CreateFirmwareRolloutGroupModel", func() error {
+		callResult, callErr := q.next.CreateFirmwareRolloutGroupModel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateFirmwareRolloutMembers(ctx context.Context, arg CreateFirmwareRolloutMembersParams) ([]FirmwareRolloutMember, error) {
 	var result []FirmwareRolloutMember
 	err := q.retrier.RetryQuery(ctx, "CreateFirmwareRolloutMembers", func() error {
@@ -1554,6 +1746,78 @@ func (q *retryingQuerier) CreateRolloutLaneMembershipEnforcements(ctx context.Co
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneMembershipEnforcements", func() error {
 		callResult, callErr := q.next.CreateRolloutLaneMembershipEnforcements(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneModelBindingRepair(ctx context.Context, arg CreateRolloutLaneModelBindingRepairParams) (RolloutLaneModelBinding, error) {
+	var result RolloutLaneModelBinding
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneModelBindingRepair", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneModelBindingRepair(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneModelBindings(ctx context.Context, arg CreateRolloutLaneModelBindingsParams) ([]RolloutLaneModelBinding, error) {
+	var result []RolloutLaneModelBinding
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneModelBindings", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneModelBindings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneModelChannel(ctx context.Context, arg CreateRolloutLaneModelChannelParams) (RolloutLaneModelChannel, error) {
+	var result RolloutLaneModelChannel
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneModelChannel", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneModelChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneModelDeclaration(ctx context.Context, arg CreateRolloutLaneModelDeclarationParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneModelDeclaration", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneModelDeclaration(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneModelEnforcements(ctx context.Context, arg CreateRolloutLaneModelEnforcementsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneModelEnforcements", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneModelEnforcements(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateRolloutLaneTopologyAdminOperation(ctx context.Context, arg CreateRolloutLaneTopologyAdminOperationParams) (RolloutLaneTopologyAdminOperation, error) {
+	var result RolloutLaneTopologyAdminOperation
+	err := q.retrier.RetryQuery(ctx, "CreateRolloutLaneTopologyAdminOperation", func() error {
+		callResult, callErr := q.next.CreateRolloutLaneTopologyAdminOperation(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1862,6 +2126,54 @@ func (q *retryingQuerier) DisableSyncCommit(ctx context.Context) error {
 	})
 }
 
+func (q *retryingQuerier) EnableRolloutLaneModelTopology(ctx context.Context, arg EnableRolloutLaneModelTopologyParams) (RolloutLaneTopologyCutover, error) {
+	var result RolloutLaneTopologyCutover
+	err := q.retrier.RetryQuery(ctx, "EnableRolloutLaneModelTopology", func() error {
+		callResult, callErr := q.next.EnableRolloutLaneModelTopology(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) EndActiveRolloutLaneModelBinding(ctx context.Context, arg EndActiveRolloutLaneModelBindingParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "EndActiveRolloutLaneModelBinding", func() error {
+		callResult, callErr := q.next.EndActiveRolloutLaneModelBinding(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) EndRolloutLaneModelBindings(ctx context.Context, arg EndRolloutLaneModelBindingsParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "EndRolloutLaneModelBindings", func() error {
+		callResult, callErr := q.next.EndRolloutLaneModelBindings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) EndRolloutLaneModelBindingsForArchive(ctx context.Context, arg EndRolloutLaneModelBindingsForArchiveParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "EndRolloutLaneModelBindingsForArchive", func() error {
+		callResult, callErr := q.next.EndRolloutLaneModelBindingsForArchive(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	var result EnsureCurtailmentOrgConfigRow
 	err := q.retrier.RetryQuery(ctx, "EnsureCurtailmentOrgConfig", func() error {
@@ -1878,6 +2190,30 @@ func (q *retryingQuerier) FinalizeBetweenChannelForward(ctx context.Context, arg
 	var result FirmwareRolloutMember
 	err := q.retrier.RetryQuery(ctx, "FinalizeBetweenChannelForward", func() error {
 		callResult, callErr := q.next.FinalizeBetweenChannelForward(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FinalizeBetweenChannelModelForward(ctx context.Context, arg FinalizeBetweenChannelModelForwardParams) (FirmwareRolloutMember, error) {
+	var result FirmwareRolloutMember
+	err := q.retrier.RetryQuery(ctx, "FinalizeBetweenChannelModelForward", func() error {
+		callResult, callErr := q.next.FinalizeBetweenChannelModelForward(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FinalizeBetweenChannelModelRevert(ctx context.Context, arg FinalizeBetweenChannelModelRevertParams) (FirmwareRolloutMember, error) {
+	var result FirmwareRolloutMember
+	err := q.retrier.RetryQuery(ctx, "FinalizeBetweenChannelModelRevert", func() error {
+		callResult, callErr := q.next.FinalizeBetweenChannelModelRevert(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3014,6 +3350,18 @@ func (q *retryingQuerier) GetDiscoveredFirmwareVersionForTest(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) GetDiscoveredModelIdentityObservedAtForTest(ctx context.Context, arg GetDiscoveredModelIdentityObservedAtForTestParams) (sql.NullTime, error) {
+	var result sql.NullTime
+	err := q.retrier.RetryQuery(ctx, "GetDiscoveredModelIdentityObservedAtForTest", func() error {
+		callResult, callErr := q.next.GetDiscoveredModelIdentityObservedAtForTest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetDistinctActivityUsers(ctx context.Context, orgID sql.NullInt64) ([]GetDistinctActivityUsersRow, error) {
 	var result []GetDistinctActivityUsersRow
 	err := q.retrier.RetryQuery(ctx, "GetDistinctActivityUsers", func() error {
@@ -3186,6 +3534,30 @@ func (q *retryingQuerier) GetFirmwareRolloutControlByKey(ctx context.Context, ar
 	var result FirmwareRolloutControl
 	err := q.retrier.RetryQuery(ctx, "GetFirmwareRolloutControlByKey", func() error {
 		callResult, callErr := q.next.GetFirmwareRolloutControlByKey(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFirmwareRolloutGroup(ctx context.Context, arg GetFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "GetFirmwareRolloutGroup", func() error {
+		callResult, callErr := q.next.GetFirmwareRolloutGroup(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFirmwareRolloutGroupByStartKey(ctx context.Context, arg GetFirmwareRolloutGroupByStartKeyParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "GetFirmwareRolloutGroupByStartKey", func() error {
+		callResult, callErr := q.next.GetFirmwareRolloutGroupByStartKey(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3854,6 +4226,30 @@ func (q *retryingQuerier) GetRolloutLane(ctx context.Context, arg GetRolloutLane
 	return result, err
 }
 
+func (q *retryingQuerier) GetRolloutLaneActiveParent(ctx context.Context, arg GetRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error) {
+	var result RolloutLaneActiveParent
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneActiveParent", func() error {
+		callResult, callErr := q.next.GetRolloutLaneActiveParent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneActiveParentForTest(ctx context.Context, arg GetRolloutLaneActiveParentForTestParams) (GetRolloutLaneActiveParentForTestRow, error) {
+	var result GetRolloutLaneActiveParentForTestRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneActiveParentForTest", func() error {
+		callResult, callErr := q.next.GetRolloutLaneActiveParentForTest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetRolloutLaneAssignments(ctx context.Context, arg GetRolloutLaneAssignmentsParams) ([]GetRolloutLaneAssignmentsRow, error) {
 	var result []GetRolloutLaneAssignmentsRow
 	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneAssignments", func() error {
@@ -3942,6 +4338,90 @@ func (q *retryingQuerier) GetRolloutLaneMembershipMutationCountsForTest(ctx cont
 	var result GetRolloutLaneMembershipMutationCountsForTestRow
 	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneMembershipMutationCountsForTest", func() error {
 		callResult, callErr := q.next.GetRolloutLaneMembershipMutationCountsForTest(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneModelCurrentTarget(ctx context.Context, arg GetRolloutLaneModelCurrentTargetParams) (GetRolloutLaneModelCurrentTargetRow, error) {
+	var result GetRolloutLaneModelCurrentTargetRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneModelCurrentTarget", func() error {
+		callResult, callErr := q.next.GetRolloutLaneModelCurrentTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneModelForTest(ctx context.Context, arg GetRolloutLaneModelForTestParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneModelForTest", func() error {
+		callResult, callErr := q.next.GetRolloutLaneModelForTest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneReleaseTargetByModel(ctx context.Context, arg GetRolloutLaneReleaseTargetByModelParams) (FirmwareReleaseTarget, error) {
+	var result FirmwareReleaseTarget
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneReleaseTargetByModel", func() error {
+		callResult, callErr := q.next.GetRolloutLaneReleaseTargetByModel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneSettlementState(ctx context.Context, arg GetRolloutLaneSettlementStateParams) (GetRolloutLaneSettlementStateRow, error) {
+	var result GetRolloutLaneSettlementStateRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneSettlementState", func() error {
+		callResult, callErr := q.next.GetRolloutLaneSettlementState(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneTopologyAdminOperationByKey(ctx context.Context, arg GetRolloutLaneTopologyAdminOperationByKeyParams) (RolloutLaneTopologyAdminOperation, error) {
+	var result RolloutLaneTopologyAdminOperation
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneTopologyAdminOperationByKey", func() error {
+		callResult, callErr := q.next.GetRolloutLaneTopologyAdminOperationByKey(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneTopologyCountsForTest(ctx context.Context, arg GetRolloutLaneTopologyCountsForTestParams) (GetRolloutLaneTopologyCountsForTestRow, error) {
+	var result GetRolloutLaneTopologyCountsForTestRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneTopologyCountsForTest", func() error {
+		callResult, callErr := q.next.GetRolloutLaneTopologyCountsForTest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetRolloutLaneTopologyCutover(ctx context.Context, orgID int64) (RolloutLaneTopologyCutover, error) {
+	var result RolloutLaneTopologyCutover
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneTopologyCutover", func() error {
+		callResult, callErr := q.next.GetRolloutLaneTopologyCutover(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4238,10 +4718,46 @@ func (q *retryingQuerier) HasActiveRolloutLaneManagementWork(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) HasActiveRolloutLaneModelWork(ctx context.Context, arg HasActiveRolloutLaneModelWorkParams) (sql.NullBool, error) {
+	var result sql.NullBool
+	err := q.retrier.RetryQuery(ctx, "HasActiveRolloutLaneModelWork", func() error {
+		callResult, callErr := q.next.HasActiveRolloutLaneModelWork(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) HasCurrentFirmwareRolloutAdmissionFailure(ctx context.Context, arg HasCurrentFirmwareRolloutAdmissionFailureParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasCurrentFirmwareRolloutAdmissionFailure", func() error {
+		callResult, callErr := q.next.HasCurrentFirmwareRolloutAdmissionFailure(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasFirmwareRolloutSucceededMembers", func() error {
 		callResult, callErr := q.next.HasFirmwareRolloutSucceededMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) HasNewerOrConflictingRolloutLaneModelWork(ctx context.Context, arg HasNewerOrConflictingRolloutLaneModelWorkParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasNewerOrConflictingRolloutLaneModelWork", func() error {
+		callResult, callErr := q.next.HasNewerOrConflictingRolloutLaneModelWork(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4550,6 +5066,18 @@ func (q *retryingQuerier) ListActiveRolloutLaneFirmwareConvergenceStatuses(ctx c
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveRolloutLaneModelBindingsForDevices(ctx context.Context, arg ListActiveRolloutLaneModelBindingsForDevicesParams) ([]ListActiveRolloutLaneModelBindingsForDevicesRow, error) {
+	var result []ListActiveRolloutLaneModelBindingsForDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveRolloutLaneModelBindingsForDevices", func() error {
+		callResult, callErr := q.next.ListActiveRolloutLaneModelBindingsForDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, arg ListActiveRolloutOwnedDeviceIdentifiersParams) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListActiveRolloutOwnedDeviceIdentifiers", func() error {
@@ -4782,6 +5310,18 @@ func (q *retryingQuerier) ListCurrentChannelIDsForDevices(ctx context.Context, a
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListCurrentChannelIDsForDevices", func() error {
 		callResult, callErr := q.next.ListCurrentChannelIDsForDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListCurrentFirmwareRolloutAdmissionFailures(ctx context.Context, arg ListCurrentFirmwareRolloutAdmissionFailuresParams) ([]ListCurrentFirmwareRolloutAdmissionFailuresRow, error) {
+	var result []ListCurrentFirmwareRolloutAdmissionFailuresRow
+	err := q.retrier.RetryQuery(ctx, "ListCurrentFirmwareRolloutAdmissionFailures", func() error {
+		callResult, callErr := q.next.ListCurrentFirmwareRolloutAdmissionFailures(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5078,10 +5618,34 @@ func (q *retryingQuerier) ListFirmwareRolloutBatches(ctx context.Context, arg Li
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutBatchesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutBatchesByRolloutIDsParams) ([]FirmwareRolloutBatch, error) {
+	var result []FirmwareRolloutBatch
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutBatchesByRolloutIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutBatchesByRolloutIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwareRolloutCausesParams) ([]FirmwareRolloutCause, error) {
 	var result []FirmwareRolloutCause
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutCauses", func() error {
 		callResult, callErr := q.next.ListFirmwareRolloutCauses(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutCausesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutCausesByRolloutIDsParams) ([]FirmwareRolloutCause, error) {
+	var result []FirmwareRolloutCause
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutCausesByRolloutIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutCausesByRolloutIDs(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5102,6 +5666,18 @@ func (q *retryingQuerier) ListFirmwareRolloutEvidence(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutEvidenceByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutEvidenceByRolloutIDsParams) ([]FirmwareRolloutEvidence, error) {
+	var result []FirmwareRolloutEvidence
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvidenceByRolloutIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutEvidenceByRolloutIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error) {
 	var result []ListFirmwareRolloutEvidenceCandidatesRow
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvidenceCandidates", func() error {
@@ -5114,10 +5690,94 @@ func (q *retryingQuerier) ListFirmwareRolloutEvidenceCandidates(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutGroupChildren(ctx context.Context, arg ListFirmwareRolloutGroupChildrenParams) ([]FirmwareRollout, error) {
+	var result []FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutGroupChildren", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutGroupChildren(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutGroupChildrenByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupChildrenByGroupIDsParams) ([]FirmwareRollout, error) {
+	var result []FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutGroupChildrenByGroupIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutGroupChildrenByGroupIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutGroupModels(ctx context.Context, arg ListFirmwareRolloutGroupModelsParams) ([]FirmwareRolloutGroupModel, error) {
+	var result []FirmwareRolloutGroupModel
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutGroupModels", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutGroupModels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutGroupModelsByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupModelsByGroupIDsParams) ([]FirmwareRolloutGroupModel, error) {
+	var result []FirmwareRolloutGroupModel
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutGroupModelsByGroupIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutGroupModelsByGroupIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutGroups(ctx context.Context, orgID int64) ([]FirmwareRolloutGroup, error) {
+	var result []FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutGroups", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutGroups(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutMemberDeviceIDs(ctx context.Context, arg ListFirmwareRolloutMemberDeviceIDsParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutMemberDeviceIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutMemberDeviceIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwareRolloutMembersParams) ([]ListFirmwareRolloutMembersRow, error) {
 	var result []ListFirmwareRolloutMembersRow
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutMembers", func() error {
 		callResult, callErr := q.next.ListFirmwareRolloutMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutMembersByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutMembersByRolloutIDsParams) ([]ListFirmwareRolloutMembersByRolloutIDsRow, error) {
+	var result []ListFirmwareRolloutMembersByRolloutIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutMembersByRolloutIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutMembersByRolloutIDs(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5426,6 +6086,30 @@ func (q *retryingQuerier) ListRolesWithDetailsForOrg(ctx context.Context, organi
 	return result, err
 }
 
+func (q *retryingQuerier) ListRolloutLaneActiveParents(ctx context.Context, orgID int64) ([]RolloutLaneActiveParent, error) {
+	var result []RolloutLaneActiveParent
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneActiveParents", func() error {
+		callResult, callErr := q.next.ListRolloutLaneActiveParents(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneChannelDetailsByLaneIDs(ctx context.Context, arg ListRolloutLaneChannelDetailsByLaneIDsParams) ([]ListRolloutLaneChannelDetailsByLaneIDsRow, error) {
+	var result []ListRolloutLaneChannelDetailsByLaneIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneChannelDetailsByLaneIDs", func() error {
+		callResult, callErr := q.next.ListRolloutLaneChannelDetailsByLaneIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListRolloutLaneChannelTransitions(ctx context.Context, arg ListRolloutLaneChannelTransitionsParams) ([]ListRolloutLaneChannelTransitionsRow, error) {
 	var result []ListRolloutLaneChannelTransitionsRow
 	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneChannelTransitions", func() error {
@@ -5546,10 +6230,106 @@ func (q *retryingQuerier) ListRolloutLaneMembershipCandidates(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) ListRolloutLaneModelChannels(ctx context.Context, arg ListRolloutLaneModelChannelsParams) ([]ListRolloutLaneModelChannelsRow, error) {
+	var result []ListRolloutLaneModelChannelsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelChannels", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelChannels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModelChannelsByLaneIDs(ctx context.Context, arg ListRolloutLaneModelChannelsByLaneIDsParams) ([]ListRolloutLaneModelChannelsByLaneIDsRow, error) {
+	var result []ListRolloutLaneModelChannelsByLaneIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelChannelsByLaneIDs", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelChannelsByLaneIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModelFirmwareConvergenceStatuses(ctx context.Context, arg ListRolloutLaneModelFirmwareConvergenceStatusesParams) ([]ListRolloutLaneModelFirmwareConvergenceStatusesRow, error) {
+	var result []ListRolloutLaneModelFirmwareConvergenceStatusesRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelFirmwareConvergenceStatuses", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelFirmwareConvergenceStatuses(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs(ctx context.Context, arg ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsParams) ([]ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsRow, error) {
+	var result []ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModelTransitions(ctx context.Context, arg ListRolloutLaneModelTransitionsParams) ([]ListRolloutLaneModelTransitionsRow, error) {
+	var result []ListRolloutLaneModelTransitionsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelTransitions", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelTransitions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModels(ctx context.Context, arg ListRolloutLaneModelsParams) ([]ListRolloutLaneModelsRow, error) {
+	var result []ListRolloutLaneModelsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModels", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneModelsByLaneIDs(ctx context.Context, arg ListRolloutLaneModelsByLaneIDsParams) ([]ListRolloutLaneModelsByLaneIDsRow, error) {
+	var result []ListRolloutLaneModelsByLaneIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneModelsByLaneIDs", func() error {
+		callResult, callErr := q.next.ListRolloutLaneModelsByLaneIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListRolloutLaneOwnedChannelIDs(ctx context.Context, arg ListRolloutLaneOwnedChannelIDsParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneOwnedChannelIDs", func() error {
 		callResult, callErr := q.next.ListRolloutLaneOwnedChannelIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRolloutLaneTopologyAnomalies(ctx context.Context, orgID int64) ([]ListRolloutLaneTopologyAnomaliesRow, error) {
+	var result []ListRolloutLaneTopologyAnomaliesRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneTopologyAnomalies", func() error {
+		callResult, callErr := q.next.ListRolloutLaneTopologyAnomalies(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5960,6 +6740,18 @@ func (q *retryingQuerier) LockRolloutLane(ctx context.Context, arg LockRolloutLa
 	return result, err
 }
 
+func (q *retryingQuerier) LockRolloutLaneActiveParent(ctx context.Context, arg LockRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error) {
+	var result RolloutLaneActiveParent
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneActiveParent", func() error {
+		callResult, callErr := q.next.LockRolloutLaneActiveParent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockRolloutLaneDevicesForArchive(ctx context.Context, arg LockRolloutLaneDevicesForArchiveParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneDevicesForArchive", func() error {
@@ -6008,10 +6800,70 @@ func (q *retryingQuerier) LockRolloutLaneManagementAuthorities(ctx context.Conte
 	return result, err
 }
 
+func (q *retryingQuerier) LockRolloutLaneModelForMutation(ctx context.Context, arg LockRolloutLaneModelForMutationParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneModelForMutation", func() error {
+		callResult, callErr := q.next.LockRolloutLaneModelForMutation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockRolloutLaneModelForRepair(ctx context.Context, arg LockRolloutLaneModelForRepairParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneModelForRepair", func() error {
+		callResult, callErr := q.next.LockRolloutLaneModelForRepair(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockRolloutLaneModelRepairDevice(ctx context.Context, arg LockRolloutLaneModelRepairDeviceParams) (LockRolloutLaneModelRepairDeviceRow, error) {
+	var result LockRolloutLaneModelRepairDeviceRow
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneModelRepairDevice", func() error {
+		callResult, callErr := q.next.LockRolloutLaneModelRepairDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockRolloutLaneModelsForMutation(ctx context.Context, arg LockRolloutLaneModelsForMutationParams) ([]RolloutLaneModel, error) {
+	var result []RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneModelsForMutation", func() error {
+		callResult, callErr := q.next.LockRolloutLaneModelsForMutation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockRolloutLaneOwnedRolloutMembers(ctx context.Context, arg LockRolloutLaneOwnedRolloutMembersParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneOwnedRolloutMembers", func() error {
 		callResult, callErr := q.next.LockRolloutLaneOwnedRolloutMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockRolloutLaneTopologyCutover(ctx context.Context, orgID int64) (RolloutLaneTopologyCutover, error) {
+	var result RolloutLaneTopologyCutover
+	err := q.retrier.RetryQuery(ctx, "LockRolloutLaneTopologyCutover", func() error {
+		callResult, callErr := q.next.LockRolloutLaneTopologyCutover(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6236,6 +7088,18 @@ func (q *retryingQuerier) PrepareFirmwareRolloutMembersForRevert(ctx context.Con
 	return result, err
 }
 
+func (q *retryingQuerier) PrepareModelFirmwareRolloutMembersForRevert(ctx context.Context, arg PrepareModelFirmwareRolloutMembersForRevertParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "PrepareModelFirmwareRolloutMembersForRevert", func() error {
+		callResult, callErr := q.next.PrepareModelFirmwareRolloutMembersForRevert(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error {
 	return q.retrier.RetryQuery(ctx, "PrunePermissionsOutsideKeys", func() error {
 		return q.next.PrunePermissionsOutsideKeys(ctx, arg)
@@ -6386,6 +7250,30 @@ func (q *retryingQuerier) RecordCurtailPendingDispatch(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) RefreshFirmwareRolloutGroupResult(ctx context.Context, arg RefreshFirmwareRolloutGroupResultParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RefreshFirmwareRolloutGroupResult", func() error {
+		callResult, callErr := q.next.RefreshFirmwareRolloutGroupResult(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RefreshFirmwareRolloutGroupResults(ctx context.Context, arg RefreshFirmwareRolloutGroupResultsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RefreshFirmwareRolloutGroupResults", func() error {
+		callResult, callErr := q.next.RefreshFirmwareRolloutGroupResults(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "RefreshOpenErrorsLastSeenByDevice", func() error {
@@ -6402,6 +7290,18 @@ func (q *retryingQuerier) ReleaseFirmwareRolloutOwners(ctx context.Context, arg 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReleaseFirmwareRolloutOwners", func() error {
 		callResult, callErr := q.next.ReleaseFirmwareRolloutOwners(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ReleaseRolloutLaneActiveParent(ctx context.Context, arg ReleaseRolloutLaneActiveParentParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReleaseRolloutLaneActiveParent", func() error {
+		callResult, callErr := q.next.ReleaseRolloutLaneActiveParent(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6506,6 +7406,18 @@ func (q *retryingQuerier) RemoveRolloutLaneMemberships(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) RemoveRolloutLaneModelMembershipDevices(ctx context.Context, arg RemoveRolloutLaneModelMembershipDevicesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "RemoveRolloutLaneModelMembershipDevices", func() error {
+		callResult, callErr := q.next.RemoveRolloutLaneModelMembershipDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error) {
 	var result RenewFleetRuntimeLeaseRow
 	err := q.retrier.RetryQuery(ctx, "RenewFleetRuntimeLease", func() error {
@@ -6546,6 +7458,18 @@ func (q *retryingQuerier) ResetCurtailmentTargetsForRestore(ctx context.Context,
 	return q.retrier.RetryQuery(ctx, "ResetCurtailmentTargetsForRestore", func() error {
 		return q.next.ResetCurtailmentTargetsForRestore(ctx, curtailmentEventID)
 	})
+}
+
+func (q *retryingQuerier) ResetFirmwareRolloutAdmissionAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionAfterFailureParams) (FirmwareRollout, error) {
+	var result FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "ResetFirmwareRolloutAdmissionAfterFailure", func() error {
+		callResult, callErr := q.next.ResetFirmwareRolloutAdmissionAfterFailure(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) ResetFirmwareRolloutAdmissionBatchAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionBatchAfterFailureParams) (int64, error) {
@@ -6689,6 +7613,12 @@ func (q *retryingQuerier) RevokePermissionFromRole(ctx context.Context, arg Revo
 func (q *retryingQuerier) RevokeSession(ctx context.Context, arg RevokeSessionParams) error {
 	return q.retrier.RetryQuery(ctx, "RevokeSession", func() error {
 		return q.next.RevokeSession(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RunRolloutLaneTopologyBackfill(ctx context.Context, orgID int64) error {
+	return q.retrier.RetryQuery(ctx, "RunRolloutLaneTopologyBackfill", func() error {
+		return q.next.RunRolloutLaneTopologyBackfill(ctx, orgID)
 	})
 }
 
@@ -7094,6 +8024,42 @@ func (q *retryingQuerier) SweepExpiredFleetNodeSessions(ctx context.Context, exp
 	return result, err
 }
 
+func (q *retryingQuerier) TestClaimRolloutLaneActiveParent(ctx context.Context, arg TestClaimRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error) {
+	var result RolloutLaneActiveParent
+	err := q.retrier.RetryQuery(ctx, "TestClaimRolloutLaneActiveParent", func() error {
+		callResult, callErr := q.next.TestClaimRolloutLaneActiveParent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) TestCreateFirmwareRolloutGroup(ctx context.Context, arg TestCreateFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "TestCreateFirmwareRolloutGroup", func() error {
+		callResult, callErr := q.next.TestCreateFirmwareRolloutGroup(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) TestCreateRolloutLaneModelChannel(ctx context.Context, arg TestCreateRolloutLaneModelChannelParams) (RolloutLaneModelChannel, error) {
+	var result RolloutLaneModelChannel
+	err := q.retrier.RetryQuery(ctx, "TestCreateRolloutLaneModelChannel", func() error {
+		callResult, callErr := q.next.TestCreateRolloutLaneModelChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) TestDeleteRolloutLaneMembershipChange(ctx context.Context, arg TestDeleteRolloutLaneMembershipChangeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "TestDeleteRolloutLaneMembershipChange", func() error {
@@ -7178,6 +8144,18 @@ func (q *retryingQuerier) TestMutateRolloutLaneMembershipChangeReason(ctx contex
 	return result, err
 }
 
+func (q *retryingQuerier) TestSetDiscoveredEndpoint(ctx context.Context, arg TestSetDiscoveredEndpointParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "TestSetDiscoveredEndpoint", func() error {
+		callResult, callErr := q.next.TestSetDiscoveredEndpoint(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) TestSetDiscoveredFirmwareVersion(ctx context.Context, arg TestSetDiscoveredFirmwareVersionParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "TestSetDiscoveredFirmwareVersion", func() error {
@@ -7202,6 +8180,18 @@ func (q *retryingQuerier) TestSetRolloutLaneMembershipEnforcementState(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) TestSetRolloutLaneModelCurrentChannel(ctx context.Context, arg TestSetRolloutLaneModelCurrentChannelParams) (RolloutLaneModel, error) {
+	var result RolloutLaneModel
+	err := q.retrier.RetryQuery(ctx, "TestSetRolloutLaneModelCurrentChannel", func() error {
+		callResult, callErr := q.next.TestSetRolloutLaneModelCurrentChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) TestSoftDeleteDeviceByIdentifier(ctx context.Context, arg TestSoftDeleteDeviceByIdentifierParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "TestSoftDeleteDeviceByIdentifier", func() error {
@@ -7218,6 +8208,30 @@ func (q *retryingQuerier) TestTruncateRolloutLaneMembershipChanges(ctx context.C
 	return q.retrier.RetryQuery(ctx, "TestTruncateRolloutLaneMembershipChanges", func() error {
 		return q.next.TestTruncateRolloutLaneMembershipChanges(ctx)
 	})
+}
+
+func (q *retryingQuerier) TestUpdateFirmwareRolloutGroupMetadata(ctx context.Context, arg TestUpdateFirmwareRolloutGroupMetadataParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "TestUpdateFirmwareRolloutGroupMetadata", func() error {
+		callResult, callErr := q.next.TestUpdateFirmwareRolloutGroupMetadata(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) TestUpdateFirmwareRolloutGroupResult(ctx context.Context, arg TestUpdateFirmwareRolloutGroupResultParams) (FirmwareRolloutGroup, error) {
+	var result FirmwareRolloutGroup
+	err := q.retrier.RetryQuery(ctx, "TestUpdateFirmwareRolloutGroupResult", func() error {
+		callResult, callErr := q.next.TestUpdateFirmwareRolloutGroupResult(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) TransferDiscoveredDeviceAttribution(ctx context.Context, arg TransferDiscoveredDeviceAttributionParams) (int64, error) {

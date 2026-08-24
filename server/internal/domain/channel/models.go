@@ -102,6 +102,10 @@ type Enforcement struct {
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
 	CreatedByUserID             int64
+	ExpectedModelIdentityKey    string
+	ModelIdentityValidatedAt    *time.Time
+	ObservedModelIdentityKey    string
+	ModelIdentityObservedAt     *time.Time
 }
 
 type CommandOutcomeStatus string

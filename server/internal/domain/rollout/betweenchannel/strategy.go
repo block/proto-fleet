@@ -36,11 +36,17 @@ func (s *Strategy) ValidateCreate(
 	)
 }
 
-func (s *Strategy) Admit(ctx context.Context, req rollout.AdmissionRequest) error {
+func (s *Strategy) Admit(
+	ctx context.Context,
+	req rollout.AdmissionRequest,
+) rollout.AdmissionResult {
 	if req.Rollout.SourceChannelID == nil ||
 		req.Rollout.TargetChannelID == nil ||
 		req.Rollout.TargetReleaseSetID == nil {
-		return fmt.Errorf("%w: rollout channel and release targets are required", ErrCompatibility)
+		return rollout.AdmissionResult{
+			Outcome: rollout.AdmissionOutcomeDefinitivelyRolledBack,
+			Err:     fmt.Errorf("%w: rollout channel and release targets are required", ErrCompatibility),
+		}
 	}
 	return s.store.AdmitBatch(ctx, req)
 }
@@ -138,7 +144,18 @@ func (s *Strategy) Complete(
 		return fmt.Errorf("%w: rollout source and target channels are required", ErrCompatibility)
 	}
 	switch req.Rollout.State {
-	case rollout.StateCompleted, rollout.StateCompletedWithFailures:
+	case rollout.StateCompleted:
+		return s.store.AdvanceLane(
+			ctx,
+			req.Rollout.OrgID,
+			req.Rollout.ID,
+			*req.Rollout.SourceChannelID,
+			*req.Rollout.TargetChannelID,
+		)
+	case rollout.StateCompletedWithFailures:
+		if req.Rollout.LaneModelID != nil {
+			return nil
+		}
 		return s.store.AdvanceLane(
 			ctx,
 			req.Rollout.OrgID,

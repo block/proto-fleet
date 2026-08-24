@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { toError } from "@/protoFleet/api/requestErrors";
 import type {
   ListRolloutLaneMembersOptions,
   PreviewRolloutLaneMembershipChangeInput,
+  PreviewRolloutLaneModelMembershipChangeInput,
   UpdateRolloutLaneMembershipInput,
+  UpdateRolloutLaneModelMembershipInput,
 } from "@/protoFleet/api/useRolloutApi";
 import { rolloutLaneMembershipBlockedReason } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import { firmwareTransitionDisplay } from "@/protoFleet/features/rollout/firmwareTransitionDisplay";
@@ -37,7 +39,7 @@ interface MembershipConfirmation {
   idempotencyKey: string;
 }
 
-interface ManageRolloutLaneMembersModalProps {
+interface CommonManageRolloutLaneMembersModalProps {
   open: boolean;
   lane: RolloutLane;
   latestRollout?: RolloutRecord;
@@ -46,9 +48,31 @@ interface ManageRolloutLaneMembersModalProps {
   error?: string | null;
   onDismiss: () => void;
   onListMembers: (options: ListRolloutLaneMembersOptions) => Promise<RolloutLaneMembershipPage>;
+  onUpdated: (result: RolloutLaneMembershipUpdateResult) => void;
+}
+
+interface LegacyManageRolloutLaneMembersModalProps extends CommonManageRolloutLaneMembersModalProps {
+  mode: "legacy";
   onPreview: (input: PreviewRolloutLaneMembershipChangeInput) => Promise<RolloutLaneMembershipChangePreview>;
   onUpdate: (input: UpdateRolloutLaneMembershipInput) => Promise<RolloutLaneMembershipUpdateResult>;
-  onUpdated: (result: RolloutLaneMembershipUpdateResult) => void;
+  onPreviewModel?: never;
+  onUpdateModel?: never;
+}
+
+interface ModelManageRolloutLaneMembersModalProps extends CommonManageRolloutLaneMembersModalProps {
+  mode: "model";
+  onPreview?: never;
+  onUpdate?: never;
+  onPreviewModel: (input: PreviewRolloutLaneModelMembershipChangeInput) => Promise<RolloutLaneMembershipChangePreview>;
+  onUpdateModel: (input: UpdateRolloutLaneModelMembershipInput) => Promise<RolloutLaneMembershipUpdateResult>;
+}
+
+type ManageRolloutLaneMembersModalProps =
+  LegacyManageRolloutLaneMembersModalProps | ModelManageRolloutLaneMembersModalProps;
+
+interface CachedMembershipPage {
+  members: RolloutLaneMembershipMember[];
+  totalCount: number;
 }
 
 function countLabel(count: number): string {
@@ -161,19 +185,8 @@ function MemberTable({ laneLabel, members }: { laneLabel: string; members: Rollo
   );
 }
 
-export default function ManageRolloutLaneMembersModal({
-  open,
-  lane,
-  latestRollout,
-  canManage,
-  isSubmitting,
-  error,
-  onDismiss,
-  onListMembers,
-  onPreview,
-  onUpdate,
-  onUpdated,
-}: ManageRolloutLaneMembersModalProps) {
+export default function ManageRolloutLaneMembersModal(props: ManageRolloutLaneMembersModalProps) {
+  const { open, lane, latestRollout, canManage, isSubmitting, error, onDismiss, onListMembers, onUpdated } = props;
   const [members, setMembers] = useState<RolloutLaneMembershipMember[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -185,30 +198,56 @@ export default function ManageRolloutLaneMembersModal({
   const [showMinerSelection, setShowMinerSelection] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [confirmation, setConfirmation] = useState<MembershipConfirmation | null>(null);
-  const currentMemberIdentifiers = useMemo(() => members.map((member) => member.deviceIdentifier), [members]);
-  const blockedReason = rolloutLaneMembershipBlockedReason(lane, latestRollout);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(lane.models[0]?.id ?? null);
+  const membershipCacheRef = useRef(new Map<string, CachedMembershipPage>());
+  const selectedModel =
+    props.mode === "model" ? (lane.models.find((model) => model.id === selectedModelId) ?? lane.models[0]) : undefined;
+  const membershipScopeKey =
+    props.mode === "model"
+      ? selectedModel
+        ? `${selectedModel.id}:${selectedModel.revision}`
+        : null
+      : `${lane.id}:${lane.revision}`;
+  const membershipIsLoading = membershipScopeKey !== null && isLoading;
+  const displayedMembers = useMemo(
+    () => (selectedModel || props.mode === "legacy" ? members : []),
+    [members, props.mode, selectedModel],
+  );
+  const currentMemberIdentifiers = useMemo(
+    () => displayedMembers.map((member) => member.deviceIdentifier),
+    [displayedMembers],
+  );
+  const blockedReason = lane.topologyEnabled ? null : rolloutLaneMembershipBlockedReason(lane, latestRollout);
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    if (!membershipScopeKey) {
+      return;
+    }
     const controller = new AbortController();
+    const cached = membershipCacheRef.current.get(membershipScopeKey);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resets modal state before loading an external API
-    setMembers([]);
-    setTotalCount(0);
-    setIsLoading(true);
+    setMembers(cached?.members ?? []);
+    setTotalCount(cached?.totalCount ?? 0);
+    setIsLoading(!cached);
     setIsLoadingAllMembers(false);
-    setHasLoadedAllMembers(false);
+    setHasLoadedAllMembers(Boolean(cached));
     setLoadError(null);
     setActionError(null);
     setShowMinerSelection(false);
     setConfirmation(null);
+    if (cached) {
+      return () => controller.abort();
+    }
 
     void (async () => {
       const seenPageTokens = new Set<string>();
       try {
         const firstPage = await onListMembers({
           laneId: lane.id,
+          laneModelId: selectedModel?.id,
           pageSize: MEMBERS_PAGE_SIZE,
           pageToken: "",
           includeTotalCount: true,
@@ -231,6 +270,7 @@ export default function ManageRolloutLaneMembersModal({
           seenPageTokens.add(pageToken);
           const page = await onListMembers({
             laneId: lane.id,
+            laneModelId: selectedModel?.id,
             pageSize: MEMBERS_PAGE_SIZE,
             pageToken,
             includeTotalCount: false,
@@ -243,6 +283,10 @@ export default function ManageRolloutLaneMembersModal({
           setMembers([...loadedMembers]);
           pageToken = page.nextPageToken;
         }
+        membershipCacheRef.current.set(membershipScopeKey, {
+          members: [...loadedMembers],
+          totalCount: firstPage.totalCount,
+        });
         setHasLoadedAllMembers(true);
       } catch (loadFailure) {
         if (!controller.signal.aborted) {
@@ -257,7 +301,7 @@ export default function ManageRolloutLaneMembersModal({
     })();
 
     return () => controller.abort();
-  }, [lane.id, lane.revision, loadAttempt, onListMembers, open]);
+  }, [lane.id, loadAttempt, membershipScopeKey, onListMembers, open, selectedModel?.id]);
 
   const handleMinerSelection = async (selection: MinerSelectionValue) => {
     const current = new Set(currentMemberIdentifiers);
@@ -273,16 +317,34 @@ export default function ManageRolloutLaneMembersModal({
     setActionError(null);
     setIsPreviewing(true);
     try {
-      const preview = await onPreview({
-        laneId: lane.id,
-        addDeviceIdentifiers,
-        removeDeviceIdentifiers,
-      });
+      let preview: RolloutLaneMembershipChangePreview;
+      if (props.mode === "model") {
+        if (!selectedModel) {
+          throw new Error("A model declaration is required to change model membership.");
+        }
+        preview = await props.onPreviewModel({
+          laneId: lane.id,
+          laneModelId: selectedModel.id,
+          addDeviceIdentifiers,
+          removeDeviceIdentifiers,
+        });
+      } else {
+        preview = await props.onPreview({
+          laneId: lane.id,
+          addDeviceIdentifiers,
+          removeDeviceIdentifiers,
+        });
+      }
       setConfirmation({
         addDeviceIdentifiers,
         removeDeviceIdentifiers,
         preview,
-        idempotencyKey: membershipIdempotencyKey(lane.id, lane.revision, addDeviceIdentifiers, removeDeviceIdentifiers),
+        idempotencyKey: membershipIdempotencyKey(
+          `${lane.id}:${selectedModel?.id ?? "legacy"}`,
+          selectedModel?.revision ?? lane.revision,
+          addDeviceIdentifiers,
+          removeDeviceIdentifiers,
+        ),
       });
     } catch (previewFailure) {
       setActionError(toError(previewFailure, "Couldn't preview membership changes. Try again.").message);
@@ -296,16 +358,26 @@ export default function ManageRolloutLaneMembersModal({
       return;
     }
     try {
-      const result = await onUpdate({
+      const input = {
         laneId: lane.id,
-        expectedRevision: lane.revision,
+        expectedRevision: selectedModel?.revision ?? lane.revision,
         addDeviceIdentifiers: confirmation.addDeviceIdentifiers,
         removeDeviceIdentifiers: confirmation.removeDeviceIdentifiers,
         confirmFirmware: confirmation.preview.requiresFirmwareConfirmation,
         confirmReassign: confirmation.preview.requiresReassignmentConfirmation,
         idempotencyKey: confirmation.idempotencyKey,
-        reason: "Update rollout lane membership",
-      });
+        reason: selectedModel ? "Update rollout lane model membership" : "Update rollout lane membership",
+      };
+      let result: RolloutLaneMembershipUpdateResult;
+      if (props.mode === "model") {
+        if (!selectedModel) {
+          throw new Error("A model declaration is required to change model membership.");
+        }
+        result = await props.onUpdateModel({ ...input, laneModelId: selectedModel.id });
+      } else {
+        result = await props.onUpdate(input);
+      }
+      membershipCacheRef.current.clear();
       onUpdated(result);
       if (result.transitionMembers.length === 0) {
         setConfirmation(null);
@@ -342,10 +414,29 @@ export default function ManageRolloutLaneMembersModal({
         bodyClassName="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex min-h-0 flex-1 flex-col gap-5">
+          {props.mode === "model" && lane.models.length ? (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Model declarations">
+              {lane.models.map((model) => (
+                <Button
+                  key={model.id}
+                  text={`${model.manufacturer} ${model.model} (${countLabel(model.memberCount)})`}
+                  variant={model.id === selectedModelId ? variants.primary : variants.secondary}
+                  size={sizes.compact}
+                  ariaPressed={model.id === selectedModelId}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setSelectedModelId(model.id);
+                    setConfirmation(null);
+                    setActionError(null);
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
           <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
             <div>
               <div className="text-300 text-text-primary-70">
-                {isLoading ? "Loading members" : countLabel(totalCount)}
+                {membershipIsLoading ? "Loading members" : countLabel(totalCount)}
               </div>
               {isLoadingAllMembers && canManage ? (
                 <div className="mt-1 max-w-2xl text-200 text-text-primary-70" aria-live="polite">
@@ -394,7 +485,7 @@ export default function ManageRolloutLaneMembersModal({
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-auto">
-            {isLoading ? (
+            {membershipIsLoading ? (
               <div
                 aria-busy="true"
                 aria-live="polite"
@@ -404,7 +495,12 @@ export default function ManageRolloutLaneMembersModal({
                 Loading lane members...
               </div>
             ) : (
-              <MemberTable laneLabel={lane.label} members={members} />
+              <MemberTable
+                laneLabel={
+                  selectedModel ? `${lane.label} ${selectedModel.manufacturer} ${selectedModel.model}` : lane.label
+                }
+                members={displayedMembers}
+              />
             )}
           </div>
         </div>

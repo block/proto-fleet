@@ -244,6 +244,65 @@ func TestReconcileCurtailmentHoldDoesNotConsumeAttempt(t *testing.T) {
 	assert.Zero(t, store.rows[0].AttemptCount)
 }
 
+func TestReconcileModelIdentityBeforeDispatch(t *testing.T) {
+	boundary := time.Date(2026, 8, 18, 1, 0, 0, 0, time.UTC)
+	fresh := boundary.Add(time.Second)
+	tests := []struct {
+		name          string
+		observedKey   string
+		observedAt    *time.Time
+		wantHold      int
+		wantDispatch  int
+		wantAttention int
+	}{
+		{
+			name:       "empty identity holds",
+			observedAt: &fresh,
+			wantHold:   1,
+		},
+		{
+			name:        "stale identity holds",
+			observedKey: "v1:5:proto:3:rig",
+			observedAt:  &boundary,
+			wantHold:    1,
+		},
+		{
+			name:          "fresh mismatch terminalizes",
+			observedKey:   "v1:8:antminer:3:s19",
+			observedAt:    &fresh,
+			wantAttention: 1,
+		},
+		{
+			name:         "fresh match dispatches",
+			observedKey:  "v1:5:proto:3:rig",
+			observedAt:   &fresh,
+			wantDispatch: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := testEnforcement(channel.EnforcementStatePending)
+			row.ExpectedModelIdentityKey = "v1:5:proto:3:rig"
+			row.ModelIdentityValidatedAt = &boundary
+			row.ObservedModelIdentityKey = tt.observedKey
+			row.ModelIdentityObservedAt = tt.observedAt
+			store := &fakeStore{rows: []channel.Enforcement{row}}
+			dispatcher := &fakeDispatcher{result: &command.CommandResult{
+				BatchIdentifier:             "batch-enforcement-1",
+				DispatchedDeviceIdentifiers: []string{row.DeviceIdentifier},
+			}}
+			r := newTestReconciler(store, dispatcher, &fakeSampler{})
+
+			r.reconcile(t.Context())
+
+			assert.Equal(t, tt.wantHold, store.holdCalls)
+			assert.Equal(t, tt.wantDispatch, dispatcher.calls)
+			assert.Equal(t, tt.wantAttention, store.attentionCalls)
+		})
+	}
+}
+
 func TestReconcilePreEnqueueFailureReturnsPending(t *testing.T) {
 	store := &fakeStore{rows: []channel.Enforcement{testEnforcement(channel.EnforcementStatePending)}}
 	dispatcher := &fakeDispatcher{err: errors.New("atomic enqueue rolled back")}

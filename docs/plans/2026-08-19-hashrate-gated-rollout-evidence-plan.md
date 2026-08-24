@@ -228,7 +228,7 @@ sequenceDiagram
 - **Aggregate masking:** Complete paired coverage and fresh-hashing finalization limit denominator failures, but an aggregate can still hide one member's regression. Surface member details and defer an optional per-member threshold to follow-up policy work.
 - **Operator race:** Candidate selection and service transition both verify review state. Pause and abort win by changing state or revision first.
 - **Finalizer and evaluator ordering:** Only completed batches are evidence candidates. The evaluator never reads an admitted batch as post-update health.
-- **Long-lived branch migration collision:** Recheck the highest migration on `origin/main` before landing and renumber `000150` if another branch claims it.
+- **Long-lived branch migration collision:** Recheck the highest migration on `origin/main` before landing and renumber `000154` if another branch claims it.
 
 ### Sequencing
 
@@ -250,8 +250,8 @@ sequenceDiagram
 - **Requirements:** R4, R6, R7, R8, R10, R15.
 - **Dependencies:** None.
 - **Files:**
-  - `server/migrations/000150_hashrate_rollout_evidence_policy.up.sql`
-  - `server/migrations/000150_hashrate_rollout_evidence_policy.down.sql`
+  - `server/migrations/000154_hashrate_rollout_evidence_policy.up.sql`
+  - `server/migrations/000154_hashrate_rollout_evidence_policy.down.sql`
   - `proto/rollout/v1/rollout.proto`
   - `server/internal/domain/rollout/models.go`
   - `server/internal/handlers/rollout/translate.go`

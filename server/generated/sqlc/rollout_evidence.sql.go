@@ -13,6 +13,70 @@ import (
 	"github.com/google/uuid"
 )
 
+const cancelFirmwareRolloutEvidence = `-- name: CancelFirmwareRolloutEvidence :one
+WITH cancelled_batches AS (
+    UPDATE firmware_rollout_batch batch
+    SET evidence_status = 'cancelled',
+        evidence_cancellation_reason = $1,
+        evidence_cancelled_at = $2,
+        evidence_error_message = $1,
+        healthy_since = NULL,
+        evaluated_at = $2,
+        post_window_finalized = TRUE,
+        post_window_finalized_at = $2
+    WHERE batch.rollout_id = $3
+      AND batch.org_id = $4
+      AND NOT batch.post_window_finalized
+    RETURNING batch.id
+),
+cancelled_rows AS (
+    UPDATE firmware_rollout_evidence evidence
+    SET status = 'cancelled',
+        cancellation_reason = $1,
+        cancelled_at = $2
+    FROM firmware_rollout_member member
+    WHERE member.id = evidence.member_id
+      AND member.rollout_id = evidence.rollout_id
+      AND member.org_id = evidence.org_id
+      AND evidence.rollout_id = $3
+      AND evidence.org_id = $4
+      AND evidence.status = 'open'
+    RETURNING evidence.id
+),
+disabled_controls AS (
+    UPDATE firmware_rollout_control control
+    SET status = 'failed',
+        error_message = $1
+    WHERE control.rollout_id = $3
+      AND control.org_id = $4
+      AND control.operation = 'continue'
+      AND control.idempotency_key LIKE 'rollout-evidence-auto-continue-batch-%'
+      AND control.status = 'started'
+    RETURNING control.id
+)
+SELECT COUNT(*)::bigint
+FROM cancelled_batches
+`
+
+type CancelFirmwareRolloutEvidenceParams struct {
+	CancellationReason sql.NullString
+	CancelledAt        sql.NullTime
+	RolloutID          uuid.UUID
+	OrgID              int64
+}
+
+func (q *Queries) CancelFirmwareRolloutEvidence(ctx context.Context, arg CancelFirmwareRolloutEvidenceParams) (int64, error) {
+	row := q.queryRow(ctx, q.cancelFirmwareRolloutEvidenceStmt, cancelFirmwareRolloutEvidence,
+		arg.CancellationReason,
+		arg.CancelledAt,
+		arg.RolloutID,
+		arg.OrgID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const captureFirmwareRolloutBatchPostEvidence = `-- name: CaptureFirmwareRolloutBatchPostEvidence :execrows
 INSERT INTO firmware_rollout_evidence (
     rollout_id,
@@ -87,6 +151,22 @@ SET window_start = EXCLUDED.window_start,
     avg_temperature_c = EXCLUDED.avg_temperature_c,
     error_count = EXCLUDED.error_count,
     sample_count = EXCLUDED.sample_count
+WHERE firmware_rollout_evidence.status = 'open'
+  AND (
+      firmware_rollout_evidence.observed_at,
+      firmware_rollout_evidence.avg_hashrate_hs,
+      firmware_rollout_evidence.avg_power_w,
+      firmware_rollout_evidence.avg_temperature_c,
+      firmware_rollout_evidence.error_count,
+      firmware_rollout_evidence.sample_count
+  ) IS DISTINCT FROM (
+      EXCLUDED.observed_at,
+      EXCLUDED.avg_hashrate_hs,
+      EXCLUDED.avg_power_w,
+      EXCLUDED.avg_temperature_c,
+      EXCLUDED.error_count,
+      EXCLUDED.sample_count
+  )
 `
 
 type CaptureFirmwareRolloutBatchPostEvidenceParams struct {
@@ -187,7 +267,23 @@ SET window_start = EXCLUDED.window_start,
     avg_temperature_c = EXCLUDED.avg_temperature_c,
     error_count = EXCLUDED.error_count,
     sample_count = EXCLUDED.sample_count
-RETURNING id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at
+WHERE firmware_rollout_evidence.status = 'open'
+  AND (
+      firmware_rollout_evidence.observed_at,
+      firmware_rollout_evidence.avg_hashrate_hs,
+      firmware_rollout_evidence.avg_power_w,
+      firmware_rollout_evidence.avg_temperature_c,
+      firmware_rollout_evidence.error_count,
+      firmware_rollout_evidence.sample_count
+  ) IS DISTINCT FROM (
+      EXCLUDED.observed_at,
+      EXCLUDED.avg_hashrate_hs,
+      EXCLUDED.avg_power_w,
+      EXCLUDED.avg_temperature_c,
+      EXCLUDED.error_count,
+      EXCLUDED.sample_count
+  )
+RETURNING id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at, status, cancellation_reason, cancelled_at
 `
 
 type CaptureFirmwareRolloutEvidenceParams struct {
@@ -231,6 +327,9 @@ func (q *Queries) CaptureFirmwareRolloutEvidence(ctx context.Context, arg Captur
 			&i.SampleCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.CancellationReason,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -243,6 +342,33 @@ func (q *Queries) CaptureFirmwareRolloutEvidence(ctx context.Context, arg Captur
 		return nil, err
 	}
 	return items, nil
+}
+
+const completeFirmwareRolloutEvidenceRows = `-- name: CompleteFirmwareRolloutEvidenceRows :execrows
+UPDATE firmware_rollout_evidence evidence
+SET status = 'completed'
+FROM firmware_rollout_member member
+WHERE member.id = evidence.member_id
+  AND member.rollout_id = evidence.rollout_id
+  AND member.org_id = evidence.org_id
+  AND member.batch_id = $1
+  AND evidence.rollout_id = $2
+  AND evidence.org_id = $3
+  AND evidence.status = 'open'
+`
+
+type CompleteFirmwareRolloutEvidenceRowsParams struct {
+	BatchID   int64
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) CompleteFirmwareRolloutEvidenceRows(ctx context.Context, arg CompleteFirmwareRolloutEvidenceRowsParams) (int64, error) {
+	result, err := q.exec(ctx, q.completeFirmwareRolloutEvidenceRowsStmt, completeFirmwareRolloutEvidenceRows, arg.BatchID, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const listCompleteFirmwareRolloutPolicyBuckets = `-- name: ListCompleteFirmwareRolloutPolicyBuckets :many
@@ -409,7 +535,7 @@ func (q *Queries) ListFirmwareRolloutBatchHashrateEvidence(ctx context.Context, 
 }
 
 const listFirmwareRolloutEvidence = `-- name: ListFirmwareRolloutEvidence :many
-SELECT id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at
+SELECT id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at, status, cancellation_reason, cancelled_at
 FROM firmware_rollout_evidence
 WHERE rollout_id = $1
   AND org_id = $2
@@ -446,6 +572,9 @@ func (q *Queries) ListFirmwareRolloutEvidence(ctx context.Context, arg ListFirmw
 			&i.SampleCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.CancellationReason,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}

@@ -304,6 +304,11 @@ func entryToProto(e models.Entry) *pb.ActivityEntry {
 	if len(e.Metadata) > 0 {
 		var raw map[string]any
 		if json.Unmarshal(e.Metadata, &raw) == nil {
+			entry.ParentRolloutId = activityMetadataString(raw, "parent_id")
+			entry.ChildRolloutId = activityMetadataString(raw, "child_id")
+			entry.ModelIdentityKey = activityMetadataString(raw, "model_identity_key")
+			entry.Manufacturer = activityMetadataString(raw, "manufacturer")
+			entry.Model = activityMetadataString(raw, "model")
 			if s, err := structpb.NewStruct(raw); err == nil {
 				entry.Metadata = s
 			}
@@ -311,6 +316,14 @@ func entryToProto(e models.Entry) *pb.ActivityEntry {
 	}
 
 	return entry
+}
+
+func activityMetadataString(metadata map[string]any, key string) *string {
+	value, ok := metadata[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
 }
 
 // --- CSV formatting ---

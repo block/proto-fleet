@@ -84,14 +84,15 @@ func TestRolloutLaneArchiveRemovesAllMembershipsAndRetainsHistory(t *testing.T) 
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `
 		INSERT INTO firmware_rollout_evidence (
-		    rollout_id, member_id, org_id, phase, window_start, window_end
+		    rollout_id, member_id, org_id, phase, window_start, window_end, status
 		)
 		SELECT rollout_id,
 		       id,
 		       org_id,
 		       'baseline',
 		       CURRENT_TIMESTAMP - INTERVAL '2 minutes',
-		       CURRENT_TIMESTAMP - INTERVAL '1 minute'
+		       CURRENT_TIMESTAMP - INTERVAL '1 minute',
+		       'completed'
 		FROM firmware_rollout_member
 		WHERE rollout_id = $1 AND org_id = $2
 		LIMIT 1
@@ -131,9 +132,10 @@ func TestRolloutLaneArchiveRemovesAllMembershipsAndRetainsHistory(t *testing.T) 
 	_, err = service.GetLane(t.Context(), orgID, lane.ID, false, nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
-	_, err = service.GetLaneForRollout(t.Context(), orgID, started.Rollout.ID)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
+	archivedHistory, err := service.GetLaneForRollout(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, lane.ID, archivedHistory.ID)
+	assert.Equal(t, lane.Label, archivedHistory.Label)
 	lanes, err := service.ListLanes(t.Context(), orgID, false)
 	require.NoError(t, err)
 	assert.Empty(t, lanes)
@@ -420,7 +422,7 @@ func TestRolloutLaneArchiveSerializesWithBetweenChannelRevert(t *testing.T) {
 		deleteErr := awaitAsyncError(t, deleteDone, "lane deletion")
 		require.Error(t, deleteErr)
 		assert.True(t, fleeterror.IsFailedPreconditionError(deleteErr), "got %v", deleteErr)
-		assert.ErrorContains(t, deleteErr, "rollout, revert, or finalizer work must settle")
+		assert.ErrorContains(t, deleteErr, "child control must settle")
 
 		var state string
 		require.NoError(t, db.QueryRowContext(t.Context(), `

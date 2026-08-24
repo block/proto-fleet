@@ -10,6 +10,21 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+// TransactionOutcomeUnknownError means Commit returned an error after the
+// server may already have made the transaction durable. Callers must reconcile
+// persisted state instead of retrying the transaction under a new key.
+type TransactionOutcomeUnknownError struct {
+	Err error
+}
+
+func (e *TransactionOutcomeUnknownError) Error() string {
+	return "transaction commit outcome is unknown: " + e.Err.Error()
+}
+
+func (e *TransactionOutcomeUnknownError) Unwrap() error {
+	return e.Err
+}
+
 // WithTransaction runs action in a transaction and retries the entire action for
 // retryable PostgreSQL errors. The action must be safe to replay and should not
 // perform side effects outside the transaction.
@@ -39,6 +54,10 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 
 		lastErr = err
 		resetPoolOnFailover(err, resetPool)
+		var outcomeUnknown *TransactionOutcomeUnknownError
+		if errors.As(err, &outcomeUnknown) {
+			break
+		}
 		if !IsRetryablePostgresError(err) || attempt == config.MaxAttempts {
 			break
 		}
@@ -60,6 +79,10 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 
 	// Preserve non-retryable FleetError values so business error codes survive
 	// the transaction boundary unchanged.
+	var outcomeUnknown *TransactionOutcomeUnknownError
+	if errors.As(lastErr, &outcomeUnknown) {
+		return zero, lastErr
+	}
 	var fleetErr fleeterror.FleetError
 	if !IsRetryablePostgresError(lastErr) && errors.As(lastErr, &fleetErr) {
 		return zero, fleetErr
@@ -87,7 +110,7 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q sq
 
 	err = tx.Commit()
 	if err != nil {
-		return zero, fleeterror.NewInternalErrorf("error committing tx: %w", err)
+		return zero, &TransactionOutcomeUnknownError{Err: err}
 	}
 
 	return result, nil

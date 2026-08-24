@@ -17,6 +17,10 @@ import {
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
   RolloutLaneMembershipReassignmentSchema,
+  RolloutLaneModelBindingSummarySchema,
+  RolloutLaneModelCompatibility,
+  RolloutLaneModelFirmwareTargetSchema,
+  RolloutLaneModelSchema,
   RolloutLanePreviewSchema,
   RolloutLaneSchema,
   RolloutMemberSchema,
@@ -141,6 +145,58 @@ describe("rollout mappers", () => {
     });
   });
 
+  it("maps repeated model authority and explicit unavailable scalar projection", () => {
+    const lane = create(RolloutLaneSchema, {
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      label: "Diverged lane",
+      topologyEnabled: true,
+      scalarProjectionAvailable: false,
+      models: [
+        create(RolloutLaneModelSchema, {
+          laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          modelIdentityKey: "v1:5:proto:5:alpha",
+          revision: 4n,
+          manufacturer: "proto",
+          model: "alpha",
+          currentChannelId: 41n,
+          memberCount: 2,
+          compatibility: RolloutLaneModelCompatibility.COMPATIBLE,
+          currentFirmwareTarget: create(RolloutLaneModelFirmwareTargetSchema, {
+            releaseTargetId: 71n,
+            releaseSetId: 7n,
+            firmwareFileId: "alpha-2",
+            firmwareVersion: "2.0.0",
+            sha256: "abc",
+          }),
+          bindings: create(RolloutLaneModelBindingSummarySchema, {
+            activeCount: 2,
+            historicalCount: 1,
+          }),
+        }),
+      ],
+    });
+
+    expect(mapRolloutLane(lane)).toMatchObject({
+      currentChannelId: 0n,
+      topologyEnabled: true,
+      scalarProjectionAvailable: false,
+      models: [
+        {
+          id: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          revision: 4n,
+          currentChannelId: 41n,
+          memberCount: 2,
+          compatibility: "compatible",
+          currentFirmwareTarget: {
+            firmwareFileId: "alpha-2",
+            firmwareVersion: "2.0.0",
+          },
+          bindings: { activeCount: 2, historicalCount: 1 },
+        },
+      ],
+    });
+  });
+
   it("maps rollout lane membership previews and transition details", () => {
     const preview = create(PreviewRolloutLaneMembershipChangeResponseSchema, {
       targetFirmwarePreview: create(RolloutLanePreviewSchema, {
@@ -234,6 +290,7 @@ describe("rollout mappers", () => {
     [RolloutEvidenceStatus.STALE, "stale"],
     [RolloutEvidenceStatus.AUTOMATION_ERROR, "automationError"],
     [RolloutEvidenceStatus.FINALIZED, "finalized"],
+    [RolloutEvidenceStatus.CANCELLED, "cancelled"],
   ] as const)("maps evidence status %s", (status, expected) => {
     expect(mapRolloutEvidenceStatus(status)).toBe(expected);
   });

@@ -16,11 +16,21 @@ service RolloutService {
     rpc GetRolloutLaneAssignments(GetRolloutLaneAssignmentsRequest) returns (GetRolloutLaneAssignmentsResponse);
     rpc PreviewRolloutLaneMembershipChange(PreviewRolloutLaneMembershipChangeRequest) returns (PreviewRolloutLaneMembershipChangeResponse);
     rpc UpdateRolloutLaneMembership(UpdateRolloutLaneMembershipRequest) returns (UpdateRolloutLaneMembershipResponse);
+    rpc PreviewRolloutLaneModelDeclaration(PreviewRolloutLaneModelDeclarationRequest) returns (PreviewRolloutLaneModelDeclarationResponse);
+    rpc CreateRolloutLaneModelDeclaration(CreateRolloutLaneModelDeclarationRequest) returns (CreateRolloutLaneModelDeclarationResponse);
+    rpc PublishRolloutLaneModelTarget(PublishRolloutLaneModelTargetRequest) returns (PublishRolloutLaneModelTargetResponse);
+    rpc PreviewRolloutLaneModelMembershipChange(PreviewRolloutLaneModelMembershipChangeRequest) returns (PreviewRolloutLaneModelMembershipChangeResponse);
+    rpc UpdateRolloutLaneModelMembership(UpdateRolloutLaneModelMembershipRequest) returns (UpdateRolloutLaneModelMembershipResponse);
     rpc DeleteRolloutLane(DeleteRolloutLaneRequest) returns (DeleteRolloutLaneResponse);
     rpc StartRolloutLane(StartRolloutLaneRequest) returns (StartRolloutLaneResponse);
+    rpc GetRolloutLaneTopologyReadiness(GetRolloutLaneTopologyReadinessRequest) returns (GetRolloutLaneTopologyReadinessResponse);
+    rpc RepairRolloutLaneModelBinding(RepairRolloutLaneModelBindingRequest) returns (RepairRolloutLaneModelBindingResponse);
+    rpc EnableRolloutLaneModelTopology(EnableRolloutLaneModelTopologyRequest) returns (EnableRolloutLaneModelTopologyResponse);
     rpc CreateRollout(CreateRolloutRequest) returns (CreateRolloutResponse);
     rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse);
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
+    rpc GetRolloutGroup(GetRolloutGroupRequest) returns (GetRolloutGroupResponse);
+    rpc ListRolloutGroups(ListRolloutGroupsRequest) returns (ListRolloutGroupsResponse);
     rpc AdmitRollout(AdmitRolloutRequest) returns (AdmitRolloutResponse);
     rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
     rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
@@ -34,13 +44,16 @@ message RolloutLane {
     string lane_id = 1;
     string label = 2;
     string description = 3;
-    int64 current_channel_id = 4;
+    int64 current_channel_id = 4 [deprecated = true];
     uint64 revision = 5;
     repeated RolloutLaneChannel channels = 6;
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
-    RolloutLaneFirmwareConvergenceStatus firmware_convergence = 9;
-    uint32 member_count = 10;
+    RolloutLaneFirmwareConvergenceStatus firmware_convergence = 9 [deprecated = true];
+    uint32 member_count = 10 [deprecated = true];
+    repeated RolloutLaneModel models = 11;
+    bool scalar_projection_available = 12;
+    bool topology_enabled = 13;
 }
 
 message RolloutLaneChannel {
@@ -50,6 +63,48 @@ message RolloutLaneChannel {
     optional string rollout_id = 4;
     bool current = 5;
     google.protobuf.Timestamp created_at = 6;
+}
+
+enum RolloutLaneModelCompatibility {
+    ROLLOUT_LANE_MODEL_COMPATIBILITY_UNSPECIFIED = 0;
+    ROLLOUT_LANE_MODEL_COMPATIBILITY_COMPATIBLE = 1;
+    ROLLOUT_LANE_MODEL_COMPATIBILITY_TARGET_UNAVAILABLE = 2;
+}
+
+message RolloutLaneModelFirmwareTarget {
+    int64 release_target_id = 1;
+    int64 release_set_id = 2;
+    string firmware_file_id = 3;
+    string firmware_version = 4;
+    string sha256 = 5;
+}
+
+message RolloutLaneModelChannel {
+    int64 channel_id = 1;
+    uint32 position = 2;
+    bool current = 3;
+    RolloutLaneModelFirmwareTarget firmware_target = 4;
+    google.protobuf.Timestamp created_at = 5;
+}
+
+message RolloutLaneModelBindingSummary {
+    uint32 active_count = 1;
+    uint32 historical_count = 2;
+}
+
+message RolloutLaneModel {
+    string lane_model_id = 1;
+    string model_identity_key = 2;
+    uint64 revision = 3;
+    string manufacturer = 4;
+    string model = 5;
+    int64 current_channel_id = 6;
+    RolloutLaneModelFirmwareTarget current_firmware_target = 7;
+    uint32 member_count = 8;
+    RolloutLaneModelBindingSummary bindings = 9;
+    RolloutLaneFirmwareConvergenceStatus firmware_convergence = 10;
+    repeated RolloutLaneModelChannel channels = 11;
+    RolloutLaneModelCompatibility compatibility = 12;
 }
 
 message CreateRolloutLaneRequest {
@@ -119,6 +174,7 @@ message ListRolloutLaneMembersRequest {
     uint32 page_size = 2 [(buf.validate.field).uint32.lte = 1000];
     string page_token = 3 [(buf.validate.field).string.max_len = 2048];
     bool include_total_count = 4;
+    optional string lane_model_id = 5 [(buf.validate.field).string.uuid = true];
 }
 
 message ListRolloutLaneMembersResponse {
@@ -198,6 +254,109 @@ message UpdateRolloutLaneMembershipResponse {
     repeated RolloutLaneMember transition_members = 2;
 }
 
+message RolloutLaneModelSelector {
+    oneof selector {
+        string lane_model_id = 1 [(buf.validate.field).string.uuid = true];
+        string model_identity_key = 2 [(buf.validate.field).string = {min_len: 1, max_len: 512}];
+    }
+}
+
+message PreviewRolloutLaneModelDeclarationRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    string firmware_file_id = 2 [(buf.validate.field).string.min_len = 1];
+    repeated string device_identifiers = 3 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+}
+
+message PreviewRolloutLaneModelDeclarationResponse {
+    RolloutLanePreview preview = 1;
+    string lane_id = 2 [(buf.validate.field).string.uuid = true];
+}
+
+message CreateRolloutLaneModelDeclarationRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2;
+    string firmware_file_id = 3 [(buf.validate.field).string.min_len = 1];
+    repeated string device_identifiers = 4 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    bool confirm_initial_enforcement = 7;
+    bool confirm_reassignment = 8;
+    string reassignment_confirmation_token = 9;
+}
+
+message CreateRolloutLaneModelDeclarationResponse {
+    RolloutLane lane = 1;
+}
+
+message PublishRolloutLaneModelTargetRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    RolloutLaneModelSelector declaration = 2 [(buf.validate.field).required = true];
+    uint64 expected_revision = 3 [(buf.validate.field).uint64.gt = 0];
+    string firmware_file_id = 4 [(buf.validate.field).string.min_len = 1];
+    string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message PublishRolloutLaneModelTargetResponse {
+    RolloutLane lane = 1;
+}
+
+message PreviewRolloutLaneModelMembershipChangeRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    RolloutLaneModelSelector declaration = 2 [(buf.validate.field).required = true];
+    repeated string add_device_identifiers = 3 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string remove_device_identifiers = 4 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+}
+
+message PreviewRolloutLaneModelMembershipChangeResponse {
+    RolloutLanePreview target_firmware_preview = 1;
+    repeated RolloutLaneMembershipReassignment reassignments = 2;
+    repeated RolloutLaneMember removals = 3;
+    bool requires_firmware_confirmation = 4;
+    bool requires_reassignment_confirmation = 5;
+}
+
+message UpdateRolloutLaneModelMembershipRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    RolloutLaneModelSelector declaration = 2 [(buf.validate.field).required = true];
+    uint64 expected_revision = 3 [(buf.validate.field).uint64.gt = 0];
+    repeated string add_device_identifiers = 4 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string remove_device_identifiers = 5 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    bool confirm_firmware = 6;
+    bool confirm_reassign = 7;
+    string idempotency_key = 8 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 9 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message UpdateRolloutLaneModelMembershipResponse {
+    RolloutLane lane = 1;
+    repeated RolloutLaneMember transition_members = 2;
+}
+
 message DeleteRolloutLaneRequest {
     string lane_id = 1 [(buf.validate.field).string.uuid = true];
     uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
@@ -208,26 +367,126 @@ message DeleteRolloutLaneRequest {
 message DeleteRolloutLaneResponse {}
 
 message StartRolloutLaneRequest {
+    option (buf.validate.message).cel = {
+        id: "start_rollout_lane_input_mode"
+        message: "provide either legacy rollout fields or model plans"
+        expression: "(size(this.model_plans) > 0 && size(this.firmware_file_ids) == 0 && size(this.batches) == 0) || (size(this.model_plans) == 0 && size(this.firmware_file_ids) > 0 && size(this.batches) > 0)"
+    };
+
     string lane_id = 1 [(buf.validate.field).string.uuid = true];
     string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
     repeated string firmware_file_ids = 3 [(buf.validate.field).repeated = {
-        min_items: 1
         max_items: 100
         unique: true
         items: {string: {min_len: 1}}
     }];
     repeated CreateRolloutBatch batches = 4 [(buf.validate.field).repeated = {
-        min_items: 1
         max_items: 1000
     }];
     string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     RolloutHashratePolicy hashrate_policy = 7;
+    repeated StartRolloutLaneModelPlan model_plans = 8 [(buf.validate.field).repeated = {
+        max_items: 100
+    }];
 }
 
 message StartRolloutLaneResponse {
     RolloutLane lane = 1;
+    // Deprecated legacy child projection. New callers use parent and children.
     Rollout rollout = 2;
+    RolloutGroup parent = 3;
+    repeated StartedRolloutLaneModel children = 4;
+}
+
+message StartRolloutLaneModelPlan {
+    string lane_model_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_model_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string firmware_file_id = 3 [(buf.validate.field).string.min_len = 1];
+    repeated CreateRolloutBatch batches = 4 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+    }];
+    RolloutHashratePolicy hashrate_policy = 5;
+    string model_start_key = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message StartedRolloutLaneModel {
+    Rollout child = 1;
+    int64 first_batch_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+enum RolloutLaneTopologyAnomalyType {
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_UNSPECIFIED = 0;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_NULL_IDENTITY = 1;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_AMBIGUOUS_TARGET_MATCH = 2;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_NO_TARGET_MATCH = 3;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_PHYSICAL_MISMATCH = 4;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_MISSING_BINDING = 5;
+    ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_DUPLICATE_ACTIVE_BINDING = 6;
+}
+
+enum RolloutLaneTopologyRepairAction {
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_UNSPECIFIED = 0;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_CONFIRM_IDENTITY = 1;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_SELECT_DECLARATION = 2;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_REPAIR_PHYSICAL_MEMBERSHIP = 3;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_END_STALE_BINDING = 4;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_REPAIR_BINDING = 5;
+    ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_RERUN_BACKFILL = 6;
+}
+
+message RolloutLaneTopologyAnomaly {
+    string anomaly_id = 1;
+    string lane_id = 2;
+    string device_identifier = 3;
+    string lane_model_id = 4;
+    uint64 lane_model_revision = 5;
+    RolloutLaneTopologyAnomalyType type = 6;
+    repeated RolloutLaneTopologyRepairAction supported_repair_actions = 7;
+    google.protobuf.Struct details = 8;
+}
+
+message RolloutLaneTopologyReadiness {
+    bool enabled = 1;
+    uint64 revision = 2;
+    uint64 anomaly_count = 3;
+    uint64 active_legacy_rollout_count = 4;
+    repeated RolloutLaneTopologyAnomaly anomalies = 5;
+    google.protobuf.Timestamp updated_at = 6;
+}
+
+message GetRolloutLaneTopologyReadinessRequest {}
+
+message GetRolloutLaneTopologyReadinessResponse {
+    RolloutLaneTopologyReadiness readiness = 1;
+}
+
+message RepairRolloutLaneModelBindingRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    string lane_model_id = 2 [(buf.validate.field).string.uuid = true];
+    string device_identifier = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    uint64 expected_revision = 4 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message RepairRolloutLaneModelBindingResponse {
+    string binding_id = 1;
+    uint64 resulting_revision = 2;
+    bool replayed = 3;
+    RolloutLaneTopologyReadiness readiness = 4;
+}
+
+message EnableRolloutLaneModelTopologyRequest {
+    uint64 expected_revision = 1 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message EnableRolloutLaneModelTopologyResponse {
+    RolloutLaneTopologyReadiness readiness = 1;
+    bool replayed = 2;
 }
 
 enum RolloutState {
@@ -280,6 +539,7 @@ enum RolloutEvidenceStatus {
     ROLLOUT_EVIDENCE_STATUS_STALE = 7;
     ROLLOUT_EVIDENCE_STATUS_AUTOMATION_ERROR = 8;
     ROLLOUT_EVIDENCE_STATUS_FINALIZED = 9;
+    ROLLOUT_EVIDENCE_STATUS_CANCELLED = 10;
 }
 
 message RolloutHashratePolicy {
@@ -327,6 +587,78 @@ message Rollout {
     repeated RolloutBatch batches = 30;
     repeated RolloutMember members = 31;
     repeated RolloutCause causes = 32;
+    optional string parent_id = 33;
+    optional string lane_id = 34;
+    optional string lane_model_id = 35;
+    optional string model_identity_key = 36;
+    optional string manufacturer = 37;
+    optional string model = 38;
+}
+
+message RolloutGroup {
+    string parent_id = 1;
+    string lane_id = 2;
+    string name = 3;
+    string reason = 4;
+    google.protobuf.Timestamp created_at = 5;
+    google.protobuf.Timestamp updated_at = 6;
+    repeated Rollout children = 7;
+    uint64 result_revision = 8;
+    RolloutGroupTerminalOutcome terminal_outcome = 9;
+    bool result_ready = 10;
+    RolloutGroupLifecycle lifecycle = 11;
+    RolloutGroupActivity activity = 12;
+    bool needs_action = 13;
+    RolloutGroupEvidenceReadiness evidence_readiness = 14;
+    repeated RolloutGroupModelSummary models = 15;
+}
+
+enum RolloutGroupLifecycle {
+    ROLLOUT_GROUP_LIFECYCLE_UNSPECIFIED = 0;
+    ROLLOUT_GROUP_LIFECYCLE_ACTIVE = 1;
+    ROLLOUT_GROUP_LIFECYCLE_TERMINAL = 2;
+}
+
+enum RolloutGroupActivity {
+    ROLLOUT_GROUP_ACTIVITY_UNSPECIFIED = 0;
+    ROLLOUT_GROUP_ACTIVITY_FAILED_ADMISSION = 1;
+    ROLLOUT_GROUP_ACTIVITY_ATTENTION_REQUIRED = 2;
+    ROLLOUT_GROUP_ACTIVITY_REVIEW = 3;
+    ROLLOUT_GROUP_ACTIVITY_PAUSED = 4;
+    ROLLOUT_GROUP_ACTIVITY_REVERTING = 5;
+    ROLLOUT_GROUP_ACTIVITY_FINALIZING = 6;
+    ROLLOUT_GROUP_ACTIVITY_RUNNING = 7;
+    ROLLOUT_GROUP_ACTIVITY_CREATED = 8;
+    ROLLOUT_GROUP_ACTIVITY_SETTLED = 9;
+}
+
+enum RolloutGroupTerminalOutcome {
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_UNSPECIFIED = 0;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_PENDING = 1;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_SUCCESSFUL = 2;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_REVERTED = 3;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_ABORTED = 4;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_COMPLETED_WITH_FAILURES = 5;
+    ROLLOUT_GROUP_TERMINAL_OUTCOME_MIXED = 6;
+}
+
+enum RolloutGroupEvidenceReadiness {
+    ROLLOUT_GROUP_EVIDENCE_READINESS_UNSPECIFIED = 0;
+    ROLLOUT_GROUP_EVIDENCE_READINESS_PENDING = 1;
+    ROLLOUT_GROUP_EVIDENCE_READINESS_READY = 2;
+}
+
+message RolloutGroupModelSummary {
+    string lane_model_id = 1;
+    string model_identity_key = 2;
+    string manufacturer = 3;
+    string model = 4;
+    int64 source_channel_id = 5;
+    int64 target_channel_id = 6;
+    int64 source_release_target_id = 7;
+    int64 target_release_target_id = 8;
+    uint32 member_count = 9;
+    optional string child_rollout_id = 10;
 }
 
 message RolloutBatch {
@@ -338,6 +670,7 @@ message RolloutBatch {
     repeated RolloutMember members = 6;
     google.protobuf.Timestamp completed_at = 7;
     RolloutBatchEvidenceSummary evidence_summary = 8;
+    uint32 admission_attempt = 9;
 }
 
 message RolloutBatchEvidenceSummary {
@@ -355,6 +688,8 @@ message RolloutBatchEvidenceSummary {
     bool post_window_finalized = 12;
     google.protobuf.Timestamp post_window_finalized_at = 13;
     optional string error_message = 14;
+    optional string cancellation_reason = 15;
+    google.protobuf.Timestamp cancelled_at = 16;
 }
 
 message RolloutMember {
@@ -373,6 +708,8 @@ message RolloutMember {
     google.protobuf.Timestamp admitted_at = 13;
     google.protobuf.Timestamp settled_at = 14;
     repeated RolloutEvidence evidence = 15;
+    optional string model_identity_key = 16;
+    google.protobuf.Timestamp model_identity_validated_at = 17;
 }
 
 message RolloutEvidence {
@@ -444,6 +781,7 @@ message GetRolloutRequest {
 
 message GetRolloutResponse {
     Rollout rollout = 1;
+    RolloutGroup parent = 2;
 }
 
 message ListRolloutsRequest {
@@ -456,6 +794,21 @@ message ListRolloutsRequest {
 
 message ListRolloutsResponse {
     repeated Rollout rollouts = 1;
+}
+
+message GetRolloutGroupRequest {
+    string parent_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetRolloutGroupResponse {
+    RolloutGroup parent = 1;
+}
+
+message ListRolloutGroupsRequest {}
+
+message ListRolloutGroupsResponse {
+    repeated RolloutGroup parents = 1;
+    repeated Rollout legacy_history = 2;
 }
 
 message AdmitRolloutRequest {

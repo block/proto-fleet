@@ -224,6 +224,24 @@ func (r *Reconciler) reconcileOne(ctx context.Context, enforcement channel.Enfor
 }
 
 func (r *Reconciler) dispatch(ctx context.Context, enforcement channel.Enforcement) {
+	if disposition, reason := modelIdentityDisposition(enforcement); disposition != identityReady {
+		switch disposition {
+		case identityReady:
+			// Guarded by the outer condition.
+		case identityHold:
+			if err := r.store.Hold(ctx, enforcement, reason, r.now()); err != nil &&
+				!errors.Is(err, channel.ErrCASConflict) {
+				slog.Error(
+					"channel enforcement model identity hold failed",
+					"enforcement_id", enforcement.ID,
+					"error", err)
+			}
+		case identityMismatch:
+			r.attention(ctx, enforcement, reason)
+		}
+		return
+	}
+
 	claimed, err := r.store.Claim(
 		ctx,
 		enforcement,
@@ -287,6 +305,34 @@ func (r *Reconciler) dispatch(ctx context.Context, enforcement channel.Enforceme
 			"enforcement_id", claimed.ID,
 			"error", err)
 	}
+}
+
+type identityDisposition int
+
+const (
+	identityReady identityDisposition = iota
+	identityHold
+	identityMismatch
+)
+
+func modelIdentityDisposition(enforcement channel.Enforcement) (identityDisposition, string) {
+	if enforcement.ExpectedModelIdentityKey == "" {
+		return identityReady, ""
+	}
+	if enforcement.ModelIdentityValidatedAt == nil {
+		return identityHold, "model identity validation boundary is unavailable"
+	}
+	if enforcement.ModelIdentityObservedAt == nil ||
+		!enforcement.ModelIdentityObservedAt.After(*enforcement.ModelIdentityValidatedAt) {
+		return identityHold, "model identity observation is stale"
+	}
+	if enforcement.ObservedModelIdentityKey == "" {
+		return identityHold, "model identity observation is empty"
+	}
+	if enforcement.ObservedModelIdentityKey != enforcement.ExpectedModelIdentityKey {
+		return identityMismatch, "model identity changed after rollout admission"
+	}
+	return identityReady, ""
 }
 
 func (r *Reconciler) returnPending(

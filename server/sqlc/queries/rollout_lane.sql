@@ -134,7 +134,20 @@ JOIN device
  AND device.org_id = membership.org_id
  AND device.deleted_at IS NULL
 WHERE attachment.lane_id = sqlc.arg('lane_id')
-  AND attachment.org_id = sqlc.arg('org_id');
+  AND attachment.org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.narg('lane_model_id')::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM rollout_lane_model_binding binding
+          WHERE binding.lane_id = attachment.lane_id
+            AND binding.lane_model_id = sqlc.narg('lane_model_id')
+            AND binding.org_id = attachment.org_id
+            AND binding.device_id = membership.device_id
+            AND binding.channel_id = attachment.channel_id
+            AND binding.ended_at IS NULL
+      )
+  );
 
 -- name: CountRolloutLaneMembersByLaneIDs :many
 SELECT attachment.lane_id,
@@ -161,7 +174,7 @@ SELECT device.id AS device_id,
        btrim(COALESCE(discovered.firmware_version, '')) AS observed_firmware_version,
        attachment.channel_id,
        attachment.position AS channel_position,
-       attachment.channel_id = lane.current_channel_id AS on_current_channel,
+       attachment.channel_id = COALESCE(selected_model.current_channel_id, lane.current_channel_id) AS on_current_channel,
        COALESCE(target.firmware_version, '') AS pinned_release_version,
        COALESCE(latest_enforcement.last_observed_firmware_version, '') AS enforcement_observed_firmware_version,
        COALESCE(latest_enforcement.desired_firmware_version, '') AS enforcement_target_firmware_version,
@@ -184,6 +197,10 @@ LEFT JOIN discovered_device discovered
   ON discovered.id = device.discovered_device_id
  AND discovered.org_id = device.org_id
  AND discovered.deleted_at IS NULL
+LEFT JOIN rollout_lane_model selected_model
+  ON selected_model.id = sqlc.narg('lane_model_id')
+ AND selected_model.lane_id = lane.id
+ AND selected_model.org_id = lane.org_id
 JOIN device_set_channel physical_channel
   ON physical_channel.device_set_id = attachment.channel_id
  AND physical_channel.org_id = attachment.org_id
@@ -222,6 +239,19 @@ WHERE lane.id = sqlc.arg('lane_id')
   AND lane.org_id = sqlc.arg('org_id')
   AND lane.deleted_at IS NULL
   AND device.device_identifier > sqlc.arg('after_identifier')
+  AND (
+      sqlc.narg('lane_model_id')::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM rollout_lane_model_binding binding
+          WHERE binding.lane_id = lane.id
+            AND binding.lane_model_id = sqlc.narg('lane_model_id')
+            AND binding.org_id = lane.org_id
+            AND binding.device_id = device.id
+            AND binding.channel_id = attachment.channel_id
+            AND binding.ended_at IS NULL
+      )
+  )
 ORDER BY device.device_identifier
 LIMIT sqlc.arg('member_limit');
 
@@ -595,6 +625,14 @@ WHERE attachment.lane_id = sqlc.arg('lane_id')
   AND membership.device_set_type = 'channel'
 RETURNING membership.device_id;
 
+-- name: EndRolloutLaneModelBindingsForArchive :execrows
+UPDATE rollout_lane_model_binding
+SET ended_at = CURRENT_TIMESTAMP,
+    revision = revision + 1
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND ended_at IS NULL;
+
 -- name: ArchiveRolloutLane :one
 UPDATE rollout_lane
 SET deleted_at = CURRENT_TIMESTAMP,
@@ -663,6 +701,272 @@ WHERE attachment.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
   AND attachment.org_id = sqlc.arg('org_id')
 ORDER BY attachment.lane_id, attachment.position, attachment.channel_id;
 
+-- name: ListRolloutLaneChannelDetailsByLaneIDs :many
+SELECT attachment.lane_id,
+       attachment.org_id,
+       attachment.channel_id,
+       channel.release_set_id,
+       attachment.position,
+       attachment.rollout_id,
+       attachment.created_at
+FROM rollout_lane_channel attachment
+JOIN device_set_channel channel
+  ON channel.device_set_id = attachment.channel_id
+ AND channel.org_id = attachment.org_id
+WHERE attachment.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+  AND attachment.org_id = sqlc.arg('org_id')
+ORDER BY attachment.lane_id, attachment.position, attachment.channel_id;
+
+-- name: ListRolloutLaneModels :many
+SELECT model.id,
+       model.lane_id,
+       model.org_id,
+       model.model_identity_key,
+       model.normalization_version,
+       model.manufacturer,
+       model.model,
+       model.current_channel_id,
+       model.current_release_set_id,
+       model.current_release_target_id,
+       model.revision,
+       model.created_at,
+       model.updated_at,
+       target.firmware_file_id,
+       target.firmware_version,
+       target.sha256,
+       COUNT(binding.id) FILTER (WHERE binding.ended_at IS NULL)::bigint AS active_binding_count,
+       COUNT(binding.id) FILTER (WHERE binding.ended_at IS NOT NULL)::bigint AS historical_binding_count
+FROM rollout_lane_model model
+JOIN firmware_release_target target
+  ON target.id = model.current_release_target_id
+ AND target.release_set_id = model.current_release_set_id
+ AND target.org_id = model.org_id
+LEFT JOIN rollout_lane_model_binding binding
+  ON binding.lane_model_id = model.id
+ AND binding.lane_id = model.lane_id
+ AND binding.org_id = model.org_id
+WHERE model.lane_id = sqlc.arg('lane_id')
+  AND model.org_id = sqlc.arg('org_id')
+GROUP BY model.id,
+         target.id,
+         target.release_set_id,
+         target.org_id
+ORDER BY lower(model.manufacturer), lower(model.model), model.id;
+
+-- name: ListRolloutLaneModelsByLaneIDs :many
+SELECT model.id,
+       model.lane_id,
+       model.org_id,
+       model.model_identity_key,
+       model.normalization_version,
+       model.manufacturer,
+       model.model,
+       model.current_channel_id,
+       model.current_release_set_id,
+       model.current_release_target_id,
+       model.revision,
+       model.created_at,
+       model.updated_at,
+       target.firmware_file_id,
+       target.firmware_version,
+       target.sha256,
+       COUNT(binding.id) FILTER (WHERE binding.ended_at IS NULL)::bigint AS active_binding_count,
+       COUNT(binding.id) FILTER (WHERE binding.ended_at IS NOT NULL)::bigint AS historical_binding_count
+FROM rollout_lane_model model
+JOIN firmware_release_target target
+  ON target.id = model.current_release_target_id
+ AND target.release_set_id = model.current_release_set_id
+ AND target.org_id = model.org_id
+LEFT JOIN rollout_lane_model_binding binding
+  ON binding.lane_model_id = model.id
+ AND binding.lane_id = model.lane_id
+ AND binding.org_id = model.org_id
+WHERE model.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+  AND model.org_id = sqlc.arg('org_id')
+GROUP BY model.id,
+         target.id,
+         target.release_set_id,
+         target.org_id
+ORDER BY model.lane_id, lower(model.manufacturer), lower(model.model), model.id;
+
+-- name: GetRolloutLaneModelCurrentTarget :one
+SELECT target.firmware_file_id,
+       model.manufacturer,
+       model.model,
+       target.firmware_version,
+       target.sha256
+FROM rollout_lane_model model
+JOIN firmware_release_target target
+  ON target.id = model.current_release_target_id
+ AND target.release_set_id = model.current_release_set_id
+ AND target.org_id = model.org_id
+WHERE model.id = sqlc.arg('lane_model_id')
+  AND model.lane_id = sqlc.arg('lane_id')
+  AND model.org_id = sqlc.arg('org_id');
+
+-- name: ListRolloutLaneModelChannels :many
+SELECT history.lane_model_id,
+       history.channel_id,
+       history.position,
+       history.created_at,
+       history.release_set_id,
+       history.release_target_id,
+       target.firmware_file_id,
+       target.firmware_version,
+       target.sha256
+FROM rollout_lane_model_channel history
+JOIN firmware_release_target target
+  ON target.id = history.release_target_id
+ AND target.release_set_id = history.release_set_id
+ AND target.org_id = history.org_id
+WHERE history.lane_id = sqlc.arg('lane_id')
+  AND history.org_id = sqlc.arg('org_id')
+ORDER BY history.lane_model_id, history.position, history.channel_id;
+
+-- name: ListRolloutLaneModelChannelsByLaneIDs :many
+SELECT history.lane_id,
+       history.lane_model_id,
+       history.channel_id,
+       history.position,
+       history.created_at,
+       history.release_set_id,
+       history.release_target_id,
+       target.firmware_file_id,
+       target.firmware_version,
+       target.sha256
+FROM rollout_lane_model_channel history
+JOIN firmware_release_target target
+  ON target.id = history.release_target_id
+ AND target.release_set_id = history.release_set_id
+ AND target.org_id = history.org_id
+WHERE history.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+  AND history.org_id = sqlc.arg('org_id')
+ORDER BY history.lane_id, history.lane_model_id, history.position, history.channel_id;
+
+-- name: ListRolloutLaneModelFirmwareConvergenceStatuses :many
+WITH active_bindings AS (
+    SELECT binding.lane_model_id,
+           binding.device_id
+    FROM rollout_lane_model_binding binding
+    WHERE binding.lane_id = sqlc.arg('lane_id')
+      AND binding.org_id = sqlc.arg('org_id')
+      AND binding.ended_at IS NULL
+),
+latest AS (
+    SELECT active.lane_model_id,
+           active.device_id,
+           latest_enforcement.state
+    FROM active_bindings active
+    LEFT JOIN LATERAL (
+        SELECT enforcement.state
+        FROM channel_firmware_enforcement enforcement
+        JOIN channel_firmware_authority authority
+          ON authority.id = enforcement.authority_id
+         AND authority.org_id = enforcement.org_id
+        LEFT JOIN rollout_lane_membership_change membership_change
+          ON membership_change.authority_id = authority.id
+         AND membership_change.org_id = authority.org_id
+        WHERE enforcement.org_id = sqlc.arg('org_id')
+          AND enforcement.device_id = active.device_id
+          AND (
+              authority.authority_type = 'rollout_lane_initial'
+                  AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text
+              OR authority.authority_type = 'rollout_lane_membership'
+                  AND membership_change.target_lane_id = sqlc.arg('lane_id')
+          )
+        ORDER BY enforcement.desired_at DESC, enforcement.id DESC
+        LIMIT 1
+    ) latest_enforcement ON true
+)
+SELECT model.id AS lane_model_id,
+       COUNT(latest.device_id)::bigint AS total_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IS NULL OR latest.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IN ('dispatching', 'dispatched')
+       )::bigint AS updating_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state = 'verifying'
+       )::bigint AS verifying_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM rollout_lane_model model
+LEFT JOIN latest
+  ON latest.lane_model_id = model.id
+WHERE model.lane_id = sqlc.arg('lane_id')
+  AND model.org_id = sqlc.arg('org_id')
+GROUP BY model.id
+ORDER BY model.id;
+
+-- name: ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs :many
+WITH active_bindings AS (
+    SELECT binding.lane_id,
+           binding.lane_model_id,
+           binding.device_id
+    FROM rollout_lane_model_binding binding
+    WHERE binding.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+      AND binding.org_id = sqlc.arg('org_id')
+      AND binding.ended_at IS NULL
+),
+latest AS (
+    SELECT active.lane_id,
+           active.lane_model_id,
+           active.device_id,
+           latest_enforcement.state
+    FROM active_bindings active
+    LEFT JOIN LATERAL (
+        SELECT enforcement.state
+        FROM channel_firmware_enforcement enforcement
+        JOIN channel_firmware_authority authority
+          ON authority.id = enforcement.authority_id
+         AND authority.org_id = enforcement.org_id
+        LEFT JOIN rollout_lane_membership_change membership_change
+          ON membership_change.authority_id = authority.id
+         AND membership_change.org_id = authority.org_id
+        WHERE enforcement.org_id = sqlc.arg('org_id')
+          AND enforcement.device_id = active.device_id
+          AND (
+              authority.authority_type = 'rollout_lane_initial'
+                  AND authority.authority_reference = active.lane_id::text
+              OR authority.authority_type = 'rollout_lane_membership'
+                  AND membership_change.target_lane_id = active.lane_id
+          )
+        ORDER BY enforcement.desired_at DESC, enforcement.id DESC
+        LIMIT 1
+    ) latest_enforcement ON true
+)
+SELECT model.lane_id,
+       model.id AS lane_model_id,
+       COUNT(latest.device_id)::bigint AS total_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IS NULL OR latest.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IN ('dispatching', 'dispatched')
+       )::bigint AS updating_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state = 'verifying'
+       )::bigint AS verifying_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(latest.device_id) FILTER (
+           WHERE latest.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM rollout_lane_model model
+LEFT JOIN latest
+  ON latest.lane_id = model.lane_id
+ AND latest.lane_model_id = model.id
+WHERE model.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+  AND model.org_id = sqlc.arg('org_id')
+GROUP BY model.lane_id, model.id
+ORDER BY model.lane_id, model.id;
+
 -- name: CountRolloutLaneNonCurrentMembers :one
 SELECT COUNT(*)::bigint
 FROM rollout_lane lane
@@ -686,12 +990,30 @@ WHERE lane_id = sqlc.arg('lane_id')
 -- name: GetRolloutLaneForRollout :one
 SELECT lane.*
 FROM rollout_lane lane
-JOIN rollout_lane_channel attachment
-  ON attachment.lane_id = lane.id
- AND attachment.org_id = lane.org_id
-WHERE attachment.rollout_id = sqlc.arg('rollout_id')
-  AND attachment.org_id = sqlc.arg('org_id')
-  AND lane.deleted_at IS NULL;
+WHERE lane.org_id = sqlc.arg('org_id')
+  AND (
+      EXISTS (
+          SELECT 1
+          FROM rollout_lane_channel attachment
+          WHERE attachment.lane_id = lane.id
+            AND attachment.org_id = lane.org_id
+            AND attachment.rollout_id = sqlc.arg('rollout_id')
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM firmware_rollout child
+          WHERE child.id = sqlc.arg('rollout_id')
+            AND child.org_id = lane.org_id
+            AND child.lane_id = lane.id
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM firmware_rollout_group parent
+          WHERE parent.id = sqlc.arg('rollout_id')
+            AND parent.org_id = lane.org_id
+            AND parent.lane_id = lane.id
+      )
+  );
 
 -- name: LockBetweenChannelChannels :many
 SELECT channel.device_set_id
@@ -1083,6 +1405,46 @@ WHERE lane.id = sqlc.arg('lane_id')
   AND lane.org_id = sqlc.arg('org_id')
 ORDER BY device.device_identifier;
 
+-- name: ListRolloutLaneModelTransitions :many
+SELECT device.id AS device_id,
+       device.device_identifier,
+       COALESCE(discovered.manufacturer, '') AS manufacturer,
+       COALESCE(discovered.model, '') AS model,
+       source_target.id AS source_release_target_id,
+       source_target.firmware_file_id AS source_firmware_file_id,
+       source_target.firmware_version AS source_firmware_version,
+       source_target.sha256 AS source_sha256,
+       declaration.model_identity_key,
+       discovered.model_identity_observed_at
+FROM rollout_lane_model declaration
+JOIN rollout_lane_model_binding binding
+  ON binding.lane_model_id = declaration.id
+ AND binding.lane_id = declaration.lane_id
+ AND binding.org_id = declaration.org_id
+ AND binding.channel_id = declaration.current_channel_id
+ AND binding.ended_at IS NULL
+JOIN device_set_membership membership
+  ON membership.device_set_id = binding.channel_id
+ AND membership.org_id = binding.org_id
+ AND membership.device_id = binding.device_id
+ AND membership.device_set_type = 'channel'
+JOIN device
+  ON device.id = binding.device_id
+ AND device.org_id = binding.org_id
+ AND device.deleted_at IS NULL
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+JOIN firmware_release_target source_target
+  ON source_target.id = declaration.current_release_target_id
+ AND source_target.release_set_id = declaration.current_release_set_id
+ AND source_target.org_id = declaration.org_id
+WHERE declaration.id = sqlc.arg('lane_model_id')
+  AND declaration.lane_id = sqlc.arg('lane_id')
+  AND declaration.org_id = sqlc.arg('org_id')
+ORDER BY device.device_identifier;
+
 -- name: ListBetweenChannelAdmissionMembers :many
 SELECT member.id,
        member.device_id,
@@ -1169,7 +1531,9 @@ INSERT INTO channel_firmware_enforcement (
     cause_type,
     cause_reference,
     authority_id,
-    authority_revision
+    authority_revision,
+    expected_model_identity_key,
+    model_identity_validated_at
 )
 SELECT rollout_member.org_id,
        rollout_member.device_id,
@@ -1180,7 +1544,9 @@ SELECT rollout_member.org_id,
        'between_channel_forward',
        rollout_member.id::text,
        authority.id,
-       authority.revision
+       authority.revision,
+       rollout_member.model_identity_key,
+       rollout_member.model_identity_validated_at
 FROM firmware_rollout_member rollout_member
 JOIN firmware_release_target target
   ON target.id = rollout_member.target_release_target_id
@@ -1406,8 +1772,19 @@ SELECT member.id AS member_id,
        rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
+       rollout.lane_model_id,
+       rollout.group_id,
+       rollout.model_identity_key,
+       COALESCE(declaration.manufacturer, '')::text AS manufacturer,
+       COALESCE(declaration.model, '')::text AS model,
+       member.model_identity_validated_at,
+       enforcement.command_completed_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        lane.id AS lane_id,
-       lane.current_channel_id
+       lane.current_channel_id,
+       declaration.current_channel_id AS model_current_channel_id
 FROM firmware_rollout_member member
 JOIN firmware_rollout rollout
   ON rollout.id = member.rollout_id
@@ -1415,6 +1792,10 @@ JOIN firmware_rollout rollout
 JOIN device
   ON device.id = member.device_id
  AND device.org_id = member.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_enforcement enforcement
   ON enforcement.id = member.enforcement_id
  AND enforcement.org_id = member.org_id
@@ -1428,6 +1809,10 @@ JOIN rollout_lane_channel attachment
 JOIN rollout_lane lane
   ON lane.id = attachment.lane_id
  AND lane.org_id = attachment.org_id
+LEFT JOIN rollout_lane_model declaration
+  ON declaration.id = rollout.lane_model_id
+ AND declaration.lane_id = lane.id
+ AND declaration.org_id = lane.org_id
 WHERE rollout.strategy_key = 'between_channel'
   AND member.owner_released_at IS NULL
   AND (
@@ -1469,8 +1854,19 @@ SELECT member.id AS member_id,
        rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
+       rollout.lane_model_id,
+       rollout.group_id,
+       rollout.model_identity_key,
+       COALESCE(declaration.manufacturer, '')::text AS manufacturer,
+       COALESCE(declaration.model, '')::text AS model,
+       member.model_identity_validated_at,
+       enforcement.command_completed_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        lane.id AS lane_id,
-       lane.current_channel_id
+       lane.current_channel_id,
+       declaration.current_channel_id AS model_current_channel_id
 FROM firmware_rollout_member member
 JOIN firmware_rollout rollout
   ON rollout.id = member.rollout_id
@@ -1478,6 +1874,10 @@ JOIN firmware_rollout rollout
 JOIN device
   ON device.id = member.device_id
  AND device.org_id = member.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_enforcement enforcement
   ON enforcement.id = member.enforcement_id
  AND enforcement.org_id = member.org_id
@@ -1488,6 +1888,10 @@ JOIN rollout_lane_channel attachment
 JOIN rollout_lane lane
   ON lane.id = attachment.lane_id
  AND lane.org_id = attachment.org_id
+LEFT JOIN rollout_lane_model declaration
+  ON declaration.id = rollout.lane_model_id
+ AND declaration.lane_id = lane.id
+ AND declaration.org_id = lane.org_id
 WHERE member.id = sqlc.arg('member_id')
   AND member.org_id = sqlc.arg('org_id')
 FOR UPDATE OF member, enforcement, rollout, lane;
@@ -1548,6 +1952,93 @@ WHERE member.id = sqlc.arg('member_id')
   AND member.owner_released_at IS NULL
 RETURNING member.*;
 
+-- name: FinalizeBetweenChannelModelForward :one
+WITH ended_binding AS (
+    UPDATE rollout_lane_model_binding binding
+    SET ended_at = CURRENT_TIMESTAMP,
+        revision = binding.revision + 1
+    WHERE binding.lane_model_id = sqlc.arg('lane_model_id')
+      AND binding.lane_id = sqlc.arg('lane_id')
+      AND binding.org_id = sqlc.arg('org_id')
+      AND binding.device_id = sqlc.arg('device_id')
+      AND binding.channel_id = sqlc.arg('source_channel_id')
+      AND binding.ended_at IS NULL
+    RETURNING binding.device_id,
+              binding.model_identity_key
+),
+removed AS (
+    DELETE FROM device_set_membership membership
+    USING ended_binding
+    WHERE membership.org_id = sqlc.arg('org_id')
+      AND membership.device_id = ended_binding.device_id
+      AND membership.device_set_type = 'channel'
+      AND membership.device_set_id = sqlc.arg('source_channel_id')
+    RETURNING membership.org_id,
+              membership.device_id,
+              membership.device_identifier
+),
+inserted AS (
+    INSERT INTO device_set_membership (
+        org_id,
+        device_set_id,
+        device_set_type,
+        device_id,
+        device_identifier
+    )
+    SELECT removed.org_id,
+           sqlc.arg('target_channel_id'),
+           'channel',
+           removed.device_id,
+           removed.device_identifier
+    FROM removed
+    RETURNING device_id
+),
+inserted_binding AS (
+    INSERT INTO rollout_lane_model_binding (
+        id,
+        lane_id,
+        lane_model_id,
+        org_id,
+        device_id,
+        channel_id,
+        model_identity_key,
+        model_identity_observed_at,
+        origin
+    )
+    SELECT sqlc.arg('binding_id'),
+           sqlc.arg('lane_id'),
+           sqlc.arg('lane_model_id'),
+           sqlc.arg('org_id'),
+           inserted.device_id,
+           sqlc.arg('target_channel_id'),
+           sqlc.arg('model_identity_key'),
+           sqlc.arg('model_identity_observed_at'),
+           'topology'
+    FROM inserted
+    RETURNING device_id
+)
+UPDATE firmware_rollout_member member
+SET state = 'succeeded',
+    settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CASE
+        WHEN rollout.state = 'aborted' THEN CURRENT_TIMESTAMP
+        ELSE member.owner_released_at
+    END,
+    last_error = NULL,
+    revision = member.revision + 1
+FROM inserted_binding,
+     firmware_rollout rollout
+WHERE member.id = sqlc.arg('member_id')
+  AND member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id')
+  AND rollout.id = member.rollout_id
+  AND rollout.org_id = member.org_id
+  AND member.device_id = inserted_binding.device_id
+  AND member.state = 'admitted'
+  AND member.revision = sqlc.arg('expected_revision')
+  AND member.owner_released_at IS NULL
+RETURNING member.*;
+
 -- name: FinalizeBetweenChannelRevert :one
 WITH removed AS (
     DELETE FROM device_set_membership membership
@@ -1585,6 +2076,86 @@ WHERE member.id = sqlc.arg('member_id')
   AND member.rollout_id = sqlc.arg('rollout_id')
   AND member.org_id = sqlc.arg('org_id')
   AND member.device_id = inserted.device_id
+  AND member.state = 'reverting'
+  AND member.revision = sqlc.arg('expected_revision')
+  AND member.owner_released_at IS NULL
+RETURNING member.*;
+
+-- name: FinalizeBetweenChannelModelRevert :one
+WITH ended_binding AS (
+    UPDATE rollout_lane_model_binding binding
+    SET ended_at = CURRENT_TIMESTAMP,
+        revision = binding.revision + 1
+    WHERE binding.lane_model_id = sqlc.arg('lane_model_id')
+      AND binding.lane_id = sqlc.arg('lane_id')
+      AND binding.org_id = sqlc.arg('org_id')
+      AND binding.device_id = sqlc.arg('device_id')
+      AND binding.channel_id = sqlc.arg('target_channel_id')
+      AND binding.ended_at IS NULL
+    RETURNING binding.device_id,
+              binding.model_identity_key
+),
+removed AS (
+    DELETE FROM device_set_membership membership
+    USING ended_binding
+    WHERE membership.org_id = sqlc.arg('org_id')
+      AND membership.device_id = ended_binding.device_id
+      AND membership.device_set_type = 'channel'
+      AND membership.device_set_id = sqlc.arg('target_channel_id')
+    RETURNING membership.org_id,
+              membership.device_id,
+              membership.device_identifier
+),
+inserted AS (
+    INSERT INTO device_set_membership (
+        org_id,
+        device_set_id,
+        device_set_type,
+        device_id,
+        device_identifier
+    )
+    SELECT removed.org_id,
+           sqlc.arg('source_channel_id'),
+           'channel',
+           removed.device_id,
+           removed.device_identifier
+    FROM removed
+    RETURNING device_id
+),
+inserted_binding AS (
+    INSERT INTO rollout_lane_model_binding (
+        id,
+        lane_id,
+        lane_model_id,
+        org_id,
+        device_id,
+        channel_id,
+        model_identity_key,
+        model_identity_observed_at,
+        origin
+    )
+    SELECT sqlc.arg('binding_id'),
+           sqlc.arg('lane_id'),
+           sqlc.arg('lane_model_id'),
+           sqlc.arg('org_id'),
+           inserted.device_id,
+           sqlc.arg('source_channel_id'),
+           sqlc.arg('model_identity_key'),
+           sqlc.arg('model_identity_observed_at'),
+           'topology'
+    FROM inserted
+    RETURNING device_id
+)
+UPDATE firmware_rollout_member member
+SET state = 'reverted',
+    settled_at = CURRENT_TIMESTAMP,
+    last_error = NULL,
+    revision = member.revision + 1
+FROM inserted_binding
+WHERE member.id = sqlc.arg('member_id')
+  AND member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id')
+  AND member.device_id = inserted_binding.device_id
   AND member.state = 'reverting'
   AND member.revision = sqlc.arg('expected_revision')
   AND member.owner_released_at IS NULL
@@ -2100,3 +2671,945 @@ UPDATE device
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = sqlc.arg('device_identifier');
+
+-- name: RunRolloutLaneTopologyBackfill :exec
+SELECT backfill_rollout_lane_model_topology(sqlc.arg('org_id'));
+
+-- name: GetRolloutLaneTopologyCutover :one
+SELECT *
+FROM rollout_lane_topology_cutover
+WHERE org_id = sqlc.arg('org_id');
+
+-- name: LockRolloutLaneTopologyCutover :one
+SELECT *
+FROM rollout_lane_topology_cutover
+WHERE org_id = sqlc.arg('org_id')
+FOR UPDATE;
+
+-- name: ListRolloutLaneTopologyAnomalies :many
+SELECT anomaly_id,
+       lane_id,
+       device_id,
+       device_identifier,
+       lane_model_id,
+       lane_model_revision,
+       anomaly_type,
+       supported_repair_actions,
+       details
+FROM rollout_lane_topology_anomaly
+WHERE org_id = sqlc.arg('org_id')
+ORDER BY lane_id, device_identifier, anomaly_type, anomaly_id;
+
+-- name: CountRolloutLaneTopologyAnomalies :one
+SELECT COUNT(*)::bigint
+FROM rollout_lane_topology_anomaly
+WHERE org_id = sqlc.arg('org_id');
+
+-- name: CountActiveLegacyRolloutLaneWork :one
+SELECT COUNT(DISTINCT rollout.id)::bigint
+FROM rollout_lane_channel attachment
+JOIN firmware_rollout rollout
+  ON rollout.id = attachment.rollout_id
+ AND rollout.org_id = attachment.org_id
+WHERE attachment.org_id = sqlc.arg('org_id')
+  AND (
+      rollout.state NOT IN (
+          'completed',
+          'completed_with_failures',
+          'aborted',
+          'reverted'
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM firmware_rollout_member member
+          WHERE member.rollout_id = rollout.id
+            AND member.org_id = rollout.org_id
+            AND member.owner_released_at IS NULL
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM firmware_rollout_control control
+          WHERE control.rollout_id = rollout.id
+            AND control.org_id = rollout.org_id
+            AND control.status = 'started'
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM channel_firmware_authority authority
+          WHERE authority.org_id = rollout.org_id
+            AND authority.id IN (
+                rollout.forward_authority_id,
+                rollout.revert_authority_id
+            )
+            AND authority.halted_at IS NULL
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM channel_firmware_enforcement enforcement
+          WHERE enforcement.org_id = rollout.org_id
+            AND enforcement.authority_id IN (
+                rollout.forward_authority_id,
+                rollout.revert_authority_id
+            )
+            AND enforcement.state IN (
+                'pending',
+                'held',
+                'dispatching',
+                'dispatched',
+                'verifying'
+            )
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM firmware_rollout_batch batch
+          WHERE batch.rollout_id = rollout.id
+            AND batch.org_id = rollout.org_id
+            AND batch.completed_at IS NOT NULL
+            AND NOT batch.post_window_finalized
+      )
+  );
+
+-- name: GetRolloutLaneTopologyAdminOperationByKey :one
+SELECT *
+FROM rollout_lane_topology_admin_operation
+WHERE org_id = sqlc.arg('org_id')
+  AND idempotency_key = sqlc.arg('idempotency_key');
+
+-- name: LockRolloutLaneModelForRepair :one
+SELECT *
+FROM rollout_lane_model
+WHERE id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
+
+-- name: LockRolloutLaneModelRepairDevice :one
+SELECT device.id AS device_id,
+       membership.device_set_id AS channel_id,
+       rollout_model_identity_v1(
+           discovered.manufacturer,
+           discovered.model
+       ) AS model_identity_key,
+       discovered.model_identity_observed_at
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+JOIN device_set_membership membership
+  ON membership.device_id = device.id
+ AND membership.org_id = device.org_id
+ AND membership.device_set_type = 'channel'
+WHERE device.org_id = sqlc.arg('org_id')
+  AND device.device_identifier = sqlc.arg('device_identifier')
+  AND device.deleted_at IS NULL
+FOR UPDATE OF device, discovered, membership;
+
+-- name: EndActiveRolloutLaneModelBinding :execrows
+UPDATE rollout_lane_model_binding
+SET ended_at = CURRENT_TIMESTAMP,
+    ended_by_operation_id = sqlc.arg('operation_id'),
+    revision = revision + 1
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND device_id = sqlc.arg('device_id')
+  AND ended_at IS NULL;
+
+-- name: CreateRolloutLaneModelBindingRepair :one
+INSERT INTO rollout_lane_model_binding (
+    id,
+    lane_id,
+    lane_model_id,
+    org_id,
+    device_id,
+    channel_id,
+    model_identity_key,
+    model_identity_observed_at,
+    origin
+)
+VALUES (
+    sqlc.arg('binding_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('lane_model_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('device_id'),
+    sqlc.arg('channel_id'),
+    sqlc.arg('model_identity_key'),
+    sqlc.narg('model_identity_observed_at'),
+    'repair'
+)
+RETURNING *;
+
+-- name: BumpRolloutLaneModelRevision :one
+UPDATE rollout_lane_model
+SET revision = revision + 1
+WHERE id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+RETURNING revision;
+
+-- name: CreateRolloutLaneTopologyAdminOperation :one
+INSERT INTO rollout_lane_topology_admin_operation (
+    id,
+    org_id,
+    operation,
+    lane_id,
+    lane_model_id,
+    device_id,
+    idempotency_key,
+    request_fingerprint,
+    expected_revision,
+    resulting_revision,
+    reason,
+    requested,
+    applied,
+    actor_user_id,
+    actor_type,
+    actor_credential_id
+)
+VALUES (
+    sqlc.arg('operation_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('operation'),
+    sqlc.narg('lane_id'),
+    sqlc.narg('lane_model_id'),
+    sqlc.narg('device_id'),
+    sqlc.arg('idempotency_key'),
+    sqlc.arg('request_fingerprint'),
+    sqlc.arg('expected_revision'),
+    sqlc.arg('resulting_revision'),
+    sqlc.arg('reason'),
+    sqlc.arg('requested'),
+    sqlc.arg('applied'),
+    sqlc.arg('actor_user_id'),
+    sqlc.arg('actor_type'),
+    sqlc.narg('actor_credential_id')
+)
+RETURNING *;
+
+-- name: EnableRolloutLaneModelTopology :one
+UPDATE rollout_lane_topology_cutover
+SET enabled = TRUE,
+    revision = revision + 1,
+    enabled_at = CURRENT_TIMESTAMP,
+    enabled_by_user_id = sqlc.arg('enabled_by_user_id'),
+    enabled_actor_type = sqlc.arg('enabled_actor_type'),
+    enabled_actor_credential_id = sqlc.narg('enabled_actor_credential_id'),
+    enable_reason = sqlc.arg('enable_reason'),
+    enable_idempotency_key = sqlc.arg('enable_idempotency_key')
+WHERE org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+  AND NOT enabled
+RETURNING *;
+
+-- name: LockRolloutLaneModelForMutation :one
+SELECT *
+FROM rollout_lane_model
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND (
+      (sqlc.narg('lane_model_id')::uuid IS NOT NULL
+          AND id = sqlc.narg('lane_model_id')::uuid)
+      OR
+      (sqlc.narg('model_identity_key')::text IS NOT NULL
+          AND model_identity_key = sqlc.narg('model_identity_key')::text)
+  )
+FOR UPDATE;
+
+-- name: LockRolloutLaneModelsForMutation :many
+SELECT *
+FROM rollout_lane_model
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('lane_model_ids')::uuid[])
+ORDER BY model_identity_key, id
+FOR UPDATE;
+
+-- name: CountActiveRolloutLaneModelBindings :one
+SELECT COUNT(*)::bigint
+FROM rollout_lane_model_binding
+WHERE lane_model_id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND ended_at IS NULL;
+
+-- name: ListActiveRolloutLaneModelBindingsForDevices :many
+SELECT binding.id,
+       binding.lane_id,
+       binding.lane_model_id,
+       binding.device_id,
+       binding.channel_id,
+       binding.model_identity_key,
+       declaration.revision AS lane_model_revision,
+       declaration.manufacturer,
+       declaration.model,
+       lane.label AS lane_label,
+       device.device_identifier,
+       membership.device_set_id AS physical_channel_id
+FROM rollout_lane_model_binding binding
+JOIN rollout_lane_model declaration
+  ON declaration.id = binding.lane_model_id
+ AND declaration.lane_id = binding.lane_id
+ AND declaration.org_id = binding.org_id
+JOIN rollout_lane lane
+  ON lane.id = binding.lane_id
+ AND lane.org_id = binding.org_id
+ AND lane.deleted_at IS NULL
+JOIN device
+  ON device.id = binding.device_id
+ AND device.org_id = binding.org_id
+ AND device.deleted_at IS NULL
+LEFT JOIN device_set_membership membership
+  ON membership.device_id = binding.device_id
+ AND membership.org_id = binding.org_id
+ AND membership.device_set_type = 'channel'
+WHERE binding.org_id = sqlc.arg('org_id')
+  AND binding.device_id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND binding.ended_at IS NULL
+ORDER BY binding.lane_model_id, device.device_identifier;
+
+-- name: CreateRolloutLaneModelDeclaration :one
+INSERT INTO rollout_lane_model (
+    id,
+    lane_id,
+    org_id,
+    model_identity_key,
+    manufacturer,
+    model,
+    current_channel_id,
+    current_release_set_id,
+    current_release_target_id,
+    origin
+)
+VALUES (
+    sqlc.arg('lane_model_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('model_identity_key'),
+    sqlc.arg('manufacturer'),
+    sqlc.arg('model'),
+    sqlc.arg('current_channel_id'),
+    sqlc.arg('current_release_set_id'),
+    sqlc.arg('current_release_target_id'),
+    'topology'
+)
+RETURNING *;
+
+-- name: GetRolloutLaneReleaseTargetByModel :one
+SELECT *
+FROM firmware_release_target
+WHERE release_set_id = sqlc.arg('release_set_id')
+  AND org_id = sqlc.arg('org_id')
+  AND rollout_model_identity_v1(target_manufacturer, target_model)
+      = sqlc.arg('model_identity_key');
+
+-- name: CreateRolloutLaneModelChannel :one
+INSERT INTO rollout_lane_model_channel (
+    lane_model_id,
+    lane_id,
+    org_id,
+    channel_id,
+    release_set_id,
+    release_target_id,
+    position,
+    origin
+)
+VALUES (
+    sqlc.arg('lane_model_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('channel_id'),
+    sqlc.arg('release_set_id'),
+    sqlc.arg('release_target_id'),
+    (
+        SELECT COALESCE(MAX(history.position) + 1, 0)
+        FROM rollout_lane_model_channel history
+        WHERE history.lane_model_id = sqlc.arg('lane_model_id')
+    ),
+    'topology'
+)
+RETURNING *;
+
+-- name: AddRolloutLaneModelMembershipDevices :many
+INSERT INTO device_set_membership (
+    org_id,
+    device_set_id,
+    device_set_type,
+    device_id,
+    device_identifier
+)
+SELECT device.org_id,
+       sqlc.arg('channel_id'),
+       'channel',
+       device.id,
+       device.device_identifier
+FROM device
+WHERE device.org_id = sqlc.arg('org_id')
+  AND device.id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND device.deleted_at IS NULL
+ORDER BY device.device_identifier
+RETURNING device_id;
+
+-- name: RemoveRolloutLaneModelMembershipDevices :many
+DELETE FROM device_set_membership
+WHERE org_id = sqlc.arg('org_id')
+  AND device_set_id = sqlc.arg('channel_id')
+  AND device_set_type = 'channel'
+  AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
+RETURNING device_id;
+
+-- name: CreateRolloutLaneModelBindings :many
+INSERT INTO rollout_lane_model_binding (
+    id,
+    lane_id,
+    lane_model_id,
+    org_id,
+    device_id,
+    channel_id,
+    model_identity_key,
+    model_identity_observed_at,
+    origin
+)
+SELECT gen_random_uuid(),
+       sqlc.arg('lane_id'),
+       sqlc.arg('lane_model_id'),
+       device.org_id,
+       device.id,
+       sqlc.arg('channel_id'),
+       rollout_model_identity_v1(discovered.manufacturer, discovered.model),
+       discovered.model_identity_observed_at,
+       'topology'
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+WHERE device.org_id = sqlc.arg('org_id')
+  AND device.id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND device.deleted_at IS NULL
+  AND rollout_model_identity_v1(discovered.manufacturer, discovered.model)
+      = sqlc.arg('model_identity_key')
+ORDER BY device.device_identifier
+RETURNING *;
+
+-- name: EndRolloutLaneModelBindings :many
+UPDATE rollout_lane_model_binding
+SET ended_at = CURRENT_TIMESTAMP,
+    ended_by_operation_id = sqlc.arg('operation_id'),
+    revision = revision + 1
+WHERE lane_id = sqlc.arg('lane_id')
+  AND lane_model_id = sqlc.arg('lane_model_id')
+  AND org_id = sqlc.arg('org_id')
+  AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND ended_at IS NULL
+RETURNING device_id;
+
+-- name: AdvanceRolloutLaneModelTarget :one
+UPDATE rollout_lane_model
+SET current_channel_id = sqlc.arg('channel_id'),
+    current_release_set_id = sqlc.arg('release_set_id'),
+    current_release_target_id = sqlc.arg('release_target_id'),
+    revision = revision + 1
+WHERE id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+RETURNING *;
+
+-- name: BumpRolloutLaneModelRevisions :many
+UPDATE rollout_lane_model
+SET revision = revision + 1
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('lane_model_ids')::uuid[])
+RETURNING id, revision;
+
+-- name: HasActiveRolloutLaneModelWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM rollout_lane_model_binding binding
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.org_id = binding.org_id
+     AND enforcement.device_id = binding.device_id
+     AND enforcement.state IN ('pending', 'held', 'dispatching', 'dispatched', 'verifying')
+    WHERE binding.lane_model_id = sqlc.arg('lane_model_id')
+      AND binding.lane_id = sqlc.arg('lane_id')
+      AND binding.org_id = sqlc.arg('org_id')
+      AND binding.ended_at IS NULL
+)
+OR EXISTS (
+    SELECT 1
+    FROM firmware_rollout_group_model grouped
+    JOIN firmware_rollout child
+      ON child.id = grouped.child_rollout_id
+     AND child.org_id = grouped.org_id
+    WHERE grouped.lane_model_id = sqlc.arg('lane_model_id')
+      AND grouped.lane_id = sqlc.arg('lane_id')
+      AND grouped.org_id = sqlc.arg('org_id')
+      AND (
+          child.state IN (
+              'created',
+              'running',
+              'paused',
+              'review',
+              'reverting',
+              'completed_with_failures'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_member member
+              WHERE member.rollout_id = child.id
+                AND member.org_id = child.org_id
+                AND (
+                    member.owner_released_at IS NULL
+                    OR member.state IN ('pending', 'admitted', 'reverting')
+                )
+          )
+      )
+);
+
+-- name: CreateRolloutLaneModelEnforcements :execrows
+INSERT INTO channel_firmware_enforcement (
+    org_id,
+    device_id,
+    desired_release_set_id,
+    desired_release_target_id,
+    desired_firmware_file_id,
+    desired_firmware_version,
+    cause_type,
+    cause_reference,
+    authority_id,
+    authority_revision,
+    state,
+    last_observed_firmware_version,
+    firmware_observed_at,
+    confirmed_at
+)
+SELECT device.org_id,
+       device.id,
+       declaration.current_release_set_id,
+       target.id,
+       target.firmware_file_id,
+       target.firmware_version,
+       sqlc.arg('cause_type'),
+       sqlc.arg('cause_reference'),
+       authority.id,
+       authority.revision,
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+               THEN 'confirmed'
+           ELSE 'pending'
+       END,
+       NULLIF(btrim(COALESCE(discovered.firmware_version, '')), ''),
+       CASE WHEN btrim(COALESCE(discovered.firmware_version, '')) <> ''
+           THEN discovered.last_seen ELSE NULL END,
+       CASE WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+           THEN CURRENT_TIMESTAMP ELSE NULL END
+FROM rollout_lane_model declaration
+JOIN firmware_release_target target
+  ON target.id = declaration.current_release_target_id
+ AND target.release_set_id = declaration.current_release_set_id
+ AND target.org_id = declaration.org_id
+JOIN device
+  ON device.org_id = declaration.org_id
+ AND device.id = ANY(sqlc.arg('device_ids')::bigint[])
+ AND device.deleted_at IS NULL
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+JOIN channel_firmware_authority authority
+  ON authority.id = sqlc.arg('authority_id')
+ AND authority.org_id = declaration.org_id
+ AND authority.revision = sqlc.arg('authority_revision')
+ AND authority.halted_at IS NULL
+WHERE declaration.id = sqlc.arg('lane_model_id')
+  AND declaration.lane_id = sqlc.arg('lane_id')
+  AND declaration.org_id = sqlc.arg('org_id')
+  AND rollout_model_identity_v1(discovered.manufacturer, discovered.model)
+      = declaration.model_identity_key
+ON CONFLICT (authority_id, device_id) DO NOTHING;
+
+-- name: GetRolloutLaneTopologyCountsForTest :one
+SELECT
+    (SELECT COUNT(*)
+     FROM rollout_lane_model model
+     WHERE model.lane_id = sqlc.arg('lane_id')
+       AND model.org_id = sqlc.arg('org_id'))::bigint AS declarations,
+    (SELECT COUNT(*)
+     FROM rollout_lane_model_channel history
+     WHERE history.lane_id = sqlc.arg('lane_id')
+       AND history.org_id = sqlc.arg('org_id'))::bigint AS history_rows,
+    (SELECT COUNT(DISTINCT history.channel_id)
+     FROM rollout_lane_model_channel history
+     WHERE history.lane_id = sqlc.arg('lane_id')
+       AND history.org_id = sqlc.arg('org_id'))::bigint AS history_channels,
+    (SELECT COUNT(*)
+     FROM rollout_lane_model_binding binding
+     WHERE binding.lane_id = sqlc.arg('lane_id')
+       AND binding.org_id = sqlc.arg('org_id')
+       AND binding.ended_at IS NULL)::bigint AS active_bindings;
+
+-- name: GetRolloutLaneModelForTest :one
+SELECT *
+FROM rollout_lane_model
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND model_identity_key = rollout_model_identity_v1(
+      sqlc.arg('manufacturer'),
+      sqlc.arg('model')
+  );
+
+-- name: GetFirmwareRolloutGroupByStartKey :one
+SELECT *
+FROM firmware_rollout_group
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND idempotency_key = sqlc.arg('idempotency_key');
+
+-- name: CreateFirmwareRolloutGroup :one
+INSERT INTO firmware_rollout_group (
+    id,
+    lane_id,
+    org_id,
+    name,
+    idempotency_key,
+    create_fingerprint,
+    reason,
+    created_by_user_id,
+    actor_type,
+    actor_credential_id
+)
+VALUES (
+    sqlc.arg('group_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('name'),
+    sqlc.arg('idempotency_key'),
+    sqlc.arg('create_fingerprint'),
+    sqlc.arg('reason'),
+    sqlc.arg('created_by_user_id'),
+    sqlc.arg('actor_type'),
+    sqlc.narg('actor_credential_id')
+)
+RETURNING *;
+
+-- name: ClaimRolloutLaneActiveParent :one
+INSERT INTO rollout_lane_active_parent (
+    lane_id,
+    org_id,
+    group_id,
+    claim_idempotency_key,
+    claim_fingerprint
+)
+VALUES (
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('group_id'),
+    sqlc.arg('claim_idempotency_key'),
+    sqlc.arg('claim_fingerprint')
+)
+RETURNING *;
+
+-- name: GetRolloutLaneActiveParent :one
+SELECT *
+FROM rollout_lane_active_parent
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id');
+
+-- name: ListRolloutLaneActiveParents :many
+SELECT *
+FROM rollout_lane_active_parent
+WHERE org_id = sqlc.arg('org_id')
+ORDER BY lane_id, group_id;
+
+-- name: LockRolloutLaneActiveParent :one
+SELECT *
+FROM rollout_lane_active_parent
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
+
+-- name: GetRolloutLaneSettlementState :one
+WITH lane_rollouts AS (
+    SELECT DISTINCT child.id,
+                    child.org_id,
+                    child.state,
+                    child.forward_authority_id,
+                    child.revert_authority_id
+    FROM firmware_rollout child
+    LEFT JOIN rollout_lane_channel attachment
+      ON attachment.rollout_id = child.id
+     AND attachment.org_id = child.org_id
+    WHERE child.org_id = sqlc.arg('org_id')
+      AND (
+          sqlc.narg('group_id')::uuid IS NULL
+          OR child.group_id = sqlc.narg('group_id')::uuid
+      )
+      AND (
+          child.lane_id = sqlc.arg('lane_id')
+          OR attachment.lane_id = sqlc.arg('lane_id')
+      )
+),
+lane_members AS (
+    SELECT member.*
+    FROM firmware_rollout_member member
+    JOIN lane_rollouts child
+      ON child.id = member.rollout_id
+     AND child.org_id = member.org_id
+),
+lane_controls AS (
+    SELECT control.*
+    FROM firmware_rollout_control control
+    JOIN lane_rollouts child
+      ON child.id = control.rollout_id
+     AND child.org_id = control.org_id
+)
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM lane_rollouts child
+        WHERE child.state NOT IN (
+            'aborted',
+            'completed',
+            'completed_with_failures',
+            'reverted'
+        )
+    ) AS child_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM lane_members member
+        WHERE member.owner_released_at IS NULL
+    ) AS owner_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM lane_controls control
+        WHERE control.status = 'started'
+    ) AS control_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM channel_firmware_authority authority
+        JOIN lane_rollouts child
+          ON authority.org_id = child.org_id
+         AND authority.id IN (
+             child.forward_authority_id,
+             child.revert_authority_id
+         )
+        WHERE authority.halted_at IS NULL
+    ) AS authority_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM channel_firmware_enforcement enforcement
+        JOIN lane_rollouts child
+          ON enforcement.org_id = child.org_id
+         AND enforcement.authority_id IN (
+             child.forward_authority_id,
+             child.revert_authority_id
+         )
+        WHERE enforcement.state IN (
+            'pending',
+            'held',
+            'dispatching',
+            'dispatched',
+            'verifying'
+        )
+    ) AS enforcement_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM lane_members member
+        WHERE member.state IN ('admitted', 'reverting')
+    ) AS finalization_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM lane_rollouts child
+        WHERE child.state = 'reverting'
+    ) AS revert_unsettled,
+    EXISTS (
+        SELECT 1
+        FROM firmware_rollout_batch batch
+        JOIN lane_rollouts child
+          ON child.id = batch.rollout_id
+         AND child.org_id = batch.org_id
+        WHERE batch.completed_at IS NOT NULL
+          AND NOT batch.post_window_finalized
+        UNION ALL
+        SELECT 1
+        FROM firmware_rollout_evidence evidence
+        JOIN lane_rollouts child
+          ON child.id = evidence.rollout_id
+         AND child.org_id = evidence.org_id
+        WHERE evidence.status = 'open'
+    ) AS evidence_unsettled;
+
+-- name: ReleaseRolloutLaneActiveParent :execrows
+DELETE FROM rollout_lane_active_parent
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND group_id = sqlc.arg('group_id');
+
+-- name: CreateFirmwareRolloutGroupModel :one
+INSERT INTO firmware_rollout_group_model (
+    group_id,
+    lane_id,
+    lane_model_id,
+    org_id,
+    model_identity_key,
+    source_channel_id,
+    source_release_set_id,
+    source_release_target_id,
+    target_channel_id,
+    target_release_set_id,
+    target_release_target_id,
+    snapshot
+)
+VALUES (
+    sqlc.arg('group_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('lane_model_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('model_identity_key'),
+    sqlc.arg('source_channel_id'),
+    sqlc.arg('source_release_set_id'),
+    sqlc.arg('source_release_target_id'),
+    sqlc.arg('target_channel_id'),
+    sqlc.arg('target_release_set_id'),
+    sqlc.arg('target_release_target_id'),
+    sqlc.arg('snapshot')
+)
+RETURNING *;
+
+-- name: AttachFirmwareRolloutGroupModelChild :one
+UPDATE firmware_rollout_group_model
+SET child_rollout_id = sqlc.arg('child_rollout_id')
+WHERE group_id = sqlc.arg('group_id')
+  AND lane_model_id = sqlc.arg('lane_model_id')
+  AND org_id = sqlc.arg('org_id')
+  AND child_rollout_id IS NULL
+RETURNING *;
+
+-- name: AdvanceRolloutLaneModelCurrentTarget :one
+UPDATE rollout_lane_model
+SET current_channel_id = sqlc.arg('target_channel_id'),
+    current_release_set_id = sqlc.arg('target_release_set_id'),
+    current_release_target_id = sqlc.arg('target_release_target_id'),
+    revision = revision + 1
+WHERE id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND current_channel_id = sqlc.arg('expected_channel_id')
+  AND revision = sqlc.arg('expected_revision')
+RETURNING *;
+
+-- name: TestCreateRolloutLaneModelChannel :one
+INSERT INTO rollout_lane_model_channel (
+    lane_model_id,
+    lane_id,
+    org_id,
+    channel_id,
+    release_set_id,
+    release_target_id,
+    position,
+    origin
+)
+VALUES (
+    sqlc.arg('lane_model_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('channel_id'),
+    sqlc.arg('release_set_id'),
+    sqlc.arg('release_target_id'),
+    (
+        SELECT COALESCE(MAX(history.position) + 1, 0)
+        FROM rollout_lane_model_channel history
+        WHERE history.lane_model_id = sqlc.arg('lane_model_id')
+    ),
+    'topology'
+)
+RETURNING *;
+
+-- name: TestSetRolloutLaneModelCurrentChannel :one
+UPDATE rollout_lane_model
+SET current_channel_id = sqlc.arg('channel_id'),
+    current_release_set_id = sqlc.arg('release_set_id'),
+    current_release_target_id = sqlc.arg('release_target_id'),
+    revision = revision + 1
+WHERE id = sqlc.arg('lane_model_id')
+  AND lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+RETURNING *;
+
+-- name: TestCreateFirmwareRolloutGroup :one
+INSERT INTO firmware_rollout_group (
+    id,
+    lane_id,
+    org_id,
+    name,
+    idempotency_key,
+    create_fingerprint,
+    reason,
+    created_by_user_id,
+    actor_type
+)
+VALUES (
+    sqlc.arg('group_id'),
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('name'),
+    sqlc.arg('idempotency_key'),
+    sqlc.arg('create_fingerprint'),
+    sqlc.arg('reason'),
+    sqlc.arg('created_by_user_id'),
+    'user'
+)
+RETURNING *;
+
+-- name: TestClaimRolloutLaneActiveParent :one
+INSERT INTO rollout_lane_active_parent (
+    lane_id,
+    org_id,
+    group_id,
+    claim_idempotency_key,
+    claim_fingerprint
+)
+VALUES (
+    sqlc.arg('lane_id'),
+    sqlc.arg('org_id'),
+    sqlc.arg('group_id'),
+    sqlc.arg('claim_idempotency_key'),
+    sqlc.arg('claim_fingerprint')
+)
+RETURNING *;
+
+-- name: GetRolloutLaneActiveParentForTest :one
+SELECT claim.lane_id,
+       claim.org_id,
+       claim.group_id,
+       parent.lane_id AS parent_lane_id,
+       parent.org_id AS parent_org_id
+FROM rollout_lane_active_parent claim
+JOIN firmware_rollout_group parent
+  ON parent.id = claim.group_id
+ AND parent.lane_id = claim.lane_id
+ AND parent.org_id = claim.org_id
+WHERE claim.lane_id = sqlc.arg('lane_id')
+  AND claim.org_id = sqlc.arg('org_id');
+
+-- name: CountRolloutLaneActiveParentsForTest :one
+SELECT COUNT(*)::bigint
+FROM rollout_lane_active_parent
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id');
+
+-- name: TestUpdateFirmwareRolloutGroupMetadata :one
+UPDATE firmware_rollout_group
+SET name = sqlc.arg('name')
+WHERE id = sqlc.arg('group_id')
+  AND org_id = sqlc.arg('org_id')
+RETURNING *;
+
+-- name: TestUpdateFirmwareRolloutGroupResult :one
+UPDATE firmware_rollout_group
+SET terminal_outcome = sqlc.narg('terminal_outcome'),
+    result_ready = sqlc.arg('result_ready')
+WHERE id = sqlc.arg('group_id')
+  AND org_id = sqlc.arg('org_id')
+RETURNING *;

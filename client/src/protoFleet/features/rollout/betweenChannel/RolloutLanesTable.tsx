@@ -5,7 +5,7 @@ import {
   rolloutLaneStartBlockedReason,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import { firmwareTransitionDisplay } from "@/protoFleet/features/rollout/firmwareTransitionDisplay";
-import type { RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutLane, RolloutLaneModel, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -25,6 +25,7 @@ interface RolloutLanesTableProps {
   isPreparingStart?: boolean;
   onSetup: (lane: RolloutLane) => void;
   onManageMembers?: (lane: RolloutLane) => void;
+  onManageDeclarations?: (lane: RolloutLane) => void;
   onStart: (lane: RolloutLane) => void;
   onView: (rollout: RolloutRecord) => void;
   onDelete?: (lane: RolloutLane) => void;
@@ -47,6 +48,64 @@ function releaseSummary(lane: RolloutLane): string {
     return "Release unavailable";
   }
   return lane.currentReleaseTargets.map((target) => `${target.targetModel} ${target.firmwareVersion}`).join(", ");
+}
+
+function modelConvergenceSummary(model: RolloutLaneModel): string {
+  if (model.memberCount === 0) {
+    return "No members";
+  }
+  const { totalCount, confirmedCount, attentionCount, verifyingCount, updatingCount, pendingCount } =
+    model.firmwareConvergence;
+  if (attentionCount > 0) {
+    return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · ${attentionCount.toLocaleString()} need attention`;
+  }
+  if (verifyingCount > 0) {
+    return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · Verifying`;
+  }
+  if (updatingCount > 0) {
+    return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · Updating`;
+  }
+  if (pendingCount > 0) {
+    return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · Pending`;
+  }
+  return `${confirmedCount.toLocaleString()} confirmed`;
+}
+
+function modelDeclarations(lane: RolloutLane) {
+  if (!lane.models.length) {
+    return <span>{releaseSummary(lane)}</span>;
+  }
+  return (
+    <div className="grid gap-3">
+      {lane.models.map((model) => {
+        const target = model.compatibility === "compatible" ? model.currentFirmwareTarget : undefined;
+        return (
+          <div
+            key={model.id}
+            role="group"
+            aria-label={`${model.manufacturer} ${model.model} model declaration`}
+            className="rounded-lg border border-border-5 p-3"
+          >
+            <div className="text-emphasis-300 text-text-primary">
+              {model.manufacturer} {model.model}
+            </div>
+            <div className="mt-1 grid gap-0.5 text-200 text-text-primary-70">
+              <span>{target ? `Firmware ${target.firmwareVersion}` : "No compatible firmware"}</span>
+              <span>
+                {model.memberCount.toLocaleString()} {model.memberCount === 1 ? "miner" : "miners"}
+              </span>
+              <span>{target ? "Compatible" : "Target unavailable"}</span>
+              <span>{modelConvergenceSummary(model)}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function displayedLaneMemberCount(lane: RolloutLane): number {
+  return lane.models.length ? lane.models.reduce((total, model) => total + model.memberCount, 0) : lane.memberCount;
 }
 
 function rolloutStateLabel(state: RolloutRecord["state"]): string {
@@ -81,6 +140,7 @@ export default function RolloutLanesTable({
   isPreparingStart = false,
   onSetup,
   onManageMembers,
+  onManageDeclarations,
   onStart,
   onView,
   onDelete,
@@ -91,45 +151,53 @@ export default function RolloutLanesTable({
         <div>
           <div className="text-emphasis-300 text-text-primary">{lane.label}</div>
           {lane.description ? <div className="mt-1 text-200 text-text-primary-70">{lane.description}</div> : null}
+          {lane.topologyEnabled && lane.scalarProjectionAvailable === false ? (
+            <div className="mt-1 text-200 text-text-primary-70">Models use different physical channels</div>
+          ) : null}
         </div>
       ),
       width: "w-64",
       allowWrap: true,
     },
     release: {
-      component: ({ lane }) => <span>{releaseSummary(lane)}</span>,
+      component: ({ lane }) => modelDeclarations(lane),
       width: "w-72",
       allowWrap: true,
     },
     members: {
-      component: ({ lane }) =>
-        onManageMembers ? (
+      component: ({ lane }) => {
+        const memberCount = displayedLaneMemberCount(lane);
+        return onManageMembers ? (
           <button
             type="button"
             className="text-left text-300 text-text-primary underline underline-offset-2"
             aria-label={`Manage members for ${lane.label}`}
             onClick={() => onManageMembers(lane)}
           >
-            {lane.memberCount.toLocaleString()} {lane.memberCount === 1 ? "miner" : "miners"}
+            {memberCount.toLocaleString()} {memberCount === 1 ? "miner" : "miners"}
           </button>
         ) : (
           <span>
-            {lane.memberCount.toLocaleString()} {lane.memberCount === 1 ? "miner" : "miners"}
+            {memberCount.toLocaleString()} {memberCount === 1 ? "miner" : "miners"}
           </span>
-        ),
+        );
+      },
       width: "w-28",
     },
     firmware: {
-      component: ({ lane }) => (
-        <button
-          type="button"
-          className="text-left text-200 whitespace-normal text-text-primary-70 underline-offset-2 hover:underline"
-          aria-label={`View firmware status for ${lane.label}`}
-          onClick={() => onSetup(lane)}
-        >
-          <span>{firmwareConvergenceSummary(lane)}</span>
-        </button>
-      ),
+      component: ({ lane }) =>
+        lane.models.length ? (
+          <span className="text-200 text-text-primary-70">Shown by model</span>
+        ) : (
+          <button
+            type="button"
+            className="text-left text-200 whitespace-normal text-text-primary-70 underline-offset-2 hover:underline"
+            aria-label={`View firmware status for ${lane.label}`}
+            onClick={() => onSetup(lane)}
+          >
+            <span>{firmwareConvergenceSummary(lane)}</span>
+          </button>
+        ),
       width: "w-36",
       allowWrap: true,
     },
@@ -162,6 +230,15 @@ export default function RolloutLanesTable({
         return (
           <div className="flex flex-col items-end gap-2">
             <div className="flex justify-end gap-2">
+              {onManageDeclarations && lane.topologyEnabled ? (
+                <Button
+                  text="Manage models"
+                  ariaLabel={`Manage model declarations for ${lane.label}`}
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => onManageDeclarations(lane)}
+                />
+              ) : null}
               {latestRollout ? (
                 <Button
                   text="View"

@@ -85,6 +85,41 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			)
 			return err
 		}},
+		{"PreviewRolloutLaneModelDeclaration", func() error {
+			_, err := handler.PreviewRolloutLaneModelDeclaration(
+				ctx,
+				connect.NewRequest(&pb.PreviewRolloutLaneModelDeclarationRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"CreateRolloutLaneModelDeclaration", func() error {
+			_, err := handler.CreateRolloutLaneModelDeclaration(
+				ctx,
+				connect.NewRequest(&pb.CreateRolloutLaneModelDeclarationRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"PublishRolloutLaneModelTarget", func() error {
+			_, err := handler.PublishRolloutLaneModelTarget(
+				ctx,
+				connect.NewRequest(&pb.PublishRolloutLaneModelTargetRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"PreviewRolloutLaneModelMembershipChange", func() error {
+			_, err := handler.PreviewRolloutLaneModelMembershipChange(
+				ctx,
+				connect.NewRequest(&pb.PreviewRolloutLaneModelMembershipChangeRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"UpdateRolloutLaneModelMembership", func() error {
+			_, err := handler.UpdateRolloutLaneModelMembership(
+				ctx,
+				connect.NewRequest(&pb.UpdateRolloutLaneModelMembershipRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
 		{"DeleteRolloutLane", func() error {
 			_, err := handler.DeleteRolloutLane(
 				ctx,
@@ -96,12 +131,47 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			_, err := handler.StartRolloutLane(ctx, connect.NewRequest(&pb.StartRolloutLaneRequest{LaneId: rolloutID}))
 			return err
 		}},
+		{"GetRolloutLaneTopologyReadiness", func() error {
+			_, err := handler.GetRolloutLaneTopologyReadiness(
+				ctx,
+				connect.NewRequest(&pb.GetRolloutLaneTopologyReadinessRequest{}),
+			)
+			return err
+		}},
+		{"RepairRolloutLaneModelBinding", func() error {
+			_, err := handler.RepairRolloutLaneModelBinding(
+				ctx,
+				connect.NewRequest(&pb.RepairRolloutLaneModelBindingRequest{
+					LaneId:      rolloutID,
+					LaneModelId: uuid.New().String(),
+				}),
+			)
+			return err
+		}},
+		{"EnableRolloutLaneModelTopology", func() error {
+			_, err := handler.EnableRolloutLaneModelTopology(
+				ctx,
+				connect.NewRequest(&pb.EnableRolloutLaneModelTopologyRequest{}),
+			)
+			return err
+		}},
 		{"CreateRollout", func() error {
 			_, err := handler.CreateRollout(ctx, connect.NewRequest(&pb.CreateRolloutRequest{}))
 			return err
 		}},
 		{"GetRollout", func() error {
 			_, err := handler.GetRollout(ctx, connect.NewRequest(&pb.GetRolloutRequest{RolloutId: rolloutID}))
+			return err
+		}},
+		{"GetRolloutGroup", func() error {
+			_, err := handler.GetRolloutGroup(
+				ctx,
+				connect.NewRequest(&pb.GetRolloutGroupRequest{ParentId: rolloutID}),
+			)
+			return err
+		}},
+		{"ListRolloutGroups", func() error {
+			_, err := handler.ListRolloutGroups(ctx, connect.NewRequest(&pb.ListRolloutGroupsRequest{}))
 			return err
 		}},
 		{"ListRollouts", func() error {
@@ -226,6 +296,119 @@ func TestUpdateRolloutLaneMembershipUsesChannelManageAndSessionIdentity(t *testi
 	assert.True(t, laneService.updatedMembership.ConfirmReassign)
 }
 
+func TestModelMutationsUseChannelManageAndSessionIdentity(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneModelID := uuid.New()
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	ctx := rolloutHandlerContext(t, 42, 9, authz.PermChannelManage)
+	selector := &pb.RolloutLaneModelSelector{
+		Selector: &pb.RolloutLaneModelSelector_LaneModelId{LaneModelId: laneModelID.String()},
+	}
+
+	_, err := handler.CreateRolloutLaneModelDeclaration(
+		ctx,
+		connect.NewRequest(&pb.CreateRolloutLaneModelDeclarationRequest{
+			LaneId: laneID.String(), FirmwareFileId: "firmware-a",
+			IdempotencyKey: "declare-model-handler", Reason: "declare model",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), laneService.createdModel.OrgID)
+	assert.Equal(t, int64(9), laneService.createdModel.ActorUserID)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.createdModel.ActorType)
+	assert.Equal(t, int64(0), laneService.createdModel.ExpectedRevision)
+
+	_, err = handler.PublishRolloutLaneModelTarget(
+		ctx,
+		connect.NewRequest(&pb.PublishRolloutLaneModelTargetRequest{
+			LaneId: laneID.String(), Declaration: selector, ExpectedRevision: 4,
+			FirmwareFileId: "firmware-b", IdempotencyKey: "publish-model-handler",
+			Reason: "publish model",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, laneModelID, laneService.publishedModel.LaneModelID)
+	assert.Equal(t, int64(4), laneService.publishedModel.ExpectedRevision)
+	assert.Equal(t, int64(9), laneService.publishedModel.ActorUserID)
+
+	_, err = handler.UpdateRolloutLaneModelMembership(
+		ctx,
+		connect.NewRequest(&pb.UpdateRolloutLaneModelMembershipRequest{
+			LaneId: laneID.String(), Declaration: selector, ExpectedRevision: 5,
+			AddDeviceIdentifiers: []string{"miner-a"},
+			IdempotencyKey:       "members-model-handler", Reason: "add model member",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, laneModelID, laneService.updatedModelMembership.LaneModelID)
+	assert.Equal(t, int64(5), laneService.updatedModelMembership.ExpectedRevision)
+	assert.Equal(t, int64(9), laneService.updatedModelMembership.ActorUserID)
+}
+
+func TestTopologyReadinessUsesChannelReadWhileMutationsUseChannelManage(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneModelID := uuid.New()
+	laneService := &recordingLaneService{
+		topologyReadiness: betweenchannel.TopologyReadiness{
+			OrgID:    42,
+			Revision: 3,
+		},
+	}
+	handler := NewHandler(nil, laneService)
+	readinessRequest := connect.NewRequest(&pb.GetRolloutLaneTopologyReadinessRequest{})
+	repairRequest := connect.NewRequest(&pb.RepairRolloutLaneModelBindingRequest{
+		LaneId:           laneID.String(),
+		LaneModelId:      laneModelID.String(),
+		DeviceIdentifier: "miner-repair",
+		ExpectedRevision: 7,
+		IdempotencyKey:   "repair-binding-handler",
+		Reason:           "resolve legacy binding",
+	})
+	enableRequest := connect.NewRequest(&pb.EnableRolloutLaneModelTopologyRequest{
+		ExpectedRevision: 3,
+		IdempotencyKey:   "enable-topology-handler",
+		Reason:           "all legacy work drained",
+	})
+
+	readOnly := rolloutHandlerContext(t, 42, 9, authz.PermChannelRead)
+	readiness, err := handler.GetRolloutLaneTopologyReadiness(readOnly, readinessRequest)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), readiness.Msg.GetReadiness().GetRevision())
+	_, err = handler.RepairRolloutLaneModelBinding(readOnly, repairRequest)
+	assertPermissionDenied(t, err)
+	_, err = handler.EnableRolloutLaneModelTopology(readOnly, enableRequest)
+	assertPermissionDenied(t, err)
+
+	managed := rolloutHandlerContext(t, 42, 9, authz.PermChannelManage)
+	readiness, err = handler.GetRolloutLaneTopologyReadiness(managed, readinessRequest)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), readiness.Msg.GetReadiness().GetRevision())
+
+	repair, err := handler.RepairRolloutLaneModelBinding(managed, repairRequest)
+	require.NoError(t, err)
+	require.NotNil(t, repair)
+	assert.Equal(t, int64(42), laneService.repairedBinding.OrgID)
+	assert.Equal(t, int64(9), laneService.repairedBinding.ActorUserID)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.repairedBinding.ActorType)
+	assert.Equal(t, laneID, laneService.repairedBinding.LaneID)
+	assert.Equal(t, laneModelID, laneService.repairedBinding.LaneModelID)
+	assert.Equal(t, int64(7), laneService.repairedBinding.ExpectedRevision)
+	assert.Equal(t, "miner-repair", laneService.repairedBinding.DeviceIdentifier)
+
+	enabled, err := handler.EnableRolloutLaneModelTopology(managed, enableRequest)
+	require.NoError(t, err)
+	require.NotNil(t, enabled)
+	assert.Equal(t, int64(42), laneService.enabledTopology.OrgID)
+	assert.Equal(t, int64(9), laneService.enabledTopology.ActorUserID)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.enabledTopology.ActorType)
+	assert.Equal(t, int64(3), laneService.enabledTopology.ExpectedRevision)
+}
+
 func TestUpdateRolloutLaneMembershipDerivesAPIKeyCredential(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +463,57 @@ func TestListRolloutLanesForwardsActiveFirmwareConvergenceFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, laneService.activeFirmwareConvergenceOnly)
 	assert.Equal(t, int64(42), laneService.listOrgID)
+}
+
+func TestLaneTranslationPublishesRepeatedModelsAndScalarAvailability(t *testing.T) {
+	t.Parallel()
+
+	modelID := uuid.New()
+	translated := laneToProto(&betweenchannel.Lane{
+		ID:                        uuid.New(),
+		CurrentChannelID:          0,
+		Revision:                  4,
+		TopologyEnabled:           true,
+		ScalarProjectionAvailable: false,
+		Models: []betweenchannel.LaneModel{{
+			ID:               modelID,
+			ModelIdentityKey: "v1:8:testcorp:9:testminer",
+			Revision:         3,
+			Manufacturer:     "testcorp",
+			Model:            "testminer",
+			CurrentChannelID: 42,
+			CurrentFirmwareTarget: &betweenchannel.LaneModelFirmwareTarget{
+				ReleaseTargetID: 72,
+				ReleaseSetID:    8,
+				FirmwareFileID:  "testminer-2",
+				FirmwareVersion: "2.0.0",
+				SHA256:          "abc",
+			},
+			MemberCount: 2,
+			Bindings: betweenchannel.LaneModelBindingSummary{
+				ActiveCount:     2,
+				HistoricalCount: 1,
+			},
+			Compatibility: betweenchannel.LaneModelCompatible,
+		}},
+	})
+
+	assert.True(t, translated.GetTopologyEnabled())
+	assert.False(t, translated.GetScalarProjectionAvailable())
+	assert.Zero(t, translated.GetCurrentChannelId())
+	require.Len(t, translated.GetModels(), 1)
+	model := translated.GetModels()[0]
+	assert.Equal(t, modelID.String(), model.GetLaneModelId())
+	assert.Equal(t, uint64(3), model.GetRevision())
+	assert.Equal(t, int64(42), model.GetCurrentChannelId())
+	assert.Equal(t, "2.0.0", model.GetCurrentFirmwareTarget().GetFirmwareVersion())
+	assert.Equal(t, uint32(2), model.GetBindings().GetActiveCount())
+	assert.Equal(t, uint32(1), model.GetBindings().GetHistoricalCount())
+	assert.Equal(
+		t,
+		pb.RolloutLaneModelCompatibility_ROLLOUT_LANE_MODEL_COMPATIBILITY_COMPATIBLE,
+		model.GetCompatibility(),
+	)
 }
 
 func TestGetRolloutLaneForRolloutUsesChannelReadAndOrganizationScope(t *testing.T) {
@@ -458,6 +692,48 @@ func TestListRolloutLaneMembersBindsPageTokenToLaneAndRevision(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }
 
+func TestListRolloutLaneMembersBindsPageTokenToModelDeclaration(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneModelID := uuid.New()
+	laneModelIDValue := laneModelID.String()
+	laneService := &recordingLaneService{
+		listMembersResult: betweenchannel.ListMembersResult{
+			NextIdentifier: "miner-b",
+			Revision:       7,
+		},
+	}
+	handler := NewHandler(nil, laneService)
+	ctx := rolloutHandlerContext(t, 42, 9, authz.PermChannelRead)
+
+	first, err := handler.ListRolloutLaneMembers(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLaneMembersRequest{
+			LaneId: laneID.String(), LaneModelId: &laneModelIDValue, PageSize: 1,
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, laneModelID, laneService.listMembersRequest.LaneModelID)
+	token, err := decodeLaneMemberPageToken(first.Msg.GetNextPageToken())
+	require.NoError(t, err)
+	require.NotNil(t, token.LaneModelID)
+	assert.Equal(t, laneModelID, *token.LaneModelID)
+
+	otherModelID := uuid.NewString()
+	_, err = handler.ListRolloutLaneMembers(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLaneMembersRequest{
+			LaneId: laneID.String(), LaneModelId: &otherModelID,
+			PageSize: 1, PageToken: first.Msg.GetNextPageToken(),
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+}
+
 func TestListRolloutLaneMembersRejectsStaleRevisionContinuation(t *testing.T) {
 	t.Parallel()
 
@@ -610,6 +886,79 @@ func TestHandlerSeparatesReadManageAndControlPermissions(t *testing.T) {
 		connect.NewRequest(&pb.GetRolloutRequest{RolloutId: rolloutID.String()}),
 	)
 	assertPermissionDenied(t, err)
+}
+
+func TestAggregateHandlersKeepParentsAndLegacyHistorySeparate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	parentID := uuid.New()
+	childID := uuid.New()
+	legacyID := uuid.New()
+	child := rolloutDomain.Rollout{
+		ID:        childID,
+		GroupID:   &parentID,
+		OrgID:     42,
+		Name:      "Proto child",
+		State:     rolloutDomain.StateRunning,
+		Revision:  2,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	parent := rolloutDomain.Group{
+		ID:                parentID,
+		LaneID:            uuid.New(),
+		OrgID:             42,
+		Name:              "Two model rollout",
+		Reason:            "Update selected models",
+		Lifecycle:         rolloutDomain.GroupLifecycleActive,
+		Activity:          rolloutDomain.GroupActivityRunning,
+		TerminalOutcome:   rolloutDomain.GroupTerminalOutcomePending,
+		EvidenceReadiness: rolloutDomain.GroupEvidencePending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		Children:          []rolloutDomain.Rollout{child},
+	}
+	legacy := rolloutDomain.Rollout{
+		ID:        legacyID,
+		OrgID:     42,
+		Name:      "Completed legacy mixed rollout",
+		State:     rolloutDomain.StateCompleted,
+		Revision:  4,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	service := &recordingRolloutService{
+		group:  &parent,
+		groups: []rolloutDomain.Group{parent},
+		legacy: []rolloutDomain.Rollout{legacy},
+	}
+	handler := NewHandler(service, nil)
+	ctx := rolloutHandlerContext(t, 42, 9, authz.PermRolloutRead)
+
+	got, err := handler.GetRolloutGroup(
+		ctx,
+		connect.NewRequest(&pb.GetRolloutGroupRequest{ParentId: parentID.String()}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got.Msg.GetParent())
+	assert.Equal(t, parentID.String(), got.Msg.GetParent().GetParentId())
+	require.Len(t, got.Msg.GetParent().GetChildren(), 1)
+	assert.Equal(t, childID.String(), got.Msg.GetParent().GetChildren()[0].GetRolloutId())
+	assert.Equal(t, int64(42), service.getGroupOrgID)
+	assert.Equal(t, parentID, service.getGroupID)
+
+	listed, err := handler.ListRolloutGroups(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutGroupsRequest{}),
+	)
+	require.NoError(t, err)
+	require.Len(t, listed.Msg.GetParents(), 1)
+	require.Len(t, listed.Msg.GetLegacyHistory(), 1)
+	assert.Equal(t, parentID.String(), listed.Msg.GetParents()[0].GetParentId())
+	assert.Equal(t, legacyID.String(), listed.Msg.GetLegacyHistory()[0].GetRolloutId())
+	assert.Empty(t, listed.Msg.GetLegacyHistory()[0].GetParentId())
+	assert.Equal(t, int64(42), service.listGroupOrgID)
 }
 
 func TestHandlerDerivesControlOrganizationAndActorFromSession(t *testing.T) {
@@ -765,6 +1114,22 @@ func TestRolloutHashratePolicyProtoValidation(t *testing.T) {
 		IdempotencyKey:  "manual-lane-start",
 		Reason:          "manual compatibility",
 	}))
+	modelStart := &pb.StartRolloutLaneRequest{
+		LaneId:         uuid.NewString(),
+		Name:           "model lane rollout",
+		IdempotencyKey: "model-parent-start",
+		Reason:         "model compatibility",
+		ModelPlans: []*pb.StartRolloutLaneModelPlan{{
+			LaneModelId:           uuid.NewString(),
+			ExpectedModelRevision: 1,
+			FirmwareFileId:        "firmware-a",
+			Batches:               manualBatch,
+			ModelStartKey:         "model-child-start",
+		}},
+	}
+	require.NoError(t, protovalidate.Validate(modelStart))
+	modelStart.FirmwareFileIds = []string{"legacy-mixed-input"}
+	require.Error(t, protovalidate.Validate(modelStart))
 
 	tests := []struct {
 		name    string
@@ -853,6 +1218,26 @@ func TestRolloutPolicyAndBatchEvidenceProtoTranslation(t *testing.T) {
 	assert.Equal(t, evidenceError, summary.GetErrorMessage())
 	assert.True(t, summary.GetPostWindowFinalized())
 	assert.Equal(t, finalizedAt, summary.GetPostWindowFinalizedAt().AsTime())
+
+	cancellationReason := "rollout aborted: operator cancelled this model"
+	cancelled := rolloutToProto(&rolloutDomain.Rollout{
+		Batches: []rolloutDomain.Batch{{
+			EvidenceStatus:             rolloutDomain.EvidenceStatusCancelled,
+			EvidenceCancellationReason: &cancellationReason,
+			EvidenceCancelledAt:        &finalizedAt,
+			PostWindowFinalized:        true,
+			PostWindowFinalizedAt:      &finalizedAt,
+		}},
+	})
+	cancelledSummary := cancelled.GetBatches()[0].GetEvidenceSummary()
+	require.NotNil(t, cancelledSummary)
+	assert.Equal(
+		t,
+		pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_CANCELLED,
+		cancelledSummary.GetStatus(),
+	)
+	assert.Equal(t, cancellationReason, cancelledSummary.GetCancellationReason())
+	assert.Equal(t, finalizedAt, cancelledSummary.GetCancelledAt().AsTime())
 
 	manual := rolloutToProto(&rolloutDomain.Rollout{Batches: []rolloutDomain.Batch{{}}})
 	assert.Nil(t, manual.GetHashratePolicy())
@@ -958,7 +1343,13 @@ func TestLaneTranslationIncludesFirmwareTransitionDetails(t *testing.T) {
 
 type recordingRolloutService struct {
 	result         *rolloutDomain.Rollout
+	group          *rolloutDomain.Group
+	groups         []rolloutDomain.Group
+	legacy         []rolloutDomain.Rollout
 	getOrgID       int64
+	getGroupOrgID  int64
+	getGroupID     uuid.UUID
+	listGroupOrgID int64
 	createdRollout rolloutDomain.CreateRequest
 	control        rolloutDomain.ControlRequest
 }
@@ -967,6 +1358,9 @@ type recordingLaneService struct {
 	laneService
 	deleted                       betweenchannel.DeleteLaneRequest
 	updatedMembership             betweenchannel.UpdateMembershipRequest
+	createdModel                  betweenchannel.CreateModelDeclarationRequest
+	publishedModel                betweenchannel.PublishModelTargetRequest
+	updatedModelMembership        betweenchannel.UpdateModelMembershipRequest
 	deleteErr                     error
 	laneForRollout                *betweenchannel.Lane
 	laneForRolloutErr             error
@@ -983,6 +1377,9 @@ type recordingLaneService struct {
 	created                       betweenchannel.CreateLaneRequest
 	startedRollout                betweenchannel.StartRolloutRequest
 	preview                       betweenchannel.InitialEnforcementPreview
+	topologyReadiness             betweenchannel.TopologyReadiness
+	repairedBinding               betweenchannel.RepairModelBindingRequest
+	enabledTopology               betweenchannel.EnableTopologyRequest
 }
 
 func (s *recordingLaneService) GetLaneForRollout(
@@ -1065,6 +1462,69 @@ func (s *recordingLaneService) UpdateMembership(
 	return betweenchannel.UpdateMembershipResult{}, nil
 }
 
+func (s *recordingLaneService) CreateModelDeclaration(
+	_ context.Context,
+	req betweenchannel.CreateModelDeclarationRequest,
+) (*betweenchannel.Lane, error) {
+	s.createdModel = req
+	return &betweenchannel.Lane{ID: req.LaneID, OrgID: req.OrgID}, nil
+}
+
+func (s *recordingLaneService) PublishModelTarget(
+	_ context.Context,
+	req betweenchannel.PublishModelTargetRequest,
+) (*betweenchannel.Lane, error) {
+	s.publishedModel = req
+	return &betweenchannel.Lane{ID: req.LaneID, OrgID: req.OrgID}, nil
+}
+
+func (s *recordingLaneService) PreviewModelMembershipChange(
+	_ context.Context,
+	_ betweenchannel.PreviewModelMembershipChangeRequest,
+) (betweenchannel.MembershipChangePreview, error) {
+	return betweenchannel.MembershipChangePreview{}, nil
+}
+
+func (s *recordingLaneService) UpdateModelMembership(
+	_ context.Context,
+	req betweenchannel.UpdateModelMembershipRequest,
+) (betweenchannel.UpdateMembershipResult, error) {
+	s.updatedModelMembership = req
+	return betweenchannel.UpdateMembershipResult{
+		Lane: &betweenchannel.Lane{ID: req.LaneID, OrgID: req.OrgID},
+	}, nil
+}
+
+func (s *recordingLaneService) GetTopologyReadiness(
+	_ context.Context,
+	orgID int64,
+) (betweenchannel.TopologyReadiness, error) {
+	s.topologyReadiness.OrgID = orgID
+	return s.topologyReadiness, nil
+}
+
+func (s *recordingLaneService) RepairModelBinding(
+	_ context.Context,
+	req betweenchannel.RepairModelBindingRequest,
+) (betweenchannel.RepairModelBindingResult, error) {
+	s.repairedBinding = req
+	return betweenchannel.RepairModelBindingResult{
+		BindingID:         uuid.New(),
+		ResultingRevision: req.ExpectedRevision + 1,
+		Readiness:         s.topologyReadiness,
+	}, nil
+}
+
+func (s *recordingLaneService) EnableTopology(
+	_ context.Context,
+	req betweenchannel.EnableTopologyRequest,
+) (betweenchannel.EnableTopologyResult, error) {
+	s.enabledTopology = req
+	s.topologyReadiness.Enabled = true
+	s.topologyReadiness.Revision = req.ExpectedRevision + 1
+	return betweenchannel.EnableTopologyResult{Readiness: s.topologyReadiness}, nil
+}
+
 func (s *recordingRolloutService) Create(
 	_ context.Context,
 	req rolloutDomain.CreateRequest,
@@ -1082,11 +1542,35 @@ func (s *recordingRolloutService) Get(
 	return s.result, nil
 }
 
+func (s *recordingRolloutService) GetGroup(
+	_ context.Context,
+	orgID int64,
+	groupID uuid.UUID,
+) (*rolloutDomain.Group, error) {
+	s.getGroupOrgID = orgID
+	s.getGroupID = groupID
+	if s.group != nil {
+		return s.group, nil
+	}
+	return nil, rolloutDomain.ErrNotFound
+}
+
+func (s *recordingRolloutService) ListGroups(
+	_ context.Context,
+	orgID int64,
+) ([]rolloutDomain.Group, error) {
+	s.listGroupOrgID = orgID
+	return s.groups, nil
+}
+
 func (s *recordingRolloutService) List(
 	context.Context,
 	int64,
 	[]rolloutDomain.State,
 ) ([]rolloutDomain.Rollout, error) {
+	if s.legacy != nil {
+		return s.legacy, nil
+	}
 	return []rolloutDomain.Rollout{*s.result}, nil
 }
 

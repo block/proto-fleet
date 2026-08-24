@@ -96,6 +96,7 @@ export type RolloutEvidenceStatus =
   | "stale"
   | "automationError"
   | "finalized"
+  | "cancelled"
   | "unknown";
 
 export interface RolloutHashratePolicy {
@@ -118,6 +119,8 @@ export interface RolloutBatchEvidenceSummary {
   postWindowFinalized: boolean;
   postWindowFinalizedAt?: string;
   errorMessage?: string;
+  cancellationReason?: string;
+  cancelledAt?: string;
 }
 
 export interface RolloutEvidence {
@@ -149,6 +152,8 @@ export interface RolloutMember {
   admittedAt?: string;
   settledAt?: string;
   evidence: RolloutEvidence[];
+  modelIdentityKey?: string;
+  modelIdentityValidatedAt?: string;
 }
 
 export interface RolloutBatch {
@@ -160,6 +165,7 @@ export interface RolloutBatch {
   members: RolloutMember[];
   completedAt?: string;
   evidenceSummary?: RolloutBatchEvidenceSummary;
+  admissionAttempt?: number;
 }
 
 export interface RolloutCause {
@@ -221,6 +227,10 @@ export interface RolloutLanePreview {
   reassignments: RolloutLaneMembershipReassignment[];
   requiresReassignmentConfirmation: boolean;
   reassignmentConfirmationToken: string;
+}
+
+export interface PreviewModelDeclaration extends RolloutLanePreview {
+  laneId: string;
 }
 
 export type FirmwareTransitionState = "pending" | "updating" | "verifying" | "confirmed" | "needsAttention";
@@ -304,6 +314,45 @@ export interface RolloutLaneChannel {
   createdAt?: string;
 }
 
+export type RolloutLaneModelCompatibility = "compatible" | "targetUnavailable" | "unknown";
+
+export interface RolloutLaneModelFirmwareTarget {
+  releaseTargetId: bigint;
+  releaseSetId: bigint;
+  firmwareFileId: string;
+  firmwareVersion: string;
+  sha256: string;
+}
+
+export interface RolloutLaneModelChannel {
+  channelId: bigint;
+  position: number;
+  current: boolean;
+  firmwareTarget?: RolloutLaneModelFirmwareTarget;
+  createdAt?: string;
+}
+
+export interface RolloutLaneModelBindingSummary {
+  activeCount: number;
+  historicalCount: number;
+}
+
+export interface RolloutLaneModel {
+  id: string;
+  modelIdentityKey: string;
+  revision: bigint;
+  manufacturer: string;
+  model: string;
+  currentChannelId: bigint;
+  currentFirmwareTarget?: RolloutLaneModelFirmwareTarget;
+  memberCount: number;
+  memberIdentifiers?: string[];
+  bindings: RolloutLaneModelBindingSummary;
+  firmwareConvergence: RolloutLaneFirmwareConvergenceStatus;
+  channels: RolloutLaneModelChannel[];
+  compatibility: RolloutLaneModelCompatibility;
+}
+
 /**
  * Stable lane facade. Physical channels remain IDs here so production UI can
  * show release history without making channel churn the operator workflow.
@@ -320,6 +369,47 @@ export interface RolloutLane {
   currentReleaseTargets: RolloutLaneReleaseTarget[];
   firmwareConvergence: RolloutLaneFirmwareConvergenceStatus;
   createdAt?: string;
+  updatedAt?: string;
+  models: RolloutLaneModel[];
+  scalarProjectionAvailable: boolean;
+  topologyEnabled: boolean;
+}
+
+export type RolloutLaneTopologyAnomalyType =
+  | "nullIdentity"
+  | "ambiguousTargetMatch"
+  | "noTargetMatch"
+  | "physicalMismatch"
+  | "missingBinding"
+  | "duplicateActiveBinding"
+  | "unknown";
+
+export type RolloutLaneTopologyRepairAction =
+  | "confirmIdentity"
+  | "selectDeclaration"
+  | "repairPhysicalMembership"
+  | "endStaleBinding"
+  | "repairBinding"
+  | "rerunBackfill"
+  | "unknown";
+
+export interface RolloutLaneTopologyAnomaly {
+  id: string;
+  laneId: string;
+  deviceIdentifier: string;
+  laneModelId?: string;
+  laneModelRevision?: bigint;
+  type: RolloutLaneTopologyAnomalyType;
+  supportedRepairActions: RolloutLaneTopologyRepairAction[];
+  details: JsonObject;
+}
+
+export interface RolloutLaneTopologyReadiness {
+  enabled: boolean;
+  revision: bigint;
+  anomalyCount: bigint;
+  activeLegacyRolloutCount: bigint;
+  anomalies: RolloutLaneTopologyAnomaly[];
   updatedAt?: string;
 }
 
@@ -351,6 +441,53 @@ export interface RolloutRecord {
   members: RolloutMember[];
   causes: RolloutCause[];
   availableActions: RolloutActionEligibility;
+  parentId?: string;
+  laneId?: string;
+  laneModelId?: string;
+  modelIdentityKey?: string;
+  manufacturer?: string;
+  model?: string;
+}
+
+export interface RolloutGroup {
+  id: string;
+  laneId: string;
+  name: string;
+  reason: string;
+  resultRevision: bigint;
+  terminalOutcome: "pending" | "successful" | "reverted" | "aborted" | "completedWithFailures" | "mixed" | "unknown";
+  resultReady: boolean;
+  lifecycle: "active" | "terminal" | "unknown";
+  activity:
+    | "failedAdmission"
+    | "attentionRequired"
+    | "review"
+    | "paused"
+    | "reverting"
+    | "finalizing"
+    | "running"
+    | "created"
+    | "settled"
+    | "unknown";
+  needsAction: boolean;
+  evidenceReadiness: "pending" | "ready" | "unknown";
+  createdAt?: string;
+  updatedAt?: string;
+  models: RolloutGroupModelSummary[];
+  children: RolloutRecord[];
+}
+
+export interface RolloutGroupModelSummary {
+  laneModelId: string;
+  modelIdentityKey: string;
+  manufacturer: string;
+  model: string;
+  sourceChannelId: bigint;
+  targetChannelId: bigint;
+  sourceReleaseTargetId: bigint;
+  targetReleaseTargetId: bigint;
+  memberCount: number;
+  childRolloutId?: string;
 }
 
 /**

@@ -27,6 +27,9 @@ function lane(overrides: Partial<RolloutLane["firmwareConvergence"]> = {}): Roll
       members: [],
       ...overrides,
     },
+    models: [],
+    scalarProjectionAvailable: true,
+    topologyEnabled: false,
   };
 }
 

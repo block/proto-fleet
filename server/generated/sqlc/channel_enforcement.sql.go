@@ -387,11 +387,20 @@ SELECT enforcement.id,
        enforcement.last_error,
        enforcement.created_at,
        enforcement.updated_at,
+       enforcement.expected_model_identity_key,
+       enforcement.model_identity_validated_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        authority.created_by_user_id
 FROM channel_firmware_enforcement enforcement
 JOIN device
   ON device.id = enforcement.device_id
  AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_authority authority
   ON authority.id = enforcement.authority_id
  AND authority.org_id = enforcement.org_id
@@ -430,6 +439,10 @@ type GetChannelFirmwareEnforcementRow struct {
 	LastError                   sql.NullString
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+	ExpectedModelIdentityKey    sql.NullString
+	ModelIdentityValidatedAt    sql.NullTime
+	ObservedModelIdentityKey    string
+	ModelIdentityObservedAt     sql.NullTime
 	CreatedByUserID             int64
 }
 
@@ -468,6 +481,10 @@ func (q *Queries) GetChannelFirmwareEnforcement(ctx context.Context, id int64) (
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpectedModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.ObservedModelIdentityKey,
+		&i.ModelIdentityObservedAt,
 		&i.CreatedByUserID,
 	)
 	return i, err
@@ -577,11 +594,20 @@ SELECT enforcement.id,
        enforcement.last_error,
        enforcement.created_at,
        enforcement.updated_at,
+       enforcement.expected_model_identity_key,
+       enforcement.model_identity_validated_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        authority.created_by_user_id
 FROM channel_firmware_enforcement enforcement
 JOIN device
   ON device.id = enforcement.device_id
  AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_authority authority
   ON authority.id = enforcement.authority_id
  AND authority.org_id = enforcement.org_id
@@ -629,6 +655,10 @@ type ListChannelFirmwareEnforcementsForReconcileRow struct {
 	LastError                   sql.NullString
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+	ExpectedModelIdentityKey    sql.NullString
+	ModelIdentityValidatedAt    sql.NullTime
+	ObservedModelIdentityKey    string
+	ModelIdentityObservedAt     sql.NullTime
 	CreatedByUserID             int64
 }
 
@@ -673,6 +703,10 @@ func (q *Queries) ListChannelFirmwareEnforcementsForReconcile(ctx context.Contex
 			&i.LastError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExpectedModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
+			&i.ObservedModelIdentityKey,
+			&i.ModelIdentityObservedAt,
 			&i.CreatedByUserID,
 		); err != nil {
 			return nil, err

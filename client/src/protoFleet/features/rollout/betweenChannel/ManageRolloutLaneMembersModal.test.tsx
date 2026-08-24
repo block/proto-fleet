@@ -108,6 +108,43 @@ const lane: RolloutLane = {
     attentionCount: 0,
     members: [],
   },
+  models: [],
+  scalarProjectionAvailable: true,
+  topologyEnabled: false,
+};
+
+const modelLane: RolloutLane = {
+  ...lane,
+  topologyEnabled: true,
+  scalarProjectionAvailable: false,
+  models: [
+    {
+      id: "model-alpha",
+      modelIdentityKey: "alpha",
+      revision: 3n,
+      manufacturer: "Proto",
+      model: "Alpha",
+      currentChannelId: 42n,
+      memberCount: 1,
+      bindings: { activeCount: 1, historicalCount: 0 },
+      firmwareConvergence: { ...lane.firmwareConvergence, totalCount: 1, confirmedCount: 1 },
+      channels: [],
+      compatibility: "compatible",
+    },
+    {
+      id: "model-beta",
+      modelIdentityKey: "beta",
+      revision: 5n,
+      manufacturer: "Proto",
+      model: "Beta",
+      currentChannelId: 43n,
+      memberCount: 1,
+      bindings: { activeCount: 1, historicalCount: 0 },
+      firmwareConvergence: { ...lane.firmwareConvergence, totalCount: 1, confirmedCount: 1 },
+      channels: [],
+      compatibility: "compatible",
+    },
+  ],
 };
 
 const currentMember: RolloutLaneMembershipMember = {
@@ -172,10 +209,29 @@ function props(overrides: Record<string, unknown> = {}) {
       nextPageToken: "",
       totalCount: 2,
     }),
+    mode: "legacy" as const,
     onPreview: vi.fn().mockResolvedValue(emptyPreview),
     onUpdate: vi.fn(),
     onUpdated: vi.fn(),
     ...overrides,
+  };
+}
+
+function modelProps(overrides: Record<string, unknown> = {}) {
+  const {
+    mode: _mode,
+    onPreview: _onPreview,
+    onUpdate: _onUpdate,
+    ...common
+  } = props({
+    lane: modelLane,
+    ...overrides,
+  });
+  return {
+    ...common,
+    mode: "model" as const,
+    onPreviewModel: vi.fn().mockResolvedValue(emptyPreview),
+    onUpdateModel: vi.fn(),
   };
 }
 
@@ -273,6 +329,43 @@ describe("ManageRolloutLaneMembersModal", () => {
     rerender(<ManageRolloutLaneMembersModal {...props({ open: false, onListMembers })} />);
 
     expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("loads and caches membership by stable model revision", async () => {
+    const user = userEvent.setup();
+    const alphaMember = { ...currentMember, manufacturer: " proto ", model: "ALPHA" };
+    const onListMembers = vi.fn().mockImplementation(({ laneModelId }: { laneModelId?: string }) =>
+      Promise.resolve({
+        members: laneModelId === "model-alpha" ? [alphaMember] : [historicalMember],
+        nextPageToken: "",
+        totalCount: 1,
+      }),
+    );
+    const view = render(<ManageRolloutLaneMembersModal {...modelProps({ onListMembers })} />);
+
+    expect(await screen.findByText("miner-current")).toBeInTheDocument();
+    expect(onListMembers).toHaveBeenLastCalledWith(expect.objectContaining({ laneModelId: "model-alpha" }));
+    expect(screen.getByRole("button", { name: /Proto Alpha/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Proto Beta/ })).toHaveAttribute("aria-pressed", "false");
+
+    view.rerender(
+      <ManageRolloutLaneMembersModal
+        {...modelProps({
+          onListMembers,
+          lane: { ...modelLane, models: modelLane.models.map((model) => ({ ...model })) },
+        })}
+      />,
+    );
+    await waitFor(() => expect(onListMembers).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: /Proto Beta/ }));
+    expect(await screen.findByText("miner-historical")).toBeInTheDocument();
+    expect(onListMembers).toHaveBeenLastCalledWith(expect.objectContaining({ laneModelId: "model-beta" }));
+    expect(screen.getByRole("button", { name: /Proto Beta/ })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: /Proto Alpha/ }));
+    expect(await screen.findByText("miner-current")).toBeInTheDocument();
+    expect(onListMembers).toHaveBeenCalledTimes(2);
   });
 
   it("caps rendered rows until Show more is requested while retaining every selected identifier", async () => {

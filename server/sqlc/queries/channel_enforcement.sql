@@ -109,11 +109,20 @@ SELECT enforcement.id,
        enforcement.last_error,
        enforcement.created_at,
        enforcement.updated_at,
+       enforcement.expected_model_identity_key,
+       enforcement.model_identity_validated_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        authority.created_by_user_id
 FROM channel_firmware_enforcement enforcement
 JOIN device
   ON device.id = enforcement.device_id
  AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_authority authority
   ON authority.id = enforcement.authority_id
  AND authority.org_id = enforcement.org_id
@@ -151,11 +160,20 @@ SELECT enforcement.id,
        enforcement.last_error,
        enforcement.created_at,
        enforcement.updated_at,
+       enforcement.expected_model_identity_key,
+       enforcement.model_identity_validated_at,
+       COALESCE(rollout_model_identity_v1(discovered.manufacturer, discovered.model), '')::text
+           AS observed_model_identity_key,
+       discovered.model_identity_observed_at,
        authority.created_by_user_id
 FROM channel_firmware_enforcement enforcement
 JOIN device
   ON device.id = enforcement.device_id
  AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 JOIN channel_firmware_authority authority
   ON authority.id = enforcement.authority_id
  AND authority.org_id = enforcement.org_id

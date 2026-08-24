@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
@@ -16,7 +17,18 @@ import (
 type Service struct {
 	store      Store
 	strategies map[string]AdmissionStrategy
+	activity   ActivityLogger
 }
+
+type ActivityLogger interface {
+	Log(ctx context.Context, event activitymodels.Event)
+}
+
+// NoopActivityLogger is an explicit activity sink for tests and deployments
+// that intentionally do not persist rollout activity.
+type NoopActivityLogger struct{}
+
+func (NoopActivityLogger) Log(context.Context, activitymodels.Event) {}
 
 type AdmitRequest struct {
 	OrgID             int64
@@ -31,8 +43,20 @@ type AdmitRequest struct {
 }
 
 func NewService(store Store, strategies ...AdmissionStrategy) *Service {
+	return NewServiceWithActivity(store, NoopActivityLogger{}, strategies...)
+}
+
+func NewServiceWithActivity(
+	store Store,
+	activity ActivityLogger,
+	strategies ...AdmissionStrategy,
+) *Service {
+	if activity == nil {
+		panic("rollout service: activity logger is required")
+	}
 	service := &Service{
 		store:      store,
+		activity:   activity,
 		strategies: make(map[string]AdmissionStrategy, len(strategies)),
 	}
 	for _, strategy := range strategies {
@@ -89,6 +113,206 @@ func (s *Service) Get(ctx context.Context, orgID int64, rolloutID uuid.UUID) (*R
 	return result, nil
 }
 
+func (s *Service) GetGroup(ctx context.Context, orgID int64, groupID uuid.UUID) (*Group, error) {
+	if orgID <= 0 || groupID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("organization and parent rollout IDs are required")
+	}
+	result, err := s.store.GetGroup(ctx, orgID, groupID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	projection := DeriveGroupProjection(result.Children)
+	result.Lifecycle = projection.Lifecycle
+	result.Activity = projection.Activity
+	result.NeedsAction = projection.NeedsAction
+	result.TerminalOutcome = projection.TerminalOutcome
+	result.EvidenceReadiness = projection.EvidenceReadiness
+	result.ResultReady = projection.ResultReady
+	return result, nil
+}
+
+func (s *Service) ListGroups(ctx context.Context, orgID int64) ([]Group, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	groups, err := s.store.ListGroups(ctx, orgID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	for index := range groups {
+		projection := DeriveGroupProjection(groups[index].Children)
+		groups[index].Lifecycle = projection.Lifecycle
+		groups[index].Activity = projection.Activity
+		groups[index].NeedsAction = projection.NeedsAction
+		groups[index].TerminalOutcome = projection.TerminalOutcome
+		groups[index].EvidenceReadiness = projection.EvidenceReadiness
+		groups[index].ResultReady = projection.ResultReady
+	}
+	return groups, nil
+}
+
+// DeriveGroupProjection reduces child state without granting the parent any
+// control authority. Each dimension is calculated independently so attention
+// never masquerades as lifecycle and uniform unsuccessful outcomes stay
+// distinct from genuinely mixed outcomes.
+func DeriveGroupProjection(children []Rollout) GroupProjection {
+	projection := GroupProjection{
+		Lifecycle:         GroupLifecycleActive,
+		Activity:          GroupActivityCreated,
+		TerminalOutcome:   GroupTerminalOutcomePending,
+		EvidenceReadiness: GroupEvidencePending,
+	}
+	if len(children) == 0 {
+		return projection
+	}
+
+	allTerminal := true
+	hasFailedAdmission := false
+	hasAttention := false
+	hasReview := false
+	hasPaused := false
+	hasReverting := false
+	hasFinalizing := false
+	hasRunning := false
+	hasCreated := false
+	requiredEvidenceReady := true
+	outcomes := make(map[GroupTerminalOutcome]struct{}, len(children))
+
+	for index := range children {
+		child := &children[index]
+		if !child.State.IsTerminal() {
+			allTerminal = false
+		}
+		if child.FailedAdmission {
+			hasFailedAdmission = true
+		}
+		switch child.State {
+		case StateReview:
+			hasReview = true
+		case StatePaused:
+			hasPaused = true
+		case StateReverting:
+			hasReverting = true
+		case StateRunning:
+			if childHasOnlyTerminalMembers(*child) {
+				hasFinalizing = true
+			} else {
+				hasRunning = true
+			}
+		case StateCreated:
+			hasCreated = true
+		case StateAborted, StateCompleted, StateCompletedWithFailures, StateReverted:
+		}
+		if childNeedsAttention(*child) {
+			hasAttention = true
+		}
+		if child.HashratePolicy != nil && !childEvidenceReady(*child) {
+			requiredEvidenceReady = false
+		}
+		if child.State.IsTerminal() {
+			outcomes[groupOutcomeForState(child.State)] = struct{}{}
+		}
+	}
+
+	projection.NeedsAction = hasFailedAdmission || hasAttention || hasReview || hasPaused
+	switch {
+	case hasFailedAdmission:
+		projection.Activity = GroupActivityFailedAdmission
+	case hasAttention:
+		projection.Activity = GroupActivityAttentionRequired
+	case hasReview:
+		projection.Activity = GroupActivityReview
+	case hasPaused:
+		projection.Activity = GroupActivityPaused
+	case hasReverting:
+		projection.Activity = GroupActivityReverting
+	case hasFinalizing:
+		projection.Activity = GroupActivityFinalizing
+	case hasRunning:
+		projection.Activity = GroupActivityRunning
+	case hasCreated:
+		projection.Activity = GroupActivityCreated
+	default:
+		projection.Activity = GroupActivitySettled
+	}
+
+	if !allTerminal {
+		return projection
+	}
+	projection.Lifecycle = GroupLifecycleTerminal
+	if len(outcomes) == 1 {
+		for outcome := range outcomes {
+			projection.TerminalOutcome = outcome
+		}
+	} else {
+		projection.TerminalOutcome = GroupTerminalOutcomeMixed
+	}
+	if requiredEvidenceReady {
+		projection.EvidenceReadiness = GroupEvidenceReady
+		projection.ResultReady = true
+	}
+	return projection
+}
+
+func childNeedsAttention(child Rollout) bool {
+	for _, member := range child.Members {
+		if member.State == MemberStateAttentionRequired || member.State == MemberStateFailed {
+			return true
+		}
+	}
+	for _, batch := range child.Batches {
+		if batch.EvidenceStatus == EvidenceStatusHeld ||
+			batch.EvidenceStatus == EvidenceStatusAutomationError {
+			return true
+		}
+	}
+	return false
+}
+
+func childHasOnlyTerminalMembers(child Rollout) bool {
+	if len(child.Members) == 0 {
+		return false
+	}
+	for _, member := range child.Members {
+		switch member.State {
+		case MemberStateSucceeded, MemberStateFailed, MemberStateAttentionRequired,
+			MemberStateCancelled, MemberStateReverted:
+		case MemberStatePending, MemberStateAdmitted, MemberStateReverting:
+			return false
+		}
+	}
+	return true
+}
+
+func childEvidenceReady(child Rollout) bool {
+	if len(child.Batches) == 0 {
+		return false
+	}
+	for _, batch := range child.Batches {
+		if !batch.PostWindowFinalized {
+			return false
+		}
+	}
+	return true
+}
+
+func groupOutcomeForState(state State) GroupTerminalOutcome {
+	switch state {
+	case StateCompleted:
+		return GroupTerminalOutcomeSuccessful
+	case StateReverted:
+		return GroupTerminalOutcomeReverted
+	case StateAborted:
+		return GroupTerminalOutcomeAborted
+	case StateCompletedWithFailures:
+		return GroupTerminalOutcomeCompletedWithFailures
+	case StateCreated, StateRunning, StatePaused, StateReview, StateReverting:
+		return GroupTerminalOutcomePending
+	default:
+		return GroupTerminalOutcome(state)
+	}
+}
+
 func (s *Service) List(ctx context.Context, orgID int64, states []State) ([]Rollout, error) {
 	if orgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
@@ -101,12 +325,16 @@ func (s *Service) List(ctx context.Context, orgID int64, states []State) ([]Roll
 }
 
 func (s *Service) Admit(ctx context.Context, req AdmitRequest) (*Rollout, error) {
-	return s.runAdmission(ctx, req, ControlOperationAdmit)
+	result, err := s.runAdmission(ctx, req, ControlOperationAdmit)
+	s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationAdmit, result, err)
+	return result, err
 }
 
 func (s *Service) Continue(ctx context.Context, req AdmitRequest) (*Rollout, error) {
 	req.BatchID = 0
-	return s.runAdmission(ctx, req, ControlOperationContinue)
+	result, err := s.runAdmission(ctx, req, ControlOperationContinue)
+	s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationContinue, result, err)
+	return result, err
 }
 
 func (s *Service) runAdmission(
@@ -150,53 +378,89 @@ func (s *Service) runAdmission(
 		return nil, fleeterror.NewInternalError("rollout admission did not select a batch")
 	}
 
-	err = strategy.Admit(ctx, AdmissionRequest{
+	admission := strategy.Admit(ctx, AdmissionRequest{
 		Rollout:        *result.Rollout,
 		Batch:          *result.Batch,
 		ControlID:      result.Control.ID,
 		IdempotencyKey: req.IdempotencyKey,
 	})
-	if err != nil {
+	switch admission.Outcome {
+	case AdmissionOutcomeCommitted:
+		if _, err := s.store.FinishControl(ctx, FinishControlRequest{
+			OrgID:     req.OrgID,
+			RolloutID: req.RolloutID,
+			ControlID: result.Control.ID,
+			Success:   true,
+		}); err != nil {
+			return nil, mapStoreError(err)
+		}
+		return result.Rollout, nil
+	case AdmissionOutcomeDefinitivelyRolledBack:
+		admissionErr := admission.Err
+		if admissionErr == nil {
+			admissionErr = errors.New("admission transaction rolled back")
+		}
 		_, finishErr := s.store.FinishControl(ctx, FinishControlRequest{
 			OrgID:        req.OrgID,
 			RolloutID:    req.RolloutID,
 			ControlID:    result.Control.ID,
 			Success:      false,
-			ErrorMessage: err.Error(),
+			ErrorMessage: admissionErr.Error(),
 		})
 		if finishErr != nil {
 			return nil, fleeterror.NewInternalErrorf(
 				"rollout admission failed and could not record its cause: %v; record error: %w",
-				err,
+				admissionErr,
 				finishErr,
 			)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf("rollout admission failed: %w", err)
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"rollout admission failed: %w",
+			admissionErr,
+		)
+	case AdmissionOutcomeUnknown:
+		if admission.Err != nil {
+			return nil, fleeterror.NewInternalErrorf(
+				"rollout admission transaction outcome is unknown; replay the same idempotency key: %w",
+				admission.Err,
+			)
+		}
+		return nil, fleeterror.NewInternalError(
+			"rollout admission transaction outcome is unknown; replay the same idempotency key",
+		)
+	default:
+		return nil, fleeterror.NewInternalErrorf(
+			"rollout admission returned unknown outcome %q",
+			admission.Outcome,
+		)
 	}
-	if _, err := s.store.FinishControl(ctx, FinishControlRequest{
-		OrgID:     req.OrgID,
-		RolloutID: req.RolloutID,
-		ControlID: result.Control.ID,
-		Success:   true,
-	}); err != nil {
-		return nil, mapStoreError(err)
-	}
-	return result.Rollout, nil
 }
 
 func (s *Service) Pause(ctx context.Context, req ControlRequest) (*Rollout, error) {
-	return s.applySimpleControl(ctx, req, ControlOperationPause)
+	result, err := s.applySimpleControl(ctx, req, ControlOperationPause)
+	s.projectControlActivity(ctx, req, ControlOperationPause, result, err)
+	return result, err
 }
 
 func (s *Service) Resume(ctx context.Context, req ControlRequest) (*Rollout, error) {
-	return s.applySimpleControl(ctx, req, ControlOperationResume)
+	result, err := s.applySimpleControl(ctx, req, ControlOperationResume)
+	s.projectControlActivity(ctx, req, ControlOperationResume, result, err)
+	return result, err
 }
 
 func (s *Service) Abort(ctx context.Context, req ControlRequest) (*Rollout, error) {
-	return s.applySimpleControl(ctx, req, ControlOperationAbort)
+	result, err := s.applySimpleControl(ctx, req, ControlOperationAbort)
+	s.projectControlActivity(ctx, req, ControlOperationAbort, result, err)
+	return result, err
 }
 
 func (s *Service) Complete(ctx context.Context, req ControlRequest) (*Rollout, error) {
+	result, err := s.complete(ctx, req)
+	s.projectControlActivity(ctx, req, ControlOperationComplete, result, err)
+	return result, err
+}
+
+func (s *Service) complete(ctx context.Context, req ControlRequest) (*Rollout, error) {
 	if err := validateControlRequest(req); err != nil {
 		return nil, err
 	}
@@ -241,6 +505,12 @@ func (s *Service) Complete(ctx context.Context, req ControlRequest) (*Rollout, e
 }
 
 func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, error) {
+	result, err := s.revert(ctx, req)
+	s.projectControlActivity(ctx, req, ControlOperationRevert, result, err)
+	return result, err
+}
+
+func (s *Service) revert(ctx context.Context, req ControlRequest) (*Rollout, error) {
 	if err := validateControlRequest(req); err != nil {
 		return nil, err
 	}
@@ -353,6 +623,95 @@ func (s *Service) CaptureEvidence(ctx context.Context, req EvidenceRequest) ([]E
 		return nil, mapStoreError(err)
 	}
 	return evidence, nil
+}
+
+func controlRequestFromAdmit(req AdmitRequest) ControlRequest {
+	return ControlRequest{
+		OrgID:             req.OrgID,
+		RolloutID:         req.RolloutID,
+		BatchID:           req.BatchID,
+		ExpectedRevision:  req.ExpectedRevision,
+		IdempotencyKey:    req.IdempotencyKey,
+		Reason:            req.Reason,
+		ActorUserID:       req.ActorUserID,
+		ActorType:         req.ActorType,
+		ActorCredentialID: req.ActorCredentialID,
+	}
+}
+
+func (s *Service) projectControlActivity(
+	ctx context.Context,
+	req ControlRequest,
+	operation ControlOperation,
+	result *Rollout,
+	controlErr error,
+) {
+	child := result
+	if child == nil {
+		child, _ = s.store.Get(ctx, req.OrgID, req.RolloutID)
+	}
+	if child == nil || child.GroupID == nil {
+		return
+	}
+	resultType := activitymodels.ResultSuccess
+	var errorMessage *string
+	if controlErr != nil {
+		resultType = activitymodels.ResultFailure
+		message := controlErr.Error()
+		errorMessage = &message
+	}
+	eventType := map[ControlOperation]string{
+		ControlOperationAdmit:    "rollout_child.admitted",
+		ControlOperationContinue: "rollout_child.continued",
+		ControlOperationPause:    "rollout_child.paused",
+		ControlOperationResume:   "rollout_child.resumed",
+		ControlOperationAbort:    "rollout_child.aborted",
+		ControlOperationRevert:   "rollout_child.reverting",
+		ControlOperationComplete: "rollout_child.completed",
+	}[operation]
+	if eventType == "" {
+		return
+	}
+	if operation == ControlOperationComplete && child.State == StateCompletedWithFailures {
+		eventType = "rollout_child.completed_with_failures"
+	}
+	scopeType := "rollout_lane"
+	scopeLabel := ""
+	if child.LaneID != nil {
+		scopeLabel = child.LaneID.String()
+	}
+	s.activity.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           eventType,
+		Description:    "Updated model rollout",
+		Result:         resultType,
+		ErrorMessage:   errorMessage,
+		ScopeType:      &scopeType,
+		ScopeLabel:     &scopeLabel,
+		ActorType:      ActivityActorType(req.ActorType),
+		OrganizationID: &req.OrgID,
+		Metadata: map[string]any{
+			"parent_id":          child.GroupID.String(),
+			"child_id":           child.ID.String(),
+			"model_identity_key": child.ModelIdentityKey,
+			"manufacturer":       child.Manufacturer,
+			"model":              child.Model,
+			"operation":          string(operation),
+		},
+		IdempotencyKey: fmt.Sprintf(
+			"rollout-child-control:%s:%s:%s",
+			child.ID,
+			operation,
+			req.IdempotencyKey,
+		),
+	})
+}
+
+func ActivityActorType(actor ActorType) activitymodels.ActorType {
+	if actor == ActorTypeSystem {
+		return activitymodels.ActorSystem
+	}
+	return activitymodels.ActorUser
 }
 
 func NextState(
@@ -578,7 +937,9 @@ func mapStoreError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return fleeterror.NewNotFoundErrorf("%w", err)
-	case errors.Is(err, ErrRevisionConflict), errors.Is(err, ErrInvalidTransition):
+	case errors.Is(err, ErrRevisionConflict),
+		errors.Is(err, ErrInvalidTransition),
+		errors.Is(err, ErrParentNotControllable):
 		return fleeterror.NewFailedPreconditionErrorf("%w", err)
 	case errors.Is(err, ErrIdempotencyConflict), errors.Is(err, ErrOwnershipConflict):
 		return fleeterror.NewAlreadyExistsErrorf("%w", err)

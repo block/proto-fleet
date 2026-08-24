@@ -5,6 +5,10 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  RolloutGroupActivity,
+  RolloutGroupLifecycle,
+  RolloutGroupSchema,
+  RolloutGroupTerminalOutcome,
   RolloutLaneSchema,
   RolloutMemberState,
   RolloutSchema,
@@ -17,6 +21,7 @@ import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betw
 const {
   getRolloutLaneForRollout,
   listRolloutLanes,
+  listRolloutGroups,
   listRollouts,
   getDeviceSet,
   handleAuthErrors,
@@ -25,6 +30,7 @@ const {
 } = vi.hoisted(() => ({
   getRolloutLaneForRollout: vi.fn(),
   listRolloutLanes: vi.fn(),
+  listRolloutGroups: vi.fn(),
   listRollouts: vi.fn(),
   getDeviceSet: vi.fn(),
   handleAuthErrors: vi.fn(),
@@ -41,6 +47,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
   rolloutClient: {
     getRolloutLaneForRollout,
     listRolloutLanes,
+    listRolloutGroups,
     listRollouts,
   },
   deviceSetClient: {
@@ -132,6 +139,27 @@ describe("useRolloutPillData", () => {
     getRolloutLaneForRollout.mockResolvedValue({ lane: undefined });
     listRolloutLanes.mockResolvedValue({ lanes: [] });
     listRollouts.mockResolvedValue({ rollouts: [] });
+    listRolloutGroups.mockImplementation(async (_request, options) => ({
+      parents: [],
+      legacyHistory: (
+        await listRollouts(
+          {
+            states: [
+              RolloutState.CREATED,
+              RolloutState.RUNNING,
+              RolloutState.PAUSED,
+              RolloutState.REVIEW,
+              RolloutState.ABORTED,
+              RolloutState.REVERTING,
+              RolloutState.COMPLETED,
+              RolloutState.COMPLETED_WITH_FAILURES,
+              RolloutState.REVERTED,
+            ],
+          },
+          options,
+        )
+      ).rollouts,
+    }));
   });
 
   afterEach(() => {
@@ -152,6 +180,93 @@ describe("useRolloutPillData", () => {
     expect(result.current.detailsPath).toBe("/settings/firmware?tab=rolloutLanes");
     expect(result.current.hasVisiblePill).toBe(true);
     expect(getRolloutLaneForRollout).not.toHaveBeenCalled();
+  });
+
+  it("reuses aggregate legacy history without listing rollouts again", async () => {
+    listRolloutGroups.mockResolvedValue({
+      parents: [],
+      legacyHistory: [rollout()],
+    });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.title).toBe("Stable 2.0");
+    expect(listRolloutGroups).toHaveBeenCalledOnce();
+    expect(listRollouts).not.toHaveBeenCalled();
+  });
+
+  it("shows one aggregate pill focused on the action-needed model child", async () => {
+    const running = rollout();
+    running.rolloutId = "child-running";
+    running.parentId = "parent-1";
+    running.manufacturer = "Proto";
+    running.model = "Alpha";
+    const review = rollout(BETWEEN_CHANNEL_STRATEGY_KEY, RolloutState.REVIEW);
+    review.rolloutId = "child-review";
+    review.parentId = "parent-1";
+    review.manufacturer = "Acme";
+    review.model = "Beta";
+    listRolloutGroups.mockResolvedValue({
+      parents: [
+        create(RolloutGroupSchema, {
+          parentId: "parent-1",
+          laneId: "lane-1",
+          name: "Two model rollout",
+          lifecycle: RolloutGroupLifecycle.ACTIVE,
+          activity: RolloutGroupActivity.REVIEW,
+          terminalOutcome: RolloutGroupTerminalOutcome.PENDING,
+          children: [running, review],
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.title).toBe("Two model rollout");
+    expect(result.current.activeEvent?.scopeLabel).toBe("2 models · 1 need attention");
+    expect(result.current.detailsPath).toContain("rolloutParent=parent-1");
+    expect(result.current.detailsPath).toContain("rolloutChild=child-review");
+  });
+
+  it("acknowledges only the ready parent revision and resurfaces a revised result", async () => {
+    const child = completedRollout("child-completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z");
+    child.parentId = "parent-ready";
+    child.manufacturer = "Proto";
+    child.model = "Alpha";
+    let resultRevision = 4n;
+    listRolloutGroups.mockImplementation(async () => ({
+      parents: [
+        create(RolloutGroupSchema, {
+          parentId: "parent-ready",
+          laneId: "lane-1",
+          name: "Ready model result",
+          lifecycle: RolloutGroupLifecycle.TERMINAL,
+          activity: RolloutGroupActivity.SETTLED,
+          terminalOutcome: RolloutGroupTerminalOutcome.SUCCESSFUL,
+          resultReady: true,
+          resultRevision,
+          children: [child],
+        }),
+      ],
+      legacyHistory: [],
+    }));
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.hasVisiblePill).toBe(true);
+
+    act(() => result.current.onViewRollout?.());
+    expect(localStorage.getItem("protoFleet.acknowledgedRolloutGroupResult")).toBe(
+      '{"parentId":"parent-ready","resultRevision":"4"}',
+    );
+    expect(result.current.hasVisiblePill).toBe(false);
+
+    resultRevision = 5n;
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await act(async () => {});
+    expect(result.current.hasVisiblePill).toBe(true);
   });
 
   it("resolves the exact lane label for an active rollout without active convergence", async () => {

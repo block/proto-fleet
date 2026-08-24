@@ -29,6 +29,7 @@ type Querier interface {
 	// scope (#538). Equivalent affected-row count to the prior :execrows shape.
 	AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error)
 	AddRolloutLaneMembershipDevices(ctx context.Context, arg AddRolloutLaneMembershipDevicesParams) ([]int64, error)
+	AddRolloutLaneModelMembershipDevices(ctx context.Context, arg AddRolloutLaneModelMembershipDevicesParams) ([]int64, error)
 	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
@@ -41,6 +42,8 @@ type Querier interface {
 	AdvanceChannelFirmwareAuthorityRevision(ctx context.Context, arg AdvanceChannelFirmwareAuthorityRevisionParams) (ChannelFirmwareAuthority, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
 	AdvanceRolloutLaneCurrentChannel(ctx context.Context, arg AdvanceRolloutLaneCurrentChannelParams) (RolloutLane, error)
+	AdvanceRolloutLaneModelCurrentTarget(ctx context.Context, arg AdvanceRolloutLaneModelCurrentTargetParams) (RolloutLaneModel, error)
+	AdvanceRolloutLaneModelTarget(ctx context.Context, arg AdvanceRolloutLaneModelTargetParams) (RolloutLaneModel, error)
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
@@ -86,6 +89,7 @@ type Querier interface {
 	AssignRole(ctx context.Context, arg AssignRoleParams) (UserOrganizationRole, error)
 	AttachBetweenChannelAdmissionEnforcements(ctx context.Context, arg AttachBetweenChannelAdmissionEnforcementsParams) (int64, error)
 	AttachBetweenChannelRevertEnforcements(ctx context.Context, arg AttachBetweenChannelRevertEnforcementsParams) (int64, error)
+	AttachFirmwareRolloutGroupModelChild(ctx context.Context, arg AttachFirmwareRolloutGroupModelChildParams) (FirmwareRolloutGroupModel, error)
 	// Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 	// concurrency control; the loser sees zero rows and the store re-reads
 	// to distinguish "already restoring" from "already terminal."
@@ -137,7 +141,10 @@ type Querier interface {
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
 	BumpRolloutLaneMembershipRevisions(ctx context.Context, arg BumpRolloutLaneMembershipRevisionsParams) ([]BumpRolloutLaneMembershipRevisionsRow, error)
+	BumpRolloutLaneModelRevision(ctx context.Context, arg BumpRolloutLaneModelRevisionParams) (int64, error)
+	BumpRolloutLaneModelRevisions(ctx context.Context, arg BumpRolloutLaneModelRevisionsParams) ([]BumpRolloutLaneModelRevisionsRow, error)
 	CancelEnrollmentForFleetNode(ctx context.Context, arg CancelEnrollmentForFleetNodeParams) (int64, error)
+	CancelFirmwareRolloutEvidence(ctx context.Context, arg CancelFirmwareRolloutEvidenceParams) (int64, error)
 	CancelHaltedBetweenChannelEnforcement(ctx context.Context, arg CancelHaltedBetweenChannelEnforcementParams) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	CancelPendingFirmwareRolloutBatches(ctx context.Context, arg CancelPendingFirmwareRolloutBatchesParams) (int64, error)
@@ -211,6 +218,7 @@ type Querier interface {
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
 	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
+	ClaimRolloutLaneActiveParent(ctx context.Context, arg ClaimRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error)
 	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
 	ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error
 	// Nulls device.building_id for every direct-FK device pointing at the
@@ -258,6 +266,7 @@ type Querier interface {
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
 	CompleteBetweenChannelRollout(ctx context.Context, arg CompleteBetweenChannelRolloutParams) (FirmwareRollout, error)
 	CompleteFirmwareRolloutBatches(ctx context.Context, arg CompleteFirmwareRolloutBatchesParams) (int64, error)
+	CompleteFirmwareRolloutEvidenceRows(ctx context.Context, arg CompleteFirmwareRolloutEvidenceRowsParams) (int64, error)
 	CompleteFirmwareRolloutRevertMembers(ctx context.Context, arg CompleteFirmwareRolloutRevertMembersParams) (int64, error)
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	CompleteSettledBetweenChannelBatch(ctx context.Context, arg CompleteSettledBetweenChannelBatchParams) (CompleteSettledBetweenChannelBatchRow, error)
@@ -272,6 +281,8 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
+	CountActiveLegacyRolloutLaneWork(ctx context.Context, orgID int64) (int64, error)
+	CountActiveRolloutLaneModelBindings(ctx context.Context, arg CountActiveRolloutLaneModelBindingsParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -297,6 +308,7 @@ type Querier interface {
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
 	CountFirmwareRolloutDurableRevertWork(ctx context.Context, arg CountFirmwareRolloutDurableRevertWorkParams) (int64, error)
+	CountFirmwareRolloutSucceededMembers(ctx context.Context, arg CountFirmwareRolloutSucceededMembersParams) (int64, error)
 	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	// Counts miners by their operational state for fleet health dashboard.
 	// Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);
@@ -331,9 +343,11 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
+	CountRolloutLaneActiveParentsForTest(ctx context.Context, arg CountRolloutLaneActiveParentsForTestParams) (int64, error)
 	CountRolloutLaneMembers(ctx context.Context, arg CountRolloutLaneMembersParams) (int64, error)
 	CountRolloutLaneMembersByLaneIDs(ctx context.Context, arg CountRolloutLaneMembersByLaneIDsParams) ([]CountRolloutLaneMembersByLaneIDsRow, error)
 	CountRolloutLaneNonCurrentMembers(ctx context.Context, arg CountRolloutLaneNonCurrentMembersParams) (int64, error)
+	CountRolloutLaneTopologyAnomalies(ctx context.Context, orgID int64) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	CreateBetweenChannelAdmissionEnforcements(ctx context.Context, arg CreateBetweenChannelAdmissionEnforcementsParams) (int64, error)
 	CreateBetweenChannelRevertEnforcements(ctx context.Context, arg CreateBetweenChannelRevertEnforcementsParams) (int64, error)
@@ -357,6 +371,8 @@ type Querier interface {
 	CreateFirmwareRolloutBatches(ctx context.Context, arg CreateFirmwareRolloutBatchesParams) ([]FirmwareRolloutBatch, error)
 	CreateFirmwareRolloutCause(ctx context.Context, arg CreateFirmwareRolloutCauseParams) (FirmwareRolloutCause, error)
 	CreateFirmwareRolloutControl(ctx context.Context, arg CreateFirmwareRolloutControlParams) (FirmwareRolloutControl, error)
+	CreateFirmwareRolloutGroup(ctx context.Context, arg CreateFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error)
+	CreateFirmwareRolloutGroupModel(ctx context.Context, arg CreateFirmwareRolloutGroupModelParams) (FirmwareRolloutGroupModel, error)
 	CreateFirmwareRolloutMembers(ctx context.Context, arg CreateFirmwareRolloutMembersParams) ([]FirmwareRolloutMember, error)
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
@@ -378,6 +394,12 @@ type Querier interface {
 	CreateRolloutLaneChannel(ctx context.Context, arg CreateRolloutLaneChannelParams) (RolloutLaneChannel, error)
 	CreateRolloutLaneMembershipChange(ctx context.Context, arg CreateRolloutLaneMembershipChangeParams) (RolloutLaneMembershipChange, error)
 	CreateRolloutLaneMembershipEnforcements(ctx context.Context, arg CreateRolloutLaneMembershipEnforcementsParams) (int64, error)
+	CreateRolloutLaneModelBindingRepair(ctx context.Context, arg CreateRolloutLaneModelBindingRepairParams) (RolloutLaneModelBinding, error)
+	CreateRolloutLaneModelBindings(ctx context.Context, arg CreateRolloutLaneModelBindingsParams) ([]RolloutLaneModelBinding, error)
+	CreateRolloutLaneModelChannel(ctx context.Context, arg CreateRolloutLaneModelChannelParams) (RolloutLaneModelChannel, error)
+	CreateRolloutLaneModelDeclaration(ctx context.Context, arg CreateRolloutLaneModelDeclarationParams) (RolloutLaneModel, error)
+	CreateRolloutLaneModelEnforcements(ctx context.Context, arg CreateRolloutLaneModelEnforcementsParams) (int64, error)
+	CreateRolloutLaneTopologyAdminOperation(ctx context.Context, arg CreateRolloutLaneTopologyAdminOperationParams) (RolloutLaneTopologyAdminOperation, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error)
 	CreateScheduleTarget(ctx context.Context, arg CreateScheduleTargetParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
@@ -436,10 +458,16 @@ type Querier interface {
 	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
+	EnableRolloutLaneModelTopology(ctx context.Context, arg EnableRolloutLaneModelTopologyParams) (RolloutLaneTopologyCutover, error)
+	EndActiveRolloutLaneModelBinding(ctx context.Context, arg EndActiveRolloutLaneModelBindingParams) (int64, error)
+	EndRolloutLaneModelBindings(ctx context.Context, arg EndRolloutLaneModelBindingsParams) ([]int64, error)
+	EndRolloutLaneModelBindingsForArchive(ctx context.Context, arg EndRolloutLaneModelBindingsForArchiveParams) (int64, error)
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)
 	FinalizeBetweenChannelForward(ctx context.Context, arg FinalizeBetweenChannelForwardParams) (FirmwareRolloutMember, error)
+	FinalizeBetweenChannelModelForward(ctx context.Context, arg FinalizeBetweenChannelModelForwardParams) (FirmwareRolloutMember, error)
+	FinalizeBetweenChannelModelRevert(ctx context.Context, arg FinalizeBetweenChannelModelRevertParams) (FirmwareRolloutMember, error)
 	FinalizeBetweenChannelRevert(ctx context.Context, arg FinalizeBetweenChannelRevertParams) (FirmwareRolloutMember, error)
 	// Returns one row per device whose live rack has a non-NULL
 	// building_id. Devices with no rack, devices in a rack without a
@@ -649,6 +677,7 @@ type Querier interface {
 	GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error)
 	GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDiscoveredDeviceByIPAndPortParams) (DiscoveredDevice, error)
 	GetDiscoveredFirmwareVersionForTest(ctx context.Context, arg GetDiscoveredFirmwareVersionForTestParams) (sql.NullString, error)
+	GetDiscoveredModelIdentityObservedAtForTest(ctx context.Context, arg GetDiscoveredModelIdentityObservedAtForTestParams) (sql.NullTime, error)
 	GetDistinctActivityUsers(ctx context.Context, orgID sql.NullInt64) ([]GetDistinctActivityUsersRow, error)
 	// Returns the DISTINCT site_id values (NULL included) across the given
 	// device identifiers, for resolving the site scope of a multi-device
@@ -681,6 +710,8 @@ type Querier interface {
 	GetFirmwareRolloutByIdempotencyKey(ctx context.Context, arg GetFirmwareRolloutByIdempotencyKeyParams) (FirmwareRollout, error)
 	GetFirmwareRolloutControl(ctx context.Context, arg GetFirmwareRolloutControlParams) (FirmwareRolloutControl, error)
 	GetFirmwareRolloutControlByKey(ctx context.Context, arg GetFirmwareRolloutControlByKeyParams) (FirmwareRolloutControl, error)
+	GetFirmwareRolloutGroup(ctx context.Context, arg GetFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error)
+	GetFirmwareRolloutGroupByStartKey(ctx context.Context, arg GetFirmwareRolloutGroupByStartKeyParams) (FirmwareRolloutGroup, error)
 	GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error)
 	GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error)
@@ -808,6 +839,8 @@ type Querier interface {
 	// record.
 	GetRoleByIDForUpdate(ctx context.Context, id int64) (Role, error)
 	GetRolloutLane(ctx context.Context, arg GetRolloutLaneParams) (RolloutLane, error)
+	GetRolloutLaneActiveParent(ctx context.Context, arg GetRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error)
+	GetRolloutLaneActiveParentForTest(ctx context.Context, arg GetRolloutLaneActiveParentForTestParams) (GetRolloutLaneActiveParentForTestRow, error)
 	GetRolloutLaneAssignments(ctx context.Context, arg GetRolloutLaneAssignmentsParams) ([]GetRolloutLaneAssignmentsRow, error)
 	GetRolloutLaneByIdempotencyKey(ctx context.Context, arg GetRolloutLaneByIdempotencyKeyParams) (RolloutLane, error)
 	GetRolloutLaneChannelByStartKey(ctx context.Context, arg GetRolloutLaneChannelByStartKeyParams) (RolloutLaneChannel, error)
@@ -816,6 +849,13 @@ type Querier interface {
 	GetRolloutLaneMembershipChangeByIdempotencyKey(ctx context.Context, arg GetRolloutLaneMembershipChangeByIdempotencyKeyParams) (RolloutLaneMembershipChange, error)
 	GetRolloutLaneMembershipChangeTestState(ctx context.Context, arg GetRolloutLaneMembershipChangeTestStateParams) (GetRolloutLaneMembershipChangeTestStateRow, error)
 	GetRolloutLaneMembershipMutationCountsForTest(ctx context.Context, orgID int64) (GetRolloutLaneMembershipMutationCountsForTestRow, error)
+	GetRolloutLaneModelCurrentTarget(ctx context.Context, arg GetRolloutLaneModelCurrentTargetParams) (GetRolloutLaneModelCurrentTargetRow, error)
+	GetRolloutLaneModelForTest(ctx context.Context, arg GetRolloutLaneModelForTestParams) (RolloutLaneModel, error)
+	GetRolloutLaneReleaseTargetByModel(ctx context.Context, arg GetRolloutLaneReleaseTargetByModelParams) (FirmwareReleaseTarget, error)
+	GetRolloutLaneSettlementState(ctx context.Context, arg GetRolloutLaneSettlementStateParams) (GetRolloutLaneSettlementStateRow, error)
+	GetRolloutLaneTopologyAdminOperationByKey(ctx context.Context, arg GetRolloutLaneTopologyAdminOperationByKeyParams) (RolloutLaneTopologyAdminOperation, error)
+	GetRolloutLaneTopologyCountsForTest(ctx context.Context, arg GetRolloutLaneTopologyCountsForTestParams) (GetRolloutLaneTopologyCountsForTestRow, error)
+	GetRolloutLaneTopologyCutover(ctx context.Context, orgID int64) (RolloutLaneTopologyCutover, error)
 	GetRunningPowerTargetScheduleOverlaps(ctx context.Context, arg GetRunningPowerTargetScheduleOverlapsParams) ([]GetRunningPowerTargetScheduleOverlapsRow, error)
 	GetSchedule(ctx context.Context, arg GetScheduleParams) (GetScheduleRow, error)
 	GetScheduleByIDForProcessor(ctx context.Context, id int64) (Schedule, error)
@@ -849,7 +889,10 @@ type Querier interface {
 	HasActiveRolloutLaneInitialWork(ctx context.Context, arg HasActiveRolloutLaneInitialWorkParams) (bool, error)
 	HasActiveRolloutLaneLinkedWork(ctx context.Context, arg HasActiveRolloutLaneLinkedWorkParams) (bool, error)
 	HasActiveRolloutLaneManagementWork(ctx context.Context, arg HasActiveRolloutLaneManagementWorkParams) (sql.NullBool, error)
+	HasActiveRolloutLaneModelWork(ctx context.Context, arg HasActiveRolloutLaneModelWorkParams) (sql.NullBool, error)
+	HasCurrentFirmwareRolloutAdmissionFailure(ctx context.Context, arg HasCurrentFirmwareRolloutAdmissionFailureParams) (bool, error)
 	HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error)
+	HasNewerOrConflictingRolloutLaneModelWork(ctx context.Context, arg HasNewerOrConflictingRolloutLaneModelWorkParams) (bool, error)
 	HasUnconfirmedRolloutLaneFirmwareConvergence(ctx context.Context, arg HasUnconfirmedRolloutLaneFirmwareConvergenceParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	HoldChannelFirmwareEnforcement(ctx context.Context, arg HoldChannelFirmwareEnforcementParams) (int64, error)
@@ -948,6 +991,7 @@ type Querier interface {
 	// new orgs inside its creation transaction.
 	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
 	ListActiveRolloutLaneFirmwareConvergenceStatuses(ctx context.Context, orgID int64) ([]ListActiveRolloutLaneFirmwareConvergenceStatusesRow, error)
+	ListActiveRolloutLaneModelBindingsForDevices(ctx context.Context, arg ListActiveRolloutLaneModelBindingsForDevicesParams) ([]ListActiveRolloutLaneModelBindingsForDevicesRow, error)
 	ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, arg ListActiveRolloutOwnedDeviceIdentifiersParams) ([]string, error)
 	// Array filter contract: the Go store layer must pass nil (not empty slice)
 	// for the narg text[] filters below. An empty non-nil array
@@ -1017,6 +1061,7 @@ type Querier interface {
 	// Re-reads source memberships after device locks are held. This closes the
 	// READ COMMITTED window between the channel pre-lock and device-lock phases.
 	ListCurrentChannelIDsForDevices(ctx context.Context, arg ListCurrentChannelIDsForDevicesParams) ([]int64, error)
+	ListCurrentFirmwareRolloutAdmissionFailures(ctx context.Context, arg ListCurrentFirmwareRolloutAdmissionFailuresParams) ([]ListCurrentFirmwareRolloutAdmissionFailuresRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
 	// service applies skip-reason attribution. nil power/hash = stale
@@ -1121,10 +1166,20 @@ type Querier interface {
 	ListFirmwareReleaseTargetsBySetIDs(ctx context.Context, arg ListFirmwareReleaseTargetsBySetIDsParams) ([]ListFirmwareReleaseTargetsBySetIDsRow, error)
 	ListFirmwareRolloutBatchHashrateEvidence(ctx context.Context, arg ListFirmwareRolloutBatchHashrateEvidenceParams) ([]ListFirmwareRolloutBatchHashrateEvidenceRow, error)
 	ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwareRolloutBatchesParams) ([]FirmwareRolloutBatch, error)
+	ListFirmwareRolloutBatchesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutBatchesByRolloutIDsParams) ([]FirmwareRolloutBatch, error)
 	ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwareRolloutCausesParams) ([]FirmwareRolloutCause, error)
+	ListFirmwareRolloutCausesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutCausesByRolloutIDsParams) ([]FirmwareRolloutCause, error)
 	ListFirmwareRolloutEvidence(ctx context.Context, arg ListFirmwareRolloutEvidenceParams) ([]FirmwareRolloutEvidence, error)
+	ListFirmwareRolloutEvidenceByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutEvidenceByRolloutIDsParams) ([]FirmwareRolloutEvidence, error)
 	ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error)
+	ListFirmwareRolloutGroupChildren(ctx context.Context, arg ListFirmwareRolloutGroupChildrenParams) ([]FirmwareRollout, error)
+	ListFirmwareRolloutGroupChildrenByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupChildrenByGroupIDsParams) ([]FirmwareRollout, error)
+	ListFirmwareRolloutGroupModels(ctx context.Context, arg ListFirmwareRolloutGroupModelsParams) ([]FirmwareRolloutGroupModel, error)
+	ListFirmwareRolloutGroupModelsByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupModelsByGroupIDsParams) ([]FirmwareRolloutGroupModel, error)
+	ListFirmwareRolloutGroups(ctx context.Context, orgID int64) ([]FirmwareRolloutGroup, error)
+	ListFirmwareRolloutMemberDeviceIDs(ctx context.Context, arg ListFirmwareRolloutMemberDeviceIDsParams) ([]int64, error)
 	ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwareRolloutMembersParams) ([]ListFirmwareRolloutMembersRow, error)
+	ListFirmwareRolloutMembersByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutMembersByRolloutIDsParams) ([]ListFirmwareRolloutMembersByRolloutIDsRow, error)
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]FirmwareRollout, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
@@ -1217,6 +1272,8 @@ type Querier interface {
 	// this query orders built-ins first by display name (lexical), custom
 	// roles after, and is_builtin DESC gives that grouping cheaply.
 	ListRolesWithDetailsForOrg(ctx context.Context, organizationID sql.NullInt64) ([]ListRolesWithDetailsForOrgRow, error)
+	ListRolloutLaneActiveParents(ctx context.Context, orgID int64) ([]RolloutLaneActiveParent, error)
+	ListRolloutLaneChannelDetailsByLaneIDs(ctx context.Context, arg ListRolloutLaneChannelDetailsByLaneIDsParams) ([]ListRolloutLaneChannelDetailsByLaneIDsRow, error)
 	ListRolloutLaneChannelTransitions(ctx context.Context, arg ListRolloutLaneChannelTransitionsParams) ([]ListRolloutLaneChannelTransitionsRow, error)
 	ListRolloutLaneChannels(ctx context.Context, arg ListRolloutLaneChannelsParams) ([]ListRolloutLaneChannelsRow, error)
 	ListRolloutLaneChannelsByLaneIDs(ctx context.Context, arg ListRolloutLaneChannelsByLaneIDsParams) ([]ListRolloutLaneChannelsByLaneIDsRow, error)
@@ -1227,7 +1284,15 @@ type Querier interface {
 	ListRolloutLaneMembers(ctx context.Context, arg ListRolloutLaneMembersParams) ([]ListRolloutLaneMembersRow, error)
 	ListRolloutLaneMembersByIdentifiers(ctx context.Context, arg ListRolloutLaneMembersByIdentifiersParams) ([]ListRolloutLaneMembersByIdentifiersRow, error)
 	ListRolloutLaneMembershipCandidates(ctx context.Context, arg ListRolloutLaneMembershipCandidatesParams) ([]ListRolloutLaneMembershipCandidatesRow, error)
+	ListRolloutLaneModelChannels(ctx context.Context, arg ListRolloutLaneModelChannelsParams) ([]ListRolloutLaneModelChannelsRow, error)
+	ListRolloutLaneModelChannelsByLaneIDs(ctx context.Context, arg ListRolloutLaneModelChannelsByLaneIDsParams) ([]ListRolloutLaneModelChannelsByLaneIDsRow, error)
+	ListRolloutLaneModelFirmwareConvergenceStatuses(ctx context.Context, arg ListRolloutLaneModelFirmwareConvergenceStatusesParams) ([]ListRolloutLaneModelFirmwareConvergenceStatusesRow, error)
+	ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs(ctx context.Context, arg ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsParams) ([]ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsRow, error)
+	ListRolloutLaneModelTransitions(ctx context.Context, arg ListRolloutLaneModelTransitionsParams) ([]ListRolloutLaneModelTransitionsRow, error)
+	ListRolloutLaneModels(ctx context.Context, arg ListRolloutLaneModelsParams) ([]ListRolloutLaneModelsRow, error)
+	ListRolloutLaneModelsByLaneIDs(ctx context.Context, arg ListRolloutLaneModelsByLaneIDsParams) ([]ListRolloutLaneModelsByLaneIDsRow, error)
 	ListRolloutLaneOwnedChannelIDs(ctx context.Context, arg ListRolloutLaneOwnedChannelIDsParams) ([]int64, error)
+	ListRolloutLaneTopologyAnomalies(ctx context.Context, orgID int64) ([]ListRolloutLaneTopologyAnomaliesRow, error)
 	ListRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error)
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]ListSchedulesRow, error)
@@ -1358,13 +1423,19 @@ type Querier interface {
 	// device_set_rack row by lifecycle invariant.
 	LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error)
 	LockRolloutLane(ctx context.Context, arg LockRolloutLaneParams) (RolloutLane, error)
+	LockRolloutLaneActiveParent(ctx context.Context, arg LockRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error)
 	// Archive must lock every persisted membership, including devices that were
 	// soft-deleted without removing their historical channel membership.
 	LockRolloutLaneDevicesForArchive(ctx context.Context, arg LockRolloutLaneDevicesForArchiveParams) ([]int64, error)
 	LockRolloutLaneForArchive(ctx context.Context, arg LockRolloutLaneForArchiveParams) (RolloutLane, error)
 	LockRolloutLaneInitialAuthorities(ctx context.Context, arg LockRolloutLaneInitialAuthoritiesParams) ([]LockRolloutLaneInitialAuthoritiesRow, error)
 	LockRolloutLaneManagementAuthorities(ctx context.Context, arg LockRolloutLaneManagementAuthoritiesParams) ([]LockRolloutLaneManagementAuthoritiesRow, error)
+	LockRolloutLaneModelForMutation(ctx context.Context, arg LockRolloutLaneModelForMutationParams) (RolloutLaneModel, error)
+	LockRolloutLaneModelForRepair(ctx context.Context, arg LockRolloutLaneModelForRepairParams) (RolloutLaneModel, error)
+	LockRolloutLaneModelRepairDevice(ctx context.Context, arg LockRolloutLaneModelRepairDeviceParams) (LockRolloutLaneModelRepairDeviceRow, error)
+	LockRolloutLaneModelsForMutation(ctx context.Context, arg LockRolloutLaneModelsForMutationParams) ([]RolloutLaneModel, error)
 	LockRolloutLaneOwnedRolloutMembers(ctx context.Context, arg LockRolloutLaneOwnedRolloutMembersParams) ([]int64, error)
+	LockRolloutLaneTopologyCutover(ctx context.Context, orgID int64) (RolloutLaneTopologyCutover, error)
 	LockRolloutLanes(ctx context.Context, arg LockRolloutLanesParams) ([]RolloutLane, error)
 	LockSchedulePriority(ctx context.Context, dollar_1 string) error
 	// Row-locks the site so concurrent DeleteSite can't soft-delete it
@@ -1387,6 +1458,7 @@ type Querier interface {
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
 	PrepareFirmwareRolloutMembersForRevert(ctx context.Context, arg PrepareFirmwareRolloutMembersForRevertParams) (int64, error)
+	PrepareModelFirmwareRolloutMembersForRevert(ctx context.Context, arg PrepareModelFirmwareRolloutMembersForRevertParams) (int64, error)
 	// Used by SUPER_ADMIN full reconciliation: keep only the permissions
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.
@@ -1445,6 +1517,8 @@ type Querier interface {
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	RecordChannelFirmwareObservation(ctx context.Context, arg RecordChannelFirmwareObservationParams) (int64, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
+	RefreshFirmwareRolloutGroupResult(ctx context.Context, arg RefreshFirmwareRolloutGroupResultParams) (int64, error)
+	RefreshFirmwareRolloutGroupResults(ctx context.Context, arg RefreshFirmwareRolloutGroupResultsParams) (int64, error)
 	// ============================================================================
 	// Error Lifecycle Management
 	// ============================================================================
@@ -1452,6 +1526,7 @@ type Querier interface {
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
 	ReleaseFirmwareRolloutOwners(ctx context.Context, arg ReleaseFirmwareRolloutOwnersParams) (int64, error)
+	ReleaseRolloutLaneActiveParent(ctx context.Context, arg ReleaseRolloutLaneActiveParentParams) (int64, error)
 	ReleaseTerminalFirmwareRolloutOwners(ctx context.Context, arg ReleaseTerminalFirmwareRolloutOwnersParams) (int64, error)
 	// All-paired policy targets that never received a Curtail command do not need
 	// Uncurtail. Release them before the restore reset so graceful Stop does not
@@ -1490,6 +1565,7 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RemoveRolloutLaneMembershipDevices(ctx context.Context, arg RemoveRolloutLaneMembershipDevicesParams) ([]int64, error)
 	RemoveRolloutLaneMemberships(ctx context.Context, arg RemoveRolloutLaneMembershipsParams) ([]int64, error)
+	RemoveRolloutLaneModelMembershipDevices(ctx context.Context, arg RemoveRolloutLaneModelMembershipDevicesParams) ([]int64, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
 	// The command queue has bounded per-message retries. Reopen the organization
@@ -1504,6 +1580,7 @@ type Querier interface {
 	// desired_state='active' and clears phase-local cursors so the restorer
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
+	ResetFirmwareRolloutAdmissionAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionAfterFailureParams) (FirmwareRollout, error)
 	ResetFirmwareRolloutAdmissionBatchAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionBatchAfterFailureParams) (int64, error)
 	ResetFirmwareRolloutAdmissionMembersAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionMembersAfterFailureParams) (int64, error)
 	ResetFirmwareRolloutRevertAfterFailure(ctx context.Context, arg ResetFirmwareRolloutRevertAfterFailureParams) (FirmwareRollout, error)
@@ -1523,6 +1600,7 @@ type Querier interface {
 	RevokeApiKeysByFleetNodeID(ctx context.Context, arg RevokeApiKeysByFleetNodeIDParams) ([]string, error)
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
+	RunRolloutLaneTopologyBackfill(ctx context.Context, orgID int64) error
 	SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error)
 	SetCurtailmentAutomationExecutionError(ctx context.Context, arg SetCurtailmentAutomationExecutionErrorParams) error
 	SetCurtailmentAutomationRestoreStarted(ctx context.Context, arg SetCurtailmentAutomationRestoreStartedParams) error
@@ -1630,6 +1708,9 @@ type Querier interface {
 	SweepExpiredEnrollments(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeAuthChallenges(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeSessions(ctx context.Context, expiresAt time.Time) (int64, error)
+	TestClaimRolloutLaneActiveParent(ctx context.Context, arg TestClaimRolloutLaneActiveParentParams) (RolloutLaneActiveParent, error)
+	TestCreateFirmwareRolloutGroup(ctx context.Context, arg TestCreateFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error)
+	TestCreateRolloutLaneModelChannel(ctx context.Context, arg TestCreateRolloutLaneModelChannelParams) (RolloutLaneModelChannel, error)
 	TestDeleteRolloutLaneMembershipChange(ctx context.Context, arg TestDeleteRolloutLaneMembershipChangeParams) (int64, error)
 	TestGetMembershipEnforcementState(ctx context.Context, arg TestGetMembershipEnforcementStateParams) (string, error)
 	TestLockChannelFirmwareAuthorityTable(ctx context.Context) error
@@ -1641,10 +1722,14 @@ type Querier interface {
 	// boundary while still allowing tests to drive otherwise unreachable states.
 	TestMoveDeviceChannelMembership(ctx context.Context, arg TestMoveDeviceChannelMembershipParams) (int64, error)
 	TestMutateRolloutLaneMembershipChangeReason(ctx context.Context, arg TestMutateRolloutLaneMembershipChangeReasonParams) (int64, error)
+	TestSetDiscoveredEndpoint(ctx context.Context, arg TestSetDiscoveredEndpointParams) (int64, error)
 	TestSetDiscoveredFirmwareVersion(ctx context.Context, arg TestSetDiscoveredFirmwareVersionParams) (int64, error)
 	TestSetRolloutLaneMembershipEnforcementState(ctx context.Context, arg TestSetRolloutLaneMembershipEnforcementStateParams) (int64, error)
+	TestSetRolloutLaneModelCurrentChannel(ctx context.Context, arg TestSetRolloutLaneModelCurrentChannelParams) (RolloutLaneModel, error)
 	TestSoftDeleteDeviceByIdentifier(ctx context.Context, arg TestSoftDeleteDeviceByIdentifierParams) (int64, error)
 	TestTruncateRolloutLaneMembershipChanges(ctx context.Context) error
+	TestUpdateFirmwareRolloutGroupMetadata(ctx context.Context, arg TestUpdateFirmwareRolloutGroupMetadataParams) (FirmwareRolloutGroup, error)
+	TestUpdateFirmwareRolloutGroupResult(ctx context.Context, arg TestUpdateFirmwareRolloutGroupResultParams) (FirmwareRolloutGroup, error)
 	// Pairing makes the fleet node the discovery owner so its future reports refresh
 	// the row (the upsert keys refreshability on discovered_by_fleet_node_id);
 	// otherwise a replacement node's reports are rejected until repaired by hand.

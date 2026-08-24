@@ -73,6 +73,140 @@ func TestStateIsTerminal(t *testing.T) {
 	}
 }
 
+func TestDeriveGroupProjectionKeepsDimensionsIndependent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		children    []Rollout
+		activity    GroupActivity
+		action      bool
+		lifecycle   GroupLifecycle
+		outcome     GroupTerminalOutcome
+		evidence    GroupEvidenceReadiness
+		resultReady bool
+	}{
+		{
+			name: "review outranks running and needs action is orthogonal",
+			children: []Rollout{
+				{State: StateRunning},
+				{State: StateReview},
+			},
+			activity: GroupActivityReview, action: true, lifecycle: GroupLifecycleActive,
+			outcome: GroupTerminalOutcomePending, evidence: GroupEvidencePending,
+		},
+		{
+			name: "failed admission has highest activity priority",
+			children: []Rollout{
+				{State: StateCreated, FailedAdmission: true},
+				{State: StateReview},
+			},
+			activity: GroupActivityFailedAdmission, action: true, lifecycle: GroupLifecycleActive,
+			outcome: GroupTerminalOutcomePending, evidence: GroupEvidencePending,
+		},
+		{
+			name: "paused outranks reverting",
+			children: []Rollout{
+				{State: StateReverting},
+				{State: StatePaused},
+			},
+			activity: GroupActivityPaused, action: true, lifecycle: GroupLifecycleActive,
+			outcome: GroupTerminalOutcomePending, evidence: GroupEvidencePending,
+		},
+		{
+			name: "uniform unsuccessful outcome is not mixed",
+			children: []Rollout{
+				{State: StateAborted},
+				{State: StateAborted},
+			},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeAborted, evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name: "uniform successful outcome",
+			children: []Rollout{
+				{State: StateCompleted},
+				{State: StateCompleted},
+			},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeSuccessful, evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name: "uniform reverted outcome",
+			children: []Rollout{
+				{State: StateReverted},
+				{State: StateReverted},
+			},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeReverted, evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name: "uniform completed with failures outcome",
+			children: []Rollout{
+				{State: StateCompletedWithFailures},
+				{State: StateCompletedWithFailures},
+			},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome:  GroupTerminalOutcomeCompletedWithFailures,
+			evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name:     "single unsuccessful outcome is not mixed",
+			children: []Rollout{{State: StateCompletedWithFailures}},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome:  GroupTerminalOutcomeCompletedWithFailures,
+			evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name: "different terminal outcomes are mixed",
+			children: []Rollout{
+				{State: StateCompleted},
+				{State: StateReverted},
+			},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeMixed, evidence: GroupEvidenceReady, resultReady: true,
+		},
+		{
+			name: "required evidence remains pending after terminal child",
+			children: []Rollout{{
+				State:          StateCompleted,
+				HashratePolicy: &HashratePolicy{MaxDropBasisPoints: 100, HealthyDurationSeconds: 30},
+				Batches: []Batch{{
+					State: BatchStateCompleted, EvidenceStatus: EvidenceStatusCollecting,
+				}},
+			}},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeSuccessful, evidence: GroupEvidencePending,
+		},
+		{
+			name: "required persisted evidence makes result ready",
+			children: []Rollout{{
+				State:          StateCompleted,
+				HashratePolicy: &HashratePolicy{MaxDropBasisPoints: 100, HealthyDurationSeconds: 30},
+				Batches: []Batch{{
+					State: BatchStateCompleted, EvidenceStatus: EvidenceStatusHealthy,
+					PostWindowFinalized: true,
+				}},
+			}},
+			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomeSuccessful, evidence: GroupEvidenceReady, resultReady: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := DeriveGroupProjection(test.children)
+			assert.Equal(t, test.activity, got.Activity)
+			assert.Equal(t, test.action, got.NeedsAction)
+			assert.Equal(t, test.lifecycle, got.Lifecycle)
+			assert.Equal(t, test.outcome, got.TerminalOutcome)
+			assert.Equal(t, test.evidence, got.EvidenceReadiness)
+			assert.Equal(t, test.resultReady, got.ResultReady)
+		})
+	}
+}
+
 func TestFingerprintCreateRejectsUnmarshalableSnapshots(t *testing.T) {
 	t.Parallel()
 
@@ -277,6 +411,111 @@ func TestServiceAdmitReplayResumesStartedStrategyWork(t *testing.T) {
 	assert.Equal(t, 1, store.finishCalls)
 }
 
+func TestServiceAdmitDefinitiveRollbackFinishesFailedControl(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	batch := Batch{ID: 7, RolloutID: rolloutID, State: BatchStateAdmitted}
+	store := &fakeStore{
+		getResult: &Rollout{ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateCreated, Revision: 1},
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateRunning,
+				Revision: 2, Batches: []Batch{batch},
+			},
+			Batch: &batch, Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		admitResult: AdmissionResult{
+			Outcome: AdmissionOutcomeDefinitivelyRolledBack,
+			Err:     errors.New("transaction rolled back"),
+		},
+	}
+
+	_, err := NewService(store, strategy).Admit(t.Context(), AdmitRequest{
+		OrgID: 42, RolloutID: rolloutID, BatchID: 7, ExpectedRevision: 1,
+		IdempotencyKey: "admit-attempt-0", Reason: "operator approved", ActorUserID: 9,
+	})
+
+	require.ErrorContains(t, err, "transaction rolled back")
+	require.Len(t, store.finishRequests, 1)
+	assert.False(t, store.finishRequests[0].Success)
+}
+
+func TestServiceAdmitUnknownOutcomePreservesStartedControl(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	batch := Batch{ID: 7, RolloutID: rolloutID, State: BatchStateAdmitted}
+	store := &fakeStore{
+		getResult: &Rollout{ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateCreated, Revision: 1},
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateRunning,
+				Revision: 2, Batches: []Batch{batch},
+			},
+			Batch: &batch, Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		admitResult: AdmissionResult{
+			Outcome: AdmissionOutcomeUnknown,
+			Err:     errors.New("commit response lost"),
+		},
+	}
+
+	_, err := NewService(store, strategy).Admit(t.Context(), AdmitRequest{
+		OrgID: 42, RolloutID: rolloutID, BatchID: 7, ExpectedRevision: 1,
+		IdempotencyKey: "admit-attempt-0", Reason: "operator approved", ActorUserID: 9,
+	})
+
+	require.ErrorContains(t, err, "replay the same idempotency key")
+	assert.Empty(t, store.finishRequests)
+}
+
+func TestServiceAdmitUnknownOutcomeReconcilesOnSameKeyReplay(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	batch := Batch{ID: 7, RolloutID: rolloutID, State: BatchStateAdmitted}
+	started := ControlResult{
+		Rollout: &Rollout{
+			ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateRunning,
+			Revision: 2, Batches: []Batch{batch},
+		},
+		Batch: &batch, Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+	}
+	replay := started
+	replay.Replayed = true
+	store := &fakeStore{
+		getResult:      &Rollout{ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateRunning, Revision: 2},
+		controlResults: []ControlResult{started, replay},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		admitResults: []AdmissionResult{
+			{Outcome: AdmissionOutcomeUnknown, Err: errors.New("commit response lost")},
+			{Outcome: AdmissionOutcomeCommitted},
+		},
+	}
+	service := NewService(store, strategy)
+	request := AdmitRequest{
+		OrgID: 42, RolloutID: rolloutID, BatchID: 7, ExpectedRevision: 1,
+		IdempotencyKey: "admit-attempt-0", Reason: "operator approved", ActorUserID: 9,
+	}
+
+	_, err := service.Admit(t.Context(), request)
+	require.ErrorContains(t, err, "replay the same idempotency key")
+	_, err = service.Admit(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, 2, strategy.admitCalls)
+	require.Len(t, store.finishRequests, 1)
+	assert.True(t, store.finishRequests[0].Success)
+}
+
 func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
 	t.Parallel()
 
@@ -384,6 +623,16 @@ func TestServiceWithoutConcreteStrategyStillSupportsReadsAndFailsAdmissionClosed
 	assert.Empty(t, store.controlRequests)
 }
 
+func TestNewServiceWithActivityRequiresLogger(t *testing.T) {
+	t.Parallel()
+
+	require.PanicsWithValue(
+		t,
+		"rollout service: activity logger is required",
+		func() { NewServiceWithActivity(&fakeStore{}, nil) },
+	)
+}
+
 func TestServiceControlPropagatesStaleRevisionWithoutRetry(t *testing.T) {
 	t.Parallel()
 
@@ -470,6 +719,7 @@ type fakeStore struct {
 	controlReplay    bool
 	controlReplayErr error
 	finishCalls      int
+	finishRequests   []FinishControlRequest
 }
 
 func (s *fakeStore) Create(context.Context, CreateRequest) (CreateResult, error) {
@@ -480,8 +730,16 @@ func (s *fakeStore) Get(context.Context, int64, uuid.UUID) (*Rollout, error) {
 	return s.getResult, s.getErr
 }
 
+func (s *fakeStore) GetGroup(context.Context, int64, uuid.UUID) (*Group, error) {
+	return nil, errors.New("unexpected GetGroup call")
+}
+
 func (s *fakeStore) List(context.Context, int64, []State) ([]Rollout, error) {
 	return nil, errors.New("unexpected List call")
+}
+
+func (s *fakeStore) ListGroups(context.Context, int64) ([]Group, error) {
+	return nil, errors.New("unexpected ListGroups call")
 }
 
 func (s *fakeStore) CheckControlReplay(context.Context, ControlRequest) (bool, error) {
@@ -498,8 +756,9 @@ func (s *fakeStore) ApplyControl(_ context.Context, req ControlRequest) (Control
 	return result, nil
 }
 
-func (s *fakeStore) FinishControl(context.Context, FinishControlRequest) (*Rollout, error) {
+func (s *fakeStore) FinishControl(_ context.Context, req FinishControlRequest) (*Rollout, error) {
 	s.finishCalls++
+	s.finishRequests = append(s.finishRequests, req)
 	return s.getResult, nil
 }
 
@@ -514,6 +773,8 @@ func (s *fakeStore) CaptureEvidence(context.Context, EvidenceRequest) ([]Evidenc
 type fakeAdmissionStrategy struct {
 	key                 string
 	admitCalls          int
+	admitResult         AdmissionResult
+	admitResults        []AdmissionResult
 	validateRevertCalls int
 	validateRevertErr   error
 	revertCalls         int
@@ -523,9 +784,17 @@ func (s *fakeAdmissionStrategy) Key() string {
 	return s.key
 }
 
-func (s *fakeAdmissionStrategy) Admit(context.Context, AdmissionRequest) error {
+func (s *fakeAdmissionStrategy) Admit(context.Context, AdmissionRequest) AdmissionResult {
 	s.admitCalls++
-	return nil
+	if len(s.admitResults) > 0 {
+		result := s.admitResults[0]
+		s.admitResults = s.admitResults[1:]
+		return result
+	}
+	if s.admitResult.Outcome == "" {
+		return AdmissionResult{Outcome: AdmissionOutcomeCommitted}
+	}
+	return s.admitResult
 }
 
 func (s *fakeAdmissionStrategy) Revert(context.Context, RevertRequest) error {

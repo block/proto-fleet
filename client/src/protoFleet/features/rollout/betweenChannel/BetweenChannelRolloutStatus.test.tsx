@@ -81,6 +81,51 @@ const baseRollout: RolloutRecord = {
 };
 
 describe("BetweenChannelRolloutStatus", () => {
+  it("labels a model child while leaving its controls on the child card", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          parentId: "708ba540-2748-43d5-a2d1-a4b062bc1df0",
+          laneModelId: "ba3febcc-1144-45b9-99bb-b9c1bb8efa43",
+          modelIdentityKey: "v1:5:proto:5:alpha",
+          manufacturer: "Proto",
+          model: "Alpha",
+        }}
+        laneLabel="Stable production"
+        canControl
+        onPause={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Model rollout")).toBeInTheDocument();
+    expect(screen.getByText("Proto Alpha")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("exposes admission retry only on the created child", async () => {
+    const user = userEvent.setup();
+    const onAdmit = vi.fn();
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "created",
+          parentId: "708ba540-2748-43d5-a2d1-a4b062bc1df0",
+          laneModelId: "ba3febcc-1144-45b9-99bb-b9c1bb8efa43",
+          manufacturer: "Proto",
+          model: "Alpha",
+        }}
+        laneLabel="Stable production"
+        canControl
+        onAdmit={onAdmit}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry model start" }));
+    expect(onAdmit).toHaveBeenCalledOnce();
+  });
+
   it("shows confirmed membership separately from convergence and never offers retry for attention", () => {
     render(
       <BetweenChannelRolloutStatus
@@ -276,12 +321,14 @@ describe("BetweenChannelRolloutStatus", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /more actions/i }));
+    const moreActions = screen.getByRole("button", { name: /more actions/i });
+    await user.click(moreActions);
     await user.click(screen.getByText("Abort rollout"));
     expect(screen.getByText(/Undispatched miners remain on the current release/)).toBeInTheDocument();
     expect(screen.getByText(/In-flight work may still settle/)).toBeInTheDocument();
     await user.click(screen.getByTestId("confirm-abort-rollout"));
     expect(onAbort).toHaveBeenCalledTimes(1);
+    expect(moreActions).toHaveFocus();
 
     rerender(
       <BetweenChannelRolloutStatus
@@ -319,7 +366,7 @@ describe("BetweenChannelRolloutStatus", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Revert" }));
-    expect(screen.getByText("Revert 1 confirmed miner?")).toBeInTheDocument();
+    expect(screen.getByText("Revert this model for 1 confirmed miner?")).toBeInTheDocument();
     await user.click(screen.getByTestId("confirm-revert-rollout"));
     expect(onRevert).toHaveBeenCalledTimes(1);
   });
@@ -383,6 +430,7 @@ describe("BetweenChannelRolloutStatus", () => {
     ["stale", "Evidence stale"],
     ["automationError", "Automation error"],
     ["finalized", "Evidence finalized"],
+    ["cancelled", "Evidence cancelled"],
   ] as const)("renders %s evidence with text status and paired coverage", (status, expectedLabel) => {
     render(
       <BetweenChannelRolloutStatus
@@ -399,7 +447,7 @@ describe("BetweenChannelRolloutStatus", () => {
                 totalCount: 3n,
                 pairedCount: status === "pending" ? 0n : 2n,
                 evaluatedAt: new Date().toISOString(),
-                postWindowFinalized: status === "finalized",
+                postWindowFinalized: status === "finalized" || status === "cancelled",
               },
             },
             baseRollout.batches[1],
@@ -655,5 +703,35 @@ describe("BetweenChannelRolloutStatus", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("Hashrate held");
+  });
+
+  it("lets an aggregate own the single polite live region", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "held",
+                totalCount: 3n,
+                pairedCount: 3n,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: false,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+        announceEvidenceStatus={false}
+      />,
+    );
+
+    expect(screen.getByText("Hashrate held")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

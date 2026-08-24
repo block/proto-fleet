@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
-import { type FirmwareFileInfo, hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
-import type { CreateRolloutBatchInput } from "@/protoFleet/api/useRolloutApi";
+import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import type { CreateRolloutBatchInput, StartRolloutLaneModelPlanInput } from "@/protoFleet/api/useRolloutApi";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -9,6 +9,7 @@ import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components
 import {
   buildManualBatches,
   evaluateTargetCompatibility,
+  isCompleteRolloutFirmwareFile,
   isFirmwareConvergenceReady,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
@@ -24,10 +25,11 @@ import Textarea from "@/shared/components/Textarea";
 export interface StartRolloutLaneValues {
   laneId: string;
   name: string;
-  firmwareFileIds: string[];
-  batches: CreateRolloutBatchInput[];
+  firmwareFileIds?: string[];
+  batches?: CreateRolloutBatchInput[];
   reason: string;
   hashratePolicy?: RolloutHashratePolicy;
+  modelPlans?: Omit<StartRolloutLaneModelPlanInput, "modelStartKey">[];
 }
 
 interface StartRolloutLaneModalProps {
@@ -41,11 +43,7 @@ interface StartRolloutLaneModalProps {
 }
 
 function hasCompleteFileTarget(file: FirmwareFileInfo): boolean {
-  return hasCompleteFirmwareTarget({
-    targetManufacturer: file.target_manufacturer,
-    targetModel: file.target_model,
-    firmwareVersion: file.firmware_version,
-  });
+  return isCompleteRolloutFirmwareFile(file);
 }
 
 function defaultTargetFiles(lane: RolloutLane, files: FirmwareFileInfo[]): Record<string, string> {
@@ -103,6 +101,31 @@ function healthyDurationSeconds(value: string): number | null {
   return seconds >= 10 && seconds <= 1_800 && seconds % 10 === 0 ? seconds : null;
 }
 
+function hashRatePolicyForModel(
+  enabled: boolean,
+  maxDropBasisPointsValue: number | null,
+  healthyDurationSecondsValue: number | null,
+): RolloutHashratePolicy | undefined {
+  return enabled && maxDropBasisPointsValue !== null && healthyDurationSecondsValue !== null
+    ? {
+        maxDropBasisPoints: maxDropBasisPointsValue,
+        healthyDurationSeconds: healthyDurationSecondsValue,
+      }
+    : undefined;
+}
+
+interface EvidencePolicyDraft {
+  enabled: boolean;
+  maxDropPercent: string;
+  healthyDuration: string;
+}
+
+const defaultEvidencePolicyDraft = (): EvidencePolicyDraft => ({
+  enabled: false,
+  maxDropPercent: "0.1",
+  healthyDuration: "30",
+});
+
 export default function StartRolloutLaneModal({
   open,
   lane,
@@ -117,46 +140,141 @@ export default function StartRolloutLaneModal({
   const [selectedFileByModel, setSelectedFileByModel] = useState<Record<string, string>>(() =>
     defaultTargetFiles(lane, files),
   );
-  const [config, setConfig] = useState(() => defaultConfig(lane.memberCount));
-  const [hashratePolicyEnabled, setHashratePolicyEnabled] = useState(false);
-  const [maxDropPercent, setMaxDropPercent] = useState("0.1");
-  const [healthyDuration, setHealthyDuration] = useState("30");
+  const modelMode = lane.topologyEnabled && lane.models.length > 0;
+  const initialModelId = lane.models.find((model) => model.memberCount > 0)?.id ?? "";
+  const [selectedLaneModelIds, setSelectedLaneModelIds] = useState<string[]>(() =>
+    initialModelId ? [initialModelId] : [],
+  );
+  const [selectedLaneModelId, setSelectedLaneModelId] = useState(initialModelId);
+  const selectedModel = lane.models.find((model) => model.id === selectedLaneModelId);
+  const selectedModels = lane.models.filter((model) => selectedLaneModelIds.includes(model.id));
+  const selectedSources = useMemo(
+    () =>
+      modelMode
+        ? selectedModels.flatMap((model) =>
+            model.currentFirmwareTarget
+              ? [
+                  {
+                    firmwareFileId: model.currentFirmwareTarget.firmwareFileId,
+                    targetManufacturer: model.manufacturer,
+                    targetModel: model.model,
+                    firmwareVersion: model.currentFirmwareTarget.firmwareVersion,
+                    sha256: model.currentFirmwareTarget.sha256,
+                  },
+                ]
+              : [],
+          )
+        : lane.currentReleaseTargets,
+    [lane.currentReleaseTargets, modelMode, selectedModels],
+  );
+  const selectedMemberIdentifiers = useMemo(
+    () => (modelMode && selectedModel ? (selectedModel.memberIdentifiers ?? []) : lane.memberIdentifiers),
+    [lane.memberIdentifiers, modelMode, selectedModel],
+  );
+  const selectedMemberCount = modelMode && selectedModel ? selectedModel.memberCount : lane.memberCount;
+  const [legacyConfig, setLegacyConfig] = useState(() => defaultConfig(lane.memberCount));
+  const [configByModel, setConfigByModel] = useState<Record<string, RolloutPlanConfig>>(() =>
+    Object.fromEntries(lane.models.map((model) => [model.id, defaultConfig(model.memberCount)])),
+  );
+  const config = modelMode && selectedModel ? configByModel[selectedModel.id] : legacyConfig;
+  const [policyDraftByModel, setPolicyDraftByModel] = useState<Record<string, EvidencePolicyDraft>>(() =>
+    Object.fromEntries(lane.models.map((model) => [model.id, defaultEvidencePolicyDraft()])),
+  );
+  const [legacyPolicyDraft, setLegacyPolicyDraft] = useState(defaultEvidencePolicyDraft);
+  const policyDraft =
+    modelMode && selectedModel
+      ? (policyDraftByModel[selectedModel.id] ?? defaultEvidencePolicyDraft())
+      : legacyPolicyDraft;
   const compatibility = useMemo(
-    () => evaluateTargetCompatibility(lane.currentReleaseTargets, files, selectedFileByModel),
-    [files, lane.currentReleaseTargets, selectedFileByModel],
+    () => evaluateTargetCompatibility(selectedSources, files, selectedFileByModel),
+    [files, selectedFileByModel, selectedSources],
   );
   const batches = useMemo(
     () =>
-      buildManualBatches(lane.memberIdentifiers, {
+      buildManualBatches(selectedMemberIdentifiers, {
         strategy: config.strategy === "batched" ? "batched" : "pilotThenContinue",
         batchSize: config.batchSize,
         pilotSize: config.pilotSize,
       }),
-    [config.batchSize, config.pilotSize, config.strategy, lane.memberIdentifiers],
+    [config.batchSize, config.pilotSize, config.strategy, selectedMemberIdentifiers],
   );
   const targetFileIds = compatibility.flatMap((row) => (row.targetFileId ? [row.targetFileId] : []));
-  const hasFreshMembership =
-    lane.memberCount > 0 && lane.memberIdentifiers.length === lane.memberCount && lane.memberIdentifiers.length > 0;
+  const hasFreshMembership = modelMode
+    ? selectedModels.length > 0 &&
+      selectedModels.every(
+        (model) =>
+          model.memberCount > 0 &&
+          model.memberIdentifiers?.length === model.memberCount &&
+          model.memberIdentifiers.length > 0,
+      )
+    : selectedMemberCount > 0 &&
+      selectedMemberIdentifiers.length === selectedMemberCount &&
+      selectedMemberIdentifiers.length > 0;
   const compatibilityReady = compatibility.length > 0 && compatibility.every((row) => row.status === "compatible");
-  const hasValidBatchPlan =
-    batches.length > 0 &&
-    batches.every((batch) => batch.members.length > 0) &&
-    batches.reduce((count, batch) => count + batch.members.length, 0) === lane.memberCount;
+  const convergenceReady = modelMode
+    ? selectedModels.length > 0 &&
+      selectedModels.every(
+        (model) =>
+          model.firmwareConvergence.totalCount > 0 &&
+          model.firmwareConvergence.confirmedCount === model.firmwareConvergence.totalCount,
+      )
+    : isFirmwareConvergenceReady(lane);
+  const modelBatches = useMemo(
+    () =>
+      Object.fromEntries(
+        selectedModels.map((model) => {
+          const modelConfig = configByModel[model.id] ?? defaultConfig(model.memberCount);
+          return [
+            model.id,
+            buildManualBatches(model.memberIdentifiers ?? [], {
+              strategy: modelConfig.strategy === "batched" ? "batched" : "pilotThenContinue",
+              batchSize: modelConfig.batchSize,
+              pilotSize: modelConfig.pilotSize,
+            }),
+          ];
+        }),
+      ),
+    [configByModel, selectedModels],
+  );
+  const hasValidBatchPlan = modelMode
+    ? selectedModels.every((model) => {
+        const planned = modelBatches[model.id] ?? [];
+        return (
+          planned.length > 0 &&
+          planned.every((batch) => batch.members.length > 0) &&
+          planned.reduce((count, batch) => count + batch.members.length, 0) === model.memberCount
+        );
+      })
+    : batches.length > 0 &&
+      batches.every((batch) => batch.members.length > 0) &&
+      batches.reduce((count, batch) => count + batch.members.length, 0) === selectedMemberCount;
   const showHashratePolicy = batches.length > 1;
-  const parsedMaxDropBasisPoints = maxDropBasisPoints(maxDropPercent);
-  const parsedHealthyDurationSeconds = healthyDurationSeconds(healthyDuration);
-  const hasValidHashratePolicy =
-    !showHashratePolicy ||
-    !hashratePolicyEnabled ||
-    (parsedMaxDropBasisPoints !== null && parsedHealthyDurationSeconds !== null);
+  const parsedMaxDropBasisPoints = maxDropBasisPoints(policyDraft.maxDropPercent);
+  const parsedHealthyDurationSeconds = healthyDurationSeconds(policyDraft.healthyDuration);
+  const selectedTotalMemberCount = modelMode
+    ? selectedModels.reduce((total, model) => total + model.memberCount, 0)
+    : selectedMemberCount;
+  const hasValidHashratePolicy = modelMode
+    ? selectedModels.every((model) => {
+        const draft = policyDraftByModel[model.id] ?? defaultEvidencePolicyDraft();
+        return (
+          (modelBatches[model.id]?.length ?? 0) <= 1 ||
+          !draft.enabled ||
+          (maxDropBasisPoints(draft.maxDropPercent) !== null && healthyDurationSeconds(draft.healthyDuration) !== null)
+        );
+      })
+    : !showHashratePolicy ||
+      !policyDraft.enabled ||
+      (parsedMaxDropBasisPoints !== null && parsedHealthyDurationSeconds !== null);
   const canStart =
     name.trim().length > 0 &&
     reason.trim().length > 0 &&
-    isFirmwareConvergenceReady(lane) &&
+    convergenceReady &&
     hasFreshMembership &&
     compatibilityReady &&
     hasValidBatchPlan &&
-    hasValidHashratePolicy;
+    hasValidHashratePolicy &&
+    (!modelMode || selectedModels.length > 0);
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [
     {
       text: isSubmitting ? "Starting..." : "Start rollout",
@@ -165,7 +283,7 @@ export default function StartRolloutLaneModal({
       onClick: () => {
         const hashratePolicy =
           showHashratePolicy &&
-          hashratePolicyEnabled &&
+          policyDraft.enabled &&
           parsedMaxDropBasisPoints !== null &&
           parsedHealthyDurationSeconds !== null
             ? {
@@ -173,14 +291,38 @@ export default function StartRolloutLaneModal({
                 healthyDurationSeconds: parsedHealthyDurationSeconds,
               }
             : undefined;
-        onStart({
-          laneId: lane.id,
-          name: name.trim(),
-          firmwareFileIds: targetFileIds,
-          batches,
-          reason: reason.trim(),
-          ...(hashratePolicy ? { hashratePolicy } : {}),
-        });
+        if (modelMode && selectedModels.length > 0) {
+          onStart({
+            laneId: lane.id,
+            name: name.trim(),
+            reason: reason.trim(),
+            modelPlans: selectedModels.map((model) => {
+              const key = minerTargetKey(model.manufacturer, model.model)!;
+              const modelDraft = policyDraftByModel[model.id] ?? defaultEvidencePolicyDraft();
+              const modelPolicy = hashRatePolicyForModel(
+                modelDraft.enabled,
+                maxDropBasisPoints(modelDraft.maxDropPercent),
+                healthyDurationSeconds(modelDraft.healthyDuration),
+              );
+              return {
+                laneModelId: model.id,
+                expectedModelRevision: model.revision,
+                firmwareFileId: selectedFileByModel[key],
+                batches: modelBatches[model.id] ?? [],
+                ...(modelPolicy ? { hashratePolicy: modelPolicy } : {}),
+              };
+            }),
+          });
+        } else {
+          onStart({
+            laneId: lane.id,
+            name: name.trim(),
+            firmwareFileIds: targetFileIds,
+            batches,
+            reason: reason.trim(),
+            ...(hashratePolicy ? { hashratePolicy } : {}),
+          });
+        }
       },
     },
   ];
@@ -190,7 +332,7 @@ export default function StartRolloutLaneModal({
         <div className="text-200 text-text-primary-50">Stable lane</div>
         <div className="mt-1 text-heading-200 text-text-primary">{lane.label}</div>
         <div className="mt-1 text-300 text-text-primary-70">
-          {lane.memberCount.toLocaleString()} frozen miner{lane.memberCount === 1 ? "" : "s"}
+          {selectedTotalMemberCount.toLocaleString()} frozen miner{selectedTotalMemberCount === 1 ? "" : "s"}
         </div>
       </div>
       <div className="grid gap-3">
@@ -268,10 +410,39 @@ export default function StartRolloutLaneModal({
             <div>
               <div className="text-emphasis-300 text-text-primary">Target release</div>
               <div className="text-300 text-text-primary-70">
-                Select one uploaded target for every model in the current release.
+                {modelMode
+                  ? "Select one or more non-empty models. Each rollout is controlled independently."
+                  : "Select one uploaded target for every model in the current release."}
               </div>
             </div>
-            {lane.currentReleaseTargets.map((source) => {
+            {modelMode
+              ? lane.models.map((model) => (
+                  <label key={model.id} className="flex items-center gap-3 rounded-xl border border-border-5 p-4">
+                    <Checkbox
+                      checked={selectedLaneModelIds.includes(model.id)}
+                      disabled={isSubmitting || model.memberCount === 0}
+                      onChange={() => {
+                        setSelectedLaneModelIds((current) =>
+                          current.includes(model.id)
+                            ? current.filter((candidate) => candidate !== model.id)
+                            : [...current, model.id],
+                        );
+                        setSelectedLaneModelId(model.id);
+                      }}
+                    />
+                    <span>
+                      <span className="block text-emphasis-300 text-text-primary">
+                        {model.manufacturer} {model.model}
+                      </span>
+                      <span className="block text-200 text-text-primary-70">
+                        {model.currentFirmwareTarget?.firmwareVersion ?? "No current target"} ·{" "}
+                        {model.memberCount.toLocaleString()} miner{model.memberCount === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              : null}
+            {selectedSources.map((source) => {
               const key = minerTargetKey(source.targetManufacturer, source.targetModel)!;
               const options = files
                 .filter(
@@ -300,17 +471,32 @@ export default function StartRolloutLaneModal({
             })}
           </section>
 
+          {modelMode && selectedModel ? (
+            <div className="text-emphasis-300 text-text-primary">
+              Batch and evidence settings for {selectedModel.manufacturer} {selectedModel.model}
+            </div>
+          ) : null}
           <RolloutControls
             config={config}
             onChange={(next) =>
-              setConfig({
-                ...next,
-                reviewAfterEachBatch: true,
-                autoContinueOnHealthyTelemetry: false,
-                scheduleType: "startNow",
-              })
+              modelMode && selectedModel
+                ? setConfigByModel((current) => ({
+                    ...current,
+                    [selectedModel.id]: {
+                      ...next,
+                      reviewAfterEachBatch: true,
+                      autoContinueOnHealthyTelemetry: false,
+                      scheduleType: "startNow",
+                    },
+                  }))
+                : setLegacyConfig({
+                    ...next,
+                    reviewAfterEachBatch: true,
+                    autoContinueOnHealthyTelemetry: false,
+                    scheduleType: "startNow",
+                  })
             }
-            inScopeCount={lane.memberCount}
+            inScopeCount={selectedMemberCount}
             allowedStrategies={["pilotThenContinue", "batched"]}
             showTiming={false}
             allowAutomaticReview={false}
@@ -324,46 +510,85 @@ export default function StartRolloutLaneModal({
                 }`}
               >
                 <Checkbox
-                  checked={hashratePolicyEnabled}
+                  checked={policyDraft.enabled}
                   disabled={isSubmitting}
-                  onChange={(event) => setHashratePolicyEnabled(event.currentTarget.checked)}
+                  onChange={(event) => {
+                    const enabled = event.currentTarget.checked;
+                    if (modelMode && selectedModel) {
+                      setPolicyDraftByModel((current) => ({
+                        ...current,
+                        [selectedModel.id]: {
+                          ...(current[selectedModel.id] ?? defaultEvidencePolicyDraft()),
+                          enabled,
+                        },
+                      }));
+                      return;
+                    }
+                    setLegacyPolicyDraft((current) => ({ ...current, enabled }));
+                  }}
                 />
                 <span className="text-300 text-text-primary">Auto-continue healthy batches</span>
               </label>
-              {hashratePolicyEnabled ? (
+              {policyDraft.enabled ? (
                 <div className="grid gap-3" data-testid="hashrate-policy-fields">
                   <Input
+                    key={`max-drop-${selectedModel?.id ?? "legacy"}`}
                     id="rollout-hashrate-max-drop"
                     label="Maximum hashrate drop"
                     type="number"
                     inputMode="decimal"
                     units="%"
-                    initValue={maxDropPercent}
+                    initValue={policyDraft.maxDropPercent}
                     error={parsedMaxDropBasisPoints === null ? "Enter 0 to 100% in 0.1% increments." : false}
                     disabled={isSubmitting}
-                    onChange={setMaxDropPercent}
+                    onChange={(maxDropPercentValue) => {
+                      if (modelMode && selectedModel) {
+                        setPolicyDraftByModel((current) => ({
+                          ...current,
+                          [selectedModel.id]: {
+                            ...(current[selectedModel.id] ?? defaultEvidencePolicyDraft()),
+                            maxDropPercent: maxDropPercentValue,
+                          },
+                        }));
+                        return;
+                      }
+                      setLegacyPolicyDraft((current) => ({ ...current, maxDropPercent: maxDropPercentValue }));
+                    }}
                   />
                   <Input
+                    key={`healthy-duration-${selectedModel?.id ?? "legacy"}`}
                     id="rollout-hashrate-healthy-duration"
                     label="Healthy duration"
                     type="number"
                     inputMode="numeric"
                     units="sec"
-                    initValue={healthyDuration}
+                    initValue={policyDraft.healthyDuration}
                     error={
                       parsedHealthyDurationSeconds === null
                         ? "Enter 10 to 1,800 seconds in 10-second increments."
                         : false
                     }
                     disabled={isSubmitting}
-                    onChange={setHealthyDuration}
+                    onChange={(healthyDurationValue) => {
+                      if (modelMode && selectedModel) {
+                        setPolicyDraftByModel((current) => ({
+                          ...current,
+                          [selectedModel.id]: {
+                            ...(current[selectedModel.id] ?? defaultEvidencePolicyDraft()),
+                            healthyDuration: healthyDurationValue,
+                          },
+                        }));
+                        return;
+                      }
+                      setLegacyPolicyDraft((current) => ({ ...current, healthyDuration: healthyDurationValue }));
+                    }}
                   />
                 </div>
               ) : null}
             </section>
           ) : null}
           <div className="text-200 text-text-primary-70">
-            {hashratePolicyEnabled && showHashratePolicy
+            {policyDraft.enabled && showHashratePolicy
               ? "Healthy batches continue automatically after the configured evidence window."
               : "Every batch stops at the manual review gate before the next batch is admitted."}
           </div>

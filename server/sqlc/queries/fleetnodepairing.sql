@@ -17,9 +17,23 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    model_identity_observed_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    TRUE,
+    CURRENT_TIMESTAMP
+)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
@@ -27,6 +41,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     manufacturer = EXCLUDED.manufacturer,
+    model_identity_observed_at = CURRENT_TIMESTAMP,
     firmware_version = EXCLUDED.firmware_version,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,

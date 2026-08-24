@@ -20,10 +20,11 @@ A firmware update in Proto Fleet today is a one-shot bulk command: the operator 
 
 Software channels address this the way mature device-fleet update platforms do:
 
-- A _software channel_ is a named, opt-in, exclusive container of miners that declares what its members should run, as a _firmware release_ per hardware model.
-- A new release reaches members through a _rollout_: staged _batches_, with pause, abort, per-miner progress, and a durable outcome.
-- A _rollout policy_ paces and gates each batch: the rollout advances on evidence, such as each miner's telemetry compared before and after the update.
-- _Reconciliation_ keeps members on the channel's declared state afterward, catching miners that were offline while the rollout ran.
+- A _software channel_ declares what its members should run as a firmware release per hardware model.
+- Under Model B, operators manage a stable _rollout lane_ with explicit model declarations. Fleet represents each declared release as an immutable per-model _physical channel_.
+- A new release reaches selected model members through independently controlled child rollouts with staged batches, durable progress, and a parent result for the overall operator action.
+- A _rollout policy_ paces and gates one model-homogeneous child batch at a time. Evidence never combines hashrate across hardware models.
+- _Reconciliation_ keeps members on their declaration's current target afterward, including miners that were offline during the rollout.
 
 This TDD turns these concepts into a concrete design: the schema, the APIs, the reconciliation and rollout machinery, and the delivery phasing.
 
@@ -31,11 +32,11 @@ This TDD turns these concepts into a concrete design: the schema, the APIs, the 
 
 These are the v1 goals; any proposed design must satisfy them. Functional:
 
-1. **Channels as the unit of desired state.** Operators can create software channels and explicitly assign miners. Membership is exclusive and opt-in: a miner belongs to at most one channel, channel-less miners keep today's behavior, and Fleet defines no channels by default. A channel declares a firmware release per hardware model; unset models are left alone, and a channel that declares nothing is a valid container.
+1. **Channels as the unit of desired state.** Operators can create software channels and explicitly assign miners. Membership is exclusive and opt-in: a miner belongs to at most one channel, channel-less miners keep today's behavior, and Fleet defines no channels by default. A channel declares firmware per hardware model. Under Model B, the rollout lane contains only explicit model declarations, including declarations with zero members, and undeclared models are left alone.
 2. **Compliance visibility.** Per-channel and per-miner views of declared versus reported state, available before any enforcement acts on it.
-3. **Staged rollouts with a durable record.** A rollout takes a channel's members to a new release in batches, with pause, resume, and abort. The rollout records status, per-miner progress, and an outcome that survives retention. Rollback reverts only miners the rollout actually transitioned.
-4. **Evidence-gated advancement.** A batch advances on evidence: each miner's telemetry compared before and after the update, with error rates surfaced alongside. Advancement can be automated against operator-defined thresholds or held for manual approval (per batch, or at the pilot gate); the design must support both, and which is the default is a decision this TDD makes.
-5. **Delegated control.** An external service can drive a rollout through the API: create it, choose batch membership, advance, abort, and mark completion, while Fleet stays the system of record. An operator can always pause or abort, which detaches the controller.
+3. **Staged rollouts with a durable record.** A rollout changes one or more selected models in batches, with pause, resume, and abort on each model child. Unchanged models are omitted. The aggregate parent and child records preserve status, per-miner progress, and outcomes after command retention. Revert affects only miners transitioned by the selected child.
+4. **Evidence-gated advancement.** A child batch advances on evidence from its model-homogeneous cohort: each miner's telemetry compared before and after the update, with error rates surfaced alongside. Advancement can be automated against operator-defined thresholds or held for manual approval. Evidence and policy decisions stay child and batch scoped.
+5. **Delegated control.** An external service can create an aggregate rollout and drive each child through the API: choose batch membership, advance, pause, abort, revert, and complete, while Fleet stays the system of record. The aggregate parent has no control endpoint. An operator can always pause or abort a child, which detaches that child from controller writes.
 6. **Continuous reconciliation.** Fleet detects and corrects drift from the channel's declared state, converges miners that were offline or newly assigned, and tracks per-miner convergence. Deliberate exceptions survive it: a group or batch of miners held back for pre/post-rollout comparison is not drift to correct, and the design must define how that hold-back works and how held-back miners count toward channel compliance.
 7. **A defined interaction model.** The design specifies what direct one-off and bulk actions do to a channel-managed miner, and how they behave against an in-flight rollout: blocked, queued, or erroring, but never undefined.
 
@@ -80,18 +81,18 @@ Design review reopened a fork the RFC's Round 1 had settled toward staged activa
 
 **Model A: within a channel (staged activation).** A channel is a long-lived cohort ("production", "canary") whose declaration changes over time. A rollout publishes a new release to the channel and admits members to it batch by batch; members transition in place, and the cohort persists across releases.
 
-**Model B: between channels (confirmed migration).** A physical channel is pinned to the release set it declares ("S21 fw 2.3.2"); declarations do not change after creation. Admission installs rollout authority and target desired state while the miner remains a source-channel member. Fresh target firmware and hashing confirmation then finalize the source-to-target membership move atomically. Operators use a stable rollout lane facade while Fleet manages the physical version channels underneath it.
+**Model B: between channels (confirmed migration).** A physical channel is pinned to one model release and does not change after creation. Operators use one stable rollout lane that owns explicit model declarations. Each declaration has its own current physical-channel pointer, immutable channel history, optimistic revision, and active or ended member bindings. Admission installs child rollout authority and target desired state while the miner remains in its model's source physical channel. Fresh target firmware, fresh model identity, and hashing confirmation then finalize the source-to-target membership move atomically.
 
 ### Common ground
 
-- Channels as exclusive, opt-in device_set containers with per-model declarations (Axis 1), audited membership, and the same CRUD surface.
+- Channels as exclusive, opt-in device_set containers with per-model declarations (Axis 1), audited membership, and the same CRUD surface. Model B exposes the lane as the user-facing aggregate and keeps physical channels as immutable release storage.
 - Per-member enforcement rows and one enforcement engine as the only executor (Axis 2). The row is each miner's actionable desired state and a rollout controls when rows change. Model A writes the target at admission against the channel's new declaration. Model B writes the target at admission under rollout authority, then changes membership only after confirmation.
-- Staged, batched rollouts with pause, resume, and abort; a durable rollout record; snapshot-based evidence and gated advancement (Axes 3, 6).
+- Staged, batched child rollouts with pause, resume, abort, and revert; a durable overall parent; snapshot-based evidence and gated advancement (Axes 3, 6).
 - Abort establishes a no-new-work boundary. Undispatched members do not start, pre-abort claims may settle, transitioned members stay transitioned, and revert remains a separate action.
 - The interaction model: the channel owns firmware, direct updates are refused at preflight, curtailment always wins (Axis 4).
-- One imperative control API used by the manual UI now and available to later policy runners or external controllers (Axis 5).
+- One imperative child control API used by the manual UI now and available to later policy runners or external controllers (Axis 5). Aggregate parents are read-only projections.
 
-The difference concentrates in one place: **how confirmed target state is represented**. Model A rewrites a stable channel declaration and admits members in place. Model B installs temporary rollout authority, then finalizes confirmed miners into an immutable target version channel.
+The difference concentrates in one place: **how confirmed target state is represented**. Model A rewrites a stable channel declaration and admits members in place. Model B installs temporary model-child authority, then finalizes confirmed miners into that declaration's immutable target physical channel.
 
 ### Core differences
 
@@ -104,9 +105,9 @@ The difference concentrates in one place: **how confirmed target state is repres
 | Hold-back         | `held` enforcement rows inside the channel                           | Members left in the source channel                                                                              |
 | Revert            | Rewrite rows to recorded revert targets                              | Restore source firmware, then move confirmed members back to source                                             |
 | Abort aftermath   | Must define what the channel declares (open item)                    | Undispatched members stay source; pre-abort claims may settle; no forced revert                                 |
-| Channel lifecycle | Few, long-lived, operator-created                                    | One per release per lane; retirement policy required                                                            |
+| Channel lifecycle | Few, long-lived, operator-created                                    | One per release per declared model; retirement policy required                                                   |
 | Cohort continuity | The channel is the cohort                                            | The stable rollout lane is the cohort facade                                                                    |
-| Version history   | Declaration history plus rollout records                             | Membership history is the version timeline                                                                      |
+| Version history   | Declaration history plus rollout records                             | Per-model channel and binding history form the version timeline                                                  |
 | UI mapping        | Publish on the channel page (the existing rollout UI prototype)      | Stable-view facade over churning channels, or channel-per-version exposed                                       |
 
 ### Trade-offs
@@ -122,13 +123,13 @@ The difference concentrates in one place: **how confirmed target state is repres
   - Abort has a simple boundary: no new claims start, undispatched members remain in source, and pre-abort claims may settle.
   - Per-miner version history falls out of membership history.
   - Confirmation has one atomic membership mutation after the shared executor proves target state.
-  - Costs: channel count grows as cohorts × releases, and lifecycle becomes hidden machinery behind the lane facade; the facade and physical channels must remain consistent; fleet-scale rollouts produce membership churn through the exclusivity index and activity log; hold-backs and failures split physical membership even though the lane presents one operator-facing cohort.
+  - Costs: channel count grows as lanes × declared models × releases, and lifecycle becomes hidden machinery behind the lane facade; the model pointers, bindings, registry, and physical channels must remain consistent; fleet-scale rollouts produce membership churn through the exclusivity index and activity log; hold-backs and failures split physical membership even though the lane presents one operator-facing aggregate.
 
 ### Resolution path
 
 Two prototypes, one per model, compared on operator ergonomics: the publish/move flow, mid-rollout legibility, hold-back handling, abort and its aftermath, and what the fleet view looks like after several consecutive releases.
 
-The prototypes share one substrate because admission has a model-neutral post-condition: every admitted member has an enforcement row whose desired release is the target, whose cause is the rollout, and whose revert snapshot captures the source. Model A writes that row against a changed stable-channel declaration. Model B writes it under rollout authority while membership remains source, then a strategy finalizer moves membership after fresh target firmware and hashing confirmation. The engine, evidence, controls, abort boundary, revert machinery, and durable audit are shared, so the public admit verb does not decide the model fork (F6).
+The prototypes share one substrate because admission has a model-neutral post-condition: every admitted member has an enforcement row whose desired release is the target, whose cause is the rollout, and whose revert snapshot captures the source. Model A writes that row against a changed stable-channel declaration. Model B creates one existing `firmware_rollout` child per changed model and writes child authority while membership remains in the source physical channel. Its strategy finalizer moves membership after fresh target firmware, model identity, and hashing confirmation. The enforcement engine, child controls, abort boundary, revert machinery, and durable audit remain shared, so the public admit verb does not decide the model fork (F6).
 
 The outcome selects the model and this TDD is updated in place. The Proposed Solution below describes the shared base and both admission branches without selecting a winner.
 
@@ -183,9 +184,9 @@ Dispatch today means immutable command batches (`command_batch_log` plus per-dev
   - Cause attribution on enforcement rows distinguishes rollout, membership, drift correction, and between-channel revert authority.
   - RoM: medium on top of 2b.
 
-Promotion needs no machinery under 3b: publishing the same release to the next channel is just another publication starting that channel's own rollout, with no pipeline object. Ungated changes stay cheap the same way: a channel move writes enforcement rows directly, with no rollout record. The membership change is audited as an activity event (the path device_set changes already use), and the rows it writes carry it as their cause.
+Promotion needs no pipeline object under 3b. Under Model A, publishing to another channel starts that channel's rollout. Under Model B, a non-empty declaration target changes only through a model child; a zero-member declaration uses metadata-only publication with no rollout or evidence rows. Membership changes write enforcement rows directly and are audited.
 
-Model note: under Model B, admission does not mutate membership. It installs rollout authority and target desired state while the member stays in source. The finalizer moves a member to target only after fresh target firmware and hashing confirmation. Revert restores source firmware under separate authority before source membership is finalized. Gated admission, the single executor, and the rollout record remain shared.
+Model note: under Model B, an aggregate start atomically creates one control-free `firmware_rollout_group`, one child `firmware_rollout` per selected changed model, and one active-parent claim for the lane. Unchanged models are omitted. Each child freezes a model-homogeneous cohort and batch plan, then admits independently. The finalizer moves a member only after fresh target firmware, fresh model identity, and hashing confirmation. Revert restores source firmware under separate authority before source membership is finalized.
 
 ### 4. What direct actions do to channel-managed miners
 
@@ -204,11 +205,11 @@ Against an in-flight rollout the same split holds: non-firmware bulk actions are
 ### 5. How policies and external controllers drive rollouts
 
 - **5a. Fleet polls an external verdict service**, the earlier phased-deployment TDD's hold / forward / rollback shape. Set aside by RFC Decision 1: the progression model stays fixed in product code, every new advancement scheme is a product change, and gated progress depends on the polled service's availability.
-- **5b. One imperative control API; the UI is its first consumer (recommended).** A single control surface: create a rollout with explicit batches, admit or continue, read evidence, pause, resume, abort, revert, complete.
+- **5b. One imperative child control API; the UI is its first consumer (recommended).** Aggregate start creates a read-only parent and selected model children. The existing child surface admits or continues, reads evidence, pauses, resumes, aborts, reverts, and completes.
   - The prototype UI uses manual review by default and offers an opt-in hashrate policy for multi-batch rollouts. Fleet can continue a healthy batch after the configured maximum drop and healthy duration without changing the underlying controls.
   - Later built-in policies can extend this mechanism beyond hashrate or add different progression shapes without adding a parallel lifecycle.
   - An external controller is the same caller over the Connect API with an API key: delegated control (G5) is a permission grant into the existing RBAC catalog (channel- and rollout-scoped permissions beside today's device and command grants), not a special mode, and needs no dedicated UI method.
-  - Operators keep precedence: pause and abort outrank built-in automation and the external controller; detaching a controller revokes its writes (F3). Controller silence policy is deferred with external controller hardening. Nothing external is ever required to abort or revert.
+  - Operators keep precedence: pause and abort outrank built-in automation and the external controller for that child; detaching a controller revokes its writes (F3). Sibling children remain independent. Controller silence policy is deferred with external controller hardening. Nothing external is ever required to abort or revert.
   - The cost: the API is public product surface designed once, early, where naming, auth, and error semantics carry compatibility weight from the first release (F6).
   - RoM: medium.
 
@@ -217,11 +218,11 @@ Against an in-flight rollout the same split holds: non-firmware bulk actions are
 Raw telemetry (`device_metrics`, roughly 10-second samples, 10-day retention) answers ±30-minute pre/post windows (F2) with about 180 points per window. There is no per-miner error-rate time series; errors are incident rows opened and closed per device.
 
 - **6a. Compute evidence on demand from telemetry.** No new storage, but the durable outcome (G3) evaporates with raw retention after 10 days, and every status render re-runs window queries at fleet size (F5).
-- **6b. Snapshot baselines and persist verdicts on the rollout record (recommended).**
-  - At admission, snapshot the preceding 30 minutes of available hashrate for every frozen batch member. A member without samples remains explicitly unavailable.
-  - After batch completion, refresh the same cohort's post-update hashrate for up to 30 minutes. Persist per-member evidence plus the paired batch baseline, current average, delta, coverage, freshness, and verdict.
+- **6b. Snapshot baselines and persist verdicts on the child rollout record (recommended).**
+  - Each child cohort and batch is model-homogeneous. At admission, snapshot the preceding 30 minutes of available hashrate for every frozen child-batch member. A member without samples remains explicitly unavailable.
+  - After batch completion, refresh the same model cohort's post-update hashrate for up to 30 minutes. Persist per-member evidence plus the paired child-batch baseline, current average, delta, coverage, freshness, and verdict.
   - Outcomes survive retention (G3), and review screens read stored summaries rather than scanning hypertables (F5).
-  - An optional hashrate-only policy accepts a maximum drop and healthy duration. Automatic continue requires complete paired coverage, fresh post samples for every member, and consecutive healthy 10-second buckets for the full duration.
+  - An optional hashrate-only policy accepts a maximum drop and healthy duration. Automatic continue requires complete paired coverage, fresh post samples for every member, and consecutive healthy 10-second buckets for the full duration. Hashrate is never aggregated across models.
   - Missing or stale evidence never advances. An out-of-threshold bucket records a held verdict and resets the dwell. Operators can continue a held rollout only through a confirmation that shows the measured evidence and records the override.
   - Power, efficiency, temperature, incident thresholds, and richer statistical analysis remain later work.
   - RoM: small to medium.
@@ -230,207 +231,303 @@ The prototype advancement default (G4) remains manual review between batches. Op
 
 ## Proposed Solution
 
-The implementation is split into a model-neutral base and sibling admission branches. The base is load-bearing for both prototypes. The between-channel branch exercises Model B now, while Model A remains open for comparison. This structure does not select a winner.
+The implementation is split into a model-neutral base and sibling admission branches. The base is load-bearing for both prototypes. The implemented between-channel branch exercises Model B while Model A remains open for comparison. This design does not select a winner.
 
-The shared organizing rule is: **`channel_firmware_enforcement` rows are the only actionable desired-firmware state, and the channel reconciler is the only component that dispatches channel-managed firmware** (F1, F4).
+The shared organizing rule remains: **`channel_firmware_enforcement` rows are the only actionable desired-firmware state, and the channel reconciler is the only component that dispatches channel-managed firmware** (F1, F4).
 
 **Shared base**
 
-- A software channel is a `device_set` of type `channel`. `device_set_membership` enforces one channel per miner independently from rack placement.
-- `firmware_release_set` and `firmware_release_target` snapshot immutable per-model firmware identity, version, and checksum. `device_set_channel` pins a physical channel to one release set.
-- `channel_firmware_authority` names who currently controls a miner's firmware target. `channel_firmware_enforcement` stores the desired release, state, command correlation, observations, and cause.
-- The channel reconciler claims work with compare-and-set, dispatches through the existing command service, and confirms from a fresh firmware observation plus fresh hashing. Once a command may have reached a miner, Fleet never retries it automatically. Uncertain execution becomes `attention_required`.
-- `firmware_rollout`, `firmware_rollout_batch`, `firmware_rollout_member`, `firmware_rollout_control`, `firmware_rollout_cause`, and `firmware_rollout_evidence` preserve the frozen plan, controls, outcomes, and evidence independently from command retention.
-- The generic rollout service delegates admission, completion, and revert behavior through strategy interfaces. Model-specific lane APIs do not change the generic control contract.
+- A physical channel is a `device_set` of type `channel`; exclusive `device_set_membership` is independent from rack placement.
+- `firmware_release_set` and `firmware_release_target` snapshot immutable firmware identity, version, and checksum. `device_set_channel` pins a physical channel to one release set.
+- `channel_firmware_authority` names who controls a miner's firmware target. `channel_firmware_enforcement` stores desired release, lifecycle, command correlation, fresh observations, model validation boundary, and cause.
+- The channel reconciler claims work by compare-and-set and dispatches through the command service. Once a command may have reached a miner, Fleet does not dispatch it again automatically. Ambiguous execution becomes `attention_required`.
+- The existing `firmware_rollout`, batch, member, control, cause, and evidence tables remain the independently controlled model-child record.
+- The generic rollout service delegates admission, completion, and revert through strategy interfaces. The parent never becomes a second control state machine.
 
-**Model B branch**
+**Implemented Model B branch**
 
-Operators use a stable rollout lane instead of managing physical version channels. `rollout_lane` stores the durable label and current physical channel pointer. `rollout_lane_channel` stores an ordered, immutable history of physical channels.
+- `rollout_lane` is the stable operator-facing aggregate. It owns only explicit `rollout_lane_model` declarations. A declaration may have zero active members.
+- Each declaration owns a current release target and physical-channel pointer, a model revision, immutable `rollout_lane_model_channel` history, and active or ended `rollout_lane_model_binding` rows.
+- `rollout_lane_channel` is the canonical lane-owned physical-channel registry. Setup, membership, finalization, revert, and archive validate both canonical physical membership and the active model binding.
+- Canonical model identity uses normalization-versioned v1 keys from non-empty normalized manufacturer and model values. `discovered_device.model_identity_observed_at` changes only when discovery writes model identity.
+- Deprecated lane-wide scalar fields are projections only while every declaration points to the same physical channel. Divergence makes the scalar unavailable and rejects legacy flat writes. A supported single-model legacy write maps to that declaration's revision.
 
-The physical channel lifecycle is:
+The Model B lifecycle is:
 
-1. Creating a lane creates an immutable source release set and physical source channel, assigns the selected miners, attaches that channel at position zero, and makes it current.
-2. Starting a rollout creates an immutable target release set and physical target channel, appends the target to the lane, and freezes source members and manual batch assignments.
-3. Admitting a batch advances rollout authority and creates target enforcement rows. Membership remains in source while miners are pending, flashing, or verifying.
-4. The reconciler dispatches at most once and requires target firmware plus hashing observations newer than the command completion boundary.
-5. The between-channel finalizer locks the lane, both channels, and the miner, then atomically moves confirmed membership to target and marks the rollout member succeeded.
-6. Completing a successful rollout advances the lane's current pointer to target. Aborting does not advance the pointer, starts no new work, and allows pre-abort claims to settle.
-7. Revert selects only members moved by that rollout. The reconciler restores captured source firmware first, then the finalizer moves confirmed members back to source. Completing revert restores the lane pointer to source.
-8. Lane-channel attachments remain immutable audit history. Retirement and garbage collection require a separate policy that proves a physical channel is not current, has no members, and remains safe to retain or remove.
+1. A declaration mutation creates exactly one model declaration, singleton release set, immutable physical channel, registry and history rows, optional active bindings, and setup convergence atomically. Zero members are valid.
+2. A zero-member target change uses `PublishRolloutLaneModelTarget`. It creates immutable release and physical-channel history and advances only that declaration pointer. It creates no parent, child, cohort, batch, ownership, or evidence.
+3. `StartRolloutLane` accepts one or more changed non-empty model plans. It preflights all plans, acquires one `rollout_lane_active_parent` claim, and atomically creates one `firmware_rollout_group` parent plus one existing `firmware_rollout` child per changed model. Unchanged and undeclared models are omitted.
+4. The caller admits each child separately with the returned first-batch ID and an attempt-scoped deterministic key. A definitive rollback advances the admission attempt; an unknown transaction result preserves the started control for reconciliation and replay.
+5. Each child independently admits, continues, pauses, resumes, aborts, completes, evaluates evidence, finalizes, and reverts. Ordinary child controls lock only that child, its declaration, source and target physical channels, and sorted devices.
+6. Membership remains in the source physical channel while enforcement is pending, flashing, or verifying. Dispatch and finalization require fresh model identity. Finalization also requires fresh target firmware and hashing.
+7. Only full child success advances that declaration's current pointer. `completed_with_failures` leaves the pointer at source and the model split, blocking another child until selective revert closes the split.
+8. Successful-child revert requires the pointer at target, restores eligible members, then restores the source pointer. Split-child revert requires the pointer at source, selects only succeeded target-bound members, and leaves the pointer unchanged.
+9. Abort and revert terminalize open evidence with a durable cancellation reason and disable automation. A pre-abort claim may settle, but no new work starts.
+10. The active-parent claim releases only after child execution, ownership, controls, authority, enforcement, finalization, revert, and required evidence settle. Restart reconstruction reads these durable rows.
 
-The operator surface presents membership migration and firmware convergence as separate progress measures. A confirmed target member contributes to both. A flashing or verifying source member contributes only to convergence work in progress.
+The operator surface presents model declarations, membership migration, and firmware convergence separately. Live rollout and result views show one control-free parent with model-labelled child cards. The header shows one parent with model and action counts. Result acknowledgement is stored client-side as parent ID plus server `result_revision`, and only when `result_ready` is true.
 
 **Model A branch**
 
-The later sibling keeps a stable physical channel and changes its declaration. It reuses the same immutable releases, enforcement rows, reconciler, rollout records, evidence, controls, abort boundary, and revert snapshots. Its admission strategy and channel-history presentation remain the comparison variables.
+The sibling prototype keeps a stable physical channel and changes its declaration. It reuses immutable releases, enforcement rows, the reconciler, generic child rollouts, evidence, controls, abort boundary, and revert snapshots. Its admission strategy, aggregate representation, and channel-history presentation remain comparison variables.
 
 **Interaction and control**
 
 - Direct firmware updates to channel-managed miners fail closed in command preflight. Reboot, diagnostics, pool changes, and curtailment remain available.
 - Curtailment takes precedence. The reconciler does not consume a firmware attempt while a miner is actively curtailed.
-- `RolloutService` provides create, read/list, admit/continue, pause/resume, abort, revert, and complete controls with expected revisions and idempotency keys.
-- Manual batch review is the default prototype path. For multi-batch rollouts, an operator can opt into hashrate-only auto-continue with a maximum drop and healthy duration.
-- Automatic continue uses the same revision-checked and idempotent Continue control as manual review. It requires complete, fresh paired coverage for the full dwell, while pause and abort always take precedence.
-- A held verdict keeps the rollout in review. Continuing from held requires an evidence-aware confirmation and records an operator override cause.
+- Child lifecycle controls use expected revisions and idempotency keys. Parent IDs fail precondition at child control procedures.
+- Manual child-batch review is the default. A model child can opt into hashrate-only auto-continue with a maximum drop and healthy duration.
+- Automatic continue uses the same revision-checked child Continue control as manual review. It requires complete fresh paired coverage for that model-homogeneous batch.
 - Scheduling, policy metrics beyond hashrate, controller silence policy, and external controller hardening remain later work.
 
 ## Technical Design
 
 ### Architecture
 
-The server remains one deployable: Connect handlers call domain services backed by sqlc stores over Postgres and TimescaleDB. The channel reconciler and between-channel finalizer run as bounded runtime jobs beside existing command execution. No new queue or dispatch path is introduced.
+The server remains one deployable. Connect handlers call domain services backed by sqlc stores over Postgres and TimescaleDB. The channel reconciler, between-channel finalizer, and rollout evidence evaluator run as bounded runtime jobs beside existing command execution. Parent result refresh and active-claim settlement occur in the same database transactions that settle child work. No new queue or dispatch path is introduced.
 
 ```mermaid
-flowchart TD
-    UI["Firmware settings, activity, and header"]
-    DS["DeviceSetService"]
-    RS["RolloutService"]
-    GENERIC["domain/rollout shared service"]
-    STRATEGY["Admission and completion strategy"]
-    BETWEEN["domain/rollout/betweenchannel"]
-    LANE["rollout_lane and physical channels"]
-    ROWS["channel_firmware_enforcement"]
+flowchart TB
+    UI["Rollout lanes, live status, results, activity, header"]
+    API["RolloutService Connect API"]
+    LANE_SERVICE["domain/rollout/betweenchannel service"]
+    GENERIC["domain/rollout service"]
+    STRATEGY["between-channel strategy"]
+    TOPOLOGY["Lane declarations, bindings, registry, parent claim"]
+    GROUPS["Aggregate parents and model snapshots"]
+    CHILDREN["firmware_rollout model children"]
+    ENFORCEMENT["channel_firmware_authority and channel_firmware_enforcement"]
     RECONCILER["domain/channel/reconciler"]
     COMMAND["Command service and queue"]
     MINER["Plugin and miner"]
-    TELEMETRY["Fresh firmware and hashing observations"]
+    OBSERVATIONS["Fresh model, firmware, and hashing observations"]
     FINALIZER["Between-channel finalizer"]
+    EVALUATOR["Rollout evidence evaluator"]
 
-    UI --> DS
-    UI --> RS
-    RS --> GENERIC
+    UI --> API
+    API --> LANE_SERVICE
+    API --> GENERIC
+    LANE_SERVICE --> TOPOLOGY
+    LANE_SERVICE --> GROUPS
+    LANE_SERVICE --> CHILDREN
+    GENERIC --> CHILDREN
     GENERIC --> STRATEGY
-    STRATEGY --> BETWEEN
-    BETWEEN --> LANE
-    BETWEEN --> ROWS
-    ROWS --> RECONCILER
+    STRATEGY --> ENFORCEMENT
+    ENFORCEMENT --> RECONCILER
     RECONCILER --> COMMAND
     COMMAND --> MINER
-    MINER --> TELEMETRY
-    TELEMETRY --> RECONCILER
-    ROWS --> FINALIZER
-    FINALIZER --> LANE
+    MINER --> OBSERVATIONS
+    OBSERVATIONS --> RECONCILER
+    ENFORCEMENT --> FINALIZER
+    FINALIZER --> TOPOLOGY
+    EVALUATOR --> CHILDREN
+    EVALUATOR --> GENERIC
+    CHILDREN --> GROUPS
 ```
 
 Components, mapped to the codebase:
 
-- **Channel and release storage** (`domain/collection`, `SQLCollectionStore`): channel device sets, immutable release snapshots, artifact guards, exclusive membership, and `AssignDevicesToChannel`.
-- **Firmware enforcement** (`domain/channel`, `SQLChannelEnforcementStore`, `domain/channel/reconciler`): authority, desired state, at-most-once claim and command correlation, fresh confirmation, and attention-required outcomes.
-- **Generic rollout** (`domain/rollout`, `SQLRolloutStore`): frozen batches and members, optimistic revisions, idempotent controls, evidence, cause history, and model-neutral strategy seams.
-- **Between-channel strategy** (`domain/rollout/betweenchannel`, `SQLRolloutLaneStore`): lane creation, immutable target channel creation, admission authority, completion pointer updates, revert preparation, and atomic membership finalization.
+- **Release and physical-channel storage** (`domain/collection`, `SQLCollectionStore`): immutable release snapshots, artifact guards, exclusive physical membership, and guarded channel assignment.
+- **Firmware enforcement** (`domain/channel`, `SQLChannelEnforcementStore`, `domain/channel/reconciler`): model-aware desired state, at-most-once claim and command correlation, identity freshness, firmware and hashing confirmation, and attention-required outcomes.
+- **Generic model child** (`domain/rollout`, `SQLRolloutStore`): `firmware_rollout` batches, members, revisions, idempotent controls, admission attempts, evidence, causes, and strategy seams.
+- **Model B topology** (`domain/rollout/betweenchannel`, `SQLRolloutLaneStore`): lane declarations, immutable model channel history, active and historical bindings, aggregate start, active-parent claims, pointer advancement, selective revert, archive, and atomic membership finalization.
+- **Aggregate projection** (`domain/rollout`, `SQLRolloutStore`): group and model snapshots, bulk child hydration, lifecycle, activity, needs-action, terminal outcome, evidence readiness, result readiness, and result revision.
 - **Command service** (`domain/command`): one channel-managed firmware preflight filter plus the existing queue and worker. The reconciler's dedicated actor is the only bypass.
-- **Client** (`useRolloutApi`, `RolloutLanesTab`, `BetweenChannelRolloutStatus`): the stable lane facade, manual batch controls, durable reopen, separate membership and convergence progress, abort, and revert.
+- **Evidence evaluator** (`domain/rollout/evidence`, `SQLRolloutEvidenceStore`): child-batch candidate selection, paired hashrate evidence, dwell, and exactly-once child Continue controls.
+- **Client** (`useRolloutApi`, `RolloutLanesTab`, `BetweenChannelRolloutStatus`, `useRolloutPillData`): grouped declarations, control-free parent summary, child controls, durable reopen, parent results, and result acknowledgement.
 
-State ownership (the single-writer rule from the Proposed Solution, made concrete):
+### Data model and ownership
 
-| State                           | Storage                                                      | Written by                                                     | Read by                                 |
-| ------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------- | --------------------------------------- |
-| Physical channel and membership | `device_set`, `device_set_membership`, `device_set_channel`  | DeviceSet service; between-channel finalizer for rollout moves | lane service, compliance, UI            |
-| Immutable releases              | `firmware_release_set`, `firmware_release_target`            | channel and lane creation                                      | admission, reconciler, audit            |
-| Lane facade and channel history | `rollout_lane`, `rollout_lane_channel`                       | between-channel lane service and completion strategy           | lane API and UI                         |
-| Actionable desired firmware     | `channel_firmware_authority`, `channel_firmware_enforcement` | admission or assignment; reconciler by CAS                     | reconciler, finalizer, rollout progress |
-| Rollout plan and outcome        | `firmware_rollout*` tables                                   | generic rollout service and finalizer                          | API, UI, activity projection            |
-| Dispatch state                  | `command_batch_log`, `queue_message`                         | reconciler through command service                             | command execution and confirmation      |
-| Reported state                  | `discovered_device`, `device_metrics`                        | telemetry ingest and direct sampling                           | reconciler, evidence, compliance        |
+```mermaid
+erDiagram
+    ROLLOUT_LANE ||--o{ ROLLOUT_LANE_MODEL : declares
+    ROLLOUT_LANE ||--o{ ROLLOUT_LANE_CHANNEL : registers
+    ROLLOUT_LANE_MODEL ||--o{ ROLLOUT_LANE_MODEL_CHANNEL : histories
+    ROLLOUT_LANE_CHANNEL ||--o{ ROLLOUT_LANE_MODEL_CHANNEL : references
+    ROLLOUT_LANE_MODEL ||--o{ ROLLOUT_LANE_MODEL_BINDING : binds
+    ROLLOUT_LANE ||--o| ROLLOUT_LANE_ACTIVE_PARENT : claims
+    FIRMWARE_ROLLOUT_GROUP ||--|{ FIRMWARE_ROLLOUT_GROUP_MODEL : snapshots
+    FIRMWARE_ROLLOUT_GROUP_MODEL o|--o| FIRMWARE_ROLLOUT : changes
+    FIRMWARE_ROLLOUT ||--|{ FIRMWARE_ROLLOUT_BATCH : plans
+    FIRMWARE_ROLLOUT_BATCH ||--|{ FIRMWARE_ROLLOUT_MEMBER : contains
+    FIRMWARE_ROLLOUT_MEMBER ||--o{ FIRMWARE_ROLLOUT_EVIDENCE : measures
+```
+
+| State | Authoritative storage | Write authority |
+| --- | --- | --- |
+| Stable lane and canonical physical registry | `rollout_lane`, `rollout_lane_channel` | Between-channel lane transactions |
+| Per-model declaration and pointer | `rollout_lane_model` | Declaration publication, successful child completion, successful-child revert |
+| Immutable model channel history | `rollout_lane_model_channel` referencing `rollout_lane_channel` | Declaration creation, publication, aggregate start |
+| Active and ended model bindings | `rollout_lane_model_binding` | Declaration and membership mutations, finalizer, revert, archive |
+| One active overall orchestration | `rollout_lane_active_parent` | Aggregate start and canonical settlement |
+| Aggregate identity and frozen model vector | `firmware_rollout_group`, `firmware_rollout_group_model` | Atomic aggregate start; result refresh updates projection fields |
+| Independent model execution | `firmware_rollout` and its batch, member, control, cause, evidence rows | Generic rollout service, strategy, finalizer, evaluator |
+| Actionable desired firmware | `channel_firmware_authority`, `channel_firmware_enforcement` | Setup or child admission; reconciler by compare-and-set |
+| Dispatch and observations | `command_batch_log`, `queue_message`, `discovered_device`, `device_metrics` | Command runtime and telemetry ingestion |
+
+`rollout_lane.revision` is aggregate read invalidation. `rollout_lane_model.revision` is write concurrency for one declaration. `rollout_lane.current_channel_id` is representative compatibility data only. It must not select targets or authorize writes after model topology is enabled.
 
 ```mermaid
 sequenceDiagram
     actor Operator
     participant UI as Firmware settings
     participant API as RolloutService
-    participant BC as Between-channel strategy
     participant DB as Postgres
-    participant REC as Channel reconciler
-    participant MINER as Miner
-    participant FIN as Lane finalizer
+    participant PROTO as Model child A
+    participant OTHER as Model child B
+    participant RUNTIME as Reconciler, evaluator, finalizer
 
-    Operator->>UI: Start target release
-    UI->>API: StartRolloutLane
-    API->>BC: Freeze source members and batches
-    BC->>DB: Create target release, channel, rollout, and lane attachment
-    UI->>API: AdmitRollout
-    API->>BC: Admit first manual batch
-    BC->>DB: Write rollout authority and enforcement rows
-    Note over DB: Membership remains in source
-    REC->>MINER: Dispatch firmware at most once
-    MINER-->>REC: Fresh target version and hashing
-    REC->>DB: Mark enforcement confirmed
-    FIN->>DB: Move source membership to target atomically
-    DB-->>UI: Durable progress and available controls
+    Operator->>UI: Select changed models and plans
+    UI->>API: StartRolloutLane with repeated model plans
+    API->>DB: Preflight selected models and lock canonical resources
+    API->>DB: Atomically claim lane and create parent and children
+    API-->>UI: Parent, children, and first-batch IDs
+    par Independent admission
+        UI->>API: AdmitRollout for child A
+        API->>PROTO: Persist child A authority and enforcement
+    and
+        UI->>API: AdmitRollout for child B
+        API->>OTHER: Persist child B authority and enforcement
+    end
+    RUNTIME->>PROTO: Dispatch, evaluate, and finalize child A
+    RUNTIME->>OTHER: Dispatch, evaluate, and finalize child B
+    RUNTIME->>DB: Advance only fully successful model pointers
+    RUNTIME->>DB: Refresh parent result and settle claim when safe
+    UI->>API: GetRolloutGroup
+    API-->>UI: Separate aggregate dimensions and child controls
 ```
 
-**Runtime and failure boundaries**
+### Lifecycle and safety invariants
 
 - The rollout service never calls the command service. It writes durable intent; only the reconciler dispatches.
-- Restart resumes from database rows. A claimed or enqueued attempt is correlated to one command batch and is never recreated automatically.
-- Abort halts authority before pending work is cancelled. Finalization may still settle a claim created before the halt.
-- Finalization validates expected lane, authority, enforcement, and membership revisions in one transaction. A conflicting manual move becomes attention required instead of being overwritten.
+- One aggregate start locks the lane, active-parent claim, selected declarations in canonical model order, source and target physical channels by ID, and sorted devices. Creation is all-or-nothing across selected models.
+- Ordinary child controls lock only the child, its declaration, source and target physical channels, and sorted devices. They do not lock a sibling, the lane, or the parent claim.
+- Same-model membership is blocked by active or unsettled child work. Disjoint model membership can proceed.
+- Restart resumes from parent, child, claim, control, authority, enforcement, finalization, revert, and evidence rows. A claimed or enqueued firmware attempt remains correlated to one command batch and is never recreated automatically.
+- Before dispatch, stale or empty model identity holds work. A fresh mismatch becomes terminal attention required. Finalization defers until model identity is newer than command completion, then requires a fresh match.
+- Abort halts child authority before pending work is cancelled. Finalization may still settle a claim created before the halt.
+- Finalization validates declaration pointer, canonical physical registry, active model binding, authority, enforcement, and member revisions in one transaction. A conflict becomes attention required instead of overwriting topology.
+- Only every-member success advances a declaration pointer. Split failure leaves source authoritative until selective revert restores target-bound successes.
+- Abort and revert cancel open baseline and post evidence, persist the cancellation reason, finalize the post window, and prevent automatic continuation.
+- Archive fails while any child execution, owner, control, authority, enforcement, finalization, revert, or required evidence remains unsettled. Successful archive ends active bindings and preserves lane, channel, parent, child, and binding history.
 - Activity is a projection. Rollout, member, enforcement, and cause rows remain authoritative if activity logging fails.
+
+### Aggregate projection
+
+The parent has no control revision or writable lifecycle. Reads derive these dimensions independently:
+
+- **Lifecycle:** `active` while any child is nonterminal; otherwise `terminal`.
+- **Activity:** highest-priority child activity in this order: failed admission, attention required, review, paused, reverting, finalizing, running, created, settled.
+- **Needs action:** true for a child-local admission failure, attention-required member, review gate, held automation, or equivalent operator gate. It is not a lifecycle state.
+- **Terminal outcome:** pending until every child is terminal. Uniform outcomes project as successful, reverted, aborted, or completed with failures. `mixed` is used only when terminal child outcomes differ. A single unsuccessful child and uniform unsuccessful siblings are not mixed.
+- **Evidence readiness:** pending while any required child-batch evidence is open; ready after all required evidence is finalized or cancelled.
+- **Result readiness:** true only when lifecycle is terminal and evidence readiness is ready.
+- **Result revision:** monotonic dismissal metadata updated transactionally when terminal outcome or result readiness changes. Revert can therefore resurface a previously acknowledged result.
+
+The lane active-parent claim is orchestration ownership, not parent lifecycle. Its stricter settlement predicate can outlive a terminal child while authority, finalization, revert, or evidence is still closing.
 
 ### Interfaces
 
 **Connect APIs**
 
-- `DeviceSetService`: `CreateFirmwareReleaseSet`, `GetFirmwareReleaseSet`, and `AssignDevicesToChannel` support model-neutral release and exclusive-membership operations. Existing device-set CRUD carries `ChannelInfo`.
-- `RolloutService` lane facade: `CreateRolloutLane`, `GetRolloutLane`, `ListRolloutLanes`, and `StartRolloutLane`.
-- `RolloutService` generic lifecycle: `CreateRollout`, `GetRollout`, `ListRollouts`, `AdmitRollout`, `ContinueRollout`, `PauseRollout`, `ResumeRollout`, `AbortRollout`, `RevertRollout`, and `CompleteRollout`.
-- Every mutation uses an idempotency key. Lifecycle controls also use `expected_revision`; stale writers receive a conflict and must reload.
+- Lane reads and legacy facade: `PreviewRolloutLane`, `CreateRolloutLane`, `GetRolloutLane`, `GetRolloutLaneForRollout`, `ListRolloutLanes`, `ListRolloutLaneMembers`, `GetRolloutLaneAssignments`, legacy membership preview and update, and `DeleteRolloutLane`.
+- Declaration and membership: `PreviewRolloutLaneModelDeclaration`, `CreateRolloutLaneModelDeclaration`, `PublishRolloutLaneModelTarget`, `PreviewRolloutLaneModelMembershipChange`, and `UpdateRolloutLaneModelMembership`.
+- Topology administration: `GetRolloutLaneTopologyReadiness`, `RepairRolloutLaneModelBinding`, and `EnableRolloutLaneModelTopology`.
+- Aggregate start and reads: `StartRolloutLane`, `GetRolloutGroup`, and `ListRolloutGroups`. `GetRollout` returns its parent when the ID is a child, and lane lookup accepts a parent or child ID.
+- Generic child lifecycle: `CreateRollout`, `GetRollout`, `ListRollouts`, `AdmitRollout`, `ContinueRollout`, `PauseRollout`, `ResumeRollout`, `AbortRollout`, `RevertRollout`, and `CompleteRollout`.
+- Every mutation uses an idempotency key. Child lifecycle controls and model mutations also use the relevant expected revision. Stale writers receive a conflict and must reload.
 - The prototype authorizes `channel:read`, `channel:manage`, `rollout:read`, `rollout:manage`, and `rollout:control` at organization scope.
 
 **Key request and response contracts**
 
-- Lane creation accepts a stable label, description, one firmware file per represented model, and explicit device identifiers. It returns the lane and current physical channel history.
-- Lane start accepts target firmware files and explicit frozen batches. It returns both the appended lane state and the durable rollout.
-- Rollout reads return batches, members, evidence, causes, source and target snapshots, revisions, and physical source and target IDs.
-- Admission and continuation never imply membership success. A member reports success only after the finalizer commits confirmed target membership.
-- Abort returns a durable aborted boundary. Revert is valid only after admitted members settle and selects only succeeded members from that rollout.
+- `RolloutLane.models` is authoritative after topology cutover. Each item returns declaration identity and revision, current physical channel and firmware target, member and binding counts, model convergence, compatibility, and immutable model channel history.
+- Model declaration creation accepts one firmware file and optional compatible devices. Model membership and target publication address one declaration by ID or canonical key.
+- `StartRolloutLane.model_plans` carries declaration ID, expected model revision, target firmware, child batches, child evidence policy, and model start key. The response returns the lane, one `RolloutGroup` parent, and child plus first-batch pairs.
+- Aggregate start creates no child for an unchanged, undeclared, or zero-member model. Zero-member target publication is a separate declaration procedure.
+- `GetRolloutGroup` and `ListRolloutGroups` return parent projection, frozen model summaries, and child records. `ListRolloutGroups` keeps completed legacy history separate instead of synthesizing parents.
+- Child reads return model identity, parent and declaration IDs, batches, members, evidence, causes, source and target snapshots, revisions, and physical source and target IDs.
+- Admission and continuation never imply membership success. A member succeeds only after the finalizer commits fresh confirmed target membership and binding.
+- Abort returns a durable child boundary. Revert is valid only after admitted members settle and selects eligible succeeded members from that child.
 - `attention_required` is terminal for automatic execution and has no retry RPC or ordinary retry action.
 
-**Client adapters**
+### Rollout, live, and results UI
 
-- `useRolloutApi` maps generated messages into `RolloutLane` and `RolloutRecord`, hydrates lane release targets and fresh membership, and emits rollout change events after mutations.
-- `RolloutLanesTab` owns lane create/start, first-batch admission, lifecycle controls, polling, durable reopen, and the stable facade. Physical channel labels are not operator controls.
-- `BetweenChannelRolloutStatus` renders source remaining, target confirmed, firmware convergence, evidence, and the control set derived from server state.
+- The rollout-lane table groups explicit model declarations and includes zero-member declarations. Physical channels appear as release history, not operator-managed cohorts.
+- Declaration and membership modals mutate one model at a time and show compatibility, reassignment, firmware enforcement, and active-work conflicts for that declaration.
+- Start selects one or more changed non-empty declarations. Each selection has its own target, batches, evidence policy, and review. The response is one parent with independently admitted children.
+- Live status renders a control-free parent summary followed by model-labelled child cards. Each card shows source and target firmware, source remaining, target confirmed, convergence, failure or attention counts, evidence, and only that child's available controls.
+- Child loading, mutation, error, focus, destructive confirmation, and accessibility state are keyed by child and model. A failed child detail or mutation does not erase loaded siblings.
+- The header pill shows one parent, model count, and number requiring action. Its URL contains the parent and optional focused child.
+- Results show the aggregate outcome and model rows. Client-local acknowledgement stores `{parentId, resultRevision}` only when `resultReady` is true.
+- Activity metadata adds parent ID, child ID, canonical model identity, manufacturer, and model for aggregate start, child start, finalization, controls, and revert.
 
 ## Testing & validation
 
-- **Domain unit tests**
-  - State transitions, revision conflicts, idempotency replay, abort races, at-most-once dispatch, stale telemetry, attention-required handling, revert selection, and hashrate evidence evaluation.
-  - Automatic continue requires complete and fresh paired coverage for the configured dwell. Missing, stale, and unhealthy evidence cannot advance, and pause or abort wins over a healthy evaluator pass.
-  - Model B admission leaves membership in source; finalization requires fresh target version and hashing; revert confirms source firmware before membership.
+- **Domain and runtime tests**
+  - Generic rollout tests cover child transitions, optimistic revision, idempotency replay, parent-ID rejection, admission outcomes, aggregate activity priority, result readiness, and mixed-outcome rules.
+  - Reconciler and finalizer tests cover at-most-once dispatch, stale or empty model identity holds, fresh identity mismatch, target confirmation, pointer isolation, full-success advancement, split failure, and successful or split revert.
+  - Evidence evaluator tests cover complete and fresh paired coverage, dwell reset, unhealthy hold, exactly-once Continue, operator precedence, cancellation, and restart.
 - **Database integration tests**
-  - Exclusive channel membership, immutable artifacts and lane attachments, frozen batches, one active rollout owner, canonical locking, rollback on partial failure, org isolation, restart reconstruction, and durable 30-minute hashrate evidence.
-  - Evaluator and store coverage proves the deterministic unhealthy hold, dwell reset and recovery, exactly-once automatic continue, restart safety, and operator precedence.
-  - Concurrent manual assignment, abort, finalization, opposite-direction rollout, and revert conflicts fail without partial membership changes.
+  - Migration and topology tests cover resumable backfill, anomaly repair, active-legacy drain, repeatable enablement, scalar compatibility, canonical channel registration, immutable model history, active and ended bindings, and parentless legacy history.
+  - Declaration tests cover one-model atomic creation, zero-member declaration and target publication, model-scoped membership concurrency, physical and binding atomicity, and setup convergence.
+  - Aggregate tests cover one-model partial start, atomic multi-child start, one active-parent claim, child and model lock scope, pointer isolation, group projection and result revision, activity identity, claim settlement, archive, and restart reconstruction.
+  - Revert and evidence tests cover successful and split paths, target-bound selection, cancellation reasons, newer-work conflicts, and each archive blocker class.
+  - Hashrate evidence tests remain child and batch model-homogeneous. No test or query combines hashrate across models.
 - **Handler and authorization tests**
-  - Every `DeviceSetService` and `RolloutService` procedure checks the documented permission and maps validation, conflict, and not-found errors consistently.
-- **Client tests**
-  - Generated mapping for all states, separate membership and convergence progress, exact create/start payloads, durable reload, permission-hidden controls, abort and revert copy, and no retry for attention required.
-  - Hashrate policy tests cover opt-in defaults and validation, exact basis points and duration, complete/fresh evidence status, held override confirmation, and manual controls after an automation error.
-- **Playwright operator evaluation**
-  - The full two-miner operator journey is runnable against the resettable fake Proto rig environment with firmware filenames that deterministically change reported versions.
-  - Cover lane creation, explicit target selection, first-batch source membership until fresh confirmation, manual review and continuation, final-batch completion, lane-pointer persistence after reload and reopen, abort split, explicit selective revert, and source membership after source firmware confirmation.
-  - Cover a deterministic healthy automatic journey with a 100 percent maximum drop and 10-second duration. Assert the exact policy request, automatic second-batch admission without a Continue click, visible real evidence and performance, and completed state after reload.
-  - Do not fabricate an unhealthy browser path. Fake Proto rig telemetry is random and has no public deterministic hashrate override, so evaluator and SQL store integration tests plus held component confirmation tests provide the deterministic unhealthy proof.
-  - Deterministic `afterEach` cleanup aborts active work, waits for pre-abort claims to settle, reverts transitioned miners, and clears channel membership.
-  - Lane and release history remains immutable audit data. Unique IDs and the isolated E2E database lifecycle are the cleanup boundary, and referenced firmware artifacts are not deleted.
-  - The fake rig cannot produce a real post-upload ambiguity through its public controls. Keep only that attention-required scenario blocked; service and component tests cover the no-retry behavior.
+  - Procedure tests cover additive request presence, parent and child ID routing, top-level child hiding, lane lookup from either ID, topology administration permissions, parent-ID control rejection, validation, conflict, and not-found mapping.
+- **Client and Storybook tests**
+  - Mapper and API-hook tests cover repeated lane topology, scalar presence semantics, exact model plans, parent and child mapping, legacy history, deterministic first admission, and mutation events.
+  - Component tests cover grouped declarations, zero-member flows, independent child controls, child-local errors, separate membership and convergence progress, split failures, aggregate results, header counts, focus, responsive layout, accessibility, evidence states, and result acknowledgement.
+  - Storybook scenarios provide deterministic mixed active, mixed terminal, failed admission, attention, split failure, loading, and error states.
+- **Playwright regression**
+  - Multi-model Playwright remains deferred until the fake inventory can deterministically expose at least two hardware models.
+  - The existing single-model `firmwareRollout.spec.ts` remains regression coverage. It exercises stable lane creation, one model child, manual and automatic batches, durable reopen, abort split, selective revert, and archive without changing the spec or page objects for this topology work.
+  - Deterministic multi-model correctness is provided by SQL, domain, handler, client, accessibility, and Storybook coverage.
 - **Verification gates**
-  - Run targeted Go and Vitest suites, client TypeScript and lint, the focused Playwright spec, then the full ProtoFleet E2E suite when the environment is ready.
+  - Run targeted Go and Vitest suites, client typecheck and lint, Storybook checks, and the unchanged single-model desktop Playwright spec when its local prerequisites are available.
   - Run plugin contract tests only when fake miner behavior changes. Do not refresh visual snapshot baselines for this work.
 
-## Work Breakdown
+## Migration and compatibility
+
+1. Add `rollout_lane_model`, model channel history, model binding history, aggregate parent and snapshot tables, the lane active-parent claim, topology cutover state, admin operation history, and dedicated model identity observation time without rewriting immutable releases or rollouts.
+2. Backfill declarations from legacy release targets. Register each existing physical channel once in `rollout_lane_channel`, reference it from each applicable model history, and bind current members by canonical model identity.
+3. Persist anomalies for null identity, ambiguous or missing target match, physical mismatch, missing binding, and duplicate active binding. Schema deployment succeeds while repair is pending.
+4. Expose authenticated, audited, idempotent readiness, binding repair, and enable procedures. Enablement requires zero anomalies and zero active legacy rollouts.
+5. Keep pre-cutover reads and writes on legacy authority. After enablement, repeated model topology is authoritative.
+6. Return deprecated scalar lane fields only while every declaration pointer is identical. Divergence marks scalar projection unavailable and rejects legacy flat mutation. A supported single-model legacy mutation maps to the declaration revision.
+7. Keep `rollout_lane.current_channel_id` as representative compatibility data only. It never authorizes model writes.
+8. Preserve completed legacy mixed rollouts as parentless legacy history. Do not fabricate aggregate parents or one-model children.
+9. Preserve immutable lane channel history and ended bindings through archive. Down migration refuses destructive rollback after topology administration or new history exists.
+
+## Risks and mitigations
+
+- **Legacy identity ambiguity:** Keep topology disabled, report repairable anomalies, and require audited repair plus repeatable readiness before cutover.
+- **Mixed writers during deployment:** Gate all new-topology writes on persisted enablement and drain active legacy rollout work first.
+- **Cross-model lock cycles:** Use canonical model, channel, and device ordering for aggregate start. Keep ordinary child controls off the lane and sibling locks.
+- **Partial aggregate creation:** Preflight every selected model before one transaction creates the claim, parent, children, targets, and batches.
+- **Unknown first-admission outcome:** Preserve the started control and deterministic key until durable child state resolves replay. Increment attempts only after definitive rollback.
+- **Stale model identity:** Use the dedicated observation timestamp. Hold before dispatch, defer finalization, and terminalize a fresh mismatch without retry.
+- **Split model state:** Advance pointers only on full success, block newer same-model work, and provide selective split revert from the source pointer.
+- **Evidence leakage across models:** Select candidates by child and batch, require model-homogeneous cohorts, and never sum hashrate across children.
+- **Premature parent result or claim release:** Derive result readiness separately from lifecycle and settle the claim only after every child work class and required evidence closes.
+- **Archive history loss:** End active bindings but retain lane registry, model history, group, child, and activity identity for archived lookup.
+- **Aggregate read cost:** Index parent, child, declaration, state, and active-claim lookups; list bounded parent summaries and bulk hydrate children in canonical order.
+- **Fake inventory limits:** Keep browser coverage single-model and use deterministic lower-layer and Storybook tests for multi-model behavior.
+
+## Delivery phases
 
 1. **Shared substrate**
-   - Add immutable releases, exclusive channels, artifact guards, per-miner authority and enforcement, one at-most-once reconciler, durable rollout records, evidence, controls, permissions, and model-neutral client adapters.
-2. **Model B prototype**
-   - Add stable lane storage and APIs, immutable physical channel history, confirmed-membership finalization, abort settlement, selective revert, activity projection, and the firmware-settings lane workflow.
-   - Add durable hashrate baseline and post-update evidence, manual evidence review, and opt-in maximum-drop plus dwell auto-continue with complete and fresh coverage.
-   - Add the repeatable Playwright operator evaluation with mutable-state cleanup, a healthy automatic path, and isolated retention of immutable audit history.
-3. **Model A sibling**
+   - Immutable releases, exclusive physical channels, firmware authority and enforcement, at-most-once reconciliation, generic child rollouts, evidence, controls, permissions, and client adapters.
+2. **Model B single-model prototype**
+   - Stable rollout lane, immutable channel history, confirmed membership, abort settlement, selective revert, and the single-model operator journey.
+3. **Model B multi-model topology**
+   - Declarations, per-model pointers and bindings, topology migration and cutover, one-model mutations, aggregate parent and claim, atomic multi-child start, independent controls, aggregate projection, activity, live UI, results, and header.
+4. **Model B hardening**
+   - Admission recovery, fresh identity, evidence cancellation, lock scope, split failure and revert, canonical claim settlement, archive, restart recovery, compatibility, and deterministic multi-model validation.
+5. **Model A sibling**
    - Reuse the shared substrate with staged declaration activation, hold-back semantics, abort declaration behavior, and its channel-centered UI.
-4. **Comparison closure**
-   - Compare publish/start flow, batch review, split-state legibility, hold-backs, abort aftermath, revert, repeated releases, and operational cleanup.
-   - Select the model only after both prototypes use the same safety and persistence substrate. Update this TDD in place with the decision.
-5. **Production hardening after selection**
-   - Resource-instance RBAC, controller credentials and silence policy, production tuning and alerting for the hashrate evaluator, policy metrics beyond hashrate, scheduling, multi-instance coordination, channel retirement and garbage collection, and statistical evidence.
+6. **Comparison closure**
+   - Compare publish and start flow, model and batch review, split-state legibility, hold-backs, abort aftermath, revert, repeated releases, and operational cleanup.
+   - Select a model only after both prototypes use the same safety and persistence substrate. Until then, this TDD keeps the evaluation open.
+7. **Production hardening after selection**
+   - Resource-instance RBAC, controller credentials and silence policy, evaluator tuning and alerting, policy metrics beyond hashrate, scheduling, multi-instance coordination, physical-channel retirement, garbage collection, and statistical evidence.

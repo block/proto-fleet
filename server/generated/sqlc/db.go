@@ -36,6 +36,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addRolloutLaneMembershipDevicesStmt, err = db.PrepareContext(ctx, addRolloutLaneMembershipDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query AddRolloutLaneMembershipDevices: %w", err)
 	}
+	if q.addRolloutLaneModelMembershipDevicesStmt, err = db.PrepareContext(ctx, addRolloutLaneModelMembershipDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query AddRolloutLaneModelMembershipDevices: %w", err)
+	}
 	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
 	}
@@ -56,6 +59,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.advanceRolloutLaneCurrentChannelStmt, err = db.PrepareContext(ctx, advanceRolloutLaneCurrentChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceRolloutLaneCurrentChannel: %w", err)
+	}
+	if q.advanceRolloutLaneModelCurrentTargetStmt, err = db.PrepareContext(ctx, advanceRolloutLaneModelCurrentTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceRolloutLaneModelCurrentTarget: %w", err)
+	}
+	if q.advanceRolloutLaneModelTargetStmt, err = db.PrepareContext(ctx, advanceRolloutLaneModelTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceRolloutLaneModelTarget: %w", err)
 	}
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
@@ -93,6 +102,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.attachBetweenChannelRevertEnforcementsStmt, err = db.PrepareContext(ctx, attachBetweenChannelRevertEnforcements); err != nil {
 		return nil, fmt.Errorf("error preparing query AttachBetweenChannelRevertEnforcements: %w", err)
 	}
+	if q.attachFirmwareRolloutGroupModelChildStmt, err = db.PrepareContext(ctx, attachFirmwareRolloutGroupModelChild); err != nil {
+		return nil, fmt.Errorf("error preparing query AttachFirmwareRolloutGroupModelChild: %w", err)
+	}
 	if q.beginCurtailmentRestorationStmt, err = db.PrepareContext(ctx, beginCurtailmentRestoration); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentRestoration: %w", err)
 	}
@@ -123,8 +135,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bumpRolloutLaneMembershipRevisionsStmt, err = db.PrepareContext(ctx, bumpRolloutLaneMembershipRevisions); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpRolloutLaneMembershipRevisions: %w", err)
 	}
+	if q.bumpRolloutLaneModelRevisionStmt, err = db.PrepareContext(ctx, bumpRolloutLaneModelRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query BumpRolloutLaneModelRevision: %w", err)
+	}
+	if q.bumpRolloutLaneModelRevisionsStmt, err = db.PrepareContext(ctx, bumpRolloutLaneModelRevisions); err != nil {
+		return nil, fmt.Errorf("error preparing query BumpRolloutLaneModelRevisions: %w", err)
+	}
 	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
+	}
+	if q.cancelFirmwareRolloutEvidenceStmt, err = db.PrepareContext(ctx, cancelFirmwareRolloutEvidence); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelFirmwareRolloutEvidence: %w", err)
 	}
 	if q.cancelHaltedBetweenChannelEnforcementStmt, err = db.PrepareContext(ctx, cancelHaltedBetweenChannelEnforcement); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelHaltedBetweenChannelEnforcement: %w", err)
@@ -189,6 +210,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
 	}
+	if q.claimRolloutLaneActiveParentStmt, err = db.PrepareContext(ctx, claimRolloutLaneActiveParent); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimRolloutLaneActiveParent: %w", err)
+	}
 	if q.classifyFleetRuntimeLeaseAcquisitionStmt, err = db.PrepareContext(ctx, classifyFleetRuntimeLeaseAcquisition); err != nil {
 		return nil, fmt.Errorf("error preparing query ClassifyFleetRuntimeLeaseAcquisition: %w", err)
 	}
@@ -225,6 +249,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.completeFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutBatches); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutBatches: %w", err)
 	}
+	if q.completeFirmwareRolloutEvidenceRowsStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutEvidenceRows); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutEvidenceRows: %w", err)
+	}
 	if q.completeFirmwareRolloutRevertMembersStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutRevertMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutRevertMembers: %w", err)
 	}
@@ -251,6 +278,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
+	}
+	if q.countActiveLegacyRolloutLaneWorkStmt, err = db.PrepareContext(ctx, countActiveLegacyRolloutLaneWork); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveLegacyRolloutLaneWork: %w", err)
+	}
+	if q.countActiveRolloutLaneModelBindingsStmt, err = db.PrepareContext(ctx, countActiveRolloutLaneModelBindings); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveRolloutLaneModelBindings: %w", err)
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
@@ -300,6 +333,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countFirmwareRolloutDurableRevertWorkStmt, err = db.PrepareContext(ctx, countFirmwareRolloutDurableRevertWork); err != nil {
 		return nil, fmt.Errorf("error preparing query CountFirmwareRolloutDurableRevertWork: %w", err)
 	}
+	if q.countFirmwareRolloutSucceededMembersStmt, err = db.PrepareContext(ctx, countFirmwareRolloutSucceededMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CountFirmwareRolloutSucceededMembers: %w", err)
+	}
 	if q.countInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, countInfrastructureDevicesBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountInfrastructureDevicesBySite: %w", err)
 	}
@@ -327,6 +363,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
 	}
+	if q.countRolloutLaneActiveParentsForTestStmt, err = db.PrepareContext(ctx, countRolloutLaneActiveParentsForTest); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRolloutLaneActiveParentsForTest: %w", err)
+	}
 	if q.countRolloutLaneMembersStmt, err = db.PrepareContext(ctx, countRolloutLaneMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRolloutLaneMembers: %w", err)
 	}
@@ -335,6 +374,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countRolloutLaneNonCurrentMembersStmt, err = db.PrepareContext(ctx, countRolloutLaneNonCurrentMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRolloutLaneNonCurrentMembers: %w", err)
+	}
+	if q.countRolloutLaneTopologyAnomaliesStmt, err = db.PrepareContext(ctx, countRolloutLaneTopologyAnomalies); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRolloutLaneTopologyAnomalies: %w", err)
 	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
@@ -384,6 +426,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createFirmwareRolloutControlStmt, err = db.PrepareContext(ctx, createFirmwareRolloutControl); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutControl: %w", err)
 	}
+	if q.createFirmwareRolloutGroupStmt, err = db.PrepareContext(ctx, createFirmwareRolloutGroup); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutGroup: %w", err)
+	}
+	if q.createFirmwareRolloutGroupModelStmt, err = db.PrepareContext(ctx, createFirmwareRolloutGroupModel); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutGroupModel: %w", err)
+	}
 	if q.createFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, createFirmwareRolloutMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutMembers: %w", err)
 	}
@@ -428,6 +476,24 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createRolloutLaneMembershipEnforcementsStmt, err = db.PrepareContext(ctx, createRolloutLaneMembershipEnforcements); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateRolloutLaneMembershipEnforcements: %w", err)
+	}
+	if q.createRolloutLaneModelBindingRepairStmt, err = db.PrepareContext(ctx, createRolloutLaneModelBindingRepair); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneModelBindingRepair: %w", err)
+	}
+	if q.createRolloutLaneModelBindingsStmt, err = db.PrepareContext(ctx, createRolloutLaneModelBindings); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneModelBindings: %w", err)
+	}
+	if q.createRolloutLaneModelChannelStmt, err = db.PrepareContext(ctx, createRolloutLaneModelChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneModelChannel: %w", err)
+	}
+	if q.createRolloutLaneModelDeclarationStmt, err = db.PrepareContext(ctx, createRolloutLaneModelDeclaration); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneModelDeclaration: %w", err)
+	}
+	if q.createRolloutLaneModelEnforcementsStmt, err = db.PrepareContext(ctx, createRolloutLaneModelEnforcements); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneModelEnforcements: %w", err)
+	}
+	if q.createRolloutLaneTopologyAdminOperationStmt, err = db.PrepareContext(ctx, createRolloutLaneTopologyAdminOperation); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateRolloutLaneTopologyAdminOperation: %w", err)
 	}
 	if q.createScheduleStmt, err = db.PrepareContext(ctx, createSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSchedule: %w", err)
@@ -519,11 +585,29 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.disableSyncCommitStmt, err = db.PrepareContext(ctx, disableSyncCommit); err != nil {
 		return nil, fmt.Errorf("error preparing query DisableSyncCommit: %w", err)
 	}
+	if q.enableRolloutLaneModelTopologyStmt, err = db.PrepareContext(ctx, enableRolloutLaneModelTopology); err != nil {
+		return nil, fmt.Errorf("error preparing query EnableRolloutLaneModelTopology: %w", err)
+	}
+	if q.endActiveRolloutLaneModelBindingStmt, err = db.PrepareContext(ctx, endActiveRolloutLaneModelBinding); err != nil {
+		return nil, fmt.Errorf("error preparing query EndActiveRolloutLaneModelBinding: %w", err)
+	}
+	if q.endRolloutLaneModelBindingsStmt, err = db.PrepareContext(ctx, endRolloutLaneModelBindings); err != nil {
+		return nil, fmt.Errorf("error preparing query EndRolloutLaneModelBindings: %w", err)
+	}
+	if q.endRolloutLaneModelBindingsForArchiveStmt, err = db.PrepareContext(ctx, endRolloutLaneModelBindingsForArchive); err != nil {
+		return nil, fmt.Errorf("error preparing query EndRolloutLaneModelBindingsForArchive: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
 	if q.finalizeBetweenChannelForwardStmt, err = db.PrepareContext(ctx, finalizeBetweenChannelForward); err != nil {
 		return nil, fmt.Errorf("error preparing query FinalizeBetweenChannelForward: %w", err)
+	}
+	if q.finalizeBetweenChannelModelForwardStmt, err = db.PrepareContext(ctx, finalizeBetweenChannelModelForward); err != nil {
+		return nil, fmt.Errorf("error preparing query FinalizeBetweenChannelModelForward: %w", err)
+	}
+	if q.finalizeBetweenChannelModelRevertStmt, err = db.PrepareContext(ctx, finalizeBetweenChannelModelRevert); err != nil {
+		return nil, fmt.Errorf("error preparing query FinalizeBetweenChannelModelRevert: %w", err)
 	}
 	if q.finalizeBetweenChannelRevertStmt, err = db.PrepareContext(ctx, finalizeBetweenChannelRevert); err != nil {
 		return nil, fmt.Errorf("error preparing query FinalizeBetweenChannelRevert: %w", err)
@@ -807,6 +891,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDiscoveredFirmwareVersionForTestStmt, err = db.PrepareContext(ctx, getDiscoveredFirmwareVersionForTest); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredFirmwareVersionForTest: %w", err)
 	}
+	if q.getDiscoveredModelIdentityObservedAtForTestStmt, err = db.PrepareContext(ctx, getDiscoveredModelIdentityObservedAtForTest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDiscoveredModelIdentityObservedAtForTest: %w", err)
+	}
 	if q.getDistinctActivityUsersStmt, err = db.PrepareContext(ctx, getDistinctActivityUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctActivityUsers: %w", err)
 	}
@@ -851,6 +938,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getFirmwareRolloutControlByKeyStmt, err = db.PrepareContext(ctx, getFirmwareRolloutControlByKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutControlByKey: %w", err)
+	}
+	if q.getFirmwareRolloutGroupStmt, err = db.PrepareContext(ctx, getFirmwareRolloutGroup); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutGroup: %w", err)
+	}
+	if q.getFirmwareRolloutGroupByStartKeyStmt, err = db.PrepareContext(ctx, getFirmwareRolloutGroupByStartKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutGroupByStartKey: %w", err)
 	}
 	if q.getFleetMetricRollupCoverageStmt, err = db.PrepareContext(ctx, getFleetMetricRollupCoverage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetMetricRollupCoverage: %w", err)
@@ -1017,6 +1110,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRolloutLaneStmt, err = db.PrepareContext(ctx, getRolloutLane); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLane: %w", err)
 	}
+	if q.getRolloutLaneActiveParentStmt, err = db.PrepareContext(ctx, getRolloutLaneActiveParent); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneActiveParent: %w", err)
+	}
+	if q.getRolloutLaneActiveParentForTestStmt, err = db.PrepareContext(ctx, getRolloutLaneActiveParentForTest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneActiveParentForTest: %w", err)
+	}
 	if q.getRolloutLaneAssignmentsStmt, err = db.PrepareContext(ctx, getRolloutLaneAssignments); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLaneAssignments: %w", err)
 	}
@@ -1040,6 +1139,27 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRolloutLaneMembershipMutationCountsForTestStmt, err = db.PrepareContext(ctx, getRolloutLaneMembershipMutationCountsForTest); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLaneMembershipMutationCountsForTest: %w", err)
+	}
+	if q.getRolloutLaneModelCurrentTargetStmt, err = db.PrepareContext(ctx, getRolloutLaneModelCurrentTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneModelCurrentTarget: %w", err)
+	}
+	if q.getRolloutLaneModelForTestStmt, err = db.PrepareContext(ctx, getRolloutLaneModelForTest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneModelForTest: %w", err)
+	}
+	if q.getRolloutLaneReleaseTargetByModelStmt, err = db.PrepareContext(ctx, getRolloutLaneReleaseTargetByModel); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneReleaseTargetByModel: %w", err)
+	}
+	if q.getRolloutLaneSettlementStateStmt, err = db.PrepareContext(ctx, getRolloutLaneSettlementState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneSettlementState: %w", err)
+	}
+	if q.getRolloutLaneTopologyAdminOperationByKeyStmt, err = db.PrepareContext(ctx, getRolloutLaneTopologyAdminOperationByKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneTopologyAdminOperationByKey: %w", err)
+	}
+	if q.getRolloutLaneTopologyCountsForTestStmt, err = db.PrepareContext(ctx, getRolloutLaneTopologyCountsForTest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneTopologyCountsForTest: %w", err)
+	}
+	if q.getRolloutLaneTopologyCutoverStmt, err = db.PrepareContext(ctx, getRolloutLaneTopologyCutover); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneTopologyCutover: %w", err)
 	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt, err = db.PrepareContext(ctx, getRunningPowerTargetScheduleOverlaps); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetScheduleOverlaps: %w", err)
@@ -1113,8 +1233,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasActiveRolloutLaneManagementWorkStmt, err = db.PrepareContext(ctx, hasActiveRolloutLaneManagementWork); err != nil {
 		return nil, fmt.Errorf("error preparing query HasActiveRolloutLaneManagementWork: %w", err)
 	}
+	if q.hasActiveRolloutLaneModelWorkStmt, err = db.PrepareContext(ctx, hasActiveRolloutLaneModelWork); err != nil {
+		return nil, fmt.Errorf("error preparing query HasActiveRolloutLaneModelWork: %w", err)
+	}
+	if q.hasCurrentFirmwareRolloutAdmissionFailureStmt, err = db.PrepareContext(ctx, hasCurrentFirmwareRolloutAdmissionFailure); err != nil {
+		return nil, fmt.Errorf("error preparing query HasCurrentFirmwareRolloutAdmissionFailure: %w", err)
+	}
 	if q.hasFirmwareRolloutSucceededMembersStmt, err = db.PrepareContext(ctx, hasFirmwareRolloutSucceededMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query HasFirmwareRolloutSucceededMembers: %w", err)
+	}
+	if q.hasNewerOrConflictingRolloutLaneModelWorkStmt, err = db.PrepareContext(ctx, hasNewerOrConflictingRolloutLaneModelWork); err != nil {
+		return nil, fmt.Errorf("error preparing query HasNewerOrConflictingRolloutLaneModelWork: %w", err)
 	}
 	if q.hasUnconfirmedRolloutLaneFirmwareConvergenceStmt, err = db.PrepareContext(ctx, hasUnconfirmedRolloutLaneFirmwareConvergence); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUnconfirmedRolloutLaneFirmwareConvergence: %w", err)
@@ -1200,6 +1329,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveRolloutLaneFirmwareConvergenceStatusesStmt, err = db.PrepareContext(ctx, listActiveRolloutLaneFirmwareConvergenceStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveRolloutLaneFirmwareConvergenceStatuses: %w", err)
 	}
+	if q.listActiveRolloutLaneModelBindingsForDevicesStmt, err = db.PrepareContext(ctx, listActiveRolloutLaneModelBindingsForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveRolloutLaneModelBindingsForDevices: %w", err)
+	}
 	if q.listActiveRolloutOwnedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listActiveRolloutOwnedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveRolloutOwnedDeviceIdentifiers: %w", err)
 	}
@@ -1259,6 +1391,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listCurrentChannelIDsForDevicesStmt, err = db.PrepareContext(ctx, listCurrentChannelIDsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurrentChannelIDsForDevices: %w", err)
+	}
+	if q.listCurrentFirmwareRolloutAdmissionFailuresStmt, err = db.PrepareContext(ctx, listCurrentFirmwareRolloutAdmissionFailures); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurrentFirmwareRolloutAdmissionFailures: %w", err)
 	}
 	if q.listCurtailmentAutomationRulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationRulesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationRulesByOrg: %w", err)
@@ -1332,17 +1467,47 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutBatches); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutBatches: %w", err)
 	}
+	if q.listFirmwareRolloutBatchesByRolloutIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutBatchesByRolloutIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutBatchesByRolloutIDs: %w", err)
+	}
 	if q.listFirmwareRolloutCausesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutCauses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutCauses: %w", err)
+	}
+	if q.listFirmwareRolloutCausesByRolloutIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutCausesByRolloutIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutCausesByRolloutIDs: %w", err)
 	}
 	if q.listFirmwareRolloutEvidenceStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvidence); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvidence: %w", err)
 	}
+	if q.listFirmwareRolloutEvidenceByRolloutIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvidenceByRolloutIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvidenceByRolloutIDs: %w", err)
+	}
 	if q.listFirmwareRolloutEvidenceCandidatesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvidenceCandidates); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvidenceCandidates: %w", err)
 	}
+	if q.listFirmwareRolloutGroupChildrenStmt, err = db.PrepareContext(ctx, listFirmwareRolloutGroupChildren); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutGroupChildren: %w", err)
+	}
+	if q.listFirmwareRolloutGroupChildrenByGroupIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutGroupChildrenByGroupIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutGroupChildrenByGroupIDs: %w", err)
+	}
+	if q.listFirmwareRolloutGroupModelsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutGroupModels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutGroupModels: %w", err)
+	}
+	if q.listFirmwareRolloutGroupModelsByGroupIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutGroupModelsByGroupIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutGroupModelsByGroupIDs: %w", err)
+	}
+	if q.listFirmwareRolloutGroupsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutGroups); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutGroups: %w", err)
+	}
+	if q.listFirmwareRolloutMemberDeviceIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutMemberDeviceIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutMemberDeviceIDs: %w", err)
+	}
 	if q.listFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, listFirmwareRolloutMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutMembers: %w", err)
+	}
+	if q.listFirmwareRolloutMembersByRolloutIDsStmt, err = db.PrepareContext(ctx, listFirmwareRolloutMembersByRolloutIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutMembersByRolloutIDs: %w", err)
 	}
 	if q.listFirmwareRolloutsStmt, err = db.PrepareContext(ctx, listFirmwareRollouts); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareRollouts: %w", err)
@@ -1419,6 +1584,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesWithDetailsForOrgStmt, err = db.PrepareContext(ctx, listRolesWithDetailsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolesWithDetailsForOrg: %w", err)
 	}
+	if q.listRolloutLaneActiveParentsStmt, err = db.PrepareContext(ctx, listRolloutLaneActiveParents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneActiveParents: %w", err)
+	}
+	if q.listRolloutLaneChannelDetailsByLaneIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneChannelDetailsByLaneIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneChannelDetailsByLaneIDs: %w", err)
+	}
 	if q.listRolloutLaneChannelTransitionsStmt, err = db.PrepareContext(ctx, listRolloutLaneChannelTransitions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLaneChannelTransitions: %w", err)
 	}
@@ -1449,8 +1620,32 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolloutLaneMembershipCandidatesStmt, err = db.PrepareContext(ctx, listRolloutLaneMembershipCandidates); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLaneMembershipCandidates: %w", err)
 	}
+	if q.listRolloutLaneModelChannelsStmt, err = db.PrepareContext(ctx, listRolloutLaneModelChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelChannels: %w", err)
+	}
+	if q.listRolloutLaneModelChannelsByLaneIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneModelChannelsByLaneIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelChannelsByLaneIDs: %w", err)
+	}
+	if q.listRolloutLaneModelFirmwareConvergenceStatusesStmt, err = db.PrepareContext(ctx, listRolloutLaneModelFirmwareConvergenceStatuses); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelFirmwareConvergenceStatuses: %w", err)
+	}
+	if q.listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs: %w", err)
+	}
+	if q.listRolloutLaneModelTransitionsStmt, err = db.PrepareContext(ctx, listRolloutLaneModelTransitions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelTransitions: %w", err)
+	}
+	if q.listRolloutLaneModelsStmt, err = db.PrepareContext(ctx, listRolloutLaneModels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModels: %w", err)
+	}
+	if q.listRolloutLaneModelsByLaneIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneModelsByLaneIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneModelsByLaneIDs: %w", err)
+	}
 	if q.listRolloutLaneOwnedChannelIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneOwnedChannelIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLaneOwnedChannelIDs: %w", err)
+	}
+	if q.listRolloutLaneTopologyAnomaliesStmt, err = db.PrepareContext(ctx, listRolloutLaneTopologyAnomalies); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneTopologyAnomalies: %w", err)
 	}
 	if q.listRolloutLanesStmt, err = db.PrepareContext(ctx, listRolloutLanes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLanes: %w", err)
@@ -1557,6 +1752,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockRolloutLaneStmt, err = db.PrepareContext(ctx, lockRolloutLane); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLane: %w", err)
 	}
+	if q.lockRolloutLaneActiveParentStmt, err = db.PrepareContext(ctx, lockRolloutLaneActiveParent); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneActiveParent: %w", err)
+	}
 	if q.lockRolloutLaneDevicesForArchiveStmt, err = db.PrepareContext(ctx, lockRolloutLaneDevicesForArchive); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLaneDevicesForArchive: %w", err)
 	}
@@ -1569,8 +1767,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockRolloutLaneManagementAuthoritiesStmt, err = db.PrepareContext(ctx, lockRolloutLaneManagementAuthorities); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLaneManagementAuthorities: %w", err)
 	}
+	if q.lockRolloutLaneModelForMutationStmt, err = db.PrepareContext(ctx, lockRolloutLaneModelForMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneModelForMutation: %w", err)
+	}
+	if q.lockRolloutLaneModelForRepairStmt, err = db.PrepareContext(ctx, lockRolloutLaneModelForRepair); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneModelForRepair: %w", err)
+	}
+	if q.lockRolloutLaneModelRepairDeviceStmt, err = db.PrepareContext(ctx, lockRolloutLaneModelRepairDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneModelRepairDevice: %w", err)
+	}
+	if q.lockRolloutLaneModelsForMutationStmt, err = db.PrepareContext(ctx, lockRolloutLaneModelsForMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneModelsForMutation: %w", err)
+	}
 	if q.lockRolloutLaneOwnedRolloutMembersStmt, err = db.PrepareContext(ctx, lockRolloutLaneOwnedRolloutMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLaneOwnedRolloutMembers: %w", err)
+	}
+	if q.lockRolloutLaneTopologyCutoverStmt, err = db.PrepareContext(ctx, lockRolloutLaneTopologyCutover); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneTopologyCutover: %w", err)
 	}
 	if q.lockRolloutLanesStmt, err = db.PrepareContext(ctx, lockRolloutLanes); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLanes: %w", err)
@@ -1629,6 +1842,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.prepareFirmwareRolloutMembersForRevertStmt, err = db.PrepareContext(ctx, prepareFirmwareRolloutMembersForRevert); err != nil {
 		return nil, fmt.Errorf("error preparing query PrepareFirmwareRolloutMembersForRevert: %w", err)
 	}
+	if q.prepareModelFirmwareRolloutMembersForRevertStmt, err = db.PrepareContext(ctx, prepareModelFirmwareRolloutMembersForRevert); err != nil {
+		return nil, fmt.Errorf("error preparing query PrepareModelFirmwareRolloutMembersForRevert: %w", err)
+	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
 	}
@@ -1668,11 +1884,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
 	}
+	if q.refreshFirmwareRolloutGroupResultStmt, err = db.PrepareContext(ctx, refreshFirmwareRolloutGroupResult); err != nil {
+		return nil, fmt.Errorf("error preparing query RefreshFirmwareRolloutGroupResult: %w", err)
+	}
+	if q.refreshFirmwareRolloutGroupResultsStmt, err = db.PrepareContext(ctx, refreshFirmwareRolloutGroupResults); err != nil {
+		return nil, fmt.Errorf("error preparing query RefreshFirmwareRolloutGroupResults: %w", err)
+	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
 	}
 	if q.releaseFirmwareRolloutOwnersStmt, err = db.PrepareContext(ctx, releaseFirmwareRolloutOwners); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseFirmwareRolloutOwners: %w", err)
+	}
+	if q.releaseRolloutLaneActiveParentStmt, err = db.PrepareContext(ctx, releaseRolloutLaneActiveParent); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseRolloutLaneActiveParent: %w", err)
 	}
 	if q.releaseTerminalFirmwareRolloutOwnersStmt, err = db.PrepareContext(ctx, releaseTerminalFirmwareRolloutOwners); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseTerminalFirmwareRolloutOwners: %w", err)
@@ -1698,6 +1923,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeRolloutLaneMembershipsStmt, err = db.PrepareContext(ctx, removeRolloutLaneMemberships); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveRolloutLaneMemberships: %w", err)
 	}
+	if q.removeRolloutLaneModelMembershipDevicesStmt, err = db.PrepareContext(ctx, removeRolloutLaneModelMembershipDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query RemoveRolloutLaneModelMembershipDevices: %w", err)
+	}
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
 	}
@@ -1712,6 +1940,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.resetCurtailmentTargetsForRestoreStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRestore: %w", err)
+	}
+	if q.resetFirmwareRolloutAdmissionAfterFailureStmt, err = db.PrepareContext(ctx, resetFirmwareRolloutAdmissionAfterFailure); err != nil {
+		return nil, fmt.Errorf("error preparing query ResetFirmwareRolloutAdmissionAfterFailure: %w", err)
 	}
 	if q.resetFirmwareRolloutAdmissionBatchAfterFailureStmt, err = db.PrepareContext(ctx, resetFirmwareRolloutAdmissionBatchAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetFirmwareRolloutAdmissionBatchAfterFailure: %w", err)
@@ -1757,6 +1988,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
+	}
+	if q.runRolloutLaneTopologyBackfillStmt, err = db.PrepareContext(ctx, runRolloutLaneTopologyBackfill); err != nil {
+		return nil, fmt.Errorf("error preparing query RunRolloutLaneTopologyBackfill: %w", err)
 	}
 	if q.setCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationActiveEvent: %w", err)
@@ -1884,6 +2118,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.sweepExpiredFleetNodeSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeSessions: %w", err)
 	}
+	if q.testClaimRolloutLaneActiveParentStmt, err = db.PrepareContext(ctx, testClaimRolloutLaneActiveParent); err != nil {
+		return nil, fmt.Errorf("error preparing query TestClaimRolloutLaneActiveParent: %w", err)
+	}
+	if q.testCreateFirmwareRolloutGroupStmt, err = db.PrepareContext(ctx, testCreateFirmwareRolloutGroup); err != nil {
+		return nil, fmt.Errorf("error preparing query TestCreateFirmwareRolloutGroup: %w", err)
+	}
+	if q.testCreateRolloutLaneModelChannelStmt, err = db.PrepareContext(ctx, testCreateRolloutLaneModelChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query TestCreateRolloutLaneModelChannel: %w", err)
+	}
 	if q.testDeleteRolloutLaneMembershipChangeStmt, err = db.PrepareContext(ctx, testDeleteRolloutLaneMembershipChange); err != nil {
 		return nil, fmt.Errorf("error preparing query TestDeleteRolloutLaneMembershipChange: %w", err)
 	}
@@ -1908,17 +2151,29 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.testMutateRolloutLaneMembershipChangeReasonStmt, err = db.PrepareContext(ctx, testMutateRolloutLaneMembershipChangeReason); err != nil {
 		return nil, fmt.Errorf("error preparing query TestMutateRolloutLaneMembershipChangeReason: %w", err)
 	}
+	if q.testSetDiscoveredEndpointStmt, err = db.PrepareContext(ctx, testSetDiscoveredEndpoint); err != nil {
+		return nil, fmt.Errorf("error preparing query TestSetDiscoveredEndpoint: %w", err)
+	}
 	if q.testSetDiscoveredFirmwareVersionStmt, err = db.PrepareContext(ctx, testSetDiscoveredFirmwareVersion); err != nil {
 		return nil, fmt.Errorf("error preparing query TestSetDiscoveredFirmwareVersion: %w", err)
 	}
 	if q.testSetRolloutLaneMembershipEnforcementStateStmt, err = db.PrepareContext(ctx, testSetRolloutLaneMembershipEnforcementState); err != nil {
 		return nil, fmt.Errorf("error preparing query TestSetRolloutLaneMembershipEnforcementState: %w", err)
 	}
+	if q.testSetRolloutLaneModelCurrentChannelStmt, err = db.PrepareContext(ctx, testSetRolloutLaneModelCurrentChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query TestSetRolloutLaneModelCurrentChannel: %w", err)
+	}
 	if q.testSoftDeleteDeviceByIdentifierStmt, err = db.PrepareContext(ctx, testSoftDeleteDeviceByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query TestSoftDeleteDeviceByIdentifier: %w", err)
 	}
 	if q.testTruncateRolloutLaneMembershipChangesStmt, err = db.PrepareContext(ctx, testTruncateRolloutLaneMembershipChanges); err != nil {
 		return nil, fmt.Errorf("error preparing query TestTruncateRolloutLaneMembershipChanges: %w", err)
+	}
+	if q.testUpdateFirmwareRolloutGroupMetadataStmt, err = db.PrepareContext(ctx, testUpdateFirmwareRolloutGroupMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query TestUpdateFirmwareRolloutGroupMetadata: %w", err)
+	}
+	if q.testUpdateFirmwareRolloutGroupResultStmt, err = db.PrepareContext(ctx, testUpdateFirmwareRolloutGroupResult); err != nil {
+		return nil, fmt.Errorf("error preparing query TestUpdateFirmwareRolloutGroupResult: %w", err)
 	}
 	if q.transferDiscoveredDeviceAttributionStmt, err = db.PrepareContext(ctx, transferDiscoveredDeviceAttribution); err != nil {
 		return nil, fmt.Errorf("error preparing query TransferDiscoveredDeviceAttribution: %w", err)
@@ -2176,6 +2431,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing addRolloutLaneMembershipDevicesStmt: %w", cerr)
 		}
 	}
+	if q.addRolloutLaneModelMembershipDevicesStmt != nil {
+		if cerr := q.addRolloutLaneModelMembershipDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing addRolloutLaneModelMembershipDevicesStmt: %w", cerr)
+		}
+	}
 	if q.adminResetUserPasswordStmt != nil {
 		if cerr := q.adminResetUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing adminResetUserPasswordStmt: %w", cerr)
@@ -2209,6 +2469,16 @@ func (q *Queries) Close() error {
 	if q.advanceRolloutLaneCurrentChannelStmt != nil {
 		if cerr := q.advanceRolloutLaneCurrentChannelStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing advanceRolloutLaneCurrentChannelStmt: %w", cerr)
+		}
+	}
+	if q.advanceRolloutLaneModelCurrentTargetStmt != nil {
+		if cerr := q.advanceRolloutLaneModelCurrentTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceRolloutLaneModelCurrentTargetStmt: %w", cerr)
+		}
+	}
+	if q.advanceRolloutLaneModelTargetStmt != nil {
+		if cerr := q.advanceRolloutLaneModelTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceRolloutLaneModelTargetStmt: %w", cerr)
 		}
 	}
 	if q.allDevicesBelongToOrgStmt != nil {
@@ -2271,6 +2541,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing attachBetweenChannelRevertEnforcementsStmt: %w", cerr)
 		}
 	}
+	if q.attachFirmwareRolloutGroupModelChildStmt != nil {
+		if cerr := q.attachFirmwareRolloutGroupModelChildStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing attachFirmwareRolloutGroupModelChildStmt: %w", cerr)
+		}
+	}
 	if q.beginCurtailmentRestorationStmt != nil {
 		if cerr := q.beginCurtailmentRestorationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing beginCurtailmentRestorationStmt: %w", cerr)
@@ -2321,9 +2596,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing bumpRolloutLaneMembershipRevisionsStmt: %w", cerr)
 		}
 	}
+	if q.bumpRolloutLaneModelRevisionStmt != nil {
+		if cerr := q.bumpRolloutLaneModelRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bumpRolloutLaneModelRevisionStmt: %w", cerr)
+		}
+	}
+	if q.bumpRolloutLaneModelRevisionsStmt != nil {
+		if cerr := q.bumpRolloutLaneModelRevisionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bumpRolloutLaneModelRevisionsStmt: %w", cerr)
+		}
+	}
 	if q.cancelEnrollmentForFleetNodeStmt != nil {
 		if cerr := q.cancelEnrollmentForFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelEnrollmentForFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.cancelFirmwareRolloutEvidenceStmt != nil {
+		if cerr := q.cancelFirmwareRolloutEvidenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelFirmwareRolloutEvidenceStmt: %w", cerr)
 		}
 	}
 	if q.cancelHaltedBetweenChannelEnforcementStmt != nil {
@@ -2431,6 +2721,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing claimRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
+	if q.claimRolloutLaneActiveParentStmt != nil {
+		if cerr := q.claimRolloutLaneActiveParentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimRolloutLaneActiveParentStmt: %w", cerr)
+		}
+	}
 	if q.classifyFleetRuntimeLeaseAcquisitionStmt != nil {
 		if cerr := q.classifyFleetRuntimeLeaseAcquisitionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing classifyFleetRuntimeLeaseAcquisitionStmt: %w", cerr)
@@ -2491,6 +2786,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing completeFirmwareRolloutBatchesStmt: %w", cerr)
 		}
 	}
+	if q.completeFirmwareRolloutEvidenceRowsStmt != nil {
+		if cerr := q.completeFirmwareRolloutEvidenceRowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeFirmwareRolloutEvidenceRowsStmt: %w", cerr)
+		}
+	}
 	if q.completeFirmwareRolloutRevertMembersStmt != nil {
 		if cerr := q.completeFirmwareRolloutRevertMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing completeFirmwareRolloutRevertMembersStmt: %w", cerr)
@@ -2534,6 +2834,16 @@ func (q *Queries) Close() error {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
 		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveLegacyRolloutLaneWorkStmt != nil {
+		if cerr := q.countActiveLegacyRolloutLaneWorkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveLegacyRolloutLaneWorkStmt: %w", cerr)
+		}
+	}
+	if q.countActiveRolloutLaneModelBindingsStmt != nil {
+		if cerr := q.countActiveRolloutLaneModelBindingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveRolloutLaneModelBindingsStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -2616,6 +2926,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countFirmwareRolloutDurableRevertWorkStmt: %w", cerr)
 		}
 	}
+	if q.countFirmwareRolloutSucceededMembersStmt != nil {
+		if cerr := q.countFirmwareRolloutSucceededMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countFirmwareRolloutSucceededMembersStmt: %w", cerr)
+		}
+	}
 	if q.countInfrastructureDevicesBySiteStmt != nil {
 		if cerr := q.countInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countInfrastructureDevicesBySiteStmt: %w", cerr)
@@ -2661,6 +2976,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
 		}
 	}
+	if q.countRolloutLaneActiveParentsForTestStmt != nil {
+		if cerr := q.countRolloutLaneActiveParentsForTestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRolloutLaneActiveParentsForTestStmt: %w", cerr)
+		}
+	}
 	if q.countRolloutLaneMembersStmt != nil {
 		if cerr := q.countRolloutLaneMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRolloutLaneMembersStmt: %w", cerr)
@@ -2674,6 +2994,11 @@ func (q *Queries) Close() error {
 	if q.countRolloutLaneNonCurrentMembersStmt != nil {
 		if cerr := q.countRolloutLaneNonCurrentMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRolloutLaneNonCurrentMembersStmt: %w", cerr)
+		}
+	}
+	if q.countRolloutLaneTopologyAnomaliesStmt != nil {
+		if cerr := q.countRolloutLaneTopologyAnomaliesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRolloutLaneTopologyAnomaliesStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -2756,6 +3081,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createFirmwareRolloutControlStmt: %w", cerr)
 		}
 	}
+	if q.createFirmwareRolloutGroupStmt != nil {
+		if cerr := q.createFirmwareRolloutGroupStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutGroupStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutGroupModelStmt != nil {
+		if cerr := q.createFirmwareRolloutGroupModelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutGroupModelStmt: %w", cerr)
+		}
+	}
 	if q.createFirmwareRolloutMembersStmt != nil {
 		if cerr := q.createFirmwareRolloutMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFirmwareRolloutMembersStmt: %w", cerr)
@@ -2829,6 +3164,36 @@ func (q *Queries) Close() error {
 	if q.createRolloutLaneMembershipEnforcementsStmt != nil {
 		if cerr := q.createRolloutLaneMembershipEnforcementsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createRolloutLaneMembershipEnforcementsStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneModelBindingRepairStmt != nil {
+		if cerr := q.createRolloutLaneModelBindingRepairStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneModelBindingRepairStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneModelBindingsStmt != nil {
+		if cerr := q.createRolloutLaneModelBindingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneModelBindingsStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneModelChannelStmt != nil {
+		if cerr := q.createRolloutLaneModelChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneModelChannelStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneModelDeclarationStmt != nil {
+		if cerr := q.createRolloutLaneModelDeclarationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneModelDeclarationStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneModelEnforcementsStmt != nil {
+		if cerr := q.createRolloutLaneModelEnforcementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneModelEnforcementsStmt: %w", cerr)
+		}
+	}
+	if q.createRolloutLaneTopologyAdminOperationStmt != nil {
+		if cerr := q.createRolloutLaneTopologyAdminOperationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createRolloutLaneTopologyAdminOperationStmt: %w", cerr)
 		}
 	}
 	if q.createScheduleStmt != nil {
@@ -2981,6 +3346,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing disableSyncCommitStmt: %w", cerr)
 		}
 	}
+	if q.enableRolloutLaneModelTopologyStmt != nil {
+		if cerr := q.enableRolloutLaneModelTopologyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing enableRolloutLaneModelTopologyStmt: %w", cerr)
+		}
+	}
+	if q.endActiveRolloutLaneModelBindingStmt != nil {
+		if cerr := q.endActiveRolloutLaneModelBindingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing endActiveRolloutLaneModelBindingStmt: %w", cerr)
+		}
+	}
+	if q.endRolloutLaneModelBindingsStmt != nil {
+		if cerr := q.endRolloutLaneModelBindingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing endRolloutLaneModelBindingsStmt: %w", cerr)
+		}
+	}
+	if q.endRolloutLaneModelBindingsForArchiveStmt != nil {
+		if cerr := q.endRolloutLaneModelBindingsForArchiveStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing endRolloutLaneModelBindingsForArchiveStmt: %w", cerr)
+		}
+	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
 		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
@@ -2989,6 +3374,16 @@ func (q *Queries) Close() error {
 	if q.finalizeBetweenChannelForwardStmt != nil {
 		if cerr := q.finalizeBetweenChannelForwardStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing finalizeBetweenChannelForwardStmt: %w", cerr)
+		}
+	}
+	if q.finalizeBetweenChannelModelForwardStmt != nil {
+		if cerr := q.finalizeBetweenChannelModelForwardStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finalizeBetweenChannelModelForwardStmt: %w", cerr)
+		}
+	}
+	if q.finalizeBetweenChannelModelRevertStmt != nil {
+		if cerr := q.finalizeBetweenChannelModelRevertStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finalizeBetweenChannelModelRevertStmt: %w", cerr)
 		}
 	}
 	if q.finalizeBetweenChannelRevertStmt != nil {
@@ -3461,6 +3856,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDiscoveredFirmwareVersionForTestStmt: %w", cerr)
 		}
 	}
+	if q.getDiscoveredModelIdentityObservedAtForTestStmt != nil {
+		if cerr := q.getDiscoveredModelIdentityObservedAtForTestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDiscoveredModelIdentityObservedAtForTestStmt: %w", cerr)
+		}
+	}
 	if q.getDistinctActivityUsersStmt != nil {
 		if cerr := q.getDistinctActivityUsersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctActivityUsersStmt: %w", cerr)
@@ -3534,6 +3934,16 @@ func (q *Queries) Close() error {
 	if q.getFirmwareRolloutControlByKeyStmt != nil {
 		if cerr := q.getFirmwareRolloutControlByKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFirmwareRolloutControlByKeyStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutGroupStmt != nil {
+		if cerr := q.getFirmwareRolloutGroupStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutGroupStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutGroupByStartKeyStmt != nil {
+		if cerr := q.getFirmwareRolloutGroupByStartKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutGroupByStartKeyStmt: %w", cerr)
 		}
 	}
 	if q.getFleetMetricRollupCoverageStmt != nil {
@@ -3811,6 +4221,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRolloutLaneStmt: %w", cerr)
 		}
 	}
+	if q.getRolloutLaneActiveParentStmt != nil {
+		if cerr := q.getRolloutLaneActiveParentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneActiveParentStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneActiveParentForTestStmt != nil {
+		if cerr := q.getRolloutLaneActiveParentForTestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneActiveParentForTestStmt: %w", cerr)
+		}
+	}
 	if q.getRolloutLaneAssignmentsStmt != nil {
 		if cerr := q.getRolloutLaneAssignmentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRolloutLaneAssignmentsStmt: %w", cerr)
@@ -3849,6 +4269,41 @@ func (q *Queries) Close() error {
 	if q.getRolloutLaneMembershipMutationCountsForTestStmt != nil {
 		if cerr := q.getRolloutLaneMembershipMutationCountsForTestStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRolloutLaneMembershipMutationCountsForTestStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneModelCurrentTargetStmt != nil {
+		if cerr := q.getRolloutLaneModelCurrentTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneModelCurrentTargetStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneModelForTestStmt != nil {
+		if cerr := q.getRolloutLaneModelForTestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneModelForTestStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneReleaseTargetByModelStmt != nil {
+		if cerr := q.getRolloutLaneReleaseTargetByModelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneReleaseTargetByModelStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneSettlementStateStmt != nil {
+		if cerr := q.getRolloutLaneSettlementStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneSettlementStateStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneTopologyAdminOperationByKeyStmt != nil {
+		if cerr := q.getRolloutLaneTopologyAdminOperationByKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneTopologyAdminOperationByKeyStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneTopologyCountsForTestStmt != nil {
+		if cerr := q.getRolloutLaneTopologyCountsForTestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneTopologyCountsForTestStmt: %w", cerr)
+		}
+	}
+	if q.getRolloutLaneTopologyCutoverStmt != nil {
+		if cerr := q.getRolloutLaneTopologyCutoverStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneTopologyCutoverStmt: %w", cerr)
 		}
 	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt != nil {
@@ -3971,9 +4426,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasActiveRolloutLaneManagementWorkStmt: %w", cerr)
 		}
 	}
+	if q.hasActiveRolloutLaneModelWorkStmt != nil {
+		if cerr := q.hasActiveRolloutLaneModelWorkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasActiveRolloutLaneModelWorkStmt: %w", cerr)
+		}
+	}
+	if q.hasCurrentFirmwareRolloutAdmissionFailureStmt != nil {
+		if cerr := q.hasCurrentFirmwareRolloutAdmissionFailureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasCurrentFirmwareRolloutAdmissionFailureStmt: %w", cerr)
+		}
+	}
 	if q.hasFirmwareRolloutSucceededMembersStmt != nil {
 		if cerr := q.hasFirmwareRolloutSucceededMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasFirmwareRolloutSucceededMembersStmt: %w", cerr)
+		}
+	}
+	if q.hasNewerOrConflictingRolloutLaneModelWorkStmt != nil {
+		if cerr := q.hasNewerOrConflictingRolloutLaneModelWorkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasNewerOrConflictingRolloutLaneModelWorkStmt: %w", cerr)
 		}
 	}
 	if q.hasUnconfirmedRolloutLaneFirmwareConvergenceStmt != nil {
@@ -4116,6 +4586,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveRolloutLaneFirmwareConvergenceStatusesStmt: %w", cerr)
 		}
 	}
+	if q.listActiveRolloutLaneModelBindingsForDevicesStmt != nil {
+		if cerr := q.listActiveRolloutLaneModelBindingsForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveRolloutLaneModelBindingsForDevicesStmt: %w", cerr)
+		}
+	}
 	if q.listActiveRolloutOwnedDeviceIdentifiersStmt != nil {
 		if cerr := q.listActiveRolloutOwnedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveRolloutOwnedDeviceIdentifiersStmt: %w", cerr)
@@ -4214,6 +4689,11 @@ func (q *Queries) Close() error {
 	if q.listCurrentChannelIDsForDevicesStmt != nil {
 		if cerr := q.listCurrentChannelIDsForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurrentChannelIDsForDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listCurrentFirmwareRolloutAdmissionFailuresStmt != nil {
+		if cerr := q.listCurrentFirmwareRolloutAdmissionFailuresStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurrentFirmwareRolloutAdmissionFailuresStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentAutomationRulesByOrgStmt != nil {
@@ -4336,9 +4816,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFirmwareRolloutBatchesStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutBatchesByRolloutIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutBatchesByRolloutIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutBatchesByRolloutIDsStmt: %w", cerr)
+		}
+	}
 	if q.listFirmwareRolloutCausesStmt != nil {
 		if cerr := q.listFirmwareRolloutCausesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFirmwareRolloutCausesStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutCausesByRolloutIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutCausesByRolloutIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutCausesByRolloutIDsStmt: %w", cerr)
 		}
 	}
 	if q.listFirmwareRolloutEvidenceStmt != nil {
@@ -4346,14 +4836,54 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFirmwareRolloutEvidenceStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutEvidenceByRolloutIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutEvidenceByRolloutIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutEvidenceByRolloutIDsStmt: %w", cerr)
+		}
+	}
 	if q.listFirmwareRolloutEvidenceCandidatesStmt != nil {
 		if cerr := q.listFirmwareRolloutEvidenceCandidatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFirmwareRolloutEvidenceCandidatesStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutGroupChildrenStmt != nil {
+		if cerr := q.listFirmwareRolloutGroupChildrenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutGroupChildrenStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutGroupChildrenByGroupIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutGroupChildrenByGroupIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutGroupChildrenByGroupIDsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutGroupModelsStmt != nil {
+		if cerr := q.listFirmwareRolloutGroupModelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutGroupModelsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutGroupModelsByGroupIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutGroupModelsByGroupIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutGroupModelsByGroupIDsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutGroupsStmt != nil {
+		if cerr := q.listFirmwareRolloutGroupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutGroupsStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutMemberDeviceIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutMemberDeviceIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutMemberDeviceIDsStmt: %w", cerr)
+		}
+	}
 	if q.listFirmwareRolloutMembersStmt != nil {
 		if cerr := q.listFirmwareRolloutMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFirmwareRolloutMembersStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutMembersByRolloutIDsStmt != nil {
+		if cerr := q.listFirmwareRolloutMembersByRolloutIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutMembersByRolloutIDsStmt: %w", cerr)
 		}
 	}
 	if q.listFirmwareRolloutsStmt != nil {
@@ -4481,6 +5011,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesWithDetailsForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRolloutLaneActiveParentsStmt != nil {
+		if cerr := q.listRolloutLaneActiveParentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneActiveParentsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneChannelDetailsByLaneIDsStmt != nil {
+		if cerr := q.listRolloutLaneChannelDetailsByLaneIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneChannelDetailsByLaneIDsStmt: %w", cerr)
+		}
+	}
 	if q.listRolloutLaneChannelTransitionsStmt != nil {
 		if cerr := q.listRolloutLaneChannelTransitionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolloutLaneChannelTransitionsStmt: %w", cerr)
@@ -4531,9 +5071,49 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolloutLaneMembershipCandidatesStmt: %w", cerr)
 		}
 	}
+	if q.listRolloutLaneModelChannelsStmt != nil {
+		if cerr := q.listRolloutLaneModelChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelChannelsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelChannelsByLaneIDsStmt != nil {
+		if cerr := q.listRolloutLaneModelChannelsByLaneIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelChannelsByLaneIDsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelFirmwareConvergenceStatusesStmt != nil {
+		if cerr := q.listRolloutLaneModelFirmwareConvergenceStatusesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelFirmwareConvergenceStatusesStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt != nil {
+		if cerr := q.listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelTransitionsStmt != nil {
+		if cerr := q.listRolloutLaneModelTransitionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelTransitionsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelsStmt != nil {
+		if cerr := q.listRolloutLaneModelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneModelsByLaneIDsStmt != nil {
+		if cerr := q.listRolloutLaneModelsByLaneIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneModelsByLaneIDsStmt: %w", cerr)
+		}
+	}
 	if q.listRolloutLaneOwnedChannelIDsStmt != nil {
 		if cerr := q.listRolloutLaneOwnedChannelIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolloutLaneOwnedChannelIDsStmt: %w", cerr)
+		}
+	}
+	if q.listRolloutLaneTopologyAnomaliesStmt != nil {
+		if cerr := q.listRolloutLaneTopologyAnomaliesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneTopologyAnomaliesStmt: %w", cerr)
 		}
 	}
 	if q.listRolloutLanesStmt != nil {
@@ -4711,6 +5291,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockRolloutLaneStmt: %w", cerr)
 		}
 	}
+	if q.lockRolloutLaneActiveParentStmt != nil {
+		if cerr := q.lockRolloutLaneActiveParentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneActiveParentStmt: %w", cerr)
+		}
+	}
 	if q.lockRolloutLaneDevicesForArchiveStmt != nil {
 		if cerr := q.lockRolloutLaneDevicesForArchiveStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRolloutLaneDevicesForArchiveStmt: %w", cerr)
@@ -4731,9 +5316,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockRolloutLaneManagementAuthoritiesStmt: %w", cerr)
 		}
 	}
+	if q.lockRolloutLaneModelForMutationStmt != nil {
+		if cerr := q.lockRolloutLaneModelForMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneModelForMutationStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneModelForRepairStmt != nil {
+		if cerr := q.lockRolloutLaneModelForRepairStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneModelForRepairStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneModelRepairDeviceStmt != nil {
+		if cerr := q.lockRolloutLaneModelRepairDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneModelRepairDeviceStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneModelsForMutationStmt != nil {
+		if cerr := q.lockRolloutLaneModelsForMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneModelsForMutationStmt: %w", cerr)
+		}
+	}
 	if q.lockRolloutLaneOwnedRolloutMembersStmt != nil {
 		if cerr := q.lockRolloutLaneOwnedRolloutMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRolloutLaneOwnedRolloutMembersStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneTopologyCutoverStmt != nil {
+		if cerr := q.lockRolloutLaneTopologyCutoverStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneTopologyCutoverStmt: %w", cerr)
 		}
 	}
 	if q.lockRolloutLanesStmt != nil {
@@ -4831,6 +5441,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing prepareFirmwareRolloutMembersForRevertStmt: %w", cerr)
 		}
 	}
+	if q.prepareModelFirmwareRolloutMembersForRevertStmt != nil {
+		if cerr := q.prepareModelFirmwareRolloutMembersForRevertStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing prepareModelFirmwareRolloutMembersForRevertStmt: %w", cerr)
+		}
+	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
 		if cerr := q.prunePermissionsOutsideKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prunePermissionsOutsideKeysStmt: %w", cerr)
@@ -4896,6 +5511,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
 		}
 	}
+	if q.refreshFirmwareRolloutGroupResultStmt != nil {
+		if cerr := q.refreshFirmwareRolloutGroupResultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing refreshFirmwareRolloutGroupResultStmt: %w", cerr)
+		}
+	}
+	if q.refreshFirmwareRolloutGroupResultsStmt != nil {
+		if cerr := q.refreshFirmwareRolloutGroupResultsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing refreshFirmwareRolloutGroupResultsStmt: %w", cerr)
+		}
+	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
 		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
@@ -4904,6 +5529,11 @@ func (q *Queries) Close() error {
 	if q.releaseFirmwareRolloutOwnersStmt != nil {
 		if cerr := q.releaseFirmwareRolloutOwnersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseFirmwareRolloutOwnersStmt: %w", cerr)
+		}
+	}
+	if q.releaseRolloutLaneActiveParentStmt != nil {
+		if cerr := q.releaseRolloutLaneActiveParentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseRolloutLaneActiveParentStmt: %w", cerr)
 		}
 	}
 	if q.releaseTerminalFirmwareRolloutOwnersStmt != nil {
@@ -4946,6 +5576,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeRolloutLaneMembershipsStmt: %w", cerr)
 		}
 	}
+	if q.removeRolloutLaneModelMembershipDevicesStmt != nil {
+		if cerr := q.removeRolloutLaneModelMembershipDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing removeRolloutLaneModelMembershipDevicesStmt: %w", cerr)
+		}
+	}
 	if q.renewFleetRuntimeLeaseStmt != nil {
 		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
@@ -4969,6 +5604,11 @@ func (q *Queries) Close() error {
 	if q.resetCurtailmentTargetsForRestoreStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRestoreStmt: %w", cerr)
+		}
+	}
+	if q.resetFirmwareRolloutAdmissionAfterFailureStmt != nil {
+		if cerr := q.resetFirmwareRolloutAdmissionAfterFailureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resetFirmwareRolloutAdmissionAfterFailureStmt: %w", cerr)
 		}
 	}
 	if q.resetFirmwareRolloutAdmissionBatchAfterFailureStmt != nil {
@@ -5044,6 +5684,11 @@ func (q *Queries) Close() error {
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
+		}
+	}
+	if q.runRolloutLaneTopologyBackfillStmt != nil {
+		if cerr := q.runRolloutLaneTopologyBackfillStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing runRolloutLaneTopologyBackfillStmt: %w", cerr)
 		}
 	}
 	if q.setCurtailmentAutomationActiveEventStmt != nil {
@@ -5256,6 +5901,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing sweepExpiredFleetNodeSessionsStmt: %w", cerr)
 		}
 	}
+	if q.testClaimRolloutLaneActiveParentStmt != nil {
+		if cerr := q.testClaimRolloutLaneActiveParentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testClaimRolloutLaneActiveParentStmt: %w", cerr)
+		}
+	}
+	if q.testCreateFirmwareRolloutGroupStmt != nil {
+		if cerr := q.testCreateFirmwareRolloutGroupStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testCreateFirmwareRolloutGroupStmt: %w", cerr)
+		}
+	}
+	if q.testCreateRolloutLaneModelChannelStmt != nil {
+		if cerr := q.testCreateRolloutLaneModelChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testCreateRolloutLaneModelChannelStmt: %w", cerr)
+		}
+	}
 	if q.testDeleteRolloutLaneMembershipChangeStmt != nil {
 		if cerr := q.testDeleteRolloutLaneMembershipChangeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing testDeleteRolloutLaneMembershipChangeStmt: %w", cerr)
@@ -5296,6 +5956,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing testMutateRolloutLaneMembershipChangeReasonStmt: %w", cerr)
 		}
 	}
+	if q.testSetDiscoveredEndpointStmt != nil {
+		if cerr := q.testSetDiscoveredEndpointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testSetDiscoveredEndpointStmt: %w", cerr)
+		}
+	}
 	if q.testSetDiscoveredFirmwareVersionStmt != nil {
 		if cerr := q.testSetDiscoveredFirmwareVersionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing testSetDiscoveredFirmwareVersionStmt: %w", cerr)
@@ -5306,6 +5971,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing testSetRolloutLaneMembershipEnforcementStateStmt: %w", cerr)
 		}
 	}
+	if q.testSetRolloutLaneModelCurrentChannelStmt != nil {
+		if cerr := q.testSetRolloutLaneModelCurrentChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testSetRolloutLaneModelCurrentChannelStmt: %w", cerr)
+		}
+	}
 	if q.testSoftDeleteDeviceByIdentifierStmt != nil {
 		if cerr := q.testSoftDeleteDeviceByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing testSoftDeleteDeviceByIdentifierStmt: %w", cerr)
@@ -5314,6 +5984,16 @@ func (q *Queries) Close() error {
 	if q.testTruncateRolloutLaneMembershipChangesStmt != nil {
 		if cerr := q.testTruncateRolloutLaneMembershipChangesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing testTruncateRolloutLaneMembershipChangesStmt: %w", cerr)
+		}
+	}
+	if q.testUpdateFirmwareRolloutGroupMetadataStmt != nil {
+		if cerr := q.testUpdateFirmwareRolloutGroupMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testUpdateFirmwareRolloutGroupMetadataStmt: %w", cerr)
+		}
+	}
+	if q.testUpdateFirmwareRolloutGroupResultStmt != nil {
+		if cerr := q.testUpdateFirmwareRolloutGroupResultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing testUpdateFirmwareRolloutGroupResultStmt: %w", cerr)
 		}
 	}
 	if q.transferDiscoveredDeviceAttributionStmt != nil {
@@ -5744,6 +6424,7 @@ type Queries struct {
 	acquireReconcileLockStmt                                     *sql.Stmt
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
 	addRolloutLaneMembershipDevicesStmt                          *sql.Stmt
+	addRolloutLaneModelMembershipDevicesStmt                     *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
 	adminTerminateCurtailmentEventStmt                           *sql.Stmt
 	admitFirmwareRolloutBatchStmt                                *sql.Stmt
@@ -5751,6 +6432,8 @@ type Queries struct {
 	advanceChannelFirmwareAuthorityRevisionStmt                  *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
 	advanceRolloutLaneCurrentChannelStmt                         *sql.Stmt
+	advanceRolloutLaneModelCurrentTargetStmt                     *sql.Stmt
+	advanceRolloutLaneModelTargetStmt                            *sql.Stmt
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
 	anyFirmwareArtifactReferencedStmt                            *sql.Stmt
 	applyFirmwareRolloutTransitionStmt                           *sql.Stmt
@@ -5763,6 +6446,7 @@ type Queries struct {
 	assignRoleStmt                                               *sql.Stmt
 	attachBetweenChannelAdmissionEnforcementsStmt                *sql.Stmt
 	attachBetweenChannelRevertEnforcementsStmt                   *sql.Stmt
+	attachFirmwareRolloutGroupModelChildStmt                     *sql.Stmt
 	beginCurtailmentRestorationStmt                              *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
@@ -5773,7 +6457,10 @@ type Queries struct {
 	bulkRefreshAllPairedTargetReadinessStmt                      *sql.Stmt
 	bumpCurtailmentTargetRetryStmt                               *sql.Stmt
 	bumpRolloutLaneMembershipRevisionsStmt                       *sql.Stmt
+	bumpRolloutLaneModelRevisionStmt                             *sql.Stmt
+	bumpRolloutLaneModelRevisionsStmt                            *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
+	cancelFirmwareRolloutEvidenceStmt                            *sql.Stmt
 	cancelHaltedBetweenChannelEnforcementStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                                  *sql.Stmt
 	cancelPendingFirmwareRolloutBatchesStmt                      *sql.Stmt
@@ -5795,6 +6482,7 @@ type Queries struct {
 	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                                *sql.Stmt
 	claimRigConfigReconciliationStmt                             *sql.Stmt
+	claimRolloutLaneActiveParentStmt                             *sql.Stmt
 	classifyFleetRuntimeLeaseAcquisitionStmt                     *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                    *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                           *sql.Stmt
@@ -5807,6 +6495,7 @@ type Queries struct {
 	closeStaleErrorsStmt                                         *sql.Stmt
 	completeBetweenChannelRolloutStmt                            *sql.Stmt
 	completeFirmwareRolloutBatchesStmt                           *sql.Stmt
+	completeFirmwareRolloutEvidenceRowsStmt                      *sql.Stmt
 	completeFirmwareRolloutRevertMembersStmt                     *sql.Stmt
 	completeRigConfigReconciliationStmt                          *sql.Stmt
 	completeSettledBetweenChannelBatchStmt                       *sql.Stmt
@@ -5816,6 +6505,8 @@ type Queries struct {
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveLegacyRolloutLaneWorkStmt                         *sql.Stmt
+	countActiveRolloutLaneModelBindingsStmt                      *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
 	countBetweenChannelAdmittedBatchMembersStmt                  *sql.Stmt
@@ -5832,6 +6523,7 @@ type Queries struct {
 	countDevicesWithErrorsStmt                                   *sql.Stmt
 	countErrorsStmt                                              *sql.Stmt
 	countFirmwareRolloutDurableRevertWorkStmt                    *sql.Stmt
+	countFirmwareRolloutSucceededMembersStmt                     *sql.Stmt
 	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
 	countMinersByStateStmt                                       *sql.Stmt
 	countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt *sql.Stmt
@@ -5841,9 +6533,11 @@ type Queries struct {
 	countRacksInBuildingStmt                                     *sql.Stmt
 	countResponseProfilesByInfrastructureDeviceStmt              *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt             *sql.Stmt
+	countRolloutLaneActiveParentsForTestStmt                     *sql.Stmt
 	countRolloutLaneMembersStmt                                  *sql.Stmt
 	countRolloutLaneMembersByLaneIDsStmt                         *sql.Stmt
 	countRolloutLaneNonCurrentMembersStmt                        *sql.Stmt
+	countRolloutLaneTopologyAnomaliesStmt                        *sql.Stmt
 	createApiKeyStmt                                             *sql.Stmt
 	createBetweenChannelAdmissionEnforcementsStmt                *sql.Stmt
 	createBetweenChannelRevertEnforcementsStmt                   *sql.Stmt
@@ -5860,6 +6554,8 @@ type Queries struct {
 	createFirmwareRolloutBatchesStmt                             *sql.Stmt
 	createFirmwareRolloutCauseStmt                               *sql.Stmt
 	createFirmwareRolloutControlStmt                             *sql.Stmt
+	createFirmwareRolloutGroupStmt                               *sql.Stmt
+	createFirmwareRolloutGroupModelStmt                          *sql.Stmt
 	createFirmwareRolloutMembersStmt                             *sql.Stmt
 	createFleetNodeStmt                                          *sql.Stmt
 	createFleetNodeApiKeyStmt                                    *sql.Stmt
@@ -5875,6 +6571,12 @@ type Queries struct {
 	createRolloutLaneChannelStmt                                 *sql.Stmt
 	createRolloutLaneMembershipChangeStmt                        *sql.Stmt
 	createRolloutLaneMembershipEnforcementsStmt                  *sql.Stmt
+	createRolloutLaneModelBindingRepairStmt                      *sql.Stmt
+	createRolloutLaneModelBindingsStmt                           *sql.Stmt
+	createRolloutLaneModelChannelStmt                            *sql.Stmt
+	createRolloutLaneModelDeclarationStmt                        *sql.Stmt
+	createRolloutLaneModelEnforcementsStmt                       *sql.Stmt
+	createRolloutLaneTopologyAdminOperationStmt                  *sql.Stmt
 	createScheduleStmt                                           *sql.Stmt
 	createScheduleTargetStmt                                     *sql.Stmt
 	createSessionStmt                                            *sql.Stmt
@@ -5905,8 +6607,14 @@ type Queries struct {
 	deviceSetsByIDsStmt                                          *sql.Stmt
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
 	disableSyncCommitStmt                                        *sql.Stmt
+	enableRolloutLaneModelTopologyStmt                           *sql.Stmt
+	endActiveRolloutLaneModelBindingStmt                         *sql.Stmt
+	endRolloutLaneModelBindingsStmt                              *sql.Stmt
+	endRolloutLaneModelBindingsForArchiveStmt                    *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
 	finalizeBetweenChannelForwardStmt                            *sql.Stmt
+	finalizeBetweenChannelModelForwardStmt                       *sql.Stmt
+	finalizeBetweenChannelModelRevertStmt                        *sql.Stmt
 	finalizeBetweenChannelRevertStmt                             *sql.Stmt
 	findDeviceBuildingConflictsStmt                              *sql.Stmt
 	findDeviceSiteConflictsStmt                                  *sql.Stmt
@@ -6001,6 +6709,7 @@ type Queries struct {
 	getDiscoveredDeviceByIDStmt                                  *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                           *sql.Stmt
 	getDiscoveredFirmwareVersionForTestStmt                      *sql.Stmt
+	getDiscoveredModelIdentityObservedAtForTestStmt              *sql.Stmt
 	getDistinctActivityUsersStmt                                 *sql.Stmt
 	getDistinctDeviceSiteIDsStmt                                 *sql.Stmt
 	getDistinctEventTypesStmt                                    *sql.Stmt
@@ -6016,6 +6725,8 @@ type Queries struct {
 	getFirmwareRolloutByIdempotencyKeyStmt                       *sql.Stmt
 	getFirmwareRolloutControlStmt                                *sql.Stmt
 	getFirmwareRolloutControlByKeyStmt                           *sql.Stmt
+	getFirmwareRolloutGroupStmt                                  *sql.Stmt
+	getFirmwareRolloutGroupByStartKeyStmt                        *sql.Stmt
 	getFleetMetricRollupCoverageStmt                             *sql.Stmt
 	getFleetNodeByIDStmt                                         *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                                 *sql.Stmt
@@ -6071,6 +6782,8 @@ type Queries struct {
 	getRoleByIDStmt                                              *sql.Stmt
 	getRoleByIDForUpdateStmt                                     *sql.Stmt
 	getRolloutLaneStmt                                           *sql.Stmt
+	getRolloutLaneActiveParentStmt                               *sql.Stmt
+	getRolloutLaneActiveParentForTestStmt                        *sql.Stmt
 	getRolloutLaneAssignmentsStmt                                *sql.Stmt
 	getRolloutLaneByIdempotencyKeyStmt                           *sql.Stmt
 	getRolloutLaneChannelByStartKeyStmt                          *sql.Stmt
@@ -6079,6 +6792,13 @@ type Queries struct {
 	getRolloutLaneMembershipChangeByIdempotencyKeyStmt           *sql.Stmt
 	getRolloutLaneMembershipChangeTestStateStmt                  *sql.Stmt
 	getRolloutLaneMembershipMutationCountsForTestStmt            *sql.Stmt
+	getRolloutLaneModelCurrentTargetStmt                         *sql.Stmt
+	getRolloutLaneModelForTestStmt                               *sql.Stmt
+	getRolloutLaneReleaseTargetByModelStmt                       *sql.Stmt
+	getRolloutLaneSettlementStateStmt                            *sql.Stmt
+	getRolloutLaneTopologyAdminOperationByKeyStmt                *sql.Stmt
+	getRolloutLaneTopologyCountsForTestStmt                      *sql.Stmt
+	getRolloutLaneTopologyCutoverStmt                            *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                    *sql.Stmt
 	getScheduleStmt                                              *sql.Stmt
 	getScheduleByIDForProcessorStmt                              *sql.Stmt
@@ -6103,7 +6823,10 @@ type Queries struct {
 	hasActiveRolloutLaneInitialWorkStmt                          *sql.Stmt
 	hasActiveRolloutLaneLinkedWorkStmt                           *sql.Stmt
 	hasActiveRolloutLaneManagementWorkStmt                       *sql.Stmt
+	hasActiveRolloutLaneModelWorkStmt                            *sql.Stmt
+	hasCurrentFirmwareRolloutAdmissionFailureStmt                *sql.Stmt
 	hasFirmwareRolloutSucceededMembersStmt                       *sql.Stmt
+	hasNewerOrConflictingRolloutLaneModelWorkStmt                *sql.Stmt
 	hasUnconfirmedRolloutLaneFirmwareConvergenceStmt             *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	holdChannelFirmwareEnforcementStmt                           *sql.Stmt
@@ -6132,6 +6855,7 @@ type Queries struct {
 	listActiveNotificationsByAlertStmt                           *sql.Stmt
 	listActiveOrganizationIDsStmt                                *sql.Stmt
 	listActiveRolloutLaneFirmwareConvergenceStatusesStmt         *sql.Stmt
+	listActiveRolloutLaneModelBindingsForDevicesStmt             *sql.Stmt
 	listActiveRolloutOwnedDeviceIdentifiersStmt                  *sql.Stmt
 	listActivityLogsStmt                                         *sql.Stmt
 	listAlertChannelsStmt                                        *sql.Stmt
@@ -6152,6 +6876,7 @@ type Queries struct {
 	listChannelManagedDeviceIdentifiersStmt                      *sql.Stmt
 	listCompleteFirmwareRolloutPolicyBucketsStmt                 *sql.Stmt
 	listCurrentChannelIDsForDevicesStmt                          *sql.Stmt
+	listCurrentFirmwareRolloutAdmissionFailuresStmt              *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                           *sql.Stmt
 	listCurtailmentEventsForOrgStmt                              *sql.Stmt
@@ -6176,10 +6901,20 @@ type Queries struct {
 	listFirmwareReleaseTargetsBySetIDsStmt                       *sql.Stmt
 	listFirmwareRolloutBatchHashrateEvidenceStmt                 *sql.Stmt
 	listFirmwareRolloutBatchesStmt                               *sql.Stmt
+	listFirmwareRolloutBatchesByRolloutIDsStmt                   *sql.Stmt
 	listFirmwareRolloutCausesStmt                                *sql.Stmt
+	listFirmwareRolloutCausesByRolloutIDsStmt                    *sql.Stmt
 	listFirmwareRolloutEvidenceStmt                              *sql.Stmt
+	listFirmwareRolloutEvidenceByRolloutIDsStmt                  *sql.Stmt
 	listFirmwareRolloutEvidenceCandidatesStmt                    *sql.Stmt
+	listFirmwareRolloutGroupChildrenStmt                         *sql.Stmt
+	listFirmwareRolloutGroupChildrenByGroupIDsStmt               *sql.Stmt
+	listFirmwareRolloutGroupModelsStmt                           *sql.Stmt
+	listFirmwareRolloutGroupModelsByGroupIDsStmt                 *sql.Stmt
+	listFirmwareRolloutGroupsStmt                                *sql.Stmt
+	listFirmwareRolloutMemberDeviceIDsStmt                       *sql.Stmt
 	listFirmwareRolloutMembersStmt                               *sql.Stmt
+	listFirmwareRolloutMembersByRolloutIDsStmt                   *sql.Stmt
 	listFirmwareRolloutsStmt                                     *sql.Stmt
 	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
 	listFleetNodeDevicesStmt                                     *sql.Stmt
@@ -6205,6 +6940,8 @@ type Queries struct {
 	listRolePermissionKeysStmt                                   *sql.Stmt
 	listRolesStmt                                                *sql.Stmt
 	listRolesWithDetailsForOrgStmt                               *sql.Stmt
+	listRolloutLaneActiveParentsStmt                             *sql.Stmt
+	listRolloutLaneChannelDetailsByLaneIDsStmt                   *sql.Stmt
 	listRolloutLaneChannelTransitionsStmt                        *sql.Stmt
 	listRolloutLaneChannelsStmt                                  *sql.Stmt
 	listRolloutLaneChannelsByLaneIDsStmt                         *sql.Stmt
@@ -6215,7 +6952,15 @@ type Queries struct {
 	listRolloutLaneMembersStmt                                   *sql.Stmt
 	listRolloutLaneMembersByIdentifiersStmt                      *sql.Stmt
 	listRolloutLaneMembershipCandidatesStmt                      *sql.Stmt
+	listRolloutLaneModelChannelsStmt                             *sql.Stmt
+	listRolloutLaneModelChannelsByLaneIDsStmt                    *sql.Stmt
+	listRolloutLaneModelFirmwareConvergenceStatusesStmt          *sql.Stmt
+	listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt *sql.Stmt
+	listRolloutLaneModelTransitionsStmt                          *sql.Stmt
+	listRolloutLaneModelsStmt                                    *sql.Stmt
+	listRolloutLaneModelsByLaneIDsStmt                           *sql.Stmt
 	listRolloutLaneOwnedChannelIDsStmt                           *sql.Stmt
+	listRolloutLaneTopologyAnomaliesStmt                         *sql.Stmt
 	listRolloutLanesStmt                                         *sql.Stmt
 	listScheduleIDStatusesStmt                                   *sql.Stmt
 	listSchedulesStmt                                            *sql.Stmt
@@ -6251,11 +6996,17 @@ type Queries struct {
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
 	lockRolloutLaneStmt                                          *sql.Stmt
+	lockRolloutLaneActiveParentStmt                              *sql.Stmt
 	lockRolloutLaneDevicesForArchiveStmt                         *sql.Stmt
 	lockRolloutLaneForArchiveStmt                                *sql.Stmt
 	lockRolloutLaneInitialAuthoritiesStmt                        *sql.Stmt
 	lockRolloutLaneManagementAuthoritiesStmt                     *sql.Stmt
+	lockRolloutLaneModelForMutationStmt                          *sql.Stmt
+	lockRolloutLaneModelForRepairStmt                            *sql.Stmt
+	lockRolloutLaneModelRepairDeviceStmt                         *sql.Stmt
+	lockRolloutLaneModelsForMutationStmt                         *sql.Stmt
 	lockRolloutLaneOwnedRolloutMembersStmt                       *sql.Stmt
+	lockRolloutLaneTopologyCutoverStmt                           *sql.Stmt
 	lockRolloutLanesStmt                                         *sql.Stmt
 	lockSchedulePriorityStmt                                     *sql.Stmt
 	lockSiteForWriteStmt                                         *sql.Stmt
@@ -6275,6 +7026,7 @@ type Queries struct {
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
 	prepareFirmwareRolloutMembersForRevertStmt                   *sql.Stmt
+	prepareModelFirmwareRolloutMembersForRevertStmt              *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                                 *sql.Stmt
@@ -6288,8 +7040,11 @@ type Queries struct {
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
 	recordChannelFirmwareObservationStmt                         *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
+	refreshFirmwareRolloutGroupResultStmt                        *sql.Stmt
+	refreshFirmwareRolloutGroupResultsStmt                       *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	releaseFirmwareRolloutOwnersStmt                             *sql.Stmt
+	releaseRolloutLaneActiveParentStmt                           *sql.Stmt
 	releaseTerminalFirmwareRolloutOwnersStmt                     *sql.Stmt
 	releaseUndispatchedAllPairedTargetsForRestoreStmt            *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
@@ -6298,11 +7053,13 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
 	removeRolloutLaneMembershipDevicesStmt                       *sql.Stmt
 	removeRolloutLaneMembershipsStmt                             *sql.Stmt
+	removeRolloutLaneModelMembershipDevicesStmt                  *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	requestRigConfigReconciliationStmt                           *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
+	resetFirmwareRolloutAdmissionAfterFailureStmt                *sql.Stmt
 	resetFirmwareRolloutAdmissionBatchAfterFailureStmt           *sql.Stmt
 	resetFirmwareRolloutAdmissionMembersAfterFailureStmt         *sql.Stmt
 	resetFirmwareRolloutRevertAfterFailureStmt                   *sql.Stmt
@@ -6318,6 +7075,7 @@ type Queries struct {
 	revokeApiKeysByFleetNodeIDStmt                               *sql.Stmt
 	revokePermissionFromRoleStmt                                 *sql.Stmt
 	revokeSessionStmt                                            *sql.Stmt
+	runRolloutLaneTopologyBackfillStmt                           *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt                      *sql.Stmt
 	setCurtailmentAutomationExecutionErrorStmt                   *sql.Stmt
 	setCurtailmentAutomationRestoreStartedStmt                   *sql.Stmt
@@ -6360,6 +7118,9 @@ type Queries struct {
 	sweepExpiredEnrollmentsStmt                                  *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt                      *sql.Stmt
 	sweepExpiredFleetNodeSessionsStmt                            *sql.Stmt
+	testClaimRolloutLaneActiveParentStmt                         *sql.Stmt
+	testCreateFirmwareRolloutGroupStmt                           *sql.Stmt
+	testCreateRolloutLaneModelChannelStmt                        *sql.Stmt
 	testDeleteRolloutLaneMembershipChangeStmt                    *sql.Stmt
 	testGetMembershipEnforcementStateStmt                        *sql.Stmt
 	testLockChannelFirmwareAuthorityTableStmt                    *sql.Stmt
@@ -6368,10 +7129,14 @@ type Queries struct {
 	testLockRolloutLaneNowaitStmt                                *sql.Stmt
 	testMoveDeviceChannelMembershipStmt                          *sql.Stmt
 	testMutateRolloutLaneMembershipChangeReasonStmt              *sql.Stmt
+	testSetDiscoveredEndpointStmt                                *sql.Stmt
 	testSetDiscoveredFirmwareVersionStmt                         *sql.Stmt
 	testSetRolloutLaneMembershipEnforcementStateStmt             *sql.Stmt
+	testSetRolloutLaneModelCurrentChannelStmt                    *sql.Stmt
 	testSoftDeleteDeviceByIdentifierStmt                         *sql.Stmt
 	testTruncateRolloutLaneMembershipChangesStmt                 *sql.Stmt
+	testUpdateFirmwareRolloutGroupMetadataStmt                   *sql.Stmt
+	testUpdateFirmwareRolloutGroupResultStmt                     *sql.Stmt
 	transferDiscoveredDeviceAttributionStmt                      *sql.Stmt
 	unassignDeviceBuildingsByRackStmt                            *sql.Stmt
 	unassignDeviceSitesByRackStmt                                *sql.Stmt
@@ -6453,19 +7218,22 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                  tx,
-		tx:                                  tx,
-		acquireFleetRuntimeLeaseStmt:        q.acquireFleetRuntimeLeaseStmt,
-		acquireReconcileLockStmt:            q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:           q.addDevicesToDeviceSetStmt,
-		addRolloutLaneMembershipDevicesStmt: q.addRolloutLaneMembershipDevicesStmt,
-		adminResetUserPasswordStmt:          q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:  q.adminTerminateCurtailmentEventStmt,
-		admitFirmwareRolloutBatchStmt:       q.admitFirmwareRolloutBatchStmt,
-		admitFirmwareRolloutMembersStmt:     q.admitFirmwareRolloutMembersStmt,
+		db:                                                           tx,
+		tx:                                                           tx,
+		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
+		addRolloutLaneMembershipDevicesStmt:                          q.addRolloutLaneMembershipDevicesStmt,
+		addRolloutLaneModelMembershipDevicesStmt:                     q.addRolloutLaneModelMembershipDevicesStmt,
+		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:                           q.adminTerminateCurtailmentEventStmt,
+		admitFirmwareRolloutBatchStmt:                                q.admitFirmwareRolloutBatchStmt,
+		admitFirmwareRolloutMembersStmt:                              q.admitFirmwareRolloutMembersStmt,
 		advanceChannelFirmwareAuthorityRevisionStmt:                  q.advanceChannelFirmwareAuthorityRevisionStmt,
 		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
 		advanceRolloutLaneCurrentChannelStmt:                         q.advanceRolloutLaneCurrentChannelStmt,
+		advanceRolloutLaneModelCurrentTargetStmt:                     q.advanceRolloutLaneModelCurrentTargetStmt,
+		advanceRolloutLaneModelTargetStmt:                            q.advanceRolloutLaneModelTargetStmt,
 		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
 		anyFirmwareArtifactReferencedStmt:                            q.anyFirmwareArtifactReferencedStmt,
 		applyFirmwareRolloutTransitionStmt:                           q.applyFirmwareRolloutTransitionStmt,
@@ -6478,6 +7246,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		assignRoleStmt:                                               q.assignRoleStmt,
 		attachBetweenChannelAdmissionEnforcementsStmt:                q.attachBetweenChannelAdmissionEnforcementsStmt,
 		attachBetweenChannelRevertEnforcementsStmt:                   q.attachBetweenChannelRevertEnforcementsStmt,
+		attachFirmwareRolloutGroupModelChildStmt:                     q.attachFirmwareRolloutGroupModelChildStmt,
 		beginCurtailmentRestorationStmt:                              q.beginCurtailmentRestorationStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
@@ -6488,7 +7257,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bulkRefreshAllPairedTargetReadinessStmt:                      q.bulkRefreshAllPairedTargetReadinessStmt,
 		bumpCurtailmentTargetRetryStmt:                               q.bumpCurtailmentTargetRetryStmt,
 		bumpRolloutLaneMembershipRevisionsStmt:                       q.bumpRolloutLaneMembershipRevisionsStmt,
+		bumpRolloutLaneModelRevisionStmt:                             q.bumpRolloutLaneModelRevisionStmt,
+		bumpRolloutLaneModelRevisionsStmt:                            q.bumpRolloutLaneModelRevisionsStmt,
 		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
+		cancelFirmwareRolloutEvidenceStmt:                            q.cancelFirmwareRolloutEvidenceStmt,
 		cancelHaltedBetweenChannelEnforcementStmt:                    q.cancelHaltedBetweenChannelEnforcementStmt,
 		cancelPendingEnrollmentStmt:                                  q.cancelPendingEnrollmentStmt,
 		cancelPendingFirmwareRolloutBatchesStmt:                      q.cancelPendingFirmwareRolloutBatchesStmt,
@@ -6510,6 +7282,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
 		claimRigConfigReconciliationStmt:                             q.claimRigConfigReconciliationStmt,
+		claimRolloutLaneActiveParentStmt:                             q.claimRolloutLaneActiveParentStmt,
 		classifyFleetRuntimeLeaseAcquisitionStmt:                     q.classifyFleetRuntimeLeaseAcquisitionStmt,
 		clearCurtailmentAutomationActiveEventStmt:                    q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                           q.clearDeviceBuildingsByBuildingStmt,
@@ -6522,6 +7295,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
 		completeBetweenChannelRolloutStmt:                            q.completeBetweenChannelRolloutStmt,
 		completeFirmwareRolloutBatchesStmt:                           q.completeFirmwareRolloutBatchesStmt,
+		completeFirmwareRolloutEvidenceRowsStmt:                      q.completeFirmwareRolloutEvidenceRowsStmt,
 		completeFirmwareRolloutRevertMembersStmt:                     q.completeFirmwareRolloutRevertMembersStmt,
 		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
 		completeSettledBetweenChannelBatchStmt:                       q.completeSettledBetweenChannelBatchStmt,
@@ -6531,6 +7305,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveLegacyRolloutLaneWorkStmt:                         q.countActiveLegacyRolloutLaneWorkStmt,
+		countActiveRolloutLaneModelBindingsStmt:                      q.countActiveRolloutLaneModelBindingsStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,
 		countBetweenChannelAdmittedBatchMembersStmt:                  q.countBetweenChannelAdmittedBatchMembersStmt,
@@ -6547,6 +7323,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                              q.countErrorsStmt,
 		countFirmwareRolloutDurableRevertWorkStmt:                    q.countFirmwareRolloutDurableRevertWorkStmt,
+		countFirmwareRolloutSucceededMembersStmt:                     q.countFirmwareRolloutSucceededMembersStmt,
 		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
 		countMinersByStateStmt:                                       q.countMinersByStateStmt,
 		countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt: q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt,
@@ -6556,9 +7333,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
 		countResponseProfilesByInfrastructureDeviceStmt:              q.countResponseProfilesByInfrastructureDeviceStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:             q.countResponseProfilesByInfrastructureDevicesStmt,
+		countRolloutLaneActiveParentsForTestStmt:                     q.countRolloutLaneActiveParentsForTestStmt,
 		countRolloutLaneMembersStmt:                                  q.countRolloutLaneMembersStmt,
 		countRolloutLaneMembersByLaneIDsStmt:                         q.countRolloutLaneMembersByLaneIDsStmt,
 		countRolloutLaneNonCurrentMembersStmt:                        q.countRolloutLaneNonCurrentMembersStmt,
+		countRolloutLaneTopologyAnomaliesStmt:                        q.countRolloutLaneTopologyAnomaliesStmt,
 		createApiKeyStmt:                                             q.createApiKeyStmt,
 		createBetweenChannelAdmissionEnforcementsStmt:                q.createBetweenChannelAdmissionEnforcementsStmt,
 		createBetweenChannelRevertEnforcementsStmt:                   q.createBetweenChannelRevertEnforcementsStmt,
@@ -6575,6 +7354,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createFirmwareRolloutBatchesStmt:                             q.createFirmwareRolloutBatchesStmt,
 		createFirmwareRolloutCauseStmt:                               q.createFirmwareRolloutCauseStmt,
 		createFirmwareRolloutControlStmt:                             q.createFirmwareRolloutControlStmt,
+		createFirmwareRolloutGroupStmt:                               q.createFirmwareRolloutGroupStmt,
+		createFirmwareRolloutGroupModelStmt:                          q.createFirmwareRolloutGroupModelStmt,
 		createFirmwareRolloutMembersStmt:                             q.createFirmwareRolloutMembersStmt,
 		createFleetNodeStmt:                                          q.createFleetNodeStmt,
 		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
@@ -6590,6 +7371,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createRolloutLaneChannelStmt:                                 q.createRolloutLaneChannelStmt,
 		createRolloutLaneMembershipChangeStmt:                        q.createRolloutLaneMembershipChangeStmt,
 		createRolloutLaneMembershipEnforcementsStmt:                  q.createRolloutLaneMembershipEnforcementsStmt,
+		createRolloutLaneModelBindingRepairStmt:                      q.createRolloutLaneModelBindingRepairStmt,
+		createRolloutLaneModelBindingsStmt:                           q.createRolloutLaneModelBindingsStmt,
+		createRolloutLaneModelChannelStmt:                            q.createRolloutLaneModelChannelStmt,
+		createRolloutLaneModelDeclarationStmt:                        q.createRolloutLaneModelDeclarationStmt,
+		createRolloutLaneModelEnforcementsStmt:                       q.createRolloutLaneModelEnforcementsStmt,
+		createRolloutLaneTopologyAdminOperationStmt:                  q.createRolloutLaneTopologyAdminOperationStmt,
 		createScheduleStmt:                                           q.createScheduleStmt,
 		createScheduleTargetStmt:                                     q.createScheduleTargetStmt,
 		createSessionStmt:                                            q.createSessionStmt,
@@ -6620,8 +7407,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceSetsByIDsStmt:                                          q.deviceSetsByIDsStmt,
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		disableSyncCommitStmt:                                        q.disableSyncCommitStmt,
+		enableRolloutLaneModelTopologyStmt:                           q.enableRolloutLaneModelTopologyStmt,
+		endActiveRolloutLaneModelBindingStmt:                         q.endActiveRolloutLaneModelBindingStmt,
+		endRolloutLaneModelBindingsStmt:                              q.endRolloutLaneModelBindingsStmt,
+		endRolloutLaneModelBindingsForArchiveStmt:                    q.endRolloutLaneModelBindingsForArchiveStmt,
 		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
 		finalizeBetweenChannelForwardStmt:                            q.finalizeBetweenChannelForwardStmt,
+		finalizeBetweenChannelModelForwardStmt:                       q.finalizeBetweenChannelModelForwardStmt,
+		finalizeBetweenChannelModelRevertStmt:                        q.finalizeBetweenChannelModelRevertStmt,
 		finalizeBetweenChannelRevertStmt:                             q.finalizeBetweenChannelRevertStmt,
 		findDeviceBuildingConflictsStmt:                              q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                  q.findDeviceSiteConflictsStmt,
@@ -6716,6 +7509,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDiscoveredDeviceByIDStmt:                                  q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                           q.getDiscoveredDeviceByIPAndPortStmt,
 		getDiscoveredFirmwareVersionForTestStmt:                      q.getDiscoveredFirmwareVersionForTestStmt,
+		getDiscoveredModelIdentityObservedAtForTestStmt:              q.getDiscoveredModelIdentityObservedAtForTestStmt,
 		getDistinctActivityUsersStmt:                                 q.getDistinctActivityUsersStmt,
 		getDistinctDeviceSiteIDsStmt:                                 q.getDistinctDeviceSiteIDsStmt,
 		getDistinctEventTypesStmt:                                    q.getDistinctEventTypesStmt,
@@ -6731,6 +7525,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFirmwareRolloutByIdempotencyKeyStmt:                       q.getFirmwareRolloutByIdempotencyKeyStmt,
 		getFirmwareRolloutControlStmt:                                q.getFirmwareRolloutControlStmt,
 		getFirmwareRolloutControlByKeyStmt:                           q.getFirmwareRolloutControlByKeyStmt,
+		getFirmwareRolloutGroupStmt:                                  q.getFirmwareRolloutGroupStmt,
+		getFirmwareRolloutGroupByStartKeyStmt:                        q.getFirmwareRolloutGroupByStartKeyStmt,
 		getFleetMetricRollupCoverageStmt:                             q.getFleetMetricRollupCoverageStmt,
 		getFleetNodeByIDStmt:                                         q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                                 q.getFleetNodeByIDUnscopedStmt,
@@ -6786,6 +7582,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRoleByIDStmt:                                              q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
 		getRolloutLaneStmt:                                           q.getRolloutLaneStmt,
+		getRolloutLaneActiveParentStmt:                               q.getRolloutLaneActiveParentStmt,
+		getRolloutLaneActiveParentForTestStmt:                        q.getRolloutLaneActiveParentForTestStmt,
 		getRolloutLaneAssignmentsStmt:                                q.getRolloutLaneAssignmentsStmt,
 		getRolloutLaneByIdempotencyKeyStmt:                           q.getRolloutLaneByIdempotencyKeyStmt,
 		getRolloutLaneChannelByStartKeyStmt:                          q.getRolloutLaneChannelByStartKeyStmt,
@@ -6794,6 +7592,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRolloutLaneMembershipChangeByIdempotencyKeyStmt:           q.getRolloutLaneMembershipChangeByIdempotencyKeyStmt,
 		getRolloutLaneMembershipChangeTestStateStmt:                  q.getRolloutLaneMembershipChangeTestStateStmt,
 		getRolloutLaneMembershipMutationCountsForTestStmt:            q.getRolloutLaneMembershipMutationCountsForTestStmt,
+		getRolloutLaneModelCurrentTargetStmt:                         q.getRolloutLaneModelCurrentTargetStmt,
+		getRolloutLaneModelForTestStmt:                               q.getRolloutLaneModelForTestStmt,
+		getRolloutLaneReleaseTargetByModelStmt:                       q.getRolloutLaneReleaseTargetByModelStmt,
+		getRolloutLaneSettlementStateStmt:                            q.getRolloutLaneSettlementStateStmt,
+		getRolloutLaneTopologyAdminOperationByKeyStmt:                q.getRolloutLaneTopologyAdminOperationByKeyStmt,
+		getRolloutLaneTopologyCountsForTestStmt:                      q.getRolloutLaneTopologyCountsForTestStmt,
+		getRolloutLaneTopologyCutoverStmt:                            q.getRolloutLaneTopologyCutoverStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                    q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                              q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                              q.getScheduleByIDForProcessorStmt,
@@ -6818,351 +7623,396 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasActiveRolloutLaneInitialWorkStmt:                          q.hasActiveRolloutLaneInitialWorkStmt,
 		hasActiveRolloutLaneLinkedWorkStmt:                           q.hasActiveRolloutLaneLinkedWorkStmt,
 		hasActiveRolloutLaneManagementWorkStmt:                       q.hasActiveRolloutLaneManagementWorkStmt,
+		hasActiveRolloutLaneModelWorkStmt:                            q.hasActiveRolloutLaneModelWorkStmt,
+		hasCurrentFirmwareRolloutAdmissionFailureStmt:                q.hasCurrentFirmwareRolloutAdmissionFailureStmt,
 		hasFirmwareRolloutSucceededMembersStmt:                       q.hasFirmwareRolloutSucceededMembersStmt,
+		hasNewerOrConflictingRolloutLaneModelWorkStmt:                q.hasNewerOrConflictingRolloutLaneModelWorkStmt,
 		hasUnconfirmedRolloutLaneFirmwareConvergenceStmt:             q.hasUnconfirmedRolloutLaneFirmwareConvergenceStmt,
-		hasUserStmt:                                                q.hasUserStmt,
-		holdChannelFirmwareEnforcementStmt:                         q.holdChannelFirmwareEnforcementStmt,
-		insertActivityLogStmt:                                      q.insertActivityLogStmt,
-		insertAlertChannelStmt:                                     q.insertAlertChannelStmt,
-		insertAlertRouteChannelsStmt:                               q.insertAlertRouteChannelsStmt,
-		insertCurtailmentAutomationRuleStmt:                        q.insertCurtailmentAutomationRuleStmt,
-		insertCurtailmentEventStmt:                                 q.insertCurtailmentEventStmt,
-		insertCurtailmentResponseProfileStmt:                       q.insertCurtailmentResponseProfileStmt,
-		insertDeviceStmt:                                           q.insertDeviceStmt,
-		insertDeviceMetricsStmt:                                    q.insertDeviceMetricsStmt,
-		insertErrorStmt:                                            q.insertErrorStmt,
-		insertMQTTSourceConfigStmt:                                 q.insertMQTTSourceConfigStmt,
-		insertMinerStateSnapshotStmt:                               q.insertMinerStateSnapshotStmt,
-		insertNotificationHistoryStmt:                              q.insertNotificationHistoryStmt,
-		insertNotificationMetricSamplesStmt:                        q.insertNotificationMetricSamplesStmt,
-		isBatchFinishedStmt:                                        q.isBatchFinishedStmt,
-		isDeviceOwnedByFleetNodeStmt:                               q.isDeviceOwnedByFleetNodeStmt,
-		isRolloutLaneChannelStmt:                                   q.isRolloutLaneChannelStmt,
-		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
-		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
-		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
-		listActiveFirmwareConvergenceRolloutLanesStmt:              q.listActiveFirmwareConvergenceRolloutLanesStmt,
-		listActiveNotificationGroupsStmt:                           q.listActiveNotificationGroupsStmt,
-		listActiveNotificationsStmt:                                q.listActiveNotificationsStmt,
-		listActiveNotificationsByAlertStmt:                         q.listActiveNotificationsByAlertStmt,
-		listActiveOrganizationIDsStmt:                              q.listActiveOrganizationIDsStmt,
-		listActiveRolloutLaneFirmwareConvergenceStatusesStmt:       q.listActiveRolloutLaneFirmwareConvergenceStatusesStmt,
-		listActiveRolloutOwnedDeviceIdentifiersStmt:                q.listActiveRolloutOwnedDeviceIdentifiersStmt,
-		listActivityLogsStmt:                                       q.listActivityLogsStmt,
-		listAlertChannelsStmt:                                      q.listAlertChannelsStmt,
-		listAlertRoutePoliciesStmt:                                 q.listAlertRoutePoliciesStmt,
-		listAlertRuleConfigsStmt:                                   q.listAlertRuleConfigsStmt,
-		listApiKeysByOrganizationStmt:                              q.listApiKeysByOrganizationStmt,
-		listAssignmentsForRoleStmt:                                 q.listAssignmentsForRoleStmt,
-		listAssignmentsForUserStmt:                                 q.listAssignmentsForUserStmt,
-		listBatchDeviceResultsStmt:                                 q.listBatchDeviceResultsStmt,
-		listBetweenChannelAdmissionMembersStmt:                     q.listBetweenChannelAdmissionMembersStmt,
-		listBetweenChannelDeviceModelsStmt:                         q.listBetweenChannelDeviceModelsStmt,
-		listBetweenChannelFinalizationsStmt:                        q.listBetweenChannelFinalizationsStmt,
-		listBuildingNamesBySiteStmt:                                q.listBuildingNamesBySiteStmt,
-		listBuildingRacksStmt:                                      q.listBuildingRacksStmt,
-		listBuildingsByOrgStmt:                                     q.listBuildingsByOrgStmt,
-		listBuiltinRolesForOrgStmt:                                 q.listBuiltinRolesForOrgStmt,
-		listChannelFirmwareEnforcementsForReconcileStmt:            q.listChannelFirmwareEnforcementsForReconcileStmt,
-		listChannelManagedDeviceIdentifiersStmt:                    q.listChannelManagedDeviceIdentifiersStmt,
-		listCompleteFirmwareRolloutPolicyBucketsStmt:               q.listCompleteFirmwareRolloutPolicyBucketsStmt,
-		listCurrentChannelIDsForDevicesStmt:                        q.listCurrentChannelIDsForDevicesStmt,
-		listCurtailmentAutomationRulesByOrgStmt:                    q.listCurtailmentAutomationRulesByOrgStmt,
-		listCurtailmentCandidatesByOrgStmt:                         q.listCurtailmentCandidatesByOrgStmt,
-		listCurtailmentEventsForOrgStmt:                            q.listCurtailmentEventsForOrgStmt,
-		listCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
-		listCurtailmentResponseProfilesByOrgStmt:                   q.listCurtailmentResponseProfilesByOrgStmt,
-		listCurtailmentTargetSiteCoverageByEventStmt:               q.listCurtailmentTargetSiteCoverageByEventStmt,
-		listCurtailmentTargetSiteCoverageByEventsStmt:              q.listCurtailmentTargetSiteCoverageByEventsStmt,
-		listCurtailmentTargetsByEventStmt:                          q.listCurtailmentTargetsByEventStmt,
-		listCurtailmentTargetsByEventPageStmt:                      q.listCurtailmentTargetsByEventPageStmt,
-		listCustomRolesForOrgStmt:                                  q.listCustomRolesForOrgStmt,
-		listDeviceSetMembersPaginatedStmt:                          q.listDeviceSetMembersPaginatedStmt,
-		listDeviceSetMembersPaginatedAfterStmt:                     q.listDeviceSetMembersPaginatedAfterStmt,
-		listDeviceSetMembersPaginatedFilteredStmt:                  q.listDeviceSetMembersPaginatedFilteredStmt,
-		listDeviceSetMembersPaginatedFilteredAfterStmt:             q.listDeviceSetMembersPaginatedFilteredAfterStmt,
-		listEffectivePermissionsForUserStmt:                        q.listEffectivePermissionsForUserStmt,
-		listEffectivePermissionsForUserForUpdateStmt:               q.listEffectivePermissionsForUserForUpdateStmt,
-		listEligibleConfirmationTargetsStmt:                        q.listEligibleConfirmationTargetsStmt,
-		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:      q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
-		listEnabledMQTTSourcesStmt:                                 q.listEnabledMQTTSourcesStmt,
-		listExistingDeviceIdentifiersStmt:                          q.listExistingDeviceIdentifiersStmt,
-		listFirmwareReleaseTargetsStmt:                             q.listFirmwareReleaseTargetsStmt,
-		listFirmwareReleaseTargetsBySetIDsStmt:                     q.listFirmwareReleaseTargetsBySetIDsStmt,
-		listFirmwareRolloutBatchHashrateEvidenceStmt:               q.listFirmwareRolloutBatchHashrateEvidenceStmt,
-		listFirmwareRolloutBatchesStmt:                             q.listFirmwareRolloutBatchesStmt,
-		listFirmwareRolloutCausesStmt:                              q.listFirmwareRolloutCausesStmt,
-		listFirmwareRolloutEvidenceStmt:                            q.listFirmwareRolloutEvidenceStmt,
-		listFirmwareRolloutEvidenceCandidatesStmt:                  q.listFirmwareRolloutEvidenceCandidatesStmt,
-		listFirmwareRolloutMembersStmt:                             q.listFirmwareRolloutMembersStmt,
-		listFirmwareRolloutsStmt:                                   q.listFirmwareRolloutsStmt,
-		listFleetNodeDeviceIDsForRevocationStmt:                    q.listFleetNodeDeviceIDsForRevocationStmt,
-		listFleetNodeDevicesStmt:                                   q.listFleetNodeDevicesStmt,
-		listFleetNodeDiscoveredDevicesStmt:                         q.listFleetNodeDiscoveredDevicesStmt,
-		listFleetNodesForOrganizationStmt:                          q.listFleetNodesForOrganizationStmt,
-		listInfrastructureDevicesByOrgStmt:                         q.listInfrastructureDevicesByOrgStmt,
-		listMQTTSourceConfigsByOrgStmt:                             q.listMQTTSourceConfigsByOrgStmt,
-		listMQTTSourceStatesByOrgStmt:                              q.listMQTTSourceStatesByOrgStmt,
-		listMQTTSourcesWithActiveCurtailmentStmt:                   q.listMQTTSourcesWithActiveCurtailmentStmt,
-		listMinerStateSnapshotsStmt:                                q.listMinerStateSnapshotsStmt,
-		listNonTerminalCurtailmentEventsStmt:                       q.listNonTerminalCurtailmentEventsStmt,
-		listNotificationHistoryStmt:                                q.listNotificationHistoryStmt,
-		listOrganizationsStmt:                                      q.listOrganizationsStmt,
-		listPermissionsStmt:                                        q.listPermissionsStmt,
-		listPoolsStmt:                                              q.listPoolsStmt,
-		listRackTypesStmt:                                          q.listRackTypesStmt,
-		listRackZoneRefsStmt:                                       q.listRackZoneRefsStmt,
-		listRackZonesStmt:                                          q.listRackZonesStmt,
-		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
-		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
-		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
-		listResponseProfileInfrastructureDevicesByOrgStmt:          q.listResponseProfileInfrastructureDevicesByOrgStmt,
-		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
-		listRolesStmt:                                              q.listRolesStmt,
-		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,
-		listRolloutLaneChannelTransitionsStmt:                      q.listRolloutLaneChannelTransitionsStmt,
-		listRolloutLaneChannelsStmt:                                q.listRolloutLaneChannelsStmt,
-		listRolloutLaneChannelsByLaneIDsStmt:                       q.listRolloutLaneChannelsByLaneIDsStmt,
-		listRolloutLaneCurrentReleaseTargetsStmt:                   q.listRolloutLaneCurrentReleaseTargetsStmt,
-		listRolloutLaneFirmwareConvergenceMembersStmt:              q.listRolloutLaneFirmwareConvergenceMembersStmt,
-		listRolloutLaneFirmwareConvergenceStatusesStmt:             q.listRolloutLaneFirmwareConvergenceStatusesStmt,
-		listRolloutLaneMemberDeviceIDsStmt:                         q.listRolloutLaneMemberDeviceIDsStmt,
-		listRolloutLaneMembersStmt:                                 q.listRolloutLaneMembersStmt,
-		listRolloutLaneMembersByIdentifiersStmt:                    q.listRolloutLaneMembersByIdentifiersStmt,
-		listRolloutLaneMembershipCandidatesStmt:                    q.listRolloutLaneMembershipCandidatesStmt,
-		listRolloutLaneOwnedChannelIDsStmt:                         q.listRolloutLaneOwnedChannelIDsStmt,
-		listRolloutLanesStmt:                                       q.listRolloutLanesStmt,
-		listScheduleIDStatusesStmt:                                 q.listScheduleIDStatusesStmt,
-		listSchedulesStmt:                                          q.listSchedulesStmt,
-		listSiteNetworkConfigsForOverlapStmt:                       q.listSiteNetworkConfigsForOverlapStmt,
-		listSiteSlugsStmt:                                          q.listSiteSlugsStmt,
-		listSitesStmt:                                              q.listSitesStmt,
-		listTakenDeviceSetLabelsStmt:                               q.listTakenDeviceSetLabelsStmt,
-		listUsersForOrganizationStmt:                               q.listUsersForOrganizationStmt,
-		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
-		lockBetweenChannelChannelsStmt:                             q.lockBetweenChannelChannelsStmt,
-		lockBetweenChannelDevicesStmt:                              q.lockBetweenChannelDevicesStmt,
-		lockBetweenChannelInitialDevicesStmt:                       q.lockBetweenChannelInitialDevicesStmt,
-		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
-		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
-		lockChannelForWriteStmt:                                    q.lockChannelForWriteStmt,
-		lockChannelsForReparentStmt:                                q.lockChannelsForReparentStmt,
-		lockCommandBatchStmt:                                       q.lockCommandBatchStmt,
-		lockCurtailmentEventByUUIDForWriteStmt:                     q.lockCurtailmentEventByUUIDForWriteStmt,
-		lockCurtailmentEventForFanCommandStmt:                      q.lockCurtailmentEventForFanCommandStmt,
-		lockCurtailmentFanDeviceForWriteStmt:                       q.lockCurtailmentFanDeviceForWriteStmt,
-		lockCurtailmentFanDevicesForWriteStmt:                      q.lockCurtailmentFanDevicesForWriteStmt,
-		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
-		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
-		lockDevicesForChannelAssignmentStmt:                        q.lockDevicesForChannelAssignmentStmt,
-		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
-		lockDevicesForSoftDeleteStmt:                               q.lockDevicesForSoftDeleteStmt,
-		lockFirmwareRolloutStmt:                                    q.lockFirmwareRolloutStmt,
-		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
-		lockInfrastructureDeviceForWriteStmt:                       q.lockInfrastructureDeviceForWriteStmt,
-		lockInfrastructureDevicesBySiteForWriteStmt:                q.lockInfrastructureDevicesBySiteForWriteStmt,
-		lockInfrastructureDevicesForResponseProfileStmt:            q.lockInfrastructureDevicesForResponseProfileStmt,
-		lockInfrastructureRackForPlacementStmt:                     q.lockInfrastructureRackForPlacementStmt,
-		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
-		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
-		lockRolloutLaneStmt:                                        q.lockRolloutLaneStmt,
-		lockRolloutLaneDevicesForArchiveStmt:                       q.lockRolloutLaneDevicesForArchiveStmt,
-		lockRolloutLaneForArchiveStmt:                              q.lockRolloutLaneForArchiveStmt,
-		lockRolloutLaneInitialAuthoritiesStmt:                      q.lockRolloutLaneInitialAuthoritiesStmt,
-		lockRolloutLaneManagementAuthoritiesStmt:                   q.lockRolloutLaneManagementAuthoritiesStmt,
-		lockRolloutLaneOwnedRolloutMembersStmt:                     q.lockRolloutLaneOwnedRolloutMembersStmt,
-		lockRolloutLanesStmt:                                       q.lockRolloutLanesStmt,
-		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,
-		lockSiteForWriteStmt:                                       q.lockSiteForWriteStmt,
-		markBetweenChannelMemberTerminalStmt:                       q.markBetweenChannelMemberTerminalStmt,
-		markBetweenChannelRevertMembershipConflictsStmt:            q.markBetweenChannelRevertMembershipConflictsStmt,
-		markChannelFirmwareEnforcementAttentionRequiredStmt:        q.markChannelFirmwareEnforcementAttentionRequiredStmt,
-		markChannelFirmwareEnforcementDispatchedStmt:               q.markChannelFirmwareEnforcementDispatchedStmt,
-		markChannelFirmwareEnforcementVerifyingStmt:                q.markChannelFirmwareEnforcementVerifyingStmt,
-		markCommandBatchFinishedStmt:                               q.markCommandBatchFinishedStmt,
-		markCommandBatchFinishedWithStartedAtStmt:                  q.markCommandBatchFinishedWithStartedAtStmt,
-		markCommandBatchProcessingStmt:                             q.markCommandBatchProcessingStmt,
-		markFirmwareRolloutBatchAutomationErrorStmt:                q.markFirmwareRolloutBatchAutomationErrorStmt,
-		moveBetweenChannelRolloutToReviewStmt:                      q.moveBetweenChannelRolloutToReviewStmt,
-		moveFirmwareRolloutToReviewAfterControlFailureStmt:         q.moveFirmwareRolloutToReviewAfterControlFailureStmt,
-		negateSchedulePrioritiesStmt:                               q.negateSchedulePrioritiesStmt,
-		pairDeviceToFleetNodeStmt:                                  q.pairDeviceToFleetNodeStmt,
-		passwordUpdatedAtStmt:                                      q.passwordUpdatedAtStmt,
-		pauseActiveScheduleStmt:                                    q.pauseActiveScheduleStmt,
-		prepareFirmwareRolloutMembersForRevertStmt:                 q.prepareFirmwareRolloutMembersForRevertStmt,
-		prunePermissionsOutsideKeysStmt:                            q.prunePermissionsOutsideKeysStmt,
-		queryComponentKeysWithErrorsStmt:                           q.queryComponentKeysWithErrorsStmt,
-		queryDeviceIDsWithErrorsStmt:                               q.queryDeviceIDsWithErrorsStmt,
-		queryErrorsStmt:                                            q.queryErrorsStmt,
-		reapMessagesStmt:                                           q.reapMessagesStmt,
-		reassignDevicesUnderBuildingStmt:                           q.reassignDevicesUnderBuildingStmt,
-		reassignDevicesUnderBuildingsBulkStmt:                      q.reassignDevicesUnderBuildingsBulkStmt,
-		reassignRacksUnderBuildingStmt:                             q.reassignRacksUnderBuildingStmt,
-		reassignRacksUnderBuildingsBulkStmt:                        q.reassignRacksUnderBuildingsBulkStmt,
-		reconcileAuthenticationNeededPairingStatusByIdentifierStmt: q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
-		reconcileDefaultPasswordPairingStatusByIdentifierStmt:      q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
-		recordChannelFirmwareObservationStmt:                       q.recordChannelFirmwareObservationStmt,
-		recordCurtailPendingDispatchStmt:                           q.recordCurtailPendingDispatchStmt,
-		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
-		releaseFirmwareRolloutOwnersStmt:                           q.releaseFirmwareRolloutOwnersStmt,
-		releaseTerminalFirmwareRolloutOwnersStmt:                   q.releaseTerminalFirmwareRolloutOwnersStmt,
-		releaseUndispatchedAllPairedTargetsForRestoreStmt:          q.releaseUndispatchedAllPairedTargetsForRestoreStmt,
-		removeAllDevicesFromDeviceSetStmt:                          q.removeAllDevicesFromDeviceSetStmt,
-		removeDevicesFromAnyChannelStmt:                            q.removeDevicesFromAnyChannelStmt,
-		removeDevicesFromAnyRackStmt:                               q.removeDevicesFromAnyRackStmt,
-		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
-		removeRolloutLaneMembershipDevicesStmt:                     q.removeRolloutLaneMembershipDevicesStmt,
-		removeRolloutLaneMembershipsStmt:                           q.removeRolloutLaneMembershipsStmt,
-		renewFleetRuntimeLeaseStmt:                                 q.renewFleetRuntimeLeaseStmt,
-		requestRigConfigReconciliationStmt:                         q.requestRigConfigReconciliationStmt,
-		requeueRigConfigReconciliationAfterTerminalFailureStmt:     q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
-		resetCurtailmentTargetsForRecurtailStmt:                    q.resetCurtailmentTargetsForRecurtailStmt,
-		resetCurtailmentTargetsForRestoreStmt:                      q.resetCurtailmentTargetsForRestoreStmt,
-		resetFirmwareRolloutAdmissionBatchAfterFailureStmt:         q.resetFirmwareRolloutAdmissionBatchAfterFailureStmt,
-		resetFirmwareRolloutAdmissionMembersAfterFailureStmt:       q.resetFirmwareRolloutAdmissionMembersAfterFailureStmt,
-		resetFirmwareRolloutRevertAfterFailureStmt:                 q.resetFirmwareRolloutRevertAfterFailureStmt,
-		resetFirmwareRolloutRevertMembersAfterFailureStmt:          q.resetFirmwareRolloutRevertMembersAfterFailureStmt,
-		resetReapedFirmwareStatusesStmt:                            q.resetReapedFirmwareStatusesStmt,
-		resumeCurtailmentFromRestoringStmt:                         q.resumeCurtailmentFromRestoringStmt,
-		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
-		retryRigConfigReconciliationStmt:                           q.retryRigConfigReconciliationStmt,
-		returnChannelFirmwareEnforcementPendingStmt:                q.returnChannelFirmwareEnforcementPendingStmt,
-		revertScheduleToActiveStmt:                                 q.revertScheduleToActiveStmt,
-		revokeAllSessionsByUserIDStmt:                              q.revokeAllSessionsByUserIDStmt,
-		revokeApiKeyStmt:                                           q.revokeApiKeyStmt,
-		revokeApiKeysByFleetNodeIDStmt:                             q.revokeApiKeysByFleetNodeIDStmt,
-		revokePermissionFromRoleStmt:                               q.revokePermissionFromRoleStmt,
-		revokeSessionStmt:                                          q.revokeSessionStmt,
-		setCurtailmentAutomationActiveEventStmt:                    q.setCurtailmentAutomationActiveEventStmt,
-		setCurtailmentAutomationExecutionErrorStmt:                 q.setCurtailmentAutomationExecutionErrorStmt,
-		setCurtailmentAutomationRestoreStartedStmt:                 q.setCurtailmentAutomationRestoreStartedStmt,
-		setCurtailmentAutomationRuleEnabledStmt:                    q.setCurtailmentAutomationRuleEnabledStmt,
-		setDevicePairingAuthNeededIfNotPairedStmt:                  q.setDevicePairingAuthNeededIfNotPairedStmt,
-		setFleetNodeEnrollmentStatusStmt:                           q.setFleetNodeEnrollmentStatusStmt,
-		setInfrastructureControlSubnetsStmt:                        q.setInfrastructureControlSubnetsStmt,
-		setLocalTransactionTimeoutStmt:                             q.setLocalTransactionTimeoutStmt,
-		setMQTTSourceConfigEnabledStmt:                             q.setMQTTSourceConfigEnabledStmt,
-		setRackBuildingPositionStmt:                                q.setRackBuildingPositionStmt,
-		setRackBuildingPositionBulkClearStmt:                       q.setRackBuildingPositionBulkClearStmt,
-		setRackBuildingPositionBulkPlaceStmt:                       q.setRackBuildingPositionBulkPlaceStmt,
-		setRackSlotPositionStmt:                                    q.setRackSlotPositionStmt,
-		setSchedulePrioritiesStmt:                                  q.setSchedulePrioritiesStmt,
-		setScheduleRunningStmt:                                     q.setScheduleRunningStmt,
-		siteBelongsToOrgStmt:                                       q.siteBelongsToOrgStmt,
-		sitesByIDsStmt:                                             q.sitesByIDsStmt,
-		softDeleteAlertChannelStmt:                                 q.softDeleteAlertChannelStmt,
-		softDeleteBuildingStmt:                                     q.softDeleteBuildingStmt,
-		softDeleteBuildingsBySiteStmt:                              q.softDeleteBuildingsBySiteStmt,
-		softDeleteCustomRoleStmt:                                   q.softDeleteCustomRoleStmt,
-		softDeleteDeviceSetStmt:                                    q.softDeleteDeviceSetStmt,
-		softDeleteDevicesStmt:                                      q.softDeleteDevicesStmt,
-		softDeleteDiscoveredDeviceByIdentifierStmt:                 q.softDeleteDiscoveredDeviceByIdentifierStmt,
-		softDeleteDiscoveredDevicesForDeletedDevicesStmt:           q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
-		softDeleteFleetNodeStmt:                                    q.softDeleteFleetNodeStmt,
-		softDeleteFleetNodesForExpiredEnrollmentsStmt:              q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
-		softDeleteInfrastructureDeviceStmt:                         q.softDeleteInfrastructureDeviceStmt,
-		softDeleteInfrastructureDevicesBySiteStmt:                  q.softDeleteInfrastructureDevicesBySiteStmt,
-		softDeleteOrganizationStmt:                                 q.softDeleteOrganizationStmt,
-		softDeletePoolStmt:                                         q.softDeletePoolStmt,
-		softDeleteRoleStmt:                                         q.softDeleteRoleStmt,
-		softDeleteScheduleStmt:                                     q.softDeleteScheduleStmt,
-		softDeleteSiteStmt:                                         q.softDeleteSiteStmt,
-		softDeleteUserStmt:                                         q.softDeleteUserStmt,
-		softDeleteUserFromOrganizationStmt:                         q.softDeleteUserFromOrganizationStmt,
-		sweepAlertRuleConfigsStmt:                                  q.sweepAlertRuleConfigsStmt,
-		sweepCurtailmentTargetsToReleasedStmt:                      q.sweepCurtailmentTargetsToReleasedStmt,
-		sweepCurtailmentTargetsToRestoreFailedStmt:                 q.sweepCurtailmentTargetsToRestoreFailedStmt,
-		sweepExpiredEnrollmentsStmt:                                q.sweepExpiredEnrollmentsStmt,
-		sweepExpiredFleetNodeAuthChallengesStmt:                    q.sweepExpiredFleetNodeAuthChallengesStmt,
-		sweepExpiredFleetNodeSessionsStmt:                          q.sweepExpiredFleetNodeSessionsStmt,
-		testDeleteRolloutLaneMembershipChangeStmt:                  q.testDeleteRolloutLaneMembershipChangeStmt,
-		testGetMembershipEnforcementStateStmt:                      q.testGetMembershipEnforcementStateStmt,
-		testLockChannelFirmwareAuthorityTableStmt:                  q.testLockChannelFirmwareAuthorityTableStmt,
-		testLockDeviceSetMembershipTableStmt:                       q.testLockDeviceSetMembershipTableStmt,
-		testLockMembershipDeviceObservationNowaitStmt:              q.testLockMembershipDeviceObservationNowaitStmt,
-		testLockRolloutLaneNowaitStmt:                              q.testLockRolloutLaneNowaitStmt,
-		testMoveDeviceChannelMembershipStmt:                        q.testMoveDeviceChannelMembershipStmt,
-		testMutateRolloutLaneMembershipChangeReasonStmt:            q.testMutateRolloutLaneMembershipChangeReasonStmt,
-		testSetDiscoveredFirmwareVersionStmt:                       q.testSetDiscoveredFirmwareVersionStmt,
-		testSetRolloutLaneMembershipEnforcementStateStmt:           q.testSetRolloutLaneMembershipEnforcementStateStmt,
-		testSoftDeleteDeviceByIdentifierStmt:                       q.testSoftDeleteDeviceByIdentifierStmt,
-		testTruncateRolloutLaneMembershipChangesStmt:               q.testTruncateRolloutLaneMembershipChangesStmt,
-		transferDiscoveredDeviceAttributionStmt:                    q.transferDiscoveredDeviceAttributionStmt,
-		unassignDeviceBuildingsByRackStmt:                          q.unassignDeviceBuildingsByRackStmt,
-		unassignDeviceSitesByRackStmt:                              q.unassignDeviceSitesByRackStmt,
-		unassignDevicesFromSiteStmt:                                q.unassignDevicesFromSiteStmt,
-		unassignRacksFromBuildingStmt:                              q.unassignRacksFromBuildingStmt,
-		unassignRacksFromBuildingsBySiteStmt:                       q.unassignRacksFromBuildingsBySiteStmt,
-		unassignRacksFromSiteStmt:                                  q.unassignRacksFromSiteStmt,
-		unassignRoleStmt:                                           q.unassignRoleStmt,
-		undeleteOrganizationStmt:                                   q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                                           q.undeleteRoleStmt,
-		unpairDeviceStmt:                                           q.unpairDeviceStmt,
-		updateAlertChannelStmt:                                     q.updateAlertChannelStmt,
-		updateApiKeyLastUsedStmt:                                   q.updateApiKeyLastUsedStmt,
-		updateBuildingStmt:                                         q.updateBuildingStmt,
-		updateChannelReleaseSetStmt:                                q.updateChannelReleaseSetStmt,
-		updateCurtailmentAutomationRuleStmt:                        q.updateCurtailmentAutomationRuleStmt,
-		updateCurtailmentEventFanStateStmt:                         q.updateCurtailmentEventFanStateStmt,
-		updateCurtailmentEventOperatorFieldsStmt:                   q.updateCurtailmentEventOperatorFieldsStmt,
-		updateCurtailmentEventStateStmt:                            q.updateCurtailmentEventStateStmt,
-		updateCurtailmentResponseProfileStmt:                       q.updateCurtailmentResponseProfileStmt,
-		updateCurtailmentTargetStateStmt:                           q.updateCurtailmentTargetStateStmt,
-		updateCustomRoleNameStmt:                                   q.updateCustomRoleNameStmt,
-		updateDeviceCustomNamesStmt:                                q.updateDeviceCustomNamesStmt,
-		updateDeviceIPAssignmentStmt:                               q.updateDeviceIPAssignmentStmt,
-		updateDeviceInfoStmt:                                       q.updateDeviceInfoStmt,
-		updateDevicePairingStatusByIdentifierStmt:                  q.updateDevicePairingStatusByIdentifierStmt,
-		updateDeviceSetDescriptionStmt:                             q.updateDeviceSetDescriptionStmt,
-		updateDeviceSetLabelStmt:                                   q.updateDeviceSetLabelStmt,
-		updateDeviceSetLabelAndDescriptionStmt:                     q.updateDeviceSetLabelAndDescriptionStmt,
-		updateDeviceWorkerNameStmt:                                 q.updateDeviceWorkerNameStmt,
-		updateDeviceWorkerNamePoolSyncStatusByIDStmt:               q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
-		updateDiscoveredDeviceFirmwareVersionStmt:                  q.updateDiscoveredDeviceFirmwareVersionStmt,
-		updateDiscoveredDeviceModelByDeviceIdentifierStmt:          q.updateDiscoveredDeviceModelByDeviceIdentifierStmt,
-		updateFirmwareRolloutBatchEvidenceSummaryStmt:              q.updateFirmwareRolloutBatchEvidenceSummaryStmt,
-		updateFirmwareRolloutMemberStmt:                            q.updateFirmwareRolloutMemberStmt,
-		updateFleetNodeLastSeenAtStmt:                              q.updateFleetNodeLastSeenAtStmt,
-		updateInfrastructureDeviceStmt:                             q.updateInfrastructureDeviceStmt,
-		updateLastLoginStmt:                                        q.updateLastLoginStmt,
-		updateMQTTSourceConfigStmt:                                 q.updateMQTTSourceConfigStmt,
-		updateMessageAfterFailureStmt:                              q.updateMessageAfterFailureStmt,
-		updateMessagePermanentlyFailedStmt:                         q.updateMessagePermanentlyFailedStmt,
-		updateMessageStatusStmt:                                    q.updateMessageStatusStmt,
-		updateMinerPasswordStmt:                                    q.updateMinerPasswordStmt,
-		updateOpenErrorStmt:                                        q.updateOpenErrorStmt,
-		updateOrganizationStmt:                                     q.updateOrganizationStmt,
-		updatePoolStmt:                                             q.updatePoolStmt,
-		updateRackInfoStmt:                                         q.updateRackInfoStmt,
-		updateRackPlacementStmt:                                    q.updateRackPlacementStmt,
-		updateRackPlacementBulkForBuildingStmt:                     q.updateRackPlacementBulkForBuildingStmt,
-		updateRackPlacementBulkForSiteStmt:                         q.updateRackPlacementBulkForSiteStmt,
-		updateRoleStmt:                                             q.updateRoleStmt,
-		updateScheduleStmt:                                         q.updateScheduleStmt,
-		updateScheduleAfterRunStmt:                                 q.updateScheduleAfterRunStmt,
-		updateSessionActivityStmt:                                  q.updateSessionActivityStmt,
-		updateSiteStmt:                                             q.updateSiteStmt,
-		updateUserPasswordStmt:                                     q.updateUserPasswordStmt,
-		updateUserPasswordAndFlagStmt:                              q.updateUserPasswordAndFlagStmt,
-		updateUserRoleStmt:                                         q.updateUserRoleStmt,
-		updateUserUsernameStmt:                                     q.updateUserUsernameStmt,
-		upsertAlertRoutePolicyStmt:                                 q.upsertAlertRoutePolicyStmt,
-		upsertAlertRuleConfigStmt:                                  q.upsertAlertRuleConfigStmt,
-		upsertBuiltinRoleForOrgStmt:                                q.upsertBuiltinRoleForOrgStmt,
-		upsertCommandOnDeviceLogStmt:                               q.upsertCommandOnDeviceLogStmt,
-		upsertCurtailmentAutomationSignalStateStmt:                 q.upsertCurtailmentAutomationSignalStateStmt,
-		upsertCurtailmentReconcilerHeartbeatStmt:                   q.upsertCurtailmentReconcilerHeartbeatStmt,
-		upsertCustomRoleForOrgStmt:                                 q.upsertCustomRoleForOrgStmt,
-		upsertDevicePairingStmt:                                    q.upsertDevicePairingStmt,
-		upsertDeviceStatusStmt:                                     q.upsertDeviceStatusStmt,
-		upsertDiscoveredDeviceStmt:                                 q.upsertDiscoveredDeviceStmt,
-		upsertDiscoveredDeviceFromFleetNodeStmt:                    q.upsertDiscoveredDeviceFromFleetNodeStmt,
-		upsertFleetMetricRollupsStmt:                               q.upsertFleetMetricRollupsStmt,
-		upsertFleetNodeAuthChallengeStmt:                           q.upsertFleetNodeAuthChallengeStmt,
-		upsertFleetNodeSessionStmt:                                 q.upsertFleetNodeSessionStmt,
-		upsertMQTTSourceStateStmt:                                  q.upsertMQTTSourceStateStmt,
-		upsertMinerCredentialsStmt:                                 q.upsertMinerCredentialsStmt,
-		upsertPermissionStmt:                                       q.upsertPermissionStmt,
-		upsertReleaseChannelSettingStmt:                            q.upsertReleaseChannelSettingStmt,
+		hasUserStmt:                                                  q.hasUserStmt,
+		holdChannelFirmwareEnforcementStmt:                           q.holdChannelFirmwareEnforcementStmt,
+		insertActivityLogStmt:                                        q.insertActivityLogStmt,
+		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
+		insertAlertRouteChannelsStmt:                                 q.insertAlertRouteChannelsStmt,
+		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
+		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
+		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
+		insertDeviceStmt:                                             q.insertDeviceStmt,
+		insertDeviceMetricsStmt:                                      q.insertDeviceMetricsStmt,
+		insertErrorStmt:                                              q.insertErrorStmt,
+		insertMQTTSourceConfigStmt:                                   q.insertMQTTSourceConfigStmt,
+		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
+		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
+		insertNotificationMetricSamplesStmt:                          q.insertNotificationMetricSamplesStmt,
+		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
+		isDeviceOwnedByFleetNodeStmt:                                 q.isDeviceOwnedByFleetNodeStmt,
+		isRolloutLaneChannelStmt:                                     q.isRolloutLaneChannelStmt,
+		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
+		listActiveCurtailmentTargetDevicesByOrgStmt:                  q.listActiveCurtailmentTargetDevicesByOrgStmt,
+		listActiveFirmwareConvergenceRolloutLanesStmt:                q.listActiveFirmwareConvergenceRolloutLanesStmt,
+		listActiveNotificationGroupsStmt:                             q.listActiveNotificationGroupsStmt,
+		listActiveNotificationsStmt:                                  q.listActiveNotificationsStmt,
+		listActiveNotificationsByAlertStmt:                           q.listActiveNotificationsByAlertStmt,
+		listActiveOrganizationIDsStmt:                                q.listActiveOrganizationIDsStmt,
+		listActiveRolloutLaneFirmwareConvergenceStatusesStmt:         q.listActiveRolloutLaneFirmwareConvergenceStatusesStmt,
+		listActiveRolloutLaneModelBindingsForDevicesStmt:             q.listActiveRolloutLaneModelBindingsForDevicesStmt,
+		listActiveRolloutOwnedDeviceIdentifiersStmt:                  q.listActiveRolloutOwnedDeviceIdentifiersStmt,
+		listActivityLogsStmt:                                         q.listActivityLogsStmt,
+		listAlertChannelsStmt:                                        q.listAlertChannelsStmt,
+		listAlertRoutePoliciesStmt:                                   q.listAlertRoutePoliciesStmt,
+		listAlertRuleConfigsStmt:                                     q.listAlertRuleConfigsStmt,
+		listApiKeysByOrganizationStmt:                                q.listApiKeysByOrganizationStmt,
+		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
+		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
+		listBatchDeviceResultsStmt:                                   q.listBatchDeviceResultsStmt,
+		listBetweenChannelAdmissionMembersStmt:                       q.listBetweenChannelAdmissionMembersStmt,
+		listBetweenChannelDeviceModelsStmt:                           q.listBetweenChannelDeviceModelsStmt,
+		listBetweenChannelFinalizationsStmt:                          q.listBetweenChannelFinalizationsStmt,
+		listBuildingNamesBySiteStmt:                                  q.listBuildingNamesBySiteStmt,
+		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
+		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
+		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
+		listChannelFirmwareEnforcementsForReconcileStmt:              q.listChannelFirmwareEnforcementsForReconcileStmt,
+		listChannelManagedDeviceIdentifiersStmt:                      q.listChannelManagedDeviceIdentifiersStmt,
+		listCompleteFirmwareRolloutPolicyBucketsStmt:                 q.listCompleteFirmwareRolloutPolicyBucketsStmt,
+		listCurrentChannelIDsForDevicesStmt:                          q.listCurrentChannelIDsForDevicesStmt,
+		listCurrentFirmwareRolloutAdmissionFailuresStmt:              q.listCurrentFirmwareRolloutAdmissionFailuresStmt,
+		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
+		listCurtailmentCandidatesByOrgStmt:                           q.listCurtailmentCandidatesByOrgStmt,
+		listCurtailmentEventsForOrgStmt:                              q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		listCurtailmentResponseProfilesByOrgStmt:                     q.listCurtailmentResponseProfilesByOrgStmt,
+		listCurtailmentTargetSiteCoverageByEventStmt:                 q.listCurtailmentTargetSiteCoverageByEventStmt,
+		listCurtailmentTargetSiteCoverageByEventsStmt:                q.listCurtailmentTargetSiteCoverageByEventsStmt,
+		listCurtailmentTargetsByEventStmt:                            q.listCurtailmentTargetsByEventStmt,
+		listCurtailmentTargetsByEventPageStmt:                        q.listCurtailmentTargetsByEventPageStmt,
+		listCustomRolesForOrgStmt:                                    q.listCustomRolesForOrgStmt,
+		listDeviceSetMembersPaginatedStmt:                            q.listDeviceSetMembersPaginatedStmt,
+		listDeviceSetMembersPaginatedAfterStmt:                       q.listDeviceSetMembersPaginatedAfterStmt,
+		listDeviceSetMembersPaginatedFilteredStmt:                    q.listDeviceSetMembersPaginatedFilteredStmt,
+		listDeviceSetMembersPaginatedFilteredAfterStmt:               q.listDeviceSetMembersPaginatedFilteredAfterStmt,
+		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
+		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,
+		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:        q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
+		listEnabledMQTTSourcesStmt:                                   q.listEnabledMQTTSourcesStmt,
+		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,
+		listFirmwareReleaseTargetsStmt:                               q.listFirmwareReleaseTargetsStmt,
+		listFirmwareReleaseTargetsBySetIDsStmt:                       q.listFirmwareReleaseTargetsBySetIDsStmt,
+		listFirmwareRolloutBatchHashrateEvidenceStmt:                 q.listFirmwareRolloutBatchHashrateEvidenceStmt,
+		listFirmwareRolloutBatchesStmt:                               q.listFirmwareRolloutBatchesStmt,
+		listFirmwareRolloutBatchesByRolloutIDsStmt:                   q.listFirmwareRolloutBatchesByRolloutIDsStmt,
+		listFirmwareRolloutCausesStmt:                                q.listFirmwareRolloutCausesStmt,
+		listFirmwareRolloutCausesByRolloutIDsStmt:                    q.listFirmwareRolloutCausesByRolloutIDsStmt,
+		listFirmwareRolloutEvidenceStmt:                              q.listFirmwareRolloutEvidenceStmt,
+		listFirmwareRolloutEvidenceByRolloutIDsStmt:                  q.listFirmwareRolloutEvidenceByRolloutIDsStmt,
+		listFirmwareRolloutEvidenceCandidatesStmt:                    q.listFirmwareRolloutEvidenceCandidatesStmt,
+		listFirmwareRolloutGroupChildrenStmt:                         q.listFirmwareRolloutGroupChildrenStmt,
+		listFirmwareRolloutGroupChildrenByGroupIDsStmt:               q.listFirmwareRolloutGroupChildrenByGroupIDsStmt,
+		listFirmwareRolloutGroupModelsStmt:                           q.listFirmwareRolloutGroupModelsStmt,
+		listFirmwareRolloutGroupModelsByGroupIDsStmt:                 q.listFirmwareRolloutGroupModelsByGroupIDsStmt,
+		listFirmwareRolloutGroupsStmt:                                q.listFirmwareRolloutGroupsStmt,
+		listFirmwareRolloutMemberDeviceIDsStmt:                       q.listFirmwareRolloutMemberDeviceIDsStmt,
+		listFirmwareRolloutMembersStmt:                               q.listFirmwareRolloutMembersStmt,
+		listFirmwareRolloutMembersByRolloutIDsStmt:                   q.listFirmwareRolloutMembersByRolloutIDsStmt,
+		listFirmwareRolloutsStmt:                                     q.listFirmwareRolloutsStmt,
+		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
+		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
+		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
+		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
+		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
+		listMQTTSourceConfigsByOrgStmt:                               q.listMQTTSourceConfigsByOrgStmt,
+		listMQTTSourceStatesByOrgStmt:                                q.listMQTTSourceStatesByOrgStmt,
+		listMQTTSourcesWithActiveCurtailmentStmt:                     q.listMQTTSourcesWithActiveCurtailmentStmt,
+		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
+		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
+		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
+		listOrganizationsStmt:                                        q.listOrganizationsStmt,
+		listPermissionsStmt:                                          q.listPermissionsStmt,
+		listPoolsStmt:                                                q.listPoolsStmt,
+		listRackTypesStmt:                                            q.listRackTypesStmt,
+		listRackZoneRefsStmt:                                         q.listRackZoneRefsStmt,
+		listRackZonesStmt:                                            q.listRackZonesStmt,
+		listRacksOutsideBuildingBoundsStmt:                           q.listRacksOutsideBuildingBoundsStmt,
+		listRecentlyResolvedCurtailedDevicesByOrgStmt:                q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
+		listRecentlyResolvedCurtailedDevicesByScopeStmt:              q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
+		listResponseProfileInfrastructureDevicesByOrgStmt:            q.listResponseProfileInfrastructureDevicesByOrgStmt,
+		listRolePermissionKeysStmt:                                   q.listRolePermissionKeysStmt,
+		listRolesStmt:                                                q.listRolesStmt,
+		listRolesWithDetailsForOrgStmt:                               q.listRolesWithDetailsForOrgStmt,
+		listRolloutLaneActiveParentsStmt:                             q.listRolloutLaneActiveParentsStmt,
+		listRolloutLaneChannelDetailsByLaneIDsStmt:                   q.listRolloutLaneChannelDetailsByLaneIDsStmt,
+		listRolloutLaneChannelTransitionsStmt:                        q.listRolloutLaneChannelTransitionsStmt,
+		listRolloutLaneChannelsStmt:                                  q.listRolloutLaneChannelsStmt,
+		listRolloutLaneChannelsByLaneIDsStmt:                         q.listRolloutLaneChannelsByLaneIDsStmt,
+		listRolloutLaneCurrentReleaseTargetsStmt:                     q.listRolloutLaneCurrentReleaseTargetsStmt,
+		listRolloutLaneFirmwareConvergenceMembersStmt:                q.listRolloutLaneFirmwareConvergenceMembersStmt,
+		listRolloutLaneFirmwareConvergenceStatusesStmt:               q.listRolloutLaneFirmwareConvergenceStatusesStmt,
+		listRolloutLaneMemberDeviceIDsStmt:                           q.listRolloutLaneMemberDeviceIDsStmt,
+		listRolloutLaneMembersStmt:                                   q.listRolloutLaneMembersStmt,
+		listRolloutLaneMembersByIdentifiersStmt:                      q.listRolloutLaneMembersByIdentifiersStmt,
+		listRolloutLaneMembershipCandidatesStmt:                      q.listRolloutLaneMembershipCandidatesStmt,
+		listRolloutLaneModelChannelsStmt:                             q.listRolloutLaneModelChannelsStmt,
+		listRolloutLaneModelChannelsByLaneIDsStmt:                    q.listRolloutLaneModelChannelsByLaneIDsStmt,
+		listRolloutLaneModelFirmwareConvergenceStatusesStmt:          q.listRolloutLaneModelFirmwareConvergenceStatusesStmt,
+		listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt: q.listRolloutLaneModelFirmwareConvergenceStatusesByLaneIDsStmt,
+		listRolloutLaneModelTransitionsStmt:                          q.listRolloutLaneModelTransitionsStmt,
+		listRolloutLaneModelsStmt:                                    q.listRolloutLaneModelsStmt,
+		listRolloutLaneModelsByLaneIDsStmt:                           q.listRolloutLaneModelsByLaneIDsStmt,
+		listRolloutLaneOwnedChannelIDsStmt:                           q.listRolloutLaneOwnedChannelIDsStmt,
+		listRolloutLaneTopologyAnomaliesStmt:                         q.listRolloutLaneTopologyAnomaliesStmt,
+		listRolloutLanesStmt:                                         q.listRolloutLanesStmt,
+		listScheduleIDStatusesStmt:                                   q.listScheduleIDStatusesStmt,
+		listSchedulesStmt:                                            q.listSchedulesStmt,
+		listSiteNetworkConfigsForOverlapStmt:                         q.listSiteNetworkConfigsForOverlapStmt,
+		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
+		listSitesStmt:                                                q.listSitesStmt,
+		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
+		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
+		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
+		lockBetweenChannelChannelsStmt:                               q.lockBetweenChannelChannelsStmt,
+		lockBetweenChannelDevicesStmt:                                q.lockBetweenChannelDevicesStmt,
+		lockBetweenChannelInitialDevicesStmt:                         q.lockBetweenChannelInitialDevicesStmt,
+		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
+		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
+		lockChannelForWriteStmt:                                      q.lockChannelForWriteStmt,
+		lockChannelsForReparentStmt:                                  q.lockChannelsForReparentStmt,
+		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
+		lockCurtailmentEventByUUIDForWriteStmt:                       q.lockCurtailmentEventByUUIDForWriteStmt,
+		lockCurtailmentEventForFanCommandStmt:                        q.lockCurtailmentEventForFanCommandStmt,
+		lockCurtailmentFanDeviceForWriteStmt:                         q.lockCurtailmentFanDeviceForWriteStmt,
+		lockCurtailmentFanDevicesForWriteStmt:                        q.lockCurtailmentFanDevicesForWriteStmt,
+		lockCurtailmentResponseProfileAutomationMutationStmt:         q.lockCurtailmentResponseProfileAutomationMutationStmt,
+		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
+		lockDevicesForChannelAssignmentStmt:                          q.lockDevicesForChannelAssignmentStmt,
+		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
+		lockDevicesForSoftDeleteStmt:                                 q.lockDevicesForSoftDeleteStmt,
+		lockFirmwareRolloutStmt:                                      q.lockFirmwareRolloutStmt,
+		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
+		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
+		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
+		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
+		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
+		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
+		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,
+		lockRolloutLaneStmt:                                          q.lockRolloutLaneStmt,
+		lockRolloutLaneActiveParentStmt:                              q.lockRolloutLaneActiveParentStmt,
+		lockRolloutLaneDevicesForArchiveStmt:                         q.lockRolloutLaneDevicesForArchiveStmt,
+		lockRolloutLaneForArchiveStmt:                                q.lockRolloutLaneForArchiveStmt,
+		lockRolloutLaneInitialAuthoritiesStmt:                        q.lockRolloutLaneInitialAuthoritiesStmt,
+		lockRolloutLaneManagementAuthoritiesStmt:                     q.lockRolloutLaneManagementAuthoritiesStmt,
+		lockRolloutLaneModelForMutationStmt:                          q.lockRolloutLaneModelForMutationStmt,
+		lockRolloutLaneModelForRepairStmt:                            q.lockRolloutLaneModelForRepairStmt,
+		lockRolloutLaneModelRepairDeviceStmt:                         q.lockRolloutLaneModelRepairDeviceStmt,
+		lockRolloutLaneModelsForMutationStmt:                         q.lockRolloutLaneModelsForMutationStmt,
+		lockRolloutLaneOwnedRolloutMembersStmt:                       q.lockRolloutLaneOwnedRolloutMembersStmt,
+		lockRolloutLaneTopologyCutoverStmt:                           q.lockRolloutLaneTopologyCutoverStmt,
+		lockRolloutLanesStmt:                                         q.lockRolloutLanesStmt,
+		lockSchedulePriorityStmt:                                     q.lockSchedulePriorityStmt,
+		lockSiteForWriteStmt:                                         q.lockSiteForWriteStmt,
+		markBetweenChannelMemberTerminalStmt:                         q.markBetweenChannelMemberTerminalStmt,
+		markBetweenChannelRevertMembershipConflictsStmt:              q.markBetweenChannelRevertMembershipConflictsStmt,
+		markChannelFirmwareEnforcementAttentionRequiredStmt:          q.markChannelFirmwareEnforcementAttentionRequiredStmt,
+		markChannelFirmwareEnforcementDispatchedStmt:                 q.markChannelFirmwareEnforcementDispatchedStmt,
+		markChannelFirmwareEnforcementVerifyingStmt:                  q.markChannelFirmwareEnforcementVerifyingStmt,
+		markCommandBatchFinishedStmt:                                 q.markCommandBatchFinishedStmt,
+		markCommandBatchFinishedWithStartedAtStmt:                    q.markCommandBatchFinishedWithStartedAtStmt,
+		markCommandBatchProcessingStmt:                               q.markCommandBatchProcessingStmt,
+		markFirmwareRolloutBatchAutomationErrorStmt:                  q.markFirmwareRolloutBatchAutomationErrorStmt,
+		moveBetweenChannelRolloutToReviewStmt:                        q.moveBetweenChannelRolloutToReviewStmt,
+		moveFirmwareRolloutToReviewAfterControlFailureStmt:           q.moveFirmwareRolloutToReviewAfterControlFailureStmt,
+		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
+		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
+		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
+		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
+		prepareFirmwareRolloutMembersForRevertStmt:                   q.prepareFirmwareRolloutMembersForRevertStmt,
+		prepareModelFirmwareRolloutMembersForRevertStmt:              q.prepareModelFirmwareRolloutMembersForRevertStmt,
+		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
+		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,
+		queryDeviceIDsWithErrorsStmt:                                 q.queryDeviceIDsWithErrorsStmt,
+		queryErrorsStmt:                                              q.queryErrorsStmt,
+		reapMessagesStmt:                                             q.reapMessagesStmt,
+		reassignDevicesUnderBuildingStmt:                             q.reassignDevicesUnderBuildingStmt,
+		reassignDevicesUnderBuildingsBulkStmt:                        q.reassignDevicesUnderBuildingsBulkStmt,
+		reassignRacksUnderBuildingStmt:                               q.reassignRacksUnderBuildingStmt,
+		reassignRacksUnderBuildingsBulkStmt:                          q.reassignRacksUnderBuildingsBulkStmt,
+		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:   q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
+		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		recordChannelFirmwareObservationStmt:                         q.recordChannelFirmwareObservationStmt,
+		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
+		refreshFirmwareRolloutGroupResultStmt:                        q.refreshFirmwareRolloutGroupResultStmt,
+		refreshFirmwareRolloutGroupResultsStmt:                       q.refreshFirmwareRolloutGroupResultsStmt,
+		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
+		releaseFirmwareRolloutOwnersStmt:                             q.releaseFirmwareRolloutOwnersStmt,
+		releaseRolloutLaneActiveParentStmt:                           q.releaseRolloutLaneActiveParentStmt,
+		releaseTerminalFirmwareRolloutOwnersStmt:                     q.releaseTerminalFirmwareRolloutOwnersStmt,
+		releaseUndispatchedAllPairedTargetsForRestoreStmt:            q.releaseUndispatchedAllPairedTargetsForRestoreStmt,
+		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
+		removeDevicesFromAnyChannelStmt:                              q.removeDevicesFromAnyChannelStmt,
+		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
+		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
+		removeRolloutLaneMembershipDevicesStmt:                       q.removeRolloutLaneMembershipDevicesStmt,
+		removeRolloutLaneMembershipsStmt:                             q.removeRolloutLaneMembershipsStmt,
+		removeRolloutLaneModelMembershipDevicesStmt:                  q.removeRolloutLaneModelMembershipDevicesStmt,
+		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
+		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
+		requeueRigConfigReconciliationAfterTerminalFailureStmt:       q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
+		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
+		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
+		resetFirmwareRolloutAdmissionAfterFailureStmt:                q.resetFirmwareRolloutAdmissionAfterFailureStmt,
+		resetFirmwareRolloutAdmissionBatchAfterFailureStmt:           q.resetFirmwareRolloutAdmissionBatchAfterFailureStmt,
+		resetFirmwareRolloutAdmissionMembersAfterFailureStmt:         q.resetFirmwareRolloutAdmissionMembersAfterFailureStmt,
+		resetFirmwareRolloutRevertAfterFailureStmt:                   q.resetFirmwareRolloutRevertAfterFailureStmt,
+		resetFirmwareRolloutRevertMembersAfterFailureStmt:            q.resetFirmwareRolloutRevertMembersAfterFailureStmt,
+		resetReapedFirmwareStatusesStmt:                              q.resetReapedFirmwareStatusesStmt,
+		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
+		resumePausedScheduleStmt:                                     q.resumePausedScheduleStmt,
+		retryRigConfigReconciliationStmt:                             q.retryRigConfigReconciliationStmt,
+		returnChannelFirmwareEnforcementPendingStmt:                  q.returnChannelFirmwareEnforcementPendingStmt,
+		revertScheduleToActiveStmt:                                   q.revertScheduleToActiveStmt,
+		revokeAllSessionsByUserIDStmt:                                q.revokeAllSessionsByUserIDStmt,
+		revokeApiKeyStmt:                                             q.revokeApiKeyStmt,
+		revokeApiKeysByFleetNodeIDStmt:                               q.revokeApiKeysByFleetNodeIDStmt,
+		revokePermissionFromRoleStmt:                                 q.revokePermissionFromRoleStmt,
+		revokeSessionStmt:                                            q.revokeSessionStmt,
+		runRolloutLaneTopologyBackfillStmt:                           q.runRolloutLaneTopologyBackfillStmt,
+		setCurtailmentAutomationActiveEventStmt:                      q.setCurtailmentAutomationActiveEventStmt,
+		setCurtailmentAutomationExecutionErrorStmt:                   q.setCurtailmentAutomationExecutionErrorStmt,
+		setCurtailmentAutomationRestoreStartedStmt:                   q.setCurtailmentAutomationRestoreStartedStmt,
+		setCurtailmentAutomationRuleEnabledStmt:                      q.setCurtailmentAutomationRuleEnabledStmt,
+		setDevicePairingAuthNeededIfNotPairedStmt:                    q.setDevicePairingAuthNeededIfNotPairedStmt,
+		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
+		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
+		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,
+		setMQTTSourceConfigEnabledStmt:                               q.setMQTTSourceConfigEnabledStmt,
+		setRackBuildingPositionStmt:                                  q.setRackBuildingPositionStmt,
+		setRackBuildingPositionBulkClearStmt:                         q.setRackBuildingPositionBulkClearStmt,
+		setRackBuildingPositionBulkPlaceStmt:                         q.setRackBuildingPositionBulkPlaceStmt,
+		setRackSlotPositionStmt:                                      q.setRackSlotPositionStmt,
+		setSchedulePrioritiesStmt:                                    q.setSchedulePrioritiesStmt,
+		setScheduleRunningStmt:                                       q.setScheduleRunningStmt,
+		siteBelongsToOrgStmt:                                         q.siteBelongsToOrgStmt,
+		sitesByIDsStmt:                                               q.sitesByIDsStmt,
+		softDeleteAlertChannelStmt:                                   q.softDeleteAlertChannelStmt,
+		softDeleteBuildingStmt:                                       q.softDeleteBuildingStmt,
+		softDeleteBuildingsBySiteStmt:                                q.softDeleteBuildingsBySiteStmt,
+		softDeleteCustomRoleStmt:                                     q.softDeleteCustomRoleStmt,
+		softDeleteDeviceSetStmt:                                      q.softDeleteDeviceSetStmt,
+		softDeleteDevicesStmt:                                        q.softDeleteDevicesStmt,
+		softDeleteDiscoveredDeviceByIdentifierStmt:                   q.softDeleteDiscoveredDeviceByIdentifierStmt,
+		softDeleteDiscoveredDevicesForDeletedDevicesStmt:             q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
+		softDeleteFleetNodeStmt:                                      q.softDeleteFleetNodeStmt,
+		softDeleteFleetNodesForExpiredEnrollmentsStmt:                q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
+		softDeleteInfrastructureDeviceStmt:                           q.softDeleteInfrastructureDeviceStmt,
+		softDeleteInfrastructureDevicesBySiteStmt:                    q.softDeleteInfrastructureDevicesBySiteStmt,
+		softDeleteOrganizationStmt:                                   q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                                           q.softDeletePoolStmt,
+		softDeleteRoleStmt:                                           q.softDeleteRoleStmt,
+		softDeleteScheduleStmt:                                       q.softDeleteScheduleStmt,
+		softDeleteSiteStmt:                                           q.softDeleteSiteStmt,
+		softDeleteUserStmt:                                           q.softDeleteUserStmt,
+		softDeleteUserFromOrganizationStmt:                           q.softDeleteUserFromOrganizationStmt,
+		sweepAlertRuleConfigsStmt:                                    q.sweepAlertRuleConfigsStmt,
+		sweepCurtailmentTargetsToReleasedStmt:                        q.sweepCurtailmentTargetsToReleasedStmt,
+		sweepCurtailmentTargetsToRestoreFailedStmt:                   q.sweepCurtailmentTargetsToRestoreFailedStmt,
+		sweepExpiredEnrollmentsStmt:                                  q.sweepExpiredEnrollmentsStmt,
+		sweepExpiredFleetNodeAuthChallengesStmt:                      q.sweepExpiredFleetNodeAuthChallengesStmt,
+		sweepExpiredFleetNodeSessionsStmt:                            q.sweepExpiredFleetNodeSessionsStmt,
+		testClaimRolloutLaneActiveParentStmt:                         q.testClaimRolloutLaneActiveParentStmt,
+		testCreateFirmwareRolloutGroupStmt:                           q.testCreateFirmwareRolloutGroupStmt,
+		testCreateRolloutLaneModelChannelStmt:                        q.testCreateRolloutLaneModelChannelStmt,
+		testDeleteRolloutLaneMembershipChangeStmt:                    q.testDeleteRolloutLaneMembershipChangeStmt,
+		testGetMembershipEnforcementStateStmt:                        q.testGetMembershipEnforcementStateStmt,
+		testLockChannelFirmwareAuthorityTableStmt:                    q.testLockChannelFirmwareAuthorityTableStmt,
+		testLockDeviceSetMembershipTableStmt:                         q.testLockDeviceSetMembershipTableStmt,
+		testLockMembershipDeviceObservationNowaitStmt:                q.testLockMembershipDeviceObservationNowaitStmt,
+		testLockRolloutLaneNowaitStmt:                                q.testLockRolloutLaneNowaitStmt,
+		testMoveDeviceChannelMembershipStmt:                          q.testMoveDeviceChannelMembershipStmt,
+		testMutateRolloutLaneMembershipChangeReasonStmt:              q.testMutateRolloutLaneMembershipChangeReasonStmt,
+		testSetDiscoveredEndpointStmt:                                q.testSetDiscoveredEndpointStmt,
+		testSetDiscoveredFirmwareVersionStmt:                         q.testSetDiscoveredFirmwareVersionStmt,
+		testSetRolloutLaneMembershipEnforcementStateStmt:             q.testSetRolloutLaneMembershipEnforcementStateStmt,
+		testSetRolloutLaneModelCurrentChannelStmt:                    q.testSetRolloutLaneModelCurrentChannelStmt,
+		testSoftDeleteDeviceByIdentifierStmt:                         q.testSoftDeleteDeviceByIdentifierStmt,
+		testTruncateRolloutLaneMembershipChangesStmt:                 q.testTruncateRolloutLaneMembershipChangesStmt,
+		testUpdateFirmwareRolloutGroupMetadataStmt:                   q.testUpdateFirmwareRolloutGroupMetadataStmt,
+		testUpdateFirmwareRolloutGroupResultStmt:                     q.testUpdateFirmwareRolloutGroupResultStmt,
+		transferDiscoveredDeviceAttributionStmt:                      q.transferDiscoveredDeviceAttributionStmt,
+		unassignDeviceBuildingsByRackStmt:                            q.unassignDeviceBuildingsByRackStmt,
+		unassignDeviceSitesByRackStmt:                                q.unassignDeviceSitesByRackStmt,
+		unassignDevicesFromSiteStmt:                                  q.unassignDevicesFromSiteStmt,
+		unassignRacksFromBuildingStmt:                                q.unassignRacksFromBuildingStmt,
+		unassignRacksFromBuildingsBySiteStmt:                         q.unassignRacksFromBuildingsBySiteStmt,
+		unassignRacksFromSiteStmt:                                    q.unassignRacksFromSiteStmt,
+		unassignRoleStmt:                                             q.unassignRoleStmt,
+		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                                             q.undeleteRoleStmt,
+		unpairDeviceStmt:                                             q.unpairDeviceStmt,
+		updateAlertChannelStmt:                                       q.updateAlertChannelStmt,
+		updateApiKeyLastUsedStmt:                                     q.updateApiKeyLastUsedStmt,
+		updateBuildingStmt:                                           q.updateBuildingStmt,
+		updateChannelReleaseSetStmt:                                  q.updateChannelReleaseSetStmt,
+		updateCurtailmentAutomationRuleStmt:                          q.updateCurtailmentAutomationRuleStmt,
+		updateCurtailmentEventFanStateStmt:                           q.updateCurtailmentEventFanStateStmt,
+		updateCurtailmentEventOperatorFieldsStmt:                     q.updateCurtailmentEventOperatorFieldsStmt,
+		updateCurtailmentEventStateStmt:                              q.updateCurtailmentEventStateStmt,
+		updateCurtailmentResponseProfileStmt:                         q.updateCurtailmentResponseProfileStmt,
+		updateCurtailmentTargetStateStmt:                             q.updateCurtailmentTargetStateStmt,
+		updateCustomRoleNameStmt:                                     q.updateCustomRoleNameStmt,
+		updateDeviceCustomNamesStmt:                                  q.updateDeviceCustomNamesStmt,
+		updateDeviceIPAssignmentStmt:                                 q.updateDeviceIPAssignmentStmt,
+		updateDeviceInfoStmt:                                         q.updateDeviceInfoStmt,
+		updateDevicePairingStatusByIdentifierStmt:                    q.updateDevicePairingStatusByIdentifierStmt,
+		updateDeviceSetDescriptionStmt:                               q.updateDeviceSetDescriptionStmt,
+		updateDeviceSetLabelStmt:                                     q.updateDeviceSetLabelStmt,
+		updateDeviceSetLabelAndDescriptionStmt:                       q.updateDeviceSetLabelAndDescriptionStmt,
+		updateDeviceWorkerNameStmt:                                   q.updateDeviceWorkerNameStmt,
+		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                 q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
+		updateDiscoveredDeviceFirmwareVersionStmt:                    q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateDiscoveredDeviceModelByDeviceIdentifierStmt:            q.updateDiscoveredDeviceModelByDeviceIdentifierStmt,
+		updateFirmwareRolloutBatchEvidenceSummaryStmt:                q.updateFirmwareRolloutBatchEvidenceSummaryStmt,
+		updateFirmwareRolloutMemberStmt:                              q.updateFirmwareRolloutMemberStmt,
+		updateFleetNodeLastSeenAtStmt:                                q.updateFleetNodeLastSeenAtStmt,
+		updateInfrastructureDeviceStmt:                               q.updateInfrastructureDeviceStmt,
+		updateLastLoginStmt:                                          q.updateLastLoginStmt,
+		updateMQTTSourceConfigStmt:                                   q.updateMQTTSourceConfigStmt,
+		updateMessageAfterFailureStmt:                                q.updateMessageAfterFailureStmt,
+		updateMessagePermanentlyFailedStmt:                           q.updateMessagePermanentlyFailedStmt,
+		updateMessageStatusStmt:                                      q.updateMessageStatusStmt,
+		updateMinerPasswordStmt:                                      q.updateMinerPasswordStmt,
+		updateOpenErrorStmt:                                          q.updateOpenErrorStmt,
+		updateOrganizationStmt:                                       q.updateOrganizationStmt,
+		updatePoolStmt:                                               q.updatePoolStmt,
+		updateRackInfoStmt:                                           q.updateRackInfoStmt,
+		updateRackPlacementStmt:                                      q.updateRackPlacementStmt,
+		updateRackPlacementBulkForBuildingStmt:                       q.updateRackPlacementBulkForBuildingStmt,
+		updateRackPlacementBulkForSiteStmt:                           q.updateRackPlacementBulkForSiteStmt,
+		updateRoleStmt:                                               q.updateRoleStmt,
+		updateScheduleStmt:                                           q.updateScheduleStmt,
+		updateScheduleAfterRunStmt:                                   q.updateScheduleAfterRunStmt,
+		updateSessionActivityStmt:                                    q.updateSessionActivityStmt,
+		updateSiteStmt:                                               q.updateSiteStmt,
+		updateUserPasswordStmt:                                       q.updateUserPasswordStmt,
+		updateUserPasswordAndFlagStmt:                                q.updateUserPasswordAndFlagStmt,
+		updateUserRoleStmt:                                           q.updateUserRoleStmt,
+		updateUserUsernameStmt:                                       q.updateUserUsernameStmt,
+		upsertAlertRoutePolicyStmt:                                   q.upsertAlertRoutePolicyStmt,
+		upsertAlertRuleConfigStmt:                                    q.upsertAlertRuleConfigStmt,
+		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
+		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
+		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
+		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
+		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,
+		upsertDevicePairingStmt:                                      q.upsertDevicePairingStmt,
+		upsertDeviceStatusStmt:                                       q.upsertDeviceStatusStmt,
+		upsertDiscoveredDeviceStmt:                                   q.upsertDiscoveredDeviceStmt,
+		upsertDiscoveredDeviceFromFleetNodeStmt:                      q.upsertDiscoveredDeviceFromFleetNodeStmt,
+		upsertFleetMetricRollupsStmt:                                 q.upsertFleetMetricRollupsStmt,
+		upsertFleetNodeAuthChallengeStmt:                             q.upsertFleetNodeAuthChallengeStmt,
+		upsertFleetNodeSessionStmt:                                   q.upsertFleetNodeSessionStmt,
+		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
+		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
+		upsertPermissionStmt:                                         q.upsertPermissionStmt,
+		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
 	}
 }

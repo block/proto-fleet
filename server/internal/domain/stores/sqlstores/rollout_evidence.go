@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/domain/rollout/evidence"
@@ -172,7 +174,7 @@ func (s *SQLRolloutEvidenceStore) UpdateSummary(
 	summary evidence.Summary,
 ) (bool, error) {
 	rowsAffected, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (int64, error) {
-		return q.UpdateFirmwareRolloutBatchEvidenceSummary(
+		rows, updateErr := q.UpdateFirmwareRolloutBatchEvidenceSummary(
 			ctx,
 			sqlc.UpdateFirmwareRolloutBatchEvidenceSummaryParams{
 				EvidenceStatus:                     string(summary.Status),
@@ -203,6 +205,30 @@ func (s *SQLRolloutEvidenceStore) UpdateSummary(
 				OrgID:     summary.OrgID,
 			},
 		)
+		if updateErr != nil || rows == 0 {
+			return rows, updateErr
+		}
+		if summary.PostWindowFinalized {
+			if _, completeErr := q.CompleteFirmwareRolloutEvidenceRows(
+				ctx,
+				sqlc.CompleteFirmwareRolloutEvidenceRowsParams{
+					BatchID:   summary.BatchID,
+					RolloutID: summary.RolloutID,
+					OrgID:     summary.OrgID,
+				},
+			); completeErr != nil {
+				return 0, completeErr
+			}
+			if refreshErr := refreshRolloutGroupForChild(
+				ctx,
+				q,
+				summary.OrgID,
+				summary.RolloutID,
+			); refreshErr != nil {
+				return 0, refreshErr
+			}
+		}
+		return rows, nil
 	})
 	if err != nil {
 		return false, fmt.Errorf("update firmware rollout batch evidence summary: %w", err)
@@ -215,7 +241,7 @@ func (s *SQLRolloutEvidenceStore) MarkAutomationError(
 	summary evidence.Summary,
 ) error {
 	_, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (int64, error) {
-		return q.MarkFirmwareRolloutBatchAutomationError(
+		rows, updateErr := q.MarkFirmwareRolloutBatchAutomationError(
 			ctx,
 			sqlc.MarkFirmwareRolloutBatchAutomationErrorParams{
 				EvidenceErrorMessage: ptrToNullString(summary.ErrorMessage),
@@ -228,11 +254,51 @@ func (s *SQLRolloutEvidenceStore) MarkAutomationError(
 				OrgID:     summary.OrgID,
 			},
 		)
+		if updateErr != nil || rows == 0 {
+			return rows, updateErr
+		}
+		return rows, nil
 	})
 	if err != nil {
 		return fmt.Errorf("mark firmware rollout batch automation error: %w", err)
 	}
 	return nil
+}
+
+func refreshRolloutGroupForChild(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID int64,
+	rolloutID uuid.UUID,
+) error {
+	child, err := q.GetFirmwareRollout(
+		ctx,
+		sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID},
+	)
+	if err != nil {
+		return err
+	}
+	if !child.GroupID.Valid {
+		return nil
+	}
+	if child.LaneID.Valid {
+		if _, err = releaseRolloutLaneActiveParentIfSettled(
+			ctx,
+			q,
+			child.LaneID.UUID,
+			orgID,
+		); err != nil {
+			return err
+		}
+	}
+	_, err = q.RefreshFirmwareRolloutGroupResult(
+		ctx,
+		sqlc.RefreshFirmwareRolloutGroupResultParams{
+			GroupID: child.GroupID.UUID,
+			OrgID:   orgID,
+		},
+	)
+	return err
 }
 
 func completedPolicyBucketCutoff(windowStart, windowEnd time.Time) time.Time {

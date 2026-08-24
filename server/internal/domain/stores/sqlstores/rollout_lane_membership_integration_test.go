@@ -260,7 +260,7 @@ func TestRolloutLaneCreationRejectsPreviewAfterSourceRevisionChanges(t *testing.
 	actorID := testOrganizationUserID(t, db, orgID)
 	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
 	source := createMembershipTestLane(t, service, orgID, actorID, "Revision source", deviceIDs)
-	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "r")}
+	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "7")}
 	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
 		OrgID:             orgID,
 		ReleaseTargets:    targets,
@@ -305,7 +305,7 @@ func TestRolloutLaneCreationRejectsPreviewAfterMinerMovesSourceLanes(t *testing.
 	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
 	sourceA := createMembershipTestLane(t, service, orgID, actorID, "Movement source A", deviceIDs)
 	sourceB := createMembershipTestLane(t, service, orgID, actorID, "Movement source B", nil)
-	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "m")}
+	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "8")}
 	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
 		OrgID:             orgID,
 		ReleaseTargets:    targets,
@@ -1505,7 +1505,7 @@ func TestRolloutLaneMembershipMigrationDownSucceedsWhenAuditIsEmpty(t *testing.T
 	}
 
 	db := testutil.GetTestDB(t)
-	downSQL, err := migrations.Migrations.ReadFile("000149_rollout_lane_membership_changes.down.sql")
+	downSQL, err := migrations.Migrations.ReadFile("000153_rollout_lane_membership_changes.down.sql")
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(t.Context(), string(downSQL))
@@ -1552,7 +1552,7 @@ func TestRolloutLaneMembershipMigrationDownRefusesWithAuditRows(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	downSQL, err := migrations.Migrations.ReadFile("000149_rollout_lane_membership_changes.down.sql")
+	downSQL, err := migrations.Migrations.ReadFile("000153_rollout_lane_membership_changes.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(downSQL))
 	require.ErrorContains(t, err, "rollout lane membership audit records exist")

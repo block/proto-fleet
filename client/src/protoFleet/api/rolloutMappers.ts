@@ -5,6 +5,8 @@ import {
   type PreviewRolloutLaneMembershipChangeResponse as ProtoMembershipChangePreview,
   type ListRolloutLaneMembersResponse as ProtoMembershipPage,
   type UpdateRolloutLaneMembershipResponse as ProtoMembershipUpdate,
+  type PreviewRolloutLaneModelMembershipChangeResponse as ProtoModelMembershipChangePreview,
+  type UpdateRolloutLaneModelMembershipResponse as ProtoModelMembershipUpdate,
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
   type RolloutBatchEvidenceSummary as ProtoRolloutBatchEvidenceSummary,
@@ -13,12 +15,22 @@ import {
   type RolloutEvidence as ProtoRolloutEvidence,
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
   RolloutEvidenceStatus as ProtoRolloutEvidenceStatus,
+  type RolloutGroup as ProtoRolloutGroup,
+  RolloutGroupActivity as ProtoRolloutGroupActivity,
+  RolloutGroupEvidenceReadiness as ProtoRolloutGroupEvidenceReadiness,
+  RolloutGroupLifecycle as ProtoRolloutGroupLifecycle,
+  RolloutGroupTerminalOutcome as ProtoRolloutGroupTerminalOutcome,
   type RolloutHashratePolicy as ProtoRolloutHashratePolicy,
   type RolloutLane as ProtoRolloutLane,
   type RolloutLaneChannel as ProtoRolloutLaneChannel,
   type RolloutLaneMember as ProtoRolloutLaneMember,
   type RolloutLaneMembershipReassignment as ProtoRolloutLaneMembershipReassignment,
+  type RolloutLaneModel as ProtoRolloutLaneModel,
+  RolloutLaneModelCompatibility as ProtoRolloutLaneModelCompatibility,
   type RolloutLanePreview as ProtoRolloutLanePreview,
+  RolloutLaneTopologyAnomalyType as ProtoRolloutLaneTopologyAnomalyType,
+  type RolloutLaneTopologyReadiness as ProtoRolloutLaneTopologyReadiness,
+  RolloutLaneTopologyRepairAction as ProtoRolloutLaneTopologyRepairAction,
   type RolloutMember as ProtoRolloutMember,
   RolloutMemberState as ProtoRolloutMemberState,
   RolloutState as ProtoRolloutState,
@@ -36,6 +48,7 @@ import type {
   RolloutEvidence,
   RolloutEvidencePhase,
   RolloutEvidenceStatus,
+  RolloutGroup,
   RolloutHashratePolicy,
   RolloutLane,
   RolloutLaneChannel,
@@ -43,8 +56,13 @@ import type {
   RolloutLaneMembershipMember,
   RolloutLaneMembershipPage,
   RolloutLaneMembershipUpdateResult,
+  RolloutLaneModel,
+  RolloutLaneModelCompatibility,
   RolloutLanePreview,
   RolloutLaneReleaseTarget,
+  RolloutLaneTopologyAnomalyType,
+  RolloutLaneTopologyReadiness,
+  RolloutLaneTopologyRepairAction,
   RolloutLifecycleState,
   RolloutMember,
   RolloutMemberState,
@@ -57,6 +75,7 @@ export interface MapRolloutLaneDetails {
   memberCount?: number;
   memberIdentifiers?: string[];
   releaseTargets?: RolloutLaneReleaseTarget[];
+  modelMemberIdentifiers?: ReadonlyMap<string, string[]>;
 }
 
 export interface MapRolloutToEventOptions {
@@ -240,6 +259,8 @@ export function mapRolloutEvidenceStatus(status: ProtoRolloutEvidenceStatus): Ro
       return "automationError";
     case ProtoRolloutEvidenceStatus.FINALIZED:
       return "finalized";
+    case ProtoRolloutEvidenceStatus.CANCELLED:
+      return "cancelled";
     case ProtoRolloutEvidenceStatus.UNSPECIFIED:
     default:
       return "unknown";
@@ -277,6 +298,64 @@ function mapRolloutLaneChannel(channel: ProtoRolloutLaneChannel): RolloutLaneCha
   };
 }
 
+function mapLaneModelCompatibility(compatibility: ProtoRolloutLaneModelCompatibility): RolloutLaneModelCompatibility {
+  switch (compatibility) {
+    case ProtoRolloutLaneModelCompatibility.COMPATIBLE:
+      return "compatible";
+    case ProtoRolloutLaneModelCompatibility.TARGET_UNAVAILABLE:
+      return "targetUnavailable";
+    case ProtoRolloutLaneModelCompatibility.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+function mapLaneModelFirmwareTarget(target: NonNullable<ProtoRolloutLaneModel["currentFirmwareTarget"]>) {
+  return {
+    releaseTargetId: target.releaseTargetId,
+    releaseSetId: target.releaseSetId,
+    firmwareFileId: target.firmwareFileId,
+    firmwareVersion: target.firmwareVersion,
+    sha256: target.sha256,
+  };
+}
+
+function mapRolloutLaneModel(model: ProtoRolloutLaneModel): RolloutLaneModel {
+  return {
+    id: model.laneModelId,
+    modelIdentityKey: model.modelIdentityKey,
+    revision: model.revision,
+    manufacturer: model.manufacturer,
+    model: model.model,
+    currentChannelId: model.currentChannelId,
+    currentFirmwareTarget: model.currentFirmwareTarget
+      ? mapLaneModelFirmwareTarget(model.currentFirmwareTarget)
+      : undefined,
+    memberCount: model.memberCount,
+    bindings: {
+      activeCount: model.bindings?.activeCount ?? 0,
+      historicalCount: model.bindings?.historicalCount ?? 0,
+    },
+    firmwareConvergence: {
+      totalCount: model.firmwareConvergence?.totalCount ?? 0,
+      pendingCount: model.firmwareConvergence?.pendingCount ?? 0,
+      updatingCount: model.firmwareConvergence?.updatingCount ?? 0,
+      verifyingCount: model.firmwareConvergence?.verifyingCount ?? 0,
+      confirmedCount: model.firmwareConvergence?.confirmedCount ?? 0,
+      attentionCount: model.firmwareConvergence?.attentionCount ?? 0,
+      members: model.firmwareConvergence?.members.map(mapFirmwareTransitionMiner) ?? [],
+    },
+    channels: model.channels.map((channel) => ({
+      channelId: channel.channelId,
+      position: channel.position,
+      current: channel.current,
+      firmwareTarget: channel.firmwareTarget ? mapLaneModelFirmwareTarget(channel.firmwareTarget) : undefined,
+      createdAt: timestampToIsoString(channel.createdAt),
+    })),
+    compatibility: mapLaneModelCompatibility(model.compatibility),
+  };
+}
+
 export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDetails = {}): RolloutLane {
   const channels = lane.channels.map(mapRolloutLaneChannel);
   return {
@@ -300,6 +379,74 @@ export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDe
     },
     createdAt: timestampToIsoString(lane.createdAt),
     updatedAt: timestampToIsoString(lane.updatedAt),
+    models: lane.models.map((model) => ({
+      ...mapRolloutLaneModel(model),
+      memberIdentifiers: details.modelMemberIdentifiers?.get(model.laneModelId),
+    })),
+    scalarProjectionAvailable: lane.scalarProjectionAvailable,
+    topologyEnabled: lane.topologyEnabled,
+  };
+}
+
+function mapTopologyAnomalyType(type: ProtoRolloutLaneTopologyAnomalyType): RolloutLaneTopologyAnomalyType {
+  switch (type) {
+    case ProtoRolloutLaneTopologyAnomalyType.NULL_IDENTITY:
+      return "nullIdentity";
+    case ProtoRolloutLaneTopologyAnomalyType.AMBIGUOUS_TARGET_MATCH:
+      return "ambiguousTargetMatch";
+    case ProtoRolloutLaneTopologyAnomalyType.NO_TARGET_MATCH:
+      return "noTargetMatch";
+    case ProtoRolloutLaneTopologyAnomalyType.PHYSICAL_MISMATCH:
+      return "physicalMismatch";
+    case ProtoRolloutLaneTopologyAnomalyType.MISSING_BINDING:
+      return "missingBinding";
+    case ProtoRolloutLaneTopologyAnomalyType.DUPLICATE_ACTIVE_BINDING:
+      return "duplicateActiveBinding";
+    case ProtoRolloutLaneTopologyAnomalyType.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+function mapTopologyRepairAction(action: ProtoRolloutLaneTopologyRepairAction): RolloutLaneTopologyRepairAction {
+  switch (action) {
+    case ProtoRolloutLaneTopologyRepairAction.CONFIRM_IDENTITY:
+      return "confirmIdentity";
+    case ProtoRolloutLaneTopologyRepairAction.SELECT_DECLARATION:
+      return "selectDeclaration";
+    case ProtoRolloutLaneTopologyRepairAction.REPAIR_PHYSICAL_MEMBERSHIP:
+      return "repairPhysicalMembership";
+    case ProtoRolloutLaneTopologyRepairAction.END_STALE_BINDING:
+      return "endStaleBinding";
+    case ProtoRolloutLaneTopologyRepairAction.REPAIR_BINDING:
+      return "repairBinding";
+    case ProtoRolloutLaneTopologyRepairAction.RERUN_BACKFILL:
+      return "rerunBackfill";
+    case ProtoRolloutLaneTopologyRepairAction.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+export function mapRolloutLaneTopologyReadiness(
+  readiness: ProtoRolloutLaneTopologyReadiness,
+): RolloutLaneTopologyReadiness {
+  return {
+    enabled: readiness.enabled,
+    revision: readiness.revision,
+    anomalyCount: readiness.anomalyCount,
+    activeLegacyRolloutCount: readiness.activeLegacyRolloutCount,
+    anomalies: readiness.anomalies.map((anomaly) => ({
+      id: anomaly.anomalyId,
+      laneId: anomaly.laneId,
+      deviceIdentifier: anomaly.deviceIdentifier,
+      laneModelId: anomaly.laneModelId || undefined,
+      laneModelRevision: anomaly.laneModelRevision > 0n ? anomaly.laneModelRevision : undefined,
+      type: mapTopologyAnomalyType(anomaly.type),
+      supportedRepairActions: anomaly.supportedRepairActions.map(mapTopologyRepairAction),
+      details: anomaly.details ?? {},
+    })),
+    updatedAt: timestampToIsoString(readiness.updatedAt),
   };
 }
 
@@ -347,7 +494,7 @@ export function mapRolloutLaneMembershipPage(page: ProtoMembershipPage): Rollout
 }
 
 export function mapRolloutLaneMembershipChangePreview(
-  preview: ProtoMembershipChangePreview,
+  preview: ProtoMembershipChangePreview | ProtoModelMembershipChangePreview,
 ): RolloutLaneMembershipChangePreview {
   if (!preview.targetFirmwarePreview) {
     throw new Error("Rollout lane membership preview response is missing its target firmware preview.");
@@ -361,7 +508,9 @@ export function mapRolloutLaneMembershipChangePreview(
   };
 }
 
-export function mapRolloutLaneMembershipUpdate(result: ProtoMembershipUpdate): RolloutLaneMembershipUpdateResult {
+export function mapRolloutLaneMembershipUpdate(
+  result: ProtoMembershipUpdate | ProtoModelMembershipUpdate,
+): RolloutLaneMembershipUpdateResult {
   if (!result.lane) {
     throw new Error("Rollout lane membership update response is missing its lane.");
   }
@@ -429,6 +578,8 @@ function mapRolloutMember(member: ProtoRolloutMember): RolloutMember {
     admittedAt: timestampToIsoString(member.admittedAt),
     settledAt: timestampToIsoString(member.settledAt),
     evidence: member.evidence.map(mapRolloutEvidence),
+    modelIdentityKey: member.modelIdentityKey,
+    modelIdentityValidatedAt: timestampToIsoString(member.modelIdentityValidatedAt),
   };
 }
 
@@ -455,6 +606,8 @@ function mapRolloutBatchEvidenceSummary(summary: ProtoRolloutBatchEvidenceSummar
     postWindowFinalized: summary.postWindowFinalized,
     postWindowFinalizedAt: timestampToIsoString(summary.postWindowFinalizedAt),
     errorMessage: summary.errorMessage,
+    cancellationReason: summary.cancellationReason,
+    cancelledAt: timestampToIsoString(summary.cancelledAt),
   };
 }
 
@@ -468,6 +621,7 @@ function mapRolloutBatch(batch: ProtoRolloutBatch): RolloutBatch {
     members: batch.members.map(mapRolloutMember),
     completedAt: timestampToIsoString(batch.completedAt),
     evidenceSummary: batch.evidenceSummary ? mapRolloutBatchEvidenceSummary(batch.evidenceSummary) : undefined,
+    admissionAttempt: batch.admissionAttempt,
   };
 }
 
@@ -514,7 +668,116 @@ export function mapRollout(rollout: ProtoRollout): RolloutRecord {
     members: rollout.members.map(mapRolloutMember),
     causes: rollout.causes.map(mapRolloutCause),
     availableActions: getRolloutActionEligibility(state),
+    parentId: rollout.parentId,
+    laneId: rollout.laneId,
+    laneModelId: rollout.laneModelId,
+    modelIdentityKey: rollout.modelIdentityKey,
+    manufacturer: rollout.manufacturer,
+    model: rollout.model,
   };
+}
+
+export function mapRolloutGroup(group: ProtoRolloutGroup): RolloutGroup {
+  return {
+    id: group.parentId,
+    laneId: group.laneId,
+    name: group.name,
+    reason: group.reason,
+    resultRevision: group.resultRevision,
+    terminalOutcome: mapRolloutGroupTerminalOutcome(group.terminalOutcome),
+    resultReady: group.resultReady,
+    lifecycle: mapRolloutGroupLifecycle(group.lifecycle),
+    activity: mapRolloutGroupActivity(group.activity),
+    needsAction: group.needsAction,
+    evidenceReadiness: mapRolloutGroupEvidenceReadiness(group.evidenceReadiness),
+    createdAt: timestampToIsoString(group.createdAt),
+    updatedAt: timestampToIsoString(group.updatedAt),
+    models: (group.models ?? []).map((model) => ({
+      laneModelId: model.laneModelId,
+      modelIdentityKey: model.modelIdentityKey,
+      manufacturer: model.manufacturer,
+      model: model.model,
+      sourceChannelId: model.sourceChannelId,
+      targetChannelId: model.targetChannelId,
+      sourceReleaseTargetId: model.sourceReleaseTargetId,
+      targetReleaseTargetId: model.targetReleaseTargetId,
+      memberCount: model.memberCount,
+      childRolloutId: model.childRolloutId,
+    })),
+    children: group.children.map(mapRollout),
+  };
+}
+
+function mapRolloutGroupLifecycle(value: ProtoRolloutGroupLifecycle): RolloutGroup["lifecycle"] {
+  switch (value) {
+    case ProtoRolloutGroupLifecycle.ACTIVE:
+      return "active";
+    case ProtoRolloutGroupLifecycle.TERMINAL:
+      return "terminal";
+    case ProtoRolloutGroupLifecycle.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+function mapRolloutGroupActivity(value: ProtoRolloutGroupActivity): RolloutGroup["activity"] {
+  switch (value) {
+    case ProtoRolloutGroupActivity.FAILED_ADMISSION:
+      return "failedAdmission";
+    case ProtoRolloutGroupActivity.ATTENTION_REQUIRED:
+      return "attentionRequired";
+    case ProtoRolloutGroupActivity.REVIEW:
+      return "review";
+    case ProtoRolloutGroupActivity.PAUSED:
+      return "paused";
+    case ProtoRolloutGroupActivity.REVERTING:
+      return "reverting";
+    case ProtoRolloutGroupActivity.FINALIZING:
+      return "finalizing";
+    case ProtoRolloutGroupActivity.RUNNING:
+      return "running";
+    case ProtoRolloutGroupActivity.CREATED:
+      return "created";
+    case ProtoRolloutGroupActivity.SETTLED:
+      return "settled";
+    case ProtoRolloutGroupActivity.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+function mapRolloutGroupTerminalOutcome(value: ProtoRolloutGroupTerminalOutcome): RolloutGroup["terminalOutcome"] {
+  switch (value) {
+    case ProtoRolloutGroupTerminalOutcome.PENDING:
+      return "pending";
+    case ProtoRolloutGroupTerminalOutcome.SUCCESSFUL:
+      return "successful";
+    case ProtoRolloutGroupTerminalOutcome.REVERTED:
+      return "reverted";
+    case ProtoRolloutGroupTerminalOutcome.ABORTED:
+      return "aborted";
+    case ProtoRolloutGroupTerminalOutcome.COMPLETED_WITH_FAILURES:
+      return "completedWithFailures";
+    case ProtoRolloutGroupTerminalOutcome.MIXED:
+      return "mixed";
+    case ProtoRolloutGroupTerminalOutcome.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+function mapRolloutGroupEvidenceReadiness(
+  value: ProtoRolloutGroupEvidenceReadiness,
+): RolloutGroup["evidenceReadiness"] {
+  switch (value) {
+    case ProtoRolloutGroupEvidenceReadiness.PENDING:
+      return "pending";
+    case ProtoRolloutGroupEvidenceReadiness.READY:
+      return "ready";
+    case ProtoRolloutGroupEvidenceReadiness.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
 }
 
 function countMemberState(rollout: RolloutRecord, state: RolloutMemberState): number {

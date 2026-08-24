@@ -155,6 +155,11 @@ func TestFinalizerProjectsOnlyNewFinalizations(t *testing.T) {
 		Finalization: Finalization{
 			OrgID:            1,
 			DeviceIdentifier: "miner-a",
+			ParentID:         uuidPointer(uuid.New()),
+			RolloutID:        uuid.New(),
+			ModelIdentityKey: "v1:5:proto:5:alpha",
+			Manufacturer:     "Proto",
+			Model:            "Alpha",
 		},
 		Outcome: FinalizationOutcomeMoved,
 	}
@@ -165,6 +170,14 @@ func TestFinalizerProjectsOnlyNewFinalizations(t *testing.T) {
 	result.ProjectActivity = true
 	finalizer.projectActivity(t.Context(), result)
 	require.Len(t, logger.events, 1)
+	require.Equal(t, result.ParentID.String(), logger.events[0].Metadata["parent_id"])
+	require.Equal(t, result.RolloutID.String(), logger.events[0].Metadata["child_id"])
+	require.Equal(t, "Proto", logger.events[0].Metadata["manufacturer"])
+	require.Equal(t, "Alpha", logger.events[0].Metadata["model"])
+}
+
+func uuidPointer(value uuid.UUID) *uuid.UUID {
+	return &value
 }
 
 func testFinalization(memberID int64) Finalization {

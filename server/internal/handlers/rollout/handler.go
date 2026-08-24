@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
@@ -19,9 +22,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-type rolloutService interface {
+type rolloutService interface { //nolint:interfacebloat // Handler controls and aggregate reads share one rollout service.
 	Create(ctx context.Context, req rolloutDomain.CreateRequest) (*rolloutDomain.Rollout, error)
 	Get(ctx context.Context, orgID int64, rolloutID uuid.UUID) (*rolloutDomain.Rollout, error)
+	GetGroup(ctx context.Context, orgID int64, groupID uuid.UUID) (*rolloutDomain.Group, error)
+	ListGroups(ctx context.Context, orgID int64) ([]rolloutDomain.Group, error)
 	List(ctx context.Context, orgID int64, states []rolloutDomain.State) ([]rolloutDomain.Rollout, error)
 	Admit(ctx context.Context, req rolloutDomain.AdmitRequest) (*rolloutDomain.Rollout, error)
 	Continue(ctx context.Context, req rolloutDomain.AdmitRequest) (*rolloutDomain.Rollout, error)
@@ -69,6 +74,34 @@ type laneService interface {
 		ctx context.Context,
 		req betweenchannel.UpdateMembershipRequest,
 	) (betweenchannel.UpdateMembershipResult, error)
+	CreateModelDeclaration(
+		ctx context.Context,
+		req betweenchannel.CreateModelDeclarationRequest,
+	) (*betweenchannel.Lane, error)
+	PublishModelTarget(
+		ctx context.Context,
+		req betweenchannel.PublishModelTargetRequest,
+	) (*betweenchannel.Lane, error)
+	PreviewModelMembershipChange(
+		ctx context.Context,
+		req betweenchannel.PreviewModelMembershipChangeRequest,
+	) (betweenchannel.MembershipChangePreview, error)
+	UpdateModelMembership(
+		ctx context.Context,
+		req betweenchannel.UpdateModelMembershipRequest,
+	) (betweenchannel.UpdateMembershipResult, error)
+	GetTopologyReadiness(
+		ctx context.Context,
+		orgID int64,
+	) (betweenchannel.TopologyReadiness, error)
+	RepairModelBinding(
+		ctx context.Context,
+		req betweenchannel.RepairModelBindingRequest,
+	) (betweenchannel.RepairModelBindingResult, error)
+	EnableTopology(
+		ctx context.Context,
+		req betweenchannel.EnableTopologyRequest,
+	) (betweenchannel.EnableTopologyResult, error)
 	DeleteLane(ctx context.Context, req betweenchannel.DeleteLaneRequest) error
 	StartRollout(
 		ctx context.Context,
@@ -326,6 +359,13 @@ func (h *Handler) ListRolloutLaneMembers(
 	if err != nil {
 		return nil, err
 	}
+	var laneModelID uuid.UUID
+	if req.Msg.GetLaneModelId() != "" {
+		laneModelID, err = uuid.Parse(req.Msg.GetLaneModelId())
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentError("invalid rollout lane model ID")
+		}
+	}
 	pageToken, err := decodeLaneMemberPageToken(req.Msg.GetPageToken())
 	if err != nil {
 		return nil, err
@@ -335,9 +375,21 @@ func (h *Handler) ListRolloutLaneMembers(
 			"rollout lane member page token belongs to a different lane",
 		)
 	}
+	if pageToken.LaneID != uuid.Nil {
+		tokenLaneModelID := uuid.Nil
+		if pageToken.LaneModelID != nil {
+			tokenLaneModelID = *pageToken.LaneModelID
+		}
+		if tokenLaneModelID != laneModelID {
+			return nil, fleeterror.NewInvalidArgumentError(
+				"rollout lane member page token belongs to a different model declaration",
+			)
+		}
+	}
 	result, err := h.laneService.ListMembers(ctx, betweenchannel.ListMembersRequest{
 		OrgID:             info.OrganizationID,
 		LaneID:            laneID,
+		LaneModelID:       laneModelID,
 		ExpectedRevision:  pageToken.Revision,
 		AfterIdentifier:   pageToken.Cursor,
 		Limit:             int32(req.Msg.GetPageSize()), //nolint:gosec // Proto validation caps page size at 1000.
@@ -354,11 +406,15 @@ func (h *Handler) ListRolloutLaneMembers(
 		response.Members = append(response.Members, laneMemberToProto(member))
 	}
 	if result.NextIdentifier != "" {
+		var tokenLaneModelID *uuid.UUID
+		if laneModelID != uuid.Nil {
+			value := laneModelID
+			tokenLaneModelID = &value
+		}
 		response.NextPageToken = encodeLaneMemberPageToken(laneMemberPageToken{
-			Version:  laneMemberPageTokenVersion,
-			LaneID:   laneID,
-			Revision: result.Revision,
-			Cursor:   result.NextIdentifier,
+			Version: laneMemberPageTokenVersion, LaneID: laneID,
+			LaneModelID: tokenLaneModelID, Revision: result.Revision,
+			Cursor: result.NextIdentifier,
 		})
 	}
 	return connect.NewResponse(response), nil
@@ -475,6 +531,262 @@ func (h *Handler) UpdateRolloutLaneMembership(
 	return connect.NewResponse(response), nil
 }
 
+func (h *Handler) PreviewRolloutLaneModelDeclaration(
+	ctx context.Context,
+	req *connect.Request[pb.PreviewRolloutLaneModelDeclarationRequest],
+) (*connect.Response[pb.PreviewRolloutLaneModelDeclarationResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError("rollout lane service is not registered")
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	preview, err := h.laneService.PreviewLane(ctx, betweenchannel.PreviewLaneRequest{
+		OrgID:             info.OrganizationID,
+		FirmwareFileIDs:   []string{req.Msg.GetFirmwareFileId()},
+		DeviceIdentifiers: req.Msg.GetDeviceIdentifiers(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.PreviewRolloutLaneModelDeclarationResponse{
+		Preview: lanePreviewToProto(preview),
+		LaneId:  laneID.String(),
+	}), nil
+}
+
+func (h *Handler) CreateRolloutLaneModelDeclaration(
+	ctx context.Context,
+	req *connect.Request[pb.CreateRolloutLaneModelDeclarationRequest],
+) (*connect.Response[pb.CreateRolloutLaneModelDeclarationResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError("rollout lane service is not registered")
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	lane, err := h.laneService.CreateModelDeclaration(
+		ctx,
+		betweenchannel.CreateModelDeclarationRequest{
+			OrgID:                         info.OrganizationID,
+			LaneID:                        laneID,
+			ExpectedRevision:              int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Zero is the only accepted creation revision.
+			FirmwareFileIDs:               []string{req.Msg.GetFirmwareFileId()},
+			DeviceIdentifiers:             req.Msg.GetDeviceIdentifiers(),
+			IdempotencyKey:                req.Msg.GetIdempotencyKey(),
+			Reason:                        req.Msg.GetReason(),
+			ActorUserID:                   info.UserID,
+			ActorType:                     actorType,
+			ActorCredentialID:             actorCredentialID,
+			ConfirmInitialEnforcement:     req.Msg.GetConfirmInitialEnforcement(),
+			ConfirmReassignment:           req.Msg.GetConfirmReassignment(),
+			ReassignmentConfirmationToken: req.Msg.GetReassignmentConfirmationToken(),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.CreateRolloutLaneModelDeclarationResponse{
+		Lane: laneToProto(lane),
+	}), nil
+}
+
+func (h *Handler) PublishRolloutLaneModelTarget(
+	ctx context.Context,
+	req *connect.Request[pb.PublishRolloutLaneModelTargetRequest],
+) (*connect.Response[pb.PublishRolloutLaneModelTargetResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError("rollout lane service is not registered")
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	laneModelID, modelIdentityKey, err := parseLaneModelSelector(req.Msg.GetDeclaration())
+	if err != nil {
+		return nil, err
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	lane, err := h.laneService.PublishModelTarget(ctx, betweenchannel.PublishModelTargetRequest{
+		OrgID:             info.OrganizationID,
+		LaneID:            laneID,
+		LaneModelID:       laneModelID,
+		ModelIdentityKey:  modelIdentityKey,
+		ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow fails domain validation.
+		FirmwareFileIDs:   []string{req.Msg.GetFirmwareFileId()},
+		IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+		Reason:            req.Msg.GetReason(),
+		ActorUserID:       info.UserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.PublishRolloutLaneModelTargetResponse{Lane: laneToProto(lane)}), nil
+}
+
+func (h *Handler) PreviewRolloutLaneModelMembershipChange(
+	ctx context.Context,
+	req *connect.Request[pb.PreviewRolloutLaneModelMembershipChangeRequest],
+) (*connect.Response[pb.PreviewRolloutLaneModelMembershipChangeResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError("rollout lane service is not registered")
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	laneModelID, modelIdentityKey, err := parseLaneModelSelector(req.Msg.GetDeclaration())
+	if err != nil {
+		return nil, err
+	}
+	preview, err := h.laneService.PreviewModelMembershipChange(
+		ctx,
+		betweenchannel.PreviewModelMembershipChangeRequest{
+			OrgID: info.OrganizationID, LaneID: laneID,
+			LaneModelID: laneModelID, ModelIdentityKey: modelIdentityKey,
+			AddIdentifiers:    req.Msg.GetAddDeviceIdentifiers(),
+			RemoveIdentifiers: req.Msg.GetRemoveDeviceIdentifiers(),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.PreviewRolloutLaneModelMembershipChangeResponse{
+		TargetFirmwarePreview:            lanePreviewToProto(preview.TargetFirmwarePreview),
+		RequiresFirmwareConfirmation:     preview.RequiresFirmwareConfirmation,
+		RequiresReassignmentConfirmation: preview.RequiresReassignConfirmation,
+		Reassignments:                    make([]*pb.RolloutLaneMembershipReassignment, 0, len(preview.Reassignments)),
+		Removals:                         make([]*pb.RolloutLaneMember, 0, len(preview.Removals)),
+	}
+	for _, reassignment := range preview.Reassignments {
+		response.Reassignments = append(response.Reassignments, &pb.RolloutLaneMembershipReassignment{
+			DeviceIdentifier: reassignment.DeviceIdentifier,
+			SourceLaneId:     reassignment.SourceLaneID.String(),
+			SourceLaneLabel:  reassignment.SourceLaneLabel,
+		})
+	}
+	for _, removal := range preview.Removals {
+		response.Removals = append(response.Removals, laneMemberToProto(removal))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) UpdateRolloutLaneModelMembership(
+	ctx context.Context,
+	req *connect.Request[pb.UpdateRolloutLaneModelMembershipRequest],
+) (*connect.Response[pb.UpdateRolloutLaneModelMembershipResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError("rollout lane service is not registered")
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	laneModelID, modelIdentityKey, err := parseLaneModelSelector(req.Msg.GetDeclaration())
+	if err != nil {
+		return nil, err
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	result, err := h.laneService.UpdateModelMembership(ctx, betweenchannel.UpdateModelMembershipRequest{
+		OrgID: info.OrganizationID, LaneID: laneID,
+		LaneModelID: laneModelID, ModelIdentityKey: modelIdentityKey,
+		ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow fails domain validation.
+		AddIdentifiers:    req.Msg.GetAddDeviceIdentifiers(),
+		RemoveIdentifiers: req.Msg.GetRemoveDeviceIdentifiers(),
+		ConfirmFirmware:   req.Msg.GetConfirmFirmware(),
+		ConfirmReassign:   req.Msg.GetConfirmReassign(),
+		IdempotencyKey:    req.Msg.GetIdempotencyKey(), Reason: req.Msg.GetReason(),
+		ActorUserID: info.UserID, ActorType: actorType, ActorCredentialID: actorCredentialID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.UpdateRolloutLaneModelMembershipResponse{
+		Lane:              laneToProto(result.Lane),
+		TransitionMembers: make([]*pb.RolloutLaneMember, 0, len(result.TransitionMembers)),
+	}
+	for _, member := range result.TransitionMembers {
+		response.TransitionMembers = append(response.TransitionMembers, laneMemberToProto(member))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func parseLaneModelSelector(
+	selector *pb.RolloutLaneModelSelector,
+) (uuid.UUID, string, error) {
+	if selector == nil {
+		return uuid.Nil, "", fleeterror.NewInvalidArgumentError(
+			"rollout lane model declaration selector is required",
+		)
+	}
+	switch value := selector.GetSelector().(type) {
+	case *pb.RolloutLaneModelSelector_LaneModelId:
+		id, err := uuid.Parse(value.LaneModelId)
+		if err != nil {
+			return uuid.Nil, "", fleeterror.NewInvalidArgumentError(
+				"invalid rollout lane model declaration ID",
+			)
+		}
+		return id, "", nil
+	case *pb.RolloutLaneModelSelector_ModelIdentityKey:
+		if value.ModelIdentityKey == "" {
+			return uuid.Nil, "", fleeterror.NewInvalidArgumentError(
+				"rollout lane model identity key is required",
+			)
+		}
+		return uuid.Nil, value.ModelIdentityKey, nil
+	default:
+		return uuid.Nil, "", fleeterror.NewInvalidArgumentError(
+			"exactly one rollout lane model declaration selector is required",
+		)
+	}
+}
+
 func (h *Handler) DeleteRolloutLane(
 	ctx context.Context,
 	req *connect.Request[pb.DeleteRolloutLaneRequest],
@@ -512,13 +824,233 @@ func (h *Handler) DeleteRolloutLane(
 	return connect.NewResponse(&pb.DeleteRolloutLaneResponse{}), nil
 }
 
+func (h *Handler) GetRolloutLaneTopologyReadiness(
+	ctx context.Context,
+	_ *connect.Request[pb.GetRolloutLaneTopologyReadinessRequest],
+) (*connect.Response[pb.GetRolloutLaneTopologyReadinessResponse], error) {
+	info, err := middleware.RequireAnyPermission(
+		ctx,
+		[]string{authz.PermChannelRead, authz.PermChannelManage},
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	readiness, err := h.laneService.GetTopologyReadiness(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	translated, err := topologyReadinessToProto(readiness)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetRolloutLaneTopologyReadinessResponse{
+		Readiness: translated,
+	}), nil
+}
+
+func (h *Handler) RepairRolloutLaneModelBinding(
+	ctx context.Context,
+	req *connect.Request[pb.RepairRolloutLaneModelBindingRequest],
+) (*connect.Response[pb.RepairRolloutLaneModelBindingResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	laneModelID, err := uuid.Parse(req.Msg.GetLaneModelId())
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid rollout lane model ID")
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	result, err := h.laneService.RepairModelBinding(
+		ctx,
+		betweenchannel.RepairModelBindingRequest{
+			OrgID:             info.OrganizationID,
+			LaneID:            laneID,
+			LaneModelID:       laneModelID,
+			DeviceIdentifier:  req.Msg.GetDeviceIdentifier(),
+			ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow fails validation.
+			IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+			Reason:            req.Msg.GetReason(),
+			ActorUserID:       info.UserID,
+			ActorType:         actorType,
+			ActorCredentialID: actorCredentialID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	readiness, err := topologyReadinessToProto(result.Readiness)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.RepairRolloutLaneModelBindingResponse{
+		BindingId:         result.BindingID.String(),
+		ResultingRevision: uint64(result.ResultingRevision), //nolint:gosec // Revisions are positive.
+		Replayed:          result.Replayed,
+		Readiness:         readiness,
+	}), nil
+}
+
+func (h *Handler) EnableRolloutLaneModelTopology(
+	ctx context.Context,
+	req *connect.Request[pb.EnableRolloutLaneModelTopologyRequest],
+) (*connect.Response[pb.EnableRolloutLaneModelTopologyResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	result, err := h.laneService.EnableTopology(
+		ctx,
+		betweenchannel.EnableTopologyRequest{
+			OrgID:             info.OrganizationID,
+			ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow fails validation.
+			IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+			Reason:            req.Msg.GetReason(),
+			ActorUserID:       info.UserID,
+			ActorType:         actorType,
+			ActorCredentialID: actorCredentialID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	readiness, err := topologyReadinessToProto(result.Readiness)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.EnableRolloutLaneModelTopologyResponse{
+		Readiness: readiness,
+		Replayed:  result.Replayed,
+	}), nil
+}
+
+func topologyReadinessToProto(
+	readiness betweenchannel.TopologyReadiness,
+) (*pb.RolloutLaneTopologyReadiness, error) {
+	result := &pb.RolloutLaneTopologyReadiness{
+		Enabled:                  readiness.Enabled,
+		Revision:                 uint64(readiness.Revision),                 //nolint:gosec // Revisions are positive.
+		AnomalyCount:             uint64(readiness.AnomalyCount),             //nolint:gosec // Counts are non-negative.
+		ActiveLegacyRolloutCount: uint64(readiness.ActiveLegacyRolloutCount), //nolint:gosec // Counts are non-negative.
+		Anomalies:                make([]*pb.RolloutLaneTopologyAnomaly, 0, len(readiness.Anomalies)),
+		UpdatedAt:                timestamppb.New(readiness.UpdatedAt),
+	}
+	for _, anomaly := range readiness.Anomalies {
+		details, err := structpb.NewStruct(anomaly.Details)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf(
+				"invalid rollout lane topology anomaly details: %v",
+				err,
+			)
+		}
+		translated := &pb.RolloutLaneTopologyAnomaly{
+			AnomalyId:        anomaly.ID.String(),
+			LaneId:           anomaly.LaneID.String(),
+			DeviceIdentifier: anomaly.DeviceIdentifier,
+			Type:             topologyAnomalyTypeToProto(anomaly.Type),
+			SupportedRepairActions: make(
+				[]pb.RolloutLaneTopologyRepairAction,
+				0,
+				len(anomaly.SupportedRepairActions),
+			),
+			Details: details,
+		}
+		if anomaly.LaneModelID != nil {
+			translated.LaneModelId = anomaly.LaneModelID.String()
+		}
+		if anomaly.LaneModelRevision != nil {
+			translated.LaneModelRevision = uint64(*anomaly.LaneModelRevision) //nolint:gosec // Revisions are positive.
+		}
+		for _, action := range anomaly.SupportedRepairActions {
+			translated.SupportedRepairActions = append(
+				translated.SupportedRepairActions,
+				topologyRepairActionToProto(action),
+			)
+		}
+		result.Anomalies = append(result.Anomalies, translated)
+	}
+	return result, nil
+}
+
+func topologyAnomalyTypeToProto(
+	value betweenchannel.TopologyAnomalyType,
+) pb.RolloutLaneTopologyAnomalyType {
+	switch value {
+	case betweenchannel.TopologyAnomalyNullIdentity:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_NULL_IDENTITY
+	case betweenchannel.TopologyAnomalyAmbiguousTargetMatch:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_AMBIGUOUS_TARGET_MATCH
+	case betweenchannel.TopologyAnomalyNoTargetMatch:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_NO_TARGET_MATCH
+	case betweenchannel.TopologyAnomalyPhysicalMismatch:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_PHYSICAL_MISMATCH
+	case betweenchannel.TopologyAnomalyMissingBinding:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_MISSING_BINDING
+	case betweenchannel.TopologyAnomalyDuplicateActiveBinding:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_DUPLICATE_ACTIVE_BINDING
+	default:
+		return pb.RolloutLaneTopologyAnomalyType_ROLLOUT_LANE_TOPOLOGY_ANOMALY_TYPE_UNSPECIFIED
+	}
+}
+
+func topologyRepairActionToProto(
+	value betweenchannel.TopologyRepairAction,
+) pb.RolloutLaneTopologyRepairAction {
+	switch value {
+	case betweenchannel.TopologyRepairConfirmIdentity:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_CONFIRM_IDENTITY
+	case betweenchannel.TopologyRepairSelectDeclaration:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_SELECT_DECLARATION
+	case betweenchannel.TopologyRepairPhysicalMembership:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_REPAIR_PHYSICAL_MEMBERSHIP
+	case betweenchannel.TopologyRepairEndStaleBinding:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_END_STALE_BINDING
+	case betweenchannel.TopologyRepairBinding:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_REPAIR_BINDING
+	case betweenchannel.TopologyRepairRerunBackfill:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_RERUN_BACKFILL
+	default:
+		return pb.RolloutLaneTopologyRepairAction_ROLLOUT_LANE_TOPOLOGY_REPAIR_ACTION_UNSPECIFIED
+	}
+}
+
 const laneMemberPageTokenVersion = 1
 
 type laneMemberPageToken struct {
-	Version  int       `json:"v"`
-	LaneID   uuid.UUID `json:"lane_id"`
-	Revision int64     `json:"revision"`
-	Cursor   string    `json:"cursor"`
+	Version     int        `json:"v"`
+	LaneID      uuid.UUID  `json:"lane_id"`
+	LaneModelID *uuid.UUID `json:"lane_model_id,omitempty"`
+	Revision    int64      `json:"revision"`
+	Cursor      string     `json:"cursor"`
 }
 
 func encodeLaneMemberPageToken(token laneMemberPageToken) string {
@@ -543,6 +1075,7 @@ func decodeLaneMemberPageToken(value string) (laneMemberPageToken, error) {
 	if err = json.Unmarshal(decoded, &token); err != nil ||
 		token.Version != laneMemberPageTokenVersion ||
 		token.LaneID == uuid.Nil ||
+		(token.LaneModelID != nil && *token.LaneModelID == uuid.Nil) ||
 		token.Revision <= 0 ||
 		token.Cursor == "" {
 		return laneMemberPageToken{}, fleeterror.NewInvalidArgumentError(
@@ -581,6 +1114,21 @@ func (h *Handler) StartRolloutLane(
 		return nil, err
 	}
 	actorType, actorCredentialID := actorIdentityFromSession(info)
+	modelPlans := make([]betweenchannel.StartRolloutModelPlan, 0, len(req.Msg.GetModelPlans()))
+	for _, input := range req.Msg.GetModelPlans() {
+		laneModelID, parseErr := uuid.Parse(input.GetLaneModelId())
+		if parseErr != nil {
+			return nil, fleeterror.NewInvalidArgumentError("lane_model_id must be a UUID")
+		}
+		modelPlans = append(modelPlans, betweenchannel.StartRolloutModelPlan{
+			LaneModelID:           laneModelID,
+			ExpectedModelRevision: int64(input.GetExpectedModelRevision()), //nolint:gosec // Overflow fails domain validation.
+			FirmwareFileID:        input.GetFirmwareFileId(),
+			Batches:               batchesFromProto(input.GetBatches()),
+			HashratePolicy:        hashratePolicyFromProto(input.GetHashratePolicy()),
+			ModelStartKey:         input.GetModelStartKey(),
+		})
+	}
 	result, err := h.laneService.StartRollout(
 		ctx,
 		betweenchannel.StartRolloutRequest{
@@ -595,15 +1143,25 @@ func (h *Handler) StartRolloutLane(
 			ActorUserID:       info.UserID,
 			ActorType:         actorType,
 			ActorCredentialID: actorCredentialID,
+			ModelPlans:        modelPlans,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.StartRolloutLaneResponse{
-		Lane:    laneToProto(result.Lane),
-		Rollout: rolloutToProto(result.Rollout),
-	}), nil
+	response := &pb.StartRolloutLaneResponse{
+		Lane:     laneToProto(result.Lane),
+		Rollout:  rolloutToProto(result.Rollout),
+		Parent:   groupToProto(result.Parent),
+		Children: make([]*pb.StartedRolloutLaneModel, 0, len(result.Children)),
+	}
+	for _, child := range result.Children {
+		response.Children = append(response.Children, &pb.StartedRolloutLaneModel{
+			Child:        rolloutToProto(child.Child),
+			FirstBatchId: child.FirstBatchID,
+		})
+	}
+	return connect.NewResponse(response), nil
 }
 
 func (h *Handler) CreateRollout(
@@ -645,11 +1203,87 @@ func (h *Handler) GetRollout(
 	}
 	result, err := h.service.Get(ctx, info.OrganizationID, rolloutID)
 	if err != nil {
+		if !errors.Is(err, rolloutDomain.ErrParentNotControllable) {
+			return nil, err
+		}
+		parent, parentErr := h.service.GetGroup(ctx, info.OrganizationID, rolloutID)
+		if parentErr == nil {
+			return connect.NewResponse(&pb.GetRolloutResponse{
+				Parent: groupToProto(parent),
+			}), nil
+		}
 		return nil, err
+	}
+	var parent *pb.RolloutGroup
+	if result.GroupID != nil {
+		group, groupErr := h.service.GetGroup(ctx, info.OrganizationID, *result.GroupID)
+		if groupErr != nil {
+			return nil, groupErr
+		}
+		parent = groupToProto(group)
 	}
 	return connect.NewResponse(&pb.GetRolloutResponse{
 		Rollout: rolloutToProto(result),
+		Parent:  parent,
 	}), nil
+}
+
+func (h *Handler) GetRolloutGroup(
+	ctx context.Context,
+	req *connect.Request[pb.GetRolloutGroupRequest],
+) (*connect.Response[pb.GetRolloutGroupResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermRolloutRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	parentID, err := parseRolloutID(req.Msg.GetParentId())
+	if err != nil {
+		return nil, err
+	}
+	parent, err := h.service.GetGroup(ctx, info.OrganizationID, parentID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetRolloutGroupResponse{
+		Parent: groupToProto(parent),
+	}), nil
+}
+
+func (h *Handler) ListRolloutGroups(
+	ctx context.Context,
+	_ *connect.Request[pb.ListRolloutGroupsRequest],
+) (*connect.Response[pb.ListRolloutGroupsResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermRolloutRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	parents, err := h.service.ListGroups(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	legacy, err := h.service.List(ctx, info.OrganizationID, nil)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListRolloutGroupsResponse{
+		Parents:       make([]*pb.RolloutGroup, 0, len(parents)),
+		LegacyHistory: make([]*pb.Rollout, 0, len(legacy)),
+	}
+	for index := range parents {
+		response.Parents = append(response.Parents, groupToProto(&parents[index]))
+	}
+	for index := range legacy {
+		response.LegacyHistory = append(response.LegacyHistory, rolloutToProto(&legacy[index]))
+	}
+	return connect.NewResponse(response), nil
 }
 
 func (h *Handler) ListRollouts(

@@ -22,6 +22,423 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
+func TestRolloutLaneTopologyBackfillRepairAndEnableAreResumable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMinerB")
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:       orgID,
+		Label:       "Multi-model topology lane",
+		Description: "U1 backfill fixture",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{
+			testLaneTargetForModel("TestMiner", "1.0.0", "a"),
+			testLaneTargetForModel("TestMinerB", "1.0.0", "b"),
+		},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-multi-model-topology-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+
+	queries := sqlc.New(db)
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	assert.False(t, readiness.Enabled)
+	assert.Zero(t, readiness.AnomalyCount)
+	assert.Zero(t, readiness.ActiveLegacyRolloutCount)
+
+	counts, err := queries.GetRolloutLaneTopologyCountsForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneTopologyCountsForTestParams{
+			LaneID: lane.ID,
+			OrgID:  orgID,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), counts.Declarations)
+	assert.Equal(t, int64(2), counts.HistoryRows)
+	assert.Equal(t, int64(1), counts.HistoryChannels)
+	assert.Equal(t, int64(2), counts.ActiveBindings)
+
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+	repeatedCounts, err := queries.GetRolloutLaneTopologyCountsForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneTopologyCountsForTestParams{
+			LaneID: lane.ID,
+			OrgID:  orgID,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, counts, repeatedCounts, "backfill must be resumable without duplicates")
+
+	declaration, err := queries.GetRolloutLaneModelForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneModelForTestParams{
+			LaneID:       lane.ID,
+			OrgID:        orgID,
+			Manufacturer: "TestCorp",
+			Model:        "TestMiner",
+		},
+	)
+	require.NoError(t, err)
+	repairRequest := betweenchannel.RepairModelBindingRequest{
+		OrgID:            orgID,
+		LaneID:           lane.ID,
+		LaneModelID:      declaration.ID,
+		DeviceIdentifier: deviceIDs[0],
+		ExpectedRevision: declaration.Revision,
+		IdempotencyKey:   "repair-topology-binding",
+		Reason:           "confirm legacy model binding",
+		ActorUserID:      actorID,
+	}
+	repaired, err := service.RepairModelBinding(t.Context(), repairRequest)
+	require.NoError(t, err)
+	assert.False(t, repaired.Replayed)
+	assert.Equal(t, declaration.Revision+1, repaired.ResultingRevision)
+	assert.Zero(t, repaired.Readiness.AnomalyCount)
+
+	replayedRepair, err := service.RepairModelBinding(t.Context(), repairRequest)
+	require.NoError(t, err)
+	assert.True(t, replayedRepair.Replayed)
+	assert.Equal(t, repaired.BindingID, replayedRepair.BindingID)
+	operation, err := queries.GetRolloutLaneTopologyAdminOperationByKey(
+		t.Context(),
+		sqlc.GetRolloutLaneTopologyAdminOperationByKeyParams{
+			OrgID:          orgID,
+			IdempotencyKey: repairRequest.IdempotencyKey,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "repair_binding", operation.Operation)
+	assert.Equal(t, actorID, operation.ActorUserID)
+	assert.Equal(t, repairRequest.Reason, operation.Reason)
+
+	enableRequest := betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: repaired.Readiness.Revision,
+		IdempotencyKey:   "enable-model-topology",
+		Reason:           "legacy model topology is ready",
+		ActorUserID:      actorID,
+	}
+	enabled, err := service.EnableTopology(t.Context(), enableRequest)
+	require.NoError(t, err)
+	assert.True(t, enabled.Readiness.Enabled)
+	assert.False(t, enabled.Replayed)
+
+	replayedEnable, err := service.EnableTopology(t.Context(), enableRequest)
+	require.NoError(t, err)
+	assert.True(t, replayedEnable.Replayed)
+	assert.True(t, replayedEnable.Readiness.Enabled)
+
+	require.NoError(t, service.DeleteLane(t.Context(), betweenchannel.DeleteLaneRequest{
+		OrgID:            orgID,
+		LaneID:           lane.ID,
+		ExpectedRevision: lane.Revision,
+		IdempotencyKey:   "archive-enabled-model-topology",
+		Reason:           "prove binding history survives archive",
+		ActorUserID:      actorID,
+	}))
+	archivedCounts, err := queries.GetRolloutLaneTopologyCountsForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneTopologyCountsForTestParams{
+			LaneID: lane.ID,
+			OrgID:  orgID,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), archivedCounts.Declarations)
+	assert.Equal(t, int64(2), archivedCounts.HistoryRows)
+	assert.Zero(t, archivedCounts.ActiveBindings)
+}
+
+func TestRolloutLaneReadCutoverUsesRepeatedModelAuthority(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMinerB")
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	created, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:       orgID,
+		Label:       "Read cutover lane",
+		Description: "Repeated topology remains hidden until persisted enablement",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{
+			testLaneTargetForModel("TestMiner", "1.0.0", "a"),
+			testLaneTargetForModel("TestMinerB", "1.0.0", "b"),
+		},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-read-cutover-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+
+	legacy, err := service.GetLane(t.Context(), orgID, created.ID, false, nil)
+	require.NoError(t, err)
+	assert.True(t, legacy.ScalarProjectionAvailable)
+	assert.Empty(t, legacy.Models, "backfill rows must not become authoritative before enablement")
+	assert.Equal(t, created.CurrentChannelID, legacy.CurrentChannelID)
+
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	enabled, err := service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "enable-read-cutover-lane",
+		Reason:           "prove repeated read authority",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	require.Zero(t, enabled.Readiness.AnomalyCount)
+
+	topology, err := service.GetLane(t.Context(), orgID, created.ID, false, nil)
+	require.NoError(t, err)
+	assert.True(t, topology.TopologyEnabled)
+	assert.True(t, topology.ScalarProjectionAvailable)
+	assert.Equal(t, created.CurrentChannelID, topology.CurrentChannelID)
+	require.Len(t, topology.Models, 2)
+	assert.ElementsMatch(t, []string{"testminer", "testminerb"}, []string{
+		topology.Models[0].Model,
+		topology.Models[1].Model,
+	})
+	for _, declaration := range topology.Models {
+		assert.NotEqual(t, uuid.Nil, declaration.ID)
+		assert.NotEmpty(t, declaration.ModelIdentityKey)
+		assert.Positive(t, declaration.Revision)
+		assert.Equal(t, created.CurrentChannelID, declaration.CurrentChannelID)
+		assert.Equal(t, int32(1), declaration.MemberCount)
+		assert.Equal(t, int64(1), declaration.Bindings.ActiveCount)
+		assert.Zero(t, declaration.Bindings.HistoricalCount)
+		assert.Equal(t, "1.0.0", declaration.CurrentFirmwareTarget.FirmwareVersion)
+		require.Len(t, declaration.Channels, 1)
+		assert.True(t, declaration.Channels[0].Current)
+	}
+}
+
+func TestRolloutLaneSingleModelCutoverKeepsScalarProjectionAvailable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	created, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Single model projection lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "b")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-single-model-projection-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "enable-single-model-projection-lane",
+		Reason:           "prove compatible scalar projection",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+
+	actual, err := service.GetLane(t.Context(), orgID, created.ID, false, nil)
+	require.NoError(t, err)
+	require.Len(t, actual.Models, 1)
+	assert.True(t, actual.ScalarProjectionAvailable)
+	assert.Equal(t, actual.Models[0].CurrentChannelID, actual.CurrentChannelID)
+	assert.Equal(t, int32(1), actual.MemberCount)
+}
+
+func TestRolloutLaneDivergentModelPointersDisableScalarProjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMinerB")
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	created, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID: orgID,
+		Label: "Divergent pointer lane",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{
+			testLaneTargetForModel("TestMiner", "1.0.0", "c"),
+			testLaneTargetForModel("TestMinerB", "1.0.0", "d"),
+		},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-divergent-pointer-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "enable-divergent-pointer-lane",
+		Reason:           "enable before independently advancing a declaration",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+
+	q := sqlc.New(db)
+	declaration, err := q.GetRolloutLaneModelForTest(t.Context(), sqlc.GetRolloutLaneModelForTestParams{
+		LaneID:       created.ID,
+		OrgID:        orgID,
+		Manufacturer: "TestCorp",
+		Model:        "TestMinerB",
+	})
+	require.NoError(t, err)
+	releaseSet, err := q.CreateFirmwareReleaseSet(t.Context(), orgID)
+	require.NoError(t, err)
+	target, err := q.CreateFirmwareReleaseTarget(t.Context(), sqlc.CreateFirmwareReleaseTargetParams{
+		ReleaseSetID:       releaseSet.ID,
+		OrgID:              orgID,
+		FirmwareFileID:     "test-miner-b-2",
+		TargetManufacturer: "TestCorp",
+		TargetModel:        "TestMinerB",
+		FirmwareVersion:    "2.0.0",
+		Sha256:             strings.Repeat("e", 64),
+	})
+	require.NoError(t, err)
+	channel := createTestChannel(t, newCollectionStore(db), orgID, releaseSet.ID, "Model B 2.0.0")
+	_, err = q.CreateRolloutLaneChannel(t.Context(), sqlc.CreateRolloutLaneChannelParams{
+		LaneID:    created.ID,
+		OrgID:     orgID,
+		ChannelID: channel.Id,
+		Position:  1,
+	})
+	require.NoError(t, err)
+	_, err = q.TestCreateRolloutLaneModelChannel(t.Context(), sqlc.TestCreateRolloutLaneModelChannelParams{
+		LaneModelID:     declaration.ID,
+		LaneID:          created.ID,
+		OrgID:           orgID,
+		ChannelID:       channel.Id,
+		ReleaseSetID:    releaseSet.ID,
+		ReleaseTargetID: target.ID,
+	})
+	require.NoError(t, err)
+	_, err = q.TestSetRolloutLaneModelCurrentChannel(
+		t.Context(),
+		sqlc.TestSetRolloutLaneModelCurrentChannelParams{
+			ChannelID:       channel.Id,
+			ReleaseSetID:    releaseSet.ID,
+			ReleaseTargetID: target.ID,
+			LaneModelID:     declaration.ID,
+			LaneID:          created.ID,
+			OrgID:           orgID,
+		},
+	)
+	require.NoError(t, err)
+
+	actual, err := service.GetLane(t.Context(), orgID, created.ID, false, nil)
+	require.NoError(t, err)
+	assert.False(t, actual.ScalarProjectionAvailable)
+	assert.Zero(t, actual.CurrentChannelID, "the representative database pointer must not leak after divergence")
+	assert.Zero(t, actual.MemberCount)
+	assert.Zero(t, actual.FirmwareConvergence.TotalCount)
+	require.Len(t, actual.Models, 2)
+	var advanced *betweenchannel.LaneModel
+	for index := range actual.Models {
+		if actual.Models[index].ID == declaration.ID {
+			advanced = &actual.Models[index]
+		}
+	}
+	require.NotNil(t, advanced)
+	assert.Equal(t, channel.Id, advanced.CurrentChannelID)
+	assert.Equal(t, "2.0.0", advanced.CurrentFirmwareTarget.FirmwareVersion)
+	require.Len(t, advanced.Channels, 2)
+}
+
+func TestRolloutLaneTopologyEnableWaitsForActiveLegacyRollout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Legacy drain lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-legacy-drain-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	_, err = service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Legacy active rollout",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+		Batches: []rollout.CreateBatch{{
+			Label: "all",
+			Members: []rollout.CreateMember{{
+				DeviceIdentifier: deviceIDs[0],
+			}},
+		}},
+		IdempotencyKey: "start-legacy-drain-rollout",
+		Reason:         "prove cutover drain gate",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), readiness.ActiveLegacyRolloutCount)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "enable-before-legacy-drain",
+		Reason:           "should remain gated",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrTopologyNotReady.Error())
+}
+
+func TestRolloutLaneTopologyReportsRepairableNullIdentity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	_, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Null identity topology lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-null-identity-topology-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	setDiscoveredModel(t, db, orgID, deviceIDs[0], "")
+
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	assert.False(t, readiness.Enabled)
+	assert.Equal(t, int64(1), readiness.AnomalyCount)
+	require.Len(t, readiness.Anomalies, 1)
+	assert.Equal(t, betweenchannel.TopologyAnomalyNullIdentity, readiness.Anomalies[0].Type)
+	assert.Contains(
+		t,
+		readiness.Anomalies[0].SupportedRepairActions,
+		betweenchannel.TopologyRepairConfirmIdentity,
+	)
+}
+
 func TestGetRolloutLaneForRolloutUsesExactOrganizationScopedRelationship(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

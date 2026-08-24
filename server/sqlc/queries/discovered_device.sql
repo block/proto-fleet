@@ -35,7 +35,8 @@ INSERT INTO discovered_device (
     port,
     url_scheme,
     is_active,
-    driver_name
+    driver_name,
+    model_identity_observed_at
 ) VALUES (
     $1,
     $2,
@@ -46,11 +47,13 @@ INSERT INTO discovered_device (
     $7,
     $8,
     $9,
-    $10
+    $10,
+    CURRENT_TIMESTAMP
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
     manufacturer = EXCLUDED.manufacturer,
+    model_identity_observed_at = CURRENT_TIMESTAMP,
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,
@@ -127,3 +130,17 @@ WHERE dd.device_identifier = $1
       AND d.deleted_at IS NULL
     LIMIT 1
   );
+
+-- name: GetDiscoveredModelIdentityObservedAtForTest :one
+SELECT model_identity_observed_at
+FROM discovered_device
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = sqlc.arg('device_identifier')
+  AND deleted_at IS NULL;
+
+-- name: TestSetDiscoveredEndpoint :execrows
+UPDATE discovered_device
+SET ip_address = sqlc.arg('ip_address')
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = sqlc.arg('device_identifier')
+  AND deleted_at IS NULL;

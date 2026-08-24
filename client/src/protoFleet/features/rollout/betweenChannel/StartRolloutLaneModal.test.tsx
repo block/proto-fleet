@@ -48,6 +48,9 @@ const lane: RolloutLane = {
       sha256: "b",
     },
   ],
+  models: [],
+  scalarProjectionAvailable: true,
+  topologyEnabled: false,
 };
 
 const files: FirmwareFileInfo[] = [
@@ -81,6 +84,99 @@ const files: FirmwareFileInfo[] = [
 ];
 
 describe("StartRolloutLaneModal", () => {
+  it("submits every selected non-empty model as an independent plan", async () => {
+    const user = userEvent.setup();
+    const onStart = vi.fn();
+    const modelLane: RolloutLane = {
+      ...lane,
+      topologyEnabled: true,
+      firmwareConvergence: {
+        ...lane.firmwareConvergence,
+        confirmedCount: 1,
+        updatingCount: 1,
+      },
+      models: [
+        {
+          id: "92c1db7c-7b32-4bab-8394-d773565ce5ae",
+          modelIdentityKey: "v1:5:proto:5:alpha",
+          revision: 3n,
+          manufacturer: "Proto",
+          model: "Alpha",
+          currentChannelId: 41n,
+          currentFirmwareTarget: {
+            releaseTargetId: 1n,
+            releaseSetId: 1n,
+            firmwareFileId: "alpha-1",
+            firmwareVersion: "1.0.0",
+            sha256: "a",
+          },
+          memberCount: 1,
+          memberIdentifiers: ["miner-1"],
+          bindings: { activeCount: 1, historicalCount: 0 },
+          firmwareConvergence: { ...lane.firmwareConvergence, totalCount: 1, confirmedCount: 1 },
+          channels: [],
+          compatibility: "compatible",
+        },
+        {
+          id: "6d057fb4-590d-49f7-aa19-ee1d7c832ae8",
+          modelIdentityKey: "v1:5:proto:4:beta",
+          revision: 5n,
+          manufacturer: "Proto",
+          model: "Beta",
+          currentChannelId: 41n,
+          currentFirmwareTarget: {
+            releaseTargetId: 2n,
+            releaseSetId: 1n,
+            firmwareFileId: "beta-1",
+            firmwareVersion: "1.0.0",
+            sha256: "b",
+          },
+          memberCount: 1,
+          memberIdentifiers: ["miner-2"],
+          bindings: { activeCount: 1, historicalCount: 0 },
+          firmwareConvergence: { ...lane.firmwareConvergence, totalCount: 1, confirmedCount: 1 },
+          channels: [],
+          compatibility: "compatible",
+        },
+      ],
+    };
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={modelLane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={onStart}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: /Proto Beta/ }));
+    await user.type(screen.getByLabelText("Name"), "Alpha and Beta 2.0.0");
+    await user.type(screen.getByLabelText("Reason"), "Update both models");
+    await user.click(screen.getByRole("button", { name: "Start rollout" }));
+
+    expect(onStart).toHaveBeenCalledWith({
+      laneId: modelLane.id,
+      name: "Alpha and Beta 2.0.0",
+      reason: "Update both models",
+      modelPlans: [
+        {
+          laneModelId: "92c1db7c-7b32-4bab-8394-d773565ce5ae",
+          expectedModelRevision: 3n,
+          firmwareFileId: "alpha-2",
+          batches: [{ label: "Batch 1", members: [{ deviceIdentifier: "miner-1" }] }],
+        },
+        {
+          laneModelId: "6d057fb4-590d-49f7-aa19-ee1d7c832ae8",
+          expectedModelRevision: 5n,
+          firmwareFileId: "beta-2",
+          batches: [{ label: "Batch 1", members: [{ deviceIdentifier: "miner-2" }] }],
+        },
+      ],
+    });
+  });
+
   it("blocks an empty lane with the settled guidance", () => {
     render(
       <StartRolloutLaneModal

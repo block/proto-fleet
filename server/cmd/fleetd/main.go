@@ -503,7 +503,7 @@ func start(config *Config) (result error) {
 	rolloutStore := sqlstores.NewSQLRolloutStore(conn)
 	rolloutLaneStore := sqlstores.NewSQLRolloutLaneStore(conn)
 	rolloutLaneStrategy := betweenchannel.NewStrategy(rolloutLaneStore)
-	rolloutSvc := rolloutDomain.NewService(rolloutStore, rolloutLaneStrategy)
+	rolloutSvc := rolloutDomain.NewServiceWithActivity(rolloutStore, activitySvc, rolloutLaneStrategy)
 	rolloutLaneFinalizer := betweenchannel.NewFinalizer(
 		config.RolloutLane,
 		rolloutLaneStore,
@@ -640,7 +640,7 @@ func start(config *Config) (result error) {
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc, filesService)
-	rolloutLaneSvc := betweenchannel.NewService(
+	rolloutLaneSvc := betweenchannel.NewServiceWithActivity(
 		rolloutLaneStore,
 		betweenchannel.ReleaseTargetResolverFunc(func(
 			_ context.Context,
@@ -664,6 +664,7 @@ func start(config *Config) (result error) {
 			}
 			return result, release, nil
 		}),
+		activitySvc,
 	)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 

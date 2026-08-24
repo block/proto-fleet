@@ -173,6 +173,41 @@ func TestRolloutEvidenceRefreshesOnlyFrozenBatchWithEqualMemberWeighting(t *test
 	assert.Zero(t, secondBatchPostCount)
 }
 
+func TestRolloutEvidenceCaptureSkipsNoopUpsert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 1)
+	store := sqlstores.NewSQLRolloutStore(db)
+	created, err := store.Create(t.Context(), rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"evidence-noop-upsert",
+		[][]string{{identifiers[0]}},
+	))
+	require.NoError(t, err)
+	windowEnd := time.Now().UTC().Truncate(time.Second)
+	windowStart := windowEnd.Add(-time.Minute)
+	insertHashrate(t, db, identifiers[0], windowStart.Add(time.Second), 100)
+	request := rolloutDomain.EvidenceRequest{
+		OrgID:       orgID,
+		RolloutID:   created.Rollout.ID,
+		Phase:       rolloutDomain.EvidencePhaseBaseline,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+		FreshAfter:  windowStart,
+	}
+
+	first, err := store.CaptureEvidence(t.Context(), request)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	replay, err := store.CaptureEvidence(t.Context(), request)
+	require.NoError(t, err)
+	assert.Empty(t, replay)
+}
+
 func TestRolloutEvidenceSkipsPolicyBucketsForManualCandidates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

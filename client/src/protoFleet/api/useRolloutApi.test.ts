@@ -16,9 +16,13 @@ import {
   RolloutLaneChannelSchema,
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
+  RolloutLaneModelCompatibility,
+  RolloutLaneModelFirmwareTargetSchema,
+  RolloutLaneModelSchema,
   RolloutLanePreviewMinerSchema,
   RolloutLanePreviewSchema,
   RolloutLaneSchema,
+  RolloutLaneTopologyReadinessSchema,
   RolloutSchema,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -32,7 +36,15 @@ const rolloutClientMock = vi.hoisted(() => ({
   listRolloutLanes: vi.fn(),
   listRolloutLaneMembers: vi.fn(),
   updateRolloutLaneMembership: vi.fn(),
+  previewRolloutLaneModelDeclaration: vi.fn(),
+  createRolloutLaneModelDeclaration: vi.fn(),
+  publishRolloutLaneModelTarget: vi.fn(),
+  previewRolloutLaneModelMembershipChange: vi.fn(),
+  updateRolloutLaneModelMembership: vi.fn(),
   deleteRolloutLane: vi.fn(),
+  getRolloutLaneTopologyReadiness: vi.fn(),
+  repairRolloutLaneModelBinding: vi.fn(),
+  enableRolloutLaneModelTopology: vi.fn(),
   startRolloutLane: vi.fn(),
   createRollout: vi.fn(),
   getRollout: vi.fn(),
@@ -219,6 +231,145 @@ describe("useRolloutApi", () => {
     expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps readiness failures and stale state local to topology administration", async () => {
+    const readiness = create(RolloutLaneTopologyReadinessSchema, {
+      revision: 3n,
+      anomalyCount: 1n,
+      activeLegacyRolloutCount: 0n,
+    });
+    rolloutClientMock.getRolloutLaneTopologyReadiness.mockResolvedValue({ readiness });
+    rolloutClientMock.repairRolloutLaneModelBinding.mockRejectedValue(
+      new ConnectError("topology revision changed", Code.Aborted),
+    );
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLaneTopologyReadiness();
+    });
+    expect(result.current.topologyReadiness).toMatchObject({
+      revision: 3n,
+      anomalyCount: 1n,
+    });
+    expect(result.current.topologyReadinessStale).toBe(false);
+
+    await act(async () => {
+      await expect(
+        result.current.repairRolloutLaneModelBinding({
+          laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+          laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          deviceIdentifier: "miner-1",
+          expectedRevision: 2n,
+          idempotencyKey: "repair-model-binding",
+          reason: "Repair model binding",
+        }),
+      ).rejects.toThrow("topology revision changed");
+    });
+
+    expect(result.current.topologyReadiness).toMatchObject({ revision: 3n });
+    expect(result.current.topologyReadinessStale).toBe(true);
+    expect(result.current.topologyReadinessError).toBe("topology revision changed");
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.mutationError).toBeNull();
+    expect(handleAuthErrorsMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves read-versus-manage readiness permission semantics and abort cleanup", async () => {
+    const permissionError = new ConnectError("readiness forbidden", Code.PermissionDenied);
+    rolloutClientMock.getRolloutLaneTopologyReadiness.mockRejectedValueOnce(permissionError);
+    rolloutClientMock.repairRolloutLaneModelBinding.mockRejectedValueOnce(permissionError);
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await expect(result.current.getRolloutLaneTopologyReadiness()).rejects.toThrow("readiness forbidden");
+    });
+    expect(result.current.topologyReadinessForbidden).toBe(true);
+
+    await act(async () => {
+      await expect(
+        result.current.repairRolloutLaneModelBinding({
+          laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+          laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          deviceIdentifier: "miner-1",
+          expectedRevision: 2n,
+          idempotencyKey: "repair-forbidden",
+          reason: "Repair model binding",
+        }),
+      ).rejects.toThrow("readiness forbidden");
+    });
+    expect(result.current.topologyReadinessForbidden).toBe(true);
+    expect(handleAuthErrorsMock).not.toHaveBeenCalled();
+
+    const controller = new AbortController();
+    rolloutClientMock.getRolloutLaneTopologyReadiness.mockImplementationOnce(
+      async (_request: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    let request!: Promise<unknown>;
+    act(() => {
+      request = result.current.getRolloutLaneTopologyReadiness({ signal: controller.signal });
+    });
+    controller.abort();
+    await act(async () => {
+      await expect(request).rejects.toThrow();
+    });
+    expect(result.current.isTopologyReadinessLoading).toBe(false);
+    expect(result.current.topologyReadinessError).toBeNull();
+    expect(result.current.topologyReadinessForbidden).toBe(false);
+  });
+
+  it("hydrates model topology from the lane response without trusting the scalar channel", async () => {
+    const topologyLane = create(RolloutLaneSchema, {
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      label: "Diverged topology",
+      topologyEnabled: true,
+      scalarProjectionAvailable: false,
+      currentChannelId: 0n,
+      models: [
+        create(RolloutLaneModelSchema, {
+          laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          manufacturer: "proto",
+          model: "alpha",
+          currentChannelId: 41n,
+          compatibility: RolloutLaneModelCompatibility.COMPATIBLE,
+          currentFirmwareTarget: create(RolloutLaneModelFirmwareTargetSchema, {
+            firmwareFileId: "alpha-2",
+            firmwareVersion: "2.0.0",
+            sha256: "abc",
+          }),
+        }),
+      ],
+    });
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [topologyLane] });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.listRolloutLanes();
+    });
+
+    expect(deviceSetClientMock.getDeviceSet).not.toHaveBeenCalled();
+    expect(result.current.lanes[0]).toMatchObject({
+      currentChannelId: 0n,
+      scalarProjectionAvailable: false,
+      models: [
+        {
+          id: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
+          currentChannelId: 41n,
+          currentFirmwareTarget: { firmwareFileId: "alpha-2", firmwareVersion: "2.0.0" },
+        },
+      ],
+      currentReleaseTargets: [
+        {
+          firmwareFileId: "alpha-2",
+          targetManufacturer: "proto",
+          targetModel: "alpha",
+          firmwareVersion: "2.0.0",
+        },
+      ],
+    });
+  });
+
   it("lists, previews, and updates rollout lane membership through mapped RPCs", async () => {
     const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
     const member = create(RolloutLaneMemberSchema, {
@@ -330,6 +481,87 @@ describe("useRolloutApi", () => {
     window.removeEventListener(ROLLOUT_CHANGED_EVENT, rolloutChanged);
   });
 
+  it("sends declaration-scoped revisions for model mutations", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const laneModelId = "e3df9236-c65f-4663-aa9d-9265f318f2a0";
+    rolloutClientMock.previewRolloutLaneModelDeclaration.mockResolvedValue({
+      preview: create(RolloutLanePreviewSchema, { matchingCount: 1 }),
+      laneId,
+    });
+    rolloutClientMock.createRolloutLaneModelDeclaration.mockResolvedValue({ lane: protoLane(laneId) });
+    rolloutClientMock.publishRolloutLaneModelTarget.mockResolvedValue({ lane: protoLane(laneId) });
+    rolloutClientMock.previewRolloutLaneModelMembershipChange.mockResolvedValue(
+      create(PreviewRolloutLaneMembershipChangeResponseSchema, {
+        targetFirmwarePreview: create(RolloutLanePreviewSchema, { matchingCount: 1 }),
+      }),
+    );
+    rolloutClientMock.updateRolloutLaneModelMembership.mockResolvedValue({
+      lane: protoLane(laneId),
+      transitionMembers: [],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      const preview = await result.current.previewRolloutLaneModelDeclaration({
+        laneId,
+        firmwareFileId: "firmware-antminer",
+        deviceIdentifiers: [],
+      });
+      expect(preview.laneId).toBe(laneId);
+      await result.current.createRolloutLaneModelDeclaration({
+        laneId,
+        expectedRevision: 0n,
+        firmwareFileId: "firmware-antminer",
+        deviceIdentifiers: [],
+        idempotencyKey: "declare-antminer",
+        reason: "declare Antminer",
+        confirmInitialEnforcement: false,
+        confirmReassignment: false,
+      });
+      await result.current.publishRolloutLaneModelTarget({
+        laneId,
+        laneModelId,
+        expectedRevision: 3n,
+        firmwareFileId: "firmware-antminer-v2",
+        idempotencyKey: "publish-antminer",
+        reason: "publish empty Antminer target",
+      });
+      await result.current.previewRolloutLaneModelMembershipChange({
+        laneId,
+        laneModelId,
+        addDeviceIdentifiers: ["antminer-1"],
+        removeDeviceIdentifiers: [],
+      });
+      await result.current.updateRolloutLaneModelMembership({
+        laneId,
+        laneModelId,
+        expectedRevision: 4n,
+        addDeviceIdentifiers: ["antminer-1"],
+        removeDeviceIdentifiers: [],
+        confirmFirmware: false,
+        confirmReassign: false,
+        idempotencyKey: "members-antminer",
+        reason: "add Antminer",
+      });
+    });
+
+    expect(rolloutClientMock.createRolloutLaneModelDeclaration.mock.calls[0][0]).toMatchObject({
+      laneId,
+      expectedRevision: 0n,
+      firmwareFileId: "firmware-antminer",
+      deviceIdentifiers: [],
+    });
+    expect(rolloutClientMock.publishRolloutLaneModelTarget.mock.calls[0][0]).toMatchObject({
+      declaration: { selector: { case: "laneModelId", value: laneModelId } },
+      expectedRevision: 3n,
+    });
+    expect(rolloutClientMock.updateRolloutLaneModelMembership.mock.calls[0][0]).toMatchObject({
+      declaration: { selector: { case: "laneModelId", value: laneModelId } },
+      expectedRevision: 4n,
+      addDeviceIdentifiers: ["antminer-1"],
+    });
+  });
+
   it("clears stale convergence details after a pure removal response", async () => {
     const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
     const transitionMember = create(RolloutLaneMemberSchema, {
@@ -402,9 +634,14 @@ describe("useRolloutApi", () => {
       await expect(
         result.current.listRolloutLaneMembers({
           laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+          laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58",
         }),
       ).rejects.toThrow("permission denied");
     });
+    expect(rolloutClientMock.listRolloutLaneMembers).toHaveBeenCalledWith(
+      expect.objectContaining({ laneModelId: "73d3754e-a14c-4bc8-9988-f75aa8a9bc58" }),
+      undefined,
+    );
     expect(handleAuthErrorsMock).toHaveBeenCalledWith({ error: permissionError });
     expect(result.current.loadError).toBeNull();
     expect(result.current.isLoading).toBe(false);
@@ -1012,6 +1249,65 @@ describe("useRolloutApi", () => {
     });
     expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toBeUndefined();
     expect(result.current.rollout).toMatchObject({ id: "created", state: "created" });
+  });
+
+  it("starts one model parent and returns the exact child and first batch", async () => {
+    const child = {
+      ...protoRollout("child", RolloutState.CREATED),
+      parentId: "parent",
+      laneModelId: "e1614952-fbb0-4280-8b06-51436442dfd9",
+      manufacturer: "Proto",
+      model: "Alpha",
+    };
+    rolloutClientMock.startRolloutLane.mockResolvedValue({
+      lane: protoLane(),
+      parent: {
+        parentId: "parent",
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        name: "Proto only",
+        reason: "Validated model release",
+        children: [child],
+      },
+      children: [{ child, firstBatchId: 91n }],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let started: Awaited<ReturnType<typeof result.current.startRolloutLane>> | undefined;
+
+    await act(async () => {
+      started = await result.current.startRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        name: "Proto only",
+        modelPlans: [
+          {
+            laneModelId: "e1614952-fbb0-4280-8b06-51436442dfd9",
+            expectedModelRevision: 4n,
+            firmwareFileId: "proto-2",
+            batches: [{ label: "all", members: [{ deviceIdentifier: "miner-1" }] }],
+            modelStartKey: "proto-start",
+          },
+        ],
+        idempotencyKey: "parent-start",
+        reason: "Validated model release",
+      });
+    });
+
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0]).toMatchObject({
+      firmwareFileIds: [],
+      batches: [],
+      modelPlans: [
+        {
+          laneModelId: "e1614952-fbb0-4280-8b06-51436442dfd9",
+          expectedModelRevision: 4n,
+          firmwareFileId: "proto-2",
+          modelStartKey: "proto-start",
+        },
+      ],
+    });
+    expect(started).toMatchObject({
+      parent: { id: "parent", children: [{ id: "child" }] },
+      rollout: { id: "child", parentId: "parent" },
+      firstBatchId: 91n,
+    });
   });
 
   it("includes an optional hashrate policy when starting a rollout lane", async () => {

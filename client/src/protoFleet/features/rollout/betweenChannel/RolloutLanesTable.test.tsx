@@ -35,6 +35,9 @@ const rows: LaneTableRow[] = [
           sha256: "a",
         },
       ],
+      models: [],
+      scalarProjectionAvailable: true,
+      topologyEnabled: false,
     },
   },
 ];
@@ -73,6 +76,13 @@ const abortedSplit: RolloutRecord = {
 };
 
 describe("RolloutLanesTable", () => {
+  it("shows a deterministic no-lanes state", () => {
+    render(<RolloutLanesTable rows={[]} canStart={false} onSetup={vi.fn()} onStart={vi.fn()} onView={vi.fn()} />);
+
+    expect(screen.getByText("No rollout lanes")).toBeInTheDocument();
+    expect(screen.getByText(/Create a stable lane/i)).toBeInTheDocument();
+  });
+
   it("shows stable lane release and membership to read-only operators", () => {
     const onManageMembers = vi.fn();
     render(
@@ -125,6 +135,80 @@ describe("RolloutLanesTable", () => {
 
     expect(screen.getByText("No miners")).toBeInTheDocument();
     expect(screen.getByText("Add miners before starting a rollout.")).toBeInTheDocument();
+  });
+
+  it("renders labelled model declarations including zero-member and unavailable targets", () => {
+    render(
+      <RolloutLanesTable
+        rows={[
+          {
+            ...rows[0],
+            lane: {
+              ...rows[0].lane,
+              topologyEnabled: true,
+              scalarProjectionAvailable: false,
+              currentChannelId: 0n,
+              models: [
+                {
+                  id: "model-alpha",
+                  modelIdentityKey: "v1:5:proto:5:alpha",
+                  revision: 3n,
+                  manufacturer: "Proto",
+                  model: "Alpha",
+                  currentChannelId: 41n,
+                  memberCount: 12,
+                  compatibility: "compatible" as const,
+                  currentFirmwareTarget: {
+                    releaseTargetId: 71n,
+                    releaseSetId: 7n,
+                    firmwareFileId: "alpha-1",
+                    firmwareVersion: "1.0.0",
+                    sha256: "a",
+                  },
+                  channels: [],
+                  bindings: { activeCount: 12, historicalCount: 2 },
+                  firmwareConvergence: rows[0].lane.firmwareConvergence,
+                },
+                {
+                  id: "model-beta",
+                  modelIdentityKey: "v1:5:proto:4:beta",
+                  revision: 1n,
+                  manufacturer: "Proto",
+                  model: "Beta",
+                  currentChannelId: 42n,
+                  memberCount: 0,
+                  compatibility: "targetUnavailable" as const,
+                  channels: [],
+                  bindings: { activeCount: 0, historicalCount: 4 },
+                  firmwareConvergence: {
+                    totalCount: 0,
+                    pendingCount: 0,
+                    updatingCount: 0,
+                    verifyingCount: 0,
+                    confirmedCount: 0,
+                    attentionCount: 0,
+                    members: [],
+                  },
+                },
+              ],
+            },
+          },
+        ]}
+        canStart={false}
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("group", { name: "Proto Alpha model declaration" })).toHaveTextContent(
+      "Proto AlphaFirmware 1.0.012 minersCompatible12 confirmed",
+    );
+    expect(screen.getByRole("group", { name: "Proto Beta model declaration" })).toHaveTextContent(
+      "Proto BetaNo compatible firmware0 minersTarget unavailableNo members",
+    );
+    expect(screen.getByText("Models use different physical channels")).toBeInTheDocument();
+    expect(screen.getByText("Shown by model")).toBeInTheDocument();
   });
 
   it.each([

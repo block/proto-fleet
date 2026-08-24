@@ -23,7 +23,7 @@ WHERE id = $1
   AND rollout_id = $2
   AND org_id = $3
   AND state = 'pending'
-RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
+RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at, admission_attempt, evidence_cancellation_reason, evidence_cancelled_at
 `
 
 type AdmitFirmwareRolloutBatchParams struct {
@@ -60,6 +60,9 @@ func (q *Queries) AdmitFirmwareRolloutBatch(ctx context.Context, arg AdmitFirmwa
 		&i.EvidenceErrorMessage,
 		&i.PostWindowFinalized,
 		&i.PostWindowFinalizedAt,
+		&i.AdmissionAttempt,
+		&i.EvidenceCancellationReason,
+		&i.EvidenceCancelledAt,
 	)
 	return i, err
 }
@@ -140,7 +143,7 @@ SET state = $1,
 WHERE id = $6
   AND org_id = $7
   AND revision = $8
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 `
 
 type ApplyFirmwareRolloutTransitionParams struct {
@@ -199,6 +202,13 @@ func (q *Queries) ApplyFirmwareRolloutTransition(ctx context.Context, arg ApplyF
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
@@ -384,6 +394,26 @@ func (q *Queries) CountFirmwareRolloutDurableRevertWork(ctx context.Context, arg
 	return column_1, err
 }
 
+const countFirmwareRolloutSucceededMembers = `-- name: CountFirmwareRolloutSucceededMembers :one
+SELECT COUNT(*)::bigint
+FROM firmware_rollout_member
+WHERE rollout_id = $1
+  AND org_id = $2
+  AND state = 'succeeded'
+`
+
+type CountFirmwareRolloutSucceededMembersParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) CountFirmwareRolloutSucceededMembers(ctx context.Context, arg CountFirmwareRolloutSucceededMembersParams) (int64, error) {
+	row := q.queryRow(ctx, q.countFirmwareRolloutSucceededMembersStmt, countFirmwareRolloutSucceededMembers, arg.RolloutID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 INSERT INTO firmware_rollout (
     id,
@@ -396,6 +426,13 @@ INSERT INTO firmware_rollout (
     target_channel_id,
     source_release_set_id,
     target_release_set_id,
+    group_id,
+    lane_id,
+    lane_model_id,
+    model_identity_key,
+    model_identity_validated_at,
+    source_release_target_id,
+    target_release_target_id,
     source_snapshot,
     target_snapshot,
     revert_snapshot,
@@ -425,9 +462,16 @@ VALUES (
     $16,
     $17,
     $18,
-    $19
+    $19,
+    $20,
+    $21,
+    $22,
+    $23,
+    $24,
+    $25,
+    $26
 )
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 `
 
 type CreateFirmwareRolloutParams struct {
@@ -441,6 +485,13 @@ type CreateFirmwareRolloutParams struct {
 	TargetChannelID                      sql.NullInt64
 	SourceReleaseSetID                   sql.NullInt64
 	TargetReleaseSetID                   sql.NullInt64
+	GroupID                              uuid.NullUUID
+	LaneID                               uuid.NullUUID
+	LaneModelID                          uuid.NullUUID
+	ModelIdentityKey                     sql.NullString
+	ModelIdentityValidatedAt             sql.NullTime
+	SourceReleaseTargetID                sql.NullInt64
+	TargetReleaseTargetID                sql.NullInt64
 	SourceSnapshot                       json.RawMessage
 	TargetSnapshot                       json.RawMessage
 	RevertSnapshot                       json.RawMessage
@@ -464,6 +515,13 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.TargetChannelID,
 		arg.SourceReleaseSetID,
 		arg.TargetReleaseSetID,
+		arg.GroupID,
+		arg.LaneID,
+		arg.LaneModelID,
+		arg.ModelIdentityKey,
+		arg.ModelIdentityValidatedAt,
+		arg.SourceReleaseTargetID,
+		arg.TargetReleaseTargetID,
 		arg.SourceSnapshot,
 		arg.TargetSnapshot,
 		arg.RevertSnapshot,
@@ -508,6 +566,13 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
@@ -526,7 +591,7 @@ SELECT
     input.value->>'label'
 FROM jsonb_array_elements($3::jsonb) AS input(value)
 ORDER BY (input.value->>'position')::int
-RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
+RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at, admission_attempt, evidence_cancellation_reason, evidence_cancelled_at
 `
 
 type CreateFirmwareRolloutBatchesParams struct {
@@ -569,6 +634,9 @@ func (q *Queries) CreateFirmwareRolloutBatches(ctx context.Context, arg CreateFi
 			&i.EvidenceErrorMessage,
 			&i.PostWindowFinalized,
 			&i.PostWindowFinalizedAt,
+			&i.AdmissionAttempt,
+			&i.EvidenceCancellationReason,
+			&i.EvidenceCancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -677,6 +745,7 @@ INSERT INTO firmware_rollout_control (
     expected_revision,
     resulting_revision,
     status,
+    admission_attempt,
     created_by_user_id,
     actor_type,
     actor_credential_id
@@ -694,9 +763,10 @@ VALUES (
     $10,
     $11,
     $12,
-    $13
+    $13,
+    $14
 )
-RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
+RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id, admission_attempt
 `
 
 type CreateFirmwareRolloutControlParams struct {
@@ -710,6 +780,7 @@ type CreateFirmwareRolloutControlParams struct {
 	ExpectedRevision   int64
 	ResultingRevision  int64
 	Status             string
+	AdmissionAttempt   sql.NullInt32
 	CreatedByUserID    int64
 	ActorType          string
 	ActorCredentialID  sql.NullString
@@ -727,6 +798,7 @@ func (q *Queries) CreateFirmwareRolloutControl(ctx context.Context, arg CreateFi
 		arg.ExpectedRevision,
 		arg.ResultingRevision,
 		arg.Status,
+		arg.AdmissionAttempt,
 		arg.CreatedByUserID,
 		arg.ActorType,
 		arg.ActorCredentialID,
@@ -749,6 +821,7 @@ func (q *Queries) CreateFirmwareRolloutControl(ctx context.Context, arg CreateFi
 		&i.UpdatedAt,
 		&i.ActorType,
 		&i.ActorCredentialID,
+		&i.AdmissionAttempt,
 	)
 	return i, err
 }
@@ -760,6 +833,8 @@ INSERT INTO firmware_rollout_member (
     org_id,
     device_id,
     position,
+    model_identity_key,
+    model_identity_validated_at,
     source_snapshot,
     target_snapshot,
     revert_snapshot
@@ -770,6 +845,8 @@ SELECT
     device.org_id,
     device.id,
     (input.value->>'position')::int,
+    NULLIF(input.value->>'model_identity_key', ''),
+    NULLIF(input.value->>'model_identity_validated_at', '')::timestamptz,
     input.value->'source_snapshot',
     input.value->'target_snapshot',
     input.value->'revert_snapshot'
@@ -783,7 +860,7 @@ JOIN device
  AND device.org_id = $3
  AND device.deleted_at IS NULL
 ORDER BY (input.value->>'position')::int
-RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at
+RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at, model_identity_key, model_identity_validated_at
 `
 
 type CreateFirmwareRolloutMembersParams struct {
@@ -826,6 +903,8 @@ func (q *Queries) CreateFirmwareRolloutMembers(ctx context.Context, arg CreateFi
 			&i.TargetReleaseSetID,
 			&i.TargetReleaseTargetID,
 			&i.RevertSelectedAt,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -848,7 +927,7 @@ WHERE id = $3
   AND rollout_id = $4
   AND org_id = $5
   AND status = 'started'
-RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
+RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id, admission_attempt
 `
 
 type FinishFirmwareRolloutControlParams struct {
@@ -885,12 +964,13 @@ func (q *Queries) FinishFirmwareRolloutControl(ctx context.Context, arg FinishFi
 		&i.UpdatedAt,
 		&i.ActorType,
 		&i.ActorCredentialID,
+		&i.AdmissionAttempt,
 	)
 	return i, err
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 FROM firmware_rollout
 WHERE id = $1
   AND org_id = $2
@@ -937,12 +1017,19 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutBatchForControl = `-- name: GetFirmwareRolloutBatchForControl :one
-SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
+SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at, admission_attempt, evidence_cancellation_reason, evidence_cancelled_at
 FROM firmware_rollout_batch
 WHERE rollout_id = $1
   AND org_id = $2
@@ -990,12 +1077,15 @@ func (q *Queries) GetFirmwareRolloutBatchForControl(ctx context.Context, arg Get
 		&i.EvidenceErrorMessage,
 		&i.PostWindowFinalized,
 		&i.PostWindowFinalizedAt,
+		&i.AdmissionAttempt,
+		&i.EvidenceCancellationReason,
+		&i.EvidenceCancelledAt,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutByIdempotencyKey = `-- name: GetFirmwareRolloutByIdempotencyKey :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 FROM firmware_rollout
 WHERE org_id = $1
   AND idempotency_key = $2
@@ -1042,12 +1132,19 @@ func (q *Queries) GetFirmwareRolloutByIdempotencyKey(ctx context.Context, arg Ge
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutControl = `-- name: GetFirmwareRolloutControl :one
-SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
+SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id, admission_attempt
 FROM firmware_rollout_control
 WHERE id = $1
   AND rollout_id = $2
@@ -1081,12 +1178,13 @@ func (q *Queries) GetFirmwareRolloutControl(ctx context.Context, arg GetFirmware
 		&i.UpdatedAt,
 		&i.ActorType,
 		&i.ActorCredentialID,
+		&i.AdmissionAttempt,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutControlByKey = `-- name: GetFirmwareRolloutControlByKey :one
-SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
+SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id, admission_attempt
 FROM firmware_rollout_control
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1119,8 +1217,75 @@ func (q *Queries) GetFirmwareRolloutControlByKey(ctx context.Context, arg GetFir
 		&i.UpdatedAt,
 		&i.ActorType,
 		&i.ActorCredentialID,
+		&i.AdmissionAttempt,
 	)
 	return i, err
+}
+
+const getFirmwareRolloutGroup = `-- name: GetFirmwareRolloutGroup :one
+SELECT id, lane_id, org_id, name, idempotency_key, create_fingerprint, reason, created_by_user_id, actor_type, actor_credential_id, result_revision, terminal_outcome, result_ready, created_at, updated_at
+FROM firmware_rollout_group
+WHERE id = $1
+  AND org_id = $2
+`
+
+type GetFirmwareRolloutGroupParams struct {
+	GroupID uuid.UUID
+	OrgID   int64
+}
+
+func (q *Queries) GetFirmwareRolloutGroup(ctx context.Context, arg GetFirmwareRolloutGroupParams) (FirmwareRolloutGroup, error) {
+	row := q.queryRow(ctx, q.getFirmwareRolloutGroupStmt, getFirmwareRolloutGroup, arg.GroupID, arg.OrgID)
+	var i FirmwareRolloutGroup
+	err := row.Scan(
+		&i.ID,
+		&i.LaneID,
+		&i.OrgID,
+		&i.Name,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.Reason,
+		&i.CreatedByUserID,
+		&i.ActorType,
+		&i.ActorCredentialID,
+		&i.ResultRevision,
+		&i.TerminalOutcome,
+		&i.ResultReady,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const hasCurrentFirmwareRolloutAdmissionFailure = `-- name: HasCurrentFirmwareRolloutAdmissionFailure :one
+SELECT EXISTS (
+    SELECT 1
+    FROM firmware_rollout_control failed_control
+    WHERE failed_control.rollout_id = $1
+      AND failed_control.org_id = $2
+      AND failed_control.operation IN ('admit', 'continue')
+      AND failed_control.status = 'failed'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM firmware_rollout_control later_control
+          WHERE later_control.rollout_id = failed_control.rollout_id
+            AND later_control.org_id = failed_control.org_id
+            AND later_control.operation IN ('admit', 'continue')
+            AND later_control.created_at > failed_control.created_at
+      )
+)
+`
+
+type HasCurrentFirmwareRolloutAdmissionFailureParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) HasCurrentFirmwareRolloutAdmissionFailure(ctx context.Context, arg HasCurrentFirmwareRolloutAdmissionFailureParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasCurrentFirmwareRolloutAdmissionFailureStmt, hasCurrentFirmwareRolloutAdmissionFailure, arg.RolloutID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const hasFirmwareRolloutSucceededMembers = `-- name: HasFirmwareRolloutSucceededMembers :one
@@ -1145,8 +1310,113 @@ func (q *Queries) HasFirmwareRolloutSucceededMembers(ctx context.Context, arg Ha
 	return exists, err
 }
 
+const hasNewerOrConflictingRolloutLaneModelWork = `-- name: HasNewerOrConflictingRolloutLaneModelWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM firmware_rollout other
+    WHERE other.lane_id = $1
+      AND other.lane_model_id = $2
+      AND other.org_id = $3
+      AND other.id <> $4
+      AND (
+          other.created_at > $5
+          OR other.state NOT IN (
+              'aborted',
+              'completed',
+              'completed_with_failures',
+              'reverted'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_member other_member
+              WHERE other_member.rollout_id = other.id
+                AND other_member.org_id = other.org_id
+                AND other_member.owner_released_at IS NULL
+          )
+      )
+)
+`
+
+type HasNewerOrConflictingRolloutLaneModelWorkParams struct {
+	LaneID           uuid.NullUUID
+	LaneModelID      uuid.NullUUID
+	OrgID            int64
+	RolloutID        uuid.UUID
+	RolloutCreatedAt time.Time
+}
+
+func (q *Queries) HasNewerOrConflictingRolloutLaneModelWork(ctx context.Context, arg HasNewerOrConflictingRolloutLaneModelWorkParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasNewerOrConflictingRolloutLaneModelWorkStmt, hasNewerOrConflictingRolloutLaneModelWork,
+		arg.LaneID,
+		arg.LaneModelID,
+		arg.OrgID,
+		arg.RolloutID,
+		arg.RolloutCreatedAt,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listCurrentFirmwareRolloutAdmissionFailures = `-- name: ListCurrentFirmwareRolloutAdmissionFailures :many
+SELECT rollout.id AS rollout_id,
+       EXISTS (
+           SELECT 1
+           FROM firmware_rollout_control failed_control
+           WHERE failed_control.rollout_id = rollout.id
+             AND failed_control.org_id = rollout.org_id
+             AND failed_control.operation IN ('admit', 'continue')
+             AND failed_control.status = 'failed'
+             AND NOT EXISTS (
+                 SELECT 1
+                 FROM firmware_rollout_control later_control
+                 WHERE later_control.rollout_id = failed_control.rollout_id
+                   AND later_control.org_id = failed_control.org_id
+                   AND later_control.operation IN ('admit', 'continue')
+                   AND later_control.created_at > failed_control.created_at
+             )
+       ) AS failed_admission
+FROM firmware_rollout rollout
+WHERE rollout.org_id = $1
+  AND rollout.id = ANY($2::uuid[])
+ORDER BY rollout.id
+`
+
+type ListCurrentFirmwareRolloutAdmissionFailuresParams struct {
+	OrgID      int64
+	RolloutIds []uuid.UUID
+}
+
+type ListCurrentFirmwareRolloutAdmissionFailuresRow struct {
+	RolloutID       uuid.UUID
+	FailedAdmission bool
+}
+
+func (q *Queries) ListCurrentFirmwareRolloutAdmissionFailures(ctx context.Context, arg ListCurrentFirmwareRolloutAdmissionFailuresParams) ([]ListCurrentFirmwareRolloutAdmissionFailuresRow, error) {
+	rows, err := q.query(ctx, q.listCurrentFirmwareRolloutAdmissionFailuresStmt, listCurrentFirmwareRolloutAdmissionFailures, arg.OrgID, pq.Array(arg.RolloutIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurrentFirmwareRolloutAdmissionFailuresRow
+	for rows.Next() {
+		var i ListCurrentFirmwareRolloutAdmissionFailuresRow
+		if err := rows.Scan(&i.RolloutID, &i.FailedAdmission); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFirmwareRolloutBatches = `-- name: ListFirmwareRolloutBatches :many
-SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
+SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at, admission_attempt, evidence_cancellation_reason, evidence_cancelled_at
 FROM firmware_rollout_batch
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1192,6 +1462,73 @@ func (q *Queries) ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwa
 			&i.EvidenceErrorMessage,
 			&i.PostWindowFinalized,
 			&i.PostWindowFinalizedAt,
+			&i.AdmissionAttempt,
+			&i.EvidenceCancellationReason,
+			&i.EvidenceCancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutBatchesByRolloutIDs = `-- name: ListFirmwareRolloutBatchesByRolloutIDs :many
+SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at, admission_attempt, evidence_cancellation_reason, evidence_cancelled_at
+FROM firmware_rollout_batch
+WHERE org_id = $1
+  AND rollout_id = ANY($2::uuid[])
+ORDER BY rollout_id, position, id
+`
+
+type ListFirmwareRolloutBatchesByRolloutIDsParams struct {
+	OrgID      int64
+	RolloutIds []uuid.UUID
+}
+
+func (q *Queries) ListFirmwareRolloutBatchesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutBatchesByRolloutIDsParams) ([]FirmwareRolloutBatch, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutBatchesByRolloutIDsStmt, listFirmwareRolloutBatchesByRolloutIDs, arg.OrgID, pq.Array(arg.RolloutIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutBatch
+	for rows.Next() {
+		var i FirmwareRolloutBatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.RolloutID,
+			&i.OrgID,
+			&i.Position,
+			&i.Label,
+			&i.State,
+			&i.Revision,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.EvidenceStatus,
+			&i.EvidenceTotalCount,
+			&i.EvidencePairedCount,
+			&i.CumulativeBaselineHashrateHs,
+			&i.CumulativeCurrentHashrateHs,
+			&i.CumulativeDeltaBasisPoints,
+			&i.LatestPolicyBucketHashrateHs,
+			&i.LatestPolicyBucketDeltaBasisPoints,
+			&i.HealthySince,
+			&i.LastPolicyBucketBoundary,
+			&i.EvaluatedAt,
+			&i.EvidenceErrorMessage,
+			&i.PostWindowFinalized,
+			&i.PostWindowFinalizedAt,
+			&i.AdmissionAttempt,
+			&i.EvidenceCancellationReason,
+			&i.EvidenceCancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1257,8 +1594,458 @@ func (q *Queries) ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwar
 	return items, nil
 }
 
+const listFirmwareRolloutCausesByRolloutIDs = `-- name: ListFirmwareRolloutCausesByRolloutIDs :many
+SELECT id, rollout_id, member_id, control_id, org_id, operation, reason, actor_user_id, from_state, to_state, rollout_revision, created_at, actor_type, actor_credential_id
+FROM firmware_rollout_cause
+WHERE org_id = $1
+  AND rollout_id = ANY($2::uuid[])
+ORDER BY rollout_id, created_at, id
+`
+
+type ListFirmwareRolloutCausesByRolloutIDsParams struct {
+	OrgID      int64
+	RolloutIds []uuid.UUID
+}
+
+func (q *Queries) ListFirmwareRolloutCausesByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutCausesByRolloutIDsParams) ([]FirmwareRolloutCause, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutCausesByRolloutIDsStmt, listFirmwareRolloutCausesByRolloutIDs, arg.OrgID, pq.Array(arg.RolloutIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutCause
+	for rows.Next() {
+		var i FirmwareRolloutCause
+		if err := rows.Scan(
+			&i.ID,
+			&i.RolloutID,
+			&i.MemberID,
+			&i.ControlID,
+			&i.OrgID,
+			&i.Operation,
+			&i.Reason,
+			&i.ActorUserID,
+			&i.FromState,
+			&i.ToState,
+			&i.RolloutRevision,
+			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorCredentialID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutEvidenceByRolloutIDs = `-- name: ListFirmwareRolloutEvidenceByRolloutIDs :many
+SELECT id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at, status, cancellation_reason, cancelled_at
+FROM firmware_rollout_evidence
+WHERE org_id = $1
+  AND rollout_id = ANY($2::uuid[])
+ORDER BY rollout_id, member_id, phase
+`
+
+type ListFirmwareRolloutEvidenceByRolloutIDsParams struct {
+	OrgID      int64
+	RolloutIds []uuid.UUID
+}
+
+func (q *Queries) ListFirmwareRolloutEvidenceByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutEvidenceByRolloutIDsParams) ([]FirmwareRolloutEvidence, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutEvidenceByRolloutIDsStmt, listFirmwareRolloutEvidenceByRolloutIDs, arg.OrgID, pq.Array(arg.RolloutIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutEvidence
+	for rows.Next() {
+		var i FirmwareRolloutEvidence
+		if err := rows.Scan(
+			&i.ID,
+			&i.RolloutID,
+			&i.MemberID,
+			&i.OrgID,
+			&i.Phase,
+			&i.WindowStart,
+			&i.WindowEnd,
+			&i.ObservedAt,
+			&i.AvgHashrateHs,
+			&i.AvgPowerW,
+			&i.AvgTemperatureC,
+			&i.ErrorCount,
+			&i.SampleCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Status,
+			&i.CancellationReason,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutGroupChildren = `-- name: ListFirmwareRolloutGroupChildren :many
+SELECT child.id, child.org_id, child.name, child.strategy_key, child.state, child.resume_state, child.revision, child.forward_authority_id, child.forward_authority_revision, child.revert_authority_id, child.revert_authority_revision, child.source_channel_id, child.target_channel_id, child.source_release_set_id, child.target_release_set_id, child.source_snapshot, child.target_snapshot, child.revert_snapshot, child.idempotency_key, child.create_fingerprint, child.reason, child.created_by_user_id, child.started_at, child.paused_at, child.aborted_at, child.completed_at, child.reverting_at, child.reverted_at, child.created_at, child.updated_at, child.hashrate_policy_max_drop_basis_points, child.hashrate_policy_healthy_duration_seconds, child.group_id, child.lane_id, child.lane_model_id, child.model_identity_key, child.model_identity_validated_at, child.source_release_target_id, child.target_release_target_id
+FROM firmware_rollout child
+JOIN firmware_rollout_group_model model
+  ON model.child_rollout_id = child.id
+ AND model.group_id = child.group_id
+ AND model.org_id = child.org_id
+WHERE child.group_id = $1
+  AND child.org_id = $2
+ORDER BY model.model_identity_key, child.id
+`
+
+type ListFirmwareRolloutGroupChildrenParams struct {
+	GroupID uuid.NullUUID
+	OrgID   int64
+}
+
+func (q *Queries) ListFirmwareRolloutGroupChildren(ctx context.Context, arg ListFirmwareRolloutGroupChildrenParams) ([]FirmwareRollout, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutGroupChildrenStmt, listFirmwareRolloutGroupChildren, arg.GroupID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRollout
+	for rows.Next() {
+		var i FirmwareRollout
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.StrategyKey,
+			&i.State,
+			&i.ResumeState,
+			&i.Revision,
+			&i.ForwardAuthorityID,
+			&i.ForwardAuthorityRevision,
+			&i.RevertAuthorityID,
+			&i.RevertAuthorityRevision,
+			&i.SourceChannelID,
+			&i.TargetChannelID,
+			&i.SourceReleaseSetID,
+			&i.TargetReleaseSetID,
+			&i.SourceSnapshot,
+			&i.TargetSnapshot,
+			&i.RevertSnapshot,
+			&i.IdempotencyKey,
+			&i.CreateFingerprint,
+			&i.Reason,
+			&i.CreatedByUserID,
+			&i.StartedAt,
+			&i.PausedAt,
+			&i.AbortedAt,
+			&i.CompletedAt,
+			&i.RevertingAt,
+			&i.RevertedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.HashratePolicyMaxDropBasisPoints,
+			&i.HashratePolicyHealthyDurationSeconds,
+			&i.GroupID,
+			&i.LaneID,
+			&i.LaneModelID,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseTargetID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutGroupChildrenByGroupIDs = `-- name: ListFirmwareRolloutGroupChildrenByGroupIDs :many
+SELECT child.id, child.org_id, child.name, child.strategy_key, child.state, child.resume_state, child.revision, child.forward_authority_id, child.forward_authority_revision, child.revert_authority_id, child.revert_authority_revision, child.source_channel_id, child.target_channel_id, child.source_release_set_id, child.target_release_set_id, child.source_snapshot, child.target_snapshot, child.revert_snapshot, child.idempotency_key, child.create_fingerprint, child.reason, child.created_by_user_id, child.started_at, child.paused_at, child.aborted_at, child.completed_at, child.reverting_at, child.reverted_at, child.created_at, child.updated_at, child.hashrate_policy_max_drop_basis_points, child.hashrate_policy_healthy_duration_seconds, child.group_id, child.lane_id, child.lane_model_id, child.model_identity_key, child.model_identity_validated_at, child.source_release_target_id, child.target_release_target_id
+FROM firmware_rollout child
+JOIN firmware_rollout_group_model model
+  ON model.child_rollout_id = child.id
+ AND model.group_id = child.group_id
+ AND model.org_id = child.org_id
+WHERE child.org_id = $1
+  AND child.group_id = ANY($2::uuid[])
+ORDER BY child.group_id, model.model_identity_key, child.id
+`
+
+type ListFirmwareRolloutGroupChildrenByGroupIDsParams struct {
+	OrgID    int64
+	GroupIds []uuid.UUID
+}
+
+func (q *Queries) ListFirmwareRolloutGroupChildrenByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupChildrenByGroupIDsParams) ([]FirmwareRollout, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutGroupChildrenByGroupIDsStmt, listFirmwareRolloutGroupChildrenByGroupIDs, arg.OrgID, pq.Array(arg.GroupIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRollout
+	for rows.Next() {
+		var i FirmwareRollout
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.StrategyKey,
+			&i.State,
+			&i.ResumeState,
+			&i.Revision,
+			&i.ForwardAuthorityID,
+			&i.ForwardAuthorityRevision,
+			&i.RevertAuthorityID,
+			&i.RevertAuthorityRevision,
+			&i.SourceChannelID,
+			&i.TargetChannelID,
+			&i.SourceReleaseSetID,
+			&i.TargetReleaseSetID,
+			&i.SourceSnapshot,
+			&i.TargetSnapshot,
+			&i.RevertSnapshot,
+			&i.IdempotencyKey,
+			&i.CreateFingerprint,
+			&i.Reason,
+			&i.CreatedByUserID,
+			&i.StartedAt,
+			&i.PausedAt,
+			&i.AbortedAt,
+			&i.CompletedAt,
+			&i.RevertingAt,
+			&i.RevertedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.HashratePolicyMaxDropBasisPoints,
+			&i.HashratePolicyHealthyDurationSeconds,
+			&i.GroupID,
+			&i.LaneID,
+			&i.LaneModelID,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseTargetID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutGroupModels = `-- name: ListFirmwareRolloutGroupModels :many
+SELECT group_id, lane_id, lane_model_id, org_id, model_identity_key, source_channel_id, source_release_set_id, source_release_target_id, target_channel_id, target_release_set_id, target_release_target_id, child_rollout_id, snapshot, created_at
+FROM firmware_rollout_group_model
+WHERE group_id = $1
+  AND org_id = $2
+ORDER BY model_identity_key, lane_model_id
+`
+
+type ListFirmwareRolloutGroupModelsParams struct {
+	GroupID uuid.UUID
+	OrgID   int64
+}
+
+func (q *Queries) ListFirmwareRolloutGroupModels(ctx context.Context, arg ListFirmwareRolloutGroupModelsParams) ([]FirmwareRolloutGroupModel, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutGroupModelsStmt, listFirmwareRolloutGroupModels, arg.GroupID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutGroupModel
+	for rows.Next() {
+		var i FirmwareRolloutGroupModel
+		if err := rows.Scan(
+			&i.GroupID,
+			&i.LaneID,
+			&i.LaneModelID,
+			&i.OrgID,
+			&i.ModelIdentityKey,
+			&i.SourceChannelID,
+			&i.SourceReleaseSetID,
+			&i.SourceReleaseTargetID,
+			&i.TargetChannelID,
+			&i.TargetReleaseSetID,
+			&i.TargetReleaseTargetID,
+			&i.ChildRolloutID,
+			&i.Snapshot,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutGroupModelsByGroupIDs = `-- name: ListFirmwareRolloutGroupModelsByGroupIDs :many
+SELECT group_id, lane_id, lane_model_id, org_id, model_identity_key, source_channel_id, source_release_set_id, source_release_target_id, target_channel_id, target_release_set_id, target_release_target_id, child_rollout_id, snapshot, created_at
+FROM firmware_rollout_group_model
+WHERE org_id = $1
+  AND group_id = ANY($2::uuid[])
+ORDER BY group_id, model_identity_key, lane_model_id
+`
+
+type ListFirmwareRolloutGroupModelsByGroupIDsParams struct {
+	OrgID    int64
+	GroupIds []uuid.UUID
+}
+
+func (q *Queries) ListFirmwareRolloutGroupModelsByGroupIDs(ctx context.Context, arg ListFirmwareRolloutGroupModelsByGroupIDsParams) ([]FirmwareRolloutGroupModel, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutGroupModelsByGroupIDsStmt, listFirmwareRolloutGroupModelsByGroupIDs, arg.OrgID, pq.Array(arg.GroupIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutGroupModel
+	for rows.Next() {
+		var i FirmwareRolloutGroupModel
+		if err := rows.Scan(
+			&i.GroupID,
+			&i.LaneID,
+			&i.LaneModelID,
+			&i.OrgID,
+			&i.ModelIdentityKey,
+			&i.SourceChannelID,
+			&i.SourceReleaseSetID,
+			&i.SourceReleaseTargetID,
+			&i.TargetChannelID,
+			&i.TargetReleaseSetID,
+			&i.TargetReleaseTargetID,
+			&i.ChildRolloutID,
+			&i.Snapshot,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutGroups = `-- name: ListFirmwareRolloutGroups :many
+SELECT id, lane_id, org_id, name, idempotency_key, create_fingerprint, reason, created_by_user_id, actor_type, actor_credential_id, result_revision, terminal_outcome, result_ready, created_at, updated_at
+FROM firmware_rollout_group
+WHERE org_id = $1
+ORDER BY created_at DESC, id DESC
+`
+
+func (q *Queries) ListFirmwareRolloutGroups(ctx context.Context, orgID int64) ([]FirmwareRolloutGroup, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutGroupsStmt, listFirmwareRolloutGroups, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirmwareRolloutGroup
+	for rows.Next() {
+		var i FirmwareRolloutGroup
+		if err := rows.Scan(
+			&i.ID,
+			&i.LaneID,
+			&i.OrgID,
+			&i.Name,
+			&i.IdempotencyKey,
+			&i.CreateFingerprint,
+			&i.Reason,
+			&i.CreatedByUserID,
+			&i.ActorType,
+			&i.ActorCredentialID,
+			&i.ResultRevision,
+			&i.TerminalOutcome,
+			&i.ResultReady,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutMemberDeviceIDs = `-- name: ListFirmwareRolloutMemberDeviceIDs :many
+SELECT device_id
+FROM firmware_rollout_member
+WHERE rollout_id = $1
+  AND org_id = $2
+ORDER BY device_id
+`
+
+type ListFirmwareRolloutMemberDeviceIDsParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) ListFirmwareRolloutMemberDeviceIDs(ctx context.Context, arg ListFirmwareRolloutMemberDeviceIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutMemberDeviceIDsStmt, listFirmwareRolloutMemberDeviceIDs, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFirmwareRolloutMembers = `-- name: ListFirmwareRolloutMembers :many
-SELECT member.id, member.rollout_id, member.batch_id, member.org_id, member.device_id, member.position, member.state, member.revision, member.source_snapshot, member.target_snapshot, member.revert_snapshot, member.enforcement_id, member.command_batch_uuid, member.last_error, member.admitted_at, member.settled_at, member.owner_released_at, member.created_at, member.updated_at, member.source_release_set_id, member.source_release_target_id, member.target_release_set_id, member.target_release_target_id, member.revert_selected_at,
+SELECT member.id, member.rollout_id, member.batch_id, member.org_id, member.device_id, member.position, member.state, member.revision, member.source_snapshot, member.target_snapshot, member.revert_snapshot, member.enforcement_id, member.command_batch_uuid, member.last_error, member.admitted_at, member.settled_at, member.owner_released_at, member.created_at, member.updated_at, member.source_release_set_id, member.source_release_target_id, member.target_release_set_id, member.target_release_target_id, member.revert_selected_at, member.model_identity_key, member.model_identity_validated_at,
        device.device_identifier
 FROM firmware_rollout_member member
 JOIN device
@@ -1275,31 +2062,33 @@ type ListFirmwareRolloutMembersParams struct {
 }
 
 type ListFirmwareRolloutMembersRow struct {
-	ID                    int64
-	RolloutID             uuid.UUID
-	BatchID               int64
-	OrgID                 int64
-	DeviceID              int64
-	Position              int32
-	State                 string
-	Revision              int64
-	SourceSnapshot        json.RawMessage
-	TargetSnapshot        json.RawMessage
-	RevertSnapshot        json.RawMessage
-	EnforcementID         sql.NullInt64
-	CommandBatchUuid      sql.NullString
-	LastError             sql.NullString
-	AdmittedAt            sql.NullTime
-	SettledAt             sql.NullTime
-	OwnerReleasedAt       sql.NullTime
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	SourceReleaseSetID    sql.NullInt64
-	SourceReleaseTargetID sql.NullInt64
-	TargetReleaseSetID    sql.NullInt64
-	TargetReleaseTargetID sql.NullInt64
-	RevertSelectedAt      sql.NullTime
-	DeviceIdentifier      string
+	ID                       int64
+	RolloutID                uuid.UUID
+	BatchID                  int64
+	OrgID                    int64
+	DeviceID                 int64
+	Position                 int32
+	State                    string
+	Revision                 int64
+	SourceSnapshot           json.RawMessage
+	TargetSnapshot           json.RawMessage
+	RevertSnapshot           json.RawMessage
+	EnforcementID            sql.NullInt64
+	CommandBatchUuid         sql.NullString
+	LastError                sql.NullString
+	AdmittedAt               sql.NullTime
+	SettledAt                sql.NullTime
+	OwnerReleasedAt          sql.NullTime
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	SourceReleaseSetID       sql.NullInt64
+	SourceReleaseTargetID    sql.NullInt64
+	TargetReleaseSetID       sql.NullInt64
+	TargetReleaseTargetID    sql.NullInt64
+	RevertSelectedAt         sql.NullTime
+	ModelIdentityKey         sql.NullString
+	ModelIdentityValidatedAt sql.NullTime
+	DeviceIdentifier         string
 }
 
 func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwareRolloutMembersParams) ([]ListFirmwareRolloutMembersRow, error) {
@@ -1336,6 +2125,106 @@ func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwa
 			&i.TargetReleaseSetID,
 			&i.TargetReleaseTargetID,
 			&i.RevertSelectedAt,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
+			&i.DeviceIdentifier,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutMembersByRolloutIDs = `-- name: ListFirmwareRolloutMembersByRolloutIDs :many
+SELECT member.id, member.rollout_id, member.batch_id, member.org_id, member.device_id, member.position, member.state, member.revision, member.source_snapshot, member.target_snapshot, member.revert_snapshot, member.enforcement_id, member.command_batch_uuid, member.last_error, member.admitted_at, member.settled_at, member.owner_released_at, member.created_at, member.updated_at, member.source_release_set_id, member.source_release_target_id, member.target_release_set_id, member.target_release_target_id, member.revert_selected_at, member.model_identity_key, member.model_identity_validated_at,
+       device.device_identifier
+FROM firmware_rollout_member member
+JOIN device
+  ON device.id = member.device_id
+ AND device.org_id = member.org_id
+WHERE member.org_id = $1
+  AND member.rollout_id = ANY($2::uuid[])
+ORDER BY member.rollout_id, member.position, member.id
+`
+
+type ListFirmwareRolloutMembersByRolloutIDsParams struct {
+	OrgID      int64
+	RolloutIds []uuid.UUID
+}
+
+type ListFirmwareRolloutMembersByRolloutIDsRow struct {
+	ID                       int64
+	RolloutID                uuid.UUID
+	BatchID                  int64
+	OrgID                    int64
+	DeviceID                 int64
+	Position                 int32
+	State                    string
+	Revision                 int64
+	SourceSnapshot           json.RawMessage
+	TargetSnapshot           json.RawMessage
+	RevertSnapshot           json.RawMessage
+	EnforcementID            sql.NullInt64
+	CommandBatchUuid         sql.NullString
+	LastError                sql.NullString
+	AdmittedAt               sql.NullTime
+	SettledAt                sql.NullTime
+	OwnerReleasedAt          sql.NullTime
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	SourceReleaseSetID       sql.NullInt64
+	SourceReleaseTargetID    sql.NullInt64
+	TargetReleaseSetID       sql.NullInt64
+	TargetReleaseTargetID    sql.NullInt64
+	RevertSelectedAt         sql.NullTime
+	ModelIdentityKey         sql.NullString
+	ModelIdentityValidatedAt sql.NullTime
+	DeviceIdentifier         string
+}
+
+func (q *Queries) ListFirmwareRolloutMembersByRolloutIDs(ctx context.Context, arg ListFirmwareRolloutMembersByRolloutIDsParams) ([]ListFirmwareRolloutMembersByRolloutIDsRow, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutMembersByRolloutIDsStmt, listFirmwareRolloutMembersByRolloutIDs, arg.OrgID, pq.Array(arg.RolloutIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFirmwareRolloutMembersByRolloutIDsRow
+	for rows.Next() {
+		var i ListFirmwareRolloutMembersByRolloutIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RolloutID,
+			&i.BatchID,
+			&i.OrgID,
+			&i.DeviceID,
+			&i.Position,
+			&i.State,
+			&i.Revision,
+			&i.SourceSnapshot,
+			&i.TargetSnapshot,
+			&i.RevertSnapshot,
+			&i.EnforcementID,
+			&i.CommandBatchUuid,
+			&i.LastError,
+			&i.AdmittedAt,
+			&i.SettledAt,
+			&i.OwnerReleasedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SourceReleaseSetID,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseSetID,
+			&i.TargetReleaseTargetID,
+			&i.RevertSelectedAt,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
 			&i.DeviceIdentifier,
 		); err != nil {
 			return nil, err
@@ -1352,9 +2241,10 @@ func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwa
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 FROM firmware_rollout
 WHERE org_id = $1
+  AND group_id IS NULL
   AND (
       cardinality($2::text[]) = 0
       OR state = ANY($2::text[])
@@ -1409,6 +2299,13 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.UpdatedAt,
 			&i.HashratePolicyMaxDropBasisPoints,
 			&i.HashratePolicyHealthyDurationSeconds,
+			&i.GroupID,
+			&i.LaneID,
+			&i.LaneModelID,
+			&i.ModelIdentityKey,
+			&i.ModelIdentityValidatedAt,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseTargetID,
 		); err != nil {
 			return nil, err
 		}
@@ -1424,7 +2321,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 }
 
 const lockFirmwareRollout = `-- name: LockFirmwareRollout :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds, group_id, lane_id, lane_model_id, model_identity_key, model_identity_validated_at, source_release_target_id, target_release_target_id
 FROM firmware_rollout
 WHERE id = $1
   AND org_id = $2
@@ -1472,6 +2369,13 @@ func (q *Queries) LockFirmwareRollout(ctx context.Context, arg LockFirmwareRollo
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
@@ -1518,6 +2422,220 @@ type PrepareFirmwareRolloutMembersForRevertParams struct {
 
 func (q *Queries) PrepareFirmwareRolloutMembersForRevert(ctx context.Context, arg PrepareFirmwareRolloutMembersForRevertParams) (int64, error) {
 	result, err := q.exec(ctx, q.prepareFirmwareRolloutMembersForRevertStmt, prepareFirmwareRolloutMembersForRevert, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const prepareModelFirmwareRolloutMembersForRevert = `-- name: PrepareModelFirmwareRolloutMembersForRevert :execrows
+UPDATE firmware_rollout_member member
+SET state = 'reverting',
+    owner_released_at = NULL,
+    settled_at = NULL,
+    revert_selected_at = CURRENT_TIMESTAMP,
+    revision = member.revision + 1
+FROM firmware_rollout child,
+     rollout_lane_model_binding binding,
+     device_set_membership membership
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+  AND member.state = 'succeeded'
+  AND child.id = member.rollout_id
+  AND child.org_id = member.org_id
+  AND child.lane_id IS NOT NULL
+  AND child.lane_model_id IS NOT NULL
+  AND child.target_channel_id IS NOT NULL
+  AND binding.lane_id = child.lane_id
+  AND binding.lane_model_id = child.lane_model_id
+  AND binding.org_id = child.org_id
+  AND binding.device_id = member.device_id
+  AND binding.channel_id = child.target_channel_id
+  AND binding.ended_at IS NULL
+  AND membership.org_id = binding.org_id
+  AND membership.device_id = binding.device_id
+  AND membership.device_set_type = 'channel'
+  AND membership.device_set_id = binding.channel_id
+`
+
+type PrepareModelFirmwareRolloutMembersForRevertParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) PrepareModelFirmwareRolloutMembersForRevert(ctx context.Context, arg PrepareModelFirmwareRolloutMembersForRevertParams) (int64, error) {
+	result, err := q.exec(ctx, q.prepareModelFirmwareRolloutMembersForRevertStmt, prepareModelFirmwareRolloutMembersForRevert, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const refreshFirmwareRolloutGroupResult = `-- name: RefreshFirmwareRolloutGroupResult :execrows
+WITH child_projection AS (
+    SELECT parent.id AS group_id,
+           COUNT(child.id)::bigint AS child_count,
+           COUNT(child.id) FILTER (
+               WHERE child.state NOT IN (
+                   'aborted',
+                   'completed',
+                   'completed_with_failures',
+                   'reverted'
+               )
+           )::bigint AS nonterminal_count,
+           COUNT(DISTINCT child.state) FILTER (
+               WHERE child.state IN (
+                   'aborted',
+                   'completed',
+                   'completed_with_failures',
+                   'reverted'
+               )
+           )::bigint AS terminal_outcome_count,
+           MIN(
+               CASE child.state
+                   WHEN 'completed' THEN 'successful'
+                   ELSE child.state
+               END
+           ) FILTER (
+               WHERE child.state IN (
+                   'aborted',
+                   'completed',
+                   'completed_with_failures',
+                   'reverted'
+               )
+           ) AS uniform_terminal_outcome,
+           BOOL_AND(
+               NOT EXISTS (
+                   SELECT 1
+                   FROM firmware_rollout_batch batch
+                   WHERE batch.rollout_id = child.id
+                     AND batch.org_id = child.org_id
+                     AND NOT batch.post_window_finalized
+               )
+           ) AS evidence_ready
+    FROM firmware_rollout_group parent
+    LEFT JOIN firmware_rollout child
+      ON child.group_id = parent.id
+     AND child.org_id = parent.org_id
+    WHERE parent.id = $2
+      AND parent.org_id = $1
+    GROUP BY parent.id
+),
+next_result AS (
+    SELECT group_id,
+           CASE
+               WHEN child_count = 0 OR nonterminal_count > 0 THEN NULL
+               WHEN terminal_outcome_count = 1 THEN uniform_terminal_outcome
+               ELSE 'mixed'
+           END AS terminal_outcome,
+           child_count > 0
+               AND nonterminal_count = 0
+               AND evidence_ready
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM rollout_lane_active_parent claim
+                   WHERE claim.group_id = child_projection.group_id
+                     AND claim.org_id = $1
+               ) AS result_ready
+    FROM child_projection
+)
+UPDATE firmware_rollout_group parent
+SET terminal_outcome = next_result.terminal_outcome,
+    result_ready = next_result.result_ready
+FROM next_result
+WHERE parent.id = next_result.group_id
+  AND parent.org_id = $1
+  AND (
+      parent.terminal_outcome IS DISTINCT FROM next_result.terminal_outcome
+      OR parent.result_ready IS DISTINCT FROM next_result.result_ready
+  )
+`
+
+type RefreshFirmwareRolloutGroupResultParams struct {
+	OrgID   int64
+	GroupID uuid.UUID
+}
+
+func (q *Queries) RefreshFirmwareRolloutGroupResult(ctx context.Context, arg RefreshFirmwareRolloutGroupResultParams) (int64, error) {
+	result, err := q.exec(ctx, q.refreshFirmwareRolloutGroupResultStmt, refreshFirmwareRolloutGroupResult, arg.OrgID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const refreshFirmwareRolloutGroupResults = `-- name: RefreshFirmwareRolloutGroupResults :execrows
+WITH child_projection AS (
+    SELECT parent.id AS group_id,
+           COUNT(child.id)::bigint AS child_count,
+           COUNT(child.id) FILTER (
+               WHERE child.state NOT IN ('aborted', 'completed', 'completed_with_failures', 'reverted')
+           )::bigint AS nonterminal_count,
+           COUNT(DISTINCT child.state) FILTER (
+               WHERE child.state IN ('aborted', 'completed', 'completed_with_failures', 'reverted')
+           )::bigint AS terminal_outcome_count,
+           MIN(
+               CASE child.state
+                   WHEN 'completed' THEN 'successful'
+                   ELSE child.state
+               END
+           ) FILTER (
+               WHERE child.state IN ('aborted', 'completed', 'completed_with_failures', 'reverted')
+           ) AS uniform_terminal_outcome,
+           BOOL_AND(
+               NOT EXISTS (
+                   SELECT 1
+                   FROM firmware_rollout_batch batch
+                   WHERE batch.rollout_id = child.id
+                     AND batch.org_id = child.org_id
+                     AND NOT batch.post_window_finalized
+               )
+           ) AS evidence_ready
+    FROM firmware_rollout_group parent
+    LEFT JOIN firmware_rollout child
+      ON child.group_id = parent.id
+     AND child.org_id = parent.org_id
+    WHERE parent.id = ANY($2::uuid[])
+      AND parent.org_id = $1
+    GROUP BY parent.id
+),
+next_result AS (
+    SELECT group_id,
+           CASE
+               WHEN child_count = 0 OR nonterminal_count > 0 THEN NULL
+               WHEN terminal_outcome_count = 1 THEN uniform_terminal_outcome
+               ELSE 'mixed'
+           END AS terminal_outcome,
+           child_count > 0
+               AND nonterminal_count = 0
+               AND evidence_ready
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM rollout_lane_active_parent claim
+                   WHERE claim.group_id = child_projection.group_id
+                     AND claim.org_id = $1
+               ) AS result_ready
+    FROM child_projection
+)
+UPDATE firmware_rollout_group parent
+SET terminal_outcome = next_result.terminal_outcome,
+    result_ready = next_result.result_ready
+FROM next_result
+WHERE parent.id = next_result.group_id
+  AND parent.org_id = $1
+  AND (
+      parent.terminal_outcome IS DISTINCT FROM next_result.terminal_outcome
+      OR parent.result_ready IS DISTINCT FROM next_result.result_ready
+  )
+`
+
+type RefreshFirmwareRolloutGroupResultsParams struct {
+	OrgID    int64
+	GroupIds []uuid.UUID
+}
+
+func (q *Queries) RefreshFirmwareRolloutGroupResults(ctx context.Context, arg RefreshFirmwareRolloutGroupResultsParams) (int64, error) {
+	result, err := q.exec(ctx, q.refreshFirmwareRolloutGroupResultsStmt, refreshFirmwareRolloutGroupResults, arg.OrgID, pq.Array(arg.GroupIds))
 	if err != nil {
 		return 0, err
 	}
@@ -1575,9 +2693,83 @@ func (q *Queries) ReleaseTerminalFirmwareRolloutOwners(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
+const resetFirmwareRolloutAdmissionAfterFailure = `-- name: ResetFirmwareRolloutAdmissionAfterFailure :one
+UPDATE firmware_rollout rollout
+SET state = cause.from_state,
+    resume_state = NULL,
+    started_at = CASE
+        WHEN cause.from_state = 'created' THEN NULL
+        ELSE rollout.started_at
+    END,
+    revision = rollout.revision + 1
+FROM firmware_rollout_cause cause
+WHERE rollout.id = $1
+  AND rollout.org_id = $2
+  AND cause.rollout_id = rollout.id
+  AND cause.org_id = rollout.org_id
+  AND cause.control_id = $3
+  AND cause.operation IN ('admit', 'continue')
+  AND cause.from_state IN ('created', 'review')
+RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at, rollout.hashrate_policy_max_drop_basis_points, rollout.hashrate_policy_healthy_duration_seconds, rollout.group_id, rollout.lane_id, rollout.lane_model_id, rollout.model_identity_key, rollout.model_identity_validated_at, rollout.source_release_target_id, rollout.target_release_target_id
+`
+
+type ResetFirmwareRolloutAdmissionAfterFailureParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+	ControlID uuid.NullUUID
+}
+
+func (q *Queries) ResetFirmwareRolloutAdmissionAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionAfterFailureParams) (FirmwareRollout, error) {
+	row := q.queryRow(ctx, q.resetFirmwareRolloutAdmissionAfterFailureStmt, resetFirmwareRolloutAdmissionAfterFailure, arg.RolloutID, arg.OrgID, arg.ControlID)
+	var i FirmwareRollout
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.StrategyKey,
+		&i.State,
+		&i.ResumeState,
+		&i.Revision,
+		&i.ForwardAuthorityID,
+		&i.ForwardAuthorityRevision,
+		&i.RevertAuthorityID,
+		&i.RevertAuthorityRevision,
+		&i.SourceChannelID,
+		&i.TargetChannelID,
+		&i.SourceReleaseSetID,
+		&i.TargetReleaseSetID,
+		&i.SourceSnapshot,
+		&i.TargetSnapshot,
+		&i.RevertSnapshot,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.Reason,
+		&i.CreatedByUserID,
+		&i.StartedAt,
+		&i.PausedAt,
+		&i.AbortedAt,
+		&i.CompletedAt,
+		&i.RevertingAt,
+		&i.RevertedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
+	)
+	return i, err
+}
+
 const resetFirmwareRolloutAdmissionBatchAfterFailure = `-- name: ResetFirmwareRolloutAdmissionBatchAfterFailure :execrows
 UPDATE firmware_rollout_batch batch
 SET state = 'pending',
+    admission_attempt = batch.admission_attempt + 1,
     revision = batch.revision + 1
 WHERE batch.id = $1
   AND batch.rollout_id = $2
@@ -1648,7 +2840,7 @@ WHERE rollout.id = $1
   AND cause.control_id = $3
   AND cause.operation = 'revert'
   AND cause.from_state IN ('aborted', 'completed', 'completed_with_failures')
-RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at, rollout.hashrate_policy_max_drop_basis_points, rollout.hashrate_policy_healthy_duration_seconds
+RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at, rollout.hashrate_policy_max_drop_basis_points, rollout.hashrate_policy_healthy_duration_seconds, rollout.group_id, rollout.lane_id, rollout.lane_model_id, rollout.model_identity_key, rollout.model_identity_validated_at, rollout.source_release_target_id, rollout.target_release_target_id
 `
 
 type ResetFirmwareRolloutRevertAfterFailureParams struct {
@@ -1693,6 +2885,13 @@ func (q *Queries) ResetFirmwareRolloutRevertAfterFailure(ctx context.Context, ar
 		&i.UpdatedAt,
 		&i.HashratePolicyMaxDropBasisPoints,
 		&i.HashratePolicyHealthyDurationSeconds,
+		&i.GroupID,
+		&i.LaneID,
+		&i.LaneModelID,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseTargetID,
 	)
 	return i, err
 }
@@ -1758,7 +2957,7 @@ WHERE id = $5
   AND rollout_id = $6
   AND org_id = $7
   AND revision = $8
-RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at
+RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at, model_identity_key, model_identity_validated_at
 `
 
 type UpdateFirmwareRolloutMemberParams struct {
@@ -1809,6 +3008,8 @@ func (q *Queries) UpdateFirmwareRolloutMember(ctx context.Context, arg UpdateFir
 		&i.TargetReleaseSetID,
 		&i.TargetReleaseTargetID,
 		&i.RevertSelectedAt,
+		&i.ModelIdentityKey,
+		&i.ModelIdentityValidatedAt,
 	)
 	return i, err
 }

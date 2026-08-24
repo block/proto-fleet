@@ -1,4 +1,4 @@
-import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import { type FirmwareFileInfo, hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import { latestCompletedRolloutBatch } from "@/protoFleet/features/rollout/rolloutBatchSelectors";
@@ -12,6 +12,22 @@ import type {
 } from "@/protoFleet/features/rollout/rolloutTypes";
 
 export const BETWEEN_CHANNEL_STRATEGY_KEY = "between_channel";
+
+export function rolloutIdempotencyKey(action: string, ...scope: Array<string | bigint>): string {
+  const unique =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return [action, ...scope.map(String), unique].join(":");
+}
+
+export function isCompleteRolloutFirmwareFile(file: FirmwareFileInfo): boolean {
+  return hasCompleteFirmwareTarget({
+    targetManufacturer: file.target_manufacturer,
+    targetModel: file.target_model,
+    firmwareVersion: file.firmware_version,
+  });
+}
 
 export type TargetCompatibilityStatus = "compatible" | "missing" | "noOp";
 
@@ -83,6 +99,25 @@ export function shouldMonitorRollout(rollout: RolloutRecord | undefined): boolea
   return (
     (rollout.state === "completed" || rollout.state === "completedWithFailures") &&
     hasUnfinalizedLatestBatchEvidence(rollout)
+  );
+}
+
+export function rolloutChildRank(child: RolloutRecord): number {
+  if (
+    child.state === "review" ||
+    child.state === "paused" ||
+    child.state === "completedWithFailures" ||
+    child.members.some((member) => member.state === "attentionRequired" || member.state === "failed")
+  ) {
+    return 0;
+  }
+  return shouldMonitorRollout(child) ? 1 : 2;
+}
+
+export function compareRolloutChildren(left: RolloutRecord, right: RolloutRecord): number {
+  return (
+    rolloutChildRank(left) - rolloutChildRank(right) ||
+    `${left.manufacturer ?? ""}\0${left.model ?? ""}`.localeCompare(`${right.manufacturer ?? ""}\0${right.model ?? ""}`)
   );
 }
 

@@ -149,6 +149,39 @@ func TestEvaluatorRunOnceIsolatesCandidateErrors(t *testing.T) {
 	assert.Equal(t, second.BatchID, store.updates[0].BatchID)
 }
 
+func TestEvaluatorHeldSiblingDoesNotBlockIndependentAutoContinue(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 24, 12, 1, 0, 0, time.UTC)
+	held := automaticCandidate(now)
+	held.RolloutID = uuid.New()
+	held.BatchID = 1
+	healthy := automaticCandidate(now)
+	healthy.RolloutID = uuid.New()
+	healthy.BatchID = 2
+	heldSnapshot := automaticHealthySnapshot(now)
+	heldSnapshot.PolicyBuckets = []PolicyBucket{policyBucket(now, -101)}
+	store := &fakeStore{
+		candidates: []Candidate{held, healthy},
+		snapshots: map[int64]Snapshot{
+			held.BatchID:    heldSnapshot,
+			healthy.BatchID: automaticHealthySnapshot(now),
+		},
+	}
+	controller := &fakeController{}
+	evaluator := NewEvaluator(Config{}, store, controller)
+	evaluator.now = func() time.Time { return now }
+
+	evaluator.RunOnce(t.Context())
+
+	require.Len(t, store.updates, 2)
+	assert.Equal(t, rollout.EvidenceStatusHeld, store.updates[0].Status)
+	assert.Equal(t, rollout.EvidenceStatusHealthy, store.updates[1].Status)
+	require.Len(t, controller.requests, 1)
+	assert.Equal(t, healthy.RolloutID, controller.requests[0].RolloutID)
+	assert.Equal(t, autoContinueIdempotencyKey(healthy.BatchID), controller.requests[0].IdempotencyKey)
+}
+
 func TestBuildSummaryUsesPairedEqualMemberWeighting(t *testing.T) {
 	t.Parallel()
 

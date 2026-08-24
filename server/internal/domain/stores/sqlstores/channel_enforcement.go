@@ -380,7 +380,7 @@ func authorityFromSQL(row sqlc.ChannelFirmwareAuthority) channel.Authority {
 }
 
 func enforcementFromGetRow(row sqlc.GetChannelFirmwareEnforcementRow) channel.Enforcement {
-	return enforcementFromSQL(sqlc.ChannelFirmwareEnforcement{
+	result := enforcementFromSQL(sqlc.ChannelFirmwareEnforcement{
 		ID:                          row.ID,
 		OrgID:                       row.OrgID,
 		DeviceID:                    row.DeviceID,
@@ -411,11 +411,16 @@ func enforcementFromGetRow(row sqlc.GetChannelFirmwareEnforcementRow) channel.En
 		LastError:                   row.LastError,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
+		ExpectedModelIdentityKey:    row.ExpectedModelIdentityKey,
+		ModelIdentityValidatedAt:    row.ModelIdentityValidatedAt,
 	}, row.DeviceIdentifier, row.CreatedByUserID)
+	result.ObservedModelIdentityKey = row.ObservedModelIdentityKey
+	result.ModelIdentityObservedAt = timePtr(row.ModelIdentityObservedAt)
+	return result
 }
 
 func enforcementFromListRow(row sqlc.ListChannelFirmwareEnforcementsForReconcileRow) channel.Enforcement {
-	return enforcementFromSQL(sqlc.ChannelFirmwareEnforcement{
+	result := enforcementFromSQL(sqlc.ChannelFirmwareEnforcement{
 		ID:                          row.ID,
 		OrgID:                       row.OrgID,
 		DeviceID:                    row.DeviceID,
@@ -446,7 +451,12 @@ func enforcementFromListRow(row sqlc.ListChannelFirmwareEnforcementsForReconcile
 		LastError:                   row.LastError,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
+		ExpectedModelIdentityKey:    row.ExpectedModelIdentityKey,
+		ModelIdentityValidatedAt:    row.ModelIdentityValidatedAt,
 	}, row.DeviceIdentifier, row.CreatedByUserID)
+	result.ObservedModelIdentityKey = row.ObservedModelIdentityKey
+	result.ModelIdentityObservedAt = timePtr(row.ModelIdentityObservedAt)
+	return result
 }
 
 func enforcementFromSQL(
@@ -487,6 +497,8 @@ func enforcementFromSQL(
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
 		CreatedByUserID:             createdByUserID,
+		ExpectedModelIdentityKey:    row.ExpectedModelIdentityKey.String,
+		ModelIdentityValidatedAt:    timePtr(row.ModelIdentityValidatedAt),
 	}
 }
 

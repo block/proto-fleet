@@ -61,12 +61,36 @@ const (
 	// RolloutServiceUpdateRolloutLaneMembershipProcedure is the fully-qualified name of the
 	// RolloutService's UpdateRolloutLaneMembership RPC.
 	RolloutServiceUpdateRolloutLaneMembershipProcedure = "/rollout.v1.RolloutService/UpdateRolloutLaneMembership"
+	// RolloutServicePreviewRolloutLaneModelDeclarationProcedure is the fully-qualified name of the
+	// RolloutService's PreviewRolloutLaneModelDeclaration RPC.
+	RolloutServicePreviewRolloutLaneModelDeclarationProcedure = "/rollout.v1.RolloutService/PreviewRolloutLaneModelDeclaration"
+	// RolloutServiceCreateRolloutLaneModelDeclarationProcedure is the fully-qualified name of the
+	// RolloutService's CreateRolloutLaneModelDeclaration RPC.
+	RolloutServiceCreateRolloutLaneModelDeclarationProcedure = "/rollout.v1.RolloutService/CreateRolloutLaneModelDeclaration"
+	// RolloutServicePublishRolloutLaneModelTargetProcedure is the fully-qualified name of the
+	// RolloutService's PublishRolloutLaneModelTarget RPC.
+	RolloutServicePublishRolloutLaneModelTargetProcedure = "/rollout.v1.RolloutService/PublishRolloutLaneModelTarget"
+	// RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure is the fully-qualified name of the
+	// RolloutService's PreviewRolloutLaneModelMembershipChange RPC.
+	RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure = "/rollout.v1.RolloutService/PreviewRolloutLaneModelMembershipChange"
+	// RolloutServiceUpdateRolloutLaneModelMembershipProcedure is the fully-qualified name of the
+	// RolloutService's UpdateRolloutLaneModelMembership RPC.
+	RolloutServiceUpdateRolloutLaneModelMembershipProcedure = "/rollout.v1.RolloutService/UpdateRolloutLaneModelMembership"
 	// RolloutServiceDeleteRolloutLaneProcedure is the fully-qualified name of the RolloutService's
 	// DeleteRolloutLane RPC.
 	RolloutServiceDeleteRolloutLaneProcedure = "/rollout.v1.RolloutService/DeleteRolloutLane"
 	// RolloutServiceStartRolloutLaneProcedure is the fully-qualified name of the RolloutService's
 	// StartRolloutLane RPC.
 	RolloutServiceStartRolloutLaneProcedure = "/rollout.v1.RolloutService/StartRolloutLane"
+	// RolloutServiceGetRolloutLaneTopologyReadinessProcedure is the fully-qualified name of the
+	// RolloutService's GetRolloutLaneTopologyReadiness RPC.
+	RolloutServiceGetRolloutLaneTopologyReadinessProcedure = "/rollout.v1.RolloutService/GetRolloutLaneTopologyReadiness"
+	// RolloutServiceRepairRolloutLaneModelBindingProcedure is the fully-qualified name of the
+	// RolloutService's RepairRolloutLaneModelBinding RPC.
+	RolloutServiceRepairRolloutLaneModelBindingProcedure = "/rollout.v1.RolloutService/RepairRolloutLaneModelBinding"
+	// RolloutServiceEnableRolloutLaneModelTopologyProcedure is the fully-qualified name of the
+	// RolloutService's EnableRolloutLaneModelTopology RPC.
+	RolloutServiceEnableRolloutLaneModelTopologyProcedure = "/rollout.v1.RolloutService/EnableRolloutLaneModelTopology"
 	// RolloutServiceCreateRolloutProcedure is the fully-qualified name of the RolloutService's
 	// CreateRollout RPC.
 	RolloutServiceCreateRolloutProcedure = "/rollout.v1.RolloutService/CreateRollout"
@@ -76,6 +100,12 @@ const (
 	// RolloutServiceListRolloutsProcedure is the fully-qualified name of the RolloutService's
 	// ListRollouts RPC.
 	RolloutServiceListRolloutsProcedure = "/rollout.v1.RolloutService/ListRollouts"
+	// RolloutServiceGetRolloutGroupProcedure is the fully-qualified name of the RolloutService's
+	// GetRolloutGroup RPC.
+	RolloutServiceGetRolloutGroupProcedure = "/rollout.v1.RolloutService/GetRolloutGroup"
+	// RolloutServiceListRolloutGroupsProcedure is the fully-qualified name of the RolloutService's
+	// ListRolloutGroups RPC.
+	RolloutServiceListRolloutGroupsProcedure = "/rollout.v1.RolloutService/ListRolloutGroups"
 	// RolloutServiceAdmitRolloutProcedure is the fully-qualified name of the RolloutService's
 	// AdmitRollout RPC.
 	RolloutServiceAdmitRolloutProcedure = "/rollout.v1.RolloutService/AdmitRollout"
@@ -110,11 +140,21 @@ type RolloutServiceClient interface {
 	GetRolloutLaneAssignments(context.Context, *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error)
 	PreviewRolloutLaneMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneMembershipChangeResponse], error)
 	UpdateRolloutLaneMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneMembershipResponse], error)
+	PreviewRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.PreviewRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.PreviewRolloutLaneModelDeclarationResponse], error)
+	CreateRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.CreateRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.CreateRolloutLaneModelDeclarationResponse], error)
+	PublishRolloutLaneModelTarget(context.Context, *connect.Request[v1.PublishRolloutLaneModelTargetRequest]) (*connect.Response[v1.PublishRolloutLaneModelTargetResponse], error)
+	PreviewRolloutLaneModelMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneModelMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneModelMembershipChangeResponse], error)
+	UpdateRolloutLaneModelMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneModelMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneModelMembershipResponse], error)
 	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
 	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
+	GetRolloutLaneTopologyReadiness(context.Context, *connect.Request[v1.GetRolloutLaneTopologyReadinessRequest]) (*connect.Response[v1.GetRolloutLaneTopologyReadinessResponse], error)
+	RepairRolloutLaneModelBinding(context.Context, *connect.Request[v1.RepairRolloutLaneModelBindingRequest]) (*connect.Response[v1.RepairRolloutLaneModelBindingResponse], error)
+	EnableRolloutLaneModelTopology(context.Context, *connect.Request[v1.EnableRolloutLaneModelTopologyRequest]) (*connect.Response[v1.EnableRolloutLaneModelTopologyResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
+	GetRolloutGroup(context.Context, *connect.Request[v1.GetRolloutGroupRequest]) (*connect.Response[v1.GetRolloutGroupResponse], error)
+	ListRolloutGroups(context.Context, *connect.Request[v1.ListRolloutGroupsRequest]) (*connect.Response[v1.ListRolloutGroupsResponse], error)
 	AdmitRollout(context.Context, *connect.Request[v1.AdmitRolloutRequest]) (*connect.Response[v1.AdmitRolloutResponse], error)
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
@@ -179,6 +219,31 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+RolloutServiceUpdateRolloutLaneMembershipProcedure,
 			opts...,
 		),
+		previewRolloutLaneModelDeclaration: connect.NewClient[v1.PreviewRolloutLaneModelDeclarationRequest, v1.PreviewRolloutLaneModelDeclarationResponse](
+			httpClient,
+			baseURL+RolloutServicePreviewRolloutLaneModelDeclarationProcedure,
+			opts...,
+		),
+		createRolloutLaneModelDeclaration: connect.NewClient[v1.CreateRolloutLaneModelDeclarationRequest, v1.CreateRolloutLaneModelDeclarationResponse](
+			httpClient,
+			baseURL+RolloutServiceCreateRolloutLaneModelDeclarationProcedure,
+			opts...,
+		),
+		publishRolloutLaneModelTarget: connect.NewClient[v1.PublishRolloutLaneModelTargetRequest, v1.PublishRolloutLaneModelTargetResponse](
+			httpClient,
+			baseURL+RolloutServicePublishRolloutLaneModelTargetProcedure,
+			opts...,
+		),
+		previewRolloutLaneModelMembershipChange: connect.NewClient[v1.PreviewRolloutLaneModelMembershipChangeRequest, v1.PreviewRolloutLaneModelMembershipChangeResponse](
+			httpClient,
+			baseURL+RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure,
+			opts...,
+		),
+		updateRolloutLaneModelMembership: connect.NewClient[v1.UpdateRolloutLaneModelMembershipRequest, v1.UpdateRolloutLaneModelMembershipResponse](
+			httpClient,
+			baseURL+RolloutServiceUpdateRolloutLaneModelMembershipProcedure,
+			opts...,
+		),
 		deleteRolloutLane: connect.NewClient[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse](
 			httpClient,
 			baseURL+RolloutServiceDeleteRolloutLaneProcedure,
@@ -187,6 +252,21 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 		startRolloutLane: connect.NewClient[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse](
 			httpClient,
 			baseURL+RolloutServiceStartRolloutLaneProcedure,
+			opts...,
+		),
+		getRolloutLaneTopologyReadiness: connect.NewClient[v1.GetRolloutLaneTopologyReadinessRequest, v1.GetRolloutLaneTopologyReadinessResponse](
+			httpClient,
+			baseURL+RolloutServiceGetRolloutLaneTopologyReadinessProcedure,
+			opts...,
+		),
+		repairRolloutLaneModelBinding: connect.NewClient[v1.RepairRolloutLaneModelBindingRequest, v1.RepairRolloutLaneModelBindingResponse](
+			httpClient,
+			baseURL+RolloutServiceRepairRolloutLaneModelBindingProcedure,
+			opts...,
+		),
+		enableRolloutLaneModelTopology: connect.NewClient[v1.EnableRolloutLaneModelTopologyRequest, v1.EnableRolloutLaneModelTopologyResponse](
+			httpClient,
+			baseURL+RolloutServiceEnableRolloutLaneModelTopologyProcedure,
 			opts...,
 		),
 		createRollout: connect.NewClient[v1.CreateRolloutRequest, v1.CreateRolloutResponse](
@@ -202,6 +282,16 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 		listRollouts: connect.NewClient[v1.ListRolloutsRequest, v1.ListRolloutsResponse](
 			httpClient,
 			baseURL+RolloutServiceListRolloutsProcedure,
+			opts...,
+		),
+		getRolloutGroup: connect.NewClient[v1.GetRolloutGroupRequest, v1.GetRolloutGroupResponse](
+			httpClient,
+			baseURL+RolloutServiceGetRolloutGroupProcedure,
+			opts...,
+		),
+		listRolloutGroups: connect.NewClient[v1.ListRolloutGroupsRequest, v1.ListRolloutGroupsResponse](
+			httpClient,
+			baseURL+RolloutServiceListRolloutGroupsProcedure,
 			opts...,
 		),
 		admitRollout: connect.NewClient[v1.AdmitRolloutRequest, v1.AdmitRolloutResponse](
@@ -244,27 +334,37 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // rolloutServiceClient implements RolloutServiceClient.
 type rolloutServiceClient struct {
-	previewRolloutLane                 *connect.Client[v1.PreviewRolloutLaneRequest, v1.PreviewRolloutLaneResponse]
-	createRolloutLane                  *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
-	getRolloutLane                     *connect.Client[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse]
-	getRolloutLaneForRollout           *connect.Client[v1.GetRolloutLaneForRolloutRequest, v1.GetRolloutLaneForRolloutResponse]
-	listRolloutLanes                   *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
-	listRolloutLaneMembers             *connect.Client[v1.ListRolloutLaneMembersRequest, v1.ListRolloutLaneMembersResponse]
-	getRolloutLaneAssignments          *connect.Client[v1.GetRolloutLaneAssignmentsRequest, v1.GetRolloutLaneAssignmentsResponse]
-	previewRolloutLaneMembershipChange *connect.Client[v1.PreviewRolloutLaneMembershipChangeRequest, v1.PreviewRolloutLaneMembershipChangeResponse]
-	updateRolloutLaneMembership        *connect.Client[v1.UpdateRolloutLaneMembershipRequest, v1.UpdateRolloutLaneMembershipResponse]
-	deleteRolloutLane                  *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
-	startRolloutLane                   *connect.Client[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse]
-	createRollout                      *connect.Client[v1.CreateRolloutRequest, v1.CreateRolloutResponse]
-	getRollout                         *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
-	listRollouts                       *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
-	admitRollout                       *connect.Client[v1.AdmitRolloutRequest, v1.AdmitRolloutResponse]
-	continueRollout                    *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
-	pauseRollout                       *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
-	resumeRollout                      *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
-	abortRollout                       *connect.Client[v1.AbortRolloutRequest, v1.AbortRolloutResponse]
-	revertRollout                      *connect.Client[v1.RevertRolloutRequest, v1.RevertRolloutResponse]
-	completeRollout                    *connect.Client[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse]
+	previewRolloutLane                      *connect.Client[v1.PreviewRolloutLaneRequest, v1.PreviewRolloutLaneResponse]
+	createRolloutLane                       *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
+	getRolloutLane                          *connect.Client[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse]
+	getRolloutLaneForRollout                *connect.Client[v1.GetRolloutLaneForRolloutRequest, v1.GetRolloutLaneForRolloutResponse]
+	listRolloutLanes                        *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
+	listRolloutLaneMembers                  *connect.Client[v1.ListRolloutLaneMembersRequest, v1.ListRolloutLaneMembersResponse]
+	getRolloutLaneAssignments               *connect.Client[v1.GetRolloutLaneAssignmentsRequest, v1.GetRolloutLaneAssignmentsResponse]
+	previewRolloutLaneMembershipChange      *connect.Client[v1.PreviewRolloutLaneMembershipChangeRequest, v1.PreviewRolloutLaneMembershipChangeResponse]
+	updateRolloutLaneMembership             *connect.Client[v1.UpdateRolloutLaneMembershipRequest, v1.UpdateRolloutLaneMembershipResponse]
+	previewRolloutLaneModelDeclaration      *connect.Client[v1.PreviewRolloutLaneModelDeclarationRequest, v1.PreviewRolloutLaneModelDeclarationResponse]
+	createRolloutLaneModelDeclaration       *connect.Client[v1.CreateRolloutLaneModelDeclarationRequest, v1.CreateRolloutLaneModelDeclarationResponse]
+	publishRolloutLaneModelTarget           *connect.Client[v1.PublishRolloutLaneModelTargetRequest, v1.PublishRolloutLaneModelTargetResponse]
+	previewRolloutLaneModelMembershipChange *connect.Client[v1.PreviewRolloutLaneModelMembershipChangeRequest, v1.PreviewRolloutLaneModelMembershipChangeResponse]
+	updateRolloutLaneModelMembership        *connect.Client[v1.UpdateRolloutLaneModelMembershipRequest, v1.UpdateRolloutLaneModelMembershipResponse]
+	deleteRolloutLane                       *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
+	startRolloutLane                        *connect.Client[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse]
+	getRolloutLaneTopologyReadiness         *connect.Client[v1.GetRolloutLaneTopologyReadinessRequest, v1.GetRolloutLaneTopologyReadinessResponse]
+	repairRolloutLaneModelBinding           *connect.Client[v1.RepairRolloutLaneModelBindingRequest, v1.RepairRolloutLaneModelBindingResponse]
+	enableRolloutLaneModelTopology          *connect.Client[v1.EnableRolloutLaneModelTopologyRequest, v1.EnableRolloutLaneModelTopologyResponse]
+	createRollout                           *connect.Client[v1.CreateRolloutRequest, v1.CreateRolloutResponse]
+	getRollout                              *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
+	listRollouts                            *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
+	getRolloutGroup                         *connect.Client[v1.GetRolloutGroupRequest, v1.GetRolloutGroupResponse]
+	listRolloutGroups                       *connect.Client[v1.ListRolloutGroupsRequest, v1.ListRolloutGroupsResponse]
+	admitRollout                            *connect.Client[v1.AdmitRolloutRequest, v1.AdmitRolloutResponse]
+	continueRollout                         *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
+	pauseRollout                            *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
+	resumeRollout                           *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
+	abortRollout                            *connect.Client[v1.AbortRolloutRequest, v1.AbortRolloutResponse]
+	revertRollout                           *connect.Client[v1.RevertRolloutRequest, v1.RevertRolloutResponse]
+	completeRollout                         *connect.Client[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse]
 }
 
 // PreviewRolloutLane calls rollout.v1.RolloutService.PreviewRolloutLane.
@@ -313,6 +413,35 @@ func (c *rolloutServiceClient) UpdateRolloutLaneMembership(ctx context.Context, 
 	return c.updateRolloutLaneMembership.CallUnary(ctx, req)
 }
 
+// PreviewRolloutLaneModelDeclaration calls
+// rollout.v1.RolloutService.PreviewRolloutLaneModelDeclaration.
+func (c *rolloutServiceClient) PreviewRolloutLaneModelDeclaration(ctx context.Context, req *connect.Request[v1.PreviewRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.PreviewRolloutLaneModelDeclarationResponse], error) {
+	return c.previewRolloutLaneModelDeclaration.CallUnary(ctx, req)
+}
+
+// CreateRolloutLaneModelDeclaration calls
+// rollout.v1.RolloutService.CreateRolloutLaneModelDeclaration.
+func (c *rolloutServiceClient) CreateRolloutLaneModelDeclaration(ctx context.Context, req *connect.Request[v1.CreateRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.CreateRolloutLaneModelDeclarationResponse], error) {
+	return c.createRolloutLaneModelDeclaration.CallUnary(ctx, req)
+}
+
+// PublishRolloutLaneModelTarget calls rollout.v1.RolloutService.PublishRolloutLaneModelTarget.
+func (c *rolloutServiceClient) PublishRolloutLaneModelTarget(ctx context.Context, req *connect.Request[v1.PublishRolloutLaneModelTargetRequest]) (*connect.Response[v1.PublishRolloutLaneModelTargetResponse], error) {
+	return c.publishRolloutLaneModelTarget.CallUnary(ctx, req)
+}
+
+// PreviewRolloutLaneModelMembershipChange calls
+// rollout.v1.RolloutService.PreviewRolloutLaneModelMembershipChange.
+func (c *rolloutServiceClient) PreviewRolloutLaneModelMembershipChange(ctx context.Context, req *connect.Request[v1.PreviewRolloutLaneModelMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneModelMembershipChangeResponse], error) {
+	return c.previewRolloutLaneModelMembershipChange.CallUnary(ctx, req)
+}
+
+// UpdateRolloutLaneModelMembership calls
+// rollout.v1.RolloutService.UpdateRolloutLaneModelMembership.
+func (c *rolloutServiceClient) UpdateRolloutLaneModelMembership(ctx context.Context, req *connect.Request[v1.UpdateRolloutLaneModelMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneModelMembershipResponse], error) {
+	return c.updateRolloutLaneModelMembership.CallUnary(ctx, req)
+}
+
 // DeleteRolloutLane calls rollout.v1.RolloutService.DeleteRolloutLane.
 func (c *rolloutServiceClient) DeleteRolloutLane(ctx context.Context, req *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error) {
 	return c.deleteRolloutLane.CallUnary(ctx, req)
@@ -321,6 +450,21 @@ func (c *rolloutServiceClient) DeleteRolloutLane(ctx context.Context, req *conne
 // StartRolloutLane calls rollout.v1.RolloutService.StartRolloutLane.
 func (c *rolloutServiceClient) StartRolloutLane(ctx context.Context, req *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error) {
 	return c.startRolloutLane.CallUnary(ctx, req)
+}
+
+// GetRolloutLaneTopologyReadiness calls rollout.v1.RolloutService.GetRolloutLaneTopologyReadiness.
+func (c *rolloutServiceClient) GetRolloutLaneTopologyReadiness(ctx context.Context, req *connect.Request[v1.GetRolloutLaneTopologyReadinessRequest]) (*connect.Response[v1.GetRolloutLaneTopologyReadinessResponse], error) {
+	return c.getRolloutLaneTopologyReadiness.CallUnary(ctx, req)
+}
+
+// RepairRolloutLaneModelBinding calls rollout.v1.RolloutService.RepairRolloutLaneModelBinding.
+func (c *rolloutServiceClient) RepairRolloutLaneModelBinding(ctx context.Context, req *connect.Request[v1.RepairRolloutLaneModelBindingRequest]) (*connect.Response[v1.RepairRolloutLaneModelBindingResponse], error) {
+	return c.repairRolloutLaneModelBinding.CallUnary(ctx, req)
+}
+
+// EnableRolloutLaneModelTopology calls rollout.v1.RolloutService.EnableRolloutLaneModelTopology.
+func (c *rolloutServiceClient) EnableRolloutLaneModelTopology(ctx context.Context, req *connect.Request[v1.EnableRolloutLaneModelTopologyRequest]) (*connect.Response[v1.EnableRolloutLaneModelTopologyResponse], error) {
+	return c.enableRolloutLaneModelTopology.CallUnary(ctx, req)
 }
 
 // CreateRollout calls rollout.v1.RolloutService.CreateRollout.
@@ -336,6 +480,16 @@ func (c *rolloutServiceClient) GetRollout(ctx context.Context, req *connect.Requ
 // ListRollouts calls rollout.v1.RolloutService.ListRollouts.
 func (c *rolloutServiceClient) ListRollouts(ctx context.Context, req *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error) {
 	return c.listRollouts.CallUnary(ctx, req)
+}
+
+// GetRolloutGroup calls rollout.v1.RolloutService.GetRolloutGroup.
+func (c *rolloutServiceClient) GetRolloutGroup(ctx context.Context, req *connect.Request[v1.GetRolloutGroupRequest]) (*connect.Response[v1.GetRolloutGroupResponse], error) {
+	return c.getRolloutGroup.CallUnary(ctx, req)
+}
+
+// ListRolloutGroups calls rollout.v1.RolloutService.ListRolloutGroups.
+func (c *rolloutServiceClient) ListRolloutGroups(ctx context.Context, req *connect.Request[v1.ListRolloutGroupsRequest]) (*connect.Response[v1.ListRolloutGroupsResponse], error) {
+	return c.listRolloutGroups.CallUnary(ctx, req)
 }
 
 // AdmitRollout calls rollout.v1.RolloutService.AdmitRollout.
@@ -384,11 +538,21 @@ type RolloutServiceHandler interface {
 	GetRolloutLaneAssignments(context.Context, *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error)
 	PreviewRolloutLaneMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneMembershipChangeResponse], error)
 	UpdateRolloutLaneMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneMembershipResponse], error)
+	PreviewRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.PreviewRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.PreviewRolloutLaneModelDeclarationResponse], error)
+	CreateRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.CreateRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.CreateRolloutLaneModelDeclarationResponse], error)
+	PublishRolloutLaneModelTarget(context.Context, *connect.Request[v1.PublishRolloutLaneModelTargetRequest]) (*connect.Response[v1.PublishRolloutLaneModelTargetResponse], error)
+	PreviewRolloutLaneModelMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneModelMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneModelMembershipChangeResponse], error)
+	UpdateRolloutLaneModelMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneModelMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneModelMembershipResponse], error)
 	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
 	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
+	GetRolloutLaneTopologyReadiness(context.Context, *connect.Request[v1.GetRolloutLaneTopologyReadinessRequest]) (*connect.Response[v1.GetRolloutLaneTopologyReadinessResponse], error)
+	RepairRolloutLaneModelBinding(context.Context, *connect.Request[v1.RepairRolloutLaneModelBindingRequest]) (*connect.Response[v1.RepairRolloutLaneModelBindingResponse], error)
+	EnableRolloutLaneModelTopology(context.Context, *connect.Request[v1.EnableRolloutLaneModelTopologyRequest]) (*connect.Response[v1.EnableRolloutLaneModelTopologyResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
+	GetRolloutGroup(context.Context, *connect.Request[v1.GetRolloutGroupRequest]) (*connect.Response[v1.GetRolloutGroupResponse], error)
+	ListRolloutGroups(context.Context, *connect.Request[v1.ListRolloutGroupsRequest]) (*connect.Response[v1.ListRolloutGroupsResponse], error)
 	AdmitRollout(context.Context, *connect.Request[v1.AdmitRolloutRequest]) (*connect.Response[v1.AdmitRolloutResponse], error)
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
@@ -449,6 +613,31 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		svc.UpdateRolloutLaneMembership,
 		opts...,
 	)
+	rolloutServicePreviewRolloutLaneModelDeclarationHandler := connect.NewUnaryHandler(
+		RolloutServicePreviewRolloutLaneModelDeclarationProcedure,
+		svc.PreviewRolloutLaneModelDeclaration,
+		opts...,
+	)
+	rolloutServiceCreateRolloutLaneModelDeclarationHandler := connect.NewUnaryHandler(
+		RolloutServiceCreateRolloutLaneModelDeclarationProcedure,
+		svc.CreateRolloutLaneModelDeclaration,
+		opts...,
+	)
+	rolloutServicePublishRolloutLaneModelTargetHandler := connect.NewUnaryHandler(
+		RolloutServicePublishRolloutLaneModelTargetProcedure,
+		svc.PublishRolloutLaneModelTarget,
+		opts...,
+	)
+	rolloutServicePreviewRolloutLaneModelMembershipChangeHandler := connect.NewUnaryHandler(
+		RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure,
+		svc.PreviewRolloutLaneModelMembershipChange,
+		opts...,
+	)
+	rolloutServiceUpdateRolloutLaneModelMembershipHandler := connect.NewUnaryHandler(
+		RolloutServiceUpdateRolloutLaneModelMembershipProcedure,
+		svc.UpdateRolloutLaneModelMembership,
+		opts...,
+	)
 	rolloutServiceDeleteRolloutLaneHandler := connect.NewUnaryHandler(
 		RolloutServiceDeleteRolloutLaneProcedure,
 		svc.DeleteRolloutLane,
@@ -457,6 +646,21 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceStartRolloutLaneHandler := connect.NewUnaryHandler(
 		RolloutServiceStartRolloutLaneProcedure,
 		svc.StartRolloutLane,
+		opts...,
+	)
+	rolloutServiceGetRolloutLaneTopologyReadinessHandler := connect.NewUnaryHandler(
+		RolloutServiceGetRolloutLaneTopologyReadinessProcedure,
+		svc.GetRolloutLaneTopologyReadiness,
+		opts...,
+	)
+	rolloutServiceRepairRolloutLaneModelBindingHandler := connect.NewUnaryHandler(
+		RolloutServiceRepairRolloutLaneModelBindingProcedure,
+		svc.RepairRolloutLaneModelBinding,
+		opts...,
+	)
+	rolloutServiceEnableRolloutLaneModelTopologyHandler := connect.NewUnaryHandler(
+		RolloutServiceEnableRolloutLaneModelTopologyProcedure,
+		svc.EnableRolloutLaneModelTopology,
 		opts...,
 	)
 	rolloutServiceCreateRolloutHandler := connect.NewUnaryHandler(
@@ -472,6 +676,16 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceListRolloutsHandler := connect.NewUnaryHandler(
 		RolloutServiceListRolloutsProcedure,
 		svc.ListRollouts,
+		opts...,
+	)
+	rolloutServiceGetRolloutGroupHandler := connect.NewUnaryHandler(
+		RolloutServiceGetRolloutGroupProcedure,
+		svc.GetRolloutGroup,
+		opts...,
+	)
+	rolloutServiceListRolloutGroupsHandler := connect.NewUnaryHandler(
+		RolloutServiceListRolloutGroupsProcedure,
+		svc.ListRolloutGroups,
 		opts...,
 	)
 	rolloutServiceAdmitRolloutHandler := connect.NewUnaryHandler(
@@ -529,16 +743,36 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServicePreviewRolloutLaneMembershipChangeHandler.ServeHTTP(w, r)
 		case RolloutServiceUpdateRolloutLaneMembershipProcedure:
 			rolloutServiceUpdateRolloutLaneMembershipHandler.ServeHTTP(w, r)
+		case RolloutServicePreviewRolloutLaneModelDeclarationProcedure:
+			rolloutServicePreviewRolloutLaneModelDeclarationHandler.ServeHTTP(w, r)
+		case RolloutServiceCreateRolloutLaneModelDeclarationProcedure:
+			rolloutServiceCreateRolloutLaneModelDeclarationHandler.ServeHTTP(w, r)
+		case RolloutServicePublishRolloutLaneModelTargetProcedure:
+			rolloutServicePublishRolloutLaneModelTargetHandler.ServeHTTP(w, r)
+		case RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure:
+			rolloutServicePreviewRolloutLaneModelMembershipChangeHandler.ServeHTTP(w, r)
+		case RolloutServiceUpdateRolloutLaneModelMembershipProcedure:
+			rolloutServiceUpdateRolloutLaneModelMembershipHandler.ServeHTTP(w, r)
 		case RolloutServiceDeleteRolloutLaneProcedure:
 			rolloutServiceDeleteRolloutLaneHandler.ServeHTTP(w, r)
 		case RolloutServiceStartRolloutLaneProcedure:
 			rolloutServiceStartRolloutLaneHandler.ServeHTTP(w, r)
+		case RolloutServiceGetRolloutLaneTopologyReadinessProcedure:
+			rolloutServiceGetRolloutLaneTopologyReadinessHandler.ServeHTTP(w, r)
+		case RolloutServiceRepairRolloutLaneModelBindingProcedure:
+			rolloutServiceRepairRolloutLaneModelBindingHandler.ServeHTTP(w, r)
+		case RolloutServiceEnableRolloutLaneModelTopologyProcedure:
+			rolloutServiceEnableRolloutLaneModelTopologyHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateRolloutProcedure:
 			rolloutServiceCreateRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceGetRolloutProcedure:
 			rolloutServiceGetRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutsProcedure:
 			rolloutServiceListRolloutsHandler.ServeHTTP(w, r)
+		case RolloutServiceGetRolloutGroupProcedure:
+			rolloutServiceGetRolloutGroupHandler.ServeHTTP(w, r)
+		case RolloutServiceListRolloutGroupsProcedure:
+			rolloutServiceListRolloutGroupsHandler.ServeHTTP(w, r)
 		case RolloutServiceAdmitRolloutProcedure:
 			rolloutServiceAdmitRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceContinueRolloutProcedure:
@@ -598,12 +832,44 @@ func (UnimplementedRolloutServiceHandler) UpdateRolloutLaneMembership(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.UpdateRolloutLaneMembership is not implemented"))
 }
 
+func (UnimplementedRolloutServiceHandler) PreviewRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.PreviewRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.PreviewRolloutLaneModelDeclarationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PreviewRolloutLaneModelDeclaration is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) CreateRolloutLaneModelDeclaration(context.Context, *connect.Request[v1.CreateRolloutLaneModelDeclarationRequest]) (*connect.Response[v1.CreateRolloutLaneModelDeclarationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.CreateRolloutLaneModelDeclaration is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) PublishRolloutLaneModelTarget(context.Context, *connect.Request[v1.PublishRolloutLaneModelTargetRequest]) (*connect.Response[v1.PublishRolloutLaneModelTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PublishRolloutLaneModelTarget is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) PreviewRolloutLaneModelMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneModelMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneModelMembershipChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PreviewRolloutLaneModelMembershipChange is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) UpdateRolloutLaneModelMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneModelMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneModelMembershipResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.UpdateRolloutLaneModelMembership is not implemented"))
+}
+
 func (UnimplementedRolloutServiceHandler) DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.DeleteRolloutLane is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.StartRolloutLane is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) GetRolloutLaneTopologyReadiness(context.Context, *connect.Request[v1.GetRolloutLaneTopologyReadinessRequest]) (*connect.Response[v1.GetRolloutLaneTopologyReadinessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetRolloutLaneTopologyReadiness is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) RepairRolloutLaneModelBinding(context.Context, *connect.Request[v1.RepairRolloutLaneModelBindingRequest]) (*connect.Response[v1.RepairRolloutLaneModelBindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.RepairRolloutLaneModelBinding is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) EnableRolloutLaneModelTopology(context.Context, *connect.Request[v1.EnableRolloutLaneModelTopologyRequest]) (*connect.Response[v1.EnableRolloutLaneModelTopologyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.EnableRolloutLaneModelTopology is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error) {
@@ -616,6 +882,14 @@ func (UnimplementedRolloutServiceHandler) GetRollout(context.Context, *connect.R
 
 func (UnimplementedRolloutServiceHandler) ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRollouts is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) GetRolloutGroup(context.Context, *connect.Request[v1.GetRolloutGroupRequest]) (*connect.Response[v1.GetRolloutGroupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetRolloutGroup is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListRolloutGroups(context.Context, *connect.Request[v1.ListRolloutGroupsRequest]) (*connect.Response[v1.ListRolloutGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutGroups is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) AdmitRollout(context.Context, *connect.Request[v1.AdmitRolloutRequest]) (*connect.Response[v1.AdmitRolloutResponse], error) {

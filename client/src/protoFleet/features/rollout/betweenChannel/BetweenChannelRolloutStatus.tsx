@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
@@ -13,7 +13,7 @@ import type {
 } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useHeldRolloutOverride } from "@/protoFleet/features/rollout/useHeldRolloutOverride";
 import { Alert } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 interface BetweenChannelRolloutStatusProps {
@@ -21,12 +21,14 @@ interface BetweenChannelRolloutStatusProps {
   laneLabel: string;
   canControl: boolean;
   isMutating?: boolean;
+  announceEvidenceStatus?: boolean;
   onPause?: () => void;
   onResume?: () => void;
   onContinue?: (reason?: string) => void;
   onAbort?: () => void;
   onRevert?: () => void;
   onCompleteWithFailures?: () => void;
+  onAdmit?: () => void;
 }
 
 const EVIDENCE_STALE_AFTER_MS = 20_000;
@@ -68,6 +70,10 @@ const evidenceStatusContent: Record<RolloutEvidenceStatus, { label: string; deta
     label: "Evidence finalized",
     detail: "The completed post-update window is finalized.",
   },
+  cancelled: {
+    label: "Evidence cancelled",
+    detail: "Evidence collection stopped when this model rollout was aborted or reverted.",
+  },
   unknown: {
     label: "Evidence status unavailable",
     detail: "The server did not provide a recognized evidence status.",
@@ -102,10 +108,21 @@ function formatEvidenceTime(value: string): string {
   }).format(new Date(value));
 }
 
-function RolloutEvidenceStatusCard({ evidence }: { evidence: RolloutEventEvidence }) {
+function RolloutEvidenceStatusCard({
+  evidence,
+  announceStatus,
+}: {
+  evidence: RolloutEventEvidence;
+  announceStatus: boolean;
+}) {
   const status = displayedEvidenceStatus(evidence);
   const content = evidenceStatusContent[status];
-  const detail = status === "automationError" && evidence.errorMessage ? evidence.errorMessage : content.detail;
+  const detail =
+    status === "cancelled" && evidence.cancellationReason
+      ? evidence.cancellationReason
+      : status === "automationError" && evidence.errorMessage
+        ? evidence.errorMessage
+        : content.detail;
   const hasPolicyBucket = evidence.policy && evidence.latestPolicyBucketDeltaBasisPoints !== undefined;
 
   return (
@@ -115,7 +132,12 @@ function RolloutEvidenceStatusCard({ evidence }: { evidence: RolloutEventEvidenc
     >
       <div className="min-w-0">
         <div className="text-200 text-text-primary-50">{evidence.batchLabel} evidence</div>
-        <div className="mt-1 text-emphasis-300 text-text-primary" role="status" aria-live="polite" aria-atomic="true">
+        <div
+          className="mt-1 text-emphasis-300 text-text-primary"
+          role={announceStatus ? "status" : undefined}
+          aria-live={announceStatus ? "polite" : undefined}
+          aria-atomic={announceStatus ? "true" : undefined}
+        >
           {content.label}
         </div>
         <div className="mt-1 text-200 text-text-primary-70">{detail}</div>
@@ -159,22 +181,62 @@ export default function BetweenChannelRolloutStatus({
   laneLabel,
   canControl,
   isMutating = false,
+  announceEvidenceStatus = true,
   onPause,
   onResume,
   onContinue,
   onAbort,
   onRevert,
   onCompleteWithFailures,
+  onAdmit,
 }: BetweenChannelRolloutStatusProps) {
   const [confirmation, setConfirmation] = useState<"abort" | "revert" | null>(null);
+  const confirmationTriggerRef = useRef<HTMLButtonElement | null>(null);
   const event = useMemo(() => mapRolloutToEvent(rollout, { laneLabel }), [laneLabel, rollout]);
   const heldOverride = useHeldRolloutOverride(event.evidence, onContinue);
   const confirmedCount = rollout.members.filter((member) => member.state === "succeeded").length;
   const sourceRemaining = Math.max(rollout.members.length - confirmedCount, 0);
+  const modelLabel = [rollout.manufacturer, rollout.model].filter(Boolean).join(" ") || "this model";
+
+  useEffect(() => {
+    if (confirmation === null && confirmationTriggerRef.current) {
+      confirmationTriggerRef.current.focus();
+      confirmationTriggerRef.current = null;
+    }
+  }, [confirmation]);
+
+  const openConfirmation = (kind: "abort" | "revert") => {
+    confirmationTriggerRef.current =
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.getAttribute("aria-label") === `More actions for ${event.title}`,
+      ) ?? null;
+    setConfirmation(kind);
+  };
 
   return (
     <>
       <div className="grid gap-4">
+        {rollout.laneModelId ? (
+          <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-5">
+            <div className="text-200 text-text-primary-50">Model rollout</div>
+            <div className="mt-1 text-heading-100 text-text-primary">
+              {[rollout.manufacturer, rollout.model].filter(Boolean).join(" ") || rollout.modelIdentityKey}
+            </div>
+          </div>
+        ) : null}
+        {rollout.state === "created" && onAdmit ? (
+          <div>
+            <Button variant={variants.primary} disabled={isMutating} onClick={onAdmit}>
+              Retry model start
+            </Button>
+          </div>
+        ) : null}
+        {rollout.state === "completedWithFailures" ? (
+          <div className="border-intent-warning-30 bg-intent-warning-5 rounded-xl border p-4 text-300 text-text-primary">
+            {modelLabel} is split across source and target releases. Resolve or revert this model before starting its
+            next rollout. Other models remain available.
+          </div>
+        ) : null}
         <ActiveRolloutStatus
           event={event}
           canManage={false}
@@ -182,11 +244,13 @@ export default function BetweenChannelRolloutStatus({
           onPause={onPause}
           onResume={onResume}
           onContinueFromReview={heldOverride.onContinue}
-          onAbort={onAbort ? () => setConfirmation("abort") : undefined}
-          onRevert={onRevert && canRevertRollout(rollout) ? () => setConfirmation("revert") : undefined}
+          onAbort={onAbort ? () => openConfirmation("abort") : undefined}
+          onRevert={onRevert && canRevertRollout(rollout) ? () => openConfirmation("revert") : undefined}
           onCompleteWithFailures={canCompleteWithFailures(rollout) ? onCompleteWithFailures : undefined}
         />
-        {event.evidence ? <RolloutEvidenceStatusCard evidence={event.evidence} /> : null}
+        {event.evidence ? (
+          <RolloutEvidenceStatusCard evidence={event.evidence} announceStatus={announceEvidenceStatus} />
+        ) : null}
         <div className="grid gap-2 rounded-xl bg-surface-elevated-base p-5 text-300 text-text-primary-70 shadow-100 tablet:grid-cols-2">
           <div>
             <div className="text-200 text-text-primary-50">Source release</div>
@@ -206,7 +270,9 @@ export default function BetweenChannelRolloutStatus({
       {confirmation === "abort" ? (
         <Dialog
           open
-          title="Abort rollout?"
+          title={`Abort ${modelLabel} rollout for ${rollout.members.length.toLocaleString()} miner${
+            rollout.members.length === 1 ? "" : "s"
+          }?`}
           icon={<Alert className="text-intent-critical-fill" />}
           subtitle="Undispatched miners remain on the current release. In-flight work may still settle after the abort boundary. This does not revert miners that already moved."
           onDismiss={() => setConfirmation(null)}
@@ -232,7 +298,9 @@ export default function BetweenChannelRolloutStatus({
       {confirmation === "revert" ? (
         <Dialog
           open
-          title={`Revert ${confirmedCount.toLocaleString()} confirmed miner${confirmedCount === 1 ? "" : "s"}?`}
+          title={`Revert ${modelLabel} for ${confirmedCount.toLocaleString()} confirmed miner${
+            confirmedCount === 1 ? "" : "s"
+          }?`}
           icon={<Alert className="text-intent-critical-fill" />}
           subtitle="Revert restores the captured source firmware first, then moves only confirmed eligible miners back to the source release."
           onDismiss={() => setConfirmation(null)}

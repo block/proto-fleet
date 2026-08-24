@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -31,6 +33,13 @@ func rolloutPositionToInt32(value int) (int32, error) {
 		return 0, fmt.Errorf("rollout position %d is outside the int32 range", value)
 	}
 	return int32(value), nil
+}
+
+func ptrToNullUUID(value *uuid.UUID) uuid.NullUUID {
+	if value == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *value, Valid: true}
 }
 
 func (s *SQLRolloutStore) Create(
@@ -84,6 +93,13 @@ func (s *SQLRolloutStore) Create(
 			TargetChannelID:          ptrToNullInt64(req.TargetChannelID),
 			SourceReleaseSetID:       ptrToNullInt64(req.SourceReleaseSetID),
 			TargetReleaseSetID:       ptrToNullInt64(req.TargetReleaseSetID),
+			GroupID:                  ptrToNullUUID(req.GroupID),
+			LaneID:                   ptrToNullUUID(req.LaneID),
+			LaneModelID:              ptrToNullUUID(req.LaneModelID),
+			ModelIdentityKey:         sql.NullString{String: req.ModelIdentityKey, Valid: req.ModelIdentityKey != ""},
+			ModelIdentityValidatedAt: ptrToNullTime(req.ModelIdentityValidatedAt),
+			SourceReleaseTargetID:    ptrToNullInt64(req.SourceReleaseTargetID),
+			TargetReleaseTargetID:    ptrToNullInt64(req.TargetReleaseTargetID),
 			SourceSnapshot:           marshalSnapshot(req.SourceSnapshot),
 			TargetSnapshot:           marshalSnapshot(req.TargetSnapshot),
 			RevertSnapshot:           marshalSnapshot(req.RevertSnapshot),
@@ -107,12 +123,14 @@ func (s *SQLRolloutStore) Create(
 			Label    string `json:"label"`
 		}
 		type memberInput struct {
-			BatchPosition    int32          `json:"batch_position"`
-			Position         int32          `json:"position"`
-			DeviceIdentifier string         `json:"device_identifier"`
-			SourceSnapshot   map[string]any `json:"source_snapshot"`
-			TargetSnapshot   map[string]any `json:"target_snapshot"`
-			RevertSnapshot   map[string]any `json:"revert_snapshot"`
+			BatchPosition            int32          `json:"batch_position"`
+			Position                 int32          `json:"position"`
+			DeviceIdentifier         string         `json:"device_identifier"`
+			ModelIdentityKey         string         `json:"model_identity_key,omitempty"`
+			ModelIdentityValidatedAt *time.Time     `json:"model_identity_validated_at,omitempty"`
+			SourceSnapshot           map[string]any `json:"source_snapshot"`
+			TargetSnapshot           map[string]any `json:"target_snapshot"`
+			RevertSnapshot           map[string]any `json:"revert_snapshot"`
 		}
 		batchInputs := make([]batchInput, 0, len(req.Batches))
 		memberInputs := make([]memberInput, 0)
@@ -132,12 +150,14 @@ func (s *SQLRolloutStore) Create(
 					return createResult{}, fmt.Errorf("convert rollout member position: %w", positionErr)
 				}
 				memberInputs = append(memberInputs, memberInput{
-					BatchPosition:    batchPositionInt32,
-					Position:         memberPositionInt32,
-					DeviceIdentifier: inputMember.DeviceIdentifier,
-					SourceSnapshot:   nonNilSnapshot(inputMember.SourceSnapshot),
-					TargetSnapshot:   nonNilSnapshot(inputMember.TargetSnapshot),
-					RevertSnapshot:   nonNilSnapshot(inputMember.RevertSnapshot),
+					BatchPosition:            batchPositionInt32,
+					Position:                 memberPositionInt32,
+					DeviceIdentifier:         inputMember.DeviceIdentifier,
+					ModelIdentityKey:         inputMember.ModelIdentityKey,
+					ModelIdentityValidatedAt: inputMember.ModelIdentityValidatedAt,
+					SourceSnapshot:           nonNilSnapshot(inputMember.SourceSnapshot),
+					TargetSnapshot:           nonNilSnapshot(inputMember.TargetSnapshot),
+					RevertSnapshot:           nonNilSnapshot(inputMember.RevertSnapshot),
 				})
 				memberPosition++
 			}
@@ -228,6 +248,17 @@ func (s *SQLRolloutStore) Get(
 			OrgID:     orgID,
 		})
 		if getErr != nil {
+			if errors.Is(getErr, sql.ErrNoRows) {
+				if _, parentErr := q.GetFirmwareRolloutGroup(
+					ctx,
+					sqlc.GetFirmwareRolloutGroupParams{
+						GroupID: rolloutID,
+						OrgID:   orgID,
+					},
+				); parentErr == nil {
+					return nil, rollout.ErrParentNotControllable
+				}
+			}
 			return nil, getErr
 		}
 		return loadRollout(ctx, q, row)
@@ -239,6 +270,242 @@ func (s *SQLRolloutStore) Get(
 		return nil, fmt.Errorf("get firmware rollout: %w", err)
 	}
 	return result, nil
+}
+
+func (s *SQLRolloutStore) GetGroup(
+	ctx context.Context,
+	orgID int64,
+	groupID uuid.UUID,
+) (*rollout.Group, error) {
+	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*rollout.Group, error) {
+		initial, getErr := q.GetFirmwareRolloutGroup(
+			ctx,
+			sqlc.GetFirmwareRolloutGroupParams{GroupID: groupID, OrgID: orgID},
+		)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if _, releaseErr := releaseRolloutLaneActiveParentIfSettled(
+			ctx,
+			q,
+			initial.LaneID,
+			orgID,
+		); releaseErr != nil {
+			return nil, releaseErr
+		}
+		if _, refreshErr := q.RefreshFirmwareRolloutGroupResult(
+			ctx,
+			sqlc.RefreshFirmwareRolloutGroupResultParams{GroupID: groupID, OrgID: orgID},
+		); refreshErr != nil {
+			return nil, refreshErr
+		}
+		row, getErr := q.GetFirmwareRolloutGroup(ctx, sqlc.GetFirmwareRolloutGroupParams{
+			GroupID: groupID,
+			OrgID:   orgID,
+		})
+		if getErr != nil {
+			return nil, getErr
+		}
+		return loadRolloutGroup(ctx, q, row)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, rollout.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get firmware rollout group: %w", err)
+	}
+	return result, nil
+}
+
+func (s *SQLRolloutStore) ListGroups(
+	ctx context.Context,
+	orgID int64,
+) ([]rollout.Group, error) {
+	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]rollout.Group, error) {
+		initialRows, listErr := q.ListFirmwareRolloutGroups(ctx, orgID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		claims, listErr := q.ListRolloutLaneActiveParents(ctx, orgID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, claim := range claims {
+			if _, releaseErr := releaseRolloutLaneActiveParentIfSettled(
+				ctx,
+				q,
+				claim.LaneID,
+				orgID,
+			); releaseErr != nil {
+				return nil, releaseErr
+			}
+		}
+		groupIDs := make([]uuid.UUID, 0, len(initialRows))
+		for _, row := range initialRows {
+			groupIDs = append(groupIDs, row.ID)
+		}
+		if len(groupIDs) > 0 {
+			if _, refreshErr := q.RefreshFirmwareRolloutGroupResults(
+				ctx,
+				sqlc.RefreshFirmwareRolloutGroupResultsParams{OrgID: orgID, GroupIds: groupIDs},
+			); refreshErr != nil {
+				return nil, refreshErr
+			}
+		}
+		rows, listErr := q.ListFirmwareRolloutGroups(ctx, orgID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		return loadRolloutGroups(ctx, q, rows)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list firmware rollout groups: %w", err)
+	}
+	return result, nil
+}
+
+func loadRolloutGroup(
+	ctx context.Context,
+	q sqlc.Querier,
+	row sqlc.FirmwareRolloutGroup,
+) (*rollout.Group, error) {
+	groups, err := loadRolloutGroups(ctx, q, []sqlc.FirmwareRolloutGroup{row})
+	if err != nil {
+		return nil, err
+	}
+	return &groups[0], nil
+}
+
+func loadRolloutGroups(
+	ctx context.Context,
+	q sqlc.Querier,
+	rows []sqlc.FirmwareRolloutGroup,
+) ([]rollout.Group, error) {
+	if len(rows) == 0 {
+		return []rollout.Group{}, nil
+	}
+	orgID := rows[0].OrgID
+	groupIDs := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		groupIDs = append(groupIDs, row.ID)
+	}
+	models, err := q.ListFirmwareRolloutGroupModelsByGroupIDs(
+		ctx,
+		sqlc.ListFirmwareRolloutGroupModelsByGroupIDsParams{OrgID: orgID, GroupIds: groupIDs},
+	)
+	if err != nil {
+		return nil, err
+	}
+	children, err := q.ListFirmwareRolloutGroupChildrenByGroupIDs(
+		ctx,
+		sqlc.ListFirmwareRolloutGroupChildrenByGroupIDsParams{OrgID: orgID, GroupIds: groupIDs},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	childIDs := make([]uuid.UUID, 0, len(children))
+	for _, child := range children {
+		childIDs = append(childIDs, child.ID)
+	}
+	loadedChildren := make(map[uuid.UUID]rollout.Rollout, len(children))
+	if len(childIDs) > 0 {
+		batches, loadErr := q.ListFirmwareRolloutBatchesByRolloutIDs(
+			ctx,
+			sqlc.ListFirmwareRolloutBatchesByRolloutIDsParams{OrgID: orgID, RolloutIds: childIDs},
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		members, loadErr := q.ListFirmwareRolloutMembersByRolloutIDs(
+			ctx,
+			sqlc.ListFirmwareRolloutMembersByRolloutIDsParams{OrgID: orgID, RolloutIds: childIDs},
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		evidenceRows, loadErr := q.ListFirmwareRolloutEvidenceByRolloutIDs(
+			ctx,
+			sqlc.ListFirmwareRolloutEvidenceByRolloutIDsParams{OrgID: orgID, RolloutIds: childIDs},
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		causes, loadErr := q.ListFirmwareRolloutCausesByRolloutIDs(
+			ctx,
+			sqlc.ListFirmwareRolloutCausesByRolloutIDsParams{OrgID: orgID, RolloutIds: childIDs},
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		failures, loadErr := q.ListCurrentFirmwareRolloutAdmissionFailures(
+			ctx,
+			sqlc.ListCurrentFirmwareRolloutAdmissionFailuresParams{OrgID: orgID, RolloutIds: childIDs},
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+
+		evidenceByMember := make(map[int64][]rollout.Evidence, len(evidenceRows))
+		for _, evidenceRow := range evidenceRows {
+			evidenceByMember[evidenceRow.MemberID] = append(
+				evidenceByMember[evidenceRow.MemberID],
+				evidenceFromSQL(evidenceRow),
+			)
+		}
+		membersByRollout := make(map[uuid.UUID][]rollout.Member, len(children))
+		membersByBatch := make(map[int64][]rollout.Member, len(batches))
+		for _, memberRow := range members {
+			member := memberFromBulkListRow(memberRow)
+			member.Evidence = evidenceByMember[member.ID]
+			membersByRollout[member.RolloutID] = append(membersByRollout[member.RolloutID], member)
+			membersByBatch[member.BatchID] = append(membersByBatch[member.BatchID], member)
+		}
+		batchesByRollout := make(map[uuid.UUID][]rollout.Batch, len(children))
+		for _, batchRow := range batches {
+			batch := batchFromSQL(batchRow)
+			batch.Members = membersByBatch[batch.ID]
+			batchesByRollout[batch.RolloutID] = append(batchesByRollout[batch.RolloutID], batch)
+		}
+		causesByRollout := make(map[uuid.UUID][]rollout.Cause, len(children))
+		for _, causeRow := range causes {
+			causesByRollout[causeRow.RolloutID] = append(
+				causesByRollout[causeRow.RolloutID],
+				causeFromSQL(causeRow),
+			)
+		}
+		failedByRollout := make(map[uuid.UUID]bool, len(failures))
+		for _, failure := range failures {
+			failedByRollout[failure.RolloutID] = failure.FailedAdmission
+		}
+		for _, childRow := range children {
+			child := rolloutFromSQL(childRow)
+			child.Members = membersByRollout[child.ID]
+			child.Batches = batchesByRollout[child.ID]
+			child.Causes = causesByRollout[child.ID]
+			child.FailedAdmission = failedByRollout[child.ID]
+			loadedChildren[child.ID] = child
+		}
+	}
+
+	modelsByGroup := make(map[uuid.UUID][]rollout.GroupModelSnapshot, len(rows))
+	for _, modelRow := range models {
+		modelsByGroup[modelRow.GroupID] = append(modelsByGroup[modelRow.GroupID], groupModelFromSQL(modelRow))
+	}
+	childrenByGroup := make(map[uuid.UUID][]rollout.Rollout, len(rows))
+	for _, childRow := range children {
+		if child, ok := loadedChildren[childRow.ID]; ok && childRow.GroupID.Valid {
+			childrenByGroup[childRow.GroupID.UUID] = append(childrenByGroup[childRow.GroupID.UUID], child)
+		}
+	}
+	groups := make([]rollout.Group, 0, len(rows))
+	for _, row := range rows {
+		group := groupFromSQL(row)
+		group.ModelSnapshots = modelsByGroup[row.ID]
+		group.Children = childrenByGroup[row.ID]
+		groups = append(groups, group)
+	}
+	return groups, nil
 }
 
 func (s *SQLRolloutStore) List(
@@ -314,10 +581,21 @@ func (s *SQLRolloutStore) ApplyControl(
 			RolloutID: req.RolloutID,
 			OrgID:     req.OrgID,
 		})
+		if errors.Is(getErr, sql.ErrNoRows) {
+			if _, parentErr := q.GetFirmwareRolloutGroup(
+				ctx,
+				sqlc.GetFirmwareRolloutGroupParams{
+					GroupID: req.RolloutID,
+					OrgID:   req.OrgID,
+				},
+			); parentErr == nil {
+				return rollout.ControlResult{}, rollout.ErrParentNotControllable
+			}
+		}
 		if getErr != nil {
 			return rollout.ControlResult{}, getErr
 		}
-		if identity.StrategyKey == betweenchannel.StrategyKey {
+		if identity.StrategyKey == betweenchannel.StrategyKey && !identity.LaneModelID.Valid {
 			lane, laneErr := q.GetRolloutLaneForRollout(
 				ctx,
 				sqlc.GetRolloutLaneForRolloutParams{
@@ -348,6 +626,13 @@ func (s *SQLRolloutStore) ApplyControl(
 		}
 		if current.StrategyKey != identity.StrategyKey {
 			return rollout.ControlResult{}, rollout.ErrRevisionConflict
+		}
+		var modelDeclaration *sqlc.RolloutLaneModel
+		if current.LaneModelID.Valid {
+			modelDeclaration, lockErr = lockModelChildScope(ctx, q, current)
+			if lockErr != nil {
+				return rollout.ControlResult{}, lockErr
+			}
 		}
 
 		existing, existingErr := q.GetFirmwareRolloutControlByKey(
@@ -460,6 +745,35 @@ func (s *SQLRolloutStore) ApplyControl(
 			}
 			forwardRevision = sql.NullInt64{Int64: authority.Revision, Valid: true}
 		case rollout.ControlOperationRevert:
+			if modelDeclaration != nil {
+				conflicting, conflictErr := q.HasNewerOrConflictingRolloutLaneModelWork(
+					ctx,
+					sqlc.HasNewerOrConflictingRolloutLaneModelWorkParams{
+						LaneID: uuid.NullUUID{
+							UUID: current.LaneID.UUID, Valid: true,
+						},
+						LaneModelID: uuid.NullUUID{
+							UUID: current.LaneModelID.UUID, Valid: true,
+						},
+						OrgID:            current.OrgID,
+						RolloutID:        current.ID,
+						RolloutCreatedAt: current.CreatedAt,
+					},
+				)
+				if conflictErr != nil {
+					return rollout.ControlResult{}, conflictErr
+				}
+				if conflicting {
+					return rollout.ControlResult{}, rollout.ErrRevisionConflict
+				}
+				expectedPointer := current.SourceChannelID.Int64
+				if rollout.State(current.State) == rollout.StateCompleted {
+					expectedPointer = current.TargetChannelID.Int64
+				}
+				if modelDeclaration.CurrentChannelID != expectedPointer {
+					return rollout.ControlResult{}, rollout.ErrRevisionConflict
+				}
+			}
 			authorityID := uuid.New()
 			authority, authorityErr := q.CreateChannelFirmwareAuthority(
 				ctx,
@@ -623,8 +937,60 @@ func (s *SQLRolloutStore) ApplyControl(
 				return rollout.ControlResult{}, updateErr
 			}
 		}
+		if targetState == rollout.StateAborted || targetState == rollout.StateReverting {
+			cancellationAction := "aborted"
+			if targetState == rollout.StateReverting {
+				cancellationAction = "revert started"
+			}
+			if _, updateErr = q.CancelFirmwareRolloutEvidence(
+				ctx,
+				sqlc.CancelFirmwareRolloutEvidenceParams{
+					CancellationReason: sql.NullString{
+						String: fmt.Sprintf(
+							"rollout %s: %s",
+							cancellationAction,
+							req.Reason,
+						),
+						Valid: true,
+					},
+					CancelledAt: sql.NullTime{
+						Time: time.Now().UTC(), Valid: true,
+					},
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			); updateErr != nil {
+				return rollout.ControlResult{}, updateErr
+			}
+		}
 		if targetState == rollout.StateReverting {
-			if _, updateErr = q.PrepareFirmwareRolloutMembersForRevert(
+			if modelDeclaration != nil {
+				succeededCount, countErr := q.CountFirmwareRolloutSucceededMembers(
+					ctx,
+					sqlc.CountFirmwareRolloutSucceededMembersParams{
+						RolloutID: req.RolloutID,
+						OrgID:     req.OrgID,
+					},
+				)
+				if countErr != nil {
+					return rollout.ControlResult{}, countErr
+				}
+				selectedCount, prepareErr := q.PrepareModelFirmwareRolloutMembersForRevert(
+					ctx,
+					sqlc.PrepareModelFirmwareRolloutMembersForRevertParams{
+						RolloutID: req.RolloutID,
+						OrgID:     req.OrgID,
+					},
+				)
+				if prepareErr != nil {
+					return rollout.ControlResult{}, prepareErr
+				}
+				if selectedCount == 0 ||
+					(rollout.State(current.State) == rollout.StateCompleted &&
+						selectedCount != succeededCount) {
+					return rollout.ControlResult{}, rollout.ErrRevisionConflict
+				}
+			} else if _, updateErr = q.PrepareFirmwareRolloutMembersForRevert(
 				ctx,
 				sqlc.PrepareFirmwareRolloutMembersForRevertParams{
 					RolloutID: req.RolloutID,
@@ -704,9 +1070,15 @@ func (s *SQLRolloutStore) ApplyControl(
 				ExpectedRevision:   req.ExpectedRevision,
 				ResultingRevision:  updated.Revision,
 				Status:             string(status),
-				CreatedByUserID:    req.ActorUserID,
-				ActorType:          persistedActorType(req.ActorType),
-				ActorCredentialID:  ptrToNullString(req.ActorCredentialID),
+				AdmissionAttempt: func() sql.NullInt32 {
+					if !selectedBatchID.Valid {
+						return sql.NullInt32{}
+					}
+					return sql.NullInt32{Int32: selectedBatch.AdmissionAttempt, Valid: true}
+				}(),
+				CreatedByUserID:   req.ActorUserID,
+				ActorType:         persistedActorType(req.ActorType),
+				ActorCredentialID: ptrToNullString(req.ActorCredentialID),
 			},
 		)
 		if controlErr != nil {
@@ -729,6 +1101,17 @@ func (s *SQLRolloutStore) ApplyControl(
 			},
 		); causeErr != nil {
 			return rollout.ControlResult{}, causeErr
+		}
+		if identity.GroupID.Valid {
+			if _, refreshErr := q.RefreshFirmwareRolloutGroupResult(
+				ctx,
+				sqlc.RefreshFirmwareRolloutGroupResultParams{
+					GroupID: identity.GroupID.UUID,
+					OrgID:   req.OrgID,
+				},
+			); refreshErr != nil {
+				return rollout.ControlResult{}, refreshErr
+			}
 		}
 		loaded, loadErr := loadRollout(ctx, q, updated)
 		if loadErr != nil {
@@ -795,14 +1178,42 @@ func (s *SQLRolloutStore) FinishControl(
 			}
 		}
 		if shouldRestoreReview {
-			if _, moveErr := q.MoveFirmwareRolloutToReviewAfterControlFailure(
+			if !control.BatchID.Valid {
+				return nil, rollout.ErrInvalidTransition
+			}
+			if _, resetErr := q.ResetFirmwareRolloutAdmissionMembersAfterFailure(
 				ctx,
-				sqlc.MoveFirmwareRolloutToReviewAfterControlFailureParams{
+				sqlc.ResetFirmwareRolloutAdmissionMembersAfterFailureParams{
+					RolloutID: req.RolloutID,
+					BatchID:   control.BatchID.Int64,
+					OrgID:     req.OrgID,
+				},
+			); resetErr != nil {
+				return nil, resetErr
+			}
+			resetBatch, resetErr := q.ResetFirmwareRolloutAdmissionBatchAfterFailure(
+				ctx,
+				sqlc.ResetFirmwareRolloutAdmissionBatchAfterFailureParams{
+					BatchID:   control.BatchID.Int64,
 					RolloutID: req.RolloutID,
 					OrgID:     req.OrgID,
 				},
-			); moveErr != nil {
-				return nil, moveErr
+			)
+			if resetErr != nil {
+				return nil, resetErr
+			}
+			if resetBatch != 1 {
+				return nil, rollout.ErrInvalidTransition
+			}
+			if _, resetErr = q.ResetFirmwareRolloutAdmissionAfterFailure(
+				ctx,
+				sqlc.ResetFirmwareRolloutAdmissionAfterFailureParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+					ControlID: uuid.NullUUID{UUID: req.ControlID, Valid: true},
+				},
+			); resetErr != nil {
+				return nil, resetErr
 			}
 		}
 		row, getErr := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{
@@ -811,6 +1222,17 @@ func (s *SQLRolloutStore) FinishControl(
 		})
 		if getErr != nil {
 			return nil, getErr
+		}
+		if row.GroupID.Valid {
+			if _, refreshErr := q.RefreshFirmwareRolloutGroupResult(
+				ctx,
+				sqlc.RefreshFirmwareRolloutGroupResultParams{
+					GroupID: row.GroupID.UUID,
+					OrgID:   req.OrgID,
+				},
+			); refreshErr != nil {
+				return nil, refreshErr
+			}
 		}
 		return loadRollout(ctx, q, row)
 	})
@@ -931,6 +1353,78 @@ func (s *SQLRolloutStore) getByIdempotencyKey(
 	})
 }
 
+func lockModelChildScope(
+	ctx context.Context,
+	q sqlc.Querier,
+	child sqlc.FirmwareRollout,
+) (*sqlc.RolloutLaneModel, error) {
+	if !child.LaneID.Valid ||
+		!child.LaneModelID.Valid ||
+		!child.SourceChannelID.Valid ||
+		!child.TargetChannelID.Valid {
+		return nil, betweenchannel.ErrCompatibility
+	}
+	declaration, err := q.LockRolloutLaneModelForMutation(
+		ctx,
+		sqlc.LockRolloutLaneModelForMutationParams{
+			LaneID:      child.LaneID.UUID,
+			OrgID:       child.OrgID,
+			LaneModelID: uuid.NullUUID{UUID: child.LaneModelID.UUID, Valid: true},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	channelIDs := []int64{child.SourceChannelID.Int64, child.TargetChannelID.Int64}
+	sort.Slice(channelIDs, func(i, j int) bool { return channelIDs[i] < channelIDs[j] })
+	lockedChannels, err := q.LockBetweenChannelChannels(
+		ctx,
+		sqlc.LockBetweenChannelChannelsParams{
+			OrgID:      child.OrgID,
+			ChannelIds: channelIDs,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(lockedChannels) != len(channelIDs) {
+		return nil, betweenchannel.ErrLaneConflict
+	}
+	deviceIDs, err := q.ListFirmwareRolloutMemberDeviceIDs(
+		ctx,
+		sqlc.ListFirmwareRolloutMemberDeviceIDsParams{
+			RolloutID: child.ID,
+			OrgID:     child.OrgID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	lockedDevices, err := q.LockBetweenChannelDevices(
+		ctx,
+		sqlc.LockBetweenChannelDevicesParams{
+			OrgID:     child.OrgID,
+			DeviceIds: deviceIDs,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(lockedDevices) != len(deviceIDs) {
+		return nil, betweenchannel.ErrMembershipConflict
+	}
+	if _, err = q.GetRolloutLane(
+		ctx,
+		sqlc.GetRolloutLaneParams{
+			LaneID: child.LaneID.UUID,
+			OrgID:  child.OrgID,
+		},
+	); err != nil {
+		return nil, err
+	}
+	return &declaration, nil
+}
+
 func loadRollout(
 	ctx context.Context,
 	q sqlc.Querier,
@@ -977,6 +1471,16 @@ func loadRollout(
 	if err != nil {
 		return nil, err
 	}
+	failedAdmission, err := q.HasCurrentFirmwareRolloutAdmissionFailure(
+		ctx,
+		sqlc.HasCurrentFirmwareRolloutAdmissionFailureParams{
+			RolloutID: row.ID,
+			OrgID:     row.OrgID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	evidenceByMember := make(map[int64][]rollout.Evidence)
 	for _, evidenceRow := range evidence {
@@ -1003,11 +1507,12 @@ func loadRollout(
 	for _, causeRow := range causes {
 		result.Causes = append(result.Causes, causeFromSQL(causeRow))
 	}
+	result.FailedAdmission = failedAdmission
 	return &result, nil
 }
 
 func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
-	return rollout.Rollout{
+	result := rollout.Rollout{
 		ID:                       row.ID,
 		OrgID:                    row.OrgID,
 		Name:                     row.Name,
@@ -1037,6 +1542,61 @@ func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
 		RevertedAt:               timePtr(row.RevertedAt),
 		CreatedAt:                row.CreatedAt,
 		UpdatedAt:                row.UpdatedAt,
+		GroupID:                  uuidPtr(row.GroupID),
+		LaneID:                   uuidPtr(row.LaneID),
+		LaneModelID:              uuidPtr(row.LaneModelID),
+		ModelIdentityKey:         row.ModelIdentityKey.String,
+		ModelIdentityValidatedAt: timePtr(row.ModelIdentityValidatedAt),
+		SourceReleaseTargetID:    nullInt64ToPtr(row.SourceReleaseTargetID),
+		TargetReleaseTargetID:    nullInt64ToPtr(row.TargetReleaseTargetID),
+	}
+	if value, ok := result.TargetSnapshot["manufacturer"].(string); ok {
+		result.Manufacturer = value
+	}
+	if value, ok := result.TargetSnapshot["model"].(string); ok {
+		result.Model = value
+	}
+	return result
+}
+
+func groupFromSQL(row sqlc.FirmwareRolloutGroup) rollout.Group {
+	terminalOutcome := rollout.GroupTerminalOutcomePending
+	if row.TerminalOutcome.Valid {
+		terminalOutcome = rollout.GroupTerminalOutcome(row.TerminalOutcome.String)
+	}
+	return rollout.Group{
+		ID:                row.ID,
+		LaneID:            row.LaneID,
+		OrgID:             row.OrgID,
+		Name:              row.Name,
+		ResultRevision:    row.ResultRevision,
+		TerminalOutcome:   terminalOutcome,
+		ResultReady:       row.ResultReady,
+		Reason:            row.Reason,
+		CreatedByUserID:   row.CreatedByUserID,
+		ActorType:         rollout.ActorType(row.ActorType),
+		ActorCredentialID: stringPtr(row.ActorCredentialID),
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
+}
+
+func groupModelFromSQL(row sqlc.FirmwareRolloutGroupModel) rollout.GroupModelSnapshot {
+	return rollout.GroupModelSnapshot{
+		GroupID:               row.GroupID,
+		LaneID:                row.LaneID,
+		LaneModelID:           row.LaneModelID,
+		OrgID:                 row.OrgID,
+		ModelIdentityKey:      row.ModelIdentityKey,
+		SourceChannelID:       row.SourceChannelID,
+		SourceReleaseSetID:    row.SourceReleaseSetID,
+		SourceReleaseTargetID: row.SourceReleaseTargetID,
+		TargetChannelID:       row.TargetChannelID,
+		TargetReleaseSetID:    row.TargetReleaseSetID,
+		TargetReleaseTargetID: row.TargetReleaseTargetID,
+		ChildRolloutID:        uuidPtr(row.ChildRolloutID),
+		Snapshot:              unmarshalSnapshot(row.Snapshot),
+		CreatedAt:             row.CreatedAt,
 	}
 }
 
@@ -1064,8 +1624,11 @@ func batchFromSQL(row sqlc.FirmwareRolloutBatch) rollout.Batch {
 		EvidenceErrorMessage:               stringPtr(row.EvidenceErrorMessage),
 		PostWindowFinalized:                row.PostWindowFinalized,
 		PostWindowFinalizedAt:              timePtr(row.PostWindowFinalizedAt),
+		EvidenceCancellationReason:         stringPtr(row.EvidenceCancellationReason),
+		EvidenceCancelledAt:                timePtr(row.EvidenceCancelledAt),
 		CreatedAt:                          row.CreatedAt,
 		UpdatedAt:                          row.UpdatedAt,
+		AdmissionAttempt:                   row.AdmissionAttempt,
 	}
 }
 
@@ -1096,51 +1659,82 @@ func hashratePolicyFromSQL(row sqlc.FirmwareRollout) *rollout.HashratePolicy {
 
 func memberFromListRow(row sqlc.ListFirmwareRolloutMembersRow) rollout.Member {
 	return rollout.Member{
-		ID:               row.ID,
-		RolloutID:        row.RolloutID,
-		BatchID:          row.BatchID,
-		OrgID:            row.OrgID,
-		DeviceID:         row.DeviceID,
-		DeviceIdentifier: row.DeviceIdentifier,
-		Position:         row.Position,
-		State:            rollout.MemberState(row.State),
-		Revision:         row.Revision,
-		SourceSnapshot:   unmarshalSnapshot(row.SourceSnapshot),
-		TargetSnapshot:   unmarshalSnapshot(row.TargetSnapshot),
-		RevertSnapshot:   unmarshalSnapshot(row.RevertSnapshot),
-		EnforcementID:    nullInt64ToPtr(row.EnforcementID),
-		CommandBatchUUID: stringPtr(row.CommandBatchUuid),
-		LastError:        stringPtr(row.LastError),
-		AdmittedAt:       timePtr(row.AdmittedAt),
-		SettledAt:        timePtr(row.SettledAt),
-		OwnerReleasedAt:  timePtr(row.OwnerReleasedAt),
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		ID:                       row.ID,
+		RolloutID:                row.RolloutID,
+		BatchID:                  row.BatchID,
+		OrgID:                    row.OrgID,
+		DeviceID:                 row.DeviceID,
+		DeviceIdentifier:         row.DeviceIdentifier,
+		Position:                 row.Position,
+		State:                    rollout.MemberState(row.State),
+		Revision:                 row.Revision,
+		SourceSnapshot:           unmarshalSnapshot(row.SourceSnapshot),
+		TargetSnapshot:           unmarshalSnapshot(row.TargetSnapshot),
+		RevertSnapshot:           unmarshalSnapshot(row.RevertSnapshot),
+		EnforcementID:            nullInt64ToPtr(row.EnforcementID),
+		CommandBatchUUID:         stringPtr(row.CommandBatchUuid),
+		LastError:                stringPtr(row.LastError),
+		AdmittedAt:               timePtr(row.AdmittedAt),
+		SettledAt:                timePtr(row.SettledAt),
+		OwnerReleasedAt:          timePtr(row.OwnerReleasedAt),
+		CreatedAt:                row.CreatedAt,
+		UpdatedAt:                row.UpdatedAt,
+		ModelIdentityKey:         row.ModelIdentityKey.String,
+		ModelIdentityValidatedAt: timePtr(row.ModelIdentityValidatedAt),
+	}
+}
+
+func memberFromBulkListRow(row sqlc.ListFirmwareRolloutMembersByRolloutIDsRow) rollout.Member {
+	return rollout.Member{
+		ID:                       row.ID,
+		RolloutID:                row.RolloutID,
+		BatchID:                  row.BatchID,
+		OrgID:                    row.OrgID,
+		DeviceID:                 row.DeviceID,
+		DeviceIdentifier:         row.DeviceIdentifier,
+		Position:                 row.Position,
+		State:                    rollout.MemberState(row.State),
+		Revision:                 row.Revision,
+		SourceSnapshot:           unmarshalSnapshot(row.SourceSnapshot),
+		TargetSnapshot:           unmarshalSnapshot(row.TargetSnapshot),
+		RevertSnapshot:           unmarshalSnapshot(row.RevertSnapshot),
+		EnforcementID:            nullInt64ToPtr(row.EnforcementID),
+		CommandBatchUUID:         stringPtr(row.CommandBatchUuid),
+		LastError:                stringPtr(row.LastError),
+		AdmittedAt:               timePtr(row.AdmittedAt),
+		SettledAt:                timePtr(row.SettledAt),
+		OwnerReleasedAt:          timePtr(row.OwnerReleasedAt),
+		CreatedAt:                row.CreatedAt,
+		UpdatedAt:                row.UpdatedAt,
+		ModelIdentityKey:         row.ModelIdentityKey.String,
+		ModelIdentityValidatedAt: timePtr(row.ModelIdentityValidatedAt),
 	}
 }
 
 func memberFromSQL(row sqlc.FirmwareRolloutMember, deviceIdentifier string) rollout.Member {
 	return rollout.Member{
-		ID:               row.ID,
-		RolloutID:        row.RolloutID,
-		BatchID:          row.BatchID,
-		OrgID:            row.OrgID,
-		DeviceID:         row.DeviceID,
-		DeviceIdentifier: deviceIdentifier,
-		Position:         row.Position,
-		State:            rollout.MemberState(row.State),
-		Revision:         row.Revision,
-		SourceSnapshot:   unmarshalSnapshot(row.SourceSnapshot),
-		TargetSnapshot:   unmarshalSnapshot(row.TargetSnapshot),
-		RevertSnapshot:   unmarshalSnapshot(row.RevertSnapshot),
-		EnforcementID:    nullInt64ToPtr(row.EnforcementID),
-		CommandBatchUUID: stringPtr(row.CommandBatchUuid),
-		LastError:        stringPtr(row.LastError),
-		AdmittedAt:       timePtr(row.AdmittedAt),
-		SettledAt:        timePtr(row.SettledAt),
-		OwnerReleasedAt:  timePtr(row.OwnerReleasedAt),
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		ID:                       row.ID,
+		RolloutID:                row.RolloutID,
+		BatchID:                  row.BatchID,
+		OrgID:                    row.OrgID,
+		DeviceID:                 row.DeviceID,
+		DeviceIdentifier:         deviceIdentifier,
+		Position:                 row.Position,
+		State:                    rollout.MemberState(row.State),
+		Revision:                 row.Revision,
+		SourceSnapshot:           unmarshalSnapshot(row.SourceSnapshot),
+		TargetSnapshot:           unmarshalSnapshot(row.TargetSnapshot),
+		RevertSnapshot:           unmarshalSnapshot(row.RevertSnapshot),
+		EnforcementID:            nullInt64ToPtr(row.EnforcementID),
+		CommandBatchUUID:         stringPtr(row.CommandBatchUuid),
+		LastError:                stringPtr(row.LastError),
+		AdmittedAt:               timePtr(row.AdmittedAt),
+		SettledAt:                timePtr(row.SettledAt),
+		OwnerReleasedAt:          timePtr(row.OwnerReleasedAt),
+		CreatedAt:                row.CreatedAt,
+		UpdatedAt:                row.UpdatedAt,
+		ModelIdentityKey:         row.ModelIdentityKey.String,
+		ModelIdentityValidatedAt: timePtr(row.ModelIdentityValidatedAt),
 	}
 }
 
@@ -1201,6 +1795,7 @@ func controlFromSQL(row sqlc.FirmwareRolloutControl) rollout.Control {
 		ActorCredentialID:  stringPtr(row.ActorCredentialID),
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
+		AdmissionAttempt:   nullInt32ToPtr(row.AdmissionAttempt),
 	}
 }
 

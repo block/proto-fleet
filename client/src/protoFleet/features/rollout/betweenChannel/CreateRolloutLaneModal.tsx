@@ -84,7 +84,7 @@ export default function CreateRolloutLaneModal({
   const confirmationSourceLabels = confirmation
     ? [...new Set(confirmation.preview.reassignments.map((reassignment) => reassignment.sourceLaneLabel))]
     : [];
-  const canCreate = label.trim().length > 0 && selectedFiles.length > 0;
+  const canCreate = label.trim().length > 0 && selectedFiles.length === 1;
   const selectedValues = (): Omit<
     CreateRolloutLaneValues,
     "confirmInitialEnforcement" | "confirmReassignment" | "reassignmentConfirmationToken"
@@ -184,7 +184,7 @@ export default function CreateRolloutLaneModal({
               <div>
                 <div className="text-emphasis-300 text-text-primary">Initial firmware</div>
                 <div className="text-300 text-text-primary-70">
-                  Choose one uploaded file for each model in the lane.
+                  Choose one model and its initial firmware. Add more models after creating the lane.
                 </div>
               </div>
               {modelGroups.length === 0 ? (
@@ -207,7 +207,7 @@ export default function CreateRolloutLaneModal({
                             name={`lane-file-${encodeURIComponent(key)}`}
                             value={file.id}
                             selected={selectedFileByModel[key] === file.id}
-                            onChange={() => setSelectedFileByModel((current) => ({ ...current, [key]: file.id }))}
+                            onChange={() => setSelectedFileByModel({ [key]: file.id })}
                           />
                           <span className="min-w-0">
                             <span className="block truncate text-text-primary">{file.filename}</span>

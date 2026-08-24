@@ -6,7 +6,12 @@ import userEvent from "@testing-library/user-event";
 
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
-import type { RolloutLane, RolloutMemberState, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import type {
+  RolloutLane,
+  RolloutLaneTopologyReadiness,
+  RolloutMemberState,
+  RolloutRecord,
+} from "@/protoFleet/features/rollout/rolloutTypes";
 
 const listFirmwareFiles = vi.hoisted(() => vi.fn());
 const pushToastMock = vi.hoisted(() => vi.fn());
@@ -18,6 +23,11 @@ const rolloutApi = vi.hoisted(() => ({
   isMutating: false,
   loadError: null as string | null,
   mutationError: null as string | null,
+  topologyReadiness: null as RolloutLaneTopologyReadiness | null,
+  isTopologyReadinessLoading: false,
+  topologyReadinessError: null as string | null,
+  topologyReadinessForbidden: false,
+  topologyReadinessStale: false,
   permissions: {
     canReadChannels: true,
     canManageChannels: false,
@@ -30,12 +40,21 @@ const rolloutApi = vi.hoisted(() => ({
   listRolloutLaneMembers: vi.fn(),
   previewRolloutLaneMembershipChange: vi.fn(),
   updateRolloutLaneMembership: vi.fn(),
+  previewRolloutLaneModelDeclaration: vi.fn(),
+  createRolloutLaneModelDeclaration: vi.fn(),
+  publishRolloutLaneModelTarget: vi.fn(),
+  previewRolloutLaneModelMembershipChange: vi.fn(),
+  updateRolloutLaneModelMembership: vi.fn(),
   previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
   deleteRolloutLane: vi.fn(),
+  getRolloutLaneTopologyReadiness: vi.fn(),
+  repairRolloutLaneModelBinding: vi.fn(),
+  enableRolloutLaneModelTopology: vi.fn(),
   startRolloutLane: vi.fn(),
   listRollouts: vi.fn(),
   getRollout: vi.fn(),
+  getRolloutGroup: vi.fn(),
   admitRollout: vi.fn(),
   continueRollout: vi.fn(),
   pauseRollout: vi.fn(),
@@ -48,6 +67,7 @@ const capturedTable = vi.hoisted(() => ({
   onStart: null as ((lane: RolloutLane) => void) | null,
   onSetup: null as ((lane: RolloutLane) => void) | null,
   onManageMembers: null as ((lane: RolloutLane) => void) | null,
+  onManageDeclarations: null as ((lane: RolloutLane) => void) | null,
   onView: null as ((rollout: RolloutRecord) => void) | null,
   onDelete: null as ((lane: RolloutLane) => void) | null,
 }));
@@ -77,6 +97,7 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     isPreparingStart,
     onSetup,
     onManageMembers,
+    onManageDeclarations,
     onStart,
     onView,
     onDelete,
@@ -88,6 +109,7 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     isPreparingStart?: boolean;
     onSetup: (lane: RolloutLane) => void;
     onManageMembers: (lane: RolloutLane) => void;
+    onManageDeclarations: (lane: RolloutLane) => void;
     onStart: (lane: RolloutLane) => void;
     onView: (rollout: RolloutRecord) => void;
     onDelete: (lane: RolloutLane) => void;
@@ -95,6 +117,7 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     capturedTable.onStart = onStart;
     capturedTable.onSetup = onSetup;
     capturedTable.onManageMembers = onManageMembers;
+    capturedTable.onManageDeclarations = onManageDeclarations;
     capturedTable.onView = onView;
     capturedTable.onDelete = onDelete;
     return (
@@ -107,6 +130,9 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
             </button>
             <button type="button" onClick={() => onManageMembers(lane)}>
               Members {lane.label}
+            </button>
+            <button type="button" onClick={() => onManageDeclarations(lane)}>
+              Declarations {lane.label}
             </button>
             {canStart ? (
               <button type="button" disabled={isPreparingStart} onClick={() => onStart(lane)}>
@@ -135,6 +161,14 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
       </div>
     );
   },
+}));
+
+vi.mock("@/protoFleet/features/rollout/betweenChannel/ManageRolloutLaneDeclarationsModal", () => ({
+  default: ({ lane, onUpdated }: { lane: RolloutLane; onUpdated: (lane: RolloutLane, message: string) => void }) => (
+    <button type="button" onClick={() => onUpdated(lane, `Updated ${lane.label} declarations`)}>
+      Complete declaration mutation
+    </button>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/rollout/betweenChannel/DeleteRolloutLaneDialog", () => ({
@@ -306,15 +340,30 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/StartRolloutLaneModal", ()
 vi.mock("@/protoFleet/features/rollout/betweenChannel/BetweenChannelRolloutStatus", () => ({
   default: ({
     rollout,
+    isMutating,
+    announceEvidenceStatus,
+    onAdmit,
     onContinue,
     onCompleteWithFailures,
   }: {
     rollout: RolloutRecord;
+    isMutating?: boolean;
+    announceEvidenceStatus?: boolean;
+    onAdmit?: () => void;
     onContinue?: (reason?: string) => void;
     onCompleteWithFailures?: () => void;
   }) => (
     <div>
       <span>Rollout status for {rollout.id}</span>
+      <span>{isMutating ? `Loading ${rollout.id}` : `Ready ${rollout.id}`}</span>
+      <span>
+        {announceEvidenceStatus === false ? `Aggregate announces ${rollout.id}` : `Child announces ${rollout.id}`}
+      </span>
+      {onAdmit && rollout.state === "created" ? (
+        <button type="button" onClick={onAdmit}>
+          Retry model start for {rollout.id}
+        </button>
+      ) : null}
       {rollout.batches[rollout.batches.length - 1]?.evidenceSummary?.cumulativeDeltaBasisPoints !== undefined ? (
         <span>{`Cumulative delta ${rollout.batches[rollout.batches.length - 1]?.evidenceSummary?.cumulativeDeltaBasisPoints} basis points`}</span>
       ) : null}
@@ -395,6 +444,9 @@ function lane(id: string, label: string, rolloutId?: string, currentChannelId = 
       attentionCount: 0,
       members: [],
     },
+    models: [],
+    scalarProjectionAvailable: true,
+    topologyEnabled: false,
   };
 }
 
@@ -458,6 +510,7 @@ describe("RolloutLanesTab", () => {
     vi.stubGlobal("localStorage", {
       clear: () => storedValues.clear(),
       getItem: (key: string) => storedValues.get(key) ?? null,
+      removeItem: (key: string) => storedValues.delete(key),
       setItem: (key: string, value: string) => storedValues.set(key, value),
     });
     vi.useRealTimers();
@@ -474,6 +527,17 @@ describe("RolloutLanesTab", () => {
     rolloutApi.isMutating = false;
     rolloutApi.loadError = null;
     rolloutApi.mutationError = null;
+    rolloutApi.topologyReadiness = {
+      enabled: false,
+      revision: 1n,
+      anomalyCount: 0n,
+      activeLegacyRolloutCount: 0n,
+      anomalies: [],
+    };
+    rolloutApi.isTopologyReadinessLoading = false;
+    rolloutApi.topologyReadinessError = null;
+    rolloutApi.topologyReadinessForbidden = false;
+    rolloutApi.topologyReadinessStale = false;
     Object.assign(rolloutApi.permissions, {
       canReadChannels: true,
       canManageChannels: false,
@@ -482,6 +546,13 @@ describe("RolloutLanesTab", () => {
       canControl: false,
     });
     rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.getRolloutLaneTopologyReadiness.mockResolvedValue(rolloutApi.topologyReadiness);
+    rolloutApi.repairRolloutLaneModelBinding.mockResolvedValue(rolloutApi.topologyReadiness);
+    rolloutApi.enableRolloutLaneModelTopology.mockResolvedValue({
+      ...rolloutApi.topologyReadiness,
+      enabled: true,
+      revision: 2n,
+    });
     rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
     rolloutApi.getRolloutLane.mockImplementation(async ({ laneId }: { laneId: string }) => {
       const result = rolloutApi.lanes.find(({ id }) => id === laneId);
@@ -497,6 +568,7 @@ describe("RolloutLanesTab", () => {
       }
       return result;
     });
+    rolloutApi.getRolloutGroup.mockRejectedValue(new Error("Aggregate rollout not found"));
     rolloutApi.completeRollout.mockImplementation(async () => rolloutApi.rollouts[0]);
     rolloutApi.deleteRolloutLane.mockResolvedValue(undefined);
     rolloutApi.listRolloutLaneMembers.mockResolvedValue({ members: [], nextPageToken: "", totalCount: 0 });
@@ -528,6 +600,186 @@ describe("RolloutLanesTab", () => {
       reassignmentConfirmationToken: "",
     });
     listFirmwareFiles.mockResolvedValue([]);
+  });
+
+  it("reconstructs a control-free parent and focused model child from URL IDs", async () => {
+    const user = userEvent.setup();
+    const child = {
+      ...rollout("child-1", "running"),
+      parentId: "parent-1",
+      laneModelId: "model-1",
+      modelIdentityKey: "v1:5:proto:5:alpha",
+      manufacturer: "Proto",
+      model: "Alpha",
+    };
+    rolloutApi.lanes = [lane("lane-1", "Stable production", child.id)];
+    rolloutApi.rollouts = [child];
+    rolloutApi.getRolloutGroup.mockResolvedValue({
+      id: "parent-1",
+      laneId: "lane-1",
+      name: "Proto only",
+      reason: "Validated model release",
+      children: [child],
+    });
+
+    renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&rolloutParent=parent-1&rolloutChild=child-1");
+
+    expect(await screen.findByTestId("rollout-parent-summary")).toHaveTextContent("Proto only");
+    expect(screen.getByTestId("rollout-parent-summary")).toHaveTextContent("Controls are available");
+    expect(screen.getByText("Rollout status for child-1")).toBeInTheDocument();
+    expect(screen.getByText("Aggregate announces child-1")).toBeInTheDocument();
+    expect(rolloutApi.getRolloutGroup).toHaveBeenCalledWith(expect.objectContaining({ parentId: "parent-1" }));
+
+    const trigger = screen.getByRole("button", { name: /Proto Alpha/ });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-controls", "rollout-child-child-1");
+    expect(document.getElementById("rollout-child-child-1")).toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(
+      "/settings/firmware?tab=rolloutLanes&rolloutParent=parent-1",
+    );
+    expect(screen.queryByText("Rollout status for child-1")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("rolloutChild=child-1");
+  });
+
+  it("shows parent-scoped loading while a URL-selected aggregate is hydrating", async () => {
+    const parent = deferred<{
+      id: string;
+      laneId: string;
+      name: string;
+      reason: string;
+      children: RolloutRecord[];
+    }>();
+    rolloutApi.getRolloutGroup.mockReturnValue(parent.promise);
+
+    renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&rolloutParent=parent-loading");
+
+    expect(await screen.findByText("Loading overall rollout...")).toBeInTheDocument();
+    expect(screen.getByTestId("rollout-lanes-table")).toBeInTheDocument();
+
+    await act(async () => {
+      parent.resolve({
+        id: "parent-loading",
+        laneId: "lane-1",
+        name: "Loaded aggregate",
+        reason: "Validated model releases",
+        children: [],
+      });
+      await parent.promise;
+    });
+    expect(await screen.findByTestId("rollout-parent-summary")).toHaveTextContent("Loaded aggregate");
+    expect(screen.queryByText("Loading overall rollout...")).not.toBeInTheDocument();
+  });
+
+  it("keeps a successful sibling visible while one child admission fails and retries locally", async () => {
+    const user = userEvent.setup();
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.permissions.canManage = true;
+    rolloutApi.permissions.canControl = true;
+    const pendingBatch = (child: RolloutRecord): RolloutRecord => ({
+      ...child,
+      parentId: "parent-admission",
+      laneModelId: `model-${child.id}`,
+      modelIdentityKey: `identity-${child.id}`,
+      batches: [{ ...child.batches[0], state: "pending", admissionAttempt: 0 }],
+    });
+    const protoChild = {
+      ...pendingBatch(rollout("child-proto", "created", ["pending"])),
+      manufacturer: "Proto",
+      model: "Alpha",
+    };
+    const antminerChild = {
+      ...pendingBatch(rollout("child-antminer", "created", ["pending"])),
+      manufacturer: "Antminer",
+      model: "S21",
+    };
+    const parent = {
+      id: "parent-admission",
+      laneId: "lane-1",
+      name: "Independent admission",
+      reason: "Update both models",
+      resultRevision: 0n,
+      terminalOutcome: "pending" as const,
+      resultReady: false,
+      lifecycle: "active" as const,
+      activity: "created" as const,
+      needsAction: false,
+      evidenceReadiness: "pending" as const,
+      models: [],
+      children: [protoChild, antminerChild],
+    };
+    rolloutApi.startRolloutLane.mockResolvedValue({
+      lane: rolloutApi.lanes[0],
+      rollout: protoChild,
+      parent,
+      children: [
+        { rollout: protoChild, firstBatchId: protoChild.batches[0].id },
+        { rollout: antminerChild, firstBatchId: antminerChild.batches[0].id },
+      ],
+    });
+    rolloutApi.getRolloutGroup.mockResolvedValue(parent);
+    let antminerAttempts = 0;
+    rolloutApi.admitRollout.mockImplementation(async ({ rolloutId }: { rolloutId: string }) => {
+      if (rolloutId === antminerChild.id && antminerAttempts++ === 0) {
+        throw new Error("Antminer admission outcome could not be confirmed");
+      }
+      const child = rolloutId === protoChild.id ? protoChild : antminerChild;
+      return { ...child, state: "running" as const, revision: child.revision + 1n };
+    });
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Start Stable production" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm start Stable production" }));
+
+    expect(await screen.findByTestId("rollout-parent-summary")).toHaveTextContent("Independent admission");
+    expect(await screen.findByText(/Antminer admission outcome could not be confirmed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Antminer S21.*created/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Antminer S21.*created/ }));
+    await user.click(screen.getByRole("button", { name: "Retry model start for child-antminer" }));
+    await waitFor(() => expect(rolloutApi.admitRollout).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText(/Antminer admission outcome could not be confirmed/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+  });
+
+  it("clears aggregate focus when rollout read permission disappears", async () => {
+    const child = { ...rollout("child-1", "running"), parentId: "parent-1" };
+    rolloutApi.getRolloutGroup.mockResolvedValue({
+      id: "parent-1",
+      laneId: "lane-1",
+      name: "Proto only",
+      reason: "Validated model release",
+      children: [child],
+    });
+    const view = renderRolloutLanesTab(
+      "/settings/firmware?tab=rolloutLanes&rolloutParent=parent-1&rolloutChild=child-1",
+    );
+    expect(await screen.findByTestId("rollout-parent-summary")).toBeInTheDocument();
+
+    rolloutApi.permissions.canRead = false;
+    view.rerender(<TestApp />);
+
+    await waitFor(() => expect(screen.queryByTestId("rollout-parent-summary")).not.toBeInTheDocument());
+  });
+
+  it("shows deterministic initial loading before lane content is available", async () => {
+    const pending = deferred<RolloutLane[]>();
+    rolloutApi.listRolloutLanes.mockReturnValue(pending.promise);
+
+    renderRolloutLanesTab();
+    expect(screen.getByText("Loading rollout lanes...")).toBeInTheDocument();
+
+    await act(async () => {
+      pending.resolve(rolloutApi.lanes);
+      await pending.promise;
+    });
+    expect(await screen.findByTestId("rollout-lanes-table")).toBeInTheDocument();
   });
 
   it("loads history once and refreshes lane pointers after rollout events", async () => {
@@ -567,6 +819,89 @@ describe("RolloutLanesTab", () => {
     renderRolloutLanesTab();
 
     await waitFor(() => expect(listFirmwareFiles).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows read-only topology readiness without administration controls", async () => {
+    renderRolloutLanesTab();
+
+    expect(await screen.findByText("Model topology is ready")).toBeInTheDocument();
+    expect(screen.getByText(/Channel management access is required/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable model topology" })).not.toBeInTheDocument();
+    expect(rolloutApi.getRolloutLaneTopologyReadiness).toHaveBeenCalledOnce();
+  });
+
+  it("lets channel managers enable a ready topology and refresh authoritative lanes", async () => {
+    const user = userEvent.setup();
+    rolloutApi.permissions.canManageChannels = true;
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Enable model topology" }));
+
+    await waitFor(() =>
+      expect(rolloutApi.enableRolloutLaneModelTopology).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedRevision: 1n,
+          reason: "Enable rollout lane model topology after readiness review",
+        }),
+      ),
+    );
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers only U1-supported binding repairs to channel managers", async () => {
+    const user = userEvent.setup();
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.topologyReadiness = {
+      enabled: false,
+      revision: 4n,
+      anomalyCount: 1n,
+      activeLegacyRolloutCount: 0n,
+      anomalies: [
+        {
+          id: "anomaly-1",
+          laneId: "lane-1",
+          deviceIdentifier: "miner-1",
+          laneModelId: "model-1",
+          laneModelRevision: 2n,
+          type: "missingBinding",
+          supportedRepairActions: ["repairBinding"],
+          details: {},
+        },
+      ],
+    };
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Repair miner-1" }));
+
+    expect(rolloutApi.repairRolloutLaneModelBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        laneId: "lane-1",
+        laneModelId: "model-1",
+        deviceIdentifier: "miner-1",
+        expectedRevision: 2n,
+      }),
+    );
+    expect(screen.getByText("Model topology is not ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable model topology" })).toBeDisabled();
+  });
+
+  it("keeps loaded lanes visible when readiness is stale or forbidden", async () => {
+    rolloutApi.topologyReadinessStale = true;
+    rolloutApi.topologyReadinessError = "Readiness changed while the repair was applied.";
+    const view = renderRolloutLanesTab();
+
+    expect(await screen.findByText("Stable production")).toBeInTheDocument();
+    expect(screen.getByText("Topology readiness may be stale")).toBeInTheDocument();
+    expect(screen.getByText("Readiness changed while the repair was applied.")).toBeInTheDocument();
+
+    rolloutApi.topologyReadiness = null;
+    rolloutApi.topologyReadinessStale = false;
+    rolloutApi.topologyReadinessError = "permission denied";
+    rolloutApi.topologyReadinessForbidden = true;
+    view.rerender(<TestApp />);
+
+    expect(screen.getByText("Stable production")).toBeInTheDocument();
+    expect(screen.getByText("Topology readiness is read only")).toBeInTheDocument();
   });
 
   it("opens lane membership for channel readers without management controls", async () => {
@@ -663,6 +998,30 @@ describe("RolloutLanesTab", () => {
     expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
     expect(rolloutApi.completeRollout).not.toHaveBeenCalled();
+  });
+
+  it("polls each aggregate parent once and merges its children", async () => {
+    vi.useFakeTimers();
+    const first = { ...rollout("child-a", "running", ["admitted"]), parentId: "parent-1" };
+    const second = { ...rollout("child-b", "review", ["succeeded"]), parentId: "parent-1" };
+    rolloutApi.rollouts = [first, second];
+    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+    rolloutApi.getRolloutGroup.mockResolvedValue({
+      id: "parent-1",
+      laneId: "lane-1",
+      name: "Two models",
+      reason: "test",
+      children: [first, second],
+    });
+
+    renderRolloutLanesTab();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(rolloutApi.getRolloutGroup).toHaveBeenCalledOnce();
+    expect(rolloutApi.getRolloutGroup).toHaveBeenCalledWith(expect.objectContaining({ parentId: "parent-1" }));
+    expect(rolloutApi.getRollout).not.toHaveBeenCalled();
   });
 
   it("polls a completed result until final evidence refreshes in place", async () => {
@@ -914,6 +1273,28 @@ describe("RolloutLanesTab", () => {
       "/settings/firmware?site=alpha&tab=rolloutLanes&setupLane=lane-new",
     );
     expect(rolloutApi.getRolloutLane).not.toHaveBeenCalledWith(expect.objectContaining({ laneId: created.id }));
+  });
+
+  it("uses the committed declaration mutation response without refetching the lane", async () => {
+    const user = userEvent.setup();
+    const selectedLane = {
+      ...lane("lane-model", "Model lane"),
+      topologyEnabled: true,
+      scalarProjectionAvailable: false,
+    };
+    rolloutApi.lanes = [selectedLane];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Declarations Model lane" }));
+    rolloutApi.getRolloutLane.mockClear();
+    await user.click(screen.getByRole("button", { name: "Complete declaration mutation" }));
+
+    expect(rolloutApi.getRolloutLane).not.toHaveBeenCalled();
+    expect(pushToastMock).toHaveBeenCalledWith({
+      message: "Updated Model lane declarations",
+      status: "success",
+    });
   });
 
   it("restores URL-selected setup details immediately after remount", async () => {

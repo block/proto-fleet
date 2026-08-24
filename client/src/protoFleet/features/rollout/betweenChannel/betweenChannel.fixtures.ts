@@ -74,6 +74,9 @@ export const stableProductionLane: RolloutLane = {
       sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     },
   ],
+  models: [],
+  scalarProjectionAvailable: true,
+  topologyEnabled: false,
 };
 
 export const attentionRequiredRollout: RolloutRecord = {
@@ -138,3 +141,89 @@ export const abortedRollout: RolloutRecord = {
     complete: false,
   },
 };
+
+const modelChild = (
+  id: string,
+  manufacturer: string,
+  model: string,
+  state: RolloutRecord["state"],
+  memberStates: RolloutMember["state"][],
+): RolloutRecord => ({
+  ...attentionRequiredRollout,
+  id,
+  parentId: "aggregate-story-parent",
+  laneModelId: `declaration-${id}`,
+  modelIdentityKey: `story:${manufacturer.toLowerCase()}:${model.toLowerCase()}`,
+  manufacturer,
+  model,
+  name: `${manufacturer} ${model} rollout`,
+  state,
+  revision: 7n,
+  batches: [
+    {
+      id: id === "proto-alpha-child" ? 101n : 201n,
+      position: 0,
+      label: "Model batch",
+      state: state === "created" ? "pending" : state === "aborted" ? "cancelled" : "completed",
+      revision: 3n,
+      members: [],
+      admissionAttempt: 0,
+    },
+  ],
+  members: memberStates.map((memberState, index) =>
+    member(
+      BigInt((id === "proto-alpha-child" ? 100 : 200) + index + 1),
+      `${id}-miner-${index + 1}`,
+      memberState,
+      id === "proto-alpha-child" ? 101n : 201n,
+    ),
+  ),
+  availableActions: {
+    admit: state === "created",
+    continue: state === "review",
+    pause: state === "running",
+    resume: state === "paused",
+    abort: state === "running" || state === "paused" || state === "review",
+    revert: state === "completed" || state === "completedWithFailures" || state === "aborted",
+    complete: state === "review",
+  },
+});
+
+export const protoAlphaRunningChild = modelChild("proto-alpha-child", "Proto", "Alpha", "running", [
+  "succeeded",
+  "admitted",
+  "pending",
+]);
+
+export const protoAlphaReviewChild = modelChild("proto-alpha-child", "Proto", "Alpha", "review", [
+  "succeeded",
+  "succeeded",
+  "pending",
+]);
+
+export const protoAlphaSuccessfulChild = modelChild("proto-alpha-child", "Proto", "Alpha", "completed", [
+  "succeeded",
+  "succeeded",
+  "succeeded",
+]);
+
+export const protoAlphaSplitChild = modelChild("proto-alpha-child", "Proto", "Alpha", "completedWithFailures", [
+  "succeeded",
+  "attentionRequired",
+  "failed",
+]);
+
+export const antminerS21RunningChild = modelChild("antminer-s21-child", "Antminer", "S21", "running", [
+  "succeeded",
+  "admitted",
+]);
+
+export const antminerS21AbortedChild = modelChild("antminer-s21-child", "Antminer", "S21", "aborted", [
+  "succeeded",
+  "cancelled",
+]);
+
+export const antminerS21CreatedChild = modelChild("antminer-s21-child", "Antminer", "S21", "created", [
+  "pending",
+  "pending",
+]);

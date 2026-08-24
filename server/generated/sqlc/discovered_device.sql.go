@@ -120,7 +120,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, model_identity_observed_at
 FROM discovered_device
 WHERE device_identifier = $1
     AND org_id = $2
@@ -156,12 +156,13 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.DriverName,
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
+		&i.ModelIdentityObservedAt,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, model_identity_observed_at
 FROM discovered_device
 WHERE id = $1
     AND org_id = $2
@@ -197,12 +198,13 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.DriverName,
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
+		&i.ModelIdentityObservedAt,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, model_identity_observed_at
 FROM discovered_device
 WHERE org_id = $1
     AND ip_address = $2
@@ -240,8 +242,29 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.DriverName,
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
+		&i.ModelIdentityObservedAt,
 	)
 	return i, err
+}
+
+const getDiscoveredModelIdentityObservedAtForTest = `-- name: GetDiscoveredModelIdentityObservedAtForTest :one
+SELECT model_identity_observed_at
+FROM discovered_device
+WHERE org_id = $1
+  AND device_identifier = $2
+  AND deleted_at IS NULL
+`
+
+type GetDiscoveredModelIdentityObservedAtForTestParams struct {
+	OrgID            int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) GetDiscoveredModelIdentityObservedAtForTest(ctx context.Context, arg GetDiscoveredModelIdentityObservedAtForTestParams) (sql.NullTime, error) {
+	row := q.queryRow(ctx, q.getDiscoveredModelIdentityObservedAtForTestStmt, getDiscoveredModelIdentityObservedAtForTest, arg.OrgID, arg.DeviceIdentifier)
+	var model_identity_observed_at sql.NullTime
+	err := row.Scan(&model_identity_observed_at)
+	return model_identity_observed_at, err
 }
 
 const softDeleteDiscoveredDeviceByIdentifier = `-- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
@@ -262,6 +285,28 @@ type SoftDeleteDiscoveredDeviceByIdentifierParams struct {
 func (q *Queries) SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, arg SoftDeleteDiscoveredDeviceByIdentifierParams) error {
 	_, err := q.exec(ctx, q.softDeleteDiscoveredDeviceByIdentifierStmt, softDeleteDiscoveredDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
 	return err
+}
+
+const testSetDiscoveredEndpoint = `-- name: TestSetDiscoveredEndpoint :execrows
+UPDATE discovered_device
+SET ip_address = $1
+WHERE org_id = $2
+  AND device_identifier = $3
+  AND deleted_at IS NULL
+`
+
+type TestSetDiscoveredEndpointParams struct {
+	IpAddress        string
+	OrgID            int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) TestSetDiscoveredEndpoint(ctx context.Context, arg TestSetDiscoveredEndpointParams) (int64, error) {
+	result, err := q.exec(ctx, q.testSetDiscoveredEndpointStmt, testSetDiscoveredEndpoint, arg.IpAddress, arg.OrgID, arg.DeviceIdentifier)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
@@ -326,7 +371,8 @@ INSERT INTO discovered_device (
     port,
     url_scheme,
     is_active,
-    driver_name
+    driver_name,
+    model_identity_observed_at
 ) VALUES (
     $1,
     $2,
@@ -337,11 +383,13 @@ INSERT INTO discovered_device (
     $7,
     $8,
     $9,
-    $10
+    $10,
+    CURRENT_TIMESTAMP
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
     manufacturer = EXCLUDED.manufacturer,
+    model_identity_observed_at = CURRENT_TIMESTAMP,
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,

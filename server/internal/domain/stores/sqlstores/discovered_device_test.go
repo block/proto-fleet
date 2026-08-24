@@ -1,8 +1,10 @@
 package sqlstores_test
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -188,6 +190,100 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldRefreshModelAndManufacturerOnRedisc
 	assert.Equal(t, "Proto Rig", updated.Model)
 	assert.Equal(t, "Proto Labs", updated.Manufacturer)
 	assert.Equal(t, "192.168.1.101", updated.IpAddress)
+}
+
+func TestDiscoveredModelIdentityObservationOnlyAdvancesOnDiscoveryIdentityWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
+	ctx := t.Context()
+	queries := sqlc.New(db)
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID: "test-org-model-observation",
+		Name:  "Test Org Model Observation",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
+		_ = queries.DeleteOrganization(ctx, orgID)
+	})
+
+	deviceIdentifier := "test-device-model-observation"
+	doi := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	}
+	discovered := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			Model:            "Rig",
+			Manufacturer:     "Proto",
+			FirmwareVersion:  "1.0.0",
+			DriverName:       "proto",
+			IpAddress:        "192.168.1.100",
+			Port:             "443",
+			UrlScheme:        "https",
+		},
+		OrgID: orgID,
+	}
+	_, err = store.Save(ctx, doi, discovered)
+	require.NoError(t, err)
+	initial, err := queries.GetDiscoveredModelIdentityObservedAtForTest(
+		ctx,
+		sqlc.GetDiscoveredModelIdentityObservedAtForTestParams{
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIdentifier,
+		},
+	)
+	require.NoError(t, err)
+	require.True(t, initial.Valid)
+
+	time.Sleep(5 * time.Millisecond)
+	rows, err := queries.TestSetDiscoveredEndpoint(ctx, sqlc.TestSetDiscoveredEndpointParams{
+		IpAddress:        "192.168.1.101",
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+	require.NoError(t, queries.UpdateDiscoveredDeviceFirmwareVersion(
+		ctx,
+		sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
+			DeviceIdentifier: deviceIdentifier,
+			FirmwareVersion:  sql.NullString{String: "1.0.1", Valid: true},
+		},
+	))
+	afterUnrelated, err := queries.GetDiscoveredModelIdentityObservedAtForTest(
+		ctx,
+		sqlc.GetDiscoveredModelIdentityObservedAtForTestParams{
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIdentifier,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, initial.Time, afterUnrelated.Time)
+
+	time.Sleep(5 * time.Millisecond)
+	discovered.IpAddress = "192.168.1.102"
+	discovered.FirmwareVersion = "1.0.1"
+	_, err = store.Save(ctx, doi, discovered)
+	require.NoError(t, err)
+	afterIdentityWrite, err := queries.GetDiscoveredModelIdentityObservedAtForTest(
+		ctx,
+		sqlc.GetDiscoveredModelIdentityObservedAtForTestParams{
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIdentifier,
+		},
+	)
+	require.NoError(t, err)
+	assert.True(
+		t,
+		afterIdentityWrite.Time.After(afterUnrelated.Time),
+		"unchanged normalized identity from discovery must refresh observation time",
+	)
 }
 
 func TestSQLDiscoveredDeviceStore_Save_ShouldClearFirmwareVersionWhenRediscoveryOmitsIt(t *testing.T) {

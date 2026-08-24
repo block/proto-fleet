@@ -5,6 +5,7 @@ import {
   buildManualBatches,
   canCompleteWithFailures,
   canRevertRollout,
+  compareRolloutChildren,
   dominantFirmwareConvergenceState,
   evaluateTargetCompatibility,
   firstActiveFirmwareConvergenceLane,
@@ -144,6 +145,9 @@ const lane: RolloutLane = {
     attentionCount: 0,
     members: [],
   },
+  models: [],
+  scalarProjectionAvailable: true,
+  topologyEnabled: false,
 };
 
 describe("between-channel rollout helpers", () => {
@@ -167,6 +171,36 @@ describe("between-channel rollout helpers", () => {
 
     expect(firstActiveFirmwareConvergenceLane(lanes)).toBe(firstActiveLane);
     expect(laneForRollout(lanes, "rollout-1")).toBe(rolloutLane);
+  });
+
+  it("orders model children by action required, active work, terminal history, then model label", () => {
+    const terminal = rolloutWithMembers("completed", ["succeeded"], {
+      id: "terminal",
+      manufacturer: "Proto",
+      model: "Alpha",
+    });
+    const active = rolloutWithMembers("running", ["admitted"], {
+      id: "active",
+      manufacturer: "Proto",
+      model: "Beta",
+    });
+    const reviewZulu = rolloutWithMembers("review", ["succeeded"], {
+      id: "review-zulu",
+      manufacturer: "Proto",
+      model: "Zulu",
+    });
+    const reviewAlpha = rolloutWithMembers("review", ["succeeded"], {
+      id: "review-alpha",
+      manufacturer: "Antminer",
+      model: "S21",
+    });
+
+    expect([terminal, reviewZulu, active, reviewAlpha].sort(compareRolloutChildren).map(({ id }) => id)).toEqual([
+      "review-alpha",
+      "review-zulu",
+      "active",
+      "terminal",
+    ]);
   });
 
   it.each([

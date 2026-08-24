@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("rollout not found")
-	ErrRevisionConflict    = errors.New("rollout revision changed")
-	ErrIdempotencyConflict = errors.New("rollout idempotency key was reused with different input")
-	ErrInvalidTransition   = errors.New("invalid rollout state transition")
-	ErrOwnershipConflict   = errors.New("miner is already owned by a nonterminal rollout")
-	ErrStrategyUnavailable = errors.New("rollout admission strategy is not registered")
+	ErrNotFound              = errors.New("rollout not found")
+	ErrRevisionConflict      = errors.New("rollout revision changed")
+	ErrIdempotencyConflict   = errors.New("rollout idempotency key was reused with different input")
+	ErrInvalidTransition     = errors.New("invalid rollout state transition")
+	ErrOwnershipConflict     = errors.New("miner is already owned by a nonterminal rollout")
+	ErrStrategyUnavailable   = errors.New("rollout admission strategy is not registered")
+	ErrParentNotControllable = errors.New("aggregate rollout parents do not accept child controls")
 )
 
 type State string
@@ -120,6 +121,7 @@ const (
 	EvidenceStatusStale           EvidenceStatus = "stale"
 	EvidenceStatusAutomationError EvidenceStatus = "automation_error"
 	EvidenceStatusFinalized       EvidenceStatus = "finalized"
+	EvidenceStatusCancelled       EvidenceStatus = "cancelled"
 )
 
 type HashratePolicy struct {
@@ -160,6 +162,106 @@ type Rollout struct {
 	Batches                  []Batch
 	Members                  []Member
 	Causes                   []Cause
+	GroupID                  *uuid.UUID
+	LaneID                   *uuid.UUID
+	LaneModelID              *uuid.UUID
+	ModelIdentityKey         string
+	ModelIdentityValidatedAt *time.Time
+	Manufacturer             string
+	Model                    string
+	SourceReleaseTargetID    *int64
+	TargetReleaseTargetID    *int64
+	FailedAdmission          bool
+}
+
+// Group is the durable aggregate for independently controlled model rollouts.
+// Its lifecycle is derived from children; ResultRevision is dismissal metadata,
+// not a control revision.
+type Group struct {
+	ID                uuid.UUID
+	LaneID            uuid.UUID
+	OrgID             int64
+	Name              string
+	ResultRevision    int64
+	TerminalOutcome   GroupTerminalOutcome
+	ResultReady       bool
+	Lifecycle         GroupLifecycle
+	Activity          GroupActivity
+	NeedsAction       bool
+	EvidenceReadiness GroupEvidenceReadiness
+	Reason            string
+	CreatedByUserID   int64
+	ActorType         ActorType
+	ActorCredentialID *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ModelSnapshots    []GroupModelSnapshot
+	Children          []Rollout
+}
+
+type GroupLifecycle string
+
+const (
+	GroupLifecycleActive   GroupLifecycle = "active"
+	GroupLifecycleTerminal GroupLifecycle = "terminal"
+)
+
+type GroupActivity string
+
+const (
+	GroupActivityFailedAdmission   GroupActivity = "failed_admission"
+	GroupActivityAttentionRequired GroupActivity = "attention_required"
+	GroupActivityReview            GroupActivity = "review"
+	GroupActivityPaused            GroupActivity = "paused"
+	GroupActivityReverting         GroupActivity = "reverting"
+	GroupActivityFinalizing        GroupActivity = "finalizing"
+	GroupActivityRunning           GroupActivity = "running"
+	GroupActivityCreated           GroupActivity = "created"
+	GroupActivitySettled           GroupActivity = "settled"
+)
+
+type GroupTerminalOutcome string
+
+const (
+	GroupTerminalOutcomePending               GroupTerminalOutcome = "pending"
+	GroupTerminalOutcomeSuccessful            GroupTerminalOutcome = "successful"
+	GroupTerminalOutcomeReverted              GroupTerminalOutcome = "reverted"
+	GroupTerminalOutcomeAborted               GroupTerminalOutcome = "aborted"
+	GroupTerminalOutcomeCompletedWithFailures GroupTerminalOutcome = "completed_with_failures"
+	GroupTerminalOutcomeMixed                 GroupTerminalOutcome = "mixed"
+)
+
+type GroupEvidenceReadiness string
+
+const (
+	GroupEvidencePending GroupEvidenceReadiness = "pending"
+	GroupEvidenceReady   GroupEvidenceReadiness = "ready"
+)
+
+type GroupProjection struct {
+	Lifecycle         GroupLifecycle
+	Activity          GroupActivity
+	NeedsAction       bool
+	TerminalOutcome   GroupTerminalOutcome
+	EvidenceReadiness GroupEvidenceReadiness
+	ResultReady       bool
+}
+
+type GroupModelSnapshot struct {
+	GroupID               uuid.UUID
+	LaneID                uuid.UUID
+	LaneModelID           uuid.UUID
+	OrgID                 int64
+	ModelIdentityKey      string
+	SourceChannelID       int64
+	SourceReleaseSetID    int64
+	SourceReleaseTargetID int64
+	TargetChannelID       int64
+	TargetReleaseSetID    int64
+	TargetReleaseTargetID int64
+	ChildRolloutID        *uuid.UUID
+	Snapshot              map[string]any
+	CreatedAt             time.Time
 }
 
 type Batch struct {
@@ -185,33 +287,38 @@ type Batch struct {
 	EvidenceErrorMessage               *string
 	PostWindowFinalized                bool
 	PostWindowFinalizedAt              *time.Time
+	EvidenceCancellationReason         *string
+	EvidenceCancelledAt                *time.Time
 	CreatedAt                          time.Time
 	UpdatedAt                          time.Time
 	Members                            []Member
+	AdmissionAttempt                   int32
 }
 
 type Member struct {
-	ID               int64
-	RolloutID        uuid.UUID
-	BatchID          int64
-	OrgID            int64
-	DeviceID         int64
-	DeviceIdentifier string
-	Position         int32
-	State            MemberState
-	Revision         int64
-	SourceSnapshot   map[string]any
-	TargetSnapshot   map[string]any
-	RevertSnapshot   map[string]any
-	EnforcementID    *int64
-	CommandBatchUUID *string
-	LastError        *string
-	AdmittedAt       *time.Time
-	SettledAt        *time.Time
-	OwnerReleasedAt  *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Evidence         []Evidence
+	ID                       int64
+	RolloutID                uuid.UUID
+	BatchID                  int64
+	OrgID                    int64
+	DeviceID                 int64
+	DeviceIdentifier         string
+	Position                 int32
+	State                    MemberState
+	Revision                 int64
+	SourceSnapshot           map[string]any
+	TargetSnapshot           map[string]any
+	RevertSnapshot           map[string]any
+	EnforcementID            *int64
+	CommandBatchUUID         *string
+	LastError                *string
+	AdmittedAt               *time.Time
+	SettledAt                *time.Time
+	OwnerReleasedAt          *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	Evidence                 []Evidence
+	ModelIdentityKey         string
+	ModelIdentityValidatedAt *time.Time
 }
 
 type Evidence struct {
@@ -266,13 +373,16 @@ type Control struct {
 	ActorCredentialID  *string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	AdmissionAttempt   *int32
 }
 
 type CreateMember struct {
-	DeviceIdentifier string
-	SourceSnapshot   map[string]any
-	TargetSnapshot   map[string]any
-	RevertSnapshot   map[string]any
+	DeviceIdentifier         string
+	ModelIdentityKey         string
+	ModelIdentityValidatedAt *time.Time
+	SourceSnapshot           map[string]any
+	TargetSnapshot           map[string]any
+	RevertSnapshot           map[string]any
 }
 
 type CreateBatch struct {
@@ -281,25 +391,32 @@ type CreateBatch struct {
 }
 
 type CreateRequest struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	Name               string
-	StrategyKey        string
-	SourceChannelID    *int64
-	TargetChannelID    *int64
-	SourceReleaseSetID *int64
-	TargetReleaseSetID *int64
-	SourceSnapshot     map[string]any
-	TargetSnapshot     map[string]any
-	RevertSnapshot     map[string]any
-	HashratePolicy     *HashratePolicy
-	Batches            []CreateBatch
-	IdempotencyKey     string
-	RequestFingerprint string
-	Reason             string
-	ActorUserID        int64
-	ActorType          ActorType
-	ActorCredentialID  *string
+	ID                       uuid.UUID
+	OrgID                    int64
+	Name                     string
+	StrategyKey              string
+	SourceChannelID          *int64
+	TargetChannelID          *int64
+	SourceReleaseSetID       *int64
+	TargetReleaseSetID       *int64
+	SourceSnapshot           map[string]any
+	TargetSnapshot           map[string]any
+	RevertSnapshot           map[string]any
+	HashratePolicy           *HashratePolicy
+	Batches                  []CreateBatch
+	IdempotencyKey           string
+	RequestFingerprint       string
+	Reason                   string
+	ActorUserID              int64
+	ActorType                ActorType
+	ActorCredentialID        *string
+	GroupID                  *uuid.UUID
+	LaneID                   *uuid.UUID
+	LaneModelID              *uuid.UUID
+	ModelIdentityKey         string
+	ModelIdentityValidatedAt *time.Time
+	SourceReleaseTargetID    *int64
+	TargetReleaseTargetID    *int64
 }
 
 type CreateResult struct {
@@ -327,6 +444,19 @@ type ControlResult struct {
 	Batch    *Batch
 	Control  Control
 	Replayed bool
+}
+
+type AdmissionOutcome string
+
+const (
+	AdmissionOutcomeCommitted              AdmissionOutcome = "committed"
+	AdmissionOutcomeDefinitivelyRolledBack AdmissionOutcome = "definitively_rolled_back"
+	AdmissionOutcomeUnknown                AdmissionOutcome = "transaction_outcome_unknown"
+)
+
+type AdmissionResult struct {
+	Outcome AdmissionOutcome
+	Err     error
 }
 
 type FinishControlRequest struct {

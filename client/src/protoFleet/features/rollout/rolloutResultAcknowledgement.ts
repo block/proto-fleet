@@ -1,10 +1,43 @@
-import type { RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutGroup, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 const acknowledgedRolloutResultIdStorageKey = "protoFleet.acknowledgedRolloutResultId";
+const acknowledgedRolloutGroupResultStorageKey = "protoFleet.acknowledgedRolloutGroupResult";
+
+export interface AcknowledgedRolloutGroupResult {
+  parentId: string;
+  resultRevision: string;
+}
 
 export function useAcknowledgedRolloutResultId() {
   return useReactiveLocalStorage<string | undefined>(acknowledgedRolloutResultIdStorageKey, undefined);
+}
+
+export function useAcknowledgedRolloutGroupResult() {
+  return useReactiveLocalStorage<AcknowledgedRolloutGroupResult | undefined>(
+    acknowledgedRolloutGroupResultStorageKey,
+    undefined,
+  );
+}
+
+export function isRolloutGroupResultAcknowledged(
+  group: RolloutGroup,
+  acknowledged?: AcknowledgedRolloutGroupResult,
+): boolean {
+  return (
+    group.resultReady &&
+    acknowledged?.parentId === group.id &&
+    acknowledged.resultRevision === group.resultRevision.toString()
+  );
+}
+
+export function rolloutGroupAcknowledgement(group: RolloutGroup): AcknowledgedRolloutGroupResult | undefined {
+  return group.resultReady
+    ? {
+        parentId: group.id,
+        resultRevision: group.resultRevision.toString(),
+      }
+    : undefined;
 }
 
 export function isCompletedRolloutResult(rollout: RolloutRecord): boolean {

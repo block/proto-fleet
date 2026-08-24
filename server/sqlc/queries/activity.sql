@@ -70,7 +70,12 @@ WHERE a.organization_id = sqlc.arg('org_id')
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
-            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description),
+            a.metadata->>'manufacturer',
+            a.metadata->>'model',
+            a.metadata->>'model_identity_key',
+            a.metadata->>'parent_rollout_id',
+            a.metadata->>'child_rollout_id'
         ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'
     )
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR a.created_at >= sqlc.narg('start_time'))
@@ -141,7 +146,12 @@ WHERE a.organization_id = sqlc.arg('org_id')
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
-            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description),
+            a.metadata->>'manufacturer',
+            a.metadata->>'model',
+            a.metadata->>'model_identity_key',
+            a.metadata->>'parent_rollout_id',
+            a.metadata->>'child_rollout_id'
         ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'
     )
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR a.created_at >= sqlc.narg('start_time'))

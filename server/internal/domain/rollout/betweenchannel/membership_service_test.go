@@ -23,6 +23,37 @@ type recordingCreateLaneStore struct {
 	createRequest  CreateLaneRequest
 }
 
+type recordingModelMutationStore struct {
+	LaneStore
+	createRequest     CreateModelDeclarationRequest
+	publishRequest    PublishModelTargetRequest
+	membershipRequest UpdateModelMembershipRequest
+}
+
+func (s *recordingModelMutationStore) CreateModelDeclaration(
+	_ context.Context,
+	req CreateModelDeclarationRequest,
+) (*Lane, error) {
+	s.createRequest = req
+	return &Lane{ID: req.LaneID, OrgID: req.OrgID}, nil
+}
+
+func (s *recordingModelMutationStore) PublishModelTarget(
+	_ context.Context,
+	req PublishModelTargetRequest,
+) (*Lane, error) {
+	s.publishRequest = req
+	return &Lane{ID: req.LaneID, OrgID: req.OrgID}, nil
+}
+
+func (s *recordingModelMutationStore) UpdateModelMembership(
+	_ context.Context,
+	req UpdateModelMembershipRequest,
+) (UpdateMembershipResult, error) {
+	s.membershipRequest = req
+	return UpdateMembershipResult{Lane: &Lane{ID: req.LaneID, OrgID: req.OrgID}}, nil
+}
+
 func (s *recordingCreateLaneStore) PreviewLane(
 	_ context.Context,
 	req PreviewLaneRequest,
@@ -167,5 +198,99 @@ func TestServiceMembershipChangeRejectsDuplicateAndOverlappingOperations(t *test
 	overlap := base
 	overlap.RemoveIdentifiers = []string{"miner-a"}
 	_, err = service.PreviewMembershipChange(t.Context(), overlap)
+	require.Error(t, err)
+}
+
+func TestServiceModelMutationsUseDeclarationRevisionAndDeterministicFingerprint(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingModelMutationStore{}
+	service := NewService(store, nil)
+	laneID := uuid.New()
+	modelID := uuid.New()
+	target := ReleaseTarget{
+		FirmwareFileID:  "firmware-a",
+		Manufacturer:    "Proto",
+		Model:           "Alpha",
+		FirmwareVersion: "2.0.0",
+		SHA256:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+
+	_, err := service.CreateModelDeclaration(t.Context(), CreateModelDeclarationRequest{
+		OrgID:            42,
+		LaneID:           laneID,
+		ExpectedRevision: 0,
+		ReleaseTargets:   []ReleaseTarget{target},
+		IdempotencyKey:   "declare-proto-alpha",
+		Reason:           "declare Proto Alpha",
+		ActorUserID:      9,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.Nil, store.createRequest.OperationID)
+	assert.NotEqual(t, uuid.Nil, store.createRequest.LaneModelID)
+	assert.Len(t, store.createRequest.RequestFingerprint, 64)
+
+	_, err = service.PublishModelTarget(t.Context(), PublishModelTargetRequest{
+		OrgID:            42,
+		LaneID:           laneID,
+		LaneModelID:      modelID,
+		ExpectedRevision: 3,
+		ReleaseTargets:   []ReleaseTarget{target},
+		IdempotencyKey:   "publish-proto-alpha",
+		Reason:           "publish Proto Alpha target",
+		ActorUserID:      9,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), store.publishRequest.ExpectedRevision)
+	assert.Len(t, store.publishRequest.RequestFingerprint, 64)
+
+	_, err = service.UpdateModelMembership(t.Context(), UpdateModelMembershipRequest{
+		OrgID:            42,
+		LaneID:           laneID,
+		LaneModelID:      modelID,
+		ExpectedRevision: 4,
+		AddIdentifiers:   []string{"miner-b", "miner-a"},
+		IdempotencyKey:   "members-proto-alpha",
+		Reason:           "add Proto Alpha miners",
+		ActorUserID:      9,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"miner-a", "miner-b"}, store.membershipRequest.AddIdentifiers)
+	assert.Len(t, store.membershipRequest.RequestFingerprint, 64)
+}
+
+func TestServiceModelMutationsRejectMissingOrLaneScopedRevision(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(&recordingModelMutationStore{}, nil)
+	base := PublishModelTargetRequest{
+		OrgID:       42,
+		LaneID:      uuid.New(),
+		LaneModelID: uuid.New(),
+		ReleaseTargets: []ReleaseTarget{{
+			FirmwareFileID:  "firmware-a",
+			Manufacturer:    "Proto",
+			Model:           "Alpha",
+			FirmwareVersion: "2.0.0",
+			SHA256:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+		IdempotencyKey: "publish-proto-alpha",
+		Reason:         "publish Proto Alpha target",
+		ActorUserID:    9,
+	}
+
+	_, err := service.PublishModelTarget(t.Context(), base)
+	require.Error(t, err)
+
+	create := CreateModelDeclarationRequest{
+		OrgID:            42,
+		LaneID:           uuid.New(),
+		ExpectedRevision: 1,
+		ReleaseTargets:   base.ReleaseTargets,
+		IdempotencyKey:   "declare-proto-alpha",
+		Reason:           "declare Proto Alpha",
+		ActorUserID:      9,
+	}
+	_, err = service.CreateModelDeclaration(t.Context(), create)
 	require.Error(t, err)
 }

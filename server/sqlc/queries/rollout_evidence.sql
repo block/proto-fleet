@@ -74,6 +74,22 @@ SET window_start = EXCLUDED.window_start,
     avg_temperature_c = EXCLUDED.avg_temperature_c,
     error_count = EXCLUDED.error_count,
     sample_count = EXCLUDED.sample_count
+WHERE firmware_rollout_evidence.status = 'open'
+  AND (
+      firmware_rollout_evidence.observed_at,
+      firmware_rollout_evidence.avg_hashrate_hs,
+      firmware_rollout_evidence.avg_power_w,
+      firmware_rollout_evidence.avg_temperature_c,
+      firmware_rollout_evidence.error_count,
+      firmware_rollout_evidence.sample_count
+  ) IS DISTINCT FROM (
+      EXCLUDED.observed_at,
+      EXCLUDED.avg_hashrate_hs,
+      EXCLUDED.avg_power_w,
+      EXCLUDED.avg_temperature_c,
+      EXCLUDED.error_count,
+      EXCLUDED.sample_count
+  )
 RETURNING *;
 
 -- name: ListFirmwareRolloutEvidence :many
@@ -217,7 +233,23 @@ SET window_start = EXCLUDED.window_start,
     avg_power_w = EXCLUDED.avg_power_w,
     avg_temperature_c = EXCLUDED.avg_temperature_c,
     error_count = EXCLUDED.error_count,
-    sample_count = EXCLUDED.sample_count;
+    sample_count = EXCLUDED.sample_count
+WHERE firmware_rollout_evidence.status = 'open'
+  AND (
+      firmware_rollout_evidence.observed_at,
+      firmware_rollout_evidence.avg_hashrate_hs,
+      firmware_rollout_evidence.avg_power_w,
+      firmware_rollout_evidence.avg_temperature_c,
+      firmware_rollout_evidence.error_count,
+      firmware_rollout_evidence.sample_count
+  ) IS DISTINCT FROM (
+      EXCLUDED.observed_at,
+      EXCLUDED.avg_hashrate_hs,
+      EXCLUDED.avg_power_w,
+      EXCLUDED.avg_temperature_c,
+      EXCLUDED.error_count,
+      EXCLUDED.sample_count
+  );
 
 -- name: ListFirmwareRolloutBatchHashrateEvidence :many
 SELECT member.id AS member_id,
@@ -328,6 +360,62 @@ WHERE id = sqlc.arg('batch_id')
       sqlc.narg('expected_evaluated_at')::timestamptz
   AND last_policy_bucket_boundary IS NOT DISTINCT FROM
       sqlc.narg('expected_last_policy_bucket_boundary')::timestamptz;
+
+-- name: CompleteFirmwareRolloutEvidenceRows :execrows
+UPDATE firmware_rollout_evidence evidence
+SET status = 'completed'
+FROM firmware_rollout_member member
+WHERE member.id = evidence.member_id
+  AND member.rollout_id = evidence.rollout_id
+  AND member.org_id = evidence.org_id
+  AND member.batch_id = sqlc.arg('batch_id')
+  AND evidence.rollout_id = sqlc.arg('rollout_id')
+  AND evidence.org_id = sqlc.arg('org_id')
+  AND evidence.status = 'open';
+
+-- name: CancelFirmwareRolloutEvidence :one
+WITH cancelled_batches AS (
+    UPDATE firmware_rollout_batch batch
+    SET evidence_status = 'cancelled',
+        evidence_cancellation_reason = sqlc.arg('cancellation_reason'),
+        evidence_cancelled_at = sqlc.arg('cancelled_at'),
+        evidence_error_message = sqlc.arg('cancellation_reason'),
+        healthy_since = NULL,
+        evaluated_at = sqlc.arg('cancelled_at'),
+        post_window_finalized = TRUE,
+        post_window_finalized_at = sqlc.arg('cancelled_at')
+    WHERE batch.rollout_id = sqlc.arg('rollout_id')
+      AND batch.org_id = sqlc.arg('org_id')
+      AND NOT batch.post_window_finalized
+    RETURNING batch.id
+),
+cancelled_rows AS (
+    UPDATE firmware_rollout_evidence evidence
+    SET status = 'cancelled',
+        cancellation_reason = sqlc.arg('cancellation_reason'),
+        cancelled_at = sqlc.arg('cancelled_at')
+    FROM firmware_rollout_member member
+    WHERE member.id = evidence.member_id
+      AND member.rollout_id = evidence.rollout_id
+      AND member.org_id = evidence.org_id
+      AND evidence.rollout_id = sqlc.arg('rollout_id')
+      AND evidence.org_id = sqlc.arg('org_id')
+      AND evidence.status = 'open'
+    RETURNING evidence.id
+),
+disabled_controls AS (
+    UPDATE firmware_rollout_control control
+    SET status = 'failed',
+        error_message = sqlc.arg('cancellation_reason')
+    WHERE control.rollout_id = sqlc.arg('rollout_id')
+      AND control.org_id = sqlc.arg('org_id')
+      AND control.operation = 'continue'
+      AND control.idempotency_key LIKE 'rollout-evidence-auto-continue-batch-%'
+      AND control.status = 'started'
+    RETURNING control.id
+)
+SELECT COUNT(*)::bigint
+FROM cancelled_batches;
 
 -- name: MarkFirmwareRolloutBatchAutomationError :execrows
 UPDATE firmware_rollout_batch
