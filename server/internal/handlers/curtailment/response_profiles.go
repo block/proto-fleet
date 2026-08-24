@@ -16,7 +16,7 @@ import (
 )
 
 func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connect.Request[pb.ListCurtailmentResponseProfilesRequest]) (*connect.Response[pb.ListCurtailmentResponseProfilesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -28,42 +28,16 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 		return nil, err
 	}
 	out := make([]*pb.CurtailmentResponseProfile, 0, len(profiles))
-	deviceSites, err := h.responseProfileDeviceSitesForProfiles(ctx, info.OrganizationID, profiles)
-	if err != nil {
-		return nil, err
-	}
-	facilityFanDeviceSites, err := h.responseProfileFacilityFanDeviceSitesForProfiles(ctx, info.OrganizationID, profiles)
-	if err != nil {
-		return nil, err
-	}
-	siteAllowed := make(map[int64]bool)
-	facilityFanSiteAllowed := make(map[int64]bool)
-	orgWideAllowed := false
-	orgWideChecked := false
+	cache := newAuthorizationEnvelopePermissionCache()
 	for _, profile := range profiles {
-		requirements, err := h.responseProfileResourceContextRequirements(ctx, info.OrganizationID, profile, deviceSites, false)
-		if err != nil {
-			return nil, err
-		}
-		allowed, err := resourceContextRequirementsAllowed(
-			ctx,
-			authz.PermCurtailmentManage,
-			requirements,
-			siteAllowed,
-			&orgWideAllowed,
-			&orgWideChecked,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
+		if profile == nil || profile.OrgID != info.OrganizationID {
 			continue
 		}
-		allowed, err = facilityFanSiteAccessAllowed(
+		allowed, err := authorizationEnvelopeAccessAllowed(
 			ctx,
-			profile.FacilityFanDeviceIDs,
-			facilityFanDeviceSites,
-			facilityFanSiteAllowed,
+			authz.PermCurtailmentManage,
+			profile.AuthorizationEnvelopeJSON,
+			cache,
 		)
 		if err != nil {
 			return nil, err
@@ -77,14 +51,14 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 }
 
 func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.GetCurtailmentResponseProfileRequest]) (*connect.Response[pb.GetCurtailmentResponseProfileResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("GetCurtailmentResponseProfile")
 	}
-	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	profile, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +66,7 @@ func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connec
 }
 
 func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.CreateCurtailmentResponseProfileRequest]) (*connect.Response[pb.CreateCurtailmentResponseProfileResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -127,14 +101,14 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 }
 
 func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[pb.UpdateCurtailmentResponseProfileResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentResponseProfile")
 	}
-	existing, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	existing, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
 		return nil, err
 	}
@@ -174,14 +148,14 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 }
 
 func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[pb.DeleteCurtailmentResponseProfileResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("DeleteCurtailmentResponseProfile")
 	}
-	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	profile, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +165,7 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 		req.Msg.GetProfileId(),
 		cloneInt64Ptr(profile.SiteID),
 		cloneBytes(profile.ScopeJSON),
+		cloneBytes(profile.AuthorizationEnvelopeJSON),
 		responseProfileFanSettings(profile),
 	); err != nil {
 		return nil, err
@@ -215,6 +190,24 @@ func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgI
 		return nil, err
 	}
 	if err := h.requireFacilityFanSitePermissions(ctx, orgID, profile.FacilityFanDeviceIDs); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func (h *Handler) getResponseProfileWithPersistedPermission(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {
+	profile, err := h.responseProfiles.Get(ctx, orgID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil || profile.OrgID != orgID {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+	}
+	if err := requireAuthorizationEnvelopePermissions(
+		ctx,
+		authz.PermCurtailmentManage,
+		profile.AuthorizationEnvelopeJSON,
+	); err != nil {
 		return nil, err
 	}
 	return profile, nil
@@ -296,32 +289,6 @@ func (h *Handler) authorizeFacilityFanDevices(
 	return devices, nil
 }
 
-func (h *Handler) responseProfileDeviceSitesForProfiles(
-	ctx context.Context,
-	orgID int64,
-	profiles []*models.ResponseProfile,
-) (map[string]*int64, error) {
-	var deviceIdentifiers []string
-	for _, profile := range profiles {
-		if profile == nil {
-			continue
-		}
-		scope, err := domainCurtailment.ResponseProfileScope(*profile)
-		if err != nil {
-			return nil, err
-		}
-		deviceIdentifiers = append(deviceIdentifiers, scope.DeviceIdentifiers...)
-	}
-	deviceIdentifiers = uniqueResponseProfileDeviceIdentifiers(deviceIdentifiers)
-	if len(deviceIdentifiers) == 0 {
-		return map[string]*int64{}, nil
-	}
-	if h.responseProfiles == nil {
-		return nil, nil
-	}
-	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
-}
-
 func (h *Handler) responseProfileFacilityFanDeviceSitesForProfiles(
 	ctx context.Context,
 	orgID int64,
@@ -397,28 +364,36 @@ func (h *Handler) responseProfileResourceContextRequirements(
 	return h.scopeResourceContextRequirements(ctx, orgID, scope, deviceSites, requireKnownDevices)
 }
 
+type resourceContextPermissionCache struct {
+	siteAllowed    map[int64]bool
+	orgWideAllowed bool
+	orgWideChecked bool
+}
+
+func newResourceContextPermissionCache() resourceContextPermissionCache {
+	return resourceContextPermissionCache{siteAllowed: make(map[int64]bool)}
+}
+
 func resourceContextRequirementsAllowed(
 	ctx context.Context,
 	permission string,
 	requirements scopeResourceContextRequirements,
-	siteAllowed map[int64]bool,
-	orgWideAllowed *bool,
-	orgWideChecked *bool,
+	cache *resourceContextPermissionCache,
 ) (bool, error) {
 	if requirements.requireOrgWide {
-		if !*orgWideChecked {
-			*orgWideChecked = true
+		if !cache.orgWideChecked {
+			cache.orgWideChecked = true
 			if _, err := middleware.RequireOrgWidePermission(ctx, permission); err != nil {
 				if fleeterror.IsForbiddenError(err) {
-					*orgWideAllowed = false
+					cache.orgWideAllowed = false
 				} else {
 					return false, err
 				}
 			} else {
-				*orgWideAllowed = true
+				cache.orgWideAllowed = true
 			}
 		}
-		if !*orgWideAllowed {
+		if !cache.orgWideAllowed {
 			return false, nil
 		}
 	}
@@ -426,17 +401,17 @@ func resourceContextRequirementsAllowed(
 		if siteContext.SiteID == nil {
 			continue
 		}
-		siteAllowedValue, ok := siteAllowed[*siteContext.SiteID]
+		siteAllowedValue, ok := cache.siteAllowed[*siteContext.SiteID]
 		if !ok {
 			if _, err := middleware.RequirePermission(ctx, permission, siteContext); err != nil {
 				if fleeterror.IsForbiddenError(err) {
-					siteAllowed[*siteContext.SiteID] = false
+					cache.siteAllowed[*siteContext.SiteID] = false
 					return false, nil
 				}
 				return false, err
 			}
 			siteAllowedValue = true
-			siteAllowed[*siteContext.SiteID] = true
+			cache.siteAllowed[*siteContext.SiteID] = true
 		}
 		if !siteAllowedValue {
 			return false, nil

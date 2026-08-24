@@ -29,12 +29,14 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
-	getEventErr           error
-	listTargetsErr        error
-	beginRestoreErr       error
-	beginRestoreCalls     int
-	targetSiteIDs         []int64
-	targetSiteIDsComplete bool
+	getEventErr             error
+	listTargetsErr          error
+	beginRestoreErr         error
+	beginRestoreCalls       int
+	targetSiteIDs           []int64
+	targetSiteIDsComplete   bool
+	targetSiteCoverageErr   error
+	targetSiteCoverageCalls int
 }
 
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -89,7 +91,7 @@ func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) 
 	if s.getEventErr != nil {
 		return nil, s.getEventErr
 	}
-	return s.event, nil
+	return ensureTestEventAuthorizationEnvelope(s.event, s.targetSiteIDs, s.targetSiteIDsComplete), nil
 }
 func (s *stopStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventDetailByUUID not exercised by Stop handler tests")
@@ -107,6 +109,10 @@ func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListT
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
 func (s *stopStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	s.targetSiteCoverageCalls++
+	if s.targetSiteCoverageErr != nil {
+		return models.TargetSiteCoverage{}, s.targetSiteCoverageErr
+	}
 	siteIDs := append([]int64(nil), s.targetSiteIDs...)
 	mappedTargetCount := int64(len(siteIDs))
 	targetCount := mappedTargetCount
@@ -247,6 +253,24 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, 1, store.beginRestoreCalls)
 }
 
+func TestHandler_StopCurtailment_DoesNotHydrateDisplayCoverageBeforeControl(t *testing.T) {
+	t.Parallel()
+
+	store := newStopStubStore()
+	store.event.ScopeType = models.ScopeTypeDeviceList
+	store.targetSiteCoverageErr = assert.AnError
+	h := NewHandler(curtailment.NewService(store))
+
+	_, err := h.StopCurtailment(
+		stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.StopCurtailmentRequest{EventUuid: store.event.EventUUID.String()}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.beginRestoreCalls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
+}
+
 func TestHandler_StopCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
@@ -291,7 +315,7 @@ func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
 	}{
 		{"org permission without site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
 		{"matching site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
-		{"site-only permission denies stop", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site-only permission allows matching stop", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
 		{"site narrowing without manage denies stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

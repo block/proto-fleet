@@ -330,6 +330,25 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	return plan, nil
 }
 
+// LookupStartReplay returns the persisted event matched by a Start request's
+// idempotency handles. It intentionally does not hydrate targets so handlers
+// can authorize the immutable event envelope before loading response data.
+func (s *Service) LookupStartReplay(ctx context.Context, req StartRequest) (*models.Event, error) {
+	if err := validateStartRequest(req); err != nil {
+		return nil, err
+	}
+	return s.lookupIdempotentReplay(ctx, req)
+}
+
+// RenderStartReplay builds the bounded Start response from an already
+// authorized persisted event.
+func (s *Service) RenderStartReplay(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
+	if event == nil || event.OrgID != orgID {
+		return nil, fleeterror.NewNotFoundError("curtailment event not found")
+	}
+	return s.replayPlanFromPersistedEvent(ctx, orgID, event)
+}
+
 // ListActive returns every non-terminal event for the org, most-recent first.
 // Multiple can be active when they target disjoint device scopes (e.g. one per
 // site).
