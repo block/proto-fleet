@@ -16,6 +16,11 @@ import StatusCircle from "@/shared/components/StatusCircle";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type TicketColumns = "urgent" | "issue" | "asset" | "location" | "status";
+export type TicketQueueViewMode = "list" | "kanban";
+
+interface TicketQueueProps {
+  initialViewMode?: TicketQueueViewMode;
+}
 
 interface TicketItem {
   id: string;
@@ -95,11 +100,11 @@ const colTitles: ColTitles<TicketColumns> = {
   status: "Status",
 };
 
-const TicketQueue = () => {
+const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const isCompact = isPhone || isTablet;
   const [tickets] = useState<TicketItem[]>(mockTickets);
-  const [viewMode, setViewMode] = useState("list");
+  const [viewMode, setViewMode] = useState<TicketQueueViewMode>(initialViewMode);
   const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBulkCloseModal, setShowBulkCloseModal] = useState(false);
@@ -309,28 +314,26 @@ const TicketQueue = () => {
   }, [tickets]);
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { open: 0, in_progress: 0, on_hold: 0 };
-    for (const t of tickets) {
+    const counts: Record<string, number> = { open: 0, in_progress: 0, on_hold: 0, sent_to_vendor: 0 };
+    for (const t of filteredTickets) {
       if (t.status in counts) counts[t.status]++;
     }
     return counts;
-  }, [tickets]);
+  }, [filteredTickets]);
 
   const toolbar = (
     <div className={`flex gap-2 pb-4 ${isCompact ? "flex-col" : "flex-wrap items-center"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        {!isCompact ? (
-          <SegmentedControl
-            key={viewMode}
-            className="shrink-0"
-            segments={[
-              { key: "list", title: "List" },
-              { key: "kanban", title: "Board" },
-            ]}
-            initialSegmentKey={viewMode}
-            onSelect={(key) => setViewMode(key as "list" | "kanban")}
-          />
-        ) : null}
+        <SegmentedControl
+          key={viewMode}
+          className="shrink-0"
+          segments={[
+            { key: "list", title: "List" },
+            { key: "kanban", title: "Board" },
+          ]}
+          initialSegmentKey={viewMode}
+          onSelect={(key) => setViewMode(key as TicketQueueViewMode)}
+        />
         <Button
           variant={myTicketsActive ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
@@ -437,6 +440,7 @@ const KANBAN_COLUMNS = [
   { key: "open", label: "Open" },
   { key: "in_progress", label: "In Progress" },
   { key: "on_hold", label: "On Hold" },
+  { key: "sent_to_vendor", label: "Sent to Vendor" },
 ] as const;
 
 const TicketKanbanView = ({
@@ -448,7 +452,7 @@ const TicketKanbanView = ({
   statusCounts: Record<string, number>;
   onCardClick: (ticket: TicketItem) => void;
 }) => (
-  <div className="grid grid-cols-3 gap-6 max-[1100px]:grid-cols-2 max-[768px]:grid-cols-1">
+  <div className="grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
     {KANBAN_COLUMNS.map((col) => {
       const colTickets = tickets.filter((t) => t.status === col.key);
       return (

@@ -15,7 +15,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Review miner and infrastructure ticket creation, including component selection, miner lookup, assignment, urgency, and notes.",
+          "Review miner and infrastructure ticket creation, including category and component selection, miner lookup, assignment, and urgency.",
       },
     },
   },

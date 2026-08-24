@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
@@ -7,7 +7,7 @@ import CompletionForm from "./CompletionForm";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
 import TicketComments from "./TicketComments";
-import { Alert, Checkmark, Edit, Fleet, Info, Pause, Racks } from "@/shared/assets/icons";
+import { Alert, Checkmark, ChevronDown, Edit, Fleet, Info, Pause, Racks } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
@@ -64,18 +64,6 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
   const handleNext = useCallback(() => {
     if (hasNext) setCurrentId(navIds[currentIndex + 1]);
   }, [hasNext, navIds, currentIndex]);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // Nudge scroll so the sentinel passes the sticky header, collapsing
-    // the title into the top bar on open.
-    const timer = setTimeout(() => {
-      const el = scrollRef.current?.closest<HTMLElement>("[class*='overflow-auto']");
-      if (el) el.scrollTop = 1;
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [currentId]);
 
   if (!ticket) return null;
 
@@ -142,10 +130,14 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
       title={ticket.ticketNumber}
       size="standard"
       divider
+      className="!h-[min(720px,calc(100dvh-(--spacing(32))))]"
       buttons={[
         {
-          text: "Assign ▾",
+          text: "Assign",
           variant: variants.secondary,
+          suffixIcon: <ChevronDown width="w-3" />,
+          ariaHasPopup: "menu",
+          ariaExpanded: showAssignMenu,
           onClick: () => {
             setShowAssignMenu((v) => !v);
             setShowStatusMenu(false);
@@ -153,8 +145,11 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
           dismissModalOnClick: false,
         },
         {
-          text: "Update status ▾",
+          text: "Update status",
           variant: variants.secondary,
+          suffixIcon: <ChevronDown width="w-3" />,
+          ariaHasPopup: "menu",
+          ariaExpanded: showStatusMenu,
           onClick: () => {
             setShowStatusMenu((v) => !v);
             setShowAssignMenu(false);
@@ -211,7 +206,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
           </div>
         </>
       ) : null}
-      <div ref={scrollRef} className="flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         {/* Badge + Title lockup */}
         <div className="flex flex-col gap-2">
           <div

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 import Textarea from "@/shared/components/Textarea";
 
@@ -29,22 +29,25 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
   }, [resolution, onSuccess]);
 
   return (
-    <Dialog
+    <Modal
       open
       onDismiss={onDismiss}
       title={`Close ${ticketIds.length} ticket${ticketIds.length > 1 ? "s" : ""}`}
-      subtitle="Select a resolution for all selected tickets."
+      description="Select a resolution for all selected tickets."
+      size="standard"
       buttons={[
         {
           text: "Cancel",
           variant: variants.secondary,
           onClick: onDismiss,
+          dismissModalOnClick: false,
         },
         {
           text: "Close tickets",
           variant: variants.danger,
           onClick: handleSubmit,
           disabled: !resolution,
+          dismissModalOnClick: false,
         },
       ]}
     >
@@ -76,7 +79,7 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
         </div>
         <Textarea id="bulk-close-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
       </div>
-    </Dialog>
+    </Modal>
   );
 };
 

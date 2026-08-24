@@ -28,3 +28,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Queue: Story = {};
+
+export const Board: Story = {
+  args: {
+    initialQueueView: "kanban",
+  },
+};

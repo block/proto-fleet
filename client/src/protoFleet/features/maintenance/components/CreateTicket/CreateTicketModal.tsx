@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
@@ -45,6 +45,15 @@ const SITE_OPTIONS = [
 ];
 
 const ASSIGNEE_OPTIONS = REPAIR_TECHNICIANS.map((t) => ({ value: t, label: t }));
+const CATEGORY_OPTIONS = [
+  { value: "miner", label: "Miner" },
+  { value: "infrastructure", label: "Infrastructure" },
+];
+
+type TicketCategory = "miner" | "infrastructure";
+
+const siteValueFromSlug = (slug: string) =>
+  SITE_OPTIONS.find(({ value }) => value.toLowerCase().replaceAll(" ", "-") === slug)?.value;
 
 const KNOWN_MINERS = (() => {
   const set = new Set<string>();
@@ -56,21 +65,27 @@ const KNOWN_MINERS = (() => {
 })();
 
 const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalProps) => {
-  const [category, setCategory] = useState(prefill?.minerIdentifier ? "miner" : "miner");
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const defaultSite =
+    prefill?.siteId ??
+    (activeSite.kind === "site" ? siteValueFromSlug(activeSite.slug) : undefined) ??
+    SITE_OPTIONS[0].value;
+  const [category, setCategory] = useState<TicketCategory>("miner");
   const [component, setComponent] = useState(prefill?.component ?? "");
   const [minerIdentifier, setMinerIdentifier] = useState(prefill?.minerIdentifier ?? "");
   const [minerQuery, setMinerQuery] = useState(prefill?.minerIdentifier ?? "");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [diagnosis, setDiagnosis] = useState(prefill?.diagnosis ?? "");
-  const [site, setSite] = useState(prefill?.siteId ?? "");
+  const [site, setSite] = useState(defaultSite);
   const [assignee, setAssignee] = useState("");
   const [urgent, setUrgent] = useState(false);
-  const [, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const componentOptions = category === "miner" ? MINER_COMPONENTS : INFRA_COMPONENTS;
-  const canSubmit = component && diagnosis && (category !== "miner" || minerIdentifier) && !isSubmitting;
+  const canSubmit = Boolean(
+    component && diagnosis && site && (category !== "miner" || minerIdentifier) && !isSubmitting,
+  );
 
   const filteredMiners = useMemo(() => {
     if (!minerQuery) return KNOWN_MINERS.slice(0, 8);
@@ -114,20 +129,17 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     >
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-2">
-            <span className="text-300 text-text-primary-70">Category</span>
-            <SegmentedControl
-              segments={[
-                { key: "miner", title: "Miner" },
-                { key: "infrastructure", title: "Infrastructure" },
-              ]}
-              initialSegmentKey={category}
-              onSelect={(key) => {
-                setCategory(key);
-                setComponent("");
-              }}
-            />
-          </div>
+          <Select
+            id="category"
+            label="Category"
+            options={CATEGORY_OPTIONS}
+            value={category}
+            onChange={(value) => {
+              setCategory(value as TicketCategory);
+              setComponent("");
+            }}
+            forceBelow
+          />
           <Select
             id="component"
             label="Component"
@@ -183,8 +195,6 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
           <Checkbox checked={urgent} onChange={(e) => setUrgent(e.target.checked)} />
           Mark as urgent
         </label>
-
-        <Textarea id="notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={2} />
       </div>
     </Modal>
   );
