@@ -16,32 +16,44 @@ export const ResolutionSectionContent = ({
 }) => (
   <div className="flex flex-col gap-3">
     <span className="text-emphasis-300 font-medium">Resolution</span>
-    <div className="grid grid-cols-2 gap-3">
-      <div className="flex flex-col gap-1">
-        <span className="text-200 text-text-primary-70">Outcome</span>
-        <span className="text-300">{resolution}</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <span className="text-200 text-text-primary-70">Repair location</span>
-        <span className="text-300">{repairLocation}</span>
-      </div>
-    </div>
-    {partsUsed.length > 0 ? (
-      <div className="flex flex-col gap-1">
-        <span className="text-200 text-text-primary-70">Parts used</span>
-        {partsUsed.map((part, i) => (
-          <span key={i} className="text-300">
-            {part.name} x{part.quantity}
-          </span>
-        ))}
-      </div>
-    ) : null}
-    {notes ? (
-      <div className="flex flex-col gap-1">
-        <span className="text-200 text-text-primary-70">Notes</span>
-        <span className="text-300">{notes}</span>
-      </div>
-    ) : null}
+    <table aria-label="Ticket resolution" className="w-full border-collapse">
+      <tbody className="border-y border-border-5">
+        <tr className="border-b border-border-5">
+          <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
+            Outcome
+          </th>
+          <td className="py-3 pl-3 text-right text-300 text-text-primary">{resolution}</td>
+        </tr>
+        <tr className={partsUsed.length > 0 || notes ? "border-b border-border-5" : undefined}>
+          <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
+            Repair location
+          </th>
+          <td className="py-3 pl-3 text-right text-300 text-text-primary">{repairLocation}</td>
+        </tr>
+        {partsUsed.length > 0 ? (
+          <tr className={notes ? "border-b border-border-5" : undefined}>
+            <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
+              Parts used
+            </th>
+            <td className="py-3 pl-3 text-right text-300 text-text-primary">
+              {partsUsed.map((part) => (
+                <div key={part.name}>
+                  {part.name} ×{part.quantity}
+                </div>
+              ))}
+            </td>
+          </tr>
+        ) : null}
+        {notes ? (
+          <tr>
+            <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
+              Notes
+            </th>
+            <td className="py-3 pl-3 text-right text-300 whitespace-pre-wrap text-text-primary">{notes}</td>
+          </tr>
+        ) : null}
+      </tbody>
+    </table>
   </div>
 );
 

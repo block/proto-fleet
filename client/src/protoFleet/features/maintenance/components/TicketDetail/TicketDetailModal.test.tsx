@@ -31,4 +31,19 @@ describe("TicketDetailModal", () => {
     expect(statusMenuButton).toHaveAttribute("aria-haspopup", "menu");
     expect(statusMenuButton.querySelector("svg")).not.toBeNull();
   });
+
+  it("renders completed resolution details as a table with the contained success icon", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="101" ticketIds={["101"]} onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("table", { name: "Ticket resolution" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Outcome Repaired" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Repair location On-rack" })).toBeInTheDocument();
+
+    const completedStatus = screen.getByText("Completed").closest(".rounded-xl");
+    expect(completedStatus?.querySelector("svg.text-intent-success-fill")).not.toBeNull();
+  });
 });

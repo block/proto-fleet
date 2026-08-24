@@ -7,7 +7,7 @@ import CompletionForm from "./CompletionForm";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
 import TicketComments from "./TicketComments";
-import { Alert, Checkmark, ChevronDown, Edit, Fleet, Info, Pause, Racks } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Edit, Fleet, Info, Pause, Racks, Success } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
@@ -107,7 +107,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
         };
       case "completed":
         return {
-          icon: <Checkmark width="w-5" />,
+          icon: <Success className="text-intent-success-fill" />,
           intent: "success" as const,
           title: "Completed",
           subtitle: "Repair completed",
