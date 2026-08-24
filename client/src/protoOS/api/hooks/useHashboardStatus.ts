@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -21,11 +21,15 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
   const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  // Staleness guard: if hashboardSerialNumbers changes mid-fetch, an older
+  // Promise.all resolving after a newer one must not overwrite fresher data.
+  const fetchIdRef = useRef(0);
   const fetchData = useCallback(() => {
     if (!api || hashboardSerialNumbers.length === 0) return;
 
     setPending(true);
     setError(undefined);
+    const fetchId = ++fetchIdRef.current;
 
     return authRetry({
       request: (params) =>
@@ -36,6 +40,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
           }),
         ),
       onSuccess: (results) => {
+        if (fetchId !== fetchIdRef.current) return;
         const newData: Record<string, HashboardStatsHashboardstats> = {};
         results.forEach(({ serial, data }) => {
           if (data) {

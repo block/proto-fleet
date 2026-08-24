@@ -75,8 +75,12 @@ const useMiningTarget = () => {
           if (accept()) setFromResponse(target);
         },
         onError: (error) => {
-          setPending(false);
-          setError(error?.error?.message ?? "An error occurred");
+          // Gate the error write behind the same token as onSuccess: a superseded
+          // request must not clobber the state a newer request already settled.
+          if (accept()) {
+            setPending(false);
+            setError(error?.error?.message ?? "An error occurred");
+          }
         },
       });
     },
@@ -93,8 +97,12 @@ const useMiningTarget = () => {
       error,
       updateMiningTarget,
       setPending,
+      // User-initiated retry: fetchData runs regardless of the current resource
+      // status (only the initial-load effect gates on "idle"), so this leaves the
+      // terminal "error" state on demand without reintroducing an automatic loop.
+      retry: fetchData,
     }),
-    [miningTarget, defaultTarget, performanceMode, bounds, pending, error, updateMiningTarget, setPending],
+    [miningTarget, defaultTarget, performanceMode, bounds, pending, error, updateMiningTarget, setPending, fetchData],
   );
 };
 

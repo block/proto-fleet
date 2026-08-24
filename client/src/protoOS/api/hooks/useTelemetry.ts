@@ -34,7 +34,7 @@ const useTelemetry = ({
     setError(undefined);
     try {
       const normalized = await adapter.getCurrentTelemetry(level);
-      if (accept()) useMinerStore.getState().telemetry.mergeTelemetry(normalized);
+      if (accept()) useMinerStore.getState().telemetry.mergeTelemetry(normalized, accept.requestId);
     } catch (err) {
       handleAuthErrors({
         error: err as never,

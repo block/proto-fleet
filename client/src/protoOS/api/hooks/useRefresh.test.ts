@@ -30,9 +30,11 @@ describe("useRefresh", () => {
     });
     (useMinerStore.getState as Mock).mockReturnValue({
       auth: {
-        authTokens: {
-          accessToken: { value: "stale-access", expiry: new Date("2026-01-01T00:00:00Z") },
-          refreshToken: { value: "latest-refresh", expiry: new Date("2026-01-02T00:00:00Z") },
+        session: {
+          mode: "bearer",
+          status: "authenticated",
+          accessToken: { value: "stale-access", expiresAtMs: new Date("2026-01-01T00:00:00Z").getTime() },
+          refreshToken: { value: "latest-refresh", expiresAtMs: new Date("2026-01-02T00:00:00Z").getTime() },
         },
       },
     });

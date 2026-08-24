@@ -43,25 +43,49 @@ const metricFields = [
   "maximumRpm",
 ] as const;
 
-const mergeMetrics = <T extends object>(current: T | undefined, incoming: T): T => {
-  const merged = { ...(current ?? {}), ...incoming } as T & MetricContainer;
+// When `preferCurrent` is true the incoming snapshot is stale for this entity
+// (an older request landing after a newer one already wrote): current values win
+// on conflict, and stale data may only fill fields the current snapshot lacks.
+const mergeMetrics = <T extends object>(current: T | undefined, incoming: T, preferCurrent = false): T => {
+  const merged = (preferCurrent ? { ...incoming, ...(current ?? {}) } : { ...(current ?? {}), ...incoming }) as T &
+    MetricContainer;
   for (const field of metricFields) {
     const before = (current as MetricContainer | undefined)?.[field] as MetricTelemetry | undefined;
     const after = (incoming as MetricContainer)[field] as MetricTelemetry | undefined;
     if (!before && !after) continue;
+    // Lower-priority source is applied first, then the winner overrides it.
+    const lower = preferCurrent ? after : before;
+    const higher = preferCurrent ? before : after;
     const metric: MetricTelemetry = {};
-    if (before?.latest !== undefined) metric.latest = before.latest;
-    if (before?.timeSeries !== undefined) metric.timeSeries = before.timeSeries;
-    if (after?.latest !== undefined) metric.latest = after.latest;
-    if (after?.timeSeries !== undefined) metric.timeSeries = after.timeSeries;
+    if (lower?.latest !== undefined) metric.latest = lower.latest;
+    if (lower?.timeSeries !== undefined) metric.timeSeries = lower.timeSeries;
+    if (higher?.latest !== undefined) metric.latest = higher.latest;
+    if (higher?.timeSeries !== undefined) metric.timeSeries = higher.timeSeries;
     if (metric.latest !== undefined || metric.timeSeries !== undefined) (merged as MetricContainer)[field] = metric;
     else delete (merged as MetricContainer)[field];
   }
   return merged;
 };
 
-const mergeMap = <K, V extends object>(target: Map<K, V>, incoming: Map<K, V>) => {
-  incoming.forEach((value, key) => target.set(key, mergeMetrics(target.get(key), value)));
+// Per-entity newest-write-wins gate. Returns whether the incoming write is stale
+// for a given entity id, recording the requestId of accepted (fresh) writes so a
+// slower response keyed on a different resource string can't clobber fresher data.
+interface StalenessGate {
+  requestId: number;
+  lastApplied: Map<string, number>;
+  prefix: string;
+}
+
+const mergeMap = <K, V extends object>(target: Map<K, V>, incoming: Map<K, V>, gate?: StalenessGate) => {
+  incoming.forEach((value, key) => {
+    let preferCurrent = false;
+    if (gate) {
+      const entityId = `${gate.prefix}:${String(key)}`;
+      if (gate.requestId < (gate.lastApplied.get(entityId) ?? 0)) preferCurrent = true;
+      else gate.lastApplied.set(entityId, gate.requestId);
+    }
+    target.set(key, mergeMetrics(target.get(key), value, preferCurrent));
+  });
 };
 
 const mapMeasurement = (
@@ -78,7 +102,11 @@ const mapMeasurement = (
     : undefined;
 
 export interface TelemetrySlice extends TelemetryState {
-  mergeTelemetry: (telemetry: TelemetryState) => void;
+  // Tracks the last-applied requestId per entity so newest-write-wins is enforced
+  // per entity, independent of the caller's resource-key string. Not part of the
+  // persisted/reset TelemetryState contract; cleared explicitly in clearAllData.
+  lastAppliedRequestByEntity: Map<string, number>;
+  mergeTelemetry: (telemetry: TelemetryState, requestId?: number) => void;
   updateHashboardTemperatures: (
     serial: string,
     inlet?: Measurement,
@@ -116,14 +144,18 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
   set,
 ) => ({
   ...createEmptyTelemetryState(),
-  mergeTelemetry: (incoming) =>
+  lastAppliedRequestByEntity: new Map<string, number>(),
+  mergeTelemetry: (incoming, requestId) =>
     set((state) => {
+      const lastApplied = state.telemetry.lastAppliedRequestByEntity;
+      const gate = (prefix: string): StalenessGate | undefined =>
+        requestId === undefined ? undefined : { requestId, lastApplied, prefix };
       incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
-      mergeMap(state.telemetry.rollupsByEntity, incoming.rollupsByEntity);
-      mergeMap(state.telemetry.hashboards, incoming.hashboards);
-      mergeMap(state.telemetry.asics, incoming.asics);
-      mergeMap(state.telemetry.psus, incoming.psus);
-      mergeMap(state.telemetry.fans, incoming.fans);
+      mergeMap(state.telemetry.rollupsByEntity, incoming.rollupsByEntity, gate("rollup"));
+      mergeMap(state.telemetry.hashboards, incoming.hashboards, gate("hashboard"));
+      mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
+      mergeMap(state.telemetry.psus, incoming.psus, gate("psu"));
+      mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
       incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));
       incoming.asicLoadByHashboard.forEach((value, key) => state.telemetry.asicLoadByHashboard.set(key, value));
     }),
@@ -191,5 +223,6 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
   clearAllData: () =>
     set((state) => {
       Object.assign(state.telemetry, createEmptyTelemetryState());
+      state.telemetry.lastAppliedRequestByEntity.clear();
     }),
 });

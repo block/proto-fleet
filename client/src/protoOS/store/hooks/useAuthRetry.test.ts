@@ -33,8 +33,10 @@ describe("useAuthRetry", () => {
     currentAccessToken = "test-token";
     mockGetState.mockImplementation(() => ({
       auth: {
-        authTokens: {
-          accessToken: { value: currentAccessToken },
+        session: {
+          mode: "bearer",
+          status: "authenticated",
+          accessToken: { value: currentAccessToken, expiresAtMs: 0 },
         },
       },
     }));

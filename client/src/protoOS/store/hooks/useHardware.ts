@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { asAsicId } from "../contract";
-import type { FanHardwareData, PsuHardwareData } from "../types";
+import type { AsicHardwareData, FanHardwareData, HashboardHardwareData, PsuHardwareData } from "../types";
 import useMinerStore from "../useMinerStore";
 
 // TODO: This should come from the API when available
@@ -11,6 +11,8 @@ const SLOTS_PER_BAY = 3;
 // group is unpopulated (avoids churning downstream memos during loading).
 const NO_PSUS: PsuHardwareData[] = [];
 const NO_FANS: FanHardwareData[] = [];
+const NO_ASICS: AsicHardwareData[] = [];
+const NO_HASHBOARDS: HashboardHardwareData[] = [];
 
 // =============================================================================
 // Hardware Convenience Hooks
@@ -22,16 +24,24 @@ export const useMinerHardware = () => {
   return useMemo(() => hardware.getMiner(), [hardware]);
 };
 
+// Hashboard/ASIC hardware is rewritten on every telemetry/hashboard-status poll.
+// Subscribe to the specific sub-maps (hashboards + topology, or asics) rather than
+// the whole `state.hardware` object, so an unrelated per-poll write to a different
+// sub-map (immer reparents `state.hardware` on any nested change) doesn't re-render
+// these hooks. getHashboard draws identity/firmware from `hashboards` and
+// slot/bay/asicIds from `topology`, so both are dependencies.
+
 // Hashboard hooks
 export const useHashboardsHardware = () => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(
-    () =>
-      [...hardware.hashboards.values()]
-        .map((board) => hardware.getHashboard(board.identity.value))
-        .filter((board) => board !== undefined),
-    [hardware],
-  );
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  const topology = useMinerStore((state) => state.hardware.topology);
+  return useMemo(() => {
+    if (hashboards.size === 0 && !topology) return NO_HASHBOARDS;
+    const hardware = useMinerStore.getState().hardware;
+    return [...hashboards.values()]
+      .map((board) => hardware.getHashboard(board.identity.value))
+      .filter((board) => board !== undefined);
+  }, [hashboards, topology]);
 };
 
 export const useHashboardSerials = () =>
@@ -99,13 +109,21 @@ export const useHashboardSerialsByBay = () => {
 };
 
 export const useHashboardHardware = (serial: string) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getHashboard(serial), [hardware, serial]);
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  const topology = useMinerStore((state) => state.hardware.topology);
+  return useMemo(() => {
+    if (hashboards.size === 0 && !topology) return undefined;
+    return useMinerStore.getState().hardware.getHashboard(serial);
+  }, [hashboards, topology, serial]);
 };
 
 export const useHashboardsByBay = (bay: number) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getHashboardsByBay(bay), [bay, hardware]);
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  const topology = useMinerStore((state) => state.hardware.topology);
+  return useMemo(() => {
+    if (hashboards.size === 0 && !topology) return NO_HASHBOARDS;
+    return useMinerStore.getState().hardware.getHashboardsByBay(bay);
+  }, [bay, hashboards, topology]);
 };
 
 export const useSlotsPerBay = () => {
@@ -120,35 +138,44 @@ export const useHashboardSlot = (serial: string) => useMinerStore((state) => sta
 export const useHashboardBay = (serial: string) => useMinerStore((state) => state.hardware.getBayByHbSn(serial));
 
 export const useAsicRowsByHbSn = (serial: string) => {
-  const hardware = useMinerStore((state) => state.hardware);
+  const asics = useMinerStore((state) => state.hardware.asics);
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  const topology = useMinerStore((state) => state.hardware.topology);
 
   return useMemo(() => {
-    const hashboard = hardware.getHashboard(serial);
+    if (hashboards.size === 0 && !topology) return [];
+    const hashboard = useMinerStore.getState().hardware.getHashboard(serial);
     if (!hashboard || !hashboard.asicIds) return [];
 
     const asicRows = hashboard.asicIds
-      .map((asicId) => hardware.asics.get(asAsicId(asicId))?.row)
+      .map((asicId) => asics.get(asAsicId(asicId))?.row)
       .filter((row): row is number => row !== undefined);
 
     const uniqueRows = new Set(asicRows);
     return Array.from(uniqueRows).sort((a, b) => a - b);
-  }, [hardware, serial]);
+  }, [asics, hashboards, topology, serial]);
 };
 
-// ASIC hooks
+// ASIC hooks — ASIC telemetry/positions live only in `state.hardware.asics`.
 export const useAsicHardware = (id: string) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getAsic(id), [hardware, id]);
+  const asics = useMinerStore((state) => state.hardware.asics);
+  return useMemo(() => (asics.size === 0 ? undefined : useMinerStore.getState().hardware.getAsic(id)), [asics, id]);
 };
 
 export const useAsicPosition = (id: string) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getAsicPosition(id), [hardware, id]);
+  const asics = useMinerStore((state) => state.hardware.asics);
+  return useMemo(
+    () => (asics.size === 0 ? undefined : useMinerStore.getState().hardware.getAsicPosition(id)),
+    [asics, id],
+  );
 };
 
 export const useAsicsByHashboard = (hashboardSerial: string) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getAsicsByHashboard(hashboardSerial), [hashboardSerial, hardware]);
+  const asics = useMinerStore((state) => state.hardware.asics);
+  return useMemo(
+    () => (asics.size === 0 ? NO_ASICS : useMinerStore.getState().hardware.getAsicsByHashboard(hashboardSerial)),
+    [asics, hashboardSerial],
+  );
 };
 
 // Controlboard, PSU, and fan hardware is static and — unlike hashboards/ASICs —

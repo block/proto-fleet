@@ -87,7 +87,7 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
         }
         if (!accept()) return;
 
-        useMinerStore.getState().telemetry.mergeTelemetry(normalized);
+        useMinerStore.getState().telemetry.mergeTelemetry(normalized, accept.requestId);
       },
       onError: (err) => {
         setError(err?.error?.message ?? "Unknown error occurred");

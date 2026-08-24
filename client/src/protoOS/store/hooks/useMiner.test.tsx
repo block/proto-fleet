@@ -109,6 +109,46 @@ describe("useMiner", () => {
     ]);
   });
 
+  it("maps a PSU-sourced error to the PSU source with its slot", () => {
+    useMinerStore.getState().minerStatus.setErrors([
+      {
+        id: "error-psu-3",
+        code: "PsuFault",
+        message: "PSU 3 fault",
+        owner: { kind: "module", id: ROOT_MODULE_ID },
+        source: { kind: "psu", slot: 3 },
+        severity: "critical",
+      },
+    ]);
+
+    const { result } = renderHook(() => useErrors());
+
+    expect(result.current).toEqual([expect.objectContaining({ source: "PSU", slot: 3 })]);
+  });
+
+  it("falls back to the rig source with no slot when an error has neither source nor component", () => {
+    useMinerStore.getState().minerStatus.setErrors([
+      {
+        id: "error-generic",
+        code: "SystemFault",
+        message: "Something went wrong",
+        owner: { kind: "module", id: ROOT_MODULE_ID },
+        severity: "critical",
+      },
+    ]);
+
+    const { result } = renderHook(() => useErrors());
+
+    expect(result.current).toEqual([expect.objectContaining({ source: "RIG", slot: undefined })]);
+  });
+
+  it("returns no errors when the owner map has no entry", () => {
+    // resetDeviceData() in beforeEach leaves errorsByOwner empty for the root module.
+    const { result } = renderHook(() => useErrors());
+
+    expect(result.current).toEqual([]);
+  });
+
   it("joins normalized ASIC temperatures to hashboard-status positions", () => {
     const asicId = getAsicId("HB-1", 0);
     useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1, asicIds: [asicId] }]);

@@ -85,13 +85,17 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
             useMinerStore.getState().telemetry.updateCoolingMode(nextMode);
             void fetchData();
           }
-          onSuccess?.();
+          // A superseded command must not fire the caller's callback: it would
+          // surface a stale toast/side effect for a request the user replaced.
+          if (isCurrentCommand) onSuccess?.();
         },
         onError: (requestError) => {
           const isCurrentCommand = activeCommandIdRef.current === commandId;
           if (isCurrentCommand) activeCommandIdRef.current = undefined;
-          onError?.(requestError);
-          if (isCurrentCommand) setPending(false);
+          if (isCurrentCommand) {
+            onError?.(requestError);
+            setPending(false);
+          }
         },
       });
     },

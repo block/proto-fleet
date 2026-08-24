@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { mapErrorSourceToComponentType } from "../utils";
-import { useMinerStore } from "@/protoOS/store";
+import { useControlBoard, useFan, useHashboardHardware, useMinerStore, usePsu } from "@/protoOS/store";
 import type {
   ControlBoardHardwareData,
   ErrorSource,
@@ -14,35 +14,44 @@ export type ComponentHardware =
   FanHardwareData | PsuHardwareData | HashboardHardwareData | ControlBoardHardwareData | undefined | null;
 
 /**
- * Hook to fetch component hardware data reactively
+ * Hook to fetch component hardware data reactively.
+ *
+ * Delegates to the already-narrowed hardware hooks (mirroring useComponentTelemetry)
+ * so it only re-renders when the specific component's sub-map changes, not on every
+ * nested hardware write.
  * @param source - The error source type
  * @param slot - The 1-based component slot
  * @returns Hardware data for the component
  */
 export function useComponentHardware(source: ErrorSource, slot: number | undefined): ComponentHardware {
   const componentType = mapErrorSourceToComponentType(source);
-  const hardware = useMinerStore((state) => state.hardware);
+
+  // Resolve the hashboard serial from its slot via a scalar selector (only the
+  // serial string, so this doesn't re-render on unrelated hardware writes).
+  const hashboardSerial = useMinerStore((state) =>
+    componentType === "hashboard" && slot !== undefined ? state.hardware.getHashboardBySlot(slot)?.serial : undefined,
+  );
+
+  const fan = useFan(componentType === "fan" && slot !== undefined ? slot : -1);
+  const psu = usePsu(componentType === "psu" && slot !== undefined ? slot : -1);
+  const hashboard = useHashboardHardware(hashboardSerial ?? "");
+  const controlBoard = useControlBoard();
 
   return useMemo(() => {
     if (slot === undefined) {
       // For control board or when no slot
-      if (componentType === "controlBoard") {
-        return hardware.getControlBoard();
-      }
-      return undefined;
+      return componentType === "controlBoard" ? controlBoard : undefined;
     }
 
     switch (componentType) {
       case "fan":
-        return hardware.getFan(slot);
+        return fan;
       case "psu":
-        return hardware.getPsu(slot);
-      case "hashboard": {
-        const hashboard = hardware.getHashboardBySlot(slot);
+        return psu;
+      case "hashboard":
         return hashboard;
-      }
       default:
         return undefined;
     }
-  }, [componentType, hardware, slot]);
+  }, [componentType, slot, fan, psu, hashboard, controlBoard]);
 }
