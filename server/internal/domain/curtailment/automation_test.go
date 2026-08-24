@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
@@ -499,6 +500,36 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsStaleTopologyProfileBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.Mode = models.ModeFixedKw
+	targetKW := 5.0
+	h.profile.TargetKW = &targetKW
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	h.curtailments.orgConfigByOrg[h.orgID] = defaultOrgConfig(h.orgID)
+	h.curtailments.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	h.curtailments.candidatesByBuilding[h.orgID] = map[int64][]*models.Candidate{
+		7: {minerWithEff("miner-a", 3000, 100, 50)},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "topology-scoped Start is not available for automation")
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
 func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {

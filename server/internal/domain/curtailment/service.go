@@ -197,6 +197,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
+	if hasTopologySelectors(req.Scope) && req.SourceActorType == models.SourceActorAutomation {
+		return nil, fleeterror.NewFailedPreconditionError(
+			"topology-scoped Start is not available for automation",
+		)
+	}
 	if hasTopologySelectors(req.Scope) && req.Mode == models.ModeFullFleet {
 		return nil, fleeterror.NewUnimplementedError(
 			"topology-scoped FULL_FLEET Start requires topology-following lifecycle support",
@@ -1781,6 +1786,17 @@ func normalizeScope(s Scope) Scope {
 
 func hasTopologySelectors(s Scope) bool {
 	return len(s.BuildingIDs) > 0 || len(s.RackIDs) > 0 || len(s.GroupIDs) > 0
+}
+
+// IsTopologyScope reports whether scope targets buildings, racks, or groups.
+func IsTopologyScope(s Scope) bool {
+	return hasTopologySelectors(s)
+}
+
+// ListCandidatesParamsForScope returns the canonical candidate filter for a
+// validated scope. Callers must set OrgID before querying a store.
+func ListCandidatesParamsForScope(s Scope) (interfaces.ListCandidatesParams, error) {
+	return resolveScope(s)
 }
 
 func validateScopeContract(s Scope) error {

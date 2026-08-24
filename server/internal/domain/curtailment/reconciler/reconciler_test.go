@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -83,6 +84,8 @@ type fakeStore struct {
 	lastListCandidatesSiteIDs []int64
 	lastListCandidatesFilter  []string
 	listCandidatesFilters     [][]string
+	topologyCoverage          interfaces.CurtailmentTopologyScopeCoverage
+	topologyCoverageErr       error
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -358,6 +361,13 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeStore) ResolveCurtailmentTopologyScope(
+	_ context.Context,
+	_ interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	return f.topologyCoverage, f.topologyCoverageErr
 }
 
 func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -859,6 +869,19 @@ func newReconcilerWithFanAlertForTest(
 
 func ptrFloat64(v float64) *float64 { return &v }
 
+type staticDispatchPermissionResolver struct {
+	effective *authz.EffectivePermissions
+	err       error
+}
+
+func (r staticDispatchPermissionResolver) LoadEffective(
+	context.Context,
+	int64,
+	int64,
+) (*authz.EffectivePermissions, error) {
+	return r.effective, r.err
+}
+
 // --- tests ---
 
 func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
@@ -897,6 +920,113 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	// Heartbeat upserted once.
 	assert.Equal(t, 1, store.heartbeatCalls)
 	assert.Equal(t, int32(1), store.lastHeartbeatActive)
+}
+
+func TestReconciler_TopologyDispatchRevalidatesMembershipAndCreatorPermission(t *testing.T) {
+	t.Parallel()
+
+	const siteID = int64(7)
+	allowed := authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermCurtailmentManage},
+	}})
+	tests := []struct {
+		name       string
+		candidates []*models.Candidate
+		effective  *authz.EffectivePermissions
+		wantSend   bool
+	}{
+		{
+			name:       "authorized member dispatches",
+			candidates: []*models.Candidate{{DeviceIdentifier: "miner-1"}},
+			effective:  allowed,
+			wantSend:   true,
+		},
+		{
+			name:       "member left scope restores without dispatch",
+			candidates: nil,
+			effective:  allowed,
+		},
+		{
+			name:       "creator permission revoked restores without dispatch",
+			candidates: []*models.Candidate{{DeviceIdentifier: "miner-1"}},
+			effective:  authz.NewEffectivePermissions(nil),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newFakeStore()
+			dispatcher := &fakeDispatcher{}
+			eventID := int64(10)
+			eventUUID := uuid.New()
+			store.events = []*models.Event{{
+				ID:                        eventID,
+				EventUUID:                 eventUUID,
+				OrgID:                     1,
+				State:                     models.EventStatePending,
+				Mode:                      models.ModeFixedKw,
+				LoopType:                  models.LoopTypeOpen,
+				ScopeType:                 models.ScopeTypeMixed,
+				ScopeJSON:                 []byte(`{"scope_schema_version":1,"building_ids":[11]}`),
+				AuthorizationEnvelopeJSON: []byte(`{"schema_version":1,"selected_resource_site_ids":[7],"current_member_site_ids":[7],"miner_scope_unbounded":false,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`),
+				CreatedByUserID:           99,
+			}}
+			store.targetsByEventID[eventID] = []*models.Target{{
+				CurtailmentEventID: eventID,
+				DeviceIdentifier:   "miner-1",
+				State:              models.TargetStatePending,
+				DesiredState:       models.DesiredStateCurtailed,
+				BaselinePowerW:     ptrFloat64(3000),
+			}}
+			store.candidates = tt.candidates
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+				SelectedResourceSiteIDs: []int64{siteID},
+				CurrentMemberSiteIDs:    []int64{siteID},
+			}
+			reconciler := New(
+				Config{TickInterval: time.Hour},
+				store,
+				dispatcher,
+				WithDispatchPermissionResolver(staticDispatchPermissionResolver{effective: tt.effective}),
+			)
+
+			reconciler.runTick(t.Context())
+
+			if tt.wantSend {
+				assert.Equal(t, 1, dispatcher.curtailCalls)
+				assert.Equal(t, 0, store.beginRestoreCalls)
+				return
+			}
+			assert.Equal(t, 0, dispatcher.curtailCalls)
+			assert.Equal(t, 1, store.beginRestoreCalls)
+			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
+		})
+	}
+}
+
+func TestTopologyCoverageWithinEnvelope(t *testing.T) {
+	t.Parallel()
+
+	envelope := models.AuthorizationEnvelope{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{8},
+	}
+	assert.True(t, topologyCoverageWithinEnvelope(interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{8},
+	}, envelope))
+	assert.False(t, topologyCoverageWithinEnvelope(interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{8},
+		CurrentMemberSiteIDs:    []int64{8},
+	}, envelope), "a resource move must not borrow authority from member-site coverage")
+	assert.False(t, topologyCoverageWithinEnvelope(interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{8, 9},
+	}, envelope), "new member sites must remain inside the persisted member-site envelope")
 }
 
 func TestReconciler_PendingDispatchesAllTargetsInEffectiveBatches(t *testing.T) {

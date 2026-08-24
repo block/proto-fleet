@@ -101,14 +101,15 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg      Config
-	store    interfaces.CurtailmentStore
-	fanStore interfaces.CurtailmentFanStateStore
-	cmd      CommandDispatcher
-	metrics  curtailment.Metrics
-	fans     curtailment.FacilityFanController
-	fanAlert FacilityFanAlertEmitter
-	now      func() time.Time
+	cfg         Config
+	store       interfaces.CurtailmentStore
+	fanStore    interfaces.CurtailmentFanStateStore
+	cmd         CommandDispatcher
+	permissions DispatchPermissionResolver
+	metrics     curtailment.Metrics
+	fans        curtailment.FacilityFanController
+	fanAlert    FacilityFanAlertEmitter
+	now         func() time.Time
 
 	// sampler backs the confirmation fast path (see
 	// confirmation_fast_path.go); required only when
@@ -702,6 +703,9 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		return true
 	}
 	if !r.eventStillDispatchable(ctx, ev) {
+		return false
+	}
+	if !r.authorizeTopologyCurtailDispatch(ctx, ev, dispatchSet) {
 		return false
 	}
 

@@ -252,6 +252,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
+      <div data-testid="modal-response-profile-all-values">
+        {JSON.stringify(responseProfiles?.map((profile) => profile.values) ?? [])}
+      </div>
       <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
       <div data-testid="modal-infrastructure-count">{infrastructureDevices?.length ?? 0}</div>
       <div data-testid="modal-infrastructure-loading">{isLoadingInfrastructureDevices ? "loading" : "idle"}</div>
@@ -595,9 +598,9 @@ describe("CurtailmentManagementPanel", () => {
           deadlineSummary: "Within 15 min",
           formValues: {
             name: "Building shed",
-            actionType: "fullFleet",
+            actionType: "fixedKwReduction",
             scopeType: "building",
-            targetKw: "",
+            targetKw: "100",
             buildingTargetIds: ["7", "8"],
             rackTargetIds: [],
             groupTargetIds: [],
@@ -644,6 +647,9 @@ describe("CurtailmentManagementPanel", () => {
       '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
     );
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeType":"building"');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"buildingTargetIds":["7","8"]');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeId":"2 buildings"');
   });
 
   it("passes miner-scoped response profiles to the plan modal", async () => {

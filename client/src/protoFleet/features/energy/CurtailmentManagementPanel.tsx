@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import { getCurtailmentScopeSummary, getCurtailmentTerminalScope } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
@@ -281,31 +282,42 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       : siteIds.length > 0
         ? "site"
         : "none";
+  const terminalScope = getCurtailmentTerminalScope(values);
+  const scopeType = hasAllMinersSelected
+    ? "wholeOrg"
+    : terminalScope?.type === "deviceIdentifiers"
+      ? "explicitMiners"
+      : (terminalScope?.type ??
+        (deviceIdentifiers.length > 0 ? "explicitMiners" : siteIds.length > 0 ? "site" : "wholeOrg"));
+  const scopeId =
+    scopeType === "wholeOrg"
+      ? "whole-org"
+      : siteIds.length > 0
+        ? siteIds.length === 1
+          ? siteName
+          : `${siteIds.length} sites`
+        : scopeType === "explicitMiners"
+          ? undefined
+          : terminalScope
+            ? getCurtailmentScopeSummary(terminalScope, {
+                fallbackLabel: "Whole organization",
+                getSiteLabel: (id) => siteNamesById[id],
+              })
+            : undefined;
 
   return {
     id: profile.id,
     label: profile.name,
     values: {
-      scopeType: hasAllMinersSelected
-        ? "wholeOrg"
-        : deviceIdentifiers.length > 0
-          ? "explicitMiners"
-          : siteIds.length > 0
-            ? "site"
-            : "wholeOrg",
-      scopeId: hasAllMinersSelected
-        ? "whole-org"
-        : siteIds.length > 0
-          ? siteIds.length === 1
-            ? siteName
-            : `${siteIds.length} sites`
-          : deviceIdentifiers.length > 0
-            ? undefined
-            : "whole-org",
+      scopeType,
+      scopeId,
       siteSelection,
       siteId,
       siteIds,
       siteNamesById,
+      buildingTargetIds: [...(values.buildingTargetIds ?? [])],
+      rackTargetIds: [...(values.rackTargetIds ?? [])],
+      groupTargetIds: [...(values.groupTargetIds ?? [])],
       deviceSetIds: [],
       deviceIdentifiers,
       minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
