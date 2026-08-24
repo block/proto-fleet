@@ -252,6 +252,26 @@ type CurtailmentTopologyScopeStore interface {
 	) (CurtailmentTopologyScopeCoverage, error)
 }
 
+// CurtailmentTopologyDispatchSnapshot is one database snapshot of both the
+// selector's authorization coverage and the subset of the dispatch batch that
+// is still a member. Keeping these reads together prevents a placement change
+// from being authorized against coverage from a different point in time.
+type CurtailmentTopologyDispatchSnapshot struct {
+	Coverage                        CurtailmentTopologyScopeCoverage
+	DispatchMemberDeviceIdentifiers []string
+}
+
+// CurtailmentTopologyDispatchStore performs the live topology check used at
+// the physical command boundary. It is separate from the start-time topology
+// resolver because only the reconciler needs batch membership in the result.
+type CurtailmentTopologyDispatchStore interface {
+	ResolveCurtailmentTopologyDispatch(
+		ctx context.Context,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+	) (CurtailmentTopologyDispatchSnapshot, error)
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event

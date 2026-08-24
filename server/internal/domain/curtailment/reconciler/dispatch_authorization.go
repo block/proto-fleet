@@ -29,6 +29,7 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		return true
 	}
 	reject := func(reason string, cause error) bool {
+		r.topologyDispatchRejects.Store(ev.EventUUID, reason)
 		attrs := []any{"event_id", ev.ID, "event_uuid", ev.EventUUID, "reason", reason}
 		if cause != nil {
 			attrs = append(attrs, "error", cause)
@@ -42,8 +43,17 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		); restoreErr != nil {
 			slog.Error("curtailment reconciler: failed to restore after topology dispatch authorization failure",
 				"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", restoreErr)
+		} else {
+			r.topologyDispatchRejects.Delete(ev.EventUUID)
 		}
 		return false
+	}
+	if rejectedReason, rejected := r.topologyDispatchRejects.Load(ev.EventUUID); rejected {
+		reason, ok := rejectedReason.(string)
+		if !ok {
+			reason = "previous topology dispatch authorization failure"
+		}
+		return reject(reason, nil)
 	}
 	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
 	if err != nil || !hasScope {
@@ -73,26 +83,27 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		return reject("parse persisted topology selector", err)
 	}
 	filter.OrgID = latest.OrgID
-	topologyStore, ok := r.store.(interfaces.CurtailmentTopologyScopeStore)
+	topologyStore, ok := r.store.(interfaces.CurtailmentTopologyDispatchStore)
 	if !ok {
-		return reject("topology scope resolver is not configured", nil)
+		return reject("topology dispatch resolver is not configured", nil)
 	}
-	coverage, err := topologyStore.ResolveCurtailmentTopologyScope(ctx, filter)
+	dispatchDeviceIdentifiers := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target != nil {
+			dispatchDeviceIdentifiers = append(dispatchDeviceIdentifiers, target.DeviceIdentifier)
+		}
+	}
+	snapshot, err := topologyStore.ResolveCurtailmentTopologyDispatch(ctx, filter, dispatchDeviceIdentifiers)
 	if err != nil {
-		return reject("reload topology coverage", err)
+		return reject("reload topology dispatch snapshot", err)
 	}
+	coverage := snapshot.Coverage
 	if !topologyCoverageWithinEnvelope(coverage, envelope) {
 		return reject("current topology exceeds the persisted authorization envelope", nil)
 	}
-	candidates, err := r.store.ListCandidates(ctx, filter)
-	if err != nil {
-		return reject("reload topology members", err)
-	}
-	currentMembers := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		if candidate != nil {
-			currentMembers[candidate.DeviceIdentifier] = struct{}{}
-		}
+	currentMembers := make(map[string]struct{}, len(snapshot.DispatchMemberDeviceIdentifiers))
+	for _, deviceIdentifier := range snapshot.DispatchMemberDeviceIdentifiers {
+		currentMembers[deviceIdentifier] = struct{}{}
 	}
 	for _, target := range targets {
 		if target == nil {

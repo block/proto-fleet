@@ -1378,6 +1378,11 @@ type Querier interface {
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
 	ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error
+	// Returns authorization coverage for the full live selector plus membership
+	// only for the devices in the pending dispatch batch. Both are derived by one
+	// statement snapshot so a concurrent placement change cannot mix old coverage
+	// with new membership. The reconciler validates selector shape before calling.
+	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can

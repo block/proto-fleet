@@ -4908,6 +4908,18 @@ func (q *retryingQuerier) ResetReapedFirmwareStatuses(ctx context.Context, devic
 	})
 }
 
+func (q *retryingQuerier) ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error) {
+	var result ResolveCurtailmentTopologyDispatchRow
+	err := q.retrier.RetryQuery(ctx, "ResolveCurtailmentTopologyDispatch", func() error {
+		callResult, callErr := q.next.ResolveCurtailmentTopologyDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "ResumeCurtailmentFromRestoring", func() error {

@@ -131,6 +131,10 @@ type Reconciler struct {
 	// eligibility read advances it even when no target promotes, preventing
 	// a nonconfirming page from monopolizing the active pulse.
 	confirmationCursor interfaces.ConfirmationPageCursor
+	// topologyDispatchRejects latches a failed dispatch authorization until
+	// the durable restoring transition succeeds. This prevents a transient
+	// transition failure from letting a later tick resume Curtail commands.
+	topologyDispatchRejects sync.Map
 
 	loopCancel  context.CancelFunc
 	workCancel  context.CancelFunc
@@ -706,6 +710,9 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		return false
 	}
 	if !r.authorizeTopologyCurtailDispatch(ctx, ev, dispatchSet) {
+		return false
+	}
+	if !r.eventStillDispatchable(ctx, ev) {
 		return false
 	}
 

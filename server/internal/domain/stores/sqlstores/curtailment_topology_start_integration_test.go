@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -47,6 +48,15 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 	require.NoError(t, err)
 	_, err = buildingStore.CascadeDevicesSiteForBuilding(ctx, orgID, deviceIdentifiers, &site.ID)
 	require.NoError(t, err)
+	dispatchSnapshot, err := store.ResolveCurtailmentTopologyDispatch(
+		ctx,
+		interfaces.ListCandidatesParams{OrgID: orgID, BuildingIDs: []int64{building.ID}},
+		[]string{device.ID, "not-a-member"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{site.ID}, dispatchSnapshot.Coverage.SelectedResourceSiteIDs)
+	assert.Equal(t, []int64{site.ID}, dispatchSnapshot.Coverage.CurrentMemberSiteIDs)
+	assert.Equal(t, []string{device.ID}, dispatchSnapshot.DispatchMemberDeviceIdentifiers)
 
 	eventUUID := uuid.New()
 	event := curtailmentStoreTestEvent(orgID, user.DatabaseID, eventUUID, models.EventStatePending, "frozen-topology-start")
@@ -74,6 +84,15 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, deviceIdentifiers)
 	require.NoError(t, err)
+	dispatchSnapshot, err = store.ResolveCurtailmentTopologyDispatch(
+		ctx,
+		interfaces.ListCandidatesParams{OrgID: orgID, BuildingIDs: []int64{building.ID}},
+		[]string{device.ID},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{site.ID}, dispatchSnapshot.Coverage.SelectedResourceSiteIDs)
+	assert.Empty(t, dispatchSnapshot.Coverage.CurrentMemberSiteIDs)
+	assert.Empty(t, dispatchSnapshot.DispatchMemberDeviceIdentifiers)
 
 	driftedUUID := uuid.New()
 	drifted := event

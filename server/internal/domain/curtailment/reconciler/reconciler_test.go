@@ -86,6 +86,11 @@ type fakeStore struct {
 	listCandidatesFilters     [][]string
 	topologyCoverage          interfaces.CurtailmentTopologyScopeCoverage
 	topologyCoverageErr       error
+	topologyDispatchErr       error
+	topologyDispatchCalls     int
+	getEventErr               error
+	getEventCalls             int
+	getEventHook              func(call int, event *models.Event)
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -141,8 +146,17 @@ func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error
 	panic("SiteBelongsToOrg not exercised")
 }
 func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	f.getEventCalls++
+	if f.getEventErr != nil {
+		return nil, f.getEventErr
+	}
 	for _, ev := range f.events {
 		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
+			if f.getEventHook != nil {
+				latest := *ev
+				f.getEventHook(f.getEventCalls, &latest)
+				return &latest, nil
+			}
 			return ev, nil
 		}
 	}
@@ -368,6 +382,33 @@ func (f *fakeStore) ResolveCurtailmentTopologyScope(
 	_ interfaces.ListCandidatesParams,
 ) (interfaces.CurtailmentTopologyScopeCoverage, error) {
 	return f.topologyCoverage, f.topologyCoverageErr
+}
+
+func (f *fakeStore) ResolveCurtailmentTopologyDispatch(
+	_ context.Context,
+	_ interfaces.ListCandidatesParams,
+	dispatchDeviceIdentifiers []string,
+) (interfaces.CurtailmentTopologyDispatchSnapshot, error) {
+	f.topologyDispatchCalls++
+	if f.topologyDispatchErr != nil {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, f.topologyDispatchErr
+	}
+	members := make(map[string]struct{}, len(f.candidates))
+	for _, candidate := range f.candidates {
+		if candidate != nil {
+			members[candidate.DeviceIdentifier] = struct{}{}
+		}
+	}
+	dispatchMembers := make([]string, 0, len(dispatchDeviceIdentifiers))
+	for _, deviceIdentifier := range dispatchDeviceIdentifiers {
+		if _, ok := members[deviceIdentifier]; ok {
+			dispatchMembers = append(dispatchMembers, deviceIdentifier)
+		}
+	}
+	return interfaces.CurtailmentTopologyDispatchSnapshot{
+		Coverage:                        f.topologyCoverage,
+		DispatchMemberDeviceIdentifiers: dispatchMembers,
+	}, nil
 }
 
 func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -995,6 +1036,11 @@ func TestReconciler_TopologyDispatchRevalidatesMembershipAndCreatorPermission(t 
 			)
 
 			reconciler.runTick(t.Context())
+			assert.Equal(t, 1, store.topologyDispatchCalls)
+			for _, filter := range store.listCandidatesFilters {
+				assert.NotEmpty(t, filter,
+					"dispatch authorization must not re-expand the full topology selector")
+			}
 
 			if tt.wantSend {
 				assert.Equal(t, 1, dispatcher.curtailCalls)
@@ -1006,6 +1052,174 @@ func TestReconciler_TopologyDispatchRevalidatesMembershipAndCreatorPermission(t 
 			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
 		})
 	}
+}
+
+func TestReconciler_TopologyDispatchAuthorizationErrorsFailClosed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		configure func(*fakeStore, *models.Event) DispatchPermissionResolver
+	}{
+		{
+			name: "persisted scope parse error",
+			configure: func(_ *fakeStore, event *models.Event) DispatchPermissionResolver {
+				event.ScopeJSON = []byte(`{`)
+				return staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			},
+		},
+		{
+			name: "event reload error",
+			configure: func(store *fakeStore, _ *models.Event) DispatchPermissionResolver {
+				store.getEventErr = errors.New("reload failed")
+				return staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			},
+		},
+		{
+			name: "reloaded scope parse error",
+			configure: func(store *fakeStore, _ *models.Event) DispatchPermissionResolver {
+				store.getEventHook = func(_ int, latest *models.Event) { latest.ScopeJSON = []byte(`{`) }
+				return staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			},
+		},
+		{
+			name: "authorization envelope parse error",
+			configure: func(_ *fakeStore, event *models.Event) DispatchPermissionResolver {
+				event.AuthorizationEnvelopeJSON = []byte(`{`)
+				return staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			},
+		},
+		{
+			name: "topology snapshot error",
+			configure: func(store *fakeStore, _ *models.Event) DispatchPermissionResolver {
+				store.topologyDispatchErr = errors.New("snapshot failed")
+				return staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			},
+		},
+		{
+			name: "permission reload error",
+			configure: func(_ *fakeStore, _ *models.Event) DispatchPermissionResolver {
+				return staticDispatchPermissionResolver{err: errors.New("permission read failed")}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store, event, target := topologyDispatchFixture()
+			dispatcher := &fakeDispatcher{}
+			reconciler := New(
+				Config{TickInterval: time.Hour},
+				store,
+				dispatcher,
+				WithDispatchPermissionResolver(tt.configure(store, event)),
+			)
+
+			assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}))
+			assert.Equal(t, 0, dispatcher.curtailCalls)
+			assert.Equal(t, 1, store.beginRestoreCalls)
+			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
+		})
+	}
+}
+
+func TestReconciler_TopologyDispatchRejectionStaysLatchedUntilRestoreStarts(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	store.beginRestoreErr = errors.New("restore transition failed")
+	reconciler := New(
+		Config{TickInterval: time.Hour},
+		store,
+		&fakeDispatcher{},
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: authz.NewEffectivePermissions(nil),
+		}),
+	)
+
+	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}))
+	assert.Equal(t, models.EventStatePending, event.State)
+
+	store.beginRestoreErr = nil
+	reconciler.permissions = staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+	assert.False(t, reconciler.authorizeTopologyCurtailDispatch(t.Context(), event, []*models.Target{target}),
+		"a cleared rejection condition must not resume curtail dispatch")
+	assert.Equal(t, 2, store.beginRestoreCalls)
+	assert.Equal(t, models.EventStateRestoring, event.State)
+}
+
+func TestReconciler_TopologyDispatchRechecksEventAtCommandBoundary(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	dispatcher := &fakeDispatcher{}
+	store.getEventHook = func(call int, latest *models.Event) {
+		if call == 4 {
+			latest.State = models.EventStateRestoring
+		}
+	}
+	reconciler := New(
+		Config{TickInterval: time.Hour},
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	dispatched := reconciler.dispatchCurtailBatch(
+		t.Context(),
+		event,
+		[]*models.Target{target},
+		models.TargetStatePending,
+		skipPendingDispatchClock,
+	)
+
+	assert.False(t, dispatched)
+	assert.Equal(t, 4, store.getEventCalls)
+	assert.Equal(t, 0, dispatcher.curtailCalls)
+}
+
+func topologyDispatchFixture() (*fakeStore, *models.Event, *models.Target) {
+	const siteID = int64(7)
+	eventID := int64(10)
+	event := &models.Event{
+		ID:                        eventID,
+		EventUUID:                 uuid.New(),
+		OrgID:                     1,
+		State:                     models.EventStatePending,
+		Mode:                      models.ModeFixedKw,
+		LoopType:                  models.LoopTypeOpen,
+		ScopeType:                 models.ScopeTypeMixed,
+		ScopeJSON:                 []byte(`{"scope_schema_version":1,"building_ids":[11]}`),
+		AuthorizationEnvelopeJSON: []byte(`{"schema_version":1,"selected_resource_site_ids":[7],"current_member_site_ids":[7],"miner_scope_unbounded":false,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`),
+		CreatedByUserID:           99,
+	}
+	target := &models.Target{
+		CurtailmentEventID: eventID,
+		DeviceIdentifier:   "miner-1",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateCurtailed,
+		BaselinePowerW:     ptrFloat64(3000),
+	}
+	store := newFakeStore()
+	store.events = []*models.Event{event}
+	store.targetsByEventID[eventID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{DeviceIdentifier: target.DeviceIdentifier}}
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{siteID},
+		CurrentMemberSiteIDs:    []int64{siteID},
+	}
+	return store, event, target
+}
+
+func topologyDispatchManagePermission() *authz.EffectivePermissions {
+	return authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermCurtailmentManage},
+	}})
 }
 
 func TestTopologyCoverageWithinEnvelope(t *testing.T) {
