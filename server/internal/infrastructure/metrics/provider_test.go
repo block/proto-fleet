@@ -80,6 +80,7 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 	provider.EmitSystemMemoryUsedPercent(ctx, 40.0)
 	provider.EmitSystemDiskUsedPercent(ctx, 63.0)
 	provider.EmitSystemHeartbeat(ctx)
+	provider.EmitHAFailoverReady(ctx, true)
 	provider.EmitCurtailmentFanRestoreFailure(ctx, 42, "event-uuid", true)
 
 	// Shutdown flushes the buffer. Don't rely on a tick — we want the
@@ -105,6 +106,7 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 		MetricSystemMemoryUsedPercent,
 		MetricSystemDiskUsedPercent,
 		MetricSystemHeartbeat,
+		MetricHAFailoverReady,
 		MetricCurtailmentFanRestoreFailed,
 	}
 	for _, name := range want {
@@ -140,7 +142,7 @@ func TestCurtailmentFanRestoreFailureEmitsPerEventState(t *testing.T) {
 
 // system samples are host-scoped: every label column stays empty so the
 // Grafana rules' per-org fan-out happens in SQL, not here.
-func TestSystemEmitsAreHostScoped(t *testing.T) {
+func TestHostScopedEmitsHaveNoLabels(t *testing.T) {
 	// Arrange
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -155,11 +157,12 @@ func TestSystemEmitsAreHostScoped(t *testing.T) {
 	// Act
 	provider.EmitSystemCPUUsedPercent(ctx, 55.5)
 	provider.EmitSystemHeartbeat(ctx)
+	provider.EmitHAFailoverReady(ctx, false)
 	require.NoError(t, provider.Shutdown(ctx))
 
 	// Assert
 	samples := store.Snapshot()
-	require.Len(t, samples, 2)
+	require.Len(t, samples, 3)
 	byMetric := map[string]Sample{}
 	for _, sample := range samples {
 		byMetric[sample.Metric] = sample
@@ -167,6 +170,7 @@ func TestSystemEmitsAreHostScoped(t *testing.T) {
 	}
 	require.Equal(t, 55.5, byMetric[MetricSystemCPUUsedPercent].Value)
 	require.Equal(t, 1.0, byMetric[MetricSystemHeartbeat].Value)
+	require.Equal(t, 0.0, byMetric[MetricHAFailoverReady].Value)
 }
 
 func TestSystemEmitSanitizesPercent(t *testing.T) {

@@ -266,7 +266,7 @@ function getActiveSnapshotFields(
     activeEvent: nextActiveEvent,
     activeEventId: activeEvent && nextActiveEvent ? activeEvent.eventUuid : null,
     activeEventFormValues:
-      activeEvent && nextActiveEvent ? mapCurtailmentEventToFormValues(activeEvent, { siteNameById }) : null,
+      activeEvent && nextActiveEvent ? (mapCurtailmentEventToFormValues(activeEvent, { siteNameById }) ?? null) : null,
   };
 }
 
@@ -722,7 +722,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
         activeEventId: nextActiveSnapshotEvent && nextActiveEvent ? nextActiveSnapshotEvent.eventUuid : null,
         activeEventFormValues:
           nextActiveSnapshotEvent && nextActiveEvent
-            ? mapCurtailmentEventToFormValues(nextActiveSnapshotEvent, { siteNameById })
+            ? (mapCurtailmentEventToFormValues(nextActiveSnapshotEvent, { siteNameById }) ?? null)
             : null,
         historyEvents: shouldUpdateHistoryPage
           ? upsertHistoryEvent(current.historyEvents, event, siteNameById)

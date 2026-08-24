@@ -230,6 +230,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     infrastructureDevicesError,
     onRetryInfrastructureDevices,
     defaultSiteScope,
+    buildingScopeEnabled,
+    rackAndGroupScopeEnabled,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
@@ -243,6 +245,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     infrastructureDevicesError?: string | null;
     onRetryInfrastructureDevices?: () => void;
     defaultSiteScope?: CurtailmentSiteOption;
+    buildingScopeEnabled?: boolean;
+    rackAndGroupScopeEnabled?: boolean;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
@@ -258,6 +262,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
         </button>
       ) : null}
       <div data-testid="modal-default-site-scope">{defaultSiteScope?.name ?? ""}</div>
+      <div data-testid="modal-building-scope-enabled">{buildingScopeEnabled ? "enabled" : "disabled"}</div>
+      <div data-testid="modal-rack-group-scope-enabled">{rackAndGroupScopeEnabled ? "enabled" : "disabled"}</div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -435,6 +441,8 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-site-options")).toHaveTextContent("Austin, TX");
+    expect(screen.getByTestId("modal-building-scope-enabled")).toHaveTextContent("enabled");
+    expect(screen.getByTestId("modal-rack-group-scope-enabled")).toHaveTextContent("disabled");
   });
 
   it("passes the globally selected site as the default site scope for new curtailment runs", async () => {
@@ -577,6 +585,39 @@ describe("CurtailmentManagementPanel", () => {
             includeMaintenance: true,
           },
         },
+        {
+          id: "profile-2",
+          name: "Building shed",
+          targetSummary: "100% reduction",
+          scope: "2 buildings",
+          selectionStrategy: "Least efficient first",
+          restoreBehavior: "Restore in batches",
+          deadlineSummary: "Within 15 min",
+          formValues: {
+            name: "Building shed",
+            actionType: "fullFleet",
+            scopeType: "building",
+            targetKw: "",
+            buildingTargetIds: ["7", "8"],
+            rackTargetIds: [],
+            groupTargetIds: [],
+            deviceIdentifiers: [],
+            siteSelection: "none",
+            siteId: "",
+            siteIds: [],
+            selectionStrategy: "leastEfficientFirst",
+            restoreBehavior: "automaticBatchRestore",
+            minDurationSec: "",
+            maxDurationSec: "",
+            curtailBatchSize: "20",
+            curtailBatchIntervalSec: "60",
+            restoreBatchSize: "10",
+            restoreIntervalSec: "120",
+            responseDeadlineMinutes: "15",
+            includeMaintenance: false,
+          },
+          isReadOnly: false,
+        },
       ],
       isLoading: false,
       isCreating: false,
@@ -594,6 +635,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
+    expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Building shed");
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteSelection":"site"');

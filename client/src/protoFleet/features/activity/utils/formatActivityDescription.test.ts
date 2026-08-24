@@ -18,6 +18,16 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Couldn't log in");
   });
 
+  it("identifies break-glass resets and their target", () => {
+    const entry = create(ActivityEntrySchema, {
+      eventType: "cli_reset_password",
+      description: "Break-glass SUPER_ADMIN password reset",
+      metadata: { target_username: "owner" },
+    });
+
+    expect(formatActivityDescription(entry)).toBe("Break-glass password reset for owner");
+  });
+
   it("uses metadata to avoid backend IDs in site and building descriptions", () => {
     const siteEntry = create(ActivityEntrySchema, {
       eventType: "site.created",

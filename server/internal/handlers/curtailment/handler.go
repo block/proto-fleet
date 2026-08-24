@@ -31,6 +31,8 @@ const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
 
+const requestReadMaxBytes = 2 << 20
+
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
@@ -41,6 +43,11 @@ type Handler struct {
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
+
+// RequestReadLimitOption caps curtailment RPC bodies before Connect unmarshals them.
+func RequestReadLimitOption() connect.HandlerOption {
+	return connect.WithReadMaxBytes(requestReadMaxBytes)
+}
 
 func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.SettingsService) *Handler {
 	h := &Handler{service: service}
@@ -145,6 +152,7 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	startReq.AuthorizedDeviceSites = requirements.deviceSites
 	startReq.AuthorizedFanSites = make(map[int64]int64, len(authorizedFans))
 	for deviceID, device := range authorizedFans {
 		startReq.AuthorizedFanSites[deviceID] = device.SiteID
@@ -432,6 +440,7 @@ func errCurtailmentNotImplemented(rpc string) error {
 type scopeResourceContextRequirements struct {
 	siteContexts   []authz.ResourceContext
 	requireOrgWide bool
+	deviceSites    map[string]*int64
 }
 
 func (h *Handler) previewResourceContextRequirements(
@@ -483,7 +492,7 @@ func (h *Handler) scopeResourceContextRequirementsFromProto(
 	deviceSites map[string]*int64,
 	requireKnownDevices bool,
 ) (scopeResourceContextRequirements, error) {
-	scope, err := toCompositeScope(scopes)
+	scope, err := toTerminalScope(scopes)
 	if err != nil {
 		return scopeResourceContextRequirements{}, err
 	}
@@ -504,6 +513,14 @@ func (h *Handler) scopeResourceContextRequirements(
 		out.requireOrgWide = true
 		return out, nil
 	}
+	if len(scope.BuildingIDs) > 0 || len(scope.RackIDs) > 0 || len(scope.GroupIDs) > 0 {
+		// Scoped topology authorization must be bound to the same snapshot used
+		// for candidate resolution. Until the durable authorization envelope and
+		// dispatch-time recheck land, require org-wide permission so membership
+		// changes cannot broaden a site-scoped request after authorization.
+		out.requireOrgWide = true
+		return out, nil
+	}
 	deviceIdentifiers := uniqueResponseProfileDeviceIdentifiers(scope.DeviceIdentifiers)
 	if len(deviceIdentifiers) == 0 {
 		return out, nil
@@ -519,6 +536,7 @@ func (h *Handler) scopeResourceContextRequirements(
 			return scopeResourceContextRequirements{}, err
 		}
 	}
+	out.deviceSites = deviceSites
 	siteIDs := siteIDsFromResourceContexts(out.siteContexts)
 	for _, deviceIdentifier := range deviceIdentifiers {
 		siteID, ok := deviceSites[deviceIdentifier]
@@ -543,7 +561,9 @@ func scopeHasNoSelectors(scope curtailment.Scope) bool {
 	return scope.Type == "" &&
 		scope.SiteID == 0 &&
 		len(scope.SiteIDs) == 0 &&
-		len(scope.DeviceSetIDs) == 0 &&
+		len(scope.BuildingIDs) == 0 &&
+		len(scope.RackIDs) == 0 &&
+		len(scope.GroupIDs) == 0 &&
 		len(scope.DeviceIdentifiers) == 0
 }
 
@@ -845,7 +865,7 @@ func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
 		return false
 	}
 	switch event.ScopeType {
-	case models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
+	case models.ScopeTypeDeviceList:
 		return true
 	case models.ScopeTypeMixed:
 		_, handled, err := mixedSiteOnlyEventResourceContexts(event)

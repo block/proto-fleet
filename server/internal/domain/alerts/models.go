@@ -61,6 +61,18 @@ const (
 	// proto-fleet-rules.yaml.
 	RuleTemplateMQTTCurtailment  RuleTemplate = "mqtt-curtailment"
 	RuleTemplateMQTTDisconnected RuleTemplate = "mqtt-disconnected"
+
+	// Facility fan restore failed while curtailment was releasing miners.
+	// Provisioned-only, like the MQTT pair above, and named here so the
+	// summary-visibility gate can recognize it as device-less.
+	RuleTemplateCurtailmentFanRestore RuleTemplate = "curtailment-fan-restore"
+
+	// Self-monitoring: metric ingest has stalled. Operator-owned but fanned out
+	// to every org's history, so it needs the same device-less recognition.
+	RuleTemplateMetricIngest RuleTemplate = "metric-ingest"
+
+	// HA control and redundancy readiness is a cluster-wide, device-less rule.
+	RuleTemplateHAReadiness RuleTemplate = "ha-readiness"
 )
 
 // Origin decides mutability: only user rules accept UpdateRule/DeleteRule.
@@ -171,32 +183,21 @@ type Rule struct {
 	legacyConfigJSON string
 }
 
-type MaintenanceWindowScopeKind string
-
-const (
-	MaintenanceWindowScopeRule   MaintenanceWindowScopeKind = "rule"
-	MaintenanceWindowScopeGroup  MaintenanceWindowScopeKind = "group"
-	MaintenanceWindowScopeSite   MaintenanceWindowScopeKind = "site"
-	MaintenanceWindowScopeDevice MaintenanceWindowScopeKind = "device"
-)
-
-type MaintenanceWindowScope struct {
-	Kind      MaintenanceWindowScopeKind
-	RuleID    string
-	GroupID   string
-	SiteID    string
-	DeviceIDs []string
-}
-
-// Active is derived from Now() ∈ [StartsAt, EndsAt) at read time.
+// MaintenanceWindow mutes alert delivery for a bounded period: alerts from RuleIDs (empty means
+// every rule) stop delivering to ChannelIDs (empty means every channel) while the window is
+// active. Alert history still records the muted alerts. Active is derived from
+// Now() ∈ [StartsAt, EndsAt) at read time.
 type MaintenanceWindow struct {
 	ID             string
 	OrganizationID int64
-	Scope          MaintenanceWindowScope
-	StartsAt       time.Time
-	EndsAt         time.Time
-	Comment        string
-	CreatedBy      string
-	CreatedAt      time.Time
-	Active         bool
+	// Grafana rule UIDs whose alerts the window mutes; empty means every rule.
+	RuleIDs []string
+	// Channel ids the window mutes, in the wire's decimal-string form; empty means every channel.
+	ChannelIDs []string
+	StartsAt   time.Time
+	EndsAt     time.Time
+	Comment    string
+	CreatedBy  string
+	CreatedAt  time.Time
+	Active     bool
 }

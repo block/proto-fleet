@@ -45,6 +45,7 @@ password_files=(
     postgres-superuser-password
     postgres-replication-password
     fleet-db-password
+    grafana-db-password
 )
 required_files+=("${password_files[@]}")
 

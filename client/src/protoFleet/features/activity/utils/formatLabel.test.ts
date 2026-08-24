@@ -9,6 +9,7 @@ describe("formatLabel", () => {
     expect(formatLabel("set_rack_slot")).toBe("Updated rack position");
     expect(formatLabel("site.created")).toBe("Created site");
     expect(formatLabel("devices.reassigned_to_site")).toBe("Reassigned miners to site");
+    expect(formatLabel("cli_reset_password")).toBe("Break-glass password reset");
   });
 
   it("formats completed event types using the base event label", () => {
@@ -24,6 +25,7 @@ describe("formatLabel", () => {
     expect(formatActivityFilterLabel("set_rack_slot")).toBe("Update rack position");
     expect(formatActivityFilterLabel("site.created")).toBe("Create site");
     expect(formatActivityFilterLabel("set_power_target.completed")).toBe("Update power target");
+    expect(formatActivityFilterLabel("cli_reset_password")).toBe("Break-glass password reset");
   });
 
   it("keeps curtailment lifecycle filter labels distinct from curtail commands", () => {

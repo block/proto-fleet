@@ -21,8 +21,12 @@ const (
 // supervisor starts the executable that was restored before initialization.
 var ErrInterruptedSelfUpdateRestored = errors.New("interrupted self-update restored; restart required")
 
+var errRetriedSelfUpdateRestored = errors.New("retried self-update restored; continue with previous updater")
+
 type selfUpdateHandoffMarker struct {
 	ExecutablePath string `json:"executable_path"`
+	Retry          bool   `json:"retry,omitempty"`
+	Retried        bool   `json:"retried,omitempty"`
 }
 
 // SelfUpdateStartup is the one-shot authority carried by the first replacement
@@ -39,6 +43,15 @@ type SelfUpdateStartup struct {
 // restarted an attempt that never reached readiness, so the previous binary is
 // restored before initialization continues.
 func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateStartup, error) {
+	return prepareSelfUpdateStartup(configuredPath, handoffPath, true)
+}
+
+func prepareSelfUpdateRepair(configuredPath string) error {
+	_, err := prepareSelfUpdateStartup(configuredPath, "", false)
+	return err
+}
+
+func prepareSelfUpdateStartup(configuredPath, handoffPath string, consumeRetry bool) (*SelfUpdateStartup, error) {
 	if configuredPath != "" && !filepath.IsAbs(configuredPath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
 	}
@@ -88,8 +101,25 @@ func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateSt
 		}
 		return &SelfUpdateStartup{executablePath: canonicalPath, active: true}, nil
 	}
+	if marker.Retry {
+		if !consumeRetry {
+			return nil, nil
+		}
+		if _, err := ensureTrustedSelfUpdatePath(configuredPath); err != nil {
+			return nil, fmt.Errorf("validate retried updater executable: %w", err)
+		}
+		marker.Retry = false
+		marker.Retried = true
+		if err := replaceSelfUpdateHandoffMarker(canonicalPath, marker); err != nil {
+			return nil, fmt.Errorf("consume updater retry authority: %w", err)
+		}
+		return &SelfUpdateStartup{executablePath: canonicalPath, active: true}, nil
+	}
 	if err := rollbackPendingSelfUpdate(canonicalPath); err != nil {
 		return nil, fmt.Errorf("restore interrupted self-update: %w", err)
+	}
+	if marker.Retried {
+		return nil, errRetriedSelfUpdateRestored
 	}
 	return nil, ErrInterruptedSelfUpdateRestored
 }
@@ -150,10 +180,44 @@ func writeSelfUpdateHandoffMarker(destination string) error {
 		return fmt.Errorf("updater backup does not retain the current executable")
 	}
 
+	return persistSelfUpdateHandoffMarker(
+		destination,
+		selfUpdateHandoffMarker{ExecutablePath: destination},
+		false,
+	)
+}
+
+func authorizeSelfUpdateRestart(destination string) error {
+	canonicalDestination, err := canonicalSelfUpdateDestination(destination)
+	if err != nil {
+		return err
+	}
+	marker, exists, err := readSelfUpdateHandoffMarker(canonicalDestination)
+	if err != nil {
+		return err
+	}
+	if !exists || marker.ExecutablePath != canonicalDestination {
+		return fmt.Errorf("self-update handoff marker does not match executable")
+	}
+	marker.Retry = true
+	marker.Retried = false
+	return replaceSelfUpdateHandoffMarker(canonicalDestination, marker)
+}
+
+func replaceSelfUpdateHandoffMarker(destination string, marker selfUpdateHandoffMarker) error {
+	return persistSelfUpdateHandoffMarker(destination, marker, true)
+}
+
+func persistSelfUpdateHandoffMarker(destination string, marker selfUpdateHandoffMarker, replace bool) error {
+	canonicalDestination, err := canonicalSelfUpdateDestination(destination)
+	if err != nil {
+		return err
+	}
+	destination = canonicalDestination
 	markerPath := destination + selfUpdateHandoffSuffix
-	if _, err := os.Lstat(markerPath); err == nil {
+	if _, err := os.Lstat(markerPath); err == nil && !replace {
 		return fmt.Errorf("self-update handoff marker already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect self-update handoff marker: %w", err)
 	}
 	tempPath := destination + selfUpdateHandoffTempSuffix
@@ -165,7 +229,7 @@ func writeSelfUpdateHandoffMarker(destination string) error {
 		}
 	}
 
-	data, err := json.Marshal(selfUpdateHandoffMarker{ExecutablePath: destination})
+	data, err := json.Marshal(marker)
 	if err != nil {
 		return fmt.Errorf("encode self-update handoff marker: %w", err)
 	}

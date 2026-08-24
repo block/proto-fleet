@@ -2,74 +2,35 @@
 
 ## Source
 - Repository: miner-firmware (private)
-  - Commit SHA: b093c1e0652164373c963046b152ad3ee29c6be6
-  - Commit Date: 2026-07-17
-  - Extraction Date: 2026-07-20
+  - Commit SHA: b8c6575ea1cc32498cd18616865964b7e816dcea
+  - Commit Date: 2026-08-13
+  - Extraction Date: 2026-08-17
 
-The hashboard proto files live in the `external/hashboard` submodule, pinned by
-the superproject commit above to:
-- Submodule: external/hashboard (github.com/btc-mining/hashboard)
-  - Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
-
-The OpenAPI spec was extracted from the same miner-firmware commit and verified
-byte-identical to the previous snapshot. At this revision,
-`TemperatureGradient`, `AutoTune`, and F1 values are gRPC-only; the generated
-ProtoOS REST types and fake-proto-rig simulator intentionally remain unchanged
-until `MDK-API.json` exposes them.
+This snapshot tracks the `proto-apps-1.8.4` source revision. The REST pool
+contract adds native Stratum V2 configuration through `v2_authority_pubkey`
+and protocol-default ports. The ProtoOS REST client and fake-proto-rig
+simulator are updated with these OpenAPI changes.
 
 ## Files Extracted
-
-### gRPC Proto Files (from `crates/rpc/protos/`)
-- mfgtool_api.proto
-- mfgtool_test_commands.proto
-- miner_command_api.proto
-- miner_common_api.proto
-- miner_data_api.proto
-- miner_debug_api.proto
-- miner_error_code.proto
-- miner_fan_api.proto
-- miner_hb_api.proto
-- miner_hb_test_api.proto
-- miner_psu_api.proto
-- miner_psu_test_api.proto
-- miner_system_api.proto
-- miner_telemetry_api.proto
-- miner_ui_api.proto
-
-### Hashboard Proto Files (from `external/hashboard/lib/protobuf/protos/`)
-- hashboard.proto
-- hashboard_async.proto
-- hashboard_cmd.proto
-- hashboard_cmd_debug.proto
-- hashboard_cmd_evb.proto
-- hashboard_cmd_mfgtest.proto
-- hashboard_log.proto
 
 ### OpenAPI Spec (from `crates/miner-api-server/docs/`)
 - MDK-API.json
 
 ## Update Instructions
 
-To update these API specifications:
+To update the API specification:
 
 1. Clone or access the miner-firmware repository
-2. Checkout the desired commit/tag and sync submodules:
-   `git submodule update --init external/hashboard`
-3. Copy gRPC proto files from `crates/rpc/protos/` to `grpc/`
-4. Copy hashboard proto files from `external/hashboard/lib/protobuf/protos/` to `grpc/`
-5. Copy MDK-API.json from `crates/miner-api-server/docs/` to `openapi/`
-6. Update this VERSION.md with the new commit SHA(s) and dates
-7. Regenerate the dependent generated code:
+2. Checkout the desired commit/tag
+3. Copy MDK-API.json from `crates/miner-api-server/docs/` to `openapi/`
+4. Update this VERSION.md with the new commit SHA and dates
+5. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types` (TypeScript types from the OpenAPI spec)
-8. Update the simulator REST API if the OpenAPI spec changed
+6. Update the simulator REST API if the OpenAPI spec changed
    (see `server/fake-proto-rig/README.md`)
-9. Run tests to verify compatibility
-10. Commit all changes together
+7. Run tests to verify compatibility
+8. Commit all changes together
 
-**Note**: The gRPC proto files are vendored as reference only — they document
-the on-rig gRPC surface and are not inputs to Proto Fleet code generation. The
-OpenAPI spec (`MDK-API.json`) is the source that drives generated code (the
-ProtoOS TypeScript client) and the hand-maintained fake-proto-rig simulator.
-
-**Important**: Always update the gRPC and OpenAPI specs together to maintain
-version consistency.
+**Note**: The OpenAPI spec (`MDK-API.json`) is the consumed miner API contract.
+It drives the generated ProtoOS TypeScript client and serves as the reference
+for the hand-maintained fake-proto-rig simulator and Proto plugin REST client.

@@ -203,7 +203,43 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 5. Compose render smoke test (staged tarball layout)
+# 5. NGINX keeps only ControlStream on native gRPC
+# ----------------------------------------------------------------------------
+
+check_control_stream_route() { # config upstream_host
+    local config="$1" upstream_host="$2" block generic
+    block=$(sed -n '\|location = /api-proxy/fleetnodegateway.v1.FleetNodeGatewayService/ControlStream {|,/^[[:space:]]*}/p' "$config")
+    generic=$(sed -n '\|location /api-proxy/ {|,/^[[:space:]]*}/p' "$config")
+
+    if ! grep -Fq -- 'http2 on;' "$config"; then
+        fail "$(basename "$config"): HTTP/2 must remain enabled for gRPC"
+    fi
+
+    for expected in \
+        'location = /api-proxy/fleetnodegateway.v1.FleetNodeGatewayService/ControlStream {' \
+        'rewrite ^/api-proxy/(.*)$ /$1 break;' \
+        "grpc_pass grpc://${upstream_host}:4000;" \
+        'grpc_read_timeout 90s;' \
+        'grpc_next_upstream off;'; do
+        if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+            fail "$(basename "$config"): ControlStream route does not contain: $expected"
+        fi
+    done
+    if [ "$(grep -c 'grpc_pass ' "$config")" -ne 1 ]; then
+        fail "$(basename "$config"): exactly one RPC route must use grpc_pass"
+    fi
+    if ! printf '%s\n' "$generic" | grep -Fq -- "proxy_pass http://${upstream_host}:4000/;"; then
+        fail "$(basename "$config"): generic /api-proxy route must retain Connect proxy_pass"
+    fi
+}
+
+check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_control_stream_route "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+pass "NGINX routes only ControlStream through native gRPC"
+
+# ----------------------------------------------------------------------------
+# 6. Compose render smoke test (staged tarball layout)
 # ----------------------------------------------------------------------------
 
 if ! docker compose version >/dev/null 2>&1; then

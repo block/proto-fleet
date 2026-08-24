@@ -60,6 +60,40 @@ The script will:
   in-product one-click upgrades
 - Run the deployment script automatically
 
+## Resetting the SUPER_ADMIN password
+
+If the sole SUPER_ADMIN is locked out, run this from the installed standalone
+`deployment` directory:
+
+```bash
+./reset-super-admin-password.sh
+```
+
+On an HA database host (`ha-a` or `ha-b`), run the same wrapper with the
+installed HA deployment user's permissions:
+
+```bash
+sudo /opt/proto-fleet/deployment/reset-super-admin-password.sh
+```
+
+The wrapper selects the installed standalone or HA Compose profile. With no
+flags it generates and prints a temporary password on the host after the reset
+succeeds; the credential is never written to container logs. Standalone
+recovery verifies that the selected Docker context or `DOCKER_HOST` identifies
+the same daemon used to run the installation. The reset revokes existing
+sessions and requires a password change at next login.
+To supply the temporary password through a pipeline instead:
+
+```bash
+printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
+```
+
+Supplied passwords must be valid UTF-8, contain at least 8 characters, and use
+no more than 72 bytes; the success message does not echo them. The command
+refuses to choose an account if the database contains zero or multiple live
+SUPER_ADMIN users. It rejects all other options and fails closed if both
+standalone and HA installation state appear active.
+
 ## One-click upgrades
 
 After one manual install of a release that includes the host updater,
@@ -74,7 +108,8 @@ given the host Docker socket. Before stopping Fleet, the updater:
 
 1. downloads the target bundle and its checksum over HTTPS;
 2. verifies the SHA-256 digest and safely extracts the archive;
-3. preserves `.env`, `ssl/`, and `server/influx_config/.env`;
+3. preserves `.env`, the Docker-daemon identity marker, `ssl/`, and
+   `server/influx_config/.env`;
 4. builds and validates the staged deployment with Fleet still running.
 
 Only then does it swap the staged deployment into place and restart the stack.

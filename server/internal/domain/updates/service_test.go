@@ -25,7 +25,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
-var testPublishedAt = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+var (
+	testPublishedAt        = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	testOperationStartedAt = time.Date(2026, 8, 14, 17, 30, 0, 456_000_000, time.UTC)
+)
+
+const (
+	testOperationID      = "11111111-1111-4111-8111-111111111111"
+	otherTestOperationID = "22222222-2222-4222-8222-222222222222"
+	testOutcomeRevision  = uint64(1)
+)
 
 // fakeSnapshots is a mutable snapshotProvider so tests can model the checker
 // picking up new releases between status calls.
@@ -34,14 +43,21 @@ type fakeSnapshots struct{ snap Snapshot }
 func (f *fakeSnapshots) Snapshot() Snapshot { return f.snap }
 
 type fakeExecutor struct {
-	status       updaterapi.StatusResponse
-	statusErr    error
-	statusFunc   func(context.Context) (updaterapi.StatusResponse, error)
-	operationIDs []string
-	triggered    []string
-	trigger      updaterapi.Operation
-	triggerErr   error
-	triggerFunc  func(context.Context, string, string) (updaterapi.Operation, error)
+	status                updaterapi.StatusResponse
+	statusErr             error
+	statusFunc            func(context.Context) (updaterapi.StatusResponse, error)
+	operationIDs          []string
+	triggered             []string
+	trigger               updaterapi.Operation
+	triggerErr            error
+	triggerFunc           func(context.Context, string, string) (updaterapi.Operation, error)
+	acknowledged          []string
+	acknowledgedStartedAt []time.Time
+	acknowledgedRevisions []uint64
+	acknowledge           updaterapi.Operation
+	acknowledgeAlready    bool
+	acknowledgeErr        error
+	acknowledgeFunc       func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error)
 }
 
 func (f *fakeExecutor) Status(ctx context.Context) (updaterapi.StatusResponse, error) {
@@ -58,6 +74,21 @@ func (f *fakeExecutor) Trigger(ctx context.Context, operationID, targetVersion s
 		return f.triggerFunc(ctx, operationID, targetVersion)
 	}
 	return f.trigger, f.triggerErr
+}
+
+func (f *fakeExecutor) Acknowledge(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool, error) {
+	f.acknowledged = append(f.acknowledged, operationID)
+	f.acknowledgedStartedAt = append(f.acknowledgedStartedAt, expectedStartedAt)
+	f.acknowledgedRevisions = append(f.acknowledgedRevisions, expectedOutcomeRevision)
+	if f.acknowledgeFunc != nil {
+		return f.acknowledgeFunc(ctx, operationID, expectedStartedAt, expectedOutcomeRevision)
+	}
+	return f.acknowledge, f.acknowledgeAlready, f.acknowledgeErr
 }
 
 // fakeChannelStore is an in-memory channelSettingQuerier: absent org rows
@@ -603,6 +634,22 @@ func TestStatusAdvertisesReachableOneClickExecutor(t *testing.T) {
 	assert.True(t, status.OneClickAvailable)
 }
 
+func TestStatusDoesNotAdvertiseUnreachableOneClickExecutor(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = &fakeExecutor{statusErr: updaterapi.ErrUnavailable}
+
+	status, err := svc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.False(t, status.OneClickAvailable)
+}
+
 func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	t.Parallel()
 
@@ -614,22 +661,293 @@ func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	executor := &fakeExecutor{
 		trigger: updaterapi.Operation{
-			ID:            "operation-1",
+			ID:            testOperationID,
 			TargetVersion: "v1.1.0",
 			Phase:         updaterapi.PhaseQueued,
 		},
 	}
 	svc.executor = executor
 
-	operation, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+	operation, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.NoError(t, err)
-	assert.Equal(t, "operation-1", operation.ID)
+	assert.Equal(t, testOperationID, operation.ID)
+	assert.Equal(t, []string{testOperationID}, executor.operationIDs)
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered)
 
-	_, err = svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.2.0")
+	_, err = svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.2.0-alpha.1")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered, "a stale or invented target must never reach the host executor")
+}
+
+func TestTriggerUpgradeReturnsExactCurrentOperationBeforeFreshEligibility(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		currentVersion string
+		targetVersion  string
+		snapshot       Snapshot
+	}{
+		{
+			name:           "running version already advanced",
+			currentVersion: "v1.1.0",
+			targetVersion:  "v1.1.0",
+			snapshot: Snapshot{
+				LatestStable:    rel("v1.1.0"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			},
+		},
+		{
+			name:           "channel and offer no longer admit the target",
+			currentVersion: "v1.0.0",
+			targetVersion:  "v1.1.0-rc.1",
+			snapshot: Snapshot{
+				LatestStable:    rel("v1.2.0"),
+				LatestRC:        rc("v1.3.0-rc.1"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(
+				t,
+				test.currentVersion,
+				&fakeSnapshots{snap: test.snapshot},
+				newFakeChannelStore(),
+			)
+			existing := updaterapi.Operation{
+				ID:            testOperationID,
+				TargetVersion: test.targetVersion,
+				Phase:         updaterapi.PhaseSucceeded,
+				StartedAt:     testOperationStartedAt,
+			}
+			executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+			svc.executor = executor
+
+			operation, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				test.targetVersion,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, existing, operation)
+			assert.Empty(t, executor.triggered, "an exact replay must not submit another host mutation")
+		})
+	}
+}
+
+func TestTriggerUpgradeDoesNotAdmitFreshOperationWhenReplayStatusFails(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		currentVersion string
+		latestStable   string
+		statusErr      error
+	}{
+		{
+			name:           "updater unavailable while fresh offer remains eligible",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.1.0",
+			statusErr:      updaterapi.ErrUnavailable,
+		},
+		{
+			name:           "updater unavailable after running version advanced",
+			currentVersion: "v1.1.0",
+			latestStable:   "v1.1.0",
+			statusErr:      updaterapi.ErrUnavailable,
+		},
+		{
+			name:           "transport failure after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.TransportError{Cause: errors.New("privileged transport detail")},
+		},
+		{
+			name:           "probe-local deadline after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.TransportError{Cause: context.DeadlineExceeded},
+		},
+		{
+			name:           "malformed response after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.ProtocolError{Cause: errors.New("privileged protocol detail")},
+		},
+		{
+			name:           "host error after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr: &updaterapi.HTTPError{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "privileged host detail",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(t, test.currentVersion, &fakeSnapshots{snap: Snapshot{
+				LatestStable:    rel(test.latestStable),
+				StableAvailable: true,
+				RCAvailable:     true,
+			}}, newFakeChannelStore())
+			executor := &fakeExecutor{statusErr: test.statusErr}
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				"v1.1.0",
+			)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsUnavailableError(err), "unexpected mapped error: %v", err)
+			assert.False(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "status could not be confirmed")
+			assert.NotContains(t, err.Error(), "privileged")
+			assert.Empty(t, executor.triggered, "an unconfirmed replay probe must never admit a fresh host mutation")
+		})
+	}
+}
+
+func TestTriggerUpgradePreservesCallerCancellationFromReplayStatusProbe(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		ctx  func() context.Context
+		want error
+	}{
+		{
+			name: "canceled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			want: context.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			want: context.DeadlineExceeded,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			executor := &fakeExecutor{}
+			statusCalled := false
+			executor.statusFunc = func(ctx context.Context) (updaterapi.StatusResponse, error) {
+				statusCalled = true
+				<-ctx.Done()
+				return updaterapi.StatusResponse{}, &updaterapi.TransportError{Cause: ctx.Err()}
+			}
+			svc := newEligibleUpgradeService(t)
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(test.ctx()),
+				1,
+				testOperationID,
+				"v1.1.0",
+			)
+			assert.ErrorIs(t, err, test.want)
+			assert.False(t, fleeterror.IsUnavailableError(err))
+			assert.True(t, statusCalled)
+			assert.Empty(t, executor.triggered)
+		})
+	}
+}
+
+func TestTriggerUpgradeRejectsCurrentOperationIdentityMismatch(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name             string
+		existingTarget   string
+		requestedTarget  string
+		existingComplete bool
+	}{
+		{
+			name:            "same ID with another target",
+			existingTarget:  "v1.1.0",
+			requestedTarget: "v1.2.0",
+		},
+		{
+			name:             "same ID and target belongs to a completion operation",
+			existingTarget:   "v1.2.0",
+			requestedTarget:  "v1.2.0",
+			existingComplete: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{snap: Snapshot{
+				LatestStable:    rel("v1.2.0"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			}}, newFakeChannelStore())
+			existing := updaterapi.Operation{
+				ID:            testOperationID,
+				TargetVersion: test.existingTarget,
+				Complete:      test.existingComplete,
+				Phase:         updaterapi.PhaseSucceeded,
+				StartedAt:     testOperationStartedAt,
+			}
+			executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				test.requestedTarget,
+			)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "operation id is already associated with another update")
+			assert.Empty(t, executor.triggered)
+		})
+	}
+}
+
+func TestTriggerUpgradeRequiresCanonicalOperationID(t *testing.T) {
+	t.Parallel()
+
+	for _, operationID := range []string{
+		"",
+		"not-a-uuid",
+		"{11111111-1111-4111-8111-111111111111}",
+		"11111111-1111-4111-8111-11111111111A",
+		"00000000-0000-0000-0000-000000000000",
+	} {
+		t.Run(operationID, func(t *testing.T) {
+			t.Parallel()
+
+			svc := newEligibleUpgradeService(t)
+			executor := &fakeExecutor{}
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, operationID, "v1.1.0")
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Empty(t, executor.triggered)
+		})
+	}
 }
 
 func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
@@ -642,13 +960,13 @@ func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
 	}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.executor = &fakeExecutor{
-		triggerErr: &executorHTTPError{
+		triggerErr: &updaterapi.HTTPError{
 			StatusCode: http.StatusConflict,
 			Message:    "upgrade already running",
 		},
 	}
 
-	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
 }
@@ -675,9 +993,99 @@ func TestTriggerUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
 	svc := newEligibleUpgradeService(t)
 	svc.executor = executor
 
-	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(context.Background(), 1, testOperationID, "v1.1.0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeExactReplayFailsClosedWithoutActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, testOperationID, "v1.1.0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeExactReplayRejectsEndedActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+	activeCtx, cancelActive := context.WithCancel(context.Background())
+	cancelActive()
+	requestCtx := admissionctx.WithActiveLifetime(context.Background(), activeCtx)
+
+	_, err := svc.TriggerUpgrade(requestCtx, 1, testOperationID, "v1.1.0")
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeExactReplayRetriesAuditWithTheSameKey(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded []activitymodels.Event
+	insertCalls := 0
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = append(recorded, *event)
+			insertCalls++
+			if insertCalls == 1 {
+				return errors.New("temporary audit failure")
+			}
+			return nil
+		},
+	).Times(2)
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc, _ := newTestService(t, "v1.1.0", &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}, newFakeChannelStore())
+	svc.executor = executor
+	svc.activitySvc = activity.NewService(activityStore)
+
+	for range 2 {
+		operation, err := svc.TriggerUpgrade(
+			admittedUpgradeContext(context.Background()),
+			1,
+			testOperationID,
+			"v1.1.0",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, existing, operation)
+	}
+	require.Len(t, recorded, 2)
+	expectedKey := upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, existing)
+	assert.Equal(t, expectedKey, recorded[0].IdempotencyKey)
+	assert.Equal(t, expectedKey, recorded[1].IdempotencyKey)
 	assert.Empty(t, executor.triggered)
 }
 
@@ -691,7 +1099,7 @@ func TestTriggerUpgradeRejectsEndedActiveAdmissionBeforeMutation(t *testing.T) {
 	cancelActive()
 	requestCtx := admissionctx.WithActiveLifetime(context.Background(), activeCtx)
 
-	_, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(requestCtx, 1, testOperationID, "v1.1.0")
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, executor.triggered)
 }
@@ -729,14 +1137,15 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 			ID:            operationID,
 			TargetVersion: targetVersion,
 			Phase:         updaterapi.PhaseQueued,
+			StartedAt:     testOperationStartedAt,
 		}
 		cancelRequest()
 		assert.NoError(t, triggerCtx.Err(), "host mutation must outlive browser cancellation")
-		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset after accept")}
 	}
 	svc.executor = executor
 
-	operation, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+	operation, err := svc.TriggerUpgrade(requestCtx, 1, testOperationID, "v1.1.0")
 	require.NoError(t, err)
 	require.NotNil(t, accepted)
 	assert.Equal(t, *accepted, operation)
@@ -747,6 +1156,7 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 	assert.Equal(t, "test-operator", *recorded.Username)
 	assert.Equal(t, operation.ID, recorded.Metadata["operation_id"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
+	assert.Equal(t, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, operation), recorded.IdempotencyKey)
 }
 
 func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
@@ -765,7 +1175,7 @@ func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
 			close(triggerStarted)
 		}
 		<-ctx.Done()
-		return updaterapi.Operation{}, &executorTransportError{cause: ctx.Err()}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: ctx.Err()}
 	}
 	svc.executor = executor
 
@@ -773,7 +1183,7 @@ func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
 	requestCtx := admissionctx.WithActiveLifetime(t.Context(), activeCtx)
 	result := make(chan error, 1)
 	go func() {
-		_, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+		_, err := svc.TriggerUpgrade(requestCtx, 1, testOperationID, "v1.1.0")
 		result <- err
 	}()
 
@@ -805,20 +1215,52 @@ func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *test
 			return updaterapi.StatusResponse{}, nil
 		}
 		return updaterapi.StatusResponse{Operation: &updaterapi.Operation{
-			ID:            "22222222-2222-4222-8222-222222222222",
+			ID:            otherTestOperationID,
 			TargetVersion: "v1.1.0",
 			Phase:         updaterapi.PhaseQueued,
 		}}, nil
 	}
 	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
 		triggered = true
-		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset")}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset")}
 	}
 	svc.executor = executor
 
-	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
+}
+
+func TestTriggerUpgradeDoesNotClaimCompletionOperationAfterAmbiguousFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := newEligibleUpgradeService(t)
+	executor := &fakeExecutor{}
+	triggered := false
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		if !triggered {
+			return updaterapi.StatusResponse{}, nil
+		}
+		return updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:            testOperationID,
+			TargetVersion: "v1.1.0",
+			Complete:      true,
+			Phase:         updaterapi.PhaseQueued,
+			StartedAt:     testOperationStartedAt,
+		}}, nil
+	}
+	triggerCalls := 0
+	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
+		triggered = true
+		triggerCalls++
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset")}
+	}
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, 2, triggerCalls)
 }
 
 func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *testing.T) {
@@ -830,16 +1272,16 @@ func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *tes
 	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
 		attempt++
 		if attempt == 1 {
-			return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+			return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset after accept")}
 		}
-		return updaterapi.Operation{}, &executorHTTPError{
+		return updaterapi.Operation{}, &updaterapi.HTTPError{
 			StatusCode: http.StatusServiceUnavailable,
 			Message:    "updater is restarting",
 		}
 	}
 	svc.executor = executor
 
-	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
 	assert.Contains(t, err.Error(), "did not confirm the upgrade")
@@ -857,39 +1299,39 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 	}{
 		{
 			name:  "socket unavailable",
-			err:   errExecutorUnavailable,
+			err:   updaterapi.ErrUnavailable,
 			check: fleeterror.IsUnavailableError,
 		},
 		{
 			name:  "transport timeout",
-			err:   &executorTransportError{cause: context.DeadlineExceeded},
+			err:   &updaterapi.TransportError{Cause: context.DeadlineExceeded},
 			check: fleeterror.IsUnavailableError,
 		},
 		{
 			name:  "bad request",
-			err:   &executorHTTPError{StatusCode: http.StatusBadRequest, Message: "invalid target"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusBadRequest, Message: "invalid target"},
 			check: fleeterror.IsFailedPreconditionError,
 		},
 		{
 			name:  "host precondition",
-			err:   &executorHTTPError{StatusCode: http.StatusPreconditionFailed, Message: "target is not newer"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusPreconditionFailed, Message: "target is not newer"},
 			check: fleeterror.IsFailedPreconditionError,
 		},
 		{
 			name:  "conflict",
-			err:   &executorHTTPError{StatusCode: http.StatusConflict, Message: "upgrade already running"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusConflict, Message: "upgrade already running"},
 			check: fleeterror.IsAlreadyExistsError,
 		},
 		{
 			name: "updater closing",
-			err:  &executorHTTPError{StatusCode: http.StatusServiceUnavailable, Message: "privileged detail"},
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: "privileged detail"},
 			check: func(err error) bool {
 				return fleeterror.IsUnavailableError(err) && !strings.Contains(err.Error(), "privileged detail")
 			},
 		},
 		{
 			name: "updater internal fault",
-			err:  &executorHTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
 			check: func(err error) bool {
 				return !fleeterror.IsUnavailableError(err) &&
 					strings.Contains(err.Error(), "HTTP status 500") &&
@@ -898,7 +1340,7 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 		},
 		{
 			name: "malformed accepted response",
-			err:  &executorProtocolError{cause: errors.New("malformed JSON")},
+			err:  &updaterapi.ProtocolError{Cause: errors.New("malformed JSON")},
 			check: func(err error) bool {
 				return fleeterror.IsUnavailableError(err) &&
 					strings.Contains(err.Error(), "check its status") &&
@@ -912,7 +1354,7 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 			svc := newEligibleUpgradeService(t)
 			svc.executor = &fakeExecutor{triggerErr: test.err}
 
-			_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+			_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 			require.Error(t, err)
 			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
 		})
@@ -952,7 +1394,7 @@ func TestTriggerUpgradeHonorsCanceledCallerBeforeMutation(t *testing.T) {
 			svc := newEligibleUpgradeService(t)
 			svc.executor = executor
 
-			_, err := svc.TriggerUpgrade(admittedUpgradeContext(test.ctx()), 1, "v1.1.0")
+			_, err := svc.TriggerUpgrade(admittedUpgradeContext(test.ctx()), 1, testOperationID, "v1.1.0")
 			assert.ErrorIs(t, err, test.want)
 			assert.Empty(t, executor.triggered)
 		})
@@ -973,4 +1415,467 @@ func TestGetUpgradeStatusReturnsDurableOperation(t *testing.T) {
 	assert.True(t, status.ExecutorAvailable)
 	require.NotNil(t, status.Operation)
 	assert.Equal(t, updaterapi.PhaseActivating, status.Operation.Phase)
+}
+
+func TestAcknowledgeUpgradeValidatesInputAndExecutorPresence(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = &fakeExecutor{}
+
+	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, "", testOperationStartedAt, testOutcomeRevision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, time.Time{}, testOutcomeRevision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "expected started at is required")
+
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, 0)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+
+	svc.executor = nil
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+}
+
+func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	completed := time.Date(2026, 8, 14, 18, 0, 0, 123_000_000, time.UTC)
+	executor := &fakeExecutor{acknowledge: updaterapi.Operation{
+		ID:              testOperationID,
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		StartedAt:       testOperationStartedAt,
+		CompletedAt:     &completed,
+		OutcomeRevision: testOutcomeRevision,
+		Acknowledged:    true,
+	}}
+	svc.executor = executor
+
+	ctx := admittedUpgradeContext(authn.SetInfo(context.Background(), &session.Info{
+		OrganizationID: 1,
+		ExternalUserID: "user-1",
+		Username:       "test-operator",
+	}))
+	operation, err := svc.AcknowledgeUpgrade(ctx, 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, []string{testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt}, executor.acknowledgedStartedAt)
+	assert.Equal(t, []uint64{testOutcomeRevision}, executor.acknowledgedRevisions)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	assert.Equal(t, testOperationID, recorded.Metadata["operation_id"])
+	assert.Equal(t, testOutcomeRevision, recorded.Metadata["outcome_revision"])
+	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
+	assert.Equal(t, "failed", recorded.Metadata["phase"])
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
+}
+
+func TestUpgradeActivityIdempotencyKeysScopeOperationIncarnationsAndOrganizations(t *testing.T) {
+	t.Parallel()
+
+	first := updaterapi.Operation{
+		ID:              testOperationID,
+		StartedAt:       testOperationStartedAt,
+		OutcomeRevision: 1,
+	}
+	retry := first
+	laterIncarnation := first
+	laterIncarnation.StartedAt = first.StartedAt.Add(time.Second)
+	rewrittenOutcome := first
+	rewrittenOutcome.OutcomeRevision = 2
+
+	firstTriggerKey := upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, first)
+	assert.Equal(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, retry),
+		"the same host operation must deduplicate across transports")
+	assert.NotEqual(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, laterIncarnation),
+		"historical reuse of the client ID must produce a new trigger audit")
+	assert.NotEqual(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 2, first),
+		"different organizations must not share activity identities")
+
+	firstAcknowledgementKey := upgradeAcknowledgementIdempotencyKey(1, first)
+	assert.Equal(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, retry),
+		"the same outcome revision must deduplicate across transports")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, laterIncarnation),
+		"historical reuse of the client ID must produce a new acknowledgement audit")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(2, first),
+		"different organizations must not share activity identities")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, rewrittenOutcome),
+		"a materially rewritten outcome needs its own audit row")
+}
+
+func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeExecutor{}
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = executor
+
+	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.acknowledged)
+}
+
+func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var idempotencyKeys []string
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			idempotencyKeys = append(idempotencyKeys, event.IdempotencyKey)
+			return nil
+		},
+	).Times(2)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	completed := time.Date(2026, 8, 14, 18, 0, 0, 123_000_000, time.UTC)
+	executor := &fakeExecutor{
+		acknowledge: updaterapi.Operation{
+			ID:              testOperationID,
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
+			CompletedAt:     &completed,
+			OutcomeRevision: testOutcomeRevision,
+			Acknowledged:    true,
+		},
+		acknowledgeAlready: true,
+	}
+	svc.executor = executor
+
+	for range 2 {
+		operation, err := svc.AcknowledgeUpgrade(
+			admittedUpgradeContext(context.Background()),
+			1,
+			testOperationID,
+			testOperationStartedAt,
+			testOutcomeRevision,
+		)
+		require.NoError(t, err)
+		assert.True(t, operation.Acknowledged)
+	}
+	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
+	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
+	expectedKey := upgradeAcknowledgementIdempotencyKey(1, executor.acknowledge)
+	assert.Equal(t, []string{
+		expectedKey,
+		expectedKey,
+	}, idempotencyKeys)
+}
+
+func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{}
+	acknowledgeCalls := 0
+	executor.acknowledgeFunc = func(
+		_ context.Context,
+		operationID string,
+		expectedStartedAt time.Time,
+		expectedOutcomeRevision uint64,
+	) (updaterapi.Operation, bool, error) {
+		acknowledgeCalls++
+		if acknowledgeCalls == 1 {
+			return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response lost after persist")}
+		}
+		return updaterapi.Operation{
+			ID:              operationID,
+			TargetVersion:   "v1.1.0",
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       expectedStartedAt,
+			OutcomeRevision: expectedOutcomeRevision,
+			Acknowledged:    true,
+		}, true, nil
+	}
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		t.Fatal("status reconciliation should not run after the retry confirms acknowledgement")
+		return updaterapi.StatusResponse{}, nil
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, 2, acknowledgeCalls)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
+}
+
+func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{
+		status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:              testOperationID,
+			TargetVersion:   "v1.1.0",
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
+			OutcomeRevision: testOutcomeRevision,
+			Acknowledged:    true,
+		}},
+	}
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
+		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
+	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
+}
+
+func TestAcknowledgeUpgradeDoesNotReconcileAStaleOutcomeRevision(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{}, newFakeChannelStore())
+	executor := &fakeExecutor{
+		status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:              testOperationID,
+			TargetVersion:   "v1.1.0",
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
+			OutcomeRevision: testOutcomeRevision + 1,
+			Acknowledged:    true,
+		}},
+	}
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
+		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
+	}
+	svc.executor = executor
+
+	_, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+}
+
+func TestAcknowledgeUpgradeDoesNotReconcileHistoricallyReusedOperationID(t *testing.T) {
+	t.Parallel()
+
+	newerStartedAt := testOperationStartedAt.Add(time.Hour)
+	svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{}, newFakeChannelStore())
+	executor := &fakeExecutor{
+		status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:              testOperationID,
+			TargetVersion:   "v1.2.0",
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       newerStartedAt,
+			OutcomeRevision: testOutcomeRevision,
+			Acknowledged:    true,
+		}},
+	}
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
+		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
+	}
+	svc.executor = executor
+
+	_, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
+}
+
+func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, event *activitymodels.Event) error {
+			assert.NoError(t, ctx.Err(), "acknowledgement audit must be detached from caller cancellation")
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+
+	requestCtx, cancelRequest := context.WithCancel(authn.SetInfo(context.Background(), &session.Info{
+		OrganizationID: 1,
+		ExternalUserID: "user-1",
+		Username:       "test-operator",
+	}))
+	requestCtx = admittedUpgradeContext(requestCtx)
+	executor := &fakeExecutor{}
+	executor.acknowledgeFunc = func(
+		ackCtx context.Context,
+		operationID string,
+		expectedStartedAt time.Time,
+		expectedOutcomeRevision uint64,
+	) (updaterapi.Operation, bool, error) {
+		cancelRequest()
+		assert.NoError(t, ackCtx.Err(), "host mutation must outlive browser cancellation")
+		return updaterapi.Operation{
+			ID:              operationID,
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       expectedStartedAt,
+			OutcomeRevision: expectedOutcomeRevision,
+			Acknowledged:    true,
+		}, false, nil
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(requestCtx, 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	require.NotNil(t, recorded.UserID)
+	assert.Equal(t, "user-1", *recorded.UserID)
+}
+
+func TestAcknowledgeUpgradeMapsExecutorFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		err   error
+		check func(error) bool
+	}{
+		{
+			name:  "socket unavailable",
+			err:   updaterapi.ErrUnavailable,
+			check: fleeterror.IsUnavailableError,
+		},
+		{
+			name: "operation no longer current",
+			err: &updaterapi.HTTPError{
+				StatusCode: http.StatusNotFound,
+				Message:    "operation is not current",
+				Code:       updaterapi.ErrorCodeOperationNotFound,
+			},
+			check: fleeterror.IsNotFoundError,
+		},
+		{
+			name: "unexpected route not found",
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusNotFound, Message: "404 Not Found"},
+			check: func(err error) bool {
+				return !fleeterror.IsNotFoundError(err) &&
+					strings.Contains(err.Error(), "HTTP status 404")
+			},
+		},
+		{
+			name:  "operation still running",
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusConflict, Message: "operation has not finished"},
+			check: fleeterror.IsFailedPreconditionError,
+		},
+		{
+			name:  "outcome revision changed",
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusConflict, Message: "outcome revision changed"},
+			check: fleeterror.IsFailedPreconditionError,
+		},
+		{
+			name:  "transport timeout is retryable",
+			err:   &updaterapi.TransportError{Cause: context.DeadlineExceeded},
+			check: fleeterror.IsUnavailableError,
+		},
+		{
+			name: "updater internal fault",
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
+			check: func(err error) bool {
+				return !fleeterror.IsUnavailableError(err) &&
+					strings.Contains(err.Error(), "HTTP status 500") &&
+					!strings.Contains(err.Error(), "/root/secret/path")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snaps := &fakeSnapshots{snap: Snapshot{}}
+			svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+			svc.executor = &fakeExecutor{acknowledgeErr: test.err}
+
+			_, err := svc.AcknowledgeUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				testOperationStartedAt,
+				testOutcomeRevision,
+			)
+			require.Error(t, err)
+			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
+		})
+	}
 }

@@ -332,14 +332,23 @@ func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *te
 			site_id,
 			mode,
 			scope_json,
-			facility_fan_device_ids
+			facility_fan_device_ids,
+			authorization_envelope_jsonb
 		) VALUES (
 			$1,
 			'Fan-coordinated shed',
 			$2,
 			'FULL_FLEET',
 			jsonb_build_object('site_ids', jsonb_build_array($2::bigint)),
-			ARRAY[$3::bigint]
+			ARRAY[$3::bigint],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', jsonb_build_array($2::bigint),
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', false,
+				'facility_fan_site_ids', jsonb_build_array($2::bigint),
+				'facility_fan_scope_unbounded', false
+			)
 		)`,
 		testOrgID,
 		testSiteID,
@@ -365,10 +374,22 @@ func TestService_UpdateRejectsMovingReferencedDevice_DatabaseIntegration(t *test
 	_, err = conn.ExecContext(
 		ctx,
 		`INSERT INTO curtailment_response_profile (
-			org_id, profile_name, mode, scope_json, facility_fan_device_ids
-		) VALUES ($1, 'Whole-fleet fans', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint])`,
+			org_id, profile_name, mode, scope_json, facility_fan_device_ids,
+			authorization_envelope_jsonb
+		) VALUES (
+			$1, 'Whole-fleet fans', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($3::bigint),
+				'facility_fan_scope_unbounded', false
+			)
+		)`,
 		testOrgID,
 		device.ID,
+		testSiteID,
 	)
 	require.NoError(t, err)
 

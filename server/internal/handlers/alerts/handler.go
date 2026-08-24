@@ -464,8 +464,9 @@ func parseBeforeID(s string) (*int64, error) {
 	return &v, nil
 }
 
-// ListActiveAlertGroups answers "what is firing right now" per rule. Rule identity and counts carry no device
-// identity and no rule-annotation free text, so this needs no miner:read gate; the drill-in rows still do.
+// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity, and the one
+// summary it does carry clears the same template gate the history API applies, so this needs no miner:read gate;
+// the drill-in does.
 func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertRead)
 	if err != nil {
@@ -488,6 +489,9 @@ func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[
 			AlertCount:     g.AlertCount,
 			DeviceCount:    g.DeviceCount,
 			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
+			// Same policy as the history API: a device template's summary names the miner, so it needs
+			// miner:read, which this endpoint never has. Device-less alone would let a stray offline row through.
+			Summary: visibleSummary(g.Summary, g.Template, false),
 		})
 	}
 	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{
@@ -747,12 +751,17 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	out := &alertsv1.MaintenanceWindow{
 		Id:             s.ID,
 		OrganizationId: s.OrganizationID,
-		Scope:          scopeToProto(s.Scope),
-		StartsAt:       timestamppb.New(s.StartsAt),
-		Comment:        s.Comment,
-		CreatedBy:      s.CreatedBy,
-		CreatedAt:      timestamppb.New(s.CreatedAt),
-		Active:         s.Active,
+		Scope: &alertsv1.MaintenanceWindowScope{
+			RuleIds:     s.RuleIDs,
+			ChannelIds:  s.ChannelIDs,
+			AllRules:    len(s.RuleIDs) == 0,
+			AllChannels: len(s.ChannelIDs) == 0,
+		},
+		StartsAt:  timestamppb.New(s.StartsAt),
+		Comment:   s.Comment,
+		CreatedBy: s.CreatedBy,
+		CreatedAt: timestamppb.New(s.CreatedAt),
+		Active:    s.Active,
 	}
 	if !s.EndsAt.IsZero() {
 		out.EndsAt = timestamppb.New(s.EndsAt)
@@ -760,43 +769,38 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	return out
 }
 
-func scopeToProto(sc alerts.MaintenanceWindowScope) *alertsv1.MaintenanceWindowScope {
-	return &alertsv1.MaintenanceWindowScope{
-		Kind:      scopeKindToProto(sc.Kind),
-		RuleId:    sc.RuleID,
-		GroupId:   sc.GroupID,
-		SiteId:    sc.SiteID,
-		DeviceIds: sc.DeviceIDs,
-	}
-}
-
 func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (alerts.MaintenanceWindow, error) {
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
 	}
-	dk, err := protoToScopeKind(scope.GetKind())
-	if err != nil {
+	if err := validateMaintenanceWindowTargetSelection("rules", scope.GetAllRules(), scope.GetRuleIds()); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if err := validateMaintenanceWindowTargetSelection("destinations", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
 		return alerts.MaintenanceWindow{}, err
 	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
 	}
 	dom := alerts.MaintenanceWindow{
-		ID: id,
-		Scope: alerts.MaintenanceWindowScope{
-			Kind:      dk,
-			RuleID:    scope.GetRuleId(),
-			GroupID:   scope.GetGroupId(),
-			SiteID:    scope.GetSiteId(),
-			DeviceIDs: scope.GetDeviceIds(),
-		},
-		StartsAt: startsAt.AsTime(),
-		Comment:  comment,
+		ID:         id,
+		RuleIDs:    scope.GetRuleIds(),
+		ChannelIDs: scope.GetChannelIds(),
+		StartsAt:   startsAt.AsTime(),
+		Comment:    comment,
 	}
 	if endsAt != nil {
 		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
+}
+
+func validateMaintenanceWindowTargetSelection(name string, all bool, ids []string) error {
+	if all == (len(ids) > 0) {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"scope must select either all %s or a non-empty %s list", name, name)
+	}
+	return nil
 }
 
 // includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,
@@ -828,21 +832,35 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 	return out
 }
 
-// A device template's summary names the miner, so it needs miner:read; a source-level one names only the MQTT
-// source, which is not miner identity.
+// A device template's summary names the miner, so it needs miner:read; a device-less one names a source, a
+// curtailment event, or the fleet, none of which is miner identity.
 func visibleSummary(summary, template string, includeDevice bool) string {
-	if includeDevice || isSourceLevelTemplate(template) {
+	if includeDevice || isDeviceLessTemplate(template) {
 		return summary
 	}
 	return ""
 }
 
-// isSourceLevelTemplate reports whether the template scopes the alert to an
-// MQTT curtailment source rather than a device. The label stays trustworthy:
-// user rules only emit offline/hashrate/temperature (compileUserRule).
-func isSourceLevelTemplate(t string) bool {
-	tmpl := alerts.RuleTemplate(t)
-	return tmpl == alerts.RuleTemplateMQTTCurtailment || tmpl == alerts.RuleTemplateMQTTDisconnected
+// The provisioned templates that fire on a source, a curtailment event, or the fleet rather than on a miner, so
+// their annotation summaries name no device. Anything absent fails closed, which costs a non-miner reader only
+// the free text — counts, rule identity, and timing still come through. A device-less rule added to
+// proto-fleet-rules.yaml without a template label lands here too, unnamed and therefore redacted, so a new one
+// carries a label (see the metric-ingest rule) rather than relying on this list recognizing its absence.
+var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
+	alerts.RuleTemplateMQTTCurtailment:       {},
+	alerts.RuleTemplateMQTTDisconnected:      {},
+	alerts.RuleTemplateCurtailmentFanRestore: {},
+	alerts.RuleTemplateTelemetryPoll:         {},
+	alerts.RuleTemplateMetricIngest:          {},
+	alerts.RuleTemplateHAReadiness:           {},
+}
+
+// isDeviceLessTemplate reports whether the template's summary is safe to show without miner:read. The label
+// stays trustworthy: user rules only emit offline/hashrate/temperature (compileUserRule), so an org cannot mint
+// a miner alert that claims one of these.
+func isDeviceLessTemplate(t string) bool {
+	_, ok := deviceLessTemplates[alerts.RuleTemplate(t)]
+	return ok
 }
 
 func channelKindToProto(k alerts.ChannelKind) alertsv1.ChannelKind {
@@ -864,7 +882,7 @@ func protoToChannelKind(k alertsv1.ChannelKind) (alerts.ChannelKind, error) {
 	// SMTP is not offered in this slice; it ships in the SMTP channel slice.
 	case alertsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED, alertsv1.ChannelKind_CHANNEL_KIND_SMTP:
 	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
+	return "", fleeterror.NewInvalidArgumentErrorf("unknown destination kind: %s", k)
 }
 
 func httpStatusToInt32(code int) int32 {
@@ -907,35 +925,9 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_CURTAILMENT
 	case alerts.RuleTemplateMQTTDisconnected:
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
+	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
+	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
-}
-
-func scopeKindToProto(k alerts.MaintenanceWindowScopeKind) alertsv1.MaintenanceWindowScopeKind {
-	switch k {
-	case alerts.MaintenanceWindowScopeRule:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE
-	case alerts.MaintenanceWindowScopeGroup:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP
-	case alerts.MaintenanceWindowScopeSite:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE
-	case alerts.MaintenanceWindowScopeDevice:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE
-	}
-	return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED
-}
-
-func protoToScopeKind(k alertsv1.MaintenanceWindowScopeKind) (alerts.MaintenanceWindowScopeKind, error) {
-	switch k {
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE:
-		return alerts.MaintenanceWindowScopeRule, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP:
-		return alerts.MaintenanceWindowScopeGroup, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE:
-		return alerts.MaintenanceWindowScopeSite, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE:
-		return alerts.MaintenanceWindowScopeDevice, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED:
-	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %s", k)
 }

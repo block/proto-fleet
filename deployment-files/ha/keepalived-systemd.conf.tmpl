@@ -1,3 +1,8 @@
+[Unit]
+Requires=proto-fleet-ha.service
+After=proto-fleet-ha.service
+PartOf=proto-fleet-ha.service
+
 [Service]
 Restart=on-failure
 RestartSec=2s

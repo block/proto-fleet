@@ -109,7 +109,7 @@ func newChannelService(t *testing.T) (*Service, *fakeChannelStore, *stubTester) 
 	t.Helper()
 	store := newFakeChannelStore()
 	tester := &stubTester{ok: true}
-	svc := NewService(nil, store, nil, nil, testCipher(t), tester, nil, DestinationPolicy{AllowPrivateDestinations: true})
+	svc := NewService(nil, store, nil, nil, nil, testCipher(t), tester, nil, DestinationPolicy{AllowPrivateDestinations: true})
 	return svc, store, tester
 }
 
@@ -183,7 +183,7 @@ func TestUpdateChannelPreservesSlackSecretOnRename(t *testing.T) {
 	assert.True(t, updated.HasSecret)
 	assert.Equal(t, "new", updated.Name)
 
-	id, _ := parseChannelID(created.ID)
+	id, _ := parseRowID(created.ID)
 	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
 	require.NoError(t, err)
 	assert.Equal(t, testSlackURL, cfg.URL, "rename with no new url keeps the stored secret")
@@ -198,7 +198,7 @@ func TestUpdateChannelReplacesSlackURL(t *testing.T) {
 	_, err = svc.UpdateChannel(context.Background(), 7, Channel{ID: created.ID, Name: "s", Kind: ChannelKindSlack, Slack: &SlackConfig{WebhookURL: fresh}})
 	require.NoError(t, err)
 
-	id, _ := parseChannelID(created.ID)
+	id, _ := parseRowID(created.ID)
 	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
 	require.NoError(t, err)
 	assert.Equal(t, fresh, cfg.URL)
@@ -220,7 +220,7 @@ func TestUpdateChannelPreservesWebhookBearerWhenDestinationUnchanged(t *testing.
 	require.NoError(t, err)
 	assert.True(t, updated.HasSecret)
 
-	id, _ := parseChannelID(created.ID)
+	id, _ := parseRowID(created.ID)
 	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
 	require.NoError(t, err)
 	assert.Equal(t, "https://relay.example.com/hook", cfg.URL, "unchanged destination keeps the full stored url")
@@ -243,7 +243,7 @@ func TestUpdateChannelClearsWebhookBearerWhenRequested(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, updated.HasSecret, "clearing the bearer drops the stored secret")
 
-	id, _ := parseChannelID(created.ID)
+	id, _ := parseRowID(created.ID)
 	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
 	require.NoError(t, err)
 	assert.Equal(t, "https://relay.example.com/hook", cfg.URL, "destination is preserved")
@@ -265,7 +265,7 @@ func TestUpdateChannelDropsBearerOnDestinationChange(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, updated.HasSecret, "a new destination must not inherit the old bearer")
 
-	id, _ := parseChannelID(created.ID)
+	id, _ := parseRowID(created.ID)
 	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
 	require.NoError(t, err)
 	assert.Equal(t, "https://other.example.com/hook", cfg.URL)

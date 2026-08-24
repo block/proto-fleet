@@ -12,6 +12,7 @@ import { useHasPermission } from "@/protoFleet/store";
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
+const mockUseActiveAlertsPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 const mockUseUpdateIndicator = vi.fn();
 
@@ -41,6 +42,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useActiveAlertsPillData", () => ({
+  useActiveAlertsPillData: (options: { enabled?: boolean }) => mockUseActiveAlertsPillData(options),
 }));
 
 vi.mock("@/protoFleet/features/updates/useUpdateIndicator", () => ({
@@ -97,12 +102,15 @@ const activeCurtailmentEvent: CurtailmentPillEvent = {
 
 describe("AppLayout", () => {
   beforeEach(() => {
+    // Without this, a `toHaveBeenCalledWith` assertion matches any earlier test's render instead of its own.
+    vi.clearAllMocks();
     mockUseWindowDimensions.mockReturnValue({
       width: 375,
       isPhone: true,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
+    mockUseActiveAlertsPillData.mockReturnValue({ groups: [], error: null, hasMore: false, hasVisiblePill: false });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
     mockUseUpdateIndicator.mockReturnValue(null);
     vi.mocked(useHasPermission).mockReturnValue(true);
@@ -250,6 +258,30 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+120px)]");
   });
 
+  it("uses the four-widget phone content offset when a firing alert makes five widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    // The alerts pill takes the inline slot, leaving four stacked pills that the three-row ladder would clip.
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+160px)]");
+  });
+
   it("disables update polling when the route hides the shell header", () => {
     render(
       <MemoryRouter>
@@ -260,6 +292,39 @@ describe("AppLayout", () => {
     );
 
     expect(mockUseUpdateIndicator).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables active-alert polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseActiveAlertsPillData).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("offsets the phone content for a firing alert so the pill has a row", () => {
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    // The alerts pill takes the inline slot, pushing the schedule pill into a row of its own.
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
   });
 
   it("keeps the base phone content offset when the only curtailment widget fits inline", () => {

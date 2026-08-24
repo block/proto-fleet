@@ -34,6 +34,7 @@ const SettingsMiningPools = () => {
 
   useEffect(() => {
     if (poolsInfo?.length) {
+      // poolsInfo is already normalized by the store contract, so no API adapter is needed here.
       const newPools = [...Array(3)].map((_, index) => {
         const pool = poolsInfo?.[index];
         return {
@@ -41,7 +42,7 @@ const SettingsMiningPools = () => {
           url: pool?.url || "",
           username: pool?.username || "",
           password: "",
-          priority: pool?.priority || index,
+          priority: pool?.priority ?? index,
         };
       });
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local pools when upstream poolsInfo query resolves
@@ -62,7 +63,8 @@ const SettingsMiningPools = () => {
         current.name !== previous.name ||
         current.url !== previous.url ||
         current.username !== previous.username ||
-        current.password !== previous.password
+        current.password !== previous.password ||
+        current.v2_authority_pubkey !== previous.v2_authority_pubkey
       ) {
         changedIndex = i;
         changesCount++;
@@ -91,13 +93,7 @@ const SettingsMiningPools = () => {
       if (isValidPool(changedPool)) {
         editPool({
           poolId: changedPoolIndex,
-          poolInfo: {
-            name: changedPool.name,
-            url: changedPool.url,
-            username: changedPool.username,
-            password: changedPool.password,
-            priority: changedPool.priority,
-          },
+          poolInfo: changedPool,
           onSuccess: () => {
             setCreatePoolsError(undefined);
             setIsStalePools(true);

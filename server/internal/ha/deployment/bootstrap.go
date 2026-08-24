@@ -11,23 +11,26 @@ import (
 	"strings"
 	"time"
 
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 const patroniDCSPath = "/service/proto-fleet/"
 
 type authBootstrapClient interface {
-	Healthy(ctx context.Context) error
-	AddRole(ctx context.Context, role string) error
+	AuthEnabled(ctx context.Context) (bool, error)
+	EnsureRole(ctx context.Context, role string) error
 	GrantPermission(ctx context.Context, role, prefix string, permission clientv3.PermissionType) error
-	AddUser(ctx context.Context, user, password string) error
+	EnsureUser(ctx context.Context, user, password string) error
 	GrantRole(ctx context.Context, user, role string) error
 	EnableAuth(ctx context.Context) error
+	VerifyAccess(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error
 }
 
 type etcdAuthClient struct {
-	client   *clientv3.Client
-	endpoint string
+	client    *clientv3.Client
+	endpoint  string
+	tlsConfig *tls.Config
 }
 
 // BootstrapEtcdAuth creates the complete least-privilege role set, then enables auth.
@@ -62,13 +65,14 @@ func BootstrapEtcdAuth(ctx context.Context, envPath, rootPasswordFile string) er
 		return errors.New("etcd auth bootstrap failed: service CA is not a PEM certificate")
 	}
 	endpoint := "https://" + config.NodeIP + ":2379"
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{endpoint},
 		DialTimeout: 5 * time.Second,
-		TLS: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    roots,
-		},
+		TLS:         tlsConfig,
 	})
 	if err != nil {
 		return fmt.Errorf("etcd auth bootstrap failed: connect to etcd: %w", err)
@@ -77,34 +81,44 @@ func BootstrapEtcdAuth(ctx context.Context, envPath, rootPasswordFile string) er
 
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return bootstrapEtcdAuth(requestCtx, &etcdAuthClient{client: client, endpoint: endpoint}, rootPassword, patroniPassword, fleetPassword)
+	return bootstrapEtcdAuth(requestCtx, &etcdAuthClient{client: client, endpoint: endpoint, tlsConfig: tlsConfig}, rootPassword, patroniPassword, fleetPassword)
 }
 
 func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPassword, patroniPassword, fleetPassword string) error {
-	if err := client.Healthy(ctx); err != nil {
-		return fmt.Errorf("check local etcd member health: %w", err)
+	authEnabled, err := client.AuthEnabled(ctx)
+	if err != nil {
+		return fmt.Errorf("check authentication status: %w", err)
+	}
+	if authEnabled {
+		if err := client.VerifyAccess(ctx, rootPassword, patroniPassword, fleetPassword); err != nil {
+			return fmt.Errorf("verify existing authentication access: %w", err)
+		}
+		return nil
 	}
 
 	steps := []struct {
 		name string
 		run  func() error
 	}{
-		{"add Patroni role", func() error { return client.AddRole(ctx, "patroni") }},
+		{"ensure Patroni role", func() error { return client.EnsureRole(ctx, "patroni") }},
 		{"grant Patroni DCS access", func() error {
 			return client.GrantPermission(ctx, "patroni", patroniDCSPath, clientv3.PermissionType(clientv3.PermReadWrite))
 		}},
-		{"add Patroni user", func() error { return client.AddUser(ctx, "patroni", patroniPassword) }},
+		{"ensure Patroni user", func() error { return client.EnsureUser(ctx, "patroni", patroniPassword) }},
 		{"grant Patroni role", func() error { return client.GrantRole(ctx, "patroni", "patroni") }},
-		{"add Fleet observer role", func() error { return client.AddRole(ctx, "fleet-observer") }},
+		{"ensure Fleet observer role", func() error { return client.EnsureRole(ctx, "fleet-observer") }},
 		{"grant Fleet read access", func() error {
 			return client.GrantPermission(ctx, "fleet-observer", patroniDCSPath, clientv3.PermissionType(clientv3.PermRead))
 		}},
-		{"add Fleet observer user", func() error { return client.AddUser(ctx, "fleet-observer", fleetPassword) }},
+		{"ensure Fleet observer user", func() error { return client.EnsureUser(ctx, "fleet-observer", fleetPassword) }},
 		{"grant Fleet observer role", func() error { return client.GrantRole(ctx, "fleet-observer", "fleet-observer") }},
-		{"add root role", func() error { return client.AddRole(ctx, "root") }},
-		{"add root user", func() error { return client.AddUser(ctx, "root", rootPassword) }},
+		{"ensure root role", func() error { return client.EnsureRole(ctx, "root") }},
+		{"ensure root user", func() error { return client.EnsureUser(ctx, "root", rootPassword) }},
 		{"grant root role", func() error { return client.GrantRole(ctx, "root", "root") }},
 		{"enable authentication", func() error { return client.EnableAuth(ctx) }},
+		{"verify authentication access", func() error {
+			return client.VerifyAccess(ctx, rootPassword, patroniPassword, fleetPassword)
+		}},
 	}
 	for _, step := range steps {
 		if err := step.run(); err != nil {
@@ -133,18 +147,18 @@ func readPassword(path string) (string, error) {
 	return password, nil
 }
 
-func (c *etcdAuthClient) Healthy(ctx context.Context) error {
-	_, err := c.client.Status(ctx, c.endpoint)
+func (c *etcdAuthClient) AuthEnabled(ctx context.Context) (bool, error) {
+	status, err := c.client.AuthStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("get endpoint status: %w", err)
+		return false, fmt.Errorf("get authentication status: %w", err)
 	}
-	return nil
+	return status.Enabled, nil
 }
 
-func (c *etcdAuthClient) AddRole(ctx context.Context, role string) error {
+func (c *etcdAuthClient) EnsureRole(ctx context.Context, role string) error {
 	_, err := c.client.RoleAdd(ctx, role)
 	if err != nil {
-		return fmt.Errorf("add role: %w", err)
+		return fmt.Errorf("ensure role: %w", err)
 	}
 	return nil
 }
@@ -157,10 +171,10 @@ func (c *etcdAuthClient) GrantPermission(ctx context.Context, role, prefix strin
 	return nil
 }
 
-func (c *etcdAuthClient) AddUser(ctx context.Context, user, password string) error {
+func (c *etcdAuthClient) EnsureUser(ctx context.Context, user, password string) error {
 	_, err := c.client.UserAdd(ctx, user, password)
 	if err != nil {
-		return fmt.Errorf("add user: %w", err)
+		return fmt.Errorf("ensure user: %w", err)
 	}
 	return nil
 }
@@ -179,4 +193,55 @@ func (c *etcdAuthClient) EnableAuth(ctx context.Context) error {
 		return fmt.Errorf("enable auth: %w", err)
 	}
 	return nil
+}
+
+func (c *etcdAuthClient) VerifyAccess(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error {
+	root, err := c.authenticatedClient("root", rootPassword)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	if _, err := root.Authenticate(ctx, "root", rootPassword); err != nil {
+		return fmt.Errorf("authenticate as root: %w", err)
+	}
+	patroni, err := c.authenticatedClient("patroni", patroniPassword)
+	if err != nil {
+		return err
+	}
+	defer patroni.Close()
+	probeKey := patroniDCSPath + "auth-smoke-test"
+	if _, err := patroni.Put(ctx, probeKey, "ok"); err != nil {
+		return fmt.Errorf("write DCS as patroni: %w", err)
+	}
+	if _, err := patroni.Delete(ctx, probeKey); err != nil {
+		return fmt.Errorf("remove Patroni DCS smoke test: %w", err)
+	}
+
+	fleet, err := c.authenticatedClient("fleet-observer", fleetPassword)
+	if err != nil {
+		return err
+	}
+	defer fleet.Close()
+	if _, err := fleet.Get(ctx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1)); err != nil {
+		return fmt.Errorf("read DCS as Fleet observer: %w", err)
+	}
+	if _, err := fleet.Put(ctx, probeKey, "denied"); !errors.Is(err, rpctypes.ErrPermissionDenied) {
+		return errors.New("Fleet observer unexpectedly has DCS write access")
+	}
+	return nil
+}
+
+func (c *etcdAuthClient) authenticatedClient(user, password string) (*clientv3.Client, error) {
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{c.endpoint},
+		DialTimeout: 5 * time.Second,
+		TLS:         c.tlsConfig.Clone(),
+		Username:    user,
+		Password:    password,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("connect as %s: %w", user, err)
+	}
+	return client, nil
 }

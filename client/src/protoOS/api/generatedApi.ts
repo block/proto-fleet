@@ -866,7 +866,15 @@ export interface HashboardInfo {
   /** @example "1.0" */
   api_version?: string;
   /** @example "B3a" */
-  board?: "CpuSimulated" | "B2" | "B3a" | "B3b" | "B3bSim" | "B4_128" | "B4_192" | "B4Sim";
+  board?:
+    | "CpuSimulated"
+    | "B2"
+    | "B3a"
+    | "B3b"
+    | "B3bSim"
+    | "B4_128"
+    | "B4_192"
+    | "B4Sim";
   /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
@@ -971,7 +979,13 @@ export interface HashboardStatsHashboardstats {
    * The current state or condition of the hashboard. `Updating` indicates a firmware update is in flight; see `fw_update` for progress detail.
    * @example "Running"
    */
-  status?: "Running" | "Stopped" | "Updating" | "Error" | "Overheated" | "Unknown";
+  status?:
+    | "Running"
+    | "Stopped"
+    | "Updating"
+    | "Error"
+    | "Overheated"
+    | "Unknown";
   /**
    * The present voltage being supplied to the hashboard in millivolts.
    * @example 16200.05
@@ -1417,6 +1431,11 @@ export enum PerformanceMode {
 /** Mining pool configuration with connection details and priorities */
 export interface Pool {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; may be empty only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.
    * @example 100
    */
@@ -1499,7 +1518,7 @@ export interface Pool {
   rejected?: number;
   /** The status field indicates the state of the mining pool. An "Idle" status indicates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   user?: PoolUsername;
@@ -1516,6 +1535,11 @@ export type PoolConfig = PoolConfigInner[];
 /** Individual pool configuration with connection details */
 export interface PoolConfigInner {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * User-defined display name for this pool.
    * @example "Primary Pool"
    */
@@ -1524,7 +1548,7 @@ export interface PoolConfigInner {
   password?: PoolPassword;
   /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
   priority?: PoolPriority;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;
@@ -1548,10 +1572,7 @@ export interface PoolResponse {
   pool?: Pool;
 }
 
-/**
- * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
- * @example "stratum+tcp://stratum.braiins.com:3333"
- */
+/** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
 export type PoolUrl = string;
 
 /**
@@ -1620,7 +1641,13 @@ export interface PsuFwupProgress {
   /** The physical slot where the PSU is inserted in the system. (1-3) */
   psu_slot: number;
   /** Current firmware update state */
-  state: "idle" | "uploading" | "verifying" | "complete" | "failed" | "not_needed";
+  state:
+    | "idle"
+    | "uploading"
+    | "verifying"
+    | "complete"
+    | "failed"
+    | "not_needed";
 }
 
 /** Power supply unit information and status */
@@ -1900,7 +1927,12 @@ export interface SystemInfoSysteminfo {
    */
   product_name?: string;
   /** @example "STM32MP157F" */
-  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";
+  soc?:
+    | "STM32MP157F"
+    | "STM32MP157D"
+    | "STM32MP151F"
+    | "STM32MP131F"
+    | "unknown";
   /** Current status and information about system software updates */
   sw_update_status?: UpdateStatus;
   /**
@@ -1998,9 +2030,14 @@ export interface TemperatureResponseTemperaturedata {
 
 /** Configuration for testing connection to a mining pool */
 export interface TestConnection {
+  /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
   /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
   password?: PoolPassword;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;
@@ -2305,16 +2342,22 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
 
 export interface ApiConfig<SecurityDataType = unknown> {
   baseUrl?: string;
   baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
-  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
+  securityWorker?: (
+    securityData: SecurityDataType | null,
+  ) => Promise<RequestParams | void> | RequestParams | void;
   customFetch?: typeof fetch;
 }
 
-export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
+export interface HttpResponse<D extends unknown, E extends unknown = unknown>
+  extends Response {
   data: D;
   error: E;
 }
@@ -2334,7 +2377,8 @@ export class HttpClient<SecurityDataType = unknown> {
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
+    fetch(...fetchParams);
 
   private baseApiParams: RequestParams = {
     credentials: "same-origin",
@@ -2367,9 +2411,15 @@ export class HttpClient<SecurityDataType = unknown> {
 
   protected toQueryString(rawQuery?: QueryParamsType): string {
     const query = rawQuery || {};
-    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
+    const keys = Object.keys(query).filter(
+      (key) => "undefined" !== typeof query[key],
+    );
     return keys
-      .map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key)))
+      .map((key) =>
+        Array.isArray(query[key])
+          ? this.addArrayQueryParam(query, key)
+          : this.addQueryParam(query, key),
+      )
       .join("&");
   }
 
@@ -2380,10 +2430,17 @@ export class HttpClient<SecurityDataType = unknown> {
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
     [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
     [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
-    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.Text]: (input: any) =>
+      input !== null && typeof input !== "string"
+        ? JSON.stringify(input)
+        : input,
     [ContentType.FormData]: (input: any) => {
       if (input instanceof FormData) {
         return input;
@@ -2405,7 +2462,10 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
   };
 
-  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
+  protected mergeRequestParams(
+    params1: RequestParams,
+    params2?: RequestParams,
+  ): RequestParams {
     return {
       ...this.baseApiParams,
       ...params1,
@@ -2418,7 +2478,9 @@ export class HttpClient<SecurityDataType = unknown> {
     };
   }
 
-  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
+  protected createAbortSignal = (
+    cancelToken: CancelToken,
+  ): AbortSignal | undefined => {
     if (this.abortControllers.has(cancelToken)) {
       const abortController = this.abortControllers.get(cancelToken);
       if (abortController) {
@@ -2462,15 +2524,26 @@ export class HttpClient<SecurityDataType = unknown> {
     const payloadFormatter = this.contentFormatters[type || ContentType.Json];
     const responseFormat = format || requestParams.format;
 
-    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
-      ...requestParams,
-      headers: {
-        ...(requestParams.headers || {}),
-        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
+    return this.customFetch(
+      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
+      {
+        ...requestParams,
+        headers: {
+          ...(requestParams.headers || {}),
+          ...(type && type !== ContentType.FormData
+            ? { "Content-Type": type }
+            : {}),
+        },
+        signal:
+          (cancelToken
+            ? this.createAbortSignal(cancelToken)
+            : requestParams.signal) || null,
+        body:
+          typeof body === "undefined" || body === null
+            ? null
+            : payloadFormatter(body),
       },
-      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
-      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
-    }).then(async (response) => {
+    ).then(async (response) => {
       const r = response as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
@@ -2511,7 +2584,9 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
-export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description The get pools endpoint returns the full list of currently configured pools.
@@ -2574,7 +2649,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: ({ id }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
+    editPool: (
+      { id }: EditPoolParams,
+      data: PoolConfigInner,
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
@@ -2767,7 +2846,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/curtailment/config
      * @secure
      */
-    putCurtailmentConfig: (data: CurtailmentConfig, params: RequestParams = {}) =>
+    putCurtailmentConfig: (
+      data: CurtailmentConfig,
+      params: RequestParams = {},
+    ) =>
       this.request<CurtailmentConfig, MessageResponse>({
         path: `/api/v1/curtailment/config`,
         method: "PUT",
@@ -2926,7 +3008,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/system/locate
      * @secure
      */
-    locateSystem: (query: LocateSystemParams = {}, params: RequestParams = {}) =>
+    locateSystem: (
+      query: LocateSystemParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/locate`,
         method: "POST",
@@ -2944,7 +3029,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/logs
      * @secure
      */
-    getSystemLogs: (query: GetSystemLogsParams = {}, params: RequestParams = {}) =>
+    getSystemLogs: (
+      query: GetSystemLogsParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<LogsResponse, MessageResponse>({
         path: `/api/v1/system/logs`,
         method: "GET",
@@ -3139,7 +3227,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashboards/{hb_sn}
      * @secure
      */
-    getHashboardStatus: ({ hbSn }: GetHashboardStatusParams, params: RequestParams = {}) =>
+    getHashboardStatus: (
+      { hbSn }: GetHashboardStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashboardStats, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
@@ -3156,7 +3247,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicStatus: ({ hbSn, asicId }: GetAsicStatusParams, params: RequestParams = {}) =>
+    getAsicStatus: (
+      { hbSn, asicId }: GetAsicStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
@@ -3173,7 +3267,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate
      * @secure
      */
-    getMinerHashrate: (query: GetMinerHashrateParams = {}, params: RequestParams = {}) =>
+    getMinerHashrate: (
+      query: GetMinerHashrateParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate`,
         method: "GET",
@@ -3191,7 +3288,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate/{hb_sn}
      * @secure
      */
-    getHashboardHashrate: ({ hbSn, ...query }: GetHashboardHashrateParams, params: RequestParams = {}) =>
+    getHashboardHashrate: (
+      { hbSn, ...query }: GetHashboardHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}`,
         method: "GET",
@@ -3209,7 +3309,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicHashrate: ({ hbSn, asicId, ...query }: GetAsicHashrateParams, params: RequestParams = {}) =>
+    getAsicHashrate: (
+      { hbSn, asicId, ...query }: GetAsicHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}/${asicId}`,
         method: "GET",
@@ -3227,7 +3330,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature
      * @secure
      */
-    getMinerTemperature: (query: GetMinerTemperatureParams = {}, params: RequestParams = {}) =>
+    getMinerTemperature: (
+      query: GetMinerTemperatureParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature`,
         method: "GET",
@@ -3245,7 +3351,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature/{hb_sn}
      * @secure
      */
-    getHashboardTemperature: ({ hbSn, ...query }: GetHashboardTemperatureParams, params: RequestParams = {}) =>
+    getHashboardTemperature: (
+      { hbSn, ...query }: GetHashboardTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}`,
         method: "GET",
@@ -3263,7 +3372,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
      * @secure
      */
-    getAsicTemperature: ({ hbSn, asicId, ...query }: GetAsicTemperatureParams, params: RequestParams = {}) =>
+    getAsicTemperature: (
+      { hbSn, asicId, ...query }: GetAsicTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}/${asicId}`,
         method: "GET",
@@ -3281,7 +3393,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/power
      * @secure
      */
-    getMinerPower: (query: GetMinerPowerParams = {}, params: RequestParams = {}) =>
+    getMinerPower: (
+      query: GetMinerPowerParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power`,
         method: "GET",
@@ -3351,7 +3466,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * Per-PSU type overrides. Keys are PSU slot IDs (1-3). Omitted slots use auto-detection.
          * @example {"1":"boco_bs502a17","2":"boco_bs402a17"}
          */
-        psu_types?: Record<string, "chicony_s24" | "boco_bs402a17" | "boco_bs502a17">;
+        psu_types?: Record<
+          string,
+          "chicony_s24" | "boco_bs402a17" | "boco_bs502a17"
+        >;
       },
       params: RequestParams = {},
     ) =>
@@ -3374,7 +3492,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/power/{hb_sn}
      * @secure
      */
-    getHashboardPower: ({ hbSn, ...query }: GetHashboardPowerParams, params: RequestParams = {}) =>
+    getHashboardPower: (
+      { hbSn, ...query }: GetHashboardPowerParams,
+      params: RequestParams = {},
+    ) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power/${hbSn}`,
         method: "GET",
@@ -3392,7 +3513,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/efficiency
      * @secure
      */
-    getMinerEfficiency: (query: GetMinerEfficiencyParams = {}, params: RequestParams = {}) =>
+    getMinerEfficiency: (
+      query: GetMinerEfficiencyParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency`,
         method: "GET",
@@ -3410,7 +3534,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/efficiency/{hb_sn}
      * @secure
      */
-    getHashboardEfficiency: ({ hbSn, ...query }: GetHashboardEfficiencyParams, params: RequestParams = {}) =>
+    getHashboardEfficiency: (
+      { hbSn, ...query }: GetHashboardEfficiencyParams,
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency/${hbSn}`,
         method: "GET",
@@ -3515,12 +3642,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/tag
      */
     getSystemTag: (params: RequestParams = {}) =>
-      this.request<string | number | boolean | object | any[], MessageResponse>({
-        path: `/api/v1/system/tag`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
+      this.request<string | number | boolean | object | any[], MessageResponse>(
+        {
+          path: `/api/v1/system/tag`,
+          method: "GET",
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * @description Set or update the system tag value. Accepts any non-null JSON value (string, number, boolean, object, or array). Maximum size is 10 KiB when serialized.
@@ -3530,7 +3659,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/tag
      * @secure
      */
-    putSystemTag: (data: string | number | boolean | object | any[], params: RequestParams = {}) =>
+    putSystemTag: (
+      data: string | number | boolean | object | any[],
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/tag`,
         method: "PUT",
@@ -3580,7 +3712,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/telemetry
      * @secure
      */
-    setSystemTelemetryEnabled: (data: TelemetryConfig, params: RequestParams = {}) =>
+    setSystemTelemetryEnabled: (
+      data: TelemetryConfig,
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryResponse, MessageResponse | TelemetryResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
@@ -3619,7 +3754,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/telemetry
      * @secure
      */
-    getCurrentTelemetry: (query: GetCurrentTelemetryParams = {}, params: RequestParams = {}) =>
+    getCurrentTelemetry: (
+      query: GetCurrentTelemetryParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryData, MessageResponse>({
         path: `/api/v1/telemetry`,
         method: "GET",

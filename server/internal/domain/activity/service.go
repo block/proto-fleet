@@ -66,11 +66,11 @@ func (s *Service) Log(ctx context.Context, event models.Event) {
 }
 
 // LogStrict records an activity event and returns any persistence error.
-// Duplicate '*.completed' inserts are swallowed at the store layer so
-// finalizer retries look like success: unique-constraint violations on
-// uq_activity_log_batch_completed are recognized by isCompletedBatchDuplicate
-// in SQLActivityStore and yield a nil return, keeping idempotent retries
-// indistinguishable from a first-write success to callers.
+// Duplicate '*.completed' inserts and events carrying an explicit
+// IdempotencyKey are swallowed at the store layer so retries look like
+// success. SQLActivityStore recognizes only their exact unique constraints,
+// keeping idempotent retries indistinguishable from a first write without
+// hiding unrelated constraint violations.
 func (s *Service) LogStrict(ctx context.Context, event models.Event) error {
 	if event.Result == "" {
 		event.Result = models.ResultSuccess

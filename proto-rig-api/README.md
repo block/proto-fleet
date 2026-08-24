@@ -6,16 +6,14 @@ This directory contains vendored API specifications for the Proto miner devices.
 
 ```
 proto-rig-api/
-├── grpc/           # Vendored gRPC + hashboard .proto files (reference only)
-├── openapi/        # OpenAPI specification for REST API
+├── openapi/        # OpenAPI specification for the REST API
 │   └── MDK-API.json
 ├── VERSION.md      # Version tracking (single source of truth)
 └── README.md       # This file
 ```
 
-The `grpc/` proto files are vendored as reference documentation of the on-rig
-gRPC surface; they are not inputs to Proto Fleet code generation. The OpenAPI
-spec is the source that drives generated code and the simulator (see below).
+The OpenAPI spec is the consumed miner API contract. It drives generated
+ProtoOS code and serves as the reference for the simulator and Proto plugin.
 
 ## Usage
 
@@ -46,9 +44,9 @@ The `VERSION.md` file in this directory contains:
 
 When the miner API changes:
 
-1. Re-vendor the gRPC/hashboard proto files and the OpenAPI specification from
-   miner-firmware (see `VERSION.md` for the exact source paths and steps)
-2. Update `VERSION.md` with the new commit SHA(s) and dates
+1. Re-vendor the OpenAPI specification from miner-firmware (see `VERSION.md`
+   for the exact source path and steps)
+2. Update `VERSION.md` with the new commit SHA and dates
 3. Regenerate dependent code:
    - `cd client && npm run generate-api-types` (TypeScript types from the OpenAPI spec)
 4. Update the simulator REST API if the OpenAPI spec changed:

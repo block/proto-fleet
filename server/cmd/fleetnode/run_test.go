@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,8 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type stubGatewayClient struct {
@@ -30,6 +33,25 @@ type stubGatewayClient struct {
 	responder        func(call int) error
 	cancelAfterCalls int
 	cancel           context.CancelFunc
+}
+
+type authRecordingControlGateway struct {
+	controlFakeGateway
+	authMu      sync.Mutex
+	authHeaders []string
+}
+
+func (f *authRecordingControlGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	f.authMu.Lock()
+	f.authHeaders = append(f.authHeaders, stream.RequestHeader().Get("Authorization"))
+	f.authMu.Unlock()
+	return f.controlFakeGateway.ControlStream(ctx, stream)
+}
+
+func (f *authRecordingControlGateway) controlAuthHeaders() []string {
+	f.authMu.Lock()
+	defer f.authMu.Unlock()
+	return append([]string(nil), f.authHeaders...)
 }
 
 func (s *stubGatewayClient) UploadHeartbeat(_ context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
@@ -134,6 +156,25 @@ func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	assert.GreaterOrEqual(t, calls, 3, "daemon must send at least 3 heartbeats before shutdown")
 }
 
+func TestRunCmd_ControlWorkerShutdownWaitIsBounded(t *testing.T) {
+	require.Equal(t, 10*time.Second, controlWorkerShutdownTimeout)
+	previousTimeout := controlWorkerShutdownTimeout
+	controlWorkerShutdownTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { controlWorkerShutdownTimeout = previousTimeout })
+
+	cmd := &RunCmd{}
+	cmd.initControlConcurrency()
+	cmd.controlWorkers.Add(1)
+	t.Cleanup(cmd.controlWorkers.Done)
+
+	started := time.Now()
+	cmd.waitForControlWorkers(discardLogger(t))
+	elapsed := time.Since(started)
+
+	assert.GreaterOrEqual(t, elapsed, controlWorkerShutdownTimeout)
+	assert.Less(t, elapsed, 500*time.Millisecond, "daemon shutdown must continue after its worker budget")
+}
+
 func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	t.Parallel()
 
@@ -187,6 +228,114 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "session-rotated", loaded.SessionToken, "near-expiry session must be refreshed before first heartbeat")
 	assert.Equal(t, 1, fake.heartbeatCount(), "exactly one heartbeat before shutdown")
+}
+
+func TestRunCmd_SuccessfulRefreshRetiresActiveControlSession(t *testing.T) {
+	dir := t.TempDir()
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fakeAuth := &fakeFleetNodeGateway{
+		expectedAPIKey:   "fleet_known_key",
+		identityPub:      pubKey,
+		challenge:        bytes.Repeat([]byte{0x34}, 32),
+		sessionToken:     "session-2",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+	authServer := newFakeServer(t, fakeAuth)
+	state := &bootstrap.State{
+		ServerURL:              authServer.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-1",
+		SessionExpiresAt:       time.Now().Add(12 * time.Hour),
+	}
+	statePath := bootstrap.StatePath(dir)
+	require.NoError(t, bootstrap.SaveState(statePath, state))
+
+	controlGateway := &authRecordingControlGateway{}
+	mux := http.NewServeMux()
+	path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(controlGateway)
+	mux.Handle(path, handler)
+	controlServer := testutil.NewH2CServer(t, mux)
+	cmd := &RunCmd{}
+	client, err := bootstrap.NewAuthenticatedGatewayClient(controlServer.URL, func() string {
+		cmd.stateMu.Lock()
+		defer cmd.stateMu.Unlock()
+		return state.SessionToken
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.runControlLoop(ctx, client, state, discardLogger(t))
+	}()
+	require.Eventually(t, func() bool {
+		headers := controlGateway.controlAuthHeaders()
+		return len(headers) == 1 && headers[0] == "Bearer session-1"
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, cmd.refreshAndSave(ctx, state, statePath, discardLogger(t)))
+	require.Eventually(t, func() bool {
+		headers := controlGateway.controlAuthHeaders()
+		return len(headers) == 2 && headers[0] == "Bearer session-1" && headers[1] == "Bearer session-2"
+	}, 2*time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, "session-2", state.SessionToken)
+}
+
+func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) {
+	dir := t.TempDir()
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fakeAuth := &fakeFleetNodeGateway{
+		expectedAPIKey: "fleet_known_key",
+		identityPub:    pubKey,
+		beginAuthError: connect.NewError(connect.CodeUnavailable, errors.New("refresh unavailable")),
+	}
+	authServer := newFakeServer(t, fakeAuth)
+	expiresAt := time.Now().Add(2 * time.Second)
+	state := &bootstrap.State{
+		ServerURL:              authServer.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-1",
+		SessionExpiresAt:       expiresAt,
+	}
+	statePath := bootstrap.StatePath(dir)
+	require.NoError(t, bootstrap.SaveState(statePath, state))
+
+	controlGateway := &controlFakeGateway{}
+	client := newControlClient(t, controlGateway)
+	cmd := &RunCmd{}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.runControlSession(ctx, discardLogger(t), client, state)
+	}()
+	require.Eventually(t, func() bool { return controlGateway.helloCount() == 1 }, time.Second, 10*time.Millisecond)
+
+	require.Error(t, cmd.refreshAndSave(ctx, state, statePath, discardLogger(t)))
+	select {
+	case sessionErr := <-done:
+		t.Fatalf("failed refresh retired the stream before token expiry: %v", sessionErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case sessionErr := <-done:
+		require.ErrorIs(t, sessionErr, errControlSessionExpired)
+	case <-time.After(time.Until(expiresAt) + time.Second):
+		t.Fatal("control session survived past the opening token expiry")
+	}
+	assert.Equal(t, "session-1", state.SessionToken)
 }
 
 func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {

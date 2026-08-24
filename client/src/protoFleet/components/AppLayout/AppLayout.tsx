@@ -13,6 +13,7 @@ import {
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "@/protoFleet/components/PageHeader/headerWidgetLayout";
+import { useActiveAlertsPillData } from "@/protoFleet/components/PageHeader/useActiveAlertsPillData";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
@@ -38,12 +39,15 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   // Release discovery is an enhancement of the normal Fleet header. Focused
   // detail routes deliberately skip the poll along with the hidden header.
   const updatePill = useUpdateIndicator({ enabled: !hideShellHeader });
+  // Same deal for the active-alert poll: no header, no pill to feed.
+  const activeAlertsPillData = useActiveAlertsPillData({ enabled: !hideShellHeader });
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const hasVisibleUpdatePill = updatePill !== null;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
+    hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
@@ -96,6 +100,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
           className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
         >
           <PageHeader
+            activeAlertsPillData={activeAlertsPillData}
             activeCurtailmentEvent={activeCurtailmentEvent}
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}

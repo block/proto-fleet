@@ -109,23 +109,7 @@ enable_valid_alerts() {
 
 write_release_manifest() {
     local stage="$1"
-    local -a hasher=(sha256sum)
-    command -v sha256sum >/dev/null 2>&1 || hasher=(shasum -a 256)
-    (
-        cd "$stage" || exit 1
-        # Must exclude the same operator-owned paths as find_release_entries
-        # in run-fleet.sh.
-        find . -type f \
-            ! -path './.env' \
-            ! -path './.update-preflight-complete' \
-            ! -path './.update-preflight-complete.tmp.*' \
-            ! -path './client/nginx.conf' \
-            ! -path './ssl/*' \
-            ! -path './server/influx_config/.env' \
-            ! -path './ha/node.env' \
-            ! -path './deployment-manifest.sha256' \
-            -print0 | LC_ALL=C sort -z | xargs -0 "${hasher[@]}" > deployment-manifest.sha256
-    )
+    "$DEPLOY_DIR/scripts/create-release-manifest.sh" "$stage"
 }
 
 make_stage() {
@@ -138,12 +122,14 @@ make_stage() {
     HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
     HARNESS_UPDATER_ENABLED_FILE="$runtime/updater-enabled"
     HARNESS_UPDATER_ENV_FILE="$runtime/updater.env"
-    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/scripts" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
     printf 'false\n' > "$HARNESS_UPDATER_ENABLED_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
+    cp "$DEPLOY_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
+    cp "$DEPLOY_DIR/scripts/docker-daemon.sh" "$STAGE/scripts/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
             printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
@@ -174,6 +160,17 @@ make_stage() {
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
+
+if [ "${1:-}" = "info" ]; then
+    printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
+    exit 0
+fi
+
+if [ "${FAKE_NONEMPTY_STARTUP_MARKER_SLOT:-false}" = "true" ] && \
+    [ "${1:-}" = "builder" ] && [ "${2:-}" = "prune" ]; then
+    mkdir -p "$STAGE_ROOT/.fleet-startup-complete"
+    printf 'operator-data\n' > "$STAGE_ROOT/.fleet-startup-complete/keep.txt"
+fi
 
 if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
     repository=''
@@ -467,6 +464,23 @@ if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "mv" ] && \
     [ "$destination_path" = "$STAGE_ROOT/.env" ]; then
     exit 1
 fi
+if [ "${FAKE_STARTUP_MARKER_SLOT_RACE:-false}" = "true" ] && \
+    [[ "$source_path" == "$STAGE_ROOT/.fleet-startup-complete.tmp."* ]] && \
+    [ "$destination_path" = "$STAGE_ROOT/.fleet-startup-complete" ]; then
+    mkdir -p "$destination_path"
+    printf 'operator-data\n' > "$destination_path/keep.txt"
+    case " $* " in
+        *' -fT -- '*) exit 1 ;;
+    esac
+fi
+# The harness reports Linux to exercise the privileged updater path, but the
+# test suite also runs on macOS where the real mv has no -T. Once the shim has
+# enforced -T's no-target-directory behavior above, translate a normal marker
+# install to the host's portable mv syntax.
+if [ "${1:-}" = "-fT" ] && [ "${2:-}" = "--" ]; then
+    shift 2
+    exec "$REAL_MV" -f "$@"
+fi
 exec "$REAL_MV" "$@"
 EOF
 
@@ -555,10 +569,27 @@ assert_not_contains "source-tree run cannot target an installed deployment proje
 assert_contains "source-tree run reaches teardown in its isolated project" "$HARNESS_CALL_LOG" " down --remove-orphans"
 assert_not_contains "source-tree run does not inspect the packaged updater" \
     "$HARNESS_CALL_LOG" "proto-fleet-updater.service"
+if grep -qFx 'proto-fleet-docker-daemon-v1:test-daemon' "$STAGE/.docker-daemon-id"; then
+    pass "successful run persists the selected Docker daemon identity"
+else
+    fail "successful run should persist the selected Docker daemon identity"
+fi
+daemon_marker_mode=$(stat -c '%a' "$STAGE/.docker-daemon-id" 2>/dev/null || stat -f '%Lp' "$STAGE/.docker-daemon-id")
+if [ "$daemon_marker_mode" = "600" ]; then
+    pass "Docker daemon identity is private"
+else
+    fail "Docker daemon identity mode should be 600, got $daemon_marker_mode"
+fi
+: > "$HARNESS_CALL_LOG"
+if FAKE_DOCKER_ID=other-daemon FAKE_SOURCE_INSTALL=true run_stage "$STAGE" --non-interactive; then
+    fail "run-fleet accepted a Docker daemon that does not own the installation"
+else
+    pass "run-fleet rejects a mismatched Docker daemon"
+fi
+assert_not_contains "daemon mismatch fails before Compose operations" "$HARNESS_CALL_LOG" " compose "
 
-# Existing process-level overrides remain authoritative and are reused by
-# volume detection. Do not persist a new multi-install identity here: the
-# surrounding migration and uninstall tools do not support that contract.
+# Existing process-level overrides remain authoritative, are reused by volume
+# detection, and become the durable identity for upgrades and recovery tools.
 make_stage project-override
 printf 'COMPOSE_PROJECT_NAME=persisted-project\n' >> "$STAGE/.env"
 if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -568,6 +599,12 @@ else
 fi
 assert_contains "explicit project override reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 assert_not_contains "process project override beats persisted identity" "$HARNESS_CALL_LOG" "compose --project-name persisted-project"
+if [ "$(grep -c '^COMPOSE_PROJECT_NAME=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^COMPOSE_PROJECT_NAME=fleet-blue$' "$STAGE/.env"; then
+    pass "explicit project override is persisted for recovery"
+else
+    fail "explicit project override should become the durable project identity"
+fi
 
 # Compose historically accepted a project identity from the deployment .env.
 # Preserve its last non-empty assignment when the process has no override.
@@ -1134,8 +1171,20 @@ if DB_PASSWORD= run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "process credential precedence matches Compose and fails closed"
 fi
-assert_contains "empty process credential is validated as effective" "$HARNESS_OUTPUT_LOG" "Missing or empty required key in environment file: DB_PASSWORD"
+assert_contains "empty process credential is rejected as transient" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_PASSWORD differs from the persisted deployment configuration"
 assert_not_contains "empty process credential prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage transient-db-target
+if DB_DSN='postgres://other-database/fleet' run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a transient database target should fail"
+else
+    pass "database targeting must be persisted for recovery"
+fi
+assert_contains "transient database target is diagnosed without its value" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_DSN differs from the persisted deployment configuration"
+assert_not_contains "transient database target is not printed" "$HARNESS_OUTPUT_LOG" "other-database"
+assert_not_contains "transient database target prevents Docker activity" "$HARNESS_CALL_LOG" "docker "
 
 make_stage project-volume
 printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"
@@ -1231,6 +1280,53 @@ done
 
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
+empty_deployment="$TMP_DIR/empty-deployment"
+empty_manifest_log="$TMP_DIR/empty-manifest.log"
+mkdir -p "$empty_deployment"
+if write_release_manifest "$empty_deployment" > "$empty_manifest_log" 2>&1; then
+    fail "production manifest generation should reject an empty immutable file set"
+else
+    pass "production manifest generation rejects an empty immutable file set"
+fi
+assert_contains \
+    "empty immutable file set is diagnosed" \
+    "$empty_manifest_log" \
+    "contains no immutable release files"
+[ ! -e "$empty_deployment/deployment-manifest.sha256" ] || \
+    fail "failed empty manifest generation should not create a manifest"
+
+make_stage packaged-symlink
+ln -s base.yaml "$STAGE/server/monitoring/grafana/provisioning/datasources/packaged-symlink.yaml"
+ln -s base.yaml "$STAGE/server/monitoring/grafana/provisioning/datasources/packaged-symlink-2.yaml"
+unsupported_manifest_log="$TMP_DIR/unsupported-manifest.log"
+if write_release_manifest "$STAGE" > "$unsupported_manifest_log" 2>&1; then
+    fail "production manifest generation should reject packaged symlinks"
+else
+    pass "production manifest generation rejects packaged symlinks"
+fi
+for unsupported_entry in \
+    "./server/monitoring/grafana/provisioning/datasources/packaged-symlink.yaml" \
+    "./server/monitoring/grafana/provisioning/datasources/packaged-symlink-2.yaml"; do
+    if grep -qxF "  $unsupported_entry" "$unsupported_manifest_log"; then
+        pass "unsupported manifest entry is indented: $unsupported_entry"
+    else
+        fail "unsupported manifest entry is not indented: $unsupported_entry"
+    fi
+done
+
+make_stage packaged-generated-nginx
+cp "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf"
+write_release_manifest "$STAGE"
+assert_not_contains \
+    "packaged manifest excludes generated nginx config" \
+    "$STAGE/deployment-manifest.sha256" \
+    "  ./client/nginx.conf"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "a production-generated manifest passes preflight with packaged nginx config"
+else
+    fail "packaged generated nginx config should stay outside the immutable release set"
+fi
+
 make_stage preflight-parent/deployment
 printf 'NO_TRAILING_NEWLINE=preserved' >> "$STAGE/.env"
 if ! preflight_env_owner=$(file_owner_group "$STAGE/.env"); then
@@ -2139,6 +2235,57 @@ if [ -f "$STAGE/.update-preflight-complete" ]; then
 else
     pass "successful offline WSL activation consumes its marker"
 fi
+
+# A reserved startup-proof slot occupied by a nonempty directory must fail
+# closed without deleting operator data. Fleet is already running at this
+# point, so proof-recording failure remains a warning and the run succeeds.
+make_stage protected-startup-marker-directory
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "protected startup marker fixture preflights"
+else
+    fail "protected startup marker fixture should preflight"
+fi
+if FAKE_NONEMPTY_STARTUP_MARKER_SLOT=true run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "nonempty startup marker directory does not fail a successful deployment"
+else
+    fail "nonempty startup marker directory should only prevent proof recording"
+fi
+if grep -qFx 'operator-data' "$STAGE/.fleet-startup-complete/keep.txt"; then
+    pass "nonempty startup marker directory contents are preserved"
+else
+    fail "nonempty startup marker directory contents must not be deleted"
+fi
+assert_contains "nonempty startup marker directory reports proof failure" "$HARNESS_OUTPUT_LOG" \
+    "could not record the successful startup"
+
+# Replanting a directory after the slot checks but immediately before marker
+# installation must not make privileged mv drop its temporary file inside the
+# attacker-controlled directory. Fleet is already healthy, so proof failure
+# remains a warning while the directory and its existing contents survive.
+make_stage raced-startup-marker-directory
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "raced startup marker fixture preflights"
+else
+    fail "raced startup marker fixture should preflight"
+fi
+if FAKE_STARTUP_MARKER_SLOT_RACE=true run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "startup marker directory race does not fail a successful deployment"
+else
+    fail "startup marker directory race should only prevent proof recording"
+fi
+if grep -qFx 'operator-data' "$STAGE/.fleet-startup-complete/keep.txt"; then
+    pass "raced startup marker directory contents are preserved"
+else
+    fail "raced startup marker directory contents must not be deleted"
+fi
+if find "$STAGE/.fleet-startup-complete" -mindepth 1 -maxdepth 1 \
+    ! -name keep.txt -print -quit | grep -q .; then
+    fail "raced startup marker directory absorbed a privileged temporary marker"
+else
+    pass "no-target-directory rename prevents marker absorption during the race"
+fi
+assert_contains "startup marker directory race reports proof failure" "$HARNESS_OUTPUT_LOG" \
+    "could not record the successful startup"
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do

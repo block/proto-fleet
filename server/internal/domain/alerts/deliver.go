@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,11 +17,13 @@ import (
 	"time"
 )
 
-// perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
-const perSendTimeout = 10 * time.Second
-
-// maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
-const maxDeliveryConcurrency = 8
+const (
+	// perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
+	perSendTimeout = 10 * time.Second
+	// maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
+	maxDeliveryConcurrency = 8
+	alertStatusResolved    = "resolved"
+)
 
 // Alert is one alert instance from a Grafana webhook batch, reduced to what delivery needs.
 type Alert struct {
@@ -36,6 +39,7 @@ type Alert struct {
 type Deliverer struct {
 	channels   ChannelStore
 	routes     RouteStore
+	windows    MaintenanceWindowStore
 	crypto     Cipher
 	devices    DeviceIdentityLookup
 	httpClient *http.Client
@@ -48,10 +52,11 @@ type Deliverer struct {
 	policyCacheGen map[int64]uint64
 }
 
-func NewDeliverer(channels ChannelStore, routes RouteStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
+func NewDeliverer(channels ChannelStore, routes RouteStore, windows MaintenanceWindowStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
 	return &Deliverer{
 		channels:       channels,
 		routes:         routes,
+		windows:        windows,
 		crypto:         crypto,
 		devices:        devices,
 		httpClient:     newDeliveryHTTPClient(policy),
@@ -148,6 +153,7 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 	if len(defaultAlerts) == 0 && len(extraIdx) == 0 {
 		return
 	}
+	windows := d.activeMaintenanceWindows(ctx, orgID)
 	// Resolve identities for routing survivors only (each surviving alert exactly once).
 	survivors := make([]Alert, 0, len(defaultAlerts)+len(routedUnique))
 	survivors = append(append(survivors, defaultAlerts...), routedUnique...)
@@ -160,9 +166,12 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 		if len(defaultAlerts) == 0 && len(idxs) == 0 {
 			continue
 		}
+		// Window coverage depends only on the channel, so resolve it once here. Resolutions still
+		// deliver through an all-rules window, so materialize and filter every covered batch.
+		muted, muteAll := channelMutedRules(windows, rec.ID)
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(rec ChannelRecord, idxs []int) {
+		go func(rec ChannelRecord, idxs []int, muted map[string]bool, muteAll bool) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			// Materialize the channel's batch inside its concurrency slot: routing stays index-based, so a
@@ -175,10 +184,81 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 					alerts = append(alerts, orgAlerts[i])
 				}
 			}
+			alerts = dropMutedAlerts(alerts, muted, muteAll)
+			if len(alerts) == 0 {
+				return
+			}
 			d.deliverChannel(ctx, orgID, rec, alerts, identities)
-		}(rec, idxs)
+		}(rec, idxs, muted, muteAll)
 	}
 	wg.Wait()
+}
+
+// activeMaintenanceWindows loads the org's currently-active windows for delivery muting. Unlike
+// route policies (which fail closed so restricted alerts can't leak to unintended channels), a
+// read failure here fails open and delivers: a window only suppresses noise, and transient extra
+// noise during maintenance beats losing real pages.
+func (d *Deliverer) activeMaintenanceWindows(ctx context.Context, orgID int64) []MaintenanceWindowRecord {
+	if d.windows == nil {
+		return nil
+	}
+	windows, err := d.windows.ListActive(ctx, orgID, time.Now())
+	if err != nil {
+		slog.Error("alerts.deliver_list_windows_failed", "org", orgID, "err", err)
+		return nil
+	}
+	return windows
+}
+
+// channelMutedRules resolves the org's active windows down to what they mute on this channel
+// (an empty channel list covers every channel): muteAll reports that a covering window has an
+// empty rule list, which mutes the channel's entire send; otherwise muted unions the covering
+// windows' rule UIDs, one set lookup per alert regardless of how many windows target the rule.
+func channelMutedRules(windows []MaintenanceWindowRecord, channelID int64) (muted map[string]bool, muteAll bool) {
+	for _, w := range windows {
+		if len(w.ChannelIDs) > 0 && !slices.Contains(w.ChannelIDs, channelID) {
+			continue
+		}
+		if len(w.RuleUIDs) == 0 {
+			return nil, true
+		}
+		if muted == nil {
+			muted = map[string]bool{}
+		}
+		for _, uid := range w.RuleUIDs {
+			muted[uid] = true
+		}
+	}
+	return muted, false
+}
+
+// dropMutedAlerts returns the channel's batch minus firing alerts covered by a maintenance
+// window. Resolutions always stay so a destination that saw a firing notification can close it.
+// Unattributed firing alerts stay under a rule-scoped window because no rule can claim them. The
+// input slice is shared across channel goroutines and never mutated; it is returned as-is (no
+// copy) until an alert actually drops.
+func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Alert {
+	if !muteAll && len(muted) == 0 {
+		return alerts
+	}
+	isMuted := func(a Alert) bool {
+		if a.Status == alertStatusResolved {
+			return false
+		}
+		return muteAll || (a.RuleUID != "" && muted[a.RuleUID])
+	}
+	first := slices.IndexFunc(alerts, isMuted)
+	if first < 0 {
+		return alerts
+	}
+	out := make([]Alert, 0, len(alerts)-1)
+	out = append(out, alerts[:first]...)
+	for _, a := range alerts[first+1:] {
+		if !isMuted(a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // routeAlerts splits the org batch per its route policies: no policy or no rule UID → every channel (fail open),
@@ -383,7 +463,7 @@ func (d *Deliverer) post(ctx context.Context, rawURL, bearer string, body []byte
 // firing/resolved partition, stable by alertname then device for a deterministic message.
 func partitionAlerts(alerts []Alert) (firing, resolved []Alert) {
 	for _, a := range alerts {
-		if a.Status == "resolved" {
+		if a.Status == alertStatusResolved {
 			resolved = append(resolved, a)
 		} else {
 			firing = append(firing, a)

@@ -18,6 +18,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
+const maxCurtailmentScopeEntries = 1024
+
 // toRequestMode validates the proto mode and returns the domain mode plus the
 // FIXED_KW params (nil for FULL_FLEET). FIXED_KW (and the unspecified default)
 // require fixed_kw params; FULL_FLEET takes none.
@@ -102,31 +104,34 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 
 func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return toCompositeScope(scopes)
+		scope, err := toTerminalScope(scopes)
+		if err != nil {
+			return curtailment.Scope{}, err
+		}
+		scope.SchemaVersion = msg.GetScopeSchemaVersion()
+		return scope, nil
 	}
+	var scope curtailment.Scope
 	switch s := msg.GetScope().(type) {
 	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
-		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
-	case *pb.PreviewCurtailmentPlanRequest_DeviceSetIds:
-		return curtailment.Scope{
-			Type:         models.ScopeTypeDeviceSets,
-			DeviceSetIDs: s.DeviceSetIds.GetDeviceSetIds(),
-		}, nil
+		scope = curtailment.Scope{Type: models.ScopeTypeWholeOrg}
 	case *pb.PreviewCurtailmentPlanRequest_DeviceIdentifiers:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
-		}, nil
+		}
 	case *pb.PreviewCurtailmentPlanRequest_Site:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:   models.ScopeTypeSite,
 			SiteID: s.Site.GetSiteId(),
-		}, nil
+		}
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
 		)
 	}
+	scope.SchemaVersion = msg.GetScopeSchemaVersion()
+	return scope, nil
 }
 
 // toStartRequest converts the proto request to a service StartRequest,
@@ -256,73 +261,128 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 // but typed separately by protoc-gen-go, so the switches can't merge.
 func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return toCompositeScope(scopes)
+		scope, err := toTerminalScope(scopes)
+		if err != nil {
+			return curtailment.Scope{}, err
+		}
+		scope.SchemaVersion = msg.GetScopeSchemaVersion()
+		return scope, nil
 	}
+	var scope curtailment.Scope
 	switch s := msg.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
-		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
-	case *pb.StartCurtailmentRequest_DeviceSetIds:
-		return curtailment.Scope{
-			Type:         models.ScopeTypeDeviceSets,
-			DeviceSetIDs: s.DeviceSetIds.GetDeviceSetIds(),
-		}, nil
+		scope = curtailment.Scope{Type: models.ScopeTypeWholeOrg}
 	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
-		}, nil
+		}
 	case *pb.StartCurtailmentRequest_Site:
-		return curtailment.Scope{
+		scope = curtailment.Scope{
 			Type:   models.ScopeTypeSite,
 			SiteID: s.Site.GetSiteId(),
-		}, nil
+		}
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
 		)
 	}
+	scope.SchemaVersion = msg.GetScopeSchemaVersion()
+	return scope, nil
 }
 
-func toCompositeScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
+func toTerminalScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
 	if len(scopes) == 0 {
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
+		)
+	}
+	if len(scopes) > maxCurtailmentScopeEntries {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentErrorf(
+			"scopes must contain at most %d entries",
+			maxCurtailmentScopeEntries,
 		)
 	}
 	var siteIDs []int64
-	var deviceSetIDs []string
+	var buildingIDs []int64
+	var rackIDs []int64
+	var groupIDs []int64
 	var deviceIdentifiers []string
+	var wholeOrgSelected, siteSelected, buildingSelected, rackSelected, groupSelected, deviceSelected bool
 	for _, scope := range scopes {
 		if scope == nil {
 			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must be set")
 		}
 		switch s := scope.GetScope().(type) {
 		case *pb.CurtailmentScope_WholeOrg:
-			return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
-		case *pb.CurtailmentScope_DeviceSetIds:
-			deviceSetIDs = append(deviceSetIDs, s.DeviceSetIds.GetDeviceSetIds()...)
+			wholeOrgSelected = true
 		case *pb.CurtailmentScope_DeviceIdentifiers:
-			deviceIdentifiers = append(deviceIdentifiers, s.DeviceIdentifiers.GetDeviceIdentifiers()...)
+			deviceSelected = true
+			identifiers := s.DeviceIdentifiers.GetDeviceIdentifiers()
+			if len(identifiers) > curtailment.ScopeDeviceIdentifiersMax-len(deviceIdentifiers) {
+				return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+					"device_identifiers must contain at most 10000 entries",
+				)
+			}
+			deviceIdentifiers = append(deviceIdentifiers, identifiers...)
 		case *pb.CurtailmentScope_Site:
+			siteSelected = true
 			siteIDs = append(siteIDs, s.Site.GetSiteId())
+		case *pb.CurtailmentScope_Building:
+			buildingSelected = true
+			buildingIDs = append(buildingIDs, s.Building.GetBuildingId())
+		case *pb.CurtailmentScope_Rack:
+			rackSelected = true
+			rackIDs = append(rackIDs, s.Rack.GetRackId())
+		case *pb.CurtailmentScope_Group:
+			groupSelected = true
+			groupIDs = append(groupIDs, s.Group.GetGroupId())
 		default:
 			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must set a selector")
 		}
 	}
+	if len(siteIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(buildingIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(rackIDs) > curtailment.ScopeTopologyIDsPerTypeMax ||
+		len(groupIDs) > curtailment.ScopeTopologyIDsPerTypeMax {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"site, building, rack, and group scopes must contain at most 256 entries per type",
+		)
+	}
+	selectorTypeCount := 0
+	for _, selected := range []bool{
+		wholeOrgSelected,
+		siteSelected,
+		buildingSelected,
+		rackSelected,
+		groupSelected,
+		deviceSelected,
+	} {
+		if selected {
+			selectorTypeCount++
+		}
+	}
+	if selectorTypeCount != 1 {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scopes must contain exactly one selector type",
+		)
+	}
+	if wholeOrgSelected {
+		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
+	}
 	switch {
-	case len(deviceSetIDs) > 0:
+	case len(buildingIDs) > 0:
 		return curtailment.Scope{
-			Type:              models.ScopeTypeDeviceSets,
-			SiteIDs:           siteIDs,
-			DeviceSetIDs:      deviceSetIDs,
-			DeviceIdentifiers: deviceIdentifiers,
+			Type:        models.ScopeTypeMixed,
+			BuildingIDs: buildingIDs,
 		}, nil
-	case len(siteIDs) > 0 && len(deviceIdentifiers) > 0:
+	case len(rackIDs) > 0:
 		return curtailment.Scope{
-			Type:              models.ScopeTypeMixed,
-			SiteIDs:           siteIDs,
-			DeviceIdentifiers: deviceIdentifiers,
+			Type:    models.ScopeTypeMixed,
+			RackIDs: rackIDs,
 		}, nil
+	case len(groupIDs) > 0:
+		return curtailment.Scope{Type: models.ScopeTypeMixed, GroupIDs: groupIDs}, nil
 	case len(siteIDs) > 1:
 		return curtailment.Scope{Type: models.ScopeTypeMixed, SiteIDs: siteIDs}, nil
 	case len(siteIDs) == 1:
@@ -331,7 +391,7 @@ func toCompositeScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) 
 		return curtailment.Scope{Type: models.ScopeTypeDeviceList, DeviceIdentifiers: deviceIdentifiers}, nil
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
 		)
 	}
 }
@@ -358,20 +418,11 @@ func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 		return false
 	}
 	if scopes := req.GetScopes(); len(scopes) > 0 {
-		scope, err := toCompositeScope(scopes)
+		scope, err := toTerminalScope(scopes)
 		if err != nil {
 			return false
 		}
-		switch scope.Type {
-		case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
-			return true
-		case models.ScopeTypeMixed:
-			return len(scope.SiteIDs) > 0 && len(scope.DeviceIdentifiers) == 0 && len(scope.DeviceSetIDs) == 0
-		case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
-			return false
-		default:
-			return false
-		}
+		return scope.Type == models.ScopeTypeWholeOrg || curtailment.IsSiteOnlyScope(scope)
 	}
 	switch req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg, *pb.StartCurtailmentRequest_Site:
@@ -399,6 +450,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		IncludeMaintenance:          req.GetIncludeMaintenance(),
 		ForceIncludeMaintenance:     req.GetForceIncludeMaintenance(),
 		ForceIncludeAllPairedMiners: req.GetForceIncludeAllPairedMiners(),
+		ScopeSchemaVersion:          req.GetScopeSchemaVersion(),
 		FacilityFanDeviceIds:        append([]int64(nil), req.GetFacilityFanDeviceIds()...),
 		FanOffDelaySec:              req.GetFanOffDelaySec(),
 		FanRestoreDelaySec:          req.GetFanRestoreDelaySec(),
@@ -420,14 +472,12 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if scopes := req.GetScopes(); len(scopes) > 0 {
 		event.Scopes = scopes
 		if len(scopes) == 1 {
-			populateLegacyEventScopeFromComposite(event, scopes[0])
+			populateSingularEventScopeFromComposite(event, scopes[0])
 		}
 	} else {
 		switch s := req.GetScope().(type) {
 		case *pb.StartCurtailmentRequest_WholeOrg:
 			event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
-		case *pb.StartCurtailmentRequest_DeviceSetIds:
-			event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
 		case *pb.StartCurtailmentRequest_DeviceIdentifiers:
 			event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
 		case *pb.StartCurtailmentRequest_Site:
@@ -491,15 +541,13 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	return &pb.StartCurtailmentResponse{Event: event}
 }
 
-func populateLegacyEventScopeFromComposite(event *pb.CurtailmentEvent, scope *pb.CurtailmentScope) {
+func populateSingularEventScopeFromComposite(event *pb.CurtailmentEvent, scope *pb.CurtailmentScope) {
 	if event == nil || scope == nil {
 		return
 	}
 	switch s := scope.GetScope().(type) {
 	case *pb.CurtailmentScope_WholeOrg:
 		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
-	case *pb.CurtailmentScope_DeviceSetIds:
-		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
 	case *pb.CurtailmentScope_DeviceIdentifiers:
 		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
 	case *pb.CurtailmentScope_Site:
@@ -1001,36 +1049,35 @@ func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 		wholeOrg := &pb.ScopeWholeOrg{}
 		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: wholeOrg}
 		out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: wholeOrg}}}
+		if scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON); err == nil && hasScope {
+			out.ScopeSchemaVersion = scope.SchemaVersion
+		}
 	case models.ScopeTypeSite:
 		var payload struct {
-			SiteID int64 `json:"site_id"`
+			SiteID             int64  `json:"site_id"`
+			ScopeSchemaVersion uint32 `json:"scope_schema_version"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
 			site := &pb.ScopeSite{SiteId: payload.SiteID}
 			out.Scope = &pb.CurtailmentEvent_Site{Site: site}
 			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Site{Site: site}}}
+			out.ScopeSchemaVersion = payload.ScopeSchemaVersion
 		}
 	case models.ScopeTypeDeviceList:
 		var payload struct {
-			DeviceIdentifiers []string `json:"device_identifiers"`
+			DeviceIdentifiers  []string `json:"device_identifiers"`
+			ScopeSchemaVersion uint32   `json:"scope_schema_version"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
 			devices := &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers}
 			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: devices}
 			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: devices}}}
-		}
-	case models.ScopeTypeDeviceSets:
-		var payload struct {
-			DeviceSetIDs []string `json:"device_set_ids"`
-		}
-		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			sets := &pb.ScopeDeviceSets{DeviceSetIds: payload.DeviceSetIDs}
-			out.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: sets}
-			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceSetIds{DeviceSetIds: sets}}}
+			out.ScopeSchemaVersion = payload.ScopeSchemaVersion
 		}
 	case models.ScopeTypeMixed:
 		if scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON); err == nil && hasScope {
 			out.Scopes = protoScopesFromDomainScope(scope)
+			out.ScopeSchemaVersion = scope.SchemaVersion
 		}
 	}
 }
@@ -1045,15 +1092,27 @@ func protoScopesFromDomainScope(scope curtailment.Scope) []*pb.CurtailmentScope 
 		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
 			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: scope.DeviceIdentifiers},
 		}}}
-	case models.ScopeTypeDeviceSets:
-		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceSetIds{
-			DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: scope.DeviceSetIDs},
-		}}}
 	case models.ScopeTypeMixed:
-		out := make([]*pb.CurtailmentScope, 0, len(scope.SiteIDs)+1)
+		out := make([]*pb.CurtailmentScope, 0,
+			len(scope.SiteIDs)+len(scope.BuildingIDs)+len(scope.RackIDs)+len(scope.GroupIDs)+1)
 		for _, siteID := range scope.SiteIDs {
 			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Site{
 				Site: &pb.ScopeSite{SiteId: siteID},
+			}})
+		}
+		for _, buildingID := range scope.BuildingIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Building{
+				Building: &pb.ScopeBuilding{BuildingId: buildingID},
+			}})
+		}
+		for _, rackID := range scope.RackIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Rack{
+				Rack: &pb.ScopeRack{RackId: rackID},
+			}})
+		}
+		for _, groupID := range scope.GroupIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Group{
+				Group: &pb.ScopeGroup{GroupId: groupID},
 			}})
 		}
 		if len(scope.DeviceIdentifiers) > 0 {

@@ -364,6 +364,19 @@ type AlertChannel struct {
 	DeletedAt       sql.NullTime
 }
 
+type AlertMaintenanceWindow struct {
+	ID         int64
+	OrgID      int64
+	RuleUids   []string
+	ChannelIds []int64
+	StartsAt   time.Time
+	EndsAt     time.Time
+	Comment    string
+	CreatedBy  string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type AlertRouteChannel struct {
 	PolicyID  int64
 	ChannelID int64
@@ -529,6 +542,7 @@ type CurtailmentEvent struct {
 	FanAirflowReopenedAt         sql.NullTime
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
+	AuthorizationEnvelopeJsonb   json.RawMessage
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -611,6 +625,7 @@ type CurtailmentResponseProfile struct {
 	FacilityFanDeviceIds        []int64
 	FanOffDelaySec              int32
 	FanRestoreDelaySec          int32
+	AuthorizationEnvelopeJsonb  json.RawMessage
 }
 
 type CurtailmentRigConfigReconciliation struct {

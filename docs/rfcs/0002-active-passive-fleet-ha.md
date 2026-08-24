@@ -284,7 +284,17 @@ Endpoints:
 
 The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `fleet-ha status`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
 
-Future HA alerting should evaluate the same state exposed through `/health/ha` and `fleet-ha status`. Alert delivery and dashboards are outside the initial supported profile.
+The HA profile evaluates the same failover-readiness state through the built-in
+Grafana integration. Each database host runs an independent local Grafana
+sidecar against the shared metric table through the same ordered two-host
+PostgreSQL path, while only the active Fleet runtime accepts webhook delivery.
+This intentionally avoids a separate monitoring service or vendor-specific log
+integration; complete Fleet or PostgreSQL outages can still delay notification
+until the active path recovers. The file-provisioned HA readiness rule is
+duplicated, but mutable Grafana rules, silences, and SQLite state are host-local
+and do not follow Fleet ownership. The peer evaluator cannot deliver until its
+local Fleet runtime becomes active, so failure of the active host's local
+evaluator can also delay a notification.
 
 ## Deployment model
 

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ComponentProps, type ReactNode, useEffect } from "react";
 import clsx from "clsx";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
@@ -8,6 +8,11 @@ import type {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useCommandBatchDeviceResults } from "@/protoFleet/api/useCommandBatchDeviceResults";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import {
+  ALERT_FIRING_EVENT_TYPE,
+  alertEntryMetadata,
+  isAlertEntry,
+} from "@/protoFleet/features/activity/utils/alertEntries";
 import { isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import {
   formatActivityDescription,
@@ -48,6 +53,21 @@ function SummaryRow({
   );
 }
 
+function StatusLabel({
+  status,
+  children,
+}: {
+  status: ComponentProps<typeof StatusCircle>["status"];
+  children: ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <StatusCircle status={status} variant="simple" width="w-1.5" removeMargin />
+      {children}
+    </span>
+  );
+}
+
 const formatBatchResult = (data: GetCommandBatchDeviceResultsResponse): string => {
   const completedCount = data.successCount;
   const totalCount = data.totalCount || data.successCount + data.failureCount;
@@ -71,6 +91,10 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
   }, [batchId, fetch]);
 
   if (!entry) return null;
+
+  if (isAlertEntry(entry)) {
+    return <AlertDetail entry={entry} onDismiss={onDismiss} />;
+  }
 
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
@@ -102,15 +126,9 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
           </SummaryRow>
           <SummaryRow label="User">{entry.username ?? "—"}</SummaryRow>
           <SummaryRow label="Result" divider={hasErrorMessage}>
-            <span className="inline-flex items-center gap-1.5">
-              <StatusCircle
-                status={batchInProgress ? "pending" : isFailed ? "error" : "normal"}
-                variant="simple"
-                width="w-1.5"
-                removeMargin
-              />
+            <StatusLabel status={batchInProgress ? "pending" : isFailed ? "error" : "normal"}>
               {resultLabel}
-            </span>
+            </StatusLabel>
           </SummaryRow>
           {entry.errorMessage ? (
             <SummaryRow label="Issue" className="text-intent-critical break-words" divider={false}>
@@ -130,6 +148,30 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
     </Modal>
   );
 };
+
+function AlertDetail({ entry, onDismiss }: { entry: ActivityEntry; onDismiss: () => void }) {
+  const { severity, summary, mac } = alertEntryMetadata(entry);
+  const firing = entry.eventType === ALERT_FIRING_EVENT_TYPE;
+
+  return (
+    <Modal title={formatActivityDescription(entry)} onDismiss={onDismiss}>
+      <div className="flex flex-col">
+        <SummaryRow label="Time">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</SummaryRow>
+        <SummaryRow label="Scope">{formatScope(entry.scopeType, entry.scopeLabel)}</SummaryRow>
+        {mac ? <SummaryRow label="MAC Address">{mac}</SummaryRow> : null}
+        {severity ? <SummaryRow label="Severity">{severity}</SummaryRow> : null}
+        <SummaryRow label="Status" divider={Boolean(summary)}>
+          <StatusLabel status={firing ? "error" : "normal"}>{firing ? "Firing" : "Resolved"}</StatusLabel>
+        </SummaryRow>
+        {summary ? (
+          <SummaryRow label="Summary" className="break-words" divider={false}>
+            {summary}
+          </SummaryRow>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
 
 function BatchDeviceResults({
   isLoading,
