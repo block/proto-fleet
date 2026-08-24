@@ -3555,8 +3555,6 @@ WITH selected_resources AS MATERIALIZED (
       AND ds.id = ANY($4::BIGINT[])
 ), members AS MATERIALIZED (
     SELECT DISTINCT
-           sr.selector_type,
-           sr.selector_id,
            d.id AS device_id,
            d.device_identifier,
            d.site_id
@@ -3593,6 +3591,8 @@ WITH selected_resources AS MATERIALIZED (
                 AND dsm.device_set_id = sr.selector_id
           ))
      )
+    ORDER BY d.id
+    LIMIT 10001
 ), selector_rollup AS (
     SELECT
         COALESCE(array_agg(sr.selector_id ORDER BY sr.selector_id), '{}')::BIGINT[] AS existing_selector_ids,
@@ -3615,9 +3615,15 @@ WITH selected_resources AS MATERIALIZED (
             array_agg(sr.selector_id ORDER BY sr.selector_id)
                 FILTER (WHERE sr.selector_type = 'group'
                         AND NOT EXISTS (
-                            SELECT 1 FROM members m
-                            WHERE m.selector_type = sr.selector_type
-                              AND m.selector_id = sr.selector_id
+                            SELECT 1
+                            FROM device_set_membership dsm
+                            JOIN device d
+                              ON d.id = dsm.device_id
+                             AND d.org_id = dsm.org_id
+                             AND d.deleted_at IS NULL
+                            WHERE dsm.org_id = $1
+                              AND dsm.device_set_type = 'group'
+                              AND dsm.device_set_id = sr.selector_id
                         )),
             '{}'
         )::BIGINT[] AS empty_group_ids

@@ -275,6 +275,26 @@ type CurtailmentTopologyDispatchStore interface {
 	) (CurtailmentTopologyDispatchSnapshot, error)
 }
 
+// CurtailmentTopologyDispatchFenceSnapshot is the event and topology state
+// protected by the dispatch fence for the duration of its callback.
+type CurtailmentTopologyDispatchFenceSnapshot struct {
+	Event    *models.Event
+	Topology CurtailmentTopologyDispatchSnapshot
+}
+
+// CurtailmentTopologyDispatchFenceStore serializes event transitions,
+// topology mutations, and creator permission revocations through the physical
+// Curtail command callback.
+type CurtailmentTopologyDispatchFenceStore interface {
+	WithCurtailmentTopologyDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event

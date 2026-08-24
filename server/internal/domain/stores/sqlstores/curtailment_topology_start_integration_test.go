@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -82,8 +83,49 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 	require.Len(t, targets, 1)
 	assert.Equal(t, device.ID, targets[0].DeviceIdentifier)
 
-	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, deviceIdentifiers)
-	require.NoError(t, err)
+	fenceSnapshot := make(chan interfaces.CurtailmentTopologyDispatchFenceSnapshot, 1)
+	releaseFence := make(chan struct{})
+	fenceDone := make(chan error, 1)
+	go func() {
+		fenceDone <- store.WithCurtailmentTopologyDispatchFence(
+			ctx,
+			persisted,
+			interfaces.ListCandidatesParams{OrgID: orgID, BuildingIDs: []int64{building.ID}},
+			[]string{device.ID},
+			func(snapshot interfaces.CurtailmentTopologyDispatchFenceSnapshot) error {
+				fenceSnapshot <- snapshot
+				<-releaseFence
+				return nil
+			},
+		)
+	}()
+	select {
+	case snapshot := <-fenceSnapshot:
+		assert.Equal(t, []string{device.ID}, snapshot.Topology.DispatchMemberDeviceIdentifiers)
+	case fenceErr := <-fenceDone:
+		require.NoError(t, fenceErr)
+		t.Fatal("dispatch fence exited before invoking its callback")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for dispatch fence callback")
+	}
+	mutationStarted := make(chan struct{})
+	mutationDone := make(chan error, 1)
+	go func() {
+		close(mutationStarted)
+		_, mutationErr := buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, deviceIdentifiers)
+		mutationDone <- mutationErr
+	}()
+	<-mutationStarted
+	select {
+	case mutationErr := <-mutationDone:
+		require.NoError(t, mutationErr)
+		t.Fatal("topology mutation completed while the dispatch fence was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFence)
+	require.NoError(t, <-fenceDone)
+	require.NoError(t, <-mutationDone)
+
 	dispatchSnapshot, err = store.ResolveCurtailmentTopologyDispatch(
 		ctx,
 		interfaces.ListCandidatesParams{OrgID: orgID, BuildingIDs: []int64{building.ID}},

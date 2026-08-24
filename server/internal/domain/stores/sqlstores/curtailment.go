@@ -60,6 +60,7 @@ func mapOrgConfigError(err error, orgID int64) error {
 
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentTopologyScopeStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentTopologyDispatchFenceStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
@@ -2081,11 +2082,25 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyDispatch(
 	params interfaces.ListCandidatesParams,
 	dispatchDeviceIdentifiers []string,
 ) (interfaces.CurtailmentTopologyDispatchSnapshot, error) {
+	return resolveCurtailmentTopologyDispatch(
+		ctx,
+		s.GetQueries(ctx),
+		params,
+		dispatchDeviceIdentifiers,
+	)
+}
+
+func resolveCurtailmentTopologyDispatch(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+	dispatchDeviceIdentifiers []string,
+) (interfaces.CurtailmentTopologyDispatchSnapshot, error) {
 	requestedIDs, selectorLabel, err := topologySelector(params)
 	if err != nil {
 		return interfaces.CurtailmentTopologyDispatchSnapshot{}, err
 	}
-	row, err := s.GetQueries(ctx).ResolveCurtailmentTopologyDispatch(
+	row, err := q.ResolveCurtailmentTopologyDispatch(
 		ctx,
 		sqlc.ResolveCurtailmentTopologyDispatchParams{
 			OrgID:                     params.OrgID,
@@ -2143,6 +2158,53 @@ func (s *SQLCurtailmentStore) ResolveCurtailmentTopologyDispatch(
 		},
 		DispatchMemberDeviceIdentifiers: append([]string(nil), row.DispatchMemberDeviceIdentifiers...),
 	}, nil
+}
+
+func (s *SQLCurtailmentStore) WithCurtailmentTopologyDispatchFence(
+	ctx context.Context,
+	event *models.Event,
+	params interfaces.ListCandidatesParams,
+	dispatchDeviceIdentifiers []string,
+	command func(interfaces.CurtailmentTopologyDispatchFenceSnapshot) error,
+) error {
+	if event == nil || command == nil {
+		return fleeterror.NewInvalidArgumentError("topology dispatch fence requires an event and command")
+	}
+	return db.WithTransactionNoRetryNoResult(ctx, s.conn.DB, func(q sqlc.Querier) error {
+		locked, err := q.LockCurtailmentEventByUUIDForWrite(ctx, sqlc.LockCurtailmentEventByUUIDForWriteParams{
+			EventUuid: event.EventUUID,
+			OrgID:     event.OrgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to lock curtailment event for topology dispatch: %v", err)
+		}
+		if locked.ID != event.ID || models.EventState(locked.State) != event.State || models.EventState(locked.State).IsTerminal() {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if _, err := q.ListEffectivePermissionsForUserForUpdate(
+			ctx,
+			sqlc.ListEffectivePermissionsForUserForUpdateParams{
+				UserID:         locked.CreatedByUserID,
+				OrganizationID: locked.OrgID,
+			},
+		); err != nil {
+			return fleeterror.NewInternalErrorf("failed to lock event creator permissions for topology dispatch: %v", err)
+		}
+		if _, _, err := lockTopologyScopeCoverage(ctx, q, params, dispatchDeviceIdentifiers); err != nil {
+			return err
+		}
+		topology, err := resolveCurtailmentTopologyDispatch(ctx, q, params, dispatchDeviceIdentifiers)
+		if err != nil {
+			return err
+		}
+		return command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
+			Event:    convertEventRow(locked),
+			Topology: topology,
+		})
+	})
 }
 
 func topologySelector(params interfaces.ListCandidatesParams) ([]int64, string, error) {

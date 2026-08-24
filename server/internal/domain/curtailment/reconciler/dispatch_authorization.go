@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -25,9 +26,10 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 	ev *models.Event,
 	targets []*models.Target,
 	knownUnsentDeviceIdentifiers []string,
-) bool {
+	command func(),
+) (bool, bool) {
 	if ev.ScopeType != models.ScopeTypeMixed {
-		return true
+		return false, true
 	}
 	reject := func(reason string, cause error) bool {
 		r.topologyDispatchRejects.Store(ev.EventUUID, reason)
@@ -56,39 +58,23 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		if !ok {
 			reason = "previous topology dispatch authorization failure"
 		}
-		return reject(reason, nil)
+		return true, reject(reason, nil)
 	}
 	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
 	if err != nil || !hasScope {
-		return reject("parse persisted mixed scope", err)
+		return true, reject("parse persisted mixed scope", err)
 	}
 	if !curtailment.IsTopologyScope(scope) {
-		return true
+		return false, true
 	}
-
-	latest, err := r.store.GetEventByUUID(ctx, ev.OrgID, ev.EventUUID)
+	filter, err := curtailment.ListCandidatesParamsForScope(scope)
 	if err != nil {
-		return reject("reload persisted event", err)
+		return true, reject("parse persisted topology selector", err)
 	}
-	if latest == nil || latest.State != ev.State || latest.State.IsTerminal() {
-		return reject("event is no longer dispatchable", nil)
-	}
-	latestScope, hasScope, err := curtailment.ScopeFromJSON(latest.ScopeJSON)
-	if err != nil || !hasScope || !curtailment.IsTopologyScope(latestScope) {
-		return reject("reload persisted topology scope", err)
-	}
-	envelope, err := curtailment.AuthorizationEnvelopeFromJSON(latest.AuthorizationEnvelopeJSON)
-	if err != nil {
-		return reject("parse persisted authorization envelope", err)
-	}
-	filter, err := curtailment.ListCandidatesParamsForScope(latestScope)
-	if err != nil {
-		return reject("parse persisted topology selector", err)
-	}
-	filter.OrgID = latest.OrgID
-	topologyStore, ok := r.store.(interfaces.CurtailmentTopologyDispatchStore)
+	filter.OrgID = ev.OrgID
+	fenceStore, ok := r.store.(interfaces.CurtailmentTopologyDispatchFenceStore)
 	if !ok {
-		return reject("topology dispatch resolver is not configured", nil)
+		return true, reject("topology dispatch fence is not configured", nil)
 	}
 	dispatchDeviceIdentifiers := make([]string, 0, len(targets))
 	for _, target := range targets {
@@ -96,39 +82,71 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 			dispatchDeviceIdentifiers = append(dispatchDeviceIdentifiers, target.DeviceIdentifier)
 		}
 	}
-	snapshot, err := topologyStore.ResolveCurtailmentTopologyDispatch(ctx, filter, dispatchDeviceIdentifiers)
+	var rejectionReason string
+	var rejectionCause error
+	rejectFence := func(reason string, cause error) error {
+		rejectionReason = reason
+		rejectionCause = cause
+		return errTopologyDispatchRejected
+	}
+	err = fenceStore.WithCurtailmentTopologyDispatchFence(
+		ctx,
+		ev,
+		filter,
+		dispatchDeviceIdentifiers,
+		func(fenced interfaces.CurtailmentTopologyDispatchFenceSnapshot) error {
+			latest := fenced.Event
+			latestScope, hasScope, err := curtailment.ScopeFromJSON(latest.ScopeJSON)
+			if err != nil || !hasScope || !curtailment.IsTopologyScope(latestScope) {
+				return rejectFence("reload persisted topology scope", err)
+			}
+			envelope, err := curtailment.AuthorizationEnvelopeFromJSON(latest.AuthorizationEnvelopeJSON)
+			if err != nil {
+				return rejectFence("parse persisted authorization envelope", err)
+			}
+			coverage := fenced.Topology.Coverage
+			if !topologyCoverageWithinEnvelope(coverage, envelope) {
+				return rejectFence("current topology exceeds the persisted authorization envelope", nil)
+			}
+			currentMembers := make(map[string]struct{}, len(fenced.Topology.DispatchMemberDeviceIdentifiers))
+			for _, deviceIdentifier := range fenced.Topology.DispatchMemberDeviceIdentifiers {
+				currentMembers[deviceIdentifier] = struct{}{}
+			}
+			for _, target := range targets {
+				if target == nil {
+					continue
+				}
+				if _, ok := currentMembers[target.DeviceIdentifier]; !ok {
+					return rejectFence("claimed miner is no longer in the persisted topology scope", nil)
+				}
+			}
+			if r.permissions == nil {
+				return rejectFence("dispatch permission resolver is not configured", nil)
+			}
+			effective, err := r.permissions.LoadEffective(ctx, latest.CreatedByUserID, latest.OrgID)
+			if err != nil {
+				return rejectFence("reload event creator permissions", err)
+			}
+			if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
+				return rejectFence("event creator no longer has required permissions", nil)
+			}
+			command()
+			return nil
+		},
+	)
+	if rejectionReason != "" {
+		return true, reject(rejectionReason, rejectionCause)
+	}
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		return true, false
+	}
 	if err != nil {
-		return reject("reload topology dispatch snapshot", err)
+		return true, reject("acquire topology dispatch fence", err)
 	}
-	coverage := snapshot.Coverage
-	if !topologyCoverageWithinEnvelope(coverage, envelope) {
-		return reject("current topology exceeds the persisted authorization envelope", nil)
-	}
-	currentMembers := make(map[string]struct{}, len(snapshot.DispatchMemberDeviceIdentifiers))
-	for _, deviceIdentifier := range snapshot.DispatchMemberDeviceIdentifiers {
-		currentMembers[deviceIdentifier] = struct{}{}
-	}
-	for _, target := range targets {
-		if target == nil {
-			continue
-		}
-		if _, ok := currentMembers[target.DeviceIdentifier]; !ok {
-			return reject("claimed miner is no longer in the persisted topology scope", nil)
-		}
-	}
-
-	if r.permissions == nil {
-		return reject("dispatch permission resolver is not configured", nil)
-	}
-	effective, err := r.permissions.LoadEffective(ctx, latest.CreatedByUserID, latest.OrgID)
-	if err != nil {
-		return reject("reload event creator permissions", err)
-	}
-	if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
-		return reject("event creator no longer has required permissions", nil)
-	}
-	return true
+	return true, true
 }
+
+var errTopologyDispatchRejected = errors.New("topology dispatch rejected")
 
 func topologyCoverageWithinEnvelope(
 	coverage interfaces.CurtailmentTopologyScopeCoverage,

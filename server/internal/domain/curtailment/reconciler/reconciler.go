@@ -713,13 +713,6 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	if !r.eventStillDispatchable(ctx, ev) {
 		return false
 	}
-	if !r.authorizeTopologyCurtailDispatch(ctx, ev, dispatchSet, knownUnsentDeviceIdentifiers) {
-		return false
-	}
-	if !r.eventStillDispatchable(ctx, ev) {
-		return false
-	}
-
 	deviceIDs := make([]string, 0, len(dispatchSet))
 	for _, t := range dispatchSet {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
@@ -731,7 +724,25 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 			},
 		},
 	}
-	result, dispatchErr := r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	var result *command.CommandResult
+	var dispatchErr error
+	topologyHandled, topologyAllowed := r.authorizeTopologyCurtailDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		knownUnsentDeviceIdentifiers,
+		func() { result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull) },
+	)
+	if topologyHandled {
+		if !topologyAllowed {
+			return false
+		}
+	} else {
+		if !r.eventStillDispatchable(ctx, ev) {
+			return false
+		}
+		result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: curtail batch dispatch failed",
