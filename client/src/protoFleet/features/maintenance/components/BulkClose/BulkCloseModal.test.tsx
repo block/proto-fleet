@@ -10,9 +10,15 @@ describe("BulkCloseModal", () => {
 
     expect(screen.getByTestId("modal").parentElement).toHaveClass("w-[min(calc(100vw-(--spacing(4))),640px)]");
     expect(screen.getByRole("table", { name: "Close ticket resolution options" })).toBeInTheDocument();
-    expect(screen.getByText("Select a resolution for all selected tickets.")).toHaveClass("text-right", "text-300");
+    expect(screen.getByText("Select a resolution for all selected tickets.")).toHaveClass(
+      "mb-4",
+      "max-w-[600px]",
+      "text-300",
+    );
     expect(screen.getByText("Issue was fixed")).toHaveClass("text-right", "text-300");
     expect(screen.queryByLabelText("Notes (optional)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close tickets" })).toHaveClass("bg-core-primary-fill");
+    expect(screen.getByRole("button", { name: "Close tickets" })).not.toHaveClass("bg-intent-critical-fill");
     expect(screen.getByRole("button", { name: "Close tickets" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("radio", { name: /Repaired/ }));

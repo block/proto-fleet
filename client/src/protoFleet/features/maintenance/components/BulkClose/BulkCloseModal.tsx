@@ -33,6 +33,7 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
       open
       onDismiss={onDismiss}
       title={`Close ${ticketIds.length} ticket${ticketIds.length > 1 ? "s" : ""}`}
+      description="Select a resolution for all selected tickets."
       size="standard"
       buttons={[
         {
@@ -43,7 +44,7 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
         },
         {
           text: "Close tickets",
-          variant: variants.danger,
+          variant: variants.primary,
           onClick: handleSubmit,
           disabled: !resolution,
           dismissModalOnClick: false,
@@ -51,8 +52,6 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
       ]}
     >
       <div className="flex flex-col gap-4">
-        <p className="text-right text-300 text-text-primary-70">Select a resolution for all selected tickets.</p>
-
         <table aria-label="Close ticket resolution options" className="w-full table-fixed border-collapse">
           <thead className="sr-only">
             <tr>
