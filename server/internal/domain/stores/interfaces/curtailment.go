@@ -284,7 +284,8 @@ type CurtailmentTopologyDispatchFenceSnapshot struct {
 
 // CurtailmentTopologyDispatchFenceStore serializes event transitions,
 // topology mutations, and creator permission revocations through the physical
-// Curtail command callback.
+// Curtail command callback. Implementations must keep referenced user/device
+// rows compatible with the foreign-key locks acquired by command enqueueing.
 type CurtailmentTopologyDispatchFenceStore interface {
 	WithCurtailmentTopologyDispatchFence(
 		ctx context.Context,

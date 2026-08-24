@@ -981,7 +981,7 @@ type Querier interface {
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
 	// shape, same row order, same narrowing semantics — but takes
-	// FOR UPDATE on every row whose mutation can revoke the caller's
+	// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
 	// effective permissions: the assignment row (uor), the caller's user
 	// row (u), and the caller's role row (r). Concurrent:
 	//
@@ -995,7 +995,7 @@ type Querier interface {
 	//       can't interleave between our recheck and our commit
 	//
 	// The LEFT JOIN sides (role_permission, permission) cannot participate
-	// in FOR UPDATE because they may have no matching row for a
+	// in row locking because they may have no matching row for a
 	// zero-permission assignment. We accept that role_permission edits
 	// via paths other than UpdateCustomRole (none exist today) would race
 	// this check; the practical lock graph through the existing surfaces
@@ -1198,6 +1198,8 @@ type Querier interface {
 	// event targets/profile row are persisted. The query mirrors the executable
 	// topology selector predicates and locks in device.id order, matching the
 	// canonical device-reassignment lock order used by site/building/rack writes.
+	// Topology writes still conflict with this lock, while command queue inserts
+	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are

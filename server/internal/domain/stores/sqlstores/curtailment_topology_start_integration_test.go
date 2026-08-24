@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -10,12 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	dbinfra "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -93,6 +96,28 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 			interfaces.ListCandidatesParams{OrgID: orgID, BuildingIDs: []int64{building.ID}},
 			[]string{device.ID},
 			func(snapshot interfaces.CurtailmentTopologyDispatchFenceSnapshot) error {
+				batchUUID := uuid.NewString()
+				if commandErr := dbinfra.WithTransactionNoResult(ctx, database, func(q sqlc.Querier) error {
+					if _, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+						Uuid:           batchUUID,
+						Type:           "CURTAIL",
+						CreatedBy:      user.DatabaseID,
+						CreatedAt:      time.Now(),
+						Status:         sqlc.BatchStatusEnumPENDING,
+						DevicesCount:   1,
+						OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+					}); err != nil {
+						return err
+					}
+					return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+						CommandBatchLogUuid: batchUUID,
+						CommandType:         "CURTAIL",
+						DeviceID:            device.DatabaseID,
+						Status:              sqlc.QueueStatusEnumPENDING,
+					})
+				}); commandErr != nil {
+					return commandErr
+				}
 				fenceSnapshot <- snapshot
 				<-releaseFence
 				return nil

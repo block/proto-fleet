@@ -3300,7 +3300,7 @@ WHERE d.org_id = $1
   )
 ORDER BY d.id
 LIMIT 10001
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type LockCurtailmentTopologyMemberDeviceSitesByOrgParams struct {
@@ -3319,6 +3319,8 @@ type LockCurtailmentTopologyMemberDeviceSitesByOrgRow struct {
 // event targets/profile row are persisted. The query mirrors the executable
 // topology selector predicates and locks in device.id order, matching the
 // canonical device-reassignment lock order used by site/building/rack writes.
+// Topology writes still conflict with this lock, while command queue inserts
+// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 func (q *Queries) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
 	rows, err := q.query(ctx, q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt, lockCurtailmentTopologyMemberDeviceSitesByOrg,
 		arg.OrgID,

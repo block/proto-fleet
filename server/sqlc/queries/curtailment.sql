@@ -1696,7 +1696,9 @@ WHERE d.org_id = sqlc.arg('org_id')
   )
 ORDER BY d.id
 LIMIT 10001
-FOR UPDATE;
+-- Topology writes still conflict with this lock, while command queue inserts
+-- can take the foreign-key KEY SHARE lock on device without self-deadlocking.
+FOR NO KEY UPDATE;
 
 -- name: LockCurtailmentGroupsForWrite :many
 -- Serializes group membership changes with topology target/envelope writes.
