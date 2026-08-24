@@ -130,6 +130,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
       title={ticket.ticketNumber}
       size="standard"
       divider
+      forceTitleCollapsed
       className="!h-[min(720px,calc(100dvh-(--spacing(32))))]"
       buttons={[
         {
