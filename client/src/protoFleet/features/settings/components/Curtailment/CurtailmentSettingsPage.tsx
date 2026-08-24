@@ -31,7 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
-  isResponseProfileScopeExecutionReady,
+  isResponseProfileAutomationReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
@@ -390,7 +390,7 @@ function createResponseProfileFromFormValues(
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
     formValues: normalizedValues,
-    isExecutionReady: isResponseProfileScopeExecutionReady(normalizedValues.scopeType),
+    isAutomationReady: isResponseProfileAutomationReady(normalizedValues.scopeType),
   };
 }
 

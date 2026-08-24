@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -53,7 +54,76 @@ func TestService_Start_RejectsEmptyReason(t *testing.T) {
 	}
 }
 
-func TestService_Start_RejectsTopologyScopeUntilAuthorizationLifecycleLands(t *testing.T) {
+func TestService_Start_TopologyScopesFreezeSelectedTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scope     Scope
+		seed      func(*fakeStore, int64, *models.Candidate)
+		wantScope string
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+			wantScope: `{"building_ids":[7],"scope_schema_version":1}`,
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+			wantScope: `{"rack_ids":[8],"scope_schema_version":1}`,
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+			wantScope: `{"group_ids":[9],"scope_schema_version":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.TargetKW = 2
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, tc.name+"-miner", plan.Selected[0].DeviceIdentifier)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastTopologyFilter.BuildingIDs)
+			assert.Equal(t, tc.scope.RackIDs, store.lastTopologyFilter.RackIDs)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastTopologyFilter.GroupIDs)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastListCandidateBuildings)
+			assert.Equal(t, tc.scope.RackIDs, store.lastListCandidateRacks)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastListCandidateGroups)
+			assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
+			assert.Equal(t, models.LoopTypeOpen, store.lastInsertEvent.LoopType)
+			assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+			assert.JSONEq(t, tc.wantScope, string(store.lastInsertEvent.ScopeJSON))
+			require.Len(t, store.lastInsertTargets, 1)
+			assert.Equal(t, tc.name+"-miner", store.lastInsertTargets[0].DeviceIdentifier)
+		})
+	}
+}
+
+func TestService_Start_RejectsTopologyFullFleetUntilLifecycleLands(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
@@ -63,13 +133,37 @@ func TestService_Start_RejectsTopologyScopeUntilAuthorizationLifecycleLands(t *t
 		SchemaVersion: ScopeSchemaVersionCurrent,
 		BuildingIDs:   []int64{7},
 	}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
 
 	_, err := svc.Start(t.Context(), req)
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
-	assert.Contains(t, err.Error(), "durable authorization and lifecycle")
+	assert.Contains(t, err.Error(), "topology-following lifecycle")
 	assert.Zero(t, store.listCandidatesCalls)
+}
+
+func TestService_Start_EmptyTopologyScopeReturnsInsufficientLoadWithoutPersisting(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		GroupIDs:      []int64{9},
+	}
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
+	assert.Zero(t, store.insertEventCalls)
 }
 
 func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {

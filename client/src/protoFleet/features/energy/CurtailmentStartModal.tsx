@@ -4,6 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   type CurtailmentTerminalScopeType,
   getCurtailmentTerminalScope,
+  isCurtailmentTopologyScopeType,
   parseCurtailmentTargetId,
 } from "@/protoFleet/api/curtailmentScopes";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -1457,11 +1458,12 @@ function CurtailmentStartModalContent({
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
   const terminalScope = getCurtailmentTerminalScope(effectiveValues);
-  const isTopologyExecutionUnavailable =
-    terminalScope?.type === "building" || terminalScope?.type === "rack" || terminalScope?.type === "group";
-  const isPrimarySubmitDisabled = isSubmitDisabled || (!isResponseProfileVariant && isTopologyExecutionUnavailable);
+  const isTopologyFullFleetExecutionUnavailable =
+    effectiveValues.curtailmentMode === "fullFleet" && isCurtailmentTopologyScopeType(terminalScope?.type);
+  const isPrimarySubmitDisabled =
+    isSubmitDisabled || (!isResponseProfileVariant && isTopologyFullFleetExecutionUnavailable);
   const isRunCurtailmentDisabled =
-    isBusy || hasBlockingRunPreviewState || hasExternalFormError || isTopologyExecutionUnavailable;
+    isBusy || hasBlockingRunPreviewState || hasExternalFormError || isTopologyFullFleetExecutionUnavailable;
   const selectedMinerIds = getSelectedMinerIds(effectiveValues);
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const targetPathSiteValues = {
@@ -2131,10 +2133,10 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 facilityFanSelectionDisabledReason ??
-                (isTopologyExecutionUnavailable
+                (isTopologyFullFleetExecutionUnavailable
                   ? isResponseProfileVariant
-                    ? "This topology target can be previewed and saved. Running it will be available when topology execution is enabled."
-                    : "This topology target can be previewed, but it cannot be run until topology execution is enabled."
+                    ? "This full-fleet topology target can be previewed and saved. Running it will be available when topology-following execution is enabled."
+                    : "This full-fleet topology target can be previewed, but it cannot be run until topology-following execution is enabled."
                   : "Choose a site-to-miner path and any infrastructure included in this curtailment.")
               }
             >

@@ -33,7 +33,7 @@ import {
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
-  isResponseProfileScopeExecutionReady,
+  isResponseProfileAutomationReady,
   type ResponseProfile,
   type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
@@ -279,7 +279,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
     isReadOnly: Boolean(readOnlyScopeSummary),
-    isExecutionReady: isResponseProfileScopeExecutionReady(scopeFormValues.scopeType),
+    isAutomationReady: isResponseProfileAutomationReady(scopeFormValues.scopeType),
   };
 }
 

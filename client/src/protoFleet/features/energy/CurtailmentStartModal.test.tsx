@@ -584,7 +584,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("rehydrates a topology-scoped response profile without widening or running its terminal scope", async () => {
+  it("rehydrates and runs a fixed-kW topology-scoped response profile without widening its terminal scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -609,17 +609,26 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(
       screen.getByText(
-        "This topology target can be previewed, but it cannot be run until topology execution is enabled.",
+        "This will curtail miners in 2 buildings immediately. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
-    expect(onSubmit).not.toHaveBeenCalled();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+      }),
+    );
   });
 
-  it("saves a topology-scoped response profile while keeping its test action disabled", async () => {
+  it("saves and tests a fixed-kW topology-scoped response profile", async () => {
     const user = userEvent.setup();
+    const onTestCurtailment = vi.fn();
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       initialValues: {
@@ -628,22 +637,50 @@ describe("CurtailmentStartModal", () => {
         buildingTargetIds: ["7", "8"],
         includeMaintenance: false,
       },
-      onTestCurtailment: vi.fn(),
+      onTestCurtailment,
     });
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(
       screen.getByText(
-        "This topology target can be previewed and saved. Running it will be available when topology execution is enabled.",
+        "This will save the profile, then trigger curtailment for miners in 2 buildings. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onTestCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+    );
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
     );
+  });
+
+  it("keeps topology-following full-fleet execution disabled", () => {
+    const { onSubmit } = renderModal({
+      initialValues: {
+        ...configuredValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "This full-fleet topology target can be previewed, but it cannot be run until topology-following execution is enabled.",
+      ),
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("preserves site scope from response profiles in live curtailment create mode", async () => {

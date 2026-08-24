@@ -74,7 +74,7 @@ const emptyResponseProfiles: ResponseProfile[] = [];
 
 type AutomationRuleWithDetails = AutomationRule & {
   responseProfileName: string;
-  isResponseProfileExecutionReady: boolean;
+  isResponseProfileAutomationReady: boolean;
 };
 
 type AutomationModalProps = {
@@ -513,7 +513,7 @@ function createAutomationColConfig(
           <Switch
             checked={rule.enabled}
             setChecked={() => onToggle(rule.id)}
-            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileExecutionReady)}
+            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileAutomationReady)}
           />
         </div>
       ),
@@ -533,7 +533,7 @@ function mapAutomationRules(
     return {
       ...rule,
       responseProfileName: responseProfile?.name ?? rule.responseProfileName ?? "Unknown profile",
-      isResponseProfileExecutionReady: responseProfile?.isExecutionReady === true,
+      isResponseProfileAutomationReady: responseProfile?.isAutomationReady === true,
     };
   });
 }
@@ -576,13 +576,13 @@ export function CurtailmentAutomationsContent({
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [editingAutomationRule, setEditingAutomationRule] = useState<AutomationRule | null>(null);
   const automationRules = controlledAutomationRules ?? localAutomationRules;
-  const executionReadyResponseProfiles = useMemo(
-    () => responseProfiles.filter((profile) => profile.isExecutionReady),
+  const automationReadyResponseProfiles = useMemo(
+    () => responseProfiles.filter((profile) => profile.isAutomationReady),
     [responseProfiles],
   );
-  const executionReadyResponseProfileIds = useMemo(
-    () => new Set(executionReadyResponseProfiles.map((profile) => profile.id)),
-    [executionReadyResponseProfiles],
+  const automationReadyResponseProfileIds = useMemo(
+    () => new Set(automationReadyResponseProfiles.map((profile) => profile.id)),
+    [automationReadyResponseProfiles],
   );
 
   const rulesWithDetails = useMemo(
@@ -591,8 +591,8 @@ export function CurtailmentAutomationsContent({
   );
   const automationModalMode = editingAutomationRule ? "edit" : "create";
   const automationModalInitialValues = useMemo(
-    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, executionReadyResponseProfiles),
-    [editingAutomationRule, executionReadyResponseProfiles, sources],
+    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, automationReadyResponseProfiles),
+    [automationReadyResponseProfiles, editingAutomationRule, sources],
   );
 
   const openCreateAutomationModal = useCallback(() => {
@@ -616,7 +616,7 @@ export function CurtailmentAutomationsContent({
       if (
         !rule ||
         updatingRuleIds.has(ruleId) ||
-        (!rule.enabled && !executionReadyResponseProfileIds.has(rule.responseProfileId))
+        (!rule.enabled && !automationReadyResponseProfileIds.has(rule.responseProfileId))
       ) {
         return;
       }
@@ -633,7 +633,7 @@ export function CurtailmentAutomationsContent({
         ),
       );
     },
-    [automationRules, executionReadyResponseProfileIds, onToggleAutomation, updatingRuleIds],
+    [automationReadyResponseProfileIds, automationRules, onToggleAutomation, updatingRuleIds],
   );
 
   const automationColConfig = useMemo(
@@ -750,7 +750,7 @@ export function CurtailmentAutomationsContent({
         hideTotal
         itemName={{ singular: "automation", plural: "automations" }}
         stickyFirstColumn={false}
-        isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileExecutionReady}
+        isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileAutomationReady}
         columnsExemptFromDisabledStyling={automationColumnsExemptFromDisabledStyling}
         tableClassName={automationTableClassName}
         noDataElement={automationsNoDataElement}
@@ -768,7 +768,7 @@ export function CurtailmentAutomationsContent({
         mode={automationModalMode}
         initialValues={automationModalInitialValues}
         sources={sources}
-        responseProfiles={executionReadyResponseProfiles}
+        responseProfiles={automationReadyResponseProfiles}
         isLoadingSources={isLoadingSources}
         loadSourcesError={loadSourcesError}
         isLoadingResponseProfiles={isLoadingResponseProfiles}

@@ -197,9 +197,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
-	if hasTopologySelectors(req.Scope) {
+	if hasTopologySelectors(req.Scope) && req.Mode == models.ModeFullFleet {
 		return nil, fleeterror.NewUnimplementedError(
-			"topology-scoped Start requires durable authorization and lifecycle support",
+			"topology-scoped FULL_FLEET Start requires topology-following lifecycle support",
 		)
 	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)

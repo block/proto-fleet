@@ -78,6 +78,13 @@ func (s *startStubStore) ListCandidates(_ context.Context, _ interfaces.ListCand
 	return s.candidates, nil
 }
 
+func (s *startStubStore) ResolveCurtailmentTopologyScope(
+	context.Context,
+	interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	return interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}, nil
+}
+
 func (s *startStubStore) InsertEventWithTargets(
 	_ context.Context,
 	event models.InsertEventParams,
@@ -359,6 +366,93 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	// echoed in the Start response. Two selected candidates with no caller
 	// preference means immediate restore of the full pending set.
 	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
+}
+
+func TestHandler_StartCurtailment_FrozenTopologyScope(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scopes    []*pb.CurtailmentScope
+		wantScope string
+	}{
+		{
+			name: "building",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Building{
+				Building: &pb.ScopeBuilding{BuildingId: 7},
+			}}},
+			wantScope: `{"building_ids":[7],"scope_schema_version":1}`,
+		},
+		{
+			name: "rack",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Rack{
+				Rack: &pb.ScopeRack{RackId: 8},
+			}}},
+			wantScope: `{"rack_ids":[8],"scope_schema_version":1}`,
+		},
+		{
+			name: "group",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Group{
+				Group: &pb.ScopeGroup{GroupId: 9},
+			}}},
+			wantScope: `{"group_ids":[9],"scope_schema_version":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newStartStubStore()
+			store.candidates = []*models.Candidate{
+				miner(tc.name+"-miner", "ACTIVE", "PAIRED", 3000, 100, 40),
+			}
+			h := NewHandler(curtailment.NewService(store))
+			ctx := startSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
+			req := validStartRequestBuilder()
+			req.Scope = nil
+			req.Scopes = tc.scopes
+			req.ScopeSchemaVersion = curtailment.ScopeSchemaVersionCurrent
+			req.ModeParams = &pb.StartCurtailmentRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2},
+			}
+
+			resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+			require.NoError(t, err)
+			require.NotNil(t, resp.Msg.Event)
+			assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING, resp.Msg.Event.State)
+			assert.JSONEq(t, tc.wantScope, string(store.lastEvent.ScopeJSON))
+			require.Len(t, store.lastTargets, 1)
+			assert.Equal(t, tc.name+"-miner", store.lastTargets[0].DeviceIdentifier)
+		})
+	}
+}
+
+func TestHandler_StartCurtailment_FrozenTopologyScopeRequiresOrgWideManage(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	h := NewHandler(curtailment.NewService(store))
+	req := validStartRequestBuilder()
+	req.Scope = nil
+	req.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Building{
+		Building: &pb.ScopeBuilding{BuildingId: 7},
+	}}}
+	req.ScopeSchemaVersion = curtailment.ScopeSchemaVersionCurrent
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-topology-site-only",
+	}, testSiteAssignment(42, authz.PermCurtailmentManage))
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Zero(t, store.lastEvent.OrgID, "org-wide gate must fail before persistence")
 }
 
 func TestHandler_StartCurtailment_AllPairedPolicyReturnsBoundedTargetRollup(t *testing.T) {
