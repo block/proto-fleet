@@ -1886,7 +1886,7 @@ WITH selected_resources AS MATERIALIZED (
               FROM device_set_membership dsm
               WHERE dsm.org_id = sqlc.arg('org_id')
                 AND dsm.device_id = d.id
-                AND dsm.device_set_type = sr.selector_type
+                AND dsm.device_set_type::TEXT = sr.selector_type
                 AND dsm.device_set_id = sr.selector_id
           ))
      )
