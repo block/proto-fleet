@@ -93,6 +93,17 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 	assert.NoError(t, searchPathConn.PingContext(t.Context()))
 
 	migrateTestDBTo(t, searchPathConn, config.Name, 142)
+	// Simulate a newer public Fleet schema. The bridge must inspect the schema
+	// owning the active schema_migrations relation, not these public columns.
+	_, err = conn.ExecContext(t.Context(), `
+		CREATE TABLE public.curtailment_response_profile (
+			authorization_envelope_jsonb jsonb NOT NULL
+		);
+		CREATE TABLE public.curtailment_event (
+			authorization_envelope_jsonb jsonb NOT NULL
+		)
+	`)
+	assert.NoError(t, err)
 	insertLegacyCurtailmentRows(t, searchPathConn)
 	assert.NoError(t, runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
 

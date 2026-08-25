@@ -87,7 +87,13 @@ func bridgeCurtailmentAuthorizationEnvelopes(ctx context.Context, conn *sql.DB) 
 	if err := tx.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM information_schema.columns
-		WHERE table_schema = 'public'
+		WHERE table_schema = (
+			SELECT namespace.nspname
+			FROM pg_catalog.pg_class relation
+			JOIN pg_catalog.pg_namespace namespace
+			  ON namespace.oid = relation.relnamespace
+			WHERE relation.oid = to_regclass('schema_migrations')
+		)
 		  AND table_name IN ('curtailment_response_profile', 'curtailment_event')
 		  AND column_name = 'authorization_envelope_jsonb'
 	`).Scan(&envelopeColumnCount); err != nil {
