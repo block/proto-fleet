@@ -5,6 +5,7 @@ import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/D
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import RolloutLanesTab from "@/protoFleet/features/settings/components/RolloutLanes/RolloutLanesTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { ChevronDown, Edit, Trash } from "@/shared/assets/icons";
@@ -12,6 +13,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -131,7 +133,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   };
 }
 
-const Firmware = () => {
+const FirmwareFilesSection = () => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -347,6 +349,30 @@ const Firmware = () => {
         onDismiss={() => setShowDeleteAllDialog(false)}
         isSubmitting={isDeletingAll}
       />
+    </div>
+  );
+};
+
+const TAB_FILES = "files";
+const TAB_ROLLOUT_LANES = "rolloutLanes";
+
+const firmwareTabs = [
+  { key: TAB_FILES, title: "Files" },
+  { key: TAB_ROLLOUT_LANES, title: "Rollout lanes" },
+];
+
+const Firmware = () => {
+  const [activeTab, setActiveTab] = useState(TAB_FILES);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SegmentedControl
+        className="self-start"
+        segments={firmwareTabs}
+        initialSegmentKey={activeTab}
+        onSelect={setActiveTab}
+      />
+      {activeTab === TAB_ROLLOUT_LANES ? <RolloutLanesTab /> : <FirmwareFilesSection />}
     </div>
   );
 };

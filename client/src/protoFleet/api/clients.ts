@@ -24,6 +24,7 @@ import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/ne
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { RolloutService } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
 import { SiteMapService } from "@/protoFleet/api/generated/sitemap/v1/sitemap_pb";
@@ -43,6 +44,7 @@ const fleetNodeAdminClient = createClient(FleetNodeAdminService, transport);
 const onboardingClient = createClient(OnboardingService, transport);
 const minerCommandClient = createClient(MinerCommandService, transport);
 const poolsClient = createClient(PoolsService, transport);
+const rolloutClient = createClient(RolloutService, transport);
 const scheduleClient = createClient(ScheduleService, transport);
 const serverLogClient = createClient(ServerLogService, transport);
 const siteMapClient = createClient(SiteMapService, transport);
@@ -79,6 +81,7 @@ export {
   onboardingClient,
   minerCommandClient,
   poolsClient,
+  rolloutClient,
   scheduleClient,
   serverLogClient,
   siteMapClient,
