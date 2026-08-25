@@ -370,7 +370,7 @@ message StartRolloutLaneRequest {
     option (buf.validate.message).cel = {
         id: "start_rollout_lane_input_mode"
         message: "provide either legacy rollout fields or model plans"
-        expression: "(size(this.model_plans) > 0 && size(this.firmware_file_ids) == 0 && size(this.batches) == 0) || (size(this.model_plans) == 0 && size(this.firmware_file_ids) > 0 && size(this.batches) > 0)"
+        expression: "(size(this.model_plans) > 0 && size(this.firmware_file_ids) == 0 && size(this.batches) == 0 && !has(this.hashrate_policy)) || (size(this.model_plans) == 0 && size(this.firmware_file_ids) > 0 && size(this.batches) > 0)"
     };
 
     string lane_id = 1 [(buf.validate.field).string.uuid = true];
@@ -454,9 +454,13 @@ message RolloutLaneTopologyReadiness {
     uint64 active_legacy_rollout_count = 4;
     repeated RolloutLaneTopologyAnomaly anomalies = 5;
     google.protobuf.Timestamp updated_at = 6;
+    string next_anomaly_page_token = 7;
 }
 
-message GetRolloutLaneTopologyReadinessRequest {}
+message GetRolloutLaneTopologyReadinessRequest {
+    uint32 anomaly_page_size = 1 [(buf.validate.field).uint32.lte = 100];
+    string anomaly_page_token = 2 [(buf.validate.field).string.max_len = 2048];
+}
 
 message GetRolloutLaneTopologyReadinessResponse {
     RolloutLaneTopologyReadiness readiness = 1;
@@ -593,6 +597,28 @@ message Rollout {
     optional string model_identity_key = 36;
     optional string manufacturer = 37;
     optional string model = 38;
+    uint32 member_count = 39;
+    repeated RolloutMemberStateCount member_state_counts = 40;
+    repeated RolloutBatchSummary batch_summaries = 41;
+    bool summary_only = 42;
+    bool failed_admission = 43;
+}
+
+message RolloutMemberStateCount {
+    RolloutMemberState state = 1;
+    uint32 count = 2;
+}
+
+message RolloutBatchSummary {
+    int64 batch_id = 1;
+    uint32 position = 2;
+    string label = 3;
+    RolloutBatchState state = 4;
+    uint64 revision = 5;
+    uint32 member_count = 6;
+    google.protobuf.Timestamp completed_at = 7;
+    RolloutBatchEvidenceSummary evidence_summary = 8;
+    uint32 admission_attempt = 9;
 }
 
 message RolloutGroup {
@@ -804,11 +830,18 @@ message GetRolloutGroupResponse {
     RolloutGroup parent = 1;
 }
 
-message ListRolloutGroupsRequest {}
+message ListRolloutGroupsRequest {
+    uint32 page_size = 1 [(buf.validate.field).uint32.lte = 100];
+    string page_token = 2 [(buf.validate.field).string.max_len = 2048];
+    uint32 legacy_page_size = 3 [(buf.validate.field).uint32.lte = 100];
+    string legacy_page_token = 4 [(buf.validate.field).string.max_len = 2048];
+}
 
 message ListRolloutGroupsResponse {
     repeated RolloutGroup parents = 1;
     repeated Rollout legacy_history = 2;
+    string next_page_token = 3;
+    string next_legacy_page_token = 4;
 }
 
 message AdmitRolloutRequest {

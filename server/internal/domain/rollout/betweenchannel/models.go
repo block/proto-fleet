@@ -216,6 +216,19 @@ type TopologyReadiness struct {
 	ActiveLegacyRolloutCount int64
 	Anomalies                []TopologyAnomaly
 	UpdatedAt                time.Time
+	NextCursor               *TopologyAnomalyCursor
+}
+
+type TopologyAnomalyCursor struct {
+	LaneID           uuid.UUID
+	DeviceIdentifier string
+	Type             TopologyAnomalyType
+	ID               uuid.UUID
+}
+
+type TopologyReadinessRequest struct {
+	Limit int32
+	After *TopologyAnomalyCursor
 }
 
 type RepairModelBindingRequest struct {
@@ -466,22 +479,23 @@ func (r UpdateModelMembershipRequest) Selector() ModelDeclarationSelector {
 }
 
 type StartRolloutRequest struct {
-	ParentID           uuid.UUID
-	ID                 uuid.UUID
-	OrgID              int64
-	LaneID             uuid.UUID
-	Name               string
-	FirmwareFileIDs    []string
-	ReleaseTargets     []ReleaseTarget
-	Batches            []rollout.CreateBatch
-	HashratePolicy     *rollout.HashratePolicy
-	IdempotencyKey     string
-	RequestFingerprint string
-	Reason             string
-	ActorUserID        int64
-	ActorType          rollout.ActorType
-	ActorCredentialID  *string
-	ModelPlans         []StartRolloutModelPlan
+	ParentID            uuid.UUID
+	ID                  uuid.UUID
+	OrgID               int64
+	LaneID              uuid.UUID
+	Name                string
+	FirmwareFileIDs     []string
+	ReleaseTargets      []ReleaseTarget
+	Batches             []rollout.CreateBatch
+	HashratePolicy      *rollout.HashratePolicy
+	IdempotencyKey      string
+	RequestFingerprint  string
+	Reason              string
+	ActorUserID         int64
+	ActorType           rollout.ActorType
+	ActorCredentialID   *string
+	ModelPlans          []StartRolloutModelPlan
+	LegacyCompatibility bool
 }
 
 type StartRolloutModelPlan struct {

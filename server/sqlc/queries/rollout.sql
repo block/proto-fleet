@@ -200,6 +200,54 @@ FROM firmware_rollout_group
 WHERE org_id = sqlc.arg('org_id')
 ORDER BY created_at DESC, id DESC;
 
+-- name: ListFirmwareRolloutGroupsPage :many
+SELECT parent.*
+FROM firmware_rollout_group parent
+WHERE parent.org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.narg('before_created_at')::timestamptz IS NULL
+      OR (
+          EXISTS (
+              SELECT 1
+              FROM firmware_rollout child
+              WHERE child.group_id = parent.id
+                AND child.org_id = parent.org_id
+                AND child.state NOT IN (
+                    'aborted',
+                    'completed',
+                    'completed_with_failures',
+                    'reverted'
+                )
+          ),
+          parent.result_ready,
+          parent.created_at,
+          parent.id
+      ) < (
+          sqlc.narg('before_active')::boolean,
+          sqlc.narg('before_result_ready')::boolean,
+          sqlc.narg('before_created_at')::timestamptz,
+          sqlc.narg('before_id')::uuid
+      )
+  )
+ORDER BY (
+             EXISTS (
+                 SELECT 1
+                 FROM firmware_rollout child
+                 WHERE child.group_id = parent.id
+                   AND child.org_id = parent.org_id
+                   AND child.state NOT IN (
+                       'aborted',
+                       'completed',
+                       'completed_with_failures',
+                       'reverted'
+                   )
+             )
+         ) DESC,
+         parent.result_ready DESC,
+         parent.created_at DESC,
+         parent.id DESC
+LIMIT sqlc.arg('limit_count');
+
 -- name: ListFirmwareRolloutGroupModelsByGroupIDs :many
 SELECT *
 FROM firmware_rollout_group_model
@@ -224,6 +272,17 @@ FROM firmware_rollout_batch
 WHERE org_id = sqlc.arg('org_id')
   AND rollout_id = ANY(sqlc.arg('rollout_ids')::uuid[])
 ORDER BY rollout_id, position, id;
+
+-- name: ListFirmwareRolloutMemberStateCountsByRolloutIDs :many
+SELECT member.rollout_id,
+       member.batch_id,
+       member.state,
+       COUNT(*)::bigint AS member_count
+FROM firmware_rollout_member member
+WHERE member.org_id = sqlc.arg('org_id')
+  AND member.rollout_id = ANY(sqlc.arg('rollout_ids')::uuid[])
+GROUP BY member.rollout_id, member.batch_id, member.state
+ORDER BY member.rollout_id, member.batch_id, member.state;
 
 -- name: ListFirmwareRolloutMembersByRolloutIDs :many
 SELECT member.*,
@@ -342,13 +401,13 @@ next_result AS (
     FROM child_projection
 )
 UPDATE firmware_rollout_group parent
-SET terminal_outcome = next_result.terminal_outcome,
+SET terminal_outcome = COALESCE(next_result.terminal_outcome, parent.terminal_outcome),
     result_ready = next_result.result_ready
 FROM next_result
 WHERE parent.id = next_result.group_id
   AND parent.org_id = sqlc.arg('org_id')
   AND (
-      parent.terminal_outcome IS DISTINCT FROM next_result.terminal_outcome
+      parent.terminal_outcome IS DISTINCT FROM COALESCE(next_result.terminal_outcome, parent.terminal_outcome)
       OR parent.result_ready IS DISTINCT FROM next_result.result_ready
   );
 
@@ -406,13 +465,13 @@ next_result AS (
     FROM child_projection
 )
 UPDATE firmware_rollout_group parent
-SET terminal_outcome = next_result.terminal_outcome,
+SET terminal_outcome = COALESCE(next_result.terminal_outcome, parent.terminal_outcome),
     result_ready = next_result.result_ready
 FROM next_result
 WHERE parent.id = next_result.group_id
   AND parent.org_id = sqlc.arg('org_id')
   AND (
-      parent.terminal_outcome IS DISTINCT FROM next_result.terminal_outcome
+      parent.terminal_outcome IS DISTINCT FROM COALESCE(next_result.terminal_outcome, parent.terminal_outcome)
       OR parent.result_ready IS DISTINCT FROM next_result.result_ready
   );
 
@@ -433,6 +492,21 @@ WHERE org_id = sqlc.arg('org_id')
       OR state = ANY(sqlc.arg('states')::text[])
   )
 ORDER BY created_at DESC, id DESC;
+
+-- name: ListFirmwareRolloutsPage :many
+SELECT *
+FROM firmware_rollout
+WHERE org_id = sqlc.arg('org_id')
+  AND group_id IS NULL
+  AND (
+      sqlc.narg('before_created_at')::timestamptz IS NULL
+      OR (created_at, id) < (
+          sqlc.narg('before_created_at')::timestamptz,
+          sqlc.narg('before_id')::uuid
+      )
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit_count');
 
 -- name: ListFirmwareRolloutBatches :many
 SELECT *
@@ -473,6 +547,80 @@ WHERE id = sqlc.arg('control_id')
   AND rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
 FOR UPDATE;
+
+-- name: ListFirmwareRolloutStartedControlCandidates :many
+SELECT control.*
+FROM firmware_rollout_control control
+JOIN firmware_rollout rollout
+  ON rollout.id = control.rollout_id
+ AND rollout.org_id = control.org_id
+WHERE rollout.strategy_key = 'between_channel'
+  AND control.status = 'started'
+  AND control.operation IN ('admit', 'continue', 'revert')
+  AND control.updated_at <= sqlc.arg('stale_before')
+ORDER BY control.updated_at, control.id
+LIMIT sqlc.arg('candidate_limit');
+
+-- name: GetFirmwareRolloutAdmissionReconciliationState :one
+SELECT COUNT(*)::bigint AS selected_members,
+       COUNT(*) FILTER (
+           WHERE enforcement.id IS NOT NULL
+       )::bigint AS durable_members
+FROM firmware_rollout_control control
+JOIN firmware_rollout rollout
+  ON rollout.id = control.rollout_id
+ AND rollout.org_id = control.org_id
+JOIN firmware_rollout_member member
+  ON member.batch_id = control.batch_id
+ AND member.rollout_id = control.rollout_id
+ AND member.org_id = control.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.id = member.enforcement_id
+ AND enforcement.org_id = member.org_id
+ AND enforcement.device_id = member.device_id
+ AND enforcement.authority_id = rollout.forward_authority_id
+ AND enforcement.cause_type = 'between_channel_forward'
+WHERE control.id = sqlc.arg('control_id')
+  AND control.rollout_id = sqlc.arg('rollout_id')
+  AND control.org_id = sqlc.arg('org_id')
+  AND control.status = 'started'
+  AND control.operation IN ('admit', 'continue');
+
+-- name: GetFirmwareRolloutRevertReconciliationState :one
+SELECT COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+       )::bigint AS selected_members,
+       COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+             AND (
+                 member.state IN (
+                     'reverted',
+                     'attention_required',
+                     'cancelled',
+                     'failed'
+                 )
+                 OR (
+                     enforcement.authority_id = rollout.revert_authority_id
+                     AND enforcement.cause_type = 'between_channel_revert'
+                 )
+             )
+       )::bigint AS durable_members
+FROM firmware_rollout_control control
+JOIN firmware_rollout rollout
+  ON rollout.id = control.rollout_id
+ AND rollout.org_id = control.org_id
+JOIN firmware_rollout_member member
+  ON member.rollout_id = control.rollout_id
+ AND member.org_id = control.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.id = member.enforcement_id
+ AND enforcement.org_id = member.org_id
+ AND enforcement.device_id = member.device_id
+WHERE control.id = sqlc.arg('control_id')
+  AND control.rollout_id = sqlc.arg('rollout_id')
+  AND control.org_id = sqlc.arg('org_id')
+  AND control.status = 'started'
+  AND control.operation = 'revert';
 
 -- name: GetFirmwareRolloutBatchForControl :one
 SELECT *

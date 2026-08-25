@@ -173,6 +173,76 @@ func TestRolloutEvidenceRefreshesOnlyFrozenBatchWithEqualMemberWeighting(t *test
 	assert.Zero(t, secondBatchPostCount)
 }
 
+func TestRolloutEvidenceIncrementalRefreshHandlesLateDuplicateSamplesAndRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 1)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	created, err := rolloutStore.Create(
+		t.Context(),
+		rolloutCreateRequest(t, db, orgID, "incremental-late-restart", [][]string{{identifiers[0]}}),
+	)
+	require.NoError(t, err)
+	completedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	setRolloutAndBatchState(
+		t,
+		db,
+		created.Rollout.ID.String(),
+		created.Rollout.Batches[0].ID,
+		"review",
+		completedAt,
+	)
+	member := created.Rollout.Batches[0].Members[0]
+	seedBaseline(t, db, member, completedAt, 100)
+	insertHashrate(t, db, identifiers[0], completedAt.Add(2*time.Second), 100)
+
+	candidate := rolloutEvidence.Candidate{
+		RolloutID:   created.Rollout.ID,
+		BatchID:     created.Rollout.Batches[0].ID,
+		OrgID:       orgID,
+		CompletedAt: completedAt,
+	}
+	firstStore := sqlstores.NewSQLRolloutEvidenceStore(db)
+	first, err := firstStore.Refresh(t.Context(), candidate, completedAt.Add(20*time.Second))
+	require.NoError(t, err)
+	require.NotNil(t, first.Aggregate)
+	require.NotNil(t, first.Aggregate.PostAverage)
+	assert.InDelta(t, 100, *first.Aggregate.PostAverage, 0.001)
+
+	restartedStore := sqlstores.NewSQLRolloutEvidenceStore(db)
+	restarted, err := restartedStore.Refresh(t.Context(), candidate, completedAt.Add(20*time.Second))
+	require.NoError(t, err)
+	require.NotNil(t, restarted.Aggregate.PostAverage)
+	assert.InDelta(t, 100, *restarted.Aggregate.PostAverage, 0.001)
+
+	lateTimestamp := completedAt.Add(4 * time.Second)
+	insertHashrate(t, db, identifiers[0], lateTimestamp, 200)
+	insertHashrate(t, db, identifiers[0], lateTimestamp, 200)
+	afterLate, err := restartedStore.Refresh(t.Context(), candidate, completedAt.Add(25*time.Second))
+	require.NoError(t, err)
+	require.NotNil(t, afterLate.Aggregate.PostAverage)
+	assert.InDelta(t, 150, *afterLate.Aggregate.PostAverage, 0.001)
+
+	afterSecondRestart, err := sqlstores.NewSQLRolloutEvidenceStore(db).Refresh(
+		t.Context(),
+		candidate,
+		completedAt.Add(25*time.Second),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, afterSecondRestart.Aggregate.PostAverage)
+	assert.InDelta(t, 150, *afterSecondRestart.Aggregate.PostAverage, 0.001)
+
+	var sampleCount int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT sample_count
+		FROM firmware_rollout_evidence
+		WHERE member_id = $1 AND phase = 'post'
+	`, member.ID).Scan(&sampleCount))
+	assert.Equal(t, int64(2), sampleCount)
+}
+
 func TestRolloutEvidenceCaptureSkipsNoopUpsert(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -336,7 +406,7 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 	insertHashrate(t, db, identifiers[0], completedAt.Add(5*time.Second), 100)
 
 	evidenceStore := sqlstores.NewSQLRolloutEvidenceStore(db)
-	candidates, err := evidenceStore.ListCandidates(t.Context(), 10)
+	candidates, err := evidenceStore.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	candidate := candidates[0]
@@ -584,7 +654,7 @@ func TestRolloutEvidenceFinalizesCompletedRolloutWindowsAndStopsSelectingThem(t 
 	insertHashrate(t, db, identifiers[0], completedAt.Add(5*time.Minute), 95)
 
 	store := sqlstores.NewSQLRolloutEvidenceStore(db)
-	candidates, err := store.ListCandidates(t.Context(), 10)
+	candidates, err := store.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2, "final completed rollouts remain candidates until finalization")
 
@@ -606,7 +676,7 @@ func TestRolloutEvidenceFinalizesCompletedRolloutWindowsAndStopsSelectingThem(t 
 	}
 
 	restartedStore := sqlstores.NewSQLRolloutEvidenceStore(db)
-	candidates, err = restartedStore.ListCandidates(t.Context(), 10)
+	candidates, err = restartedStore.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	assert.Empty(t, candidates)
 }
@@ -905,7 +975,7 @@ func TestRolloutEvidenceAutomationErrorStillRefreshesAndFinalizes(t *testing.T) 
 	insertHashrate(t, db, identifiers[0], completedAt.Add(29*time.Minute), 95)
 
 	store := sqlstores.NewSQLRolloutEvidenceStore(db)
-	candidates, err := store.ListCandidates(t.Context(), 10)
+	candidates, err := store.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	controller := &recordingEvidenceController{}
@@ -923,7 +993,7 @@ func TestRolloutEvidenceAutomationErrorStillRefreshesAndFinalizes(t *testing.T) 
 	require.NotNil(t, batch.CumulativeCurrentHashrateHS)
 	assert.InDelta(t, 95, *batch.CumulativeCurrentHashrateHS, 0.001)
 	assert.Zero(t, controller.requestCount())
-	candidates, err = store.ListCandidates(t.Context(), 10)
+	candidates, err = store.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	assert.Empty(t, candidates)
 }
@@ -1020,12 +1090,17 @@ func TestRolloutEvidenceCandidatesAreBoundedStateAwareAndRestartSafe(t *testing.
 	validBatchIDs[automationError.Rollout.Batches[0].ID] = struct{}{}
 
 	store := sqlstores.NewSQLRolloutEvidenceStore(db)
-	bounded, err := store.ListCandidates(t.Context(), 3)
+	bounded, err := store.ListCandidates(t.Context(), 3, 20_000)
 	require.NoError(t, err)
 	require.Len(t, bounded, 3)
+	workBounded, err := store.ListCandidates(t.Context(), 20, 2)
+	require.NoError(t, err)
+	require.Len(t, workBounded, 2)
+	assert.Equal(t, int64(1), workBounded[0].MemberCount)
+	assert.Equal(t, int64(1), workBounded[1].MemberCount)
 
 	restartedStore := sqlstores.NewSQLRolloutEvidenceStore(db)
-	reconstructed, err := restartedStore.ListCandidates(t.Context(), 20)
+	reconstructed, err := restartedStore.ListCandidates(t.Context(), 20, 20_000)
 	require.NoError(t, err)
 	require.Len(t, reconstructed, len(validBatchIDs))
 	for _, candidate := range reconstructed {

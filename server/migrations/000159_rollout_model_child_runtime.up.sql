@@ -22,6 +22,16 @@ ALTER TABLE firmware_rollout
         FOREIGN KEY (target_release_target_id, target_release_set_id, org_id)
         REFERENCES firmware_release_target(id, release_set_id, org_id)
         ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_firmware_rollout_source_physical_release
+        FOREIGN KEY (source_channel_id, org_id, source_release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
+        ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_firmware_rollout_target_physical_release
+        FOREIGN KEY (target_channel_id, org_id, target_release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
+        ON DELETE RESTRICT,
+    ADD CONSTRAINT uq_firmware_rollout_child_topology
+        UNIQUE (id, org_id, group_id, lane_id, lane_model_id),
     ADD CONSTRAINT ck_firmware_rollout_model_child_shape CHECK (
         (
             group_id IS NULL
@@ -43,6 +53,75 @@ ALTER TABLE firmware_rollout
             AND target_release_target_id IS NOT NULL
         )
     );
+
+ALTER TABLE firmware_rollout_group_model
+    DROP CONSTRAINT fk_firmware_rollout_group_model_child,
+    ADD CONSTRAINT fk_firmware_rollout_group_model_child
+        FOREIGN KEY (
+            child_rollout_id,
+            org_id,
+            group_id,
+            lane_id,
+            lane_model_id
+        )
+        REFERENCES firmware_rollout(
+            id,
+            org_id,
+            group_id,
+            lane_id,
+            lane_model_id
+        )
+        ON DELETE RESTRICT;
+
+CREATE FUNCTION validate_legacy_rollout_lane_attachment()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    attached_group_id UUID;
+    topology_enabled BOOLEAN;
+BEGIN
+    IF NEW.rollout_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT rollout.group_id
+    INTO attached_group_id
+    FROM firmware_rollout rollout
+    WHERE rollout.id = NEW.rollout_id
+      AND rollout.org_id = NEW.org_id;
+
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+    IF attached_group_id IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO rollout_lane_topology_cutover (org_id)
+    VALUES (NEW.org_id)
+    ON CONFLICT (org_id) DO NOTHING;
+
+    SELECT cutover.enabled
+    INTO topology_enabled
+    FROM rollout_lane_topology_cutover cutover
+    WHERE cutover.org_id = NEW.org_id
+    FOR UPDATE;
+
+    IF topology_enabled THEN
+        RAISE EXCEPTION
+            'legacy rollout attachment is disabled after topology cutover'
+            USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER rollout_lane_channel_legacy_attachment_gate
+    BEFORE INSERT OR UPDATE OF rollout_id ON rollout_lane_channel
+    FOR EACH ROW
+    WHEN (NEW.rollout_id IS NOT NULL)
+    EXECUTE FUNCTION validate_legacy_rollout_lane_attachment();
 
 ALTER TABLE firmware_rollout_batch
     ADD COLUMN admission_attempt INT NOT NULL DEFAULT 0,

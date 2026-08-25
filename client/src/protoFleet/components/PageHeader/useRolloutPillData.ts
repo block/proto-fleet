@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -14,6 +14,10 @@ import {
 import { isAbortError, isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { mapRollout, mapRolloutGroup, mapRolloutLane, mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
+import {
+  rolloutLaneTabOwnsPolling,
+  subscribeRolloutLaneTabPollingOwnership,
+} from "@/protoFleet/api/rolloutPollingOwnership";
 import {
   BETWEEN_CHANNEL_STRATEGY_KEY,
   compareRolloutChildren,
@@ -153,7 +157,10 @@ function selectGroupPill(groups: RolloutGroup[], lanes: RolloutLane[]): RolloutP
     scopeLabel: `${parent.children.length.toLocaleString()} model${
       parent.children.length === 1 ? "" : "s"
     }${actionCount > 0 ? ` · ${actionCount.toLocaleString()} need attention` : ""}`,
-    totalTargets: parent.children.reduce((total, candidate) => total + candidate.members.length, 0),
+    totalTargets: parent.children.reduce(
+      (total, candidate) => total + (candidate.memberCount ?? candidate.members.length),
+      0,
+    ),
     excludedTargets: 0,
   };
   return {
@@ -181,6 +188,11 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
   const [acknowledgedResultId, setAcknowledgedResultId] = useAcknowledgedRolloutResultId();
   const [acknowledgedGroupResult, setAcknowledgedGroupResult] = useAcknowledgedRolloutGroupResult();
   const [selection, setSelection] = useState<RolloutPillSelection | null>(null);
+  const pollingSuspended = useSyncExternalStore(
+    subscribeRolloutLaneTabPollingOwnership,
+    rolloutLaneTabOwnsPolling,
+    rolloutLaneTabOwnsPolling,
+  );
   const rolloutsRef = useRef<RolloutRecord[]>([]);
   const groupsRef = useRef<RolloutGroup[]>([]);
   const lanesRef = useRef<RolloutLane[]>([]);
@@ -205,7 +217,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
 
   const refresh = useCallback(
     (signal: AbortSignal, forceFresh = false): Promise<void> => {
-      if (signal.aborted || !enabled || (!canReadRollouts && !canReadChannels)) {
+      if (signal.aborted || !enabled || pollingSuspended || (!canReadRollouts && !canReadChannels)) {
         return Promise.resolve();
       }
       if (inFlightRefreshRef.current) {
@@ -236,7 +248,13 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
             ? rolloutClient.listRollouts(create(ListRolloutsRequestSchema, { states: pillRolloutStates }), { signal })
             : Promise.resolve(null),
           canListGroups
-            ? rolloutClient.listRolloutGroups(create(ListRolloutGroupsRequestSchema), { signal })
+            ? rolloutClient.listRolloutGroups(
+                create(ListRolloutGroupsRequestSchema, {
+                  pageSize: 100,
+                  legacyPageSize: 100,
+                }),
+                { signal },
+              )
             : Promise.resolve(null),
           canReadChannels
             ? rolloutClient.listRolloutLanes(
@@ -375,7 +393,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
       inFlightRefreshRef.current = refreshPromise;
       return refreshPromise;
     },
-    [canReadChannels, canReadRollouts, enabled, handleAuthErrors],
+    [canReadChannels, canReadRollouts, enabled, handleAuthErrors, pollingSuspended],
   );
 
   const onViewRollout = useMemo(() => {
@@ -405,6 +423,9 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
   useEffect(() => {
     pendingFreshRefreshRef.current = false;
     inFlightRefreshRef.current = null;
+    if (pollingSuspended) {
+      return;
+    }
     if (!enabled || (!canReadRollouts && !canReadChannels)) {
       rolloutsRef.current = [];
       groupsRef.current = [];
@@ -431,10 +452,10 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
       window.removeEventListener(ROLLOUT_CHANGED_EVENT, forceRefresh);
       controller.abort();
     };
-  }, [canReadChannels, canReadRollouts, enabled, refresh]);
+  }, [canReadChannels, canReadRollouts, enabled, pollingSuspended, refresh]);
 
   useEffect(() => {
-    if (!enabled || (!canReadRollouts && !canReadChannels)) {
+    if (!enabled || pollingSuspended || (!canReadRollouts && !canReadChannels)) {
       return;
     }
     const controller = new AbortController();
@@ -443,7 +464,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
       window.clearInterval(intervalId);
       controller.abort();
     };
-  }, [canReadChannels, canReadRollouts, enabled, pollIntervalMs, refresh]);
+  }, [canReadChannels, canReadRollouts, enabled, pollIntervalMs, pollingSuspended, refresh]);
 
   return useMemo(() => {
     const activeEvent =

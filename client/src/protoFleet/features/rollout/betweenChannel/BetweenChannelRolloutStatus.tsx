@@ -194,8 +194,14 @@ export default function BetweenChannelRolloutStatus({
   const confirmationTriggerRef = useRef<HTMLButtonElement | null>(null);
   const event = useMemo(() => mapRolloutToEvent(rollout, { laneLabel }), [laneLabel, rollout]);
   const heldOverride = useHeldRolloutOverride(event.evidence, onContinue);
-  const confirmedCount = rollout.members.filter((member) => member.state === "succeeded").length;
-  const sourceRemaining = Math.max(rollout.members.length - confirmedCount, 0);
+  const stateCount = (state: RolloutRecord["members"][number]["state"]) =>
+    rollout.memberStateCounts
+      ? (rollout.memberStateCounts[state] ?? 0)
+      : rollout.members.filter((member) => member.state === state).length;
+  const confirmedCount = stateCount("succeeded");
+  const targetMembershipCount = confirmedCount + stateCount("reverting");
+  const totalCount = rollout.memberCount ?? rollout.members.length;
+  const sourceRemaining = Math.max(totalCount - targetMembershipCount, 0);
   const modelLabel = [rollout.manufacturer, rollout.model].filter(Boolean).join(" ") || "this model";
 
   useEffect(() => {
@@ -206,10 +212,14 @@ export default function BetweenChannelRolloutStatus({
   }, [confirmation]);
 
   const openConfirmation = (kind: "abort" | "revert") => {
-    confirmationTriggerRef.current =
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.getAttribute("aria-label") === `More actions for ${event.title}`,
-      ) ?? null;
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
+    const moreActionsTrigger =
+      buttons.find((button) => button.getAttribute("aria-label") === `More actions for ${event.title}`) ?? null;
+    const directRevertTrigger =
+      kind === "revert" && moreActionsTrigger?.getAttribute("aria-expanded") !== "true"
+        ? (buttons.find((button) => button.textContent?.trim() === "Revert") ?? null)
+        : null;
+    confirmationTriggerRef.current = directRevertTrigger ?? moreActionsTrigger;
     setConfirmation(kind);
   };
 
@@ -239,6 +249,8 @@ export default function BetweenChannelRolloutStatus({
         ) : null}
         <ActiveRolloutStatus
           event={event}
+          defaultDetailsOpen={event.performance !== undefined}
+          autoExpandDetails={event.performance !== undefined}
           canManage={false}
           canControl={Boolean(canControl && !isMutating)}
           onPause={onPause}
@@ -261,7 +273,7 @@ export default function BetweenChannelRolloutStatus({
           <div>
             <div className="text-200 text-text-primary-50">Target membership</div>
             <div className="mt-1 text-emphasis-300 text-text-primary">
-              {confirmedCount.toLocaleString()} miners confirmed and moved
+              {targetMembershipCount.toLocaleString()} miners confirmed and moved
             </div>
           </div>
         </div>
@@ -270,9 +282,7 @@ export default function BetweenChannelRolloutStatus({
       {confirmation === "abort" ? (
         <Dialog
           open
-          title={`Abort ${modelLabel} rollout for ${rollout.members.length.toLocaleString()} miner${
-            rollout.members.length === 1 ? "" : "s"
-          }?`}
+          title={`Abort ${modelLabel} rollout for ${totalCount.toLocaleString()} miner${totalCount === 1 ? "" : "s"}?`}
           icon={<Alert className="text-intent-critical-fill" />}
           subtitle="Undispatched miners remain on the current release. In-flight work may still settle after the abort boundary. This does not revert miners that already moved."
           onDismiss={() => setConfirmation(null)}

@@ -523,6 +523,10 @@ func start(config *Config) (result error) {
 	rolloutLaneStore := sqlstores.NewSQLRolloutLaneStore(conn)
 	rolloutLaneStrategy := betweenchannel.NewStrategy(rolloutLaneStore)
 	rolloutSvc := rolloutDomain.NewServiceWithActivity(rolloutStore, activitySvc, rolloutLaneStrategy)
+	rolloutControlReconciler := rolloutDomain.NewControlReconciler(
+		config.RolloutControl,
+		rolloutStore,
+	)
 	rolloutLaneFinalizer := betweenchannel.NewFinalizer(
 		config.RolloutLane,
 		rolloutLaneStore,
@@ -762,6 +766,7 @@ func start(config *Config) (result error) {
 		commandExecution:          executionService,
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
+		rolloutControlReconciler:  rolloutControlReconciler,
 		channelEnforcement:        channelEnforcementRec,
 		rolloutLaneFinalizer:      rolloutLaneFinalizer,
 		rolloutEvidenceEvaluator:  rolloutEvidenceEvaluator,

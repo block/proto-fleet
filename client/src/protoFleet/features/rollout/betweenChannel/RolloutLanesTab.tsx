@@ -5,8 +5,11 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
+import { newestRollout, newestRolloutGroup } from "@/protoFleet/api/rolloutMerge";
+import { registerRolloutLaneTabPollingOwner } from "@/protoFleet/api/rolloutPollingOwnership";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import { useRolloutApi } from "@/protoFleet/api/useRolloutApi";
+import AggregateRolloutStatus from "@/protoFleet/features/rollout/betweenChannel/AggregateRolloutStatus";
 import BetweenChannelRolloutStatus from "@/protoFleet/features/rollout/betweenChannel/BetweenChannelRolloutStatus";
 import {
   canCompleteWithFailures,
@@ -110,6 +113,10 @@ function topologyAnomalyLabel(anomaly: RolloutLaneTopologyAnomaly): string {
   return `${anomaly.deviceIdentifier || "Lane"}: ${labels[anomaly.type]}`;
 }
 
+function rolloutModelLabel(child: RolloutRecord): string {
+  return [child.manufacturer, child.model].filter(Boolean).join(" ") || child.modelIdentityKey || "Model";
+}
+
 interface TopologyReadinessAdministrationProps {
   readiness: RolloutLaneTopologyReadiness | null;
   isLoading: boolean;
@@ -118,6 +125,7 @@ interface TopologyReadinessAdministrationProps {
   stale: boolean;
   canManage: boolean;
   onRetry: () => void;
+  onLoadMore: (pageToken: string) => void;
   onRepair: (anomaly: RolloutLaneTopologyAnomaly) => void;
   onEnable: (readiness: RolloutLaneTopologyReadiness) => void;
 }
@@ -130,6 +138,7 @@ function TopologyReadinessAdministration({
   stale,
   canManage,
   onRetry,
+  onLoadMore,
   onRepair,
   onEnable,
 }: TopologyReadinessAdministrationProps) {
@@ -196,6 +205,15 @@ function TopologyReadinessAdministration({
               ))}
             </ul>
           ) : null}
+          {readiness.nextAnomalyPageToken ? (
+            <Button
+              text="Load more anomalies"
+              variant={variants.secondary}
+              size={sizes.compact}
+              disabled={isLoading}
+              onClick={() => onLoadMore(readiness.nextAnomalyPageToken ?? "")}
+            />
+          ) : null}
           {canManage ? (
             <div className="flex flex-wrap gap-2">
               {repairable.map((anomaly) => (
@@ -235,12 +253,14 @@ function TopologyReadinessAdministration({
 }
 
 export default function RolloutLanesTab() {
+  useEffect(() => registerRolloutLaneTabPollingOwner(), []);
   const [searchParams, setSearchParams] = useSearchParams();
   const [acknowledgedResultId, setAcknowledgedResultId] = useAcknowledgedRolloutResultId();
   const {
     lane: loadedLane,
     lanes,
     rollouts,
+    rolloutGroups,
     isMutating,
     loadError,
     mutationError,
@@ -267,7 +287,7 @@ export default function RolloutLanesTab() {
     repairRolloutLaneModelBinding,
     enableRolloutLaneModelTopology,
     startRolloutLane,
-    listRollouts,
+    listRolloutGroups,
     getRollout,
     getRolloutGroup,
     admitRollout,
@@ -297,6 +317,7 @@ export default function RolloutLanesTab() {
   );
   const [modalRolloutId, setModalRolloutId] = useState<string | null>(null);
   const detailRefreshControllerRef = useRef<AbortController | null>(null);
+  const groupSummaryRefreshRef = useRef<Promise<RolloutGroup[]> | null>(null);
   const laneListRefreshControllerRef = useRef<AbortController | null>(null);
   const retrySetupControllerRef = useRef<AbortController | null>(null);
   const prepareStartControllerRef = useRef<AbortController | null>(null);
@@ -313,6 +334,23 @@ export default function RolloutLanesTab() {
     resultRolloutId && permissions.canRead ? rollouts.find((rollout) => rollout.id === resultRolloutId) : undefined;
   const activeFirmwareConvergenceLane = useMemo(() => firstActiveFirmwareConvergenceLane(lanes), [lanes]);
   const selectedSetupLaneId = setupLaneId ?? activeFirmwareConvergenceLane?.id ?? null;
+
+  const refreshGroupSummaries = useCallback(
+    (signal?: AbortSignal): Promise<RolloutGroup[]> => {
+      if (groupSummaryRefreshRef.current) {
+        return groupSummaryRefreshRef.current;
+      }
+      let request: Promise<RolloutGroup[]>;
+      request = listRolloutGroups({ signal }).finally(() => {
+        if (groupSummaryRefreshRef.current === request) {
+          groupSummaryRefreshRef.current = null;
+        }
+      });
+      groupSummaryRefreshRef.current = request;
+      return request;
+    },
+    [listRolloutGroups],
+  );
 
   const updateSetupLaneParam = useCallback(
     (laneId: string | null) => {
@@ -367,7 +405,7 @@ export default function RolloutLanesTab() {
     try {
       const requests: Promise<unknown>[] = [listRolloutLanes()];
       if (permissions.canRead) {
-        requests.push(listRollouts());
+        requests.push(refreshGroupSummaries());
       }
       if (permissions.canManageChannels) {
         requests.push(listFirmwareFiles().then(setFiles));
@@ -382,10 +420,10 @@ export default function RolloutLanesTab() {
   }, [
     listFirmwareFiles,
     listRolloutLanes,
-    listRollouts,
     permissions.canManageChannels,
     permissions.canRead,
     permissions.canReadChannels,
+    refreshGroupSummaries,
   ]);
 
   useEffect(() => {
@@ -525,14 +563,19 @@ export default function RolloutLanesTab() {
     };
   }, [hydrateSetupLane, permissions.canReadChannels, selectedSetupLaneId]);
 
+  const allRollouts = useMemo(() => {
+    const byId = new Map(rolloutGroups.flatMap((parent) => parent.children).map((rollout) => [rollout.id, rollout]));
+    rollouts.forEach((rollout) => byId.set(rollout.id, rollout));
+    return [...byId.values()];
+  }, [rolloutGroups, rollouts]);
   const rows = useMemo<LaneTableRow[]>(() => {
-    const rolloutsById = new Map(rollouts.map((rollout) => [rollout.id, rollout]));
+    const rolloutsById = new Map(allRollouts.map((rollout) => [rollout.id, rollout]));
     return lanes.map((lane) => ({
       id: lane.id,
       lane,
       latestRollout: latestRolloutForLane(lane, rolloutsById),
     }));
-  }, [lanes, rollouts]);
+  }, [allRollouts, lanes]);
   const setupLane = useMemo(
     () => resolveLane(lanes, loadedLane, selectedSetupLaneId, true),
     [lanes, loadedLane, selectedSetupLaneId],
@@ -551,9 +594,9 @@ export default function RolloutLanesTab() {
     : undefined;
   setupLaneRef.current = setupLane;
   const shouldPollSetupLane = Boolean(setupLane && !isFirmwareConvergenceReady(setupLane));
-  const focusedRollout = focusedRolloutId ? rollouts.find((rollout) => rollout.id === focusedRolloutId) : undefined;
-  const modalRollout = modalRolloutId ? rollouts.find((rollout) => rollout.id === modalRolloutId) : undefined;
-  const monitoredRolloutIdsKey = rollouts
+  const focusedRollout = focusedRolloutId ? allRollouts.find((rollout) => rollout.id === focusedRolloutId) : undefined;
+  const modalRollout = modalRolloutId ? allRollouts.find((rollout) => rollout.id === modalRolloutId) : undefined;
+  const monitoredRolloutIdsKey = allRollouts
     .filter((rollout) => shouldMonitorRollout(rollout))
     .map((rollout) => rollout.id)
     .sort()
@@ -574,24 +617,16 @@ export default function RolloutLanesTab() {
     if (!activeParent) {
       return [];
     }
-    const currentById = new Map(rollouts.map((rollout) => [rollout.id, rollout]));
-    return activeParent.children.map((child) => currentById.get(child.id) ?? child).sort(compareRolloutChildren);
-  }, [activeParent, rollouts]);
+    const currentById = new Map(allRollouts.map((rollout) => [rollout.id, rollout]));
+    return activeParent.children
+      .map((child) => {
+        const current = currentById.get(child.id);
+        return newestRollout(current, child);
+      })
+      .sort(compareRolloutChildren);
+  }, [activeParent, allRollouts]);
   const canManageLanes = permissions.canManageChannels;
   const canStartLane = permissions.canManageChannels && permissions.canManage;
-  const monitoredParentIds = useMemo(
-    () => [
-      ...new Set(
-        rollouts.filter(shouldMonitorRollout).flatMap((rollout) => (rollout.parentId ? [rollout.parentId] : [])),
-      ),
-    ],
-    [rollouts],
-  );
-  const monitoredLegacyRolloutIds = useMemo(
-    () => rollouts.filter((rollout) => !rollout.parentId && shouldMonitorRollout(rollout)).map((rollout) => rollout.id),
-    [rollouts],
-  );
-
   const refreshMonitoredDetails = useCallback(async () => {
     if (!permissions.canReadChannels || detailRefreshControllerRef.current) {
       return;
@@ -611,8 +646,28 @@ export default function RolloutLanesTab() {
           : []),
         ...(permissions.canRead
           ? [
-              ...monitoredParentIds.map((parentId) => getRolloutGroup({ parentId, signal: controller.signal })),
-              ...monitoredLegacyRolloutIds.map((rolloutId) => getRollout({ rolloutId, signal: controller.signal })),
+              refreshGroupSummaries(controller.signal).then(async (parents) => {
+                if (!controller.signal.aborted) {
+                  setActiveParent((current) => {
+                    if (!current) {
+                      return current;
+                    }
+                    const incoming = parents.find((parent) => parent.id === current.id);
+                    return incoming ? newestRolloutGroup(current, incoming) : current;
+                  });
+                }
+                if (activeParent?.id && !controller.signal.aborted) {
+                  const detailedParent = await getRolloutGroup({
+                    parentId: activeParent.id,
+                    signal: controller.signal,
+                  });
+                  if (!controller.signal.aborted) {
+                    setActiveParent((current) =>
+                      current?.id === detailedParent.id ? newestRolloutGroup(current, detailedParent) : current,
+                    );
+                  }
+                }
+              }),
             ]
           : []),
       ]);
@@ -622,13 +677,12 @@ export default function RolloutLanesTab() {
       }
     }
   }, [
-    getRollout,
+    activeParent?.id,
     getRolloutGroup,
     hydrateSetupLane,
-    monitoredLegacyRolloutIds,
-    monitoredParentIds,
     permissions.canRead,
     permissions.canReadChannels,
+    refreshGroupSummaries,
     selectedSetupLaneId,
     shouldPollSetupLane,
   ]);
@@ -804,6 +858,15 @@ export default function RolloutLanesTab() {
     });
   }, [getRolloutLaneTopologyReadiness]);
 
+  const loadMoreTopologyAnomalies = useCallback(
+    (anomalyPageToken: string) => {
+      void getRolloutLaneTopologyReadiness({ anomalyPageToken }).catch(() => {
+        // The readiness callout keeps the already loaded anomaly pages visible.
+      });
+    },
+    [getRolloutLaneTopologyReadiness],
+  );
+
   const repairTopologyAnomaly = useCallback(
     (anomaly: RolloutLaneTopologyAnomaly) => {
       if (!anomaly.laneModelId || anomaly.laneModelRevision === undefined) {
@@ -856,15 +919,26 @@ export default function RolloutLanesTab() {
     async (values: StartRolloutLaneValues) => {
       try {
         const parentStartKey = rolloutIdempotencyKey("start-rollout");
-        const modelPlans = values.modelPlans?.map((plan) => ({
-          ...plan,
-          modelStartKey: `${parentStartKey}:${plan.laneModelId}`,
-        }));
-        const result = await startRolloutLane({
-          ...values,
-          modelPlans,
-          idempotencyKey: parentStartKey,
-        });
+        const result = values.modelPlans
+          ? await startRolloutLane({
+              laneId: values.laneId,
+              name: values.name,
+              reason: values.reason,
+              modelPlans: values.modelPlans.map((plan) => ({
+                ...plan,
+                modelStartKey: `${parentStartKey}:${plan.laneModelId}`,
+              })),
+              idempotencyKey: parentStartKey,
+            })
+          : await startRolloutLane({
+              laneId: values.laneId,
+              name: values.name,
+              reason: values.reason,
+              firmwareFileIds: values.firmwareFileIds,
+              batches: values.batches,
+              hashratePolicy: values.hashratePolicy,
+              idempotencyKey: parentStartKey,
+            });
         setStartLane(null);
         updateSetupLaneParam(null);
         const initialFocus =
@@ -877,12 +951,10 @@ export default function RolloutLanesTab() {
         }
         await Promise.allSettled(
           result.children.map(async ({ rollout, firstBatchId }) => {
-            const modelStartKey = modelPlans?.find((plan) => plan.laneModelId === rollout.laneModelId)?.modelStartKey;
             await admitRolloutChild({
               rollout,
               batchId: firstBatchId,
               admissionAttempt: rollout.batches[0]?.admissionAttempt ?? 0,
-              keyPrefix: modelStartKey,
               reason: "Start first manual batch",
               admit: admitRollout,
               updateState: (rolloutId, state) =>
@@ -1037,6 +1109,7 @@ export default function RolloutLanesTab() {
         stale={topologyReadinessStale}
         canManage={permissions.canManageChannels}
         onRetry={retryTopologyReadiness}
+        onLoadMore={loadMoreTopologyAnomalies}
         onRepair={repairTopologyAnomaly}
         onEnable={enableTopology}
       />
@@ -1061,7 +1134,26 @@ export default function RolloutLanesTab() {
           onManageMembers={(lane) => setManageMembersLaneId(lane.id)}
           onManageDeclarations={(lane) => setManageDeclarationsLaneId(lane.id)}
           onStart={(lane) => void prepareStart(lane)}
-          onView={(rollout) => setModalRolloutId(rollout.id)}
+          onView={(rollout) => {
+            if (!rollout.parentId) {
+              void getRollout({ rolloutId: rollout.id })
+                .then(() => {
+                  setFocusedRolloutId(rollout.id);
+                  setModalRolloutId(rollout.id);
+                })
+                .catch((error) => {
+                  setPageError(error instanceof Error ? error.message : "Couldn't load rollout details.");
+                });
+              return;
+            }
+            const parent = rolloutGroups.find((candidate) => candidate.id === rollout.parentId);
+            setFocusedRolloutId(rollout.id);
+            if (parent) {
+              locallyOpenedParentIdRef.current = parent.id;
+              setActiveParent(parent);
+            }
+            updateParentFocusParams(rollout.parentId, rollout.id);
+          }}
           onDelete={(lane) => setDeleteLaneId(lane.id)}
         />
       )}
@@ -1083,100 +1175,29 @@ export default function RolloutLanesTab() {
       ) : null}
 
       {activeParent ? (
-        <section className="grid gap-4" aria-label={`Aggregate rollout ${activeParent.name}`}>
-          <div
-            className="grid gap-2 rounded-2xl border border-border-5 bg-surface-overlay p-5"
-            data-testid="rollout-parent-summary"
-          >
-            <div className="text-200 text-text-primary-50">Overall rollout</div>
-            <div className="text-heading-200 text-text-primary">{activeParent.name}</div>
-            <div className="text-300 text-text-primary-70">
-              {parentChildren.length.toLocaleString()} selected model
-              {parentChildren.length === 1 ? "" : "s"} ·{" "}
-              {(activeParent.activity ?? "created").replace(/([A-Z])/g, " $1").toLowerCase()}
-            </div>
-            <div className="text-200 text-text-primary-70">Controls are available on each model rollout below.</div>
-            {activeParent.lifecycle === "terminal" ? (
-              <div className="grid gap-2 border-t border-border-5 pt-3">
-                <div className="text-emphasis-300 text-text-primary">
-                  Result: {activeParent.terminalOutcome.replace(/([A-Z])/g, " $1").toLowerCase()}
-                </div>
-                {activeParent.models.map((model) => (
-                  <div key={model.laneModelId} className="text-200 text-text-primary-70">
-                    {model.manufacturer} {model.model}: channel {model.sourceChannelId.toString()} to{" "}
-                    {model.targetChannelId.toString()} · {model.memberCount.toLocaleString()} miner
-                    {model.memberCount === 1 ? "" : "s"}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {parentChildren.map((child) => `${child.manufacturer} ${child.model}: ${child.state}`).join(". ")}
-          </div>
-          {parentChildren.map((child) => {
-            const expanded = focusedRolloutId === child.id;
-            const modelLabel = [child.manufacturer, child.model].filter(Boolean).join(" ") || child.modelIdentityKey;
-            const panelId = `rollout-child-${child.id}`;
-            const localMutation = childMutationState[child.id];
-            return (
-              <section
-                key={child.id}
-                className="grid gap-3 rounded-2xl border border-border-5 bg-surface-base p-4 phone:p-3"
-                aria-label={`${modelLabel} rollout`}
-              >
-                <button
-                  type="button"
-                  className="flex min-h-11 items-center justify-between gap-3 text-left"
-                  aria-expanded={expanded}
-                  aria-controls={panelId}
-                  onClick={() => {
-                    const next = expanded ? null : child.id;
-                    setFocusedRolloutId(next);
-                    updateParentFocusParams(activeParent.id, next);
-                  }}
-                >
-                  <span>
-                    <span className="block text-emphasis-300 text-text-primary">{modelLabel}</span>
-                    <span className="block text-200 text-text-primary-70">
-                      {child.state.replace(/([A-Z])/g, " $1").toLowerCase()} · {child.members.length.toLocaleString()}{" "}
-                      miner{child.members.length === 1 ? "" : "s"}
-                    </span>
-                  </span>
-                  <span aria-hidden>{expanded ? "−" : "+"}</span>
-                </button>
-                {localMutation?.error ? (
-                  <Callout
-                    intent={intents.danger}
-                    prefixIcon={<Alert />}
-                    title={`${modelLabel} needs attention`}
-                    subtitle={localMutation.error}
-                  />
-                ) : null}
-                {expanded ? (
-                  <div id={panelId}>
-                    <BetweenChannelRolloutStatus
-                      rollout={child}
-                      laneLabel={lanes.find((lane) => lane.id === activeParent.laneId)?.label ?? "Rollout lane"}
-                      canControl={permissions.canControl}
-                      isMutating={Boolean(localMutation?.loading)}
-                      announceEvidenceStatus={false}
-                      onAdmit={() => void retryAdmission(child)}
-                      onPause={() => void runControl(child, "pause", `Pause ${modelLabel}`)}
-                      onResume={() => void runControl(child, "resume", `Resume ${modelLabel}`)}
-                      onContinue={(reason) =>
-                        void runControl(child, "continue", reason ?? `Continue ${modelLabel} after review`)
-                      }
-                      onAbort={() => void runControl(child, "abort", `Abort new ${modelLabel} rollout work`)}
-                      onRevert={() => void runControl(child, "revert", `Restore the captured ${modelLabel} release`)}
-                      onCompleteWithFailures={() => void runCompleteWithFailures(child)}
-                    />
-                  </div>
-                ) : null}
-              </section>
-            );
-          })}
-        </section>
+        <AggregateRolloutStatus
+          parent={activeParent}
+          children={parentChildren}
+          focusedChildId={focusedRolloutId}
+          laneLabel={lanes.find((lane) => lane.id === activeParent.laneId)?.label ?? "Rollout lane"}
+          canControl={permissions.canControl}
+          childMutationState={childMutationState}
+          onFocusChange={(next) => {
+            setFocusedRolloutId(next);
+            updateParentFocusParams(activeParent.id, next);
+          }}
+          onAdmit={(child) => void retryAdmission(child)}
+          onPause={(child) => void runControl(child, "pause", `Pause ${rolloutModelLabel(child)}`)}
+          onResume={(child) => void runControl(child, "resume", `Resume ${rolloutModelLabel(child)}`)}
+          onContinue={(child, reason) =>
+            void runControl(child, "continue", reason ?? `Continue ${rolloutModelLabel(child)} after review`)
+          }
+          onAbort={(child) => void runControl(child, "abort", `Abort new ${rolloutModelLabel(child)} rollout work`)}
+          onRevert={(child) =>
+            void runControl(child, "revert", `Restore the captured ${rolloutModelLabel(child)} release`)
+          }
+          onCompleteWithFailures={(child) => void runCompleteWithFailures(child)}
+        />
       ) : monitoredRollout && monitoredLane ? (
         <BetweenChannelRolloutStatus
           rollout={monitoredRollout}

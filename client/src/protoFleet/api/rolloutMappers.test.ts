@@ -327,6 +327,7 @@ describe("rollout mappers", () => {
 
     expect(mapped.startedAt).toBe("2026-08-18T01:00:00.000Z");
     expect(mapped.pausedAt).toBeUndefined();
+    expect(mapped.memberStateCounts).toBeUndefined();
     expect(mapped.members[0]).toMatchObject({
       id: 11n,
       state: "attentionRequired",

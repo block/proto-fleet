@@ -515,12 +515,37 @@ func (s *Service) GetTopologyReadiness(
 	ctx context.Context,
 	orgID int64,
 ) (TopologyReadiness, error) {
+	return s.GetTopologyReadinessPage(ctx, orgID, TopologyReadinessRequest{Limit: 100})
+}
+
+func (s *Service) GetTopologyReadinessPage(
+	ctx context.Context,
+	orgID int64,
+	req TopologyReadinessRequest,
+) (TopologyReadiness, error) {
 	if orgID <= 0 {
 		return TopologyReadiness{}, fleeterror.NewInvalidArgumentError(
 			"organization ID is required",
 		)
 	}
-	readiness, err := s.store.GetTopologyReadiness(ctx, orgID)
+	if req.Limit == 0 {
+		req.Limit = 25
+	}
+	if req.Limit < 1 || req.Limit > 100 {
+		return TopologyReadiness{}, fleeterror.NewInvalidArgumentError(
+			"anomaly page size must be between 1 and 100",
+		)
+	}
+	if req.After != nil &&
+		(req.After.LaneID == uuid.Nil ||
+			req.After.ID == uuid.Nil ||
+			req.After.DeviceIdentifier == "" ||
+			req.After.Type == "") {
+		return TopologyReadiness{}, fleeterror.NewInvalidArgumentError(
+			"anomaly page cursor is invalid",
+		)
+	}
+	readiness, err := s.store.GetTopologyReadinessPage(ctx, orgID, req)
 	if err != nil {
 		return TopologyReadiness{}, mapStoreError(err)
 	}
@@ -857,6 +882,11 @@ func validateStartRolloutRequest(req StartRolloutRequest) error {
 		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
 	}
 	if len(req.ModelPlans) > 0 {
+		if req.HashratePolicy != nil {
+			return fleeterror.NewInvalidArgumentError(
+				"top-level hashrate policy is not allowed with model rollout plans",
+			)
+		}
 		seenDeclarations := make(map[uuid.UUID]struct{}, len(req.ModelPlans))
 		seenStartKeys := make(map[string]struct{}, len(req.ModelPlans))
 		for _, plan := range req.ModelPlans {

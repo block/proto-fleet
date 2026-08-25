@@ -219,9 +219,9 @@ func (s *SQLRolloutLaneStore) PublishModelTarget(
 		if err := requireModelTopology(txCtx, q, req.OrgID); err != nil {
 			return nil, err
 		}
-		declaration, err := q.LockRolloutLaneModelForMutation(
+		declaration, err := q.GetRolloutLaneModelForMutation(
 			txCtx,
-			modelSelectorParams(req.LaneID, req.OrgID, req.LaneModelID, req.ModelIdentityKey),
+			modelLookupParams(req.LaneID, req.OrgID, req.LaneModelID, req.ModelIdentityKey),
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, betweenchannel.ErrDeclarationConflict
@@ -403,10 +403,33 @@ func (s *SQLRolloutLaneStore) UpdateModelMembership(
 		if err != nil || len(lockedModels) != len(affectedModelIDs) {
 			return nil, betweenchannel.ErrDeclarationConflict
 		}
+		declaration, err = lockedRolloutLaneModel(lockedModels, declaration.ID)
+		if err != nil || declaration.Revision != req.ExpectedRevision {
+			return nil, betweenchannel.ErrDeclarationConflict
+		}
 		if _, err = q.LockBetweenChannelDevices(txCtx, sqlc.LockBetweenChannelDevicesParams{
 			OrgID: req.OrgID, DeviceIds: deviceIDs,
 		}); err != nil {
 			return nil, err
+		}
+		candidates, err = q.ListRolloutLaneMembershipCandidates(
+			txCtx,
+			sqlc.ListRolloutLaneMembershipCandidatesParams{
+				OrgID: req.OrgID, DeviceIdentifiers: identifiers,
+			},
+		)
+		if err != nil || len(candidates) != len(identifiers) {
+			return nil, betweenchannel.ErrMembershipConflict
+		}
+		sourceBindings, err = validatedSourceBindings(txCtx, q, req.OrgID, candidates)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Equal(
+			distinctSourceModelIDs(sourceBindings, declaration.ID),
+			affectedModelIDs,
+		) {
+			return nil, betweenchannel.ErrDeclarationConflict
 		}
 		if err = lockAndCheckModelWork(txCtx, q, req.OrgID, affectedModelIDs); err != nil {
 			return nil, err
@@ -555,6 +578,32 @@ func modelSelectorParams(
 		LaneModelID:      uuid.NullUUID{UUID: laneModelID, Valid: laneModelID != uuid.Nil},
 		ModelIdentityKey: emptyToNullString(modelIdentityKey),
 	}
+}
+
+func modelLookupParams(
+	laneID uuid.UUID,
+	orgID int64,
+	laneModelID uuid.UUID,
+	modelIdentityKey string,
+) sqlc.GetRolloutLaneModelForMutationParams {
+	return sqlc.GetRolloutLaneModelForMutationParams{
+		LaneID:           laneID,
+		OrgID:            orgID,
+		LaneModelID:      uuid.NullUUID{UUID: laneModelID, Valid: laneModelID != uuid.Nil},
+		ModelIdentityKey: emptyToNullString(modelIdentityKey),
+	}
+}
+
+func lockedRolloutLaneModel(
+	models []sqlc.RolloutLaneModel,
+	id uuid.UUID,
+) (sqlc.RolloutLaneModel, error) {
+	for _, model := range models {
+		if model.ID == id {
+			return model, nil
+		}
+	}
+	return sqlc.RolloutLaneModel{}, betweenchannel.ErrDeclarationConflict
 }
 
 func createSingletonModelChannel(

@@ -22,15 +22,27 @@ import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
-export interface StartRolloutLaneValues {
+interface StartRolloutLaneValuesBase {
   laneId: string;
   name: string;
-  firmwareFileIds?: string[];
-  batches?: CreateRolloutBatchInput[];
   reason: string;
-  hashratePolicy?: RolloutHashratePolicy;
-  modelPlans?: Omit<StartRolloutLaneModelPlanInput, "modelStartKey">[];
 }
+
+export type StartRolloutLaneValues = StartRolloutLaneValuesBase &
+  (
+    | {
+        firmwareFileIds: string[];
+        batches: CreateRolloutBatchInput[];
+        hashratePolicy?: RolloutHashratePolicy;
+        modelPlans?: never;
+      }
+    | {
+        firmwareFileIds?: never;
+        batches?: never;
+        hashratePolicy?: never;
+        modelPlans: Omit<StartRolloutLaneModelPlanInput, "modelStartKey">[];
+      }
+  );
 
 interface StartRolloutLaneModalProps {
   open: boolean;

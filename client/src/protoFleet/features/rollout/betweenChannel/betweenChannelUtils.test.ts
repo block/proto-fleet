@@ -311,6 +311,35 @@ describe("between-channel rollout helpers", () => {
     expect(canRevertRollout(settled)).toBe(true);
   });
 
+  it("uses summary member counts for child control eligibility", () => {
+    const aborted = {
+      ...rolloutWithMembers("aborted", []),
+      summaryOnly: true,
+      memberCount: 2,
+      memberStateCounts: { succeeded: 1, admitted: 1 },
+    };
+    expect(canRevertRollout(aborted)).toBe(false);
+
+    const review = {
+      ...rolloutWithMembers("review", [], {
+        availableActions: {
+          admit: false,
+          continue: false,
+          pause: false,
+          resume: false,
+          abort: false,
+          revert: false,
+          complete: true,
+        },
+        batches: [{ id: 1n, position: 0, label: "Final", state: "completed", revision: 1n, members: [] }],
+      }),
+      summaryOnly: true,
+      memberCount: 2,
+      memberStateCounts: { succeeded: 1, failed: 1 },
+    };
+    expect(canCompleteWithFailures(review)).toBe(true);
+  });
+
   it("keeps completed rollouts live until the latest completed batch evidence is finalized", () => {
     const unfinalized = rolloutWithMembers("completed", ["succeeded"], {
       batches: [

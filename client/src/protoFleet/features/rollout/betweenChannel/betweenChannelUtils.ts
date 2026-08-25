@@ -70,7 +70,23 @@ const targetOrUnsettledOnSourceStates = new Set<RolloutMemberState>([
 ]);
 
 function hasUnsettledMembers(rollout: RolloutRecord): boolean {
+  if (rollout.memberStateCounts) {
+    const total =
+      rollout.memberCount ?? Object.values(rollout.memberStateCounts).reduce((sum, count) => sum + (count ?? 0), 0);
+    const terminal = [...terminalMemberStates].reduce(
+      (sum, state) => sum + (rollout.memberStateCounts?.[state] ?? 0),
+      0,
+    );
+    return terminal < total;
+  }
   return rollout.members.some((member) => !terminalMemberStates.has(member.state));
+}
+
+function hasTerminalFailure(rollout: RolloutRecord): boolean {
+  if (rollout.memberStateCounts) {
+    return [...terminalFailureStates].some((state) => (rollout.memberStateCounts?.[state] ?? 0) > 0);
+  }
+  return rollout.members.some((member) => terminalFailureStates.has(member.state));
 }
 
 function hasUnfinalizedLatestBatchEvidence(rollout: RolloutRecord): boolean {
@@ -107,6 +123,9 @@ export function rolloutChildRank(child: RolloutRecord): number {
     child.state === "review" ||
     child.state === "paused" ||
     child.state === "completedWithFailures" ||
+    (child.memberStateCounts?.attentionRequired ?? 0) > 0 ||
+    (child.memberStateCounts?.failed ?? 0) > 0 ||
+    child.failedAdmission ||
     child.members.some((member) => member.state === "attentionRequired" || member.state === "failed")
   ) {
     return 0;
@@ -255,7 +274,7 @@ export function canCompleteWithFailures(rollout: RolloutRecord): boolean {
     rollout.availableActions.complete &&
     !rollout.batches.some((batch) => batch.state === "pending") &&
     !hasUnsettledMembers(rollout) &&
-    rollout.members.some((member) => terminalFailureStates.has(member.state))
+    hasTerminalFailure(rollout)
   );
 }
 

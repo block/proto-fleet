@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -27,6 +27,7 @@ import CompositionBar, { type Segment } from "@/shared/components/CompositionBar
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 /**
  * Rollout progress colors follow the active curtailment card: done is primary,
@@ -48,6 +49,8 @@ interface ActiveRolloutStatusProps {
   hideActions?: boolean;
   /** Start with the lower detail section expanded. */
   defaultDetailsOpen?: boolean;
+  /** Expand once if dynamic detail becomes available after mount. */
+  autoExpandDetails?: boolean;
   /** Lifecycle actions. Missing handlers hide their controls. */
   canManage?: boolean;
   canControl?: boolean;
@@ -222,6 +225,7 @@ function ActiveRolloutStatus({
   embedded = false,
   hideActions = false,
   defaultDetailsOpen = false,
+  autoExpandDetails = false,
   canManage = true,
   canControl = true,
   onManage,
@@ -236,6 +240,7 @@ function ActiveRolloutStatus({
   onViewMiners,
   onViewErrors,
 }: ActiveRolloutStatusProps): ReactElement {
+  const { isPhone } = useWindowDimensions();
   const detailsId = useId();
   const isReviewGate =
     event.state === "review" || event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
@@ -244,6 +249,15 @@ function ActiveRolloutStatus({
     key: detailsStateKey,
     open: defaultDetailsOpen || isReviewGate,
   }));
+  const autoExpandedDetailsRef = useRef(autoExpandDetails);
+  const previousAutoExpandDetailsRef = useRef(autoExpandDetails);
+  useEffect(() => {
+    if (autoExpandDetails && !previousAutoExpandDetailsRef.current && !autoExpandedDetailsRef.current) {
+      autoExpandedDetailsRef.current = true;
+      setDetailsState({ key: detailsStateKey, open: true });
+    }
+    previousAutoExpandDetailsRef.current = autoExpandDetails;
+  }, [autoExpandDetails, detailsStateKey]);
   const detailsOpen =
     embedded || (detailsState.key === detailsStateKey ? detailsState.open : defaultDetailsOpen || isReviewGate);
   const isRunning = event.state === "running" || event.state === "inProgress";
@@ -307,8 +321,13 @@ function ActiveRolloutStatus({
         },
         { canManage, canControl },
       );
-  const visibleActions = actions.filter((action) => action.key !== "cancel" && action.key !== "abort");
-  const overflowLifecycleActions = actions.filter((action) => action.key === "cancel" || action.key === "abort");
+  const destructiveActionKeys = new Set(["abort", "cancel", "revert"]);
+  const visibleActions = actions.filter(
+    (action) => !destructiveActionKeys.has(action.key) || (action.key === "revert" && !isPhone),
+  );
+  const overflowLifecycleActions = actions.filter(
+    (action) => action.key === "abort" || action.key === "cancel" || (action.key === "revert" && isPhone),
+  );
   const overflowMenuActions: RowAction[] = [];
   if (!hideActions && onViewMiners) {
     overflowMenuActions.push({

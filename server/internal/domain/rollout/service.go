@@ -121,13 +121,7 @@ func (s *Service) GetGroup(ctx context.Context, orgID int64, groupID uuid.UUID) 
 	if err != nil {
 		return nil, mapStoreError(err)
 	}
-	projection := DeriveGroupProjection(result.Children)
-	result.Lifecycle = projection.Lifecycle
-	result.Activity = projection.Activity
-	result.NeedsAction = projection.NeedsAction
-	result.TerminalOutcome = projection.TerminalOutcome
-	result.EvidenceReadiness = projection.EvidenceReadiness
-	result.ResultReady = projection.ResultReady
+	applyGroupPresentation(result)
 	return result, nil
 }
 
@@ -140,15 +134,99 @@ func (s *Service) ListGroups(ctx context.Context, orgID int64) ([]Group, error) 
 		return nil, mapStoreError(err)
 	}
 	for index := range groups {
-		projection := DeriveGroupProjection(groups[index].Children)
-		groups[index].Lifecycle = projection.Lifecycle
-		groups[index].Activity = projection.Activity
-		groups[index].NeedsAction = projection.NeedsAction
-		groups[index].TerminalOutcome = projection.TerminalOutcome
-		groups[index].EvidenceReadiness = projection.EvidenceReadiness
-		groups[index].ResultReady = projection.ResultReady
+		applyGroupPresentation(&groups[index])
 	}
 	return groups, nil
+}
+
+func (s *Service) ListGroupsPage(
+	ctx context.Context,
+	orgID int64,
+	req ListPageRequest,
+) (GroupPage, error) {
+	if orgID <= 0 {
+		return GroupPage{}, fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	if err := normalizeListPageRequest(&req); err != nil {
+		return GroupPage{}, err
+	}
+	store, ok := s.store.(PagedStore)
+	if !ok {
+		groups, err := s.ListGroups(ctx, orgID)
+		if err != nil {
+			return GroupPage{}, err
+		}
+		hasMore := len(groups) > int(req.Limit)
+		if hasMore {
+			groups = groups[:req.Limit]
+		}
+		return GroupPage{Groups: groups, HasMore: hasMore}, nil
+	}
+	page, err := store.ListGroupsPage(ctx, orgID, req)
+	if err != nil {
+		return GroupPage{}, mapStoreError(err)
+	}
+	for index := range page.Groups {
+		applyGroupPresentation(&page.Groups[index])
+	}
+	return page, nil
+}
+
+func (s *Service) ListLegacyPage(
+	ctx context.Context,
+	orgID int64,
+	req ListPageRequest,
+) (RolloutPage, error) {
+	if orgID <= 0 {
+		return RolloutPage{}, fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	if err := normalizeListPageRequest(&req); err != nil {
+		return RolloutPage{}, err
+	}
+	store, ok := s.store.(PagedStore)
+	if !ok {
+		items, err := s.List(ctx, orgID, nil)
+		if err != nil {
+			return RolloutPage{}, err
+		}
+		hasMore := len(items) > int(req.Limit)
+		if hasMore {
+			items = items[:req.Limit]
+		}
+		return RolloutPage{Rollouts: items, HasMore: hasMore}, nil
+	}
+	page, err := store.ListLegacyPage(ctx, orgID, req)
+	if err != nil {
+		return RolloutPage{}, mapStoreError(err)
+	}
+	return page, nil
+}
+
+func normalizeListPageRequest(req *ListPageRequest) error {
+	if req.Limit == 0 {
+		req.Limit = 25
+	}
+	if req.Limit < 1 || req.Limit > 100 {
+		return fleeterror.NewInvalidArgumentError("page size must be between 1 and 100")
+	}
+	if req.Before != nil && (req.Before.ID == uuid.Nil || req.Before.CreatedAt.IsZero()) {
+		return fleeterror.NewInvalidArgumentError("page cursor is invalid")
+	}
+	return nil
+}
+
+func applyGroupPresentation(group *Group) {
+	projection := DeriveGroupProjection(group.Children)
+	group.Lifecycle = projection.Lifecycle
+	group.Activity = projection.Activity
+	group.NeedsAction = projection.NeedsAction
+	if group.TerminalOutcome != GroupTerminalOutcomePending {
+		group.Lifecycle = GroupLifecycleTerminal
+	}
+	group.EvidenceReadiness = GroupEvidencePending
+	if group.ResultReady {
+		group.EvidenceReadiness = GroupEvidenceReady
+	}
 }
 
 // DeriveGroupProjection reduces child state without granting the parent any
@@ -167,6 +245,7 @@ func DeriveGroupProjection(children []Rollout) GroupProjection {
 	}
 
 	allTerminal := true
+	allLifecycleTerminal := true
 	hasFailedAdmission := false
 	hasAttention := false
 	hasReview := false
@@ -182,6 +261,9 @@ func DeriveGroupProjection(children []Rollout) GroupProjection {
 		child := &children[index]
 		if !child.State.IsTerminal() {
 			allTerminal = false
+			if child.State != StateReverting {
+				allLifecycleTerminal = false
+			}
 		}
 		if child.FailedAdmission {
 			hasFailedAdmission = true
@@ -236,10 +318,13 @@ func DeriveGroupProjection(children []Rollout) GroupProjection {
 		projection.Activity = GroupActivitySettled
 	}
 
-	if !allTerminal {
+	if !allLifecycleTerminal {
 		return projection
 	}
 	projection.Lifecycle = GroupLifecycleTerminal
+	if !allTerminal {
+		return projection
+	}
 	if len(outcomes) == 1 {
 		for outcome := range outcomes {
 			projection.TerminalOutcome = outcome
@@ -255,6 +340,10 @@ func DeriveGroupProjection(children []Rollout) GroupProjection {
 }
 
 func childNeedsAttention(child Rollout) bool {
+	if child.MemberStateCounts[MemberStateAttentionRequired] > 0 ||
+		child.MemberStateCounts[MemberStateFailed] > 0 {
+		return true
+	}
 	for _, member := range child.Members {
 		if member.State == MemberStateAttentionRequired || member.State == MemberStateFailed {
 			return true
@@ -270,6 +359,12 @@ func childNeedsAttention(child Rollout) bool {
 }
 
 func childHasOnlyTerminalMembers(child Rollout) bool {
+	if child.SummaryOnly {
+		return child.MemberCount > 0 &&
+			child.MemberStateCounts[MemberStatePending] == 0 &&
+			child.MemberStateCounts[MemberStateAdmitted] == 0 &&
+			child.MemberStateCounts[MemberStateReverting] == 0
+	}
 	if len(child.Members) == 0 {
 		return false
 	}
@@ -325,15 +420,19 @@ func (s *Service) List(ctx context.Context, orgID int64, states []State) ([]Roll
 }
 
 func (s *Service) Admit(ctx context.Context, req AdmitRequest) (*Rollout, error) {
-	result, err := s.runAdmission(ctx, req, ControlOperationAdmit)
-	s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationAdmit, result, err)
+	result, status, err := s.runAdmission(ctx, req, ControlOperationAdmit)
+	if status == ControlStatusSucceeded || status == ControlStatusFailed {
+		s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationAdmit, result, err)
+	}
 	return result, err
 }
 
 func (s *Service) Continue(ctx context.Context, req AdmitRequest) (*Rollout, error) {
 	req.BatchID = 0
-	result, err := s.runAdmission(ctx, req, ControlOperationContinue)
-	s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationContinue, result, err)
+	result, status, err := s.runAdmission(ctx, req, ControlOperationContinue)
+	if status == ControlStatusSucceeded || status == ControlStatusFailed {
+		s.projectControlActivity(ctx, controlRequestFromAdmit(req), ControlOperationContinue, result, err)
+	}
 	return result, err
 }
 
@@ -341,17 +440,17 @@ func (s *Service) runAdmission(
 	ctx context.Context,
 	req AdmitRequest,
 	operation ControlOperation,
-) (*Rollout, error) {
+) (*Rollout, ControlStatus, error) {
 	if err := validateAdmitRequest(req); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	current, err := s.Get(ctx, req.OrgID, req.RolloutID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	strategy, ok := s.strategies[current.StrategyKey]
 	if !ok {
-		return nil, strategyUnavailable(current.StrategyKey)
+		return nil, "", strategyUnavailable(current.StrategyKey)
 	}
 
 	control := ControlRequest{
@@ -369,13 +468,14 @@ func (s *Service) runAdmission(
 	control.RequestFingerprint = fingerprintControl(control)
 	result, err := s.store.ApplyControl(ctx, control)
 	if err != nil {
-		return nil, mapStoreError(err)
+		return nil, "", mapStoreError(err)
 	}
 	if result.Replayed && result.Control.Status != ControlStatusStarted {
-		return replayResult(result)
+		replayed, replayErr := replayResult(result)
+		return replayed, result.Control.Status, replayErr
 	}
 	if result.Batch == nil {
-		return nil, fleeterror.NewInternalError("rollout admission did not select a batch")
+		return nil, ControlStatusStarted, fleeterror.NewInternalError("rollout admission did not select a batch")
 	}
 
 	admission := strategy.Admit(ctx, AdmissionRequest{
@@ -392,9 +492,9 @@ func (s *Service) runAdmission(
 			ControlID: result.Control.ID,
 			Success:   true,
 		}); err != nil {
-			return nil, mapStoreError(err)
+			return nil, ControlStatusStarted, mapStoreError(err)
 		}
-		return result.Rollout, nil
+		return result.Rollout, ControlStatusSucceeded, nil
 	case AdmissionOutcomeDefinitivelyRolledBack:
 		admissionErr := admission.Err
 		if admissionErr == nil {
@@ -408,28 +508,28 @@ func (s *Service) runAdmission(
 			ErrorMessage: admissionErr.Error(),
 		})
 		if finishErr != nil {
-			return nil, fleeterror.NewInternalErrorf(
+			return nil, ControlStatusStarted, fleeterror.NewInternalErrorf(
 				"rollout admission failed and could not record its cause: %v; record error: %w",
 				admissionErr,
 				finishErr,
 			)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf(
+		return nil, ControlStatusFailed, fleeterror.NewFailedPreconditionErrorf(
 			"rollout admission failed: %w",
 			admissionErr,
 		)
 	case AdmissionOutcomeUnknown:
 		if admission.Err != nil {
-			return nil, fleeterror.NewInternalErrorf(
+			return nil, ControlStatusStarted, fleeterror.NewInternalErrorf(
 				"rollout admission transaction outcome is unknown; replay the same idempotency key: %w",
 				admission.Err,
 			)
 		}
-		return nil, fleeterror.NewInternalError(
+		return nil, ControlStatusStarted, fleeterror.NewInternalError(
 			"rollout admission transaction outcome is unknown; replay the same idempotency key",
 		)
 	default:
-		return nil, fleeterror.NewInternalErrorf(
+		return nil, ControlStatusStarted, fleeterror.NewInternalErrorf(
 			"rollout admission returned unknown outcome %q",
 			admission.Outcome,
 		)
@@ -546,38 +646,59 @@ func (s *Service) revert(ctx context.Context, req ControlRequest) (*Rollout, err
 	if result.Replayed && result.Control.Status != ControlStatusStarted {
 		return replayResult(result)
 	}
-	err = strategy.Revert(ctx, RevertRequest{
+	revert := strategy.Revert(ctx, RevertRequest{
 		Rollout:        *result.Rollout,
 		ControlID:      result.Control.ID,
 		IdempotencyKey: req.IdempotencyKey,
 	})
-	if err != nil {
+	switch revert.Outcome {
+	case RevertOutcomeCommitted:
+		finished, finishErr := s.store.FinishControl(ctx, FinishControlRequest{
+			OrgID:     req.OrgID,
+			RolloutID: req.RolloutID,
+			ControlID: result.Control.ID,
+			Success:   true,
+		})
+		if finishErr != nil {
+			return nil, mapStoreError(finishErr)
+		}
+		return finished, nil
+	case RevertOutcomeDefinitivelyRolledBack:
+		revertErr := revert.Err
+		if revertErr == nil {
+			revertErr = errors.New("revert transaction rolled back")
+		}
 		_, finishErr := s.store.FinishControl(ctx, FinishControlRequest{
 			OrgID:        req.OrgID,
 			RolloutID:    req.RolloutID,
 			ControlID:    result.Control.ID,
 			Success:      false,
-			ErrorMessage: err.Error(),
+			ErrorMessage: revertErr.Error(),
 		})
 		if finishErr != nil {
 			return nil, fleeterror.NewInternalErrorf(
 				"rollout revert failed and could not restore its prior state: %v; record error: %w",
-				err,
+				revertErr,
 				finishErr,
 			)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf("rollout revert failed: %w", err)
+		return nil, fleeterror.NewFailedPreconditionErrorf("rollout revert failed: %w", revertErr)
+	case RevertOutcomeUnknown:
+		if revert.Err != nil {
+			return nil, fleeterror.NewInternalErrorf(
+				"rollout revert transaction outcome is unknown; replay the same idempotency key: %w",
+				revert.Err,
+			)
+		}
+		return nil, fleeterror.NewInternalError(
+			"rollout revert transaction outcome is unknown; replay the same idempotency key",
+		)
+	default:
+		return nil, fleeterror.NewInternalErrorf(
+			"rollout revert returned unknown outcome %q",
+			revert.Outcome,
+		)
 	}
-	finished, err := s.store.FinishControl(ctx, FinishControlRequest{
-		OrgID:     req.OrgID,
-		RolloutID: req.RolloutID,
-		ControlID: result.Control.ID,
-		Success:   true,
-	})
-	if err != nil {
-		return nil, mapStoreError(err)
-	}
-	return finished, nil
 }
 
 func (s *Service) applySimpleControl(

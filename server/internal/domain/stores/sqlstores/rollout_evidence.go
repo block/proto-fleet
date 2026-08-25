@@ -27,6 +27,7 @@ func NewSQLRolloutEvidenceStore(conn *sql.DB) *SQLRolloutEvidenceStore {
 func (s *SQLRolloutEvidenceStore) ListCandidates(
 	ctx context.Context,
 	limit int32,
+	workBudget int32,
 ) ([]evidence.Candidate, error) {
 	rows, err := db.WithTransaction(
 		ctx,
@@ -40,9 +41,13 @@ func (s *SQLRolloutEvidenceStore) ListCandidates(
 	}
 
 	result := make([]evidence.Candidate, 0, len(rows))
+	var usedWork int64
 	for _, row := range rows {
 		if !row.CompletedAt.Valid {
 			continue
+		}
+		if len(result) > 0 && usedWork+row.MemberCount > int64(workBudget) {
+			break
 		}
 		result = append(result, evidence.Candidate{
 			RolloutID:                          row.RolloutID,
@@ -67,7 +72,9 @@ func (s *SQLRolloutEvidenceStore) ListCandidates(
 			AutoControlStatus:                  controlStatusPtr(row.AutoControlStatus),
 			AutoControlExpectedRevision:        nullInt64ToPtr(row.AutoControlExpectedRevision),
 			AutoControlResultingRevision:       nullInt64ToPtr(row.AutoControlResultingRevision),
+			MemberCount:                        row.MemberCount,
 		})
+		usedWork += row.MemberCount
 	}
 	return result, nil
 }
@@ -78,6 +85,32 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 	windowEnd time.Time,
 ) (evidence.Snapshot, error) {
 	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (evidence.Snapshot, error) {
+		if _, err := q.EnsureFirmwareRolloutEvidenceAccumulators(
+			ctx,
+			sqlc.EnsureFirmwareRolloutEvidenceAccumulatorsParams{
+				WindowStart: candidate.CompletedAt,
+				RolloutID:   candidate.RolloutID,
+				BatchID:     candidate.BatchID,
+				OrgID:       candidate.OrgID,
+			},
+		); err != nil {
+			return evidence.Snapshot{}, err
+		}
+		stableCutoff := windowEnd.Add(-evidence.AcceptedSampleLateness)
+		if stableCutoff.Before(candidate.CompletedAt) {
+			stableCutoff = candidate.CompletedAt
+		}
+		if _, err := q.AdvanceFirmwareRolloutEvidenceAccumulators(
+			ctx,
+			sqlc.AdvanceFirmwareRolloutEvidenceAccumulatorsParams{
+				RolloutID:    candidate.RolloutID,
+				BatchID:      candidate.BatchID,
+				OrgID:        candidate.OrgID,
+				StableCutoff: stableCutoff,
+			},
+		); err != nil {
+			return evidence.Snapshot{}, err
+		}
 		if _, err := q.CaptureFirmwareRolloutBatchPostEvidence(
 			ctx,
 			sqlc.CaptureFirmwareRolloutBatchPostEvidenceParams{
@@ -91,9 +124,9 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 			return evidence.Snapshot{}, err
 		}
 
-		rows, err := q.ListFirmwareRolloutBatchHashrateEvidence(
+		aggregate, err := q.GetFirmwareRolloutBatchHashrateEvidenceSummary(
 			ctx,
-			sqlc.ListFirmwareRolloutBatchHashrateEvidenceParams{
+			sqlc.GetFirmwareRolloutBatchHashrateEvidenceSummaryParams{
 				RolloutID: candidate.RolloutID,
 				BatchID:   candidate.BatchID,
 				OrgID:     candidate.OrgID,
@@ -102,16 +135,28 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 		if err != nil {
 			return evidence.Snapshot{}, err
 		}
-		snapshot := evidence.Snapshot{
-			Members: make([]evidence.MemberEvidence, 0, len(rows)),
+		var (
+			baselineAverage      *float64
+			postAverage          *float64
+			oldestPostObservedAt *time.Time
+		)
+		if aggregate.PairedCount > 0 {
+			baselineAverage = &aggregate.BaselineAverage
+			postAverage = &aggregate.PostAverage
 		}
-		for _, row := range rows {
-			snapshot.Members = append(snapshot.Members, evidence.MemberEvidence{
-				MemberID:           row.MemberID,
-				BaselineHashrateHS: float64Ptr(row.BaselineHashrateHs),
-				PostHashrateHS:     float64Ptr(row.PostHashrateHs),
-				PostObservedAt:     timePtr(row.PostObservedAt),
-			})
+		if aggregate.PostAvailable {
+			oldestPostObservedAt = &aggregate.OldestPostObservedAt
+		}
+		snapshot := evidence.Snapshot{
+			Aggregate: &evidence.EvidenceAggregate{
+				TotalCount:           aggregate.TotalCount,
+				PairedCount:          aggregate.PairedCount,
+				BaselineAvailable:    aggregate.BaselineAvailable,
+				PostAvailable:        aggregate.PostAvailable,
+				BaselineAverage:      baselineAverage,
+				PostAverage:          postAverage,
+				OldestPostObservedAt: oldestPostObservedAt,
+			},
 		}
 
 		if !candidate.PolicyEnabled {
@@ -123,7 +168,10 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 		}
 		bucketAfter := candidate.CompletedAt
 		if candidate.LastPolicyBucketBoundary != nil {
-			bucketAfter = *candidate.LastPolicyBucketBoundary
+			bucketAfter = candidate.LastPolicyBucketBoundary.Add(-evidence.AcceptedSampleLateness)
+			if bucketAfter.Before(candidate.CompletedAt) {
+				bucketAfter = candidate.CompletedAt
+			}
 		}
 		bucketRows, err := q.ListCompleteFirmwareRolloutPolicyBuckets(
 			ctx,
@@ -143,22 +191,15 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 			return snapshot, nil
 		}
 
-		var bucket *evidence.PolicyBucket
-		var bucketIndex int64
 		for _, row := range bucketRows {
-			if bucket == nil || row.BucketIndex != bucketIndex {
-				bucketIndex = row.BucketIndex
-				snapshot.PolicyBuckets = append(snapshot.PolicyBuckets, evidence.PolicyBucket{
-					Boundary: candidate.CompletedAt.Add(
-						time.Duration(bucketIndex+1) * evidence.PolicyBucketDuration,
-					),
-				})
-				bucket = &snapshot.PolicyBuckets[len(snapshot.PolicyBuckets)-1]
-			}
-			bucket.Members = append(bucket.Members, evidence.BucketMember{
-				MemberID:      row.MemberID,
-				AvgHashrateHS: row.AvgHashrateHs,
-				ObservedAt:    row.ObservedAt,
+			snapshot.PolicyBuckets = append(snapshot.PolicyBuckets, evidence.PolicyBucket{
+				Boundary: candidate.CompletedAt.Add(
+					time.Duration(row.BucketIndex+1) * evidence.PolicyBucketDuration,
+				),
+				MemberCount:      row.MemberCount,
+				BaselineAverage:  row.BaselineAverage,
+				CurrentAverage:   row.CurrentAverage,
+				OldestObservedAt: row.OldestObservedAt,
 			})
 		}
 		return snapshot, nil

@@ -25,6 +25,43 @@ func memberIdentifiers(members []betweenchannel.LaneMember) []string {
 	return result
 }
 
+func TestSingleModelLegacyMembershipUsesCompatibleRevisionAfterBackfill(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane := createMembershipTestLane(t, service, orgID, actorID, "Legacy revision compatibility", deviceIDs[:1])
+	_, err := db.ExecContext(t.Context(), `
+		UPDATE rollout_lane
+		SET revision = 7
+		WHERE id = $1 AND org_id = $2
+	`, lane.ID, orgID)
+	require.NoError(t, err)
+	lane = enableModelTopologyForMutationTest(t, service, lane, orgID, actorID, "legacy-revision")
+	require.Len(t, lane.Models, 1)
+	assert.Equal(t, int64(7), lane.Revision)
+	assert.Equal(t, int64(1), lane.Models[0].Revision)
+
+	updated, err := service.UpdateMembership(t.Context(), betweenchannel.UpdateMembershipRequest{
+		OrgID:            orgID,
+		LaneID:           lane.ID,
+		ExpectedRevision: lane.Revision,
+		AddIdentifiers:   []string{deviceIDs[1]},
+		IdempotencyKey:   "legacy-revision-flat-write",
+		Reason:           "unchanged legacy client write",
+		ActorUserID:      actorID,
+		ActorType:        rollout.ActorTypeUser,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Lane)
+	require.Len(t, updated.Lane.Models, 1)
+	assert.Equal(t, int32(2), updated.Lane.Models[0].MemberCount)
+	assert.Equal(t, int64(2), updated.Lane.Models[0].Revision)
+}
+
 func TestRolloutLaneModelPhysicalAndBindingWritesMustRemainAtomic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -186,7 +223,18 @@ func TestRolloutLaneModelMembershipConcurrencyIsDeclarationScoped(t *testing.T) 
 		listed, err := service.ListLanes(t.Context(), orgID, false)
 		require.NoError(t, err)
 		require.Len(t, listed, 1)
-		assert.Equal(t, *reloaded, listed[0], "bulk lane hydration must preserve the detailed response shape")
+		summary := listed[0]
+		assert.Equal(t, reloaded.ID, summary.ID)
+		assert.Equal(t, reloaded.Revision, summary.Revision)
+		assert.Equal(t, reloaded.ScalarProjectionAvailable, summary.ScalarProjectionAvailable)
+		require.Len(t, summary.Models, len(reloaded.Models))
+		assert.LessOrEqual(t, len(summary.Channels), 1)
+		for _, model := range summary.Models {
+			assert.Empty(t, model.Channels)
+			detailed := laneModelByName(t, reloaded, model.Model)
+			assert.Equal(t, detailed.MemberCount, model.MemberCount)
+			assert.Equal(t, detailed.CurrentChannelID, model.CurrentChannelID)
+		}
 
 		protoMembers, err := service.ListMembers(t.Context(), betweenchannel.ListMembersRequest{
 			OrgID: orgID, LaneID: lane.ID, LaneModelID: protoModel.ID, Limit: 100,
@@ -246,6 +294,108 @@ func TestRolloutLaneModelMembershipConcurrencyIsDeclarationScoped(t *testing.T) 
 		require.NoError(t, err)
 		assert.Equal(t, int32(2), laneModelByName(t, updated.Lane, "Antminer S21").MemberCount)
 	})
+}
+
+func TestRolloutLaneModelOppositeReassignmentsLockCompleteDeclarationSet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "Antminer S21")
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane := createMembershipTestLane(
+		t,
+		service,
+		orgID,
+		actorID,
+		"Opposite reassignment lock order",
+		deviceIDs[:1],
+	)
+	lane = enableModelTopologyForMutationTest(
+		t,
+		service,
+		lane,
+		orgID,
+		actorID,
+		"opposite-reassign",
+	)
+	declared, err := service.CreateModelDeclaration(
+		t.Context(),
+		betweenchannel.CreateModelDeclarationRequest{
+			OrgID: orgID, LaneID: lane.ID, ExpectedRevision: 0,
+			ReleaseTargets: []betweenchannel.ReleaseTarget{
+				testLaneTargetForModel("Antminer S21", "1.0.0", "e"),
+			},
+			DeviceIdentifiers: []string{deviceIDs[1]},
+			IdempotencyKey:    "declare-opposite-antminer",
+			Reason:            "seed opposite reassignment",
+			ActorUserID:       actorID,
+			ActorType:         rollout.ActorTypeUser,
+		},
+	)
+	require.NoError(t, err)
+	protoModel := laneModelByName(t, declared, "TestMiner")
+	antminerModel := laneModelByName(t, declared, "Antminer S21")
+
+	setDiscoveredModel(t, db, orgID, deviceIDs[0], "Antminer S21")
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMiner")
+	requests := []betweenchannel.UpdateModelMembershipRequest{
+		{
+			OrgID: orgID, LaneID: lane.ID, LaneModelID: antminerModel.ID,
+			ExpectedRevision: antminerModel.Revision,
+			AddIdentifiers:   []string{deviceIDs[0]},
+			ConfirmFirmware:  true,
+			ConfirmReassign:  true,
+			IdempotencyKey:   "opposite-a-to-b",
+			Reason:           "move corrected A observation to B",
+			ActorUserID:      actorID,
+			ActorType:        rollout.ActorTypeUser,
+		},
+		{
+			OrgID: orgID, LaneID: lane.ID, LaneModelID: protoModel.ID,
+			ExpectedRevision: protoModel.Revision,
+			AddIdentifiers:   []string{deviceIDs[1]},
+			ConfirmFirmware:  true,
+			ConfirmReassign:  true,
+			IdempotencyKey:   "opposite-b-to-a",
+			Reason:           "move corrected B observation to A",
+			ActorUserID:      actorID,
+			ActorType:        rollout.ActorTypeUser,
+		},
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, len(requests))
+	var wait sync.WaitGroup
+	for _, request := range requests {
+		wait.Add(1)
+		go func(request betweenchannel.UpdateModelMembershipRequest) {
+			defer wait.Done()
+			<-start
+			_, updateErr := service.UpdateModelMembership(t.Context(), request)
+			results <- updateErr
+		}(request)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+
+	var succeeded, conflicted int
+	for updateErr := range results {
+		switch {
+		case updateErr == nil:
+			succeeded++
+		case errors.Is(updateErr, betweenchannel.ErrDeclarationConflict):
+			conflicted++
+		default:
+			require.NotContains(t, updateErr.Error(), "deadlock detected")
+			require.NoError(t, updateErr)
+		}
+	}
+	assert.Equal(t, 1, succeeded)
+	assert.Equal(t, 1, conflicted)
 }
 
 func TestRolloutLaneModelDeclarationMembershipAndZeroMemberPublication(t *testing.T) {
@@ -462,18 +612,6 @@ func seedActiveModelChild(
 	`, authorityID, orgID, childID.String(), actorID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `
-		INSERT INTO firmware_rollout (
-		    id, org_id, name, strategy_key, state, forward_authority_id,
-		    forward_authority_revision, source_channel_id, target_channel_id,
-		    source_release_set_id, target_release_set_id, idempotency_key,
-		    create_fingerprint, reason, created_by_user_id
-		)
-		VALUES ($1, $2, 'Seeded active child', 'between_channel', 'running', $3,
-		        1, $4, $4, $5, $5, $6, repeat('b', 64), 'membership gate test', $7)
-	`, childID, orgID, authorityID, model.CurrentChannelID, model.CurrentReleaseSetID,
-		"seed-active-child-"+childID.String(), actorID)
-	require.NoError(t, err)
-	_, err = db.ExecContext(t.Context(), `
 		INSERT INTO firmware_rollout_group (
 		    id, lane_id, org_id, name, idempotency_key, create_fingerprint,
 		    reason, created_by_user_id, actor_type
@@ -481,6 +619,23 @@ func seedActiveModelChild(
 		VALUES ($1, $2, $3, 'Seeded parent', $4, repeat('c', 64),
 		        'membership gate test', $5, 'user')
 	`, groupID, laneID, orgID, "seed-parent-"+groupID.String(), actorID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO firmware_rollout (
+		    id, org_id, name, strategy_key, state, forward_authority_id,
+		    forward_authority_revision, source_channel_id, target_channel_id,
+		    source_release_set_id, target_release_set_id,
+		    group_id, lane_id, lane_model_id, model_identity_key,
+		    model_identity_validated_at, source_release_target_id,
+		    target_release_target_id, idempotency_key, create_fingerprint,
+		    reason, created_by_user_id
+		)
+		VALUES ($1, $2, 'Seeded active child', 'between_channel', 'running', $3,
+		        1, $4, $4, $5, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP,
+		        $10, $10, $11, repeat('b', 64), 'membership gate test', $12)
+	`, childID, orgID, authorityID, model.CurrentChannelID, model.CurrentReleaseSetID,
+		groupID, laneID, model.ID, model.ModelIdentityKey, model.CurrentReleaseTargetID,
+		"seed-active-child-"+childID.String(), actorID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `
 		INSERT INTO firmware_rollout_group_model (

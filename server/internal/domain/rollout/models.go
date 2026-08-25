@@ -172,6 +172,9 @@ type Rollout struct {
 	SourceReleaseTargetID    *int64
 	TargetReleaseTargetID    *int64
 	FailedAdmission          bool
+	SummaryOnly              bool
+	MemberCount              int64
+	MemberStateCounts        map[MemberState]int64
 }
 
 // Group is the durable aggregate for independently controlled model rollouts.
@@ -197,6 +200,28 @@ type Group struct {
 	UpdatedAt         time.Time
 	ModelSnapshots    []GroupModelSnapshot
 	Children          []Rollout
+}
+
+type PageCursor struct {
+	CreatedAt   time.Time
+	ID          uuid.UUID
+	Active      bool
+	ResultReady bool
+}
+
+type ListPageRequest struct {
+	Limit  int32
+	Before *PageCursor
+}
+
+type GroupPage struct {
+	Groups  []Group
+	HasMore bool
+}
+
+type RolloutPage struct {
+	Rollouts []Rollout
+	HasMore  bool
 }
 
 type GroupLifecycle string
@@ -293,6 +318,7 @@ type Batch struct {
 	UpdatedAt                          time.Time
 	Members                            []Member
 	AdmissionAttempt                   int32
+	MemberCount                        int64
 }
 
 type Member struct {
@@ -456,6 +482,19 @@ const (
 
 type AdmissionResult struct {
 	Outcome AdmissionOutcome
+	Err     error
+}
+
+type RevertOutcome string
+
+const (
+	RevertOutcomeCommitted              RevertOutcome = "committed"
+	RevertOutcomeDefinitivelyRolledBack RevertOutcome = "definitively_rolled_back"
+	RevertOutcomeUnknown                RevertOutcome = "transaction_outcome_unknown"
+)
+
+type RevertResult struct {
+	Outcome RevertOutcome
 	Err     error
 }
 

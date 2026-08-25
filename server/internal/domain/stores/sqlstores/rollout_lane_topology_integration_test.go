@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +19,69 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/migrations"
 )
+
+func TestTopologyReadinessBoundsThousandsOfAnomaliesWithStableCursor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, _ := setupRolloutLaneTestData(t, 1)
+	laneID := uuid.New()
+	_, err := db.ExecContext(t.Context(), `DROP VIEW rollout_lane_topology_anomaly`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		CREATE TABLE rollout_lane_topology_anomaly (
+		    anomaly_id UUID NOT NULL,
+		    lane_id UUID NOT NULL,
+		    org_id BIGINT NOT NULL,
+		    device_id BIGINT NOT NULL,
+		    device_identifier TEXT NOT NULL,
+		    lane_model_id UUID NULL,
+		    lane_model_revision BIGINT NULL,
+		    anomaly_type TEXT NOT NULL,
+		    supported_repair_actions TEXT[] NOT NULL,
+		    details JSONB NOT NULL
+		)
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO rollout_lane_topology_anomaly (
+		    anomaly_id, lane_id, org_id, device_id, device_identifier,
+		    anomaly_type, supported_repair_actions, details
+		)
+		SELECT md5(n::text)::uuid, $1, $2, n,
+		       'miner-' || lpad(n::text, 5, '0'),
+		       'null_identity', ARRAY['confirm_identity']::text[], '{}'::jsonb
+		FROM generate_series(1, 2500) AS n
+	`, laneID, orgID)
+	require.NoError(t, err)
+
+	store := sqlstores.NewSQLRolloutLaneStore(db)
+	var (
+		cursor *betweenchannel.TopologyAnomalyCursor
+		seen   = make(map[uuid.UUID]struct{}, 2500)
+	)
+	for {
+		page, pageErr := store.GetTopologyReadinessPage(
+			t.Context(),
+			orgID,
+			betweenchannel.TopologyReadinessRequest{Limit: 100, After: cursor},
+		)
+		require.NoError(t, pageErr)
+		assert.Equal(t, int64(2500), page.AnomalyCount)
+		assert.LessOrEqual(t, len(page.Anomalies), 100)
+		for _, anomaly := range page.Anomalies {
+			_, duplicate := seen[anomaly.ID]
+			assert.False(t, duplicate)
+			seen[anomaly.ID] = struct{}{}
+		}
+		cursor = page.NextCursor
+		if cursor == nil {
+			break
+		}
+	}
+	assert.Len(t, seen, 2500)
+}
 
 func TestRolloutLaneActiveParentConcurrentClaimsHaveOneWinner(t *testing.T) {
 	if testing.Short() {
@@ -187,6 +253,387 @@ func TestFirmwareRolloutGroupResultRevisionOnlyTracksPublishedResultChanges(t *t
 	assert.Equal(t, int64(2), group.ResultRevision, "replaying result readiness must be idempotent")
 }
 
+func TestTopologyBackfillReconcilesSettledLegacyRolloutBeforeCutover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Settled legacy reconciliation",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "settled-legacy-reconciliation-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+
+	queries := sqlc.New(db)
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+	before, err := queries.GetRolloutLaneModelForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneModelForTestParams{
+			LaneID:       lane.ID,
+			OrgID:        orgID,
+			Manufacturer: "TestCorp",
+			Model:        "TestMiner",
+		},
+	)
+	require.NoError(t, err)
+
+	started, err := service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Settled legacy rollout",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+		Batches: []rolloutDomain.CreateBatch{{
+			Label:   "all",
+			Members: []rolloutDomain.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "settled-legacy-rollout",
+		Reason:         "exercise pre-cutover reconciliation",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, started.Rollout)
+	require.Nil(t, started.Parent)
+	require.NotNil(t, started.Rollout.TargetChannelID)
+	require.NotNil(t, started.Rollout.TargetReleaseSetID)
+
+	targetChannelID := *started.Rollout.TargetChannelID
+	targetReleaseSetID := *started.Rollout.TargetReleaseSetID
+	var targetReleaseTargetID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT id
+		FROM firmware_release_target
+		WHERE release_set_id = $1
+		  AND org_id = $2
+		  AND lower(btrim(target_manufacturer)) = 'testcorp'
+		  AND lower(btrim(target_model)) = 'testminer'
+	`, targetReleaseSetID, orgID).Scan(&targetReleaseTargetID))
+
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE device_set_membership
+		SET device_set_id = $3
+		WHERE org_id = $1
+		  AND device_identifier = $2
+		  AND device_set_type = 'channel'
+	`, orgID, deviceIDs[0], targetChannelID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE rollout_lane
+		SET current_channel_id = $3,
+		    revision = revision + 1
+		WHERE id = $2 AND org_id = $1
+	`, orgID, lane.ID, targetChannelID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE firmware_rollout
+		SET state = 'completed',
+		    completed_at = CURRENT_TIMESTAMP
+		WHERE id = $2 AND org_id = $1
+	`, orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET state = 'completed',
+		    completed_at = CURRENT_TIMESTAMP,
+		    evidence_status = 'finalized',
+		    post_window_finalized = TRUE,
+		    post_window_finalized_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $2 AND org_id = $1
+	`, orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_member
+		SET state = 'succeeded',
+		    settled_at = CURRENT_TIMESTAMP,
+		    owner_released_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $2 AND org_id = $1
+	`, orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE channel_firmware_authority authority
+		SET halted_at = CURRENT_TIMESTAMP,
+		    revision = authority.revision + 1
+		FROM firmware_rollout rollout
+		WHERE rollout.id = $2
+		  AND rollout.org_id = $1
+		  AND authority.id IN (rollout.forward_authority_id, rollout.revert_authority_id)
+		  AND authority.org_id = rollout.org_id
+		  AND authority.halted_at IS NULL
+	`, orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+
+	after, err := queries.GetRolloutLaneModelForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneModelForTestParams{
+			LaneID:       lane.ID,
+			OrgID:        orgID,
+			Manufacturer: "TestCorp",
+			Model:        "TestMiner",
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy_backfill", after.Origin)
+	assert.Equal(t, targetChannelID, after.CurrentChannelID)
+	assert.Equal(t, targetReleaseSetID, after.CurrentReleaseSetID)
+	assert.Equal(t, targetReleaseTargetID, after.CurrentReleaseTargetID)
+	assert.Greater(t, after.Revision, before.Revision)
+
+	var historyCount, activeCount, endedCount int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM rollout_lane_model_channel
+		WHERE lane_model_id = $1
+	`, after.ID).Scan(&historyCount))
+	assert.Equal(t, int64(2), historyCount)
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FILTER (WHERE ended_at IS NULL),
+		       COUNT(*) FILTER (WHERE ended_at IS NOT NULL)
+		FROM rollout_lane_model_binding
+		WHERE lane_model_id = $1 AND device_id = (
+			SELECT id FROM device WHERE org_id = $2 AND device_identifier = $3
+		)
+	`, after.ID, orgID, deviceIDs[0]).Scan(&activeCount, &endedCount))
+	assert.Equal(t, int64(1), activeCount)
+	assert.Equal(t, int64(1), endedCount)
+
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	assert.Zero(t, readiness.AnomalyCount)
+	enabled, err := service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "enable-settled-legacy-reconciliation",
+		Reason:           "reconciled legacy rollout is ready",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	assert.True(t, enabled.Readiness.Enabled)
+}
+
+func TestTopologyBackfillNeverRewritesTopologyOriginHistory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Topology origin preservation",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "topology-origin-preservation-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	queries := sqlc.New(db)
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+	declaration, err := queries.GetRolloutLaneModelForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneModelForTestParams{
+			LaneID:       lane.ID,
+			OrgID:        orgID,
+			Manufacturer: "TestCorp",
+			Model:        "TestMiner",
+		},
+	)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE rollout_lane_model
+		SET origin = 'topology'
+		WHERE id = $1
+	`, declaration.ID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE rollout_lane_model_channel
+		SET origin = 'topology'
+		WHERE lane_model_id = $1
+	`, declaration.ID)
+	require.NoError(t, err)
+
+	nextChannelID := createLegacyAttachmentChannel(
+		t,
+		db,
+		orgID,
+		lane.CurrentChannelID,
+		"topology-origin",
+	)
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO rollout_lane_channel (lane_id, org_id, channel_id, position)
+		VALUES ($1, $2, $3, 1)
+	`, lane.ID, orgID, nextChannelID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE rollout_lane
+		SET current_channel_id = $3,
+		    revision = revision + 1
+		WHERE id = $1 AND org_id = $2
+	`, lane.ID, orgID, nextChannelID)
+	require.NoError(t, err)
+
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
+	after, err := queries.GetRolloutLaneModelForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneModelForTestParams{
+			LaneID:       lane.ID,
+			OrgID:        orgID,
+			Manufacturer: "TestCorp",
+			Model:        "TestMiner",
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, declaration.CurrentChannelID, after.CurrentChannelID)
+	assert.Equal(t, declaration.CurrentReleaseSetID, after.CurrentReleaseSetID)
+	assert.Equal(t, declaration.CurrentReleaseTargetID, after.CurrentReleaseTargetID)
+	assert.Equal(t, declaration.Revision, after.Revision)
+
+	var topologyHistoryCount int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM rollout_lane_model_channel
+		WHERE lane_model_id = $1 AND origin = 'topology'
+	`, declaration.ID).Scan(&topologyHistoryCount))
+	assert.Equal(t, int64(1), topologyHistoryCount)
+}
+
+func TestRolloutTopologyCompositeIntegrityRejectsCrossWiredSnapshots(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Composite integrity lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "composite-integrity-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "composite-integrity-enable",
+		Reason:           "exercise composite foreign keys",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	lane, err = service.GetLane(t.Context(), orgID, lane.ID, false, nil)
+	require.NoError(t, err)
+	require.Len(t, lane.Models, 1)
+	model := lane.Models[0]
+
+	started, err := service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Composite integrity child",
+		IdempotencyKey: "composite-integrity-parent",
+		Reason:         "exercise composite foreign keys",
+		ActorUserID:    actorID,
+		ModelPlans: []betweenchannel.StartRolloutModelPlan{{
+			LaneModelID:           model.ID,
+			ExpectedModelRevision: model.Revision,
+			FirmwareFileID:        "composite-integrity-target",
+			ReleaseTarget:         testLaneTarget("2.0.0", "b"),
+			ModelStartKey:         "composite-integrity-child",
+			Batches: []rolloutDomain.CreateBatch{{
+				Label:   "all",
+				Members: []rolloutDomain.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, started.Parent)
+	require.Len(t, started.Children, 1)
+	child := started.Children[0].Child
+	require.NotNil(t, child)
+	require.NotNil(t, child.TargetChannelID)
+
+	otherGroupID := uuid.New()
+	_, err = sqlc.New(db).TestCreateFirmwareRolloutGroup(
+		t.Context(),
+		sqlc.TestCreateFirmwareRolloutGroupParams{
+			GroupID:           otherGroupID,
+			LaneID:            lane.ID,
+			OrgID:             orgID,
+			Name:              "Other composite group",
+			IdempotencyKey:    "other-composite-group",
+			CreateFingerprint: strings.Repeat("c", 64),
+			Reason:            "negative composite child attachment",
+			CreatedByUserID:   actorID,
+		},
+	)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO firmware_rollout_group_model (
+			group_id, lane_id, lane_model_id, org_id, model_identity_key,
+			source_channel_id, source_release_set_id, source_release_target_id,
+			target_channel_id, target_release_set_id, target_release_target_id,
+			snapshot
+		)
+		SELECT $1, lane_id, lane_model_id, org_id, model_identity_key,
+		       source_channel_id, source_release_set_id, source_release_target_id,
+		       target_channel_id, target_release_set_id, target_release_target_id,
+		       snapshot
+		FROM firmware_rollout_group_model
+		WHERE group_id = $2 AND lane_model_id = $3 AND org_id = $4
+	`, otherGroupID, started.Parent.ID, model.ID, orgID)
+	require.NoError(t, err)
+
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_group_model
+		SET child_rollout_id = NULL
+		WHERE group_id = $1 AND lane_model_id = $2 AND org_id = $3
+	`, started.Parent.ID, model.ID, orgID)
+	require.NoError(t, err)
+	_, attachErr := tx.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_group_model
+		SET child_rollout_id = $1
+		WHERE group_id = $2 AND lane_model_id = $3 AND org_id = $4
+	`, child.ID, otherGroupID, model.ID, orgID)
+	require.NoError(t, tx.Rollback())
+	require.Error(t, attachErr, "a child cannot attach to a different group snapshot")
+	assert.Contains(t, attachErr.Error(), "fk_firmware_rollout_group_model_child")
+
+	tx, err = db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		DELETE FROM rollout_lane_model_channel
+		WHERE lane_model_id = $1 AND channel_id = $2
+	`, model.ID, *child.TargetChannelID)
+	require.NoError(t, err)
+	_, mismatchErr := tx.ExecContext(t.Context(), `
+		INSERT INTO rollout_lane_model_channel (
+			lane_model_id, lane_id, org_id, channel_id,
+			release_set_id, release_target_id, position, origin
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, 99, 'topology')
+	`, model.ID, lane.ID, orgID, *child.TargetChannelID,
+		model.CurrentFirmwareTarget.ReleaseSetID, model.CurrentFirmwareTarget.ReleaseTargetID)
+	require.NoError(t, tx.Rollback())
+	require.Error(t, mismatchErr, "a channel snapshot cannot name another channel's release set")
+	assert.Contains(t, mismatchErr.Error(), "fk_rollout_lane_model_channel_physical_release")
+}
+
 func TestRolloutLaneTopologyMigrationDownRefusesAfterAdminHistory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -255,7 +702,119 @@ func TestRolloutLaneTopologyMigrationDownRefusesAfterAdminHistory(t *testing.T) 
 	assert.Equal(t, before, after, "the rejected down migration must preserve immutable history")
 }
 
-func TestRolloutLaneTopologyMigrationToleratesAndRepairsSeededLegacyAnomalies(t *testing.T) {
+func TestMigrateDownFrom160FailsBeforeDestroyingTopologyOrCancellationHistory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Actual migrate-down guard",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "actual-migrate-down-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "actual-migrate-down-enable",
+		Reason:           "create immutable admin history",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	lane, err = service.GetLane(t.Context(), orgID, lane.ID, false, nil)
+	require.NoError(t, err)
+	require.Len(t, lane.Models, 1)
+
+	started, err := service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Actual migrate-down child",
+		IdempotencyKey: "actual-migrate-down-parent",
+		Reason:         "create group and child history",
+		ActorUserID:    actorID,
+		ModelPlans: []betweenchannel.StartRolloutModelPlan{{
+			LaneModelID:           lane.Models[0].ID,
+			ExpectedModelRevision: lane.Models[0].Revision,
+			FirmwareFileID:        "actual-migrate-down-target",
+			ReleaseTarget:         testLaneTarget("2.0.0", "b"),
+			ModelStartKey:         "actual-migrate-down-child",
+			Batches: []rolloutDomain.CreateBatch{{
+				Label:   "all",
+				Members: []rolloutDomain.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, started.Children, 1)
+	child := started.Children[0].Child
+	require.NotNil(t, child)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET evidence_status = 'cancelled',
+		    evidence_cancellation_reason = 'rollback guard cancellation history',
+		    evidence_cancelled_at = CURRENT_TIMESTAMP,
+		    post_window_finalized = TRUE,
+		    post_window_finalized_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $1 AND org_id = $2
+	`, child.ID, orgID)
+	require.NoError(t, err)
+
+	migration := newEmbeddedMigration(t, db)
+	version, dirty, err := migration.Version()
+	require.NoError(t, err)
+	assert.Equal(t, uint(161), version)
+	assert.False(t, dirty)
+
+	require.NoError(t, migration.Steps(-1), "the additive accumulator migration must roll back cleanly first")
+	version, dirty, err = migration.Version()
+	require.NoError(t, err)
+	assert.Equal(t, uint(160), version)
+	assert.False(t, dirty)
+
+	err = migration.Steps(-1)
+	require.ErrorContains(t, err, "cannot downgrade after rollout topology or cancellation history exists")
+	version, dirty, versionErr := migration.Version()
+	require.NoError(t, versionErr)
+	assert.Equal(t, uint(159), version)
+	assert.True(t, dirty, "golang-migrate must expose the failed down as dirty")
+
+	var historyIntact bool
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT to_regclass('firmware_rollout_group') IS NOT NULL
+		   AND to_regclass('rollout_lane_topology_admin_operation') IS NOT NULL
+		   AND EXISTS (
+		       SELECT 1
+		       FROM information_schema.columns
+		       WHERE table_schema = current_schema()
+		         AND table_name = 'firmware_rollout'
+		         AND column_name = 'lane_model_id'
+		   )
+		   AND EXISTS (
+		       SELECT 1
+		       FROM information_schema.columns
+		       WHERE table_schema = current_schema()
+		         AND table_name = 'firmware_rollout_batch'
+		         AND column_name = 'evidence_cancellation_reason'
+		   )
+	`).Scan(&historyIntact))
+	assert.True(t, historyIntact, "160.down must fail before any 160 or 159 mutation")
+
+	require.NoError(t, migration.Force(160))
+	version, dirty, err = migration.Version()
+	require.NoError(t, err)
+	assert.Equal(t, uint(160), version)
+	assert.False(t, dirty, "the test must leave migration metadata recoverable")
+}
+
+func TestRolloutLaneTopologyMigrationBlocksSeededLegacyAnomaliesUntilAuditedCleanup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -334,7 +893,41 @@ func TestRolloutLaneTopologyMigrationToleratesAndRepairsSeededLegacyAnomalies(t 
 		WHERE history.lane_id = $1
 		  AND history.org_id = $2
 	`, lane.ID, orgID, strings.Repeat("c", 64))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uq_firmware_release_target_model")
+
+	_, err = db.ExecContext(t.Context(), `DROP INDEX uq_firmware_release_target_model`)
 	require.NoError(t, err)
+	var ambiguousTargetID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO firmware_release_target (
+			release_set_id,
+			org_id,
+			firmware_file_id,
+			target_manufacturer,
+			target_model,
+			firmware_version,
+			sha256
+		)
+		SELECT channel.release_set_id,
+		       history.org_id,
+		       'ambiguous-partial-feature-model-b',
+		       ' TestCorp ',
+		       ' TestMinerB ',
+		       '1.0.0',
+		       $3
+		FROM rollout_lane_channel history
+		JOIN rollout_lane lane
+		  ON lane.id = history.lane_id
+		 AND lane.org_id = history.org_id
+		 AND lane.current_channel_id = history.channel_id
+		JOIN device_set_channel channel
+		  ON channel.device_set_id = history.channel_id
+		 AND channel.org_id = history.org_id
+		WHERE history.lane_id = $1
+		  AND history.org_id = $2
+		RETURNING id
+	`, lane.ID, orgID, strings.Repeat("c", 64)).Scan(&ambiguousTargetID))
 
 	for _, migration := range []string{
 		"000156_multi_model_rollout_topology.up.sql",
@@ -371,27 +964,21 @@ func TestRolloutLaneTopologyMigrationToleratesAndRepairsSeededLegacyAnomalies(t 
 	)
 
 	queries := sqlc.New(db)
-	declaration, err := queries.GetRolloutLaneModelForTest(
-		t.Context(),
-		sqlc.GetRolloutLaneModelForTestParams{
-			LaneID:       lane.ID,
-			OrgID:        orgID,
-			Manufacturer: "TestCorp",
-			Model:        "TestMinerB",
-		},
-	)
+	_, err = db.ExecContext(t.Context(), `
+		ALTER TABLE firmware_release_target
+		    DISABLE TRIGGER firmware_release_target_immutable
+	`)
 	require.NoError(t, err)
-	_, err = service.RepairModelBinding(t.Context(), betweenchannel.RepairModelBindingRequest{
-		OrgID:            orgID,
-		LaneID:           lane.ID,
-		LaneModelID:      declaration.ID,
-		DeviceIdentifier: deviceIDs[1],
-		ExpectedRevision: declaration.Revision,
-		IdempotencyKey:   "repair-seeded-ambiguous-model",
-		Reason:           "select the canonical declaration for the ambiguous legacy target",
-		ActorUserID:      actorID,
-	})
+	_, err = db.ExecContext(t.Context(), `
+		DELETE FROM firmware_release_target WHERE id = $1
+	`, ambiguousTargetID)
 	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		ALTER TABLE firmware_release_target
+		    ENABLE TRIGGER firmware_release_target_immutable
+	`)
+	require.NoError(t, err)
+	require.NoError(t, queries.RunRolloutLaneTopologyBackfill(t.Context(), orgID))
 
 	readiness, err = service.GetTopologyReadiness(t.Context(), orgID)
 	require.NoError(t, err)
@@ -402,8 +989,8 @@ func TestRolloutLaneTopologyMigrationToleratesAndRepairsSeededLegacyAnomalies(t 
 	enableRequest := betweenchannel.EnableTopologyRequest{
 		OrgID:            orgID,
 		ExpectedRevision: readiness.Revision,
-		IdempotencyKey:   "enable-repaired-seeded-topology",
-		Reason:           "all migration anomalies are repaired",
+		IdempotencyKey:   "enable-cleaned-seeded-topology",
+		Reason:           "specific ambiguous target was removed by audited cleanup",
 		ActorUserID:      actorID,
 	}
 	enabled, err := service.EnableTopology(t.Context(), enableRequest)
@@ -501,6 +1088,22 @@ func executeEmbeddedMigration(t *testing.T, db *sql.DB, name string) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(contents))
 	require.NoError(t, err, "executing %s", name)
+}
+
+func newEmbeddedMigration(t *testing.T, db *sql.DB) *migrate.Migrate {
+	t.Helper()
+	source, err := iofs.New(migrations.Migrations, ".")
+	require.NoError(t, err)
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	require.NoError(t, err)
+	instance, err := migrate.NewWithInstance("migration-test", source, "migration-test", driver)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		sourceErr, databaseErr := instance.Close()
+		assert.NoError(t, sourceErr)
+		assert.NoError(t, databaseErr)
+	})
+	return instance
 }
 
 func rolloutLaneChannelHistoryJSON(

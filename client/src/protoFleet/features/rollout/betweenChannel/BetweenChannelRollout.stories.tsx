@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, userEvent, within } from "storybook/test";
 
+import AggregateRolloutStatus, { type RolloutChildMutationState } from "./AggregateRolloutStatus";
 import {
   abortedRollout,
   antminerS21AbortedChild,
@@ -17,7 +19,7 @@ import {
 import BetweenChannelRolloutStatus from "./BetweenChannelRolloutStatus";
 import StartRolloutLaneModal from "./StartRolloutLaneModal";
 import { AppShell } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
-import type { RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutGroup, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import Header from "@/shared/components/Header";
 
 const noop = (): void => undefined;
@@ -84,24 +86,80 @@ type ChildPresentation = "loading" | { error: string };
 
 interface AggregateRolloutStoryProps {
   name: string;
-  activity: string;
-  children: RolloutRecord[];
-  terminalOutcome?: string;
+  activity: RolloutGroup["activity"];
+  initialChildren: RolloutRecord[];
+  terminalOutcome?: RolloutGroup["terminalOutcome"];
   resultReady?: boolean;
   childPresentation?: Record<string, ChildPresentation>;
   phone?: boolean;
 }
 
+function aggregateParent(
+  name: string,
+  activity: RolloutGroup["activity"],
+  children: RolloutRecord[],
+  terminalOutcome: RolloutGroup["terminalOutcome"] = "pending",
+  resultReady = false,
+): RolloutGroup {
+  const terminal = terminalOutcome !== "pending";
+  return {
+    id: "aggregate-story-parent",
+    laneId: stableProductionLane.id,
+    name,
+    reason: "Deterministic Storybook fixture",
+    resultRevision: terminal ? 1n : 0n,
+    terminalOutcome,
+    resultReady,
+    lifecycle: terminal ? "terminal" : "active",
+    activity,
+    needsAction: activity === "attentionRequired",
+    evidenceReadiness: resultReady ? "ready" : "pending",
+    models: children.map((child) => ({
+      laneModelId: child.laneModelId ?? `declaration-${child.id}`,
+      modelIdentityKey: child.modelIdentityKey ?? `story:${child.id}`,
+      manufacturer: child.manufacturer ?? "",
+      model: child.model ?? "",
+      sourceChannelId: child.sourceChannelId ?? 41n,
+      targetChannelId: child.targetChannelId ?? 42n,
+      sourceReleaseTargetId: 1n,
+      targetReleaseTargetId: 2n,
+      memberCount: child.members.length,
+      childRolloutId: child.id,
+    })),
+    children,
+  };
+}
+
 function AggregateRolloutStory({
   name,
   activity,
-  children,
+  initialChildren,
   terminalOutcome,
   resultReady = false,
   childPresentation = {},
   phone = false,
 }: AggregateRolloutStoryProps) {
-  const [expandedChildId, setExpandedChildId] = useState<string | null>(children[0]?.id ?? null);
+  const [children, setChildren] = useState(initialChildren);
+  const [focusedChildId, setFocusedChildId] = useState<string | null>(initialChildren[0]?.id ?? null);
+  const [childMutationState, setChildMutationState] = useState<Record<string, RolloutChildMutationState>>(() =>
+    Object.fromEntries(
+      Object.entries(childPresentation).map(([childId, presentation]) => [
+        childId,
+        presentation === "loading" ? { loading: true } : { loading: false, error: presentation.error },
+      ]),
+    ),
+  );
+  const parent = useMemo(
+    () => aggregateParent(name, activity, children, terminalOutcome, resultReady),
+    [activity, children, name, resultReady, terminalOutcome],
+  );
+  const updateChild = (child: RolloutRecord, state: RolloutRecord["state"]) => {
+    setChildren((current) =>
+      current.map((candidate) =>
+        candidate.id === child.id ? { ...candidate, state, revision: candidate.revision + 1n } : candidate,
+      ),
+    );
+  };
 
   return (
     <AppShell>
@@ -112,84 +170,25 @@ function AggregateRolloutStory({
           description="Manage stable firmware lanes and model rollouts."
         />
         <div className={phone ? "mx-auto w-full max-w-[390px]" : "w-full"}>
-          <section className="grid gap-4" aria-label={`Aggregate rollout ${name}`}>
-            <div className="grid gap-2 rounded-2xl border border-border-5 bg-surface-overlay p-5">
-              <div className="text-200 text-text-primary-50">Overall rollout</div>
-              <div className="text-heading-200 text-text-primary">{name}</div>
-              <div className="text-300 text-text-primary-70">
-                {children.length} selected model{children.length === 1 ? "" : "s"} · {activity}
-              </div>
-              <div className="text-200 text-text-primary-70">Controls are available on each model rollout below.</div>
-              {terminalOutcome ? (
-                <div className="border-t border-border-5 pt-3">
-                  <div className="text-emphasis-300 text-text-primary">Result: {terminalOutcome}</div>
-                  <div className="text-200 text-text-primary-70">
-                    {resultReady ? "Result ready" : "Waiting for final evidence"}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {children.map((child) => {
-              const modelLabel = `${child.manufacturer} ${child.model}`;
-              const expanded = expandedChildId === child.id;
-              const panelId = `story-child-${child.id}`;
-              const presentation = childPresentation[child.id];
-              return (
-                <section
-                  key={child.id}
-                  className="grid gap-3 rounded-2xl border border-border-5 bg-surface-base p-4 phone:p-3"
-                  aria-label={`${modelLabel} rollout`}
-                >
-                  <button
-                    type="button"
-                    className="flex min-h-11 items-center justify-between gap-3 text-left"
-                    aria-expanded={expanded}
-                    aria-controls={panelId}
-                    onClick={() => setExpandedChildId(expanded ? null : child.id)}
-                  >
-                    <span>
-                      <span className="block text-emphasis-300 text-text-primary">{modelLabel}</span>
-                      <span className="block text-200 text-text-primary-70">
-                        {child.state.replace(/([A-Z])/g, " $1").toLowerCase()} · {child.members.length} miners
-                      </span>
-                    </span>
-                    <span aria-hidden>{expanded ? "−" : "+"}</span>
-                  </button>
-                  {presentation === "loading" ? (
-                    <div className="text-200 text-text-primary-70" role="status">
-                      Loading {modelLabel} rollout...
-                    </div>
-                  ) : presentation ? (
-                    <div className="rounded-xl border border-intent-critical-fill p-4 text-300 text-text-primary">
-                      <div className="text-emphasis-300">{modelLabel} needs attention</div>
-                      <div>{presentation.error}</div>
-                      <button type="button" className="mt-2 underline">
-                        Retry {modelLabel}
-                      </button>
-                    </div>
-                  ) : null}
-                  {expanded && presentation !== "loading" ? (
-                    <div id={panelId}>
-                      <BetweenChannelRolloutStatus
-                        rollout={child}
-                        laneLabel={stableProductionLane.label}
-                        canControl
-                        isMutating={false}
-                        onAdmit={noop}
-                        onPause={noop}
-                        onResume={noop}
-                        onContinue={noop}
-                        onAbort={noop}
-                        onRevert={noop}
-                        onCompleteWithFailures={noop}
-                      />
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-          </section>
+          <AggregateRolloutStatus
+            parent={parent}
+            children={children}
+            focusedChildId={focusedChildId}
+            laneLabel={stableProductionLane.label}
+            canControl
+            childMutationState={childMutationState}
+            onFocusChange={setFocusedChildId}
+            onAdmit={(child) => {
+              setChildMutationState((current) => ({ ...current, [child.id]: { loading: false } }));
+              updateChild(child, "running");
+            }}
+            onPause={(child) => updateChild(child, "paused")}
+            onResume={(child) => updateChild(child, "running")}
+            onContinue={(child) => updateChild(child, "running")}
+            onAbort={(child) => updateChild(child, "aborted")}
+            onRevert={(child) => updateChild(child, "reverting")}
+            onCompleteWithFailures={(child) => updateChild(child, "completedWithFailures")}
+          />
         </div>
       </main>
     </AppShell>
@@ -198,7 +197,23 @@ function AggregateRolloutStory({
 
 export const OneModelPartialRollout: Story = {
   name: "One-model partial rollout",
-  render: () => <AggregateRolloutStory name="Proto Alpha 2.0" activity="running" children={[protoAlphaRunningChild]} />,
+  render: () => (
+    <AggregateRolloutStory name="Proto Alpha 2.0" activity="running" initialChildren={[protoAlphaRunningChild]} />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("button", { name: /Proto Alpha.*running/ });
+    const panelId = trigger.getAttribute("aria-controls");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(panelId).toBe("rollout-child-proto-alpha-child");
+    expect(canvasElement.querySelector(`#${panelId}`)).toBeInTheDocument();
+
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(canvasElement.querySelector(`#${panelId}`)).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+  },
 };
 
 export const TwoModelsInDifferentActiveStates: Story = {
@@ -207,9 +222,22 @@ export const TwoModelsInDifferentActiveStates: Story = {
     <AggregateRolloutStory
       name="August model updates"
       activity="review"
-      children={[protoAlphaReviewChild, antminerS21RunningChild]}
+      initialChildren={[protoAlphaReviewChild, antminerS21RunningChild]}
     />
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const liveRegions = canvas.getAllByRole("status");
+    expect(liveRegions).toHaveLength(1);
+    expect(liveRegions[0]).toHaveAttribute("aria-live", "polite");
+
+    await userEvent.click(canvas.getByRole("button", { name: "Continue" }));
+    expect(canvas.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+    await userEvent.click(canvas.getByRole("button", { name: /Antminer S21.*running/ }));
+    await userEvent.click(canvas.getByRole("button", { name: "Pause" }));
+    expect(canvas.getByRole("button", { name: /Antminer S21.*paused/ })).toBeInTheDocument();
+    expect(canvas.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+  },
 };
 
 export const MixedTerminalResult: Story = {
@@ -220,7 +248,7 @@ export const MixedTerminalResult: Story = {
       activity="settled"
       terminalOutcome="mixed"
       resultReady
-      children={[protoAlphaSuccessfulChild, antminerS21AbortedChild]}
+      initialChildren={[protoAlphaSuccessfulChild, antminerS21AbortedChild]}
     />
   ),
 };
@@ -230,10 +258,10 @@ export const SplitModelNeedsAttention: Story = {
   render: () => (
     <AggregateRolloutStory
       name="August model updates"
-      activity="attention required"
-      terminalOutcome="completed with failures"
+      activity="attentionRequired"
+      terminalOutcome="completedWithFailures"
       resultReady
-      children={[protoAlphaSplitChild, antminerS21AbortedChild]}
+      initialChildren={[protoAlphaSplitChild, antminerS21AbortedChild]}
     />
   ),
 };
@@ -244,13 +272,24 @@ export const ChildLocalErrorAndLoading: Story = {
     <AggregateRolloutStory
       name="Independent model admission"
       activity="created"
-      children={[protoAlphaRunningChild, antminerS21CreatedChild]}
+      initialChildren={[protoAlphaRunningChild, antminerS21CreatedChild]}
       childPresentation={{
         [protoAlphaRunningChild.id]: "loading",
         [antminerS21CreatedChild.id]: { error: "The model start response could not be confirmed." },
       }}
     />
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const sibling = canvas.getByRole("button", { name: /Proto Alpha.*running/ });
+    await userEvent.click(canvas.getByRole("button", { name: /Antminer S21.*created/ }));
+    await userEvent.click(canvas.getByRole("button", { name: "Retry model start" }));
+
+    expect(canvas.queryByText("The model start response could not be confirmed.")).not.toBeInTheDocument();
+    expect(canvas.getByRole("button", { name: /Antminer S21.*running/ })).toBeInTheDocument();
+    expect(sibling).toBeInTheDocument();
+    expect(canvas.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+  },
 };
 
 export const PhoneLayout: Story = {
@@ -262,8 +301,26 @@ export const PhoneLayout: Story = {
     <AggregateRolloutStory
       name="August model updates"
       activity="review"
-      children={[protoAlphaReviewChild, antminerS21RunningChild]}
+      initialChildren={[protoAlphaReviewChild, antminerS21AbortedChild]}
       phone
     />
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(canvas.queryByRole("button", { name: "Abort rollout" })).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByRole("button", { name: /More actions for Proto Alpha rollout/ }));
+    await userEvent.click(within(document.body).getByText("Abort rollout"));
+    expect(within(document.body).getByText("Abort Proto Alpha rollout for 3 miners?")).toBeInTheDocument();
+    await userEvent.click(within(document.body).getByRole("button", { name: "Cancel" }));
+
+    await userEvent.click(canvas.getByRole("button", { name: /Antminer S21.*aborted/ }));
+    expect(canvas.queryByRole("button", { name: "Revert" })).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole("button", { name: /More actions for Antminer S21 rollout/ }));
+    await userEvent.click(
+      within(within(document.body).getByTestId("active-rollout-more-actions-menu")).getByText("Revert"),
+    );
+    expect(within(document.body).getByText("Revert Antminer S21 for 1 confirmed miner?")).toBeInTheDocument();
+  },
 };

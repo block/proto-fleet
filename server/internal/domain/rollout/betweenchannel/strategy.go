@@ -51,13 +51,16 @@ func (s *Strategy) Admit(
 	return s.store.AdmitBatch(ctx, req)
 }
 
-func (s *Strategy) Revert(ctx context.Context, req rollout.RevertRequest) error {
+func (s *Strategy) Revert(ctx context.Context, req rollout.RevertRequest) rollout.RevertResult {
 	if req.Rollout.SourceChannelID == nil ||
 		req.Rollout.TargetChannelID == nil ||
 		req.Rollout.SourceReleaseSetID == nil ||
 		req.Rollout.RevertAuthorityID == nil ||
 		req.Rollout.RevertAuthorityRevision == nil {
-		return fmt.Errorf("%w: rollout source and revert authority are required", ErrCompatibility)
+		return rollout.RevertResult{
+			Outcome: rollout.RevertOutcomeDefinitivelyRolledBack,
+			Err:     fmt.Errorf("%w: rollout source and revert authority are required", ErrCompatibility),
+		}
 	}
 	return s.store.PrepareRevert(ctx, req)
 }

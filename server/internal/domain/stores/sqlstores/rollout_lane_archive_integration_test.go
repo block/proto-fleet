@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -430,6 +431,97 @@ func TestRolloutLaneArchiveSerializesWithBetweenChannelRevert(t *testing.T) {
 		`, completed.ID, orgID).Scan(&state))
 		assert.Equal(t, string(rollout.StateReverting), state)
 	})
+}
+
+func TestModelFinalizerAndArchiveUseDeadlockFreeLockOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startSingleModelChild(t, "archive-finalizer-lock-order", 1)
+	completedAt := time.Now().UTC()
+	setChildEnforcementOutcome(
+		t,
+		fixture.db,
+		fixture.orgID,
+		fixture.child.ID,
+		"confirmed",
+		completedAt,
+		"Proto",
+		"TestMiner",
+		completedAt,
+	)
+	finalizations, err := fixture.laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, finalizations, 1)
+	finalization := finalizations[0]
+
+	channelBlocker, err := fixture.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = channelBlocker.Rollback() })
+	_, err = channelBlocker.ExecContext(t.Context(), `
+		SELECT 1
+		FROM device_set_channel
+		WHERE device_set_id = $1 AND org_id = $2
+		FOR UPDATE
+	`, fixture.targetChannelID, fixture.orgID)
+	require.NoError(t, err)
+
+	finalizerDone := runAsyncError(func() error {
+		_, finalizeErr := fixture.laneStore.Finalize(t.Context(), finalization)
+		return finalizeErr
+	})
+	waitForLockedRow(t, fixture.db, `
+		SELECT 1
+		FROM firmware_rollout
+		WHERE id = $1 AND org_id = $2
+		FOR UPDATE
+	`, fixture.child.ID, fixture.orgID)
+
+	archiveDone := runAsyncError(func() error {
+		tx, txErr := fixture.db.BeginTx(t.Context(), nil)
+		if txErr != nil {
+			return fmt.Errorf("begin archive lock transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+		q := sqlc.New(tx)
+		if _, txErr = q.LockRolloutLane(
+			t.Context(),
+			sqlc.LockRolloutLaneParams{
+				LaneID: fixture.laneID,
+				OrgID:  fixture.orgID,
+			},
+		); txErr != nil {
+			return txErr
+		}
+		channels, txErr := q.LockBetweenChannelChannels(
+			t.Context(),
+			sqlc.LockBetweenChannelChannelsParams{
+				OrgID: fixture.orgID,
+				ChannelIds: []int64{
+					fixture.sourceChannelID,
+					fixture.targetChannelID,
+				},
+			},
+		)
+		if txErr != nil {
+			return txErr
+		}
+		if len(channels) != 2 {
+			return errors.New("archive did not lock both rollout channels")
+		}
+		return tx.Commit()
+	})
+	waitForLockedRow(t, fixture.db, `
+		SELECT 1
+		FROM rollout_lane
+		WHERE id = $1 AND org_id = $2
+		FOR UPDATE
+	`, fixture.laneID, fixture.orgID)
+
+	require.NoError(t, channelBlocker.Commit())
+	require.NoError(t, awaitAsyncError(t, finalizerDone, "model finalizer"))
+	require.NoError(t, awaitAsyncError(t, archiveDone, "archive lock sequence"))
 }
 
 func TestRolloutLaneChannelsRejectGenericAssignment(t *testing.T) {

@@ -43,6 +43,11 @@ type LaneStore interface {
 		req UpdateModelMembershipRequest,
 	) (UpdateMembershipResult, error)
 	GetTopologyReadiness(ctx context.Context, orgID int64) (TopologyReadiness, error)
+	GetTopologyReadinessPage(
+		ctx context.Context,
+		orgID int64,
+		req TopologyReadinessRequest,
+	) (TopologyReadiness, error)
 	RepairModelBinding(
 		ctx context.Context,
 		req RepairModelBindingRequest,
@@ -57,7 +62,7 @@ type LaneStore interface {
 
 type StrategyStore interface {
 	AdmitBatch(ctx context.Context, req rollout.AdmissionRequest) rollout.AdmissionResult
-	PrepareRevert(ctx context.Context, req rollout.RevertRequest) error
+	PrepareRevert(ctx context.Context, req rollout.RevertRequest) rollout.RevertResult
 	GetCompletionStatus(
 		ctx context.Context,
 		orgID int64,

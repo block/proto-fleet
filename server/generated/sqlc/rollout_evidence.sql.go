@@ -13,6 +13,76 @@ import (
 	"github.com/google/uuid"
 )
 
+const advanceFirmwareRolloutEvidenceAccumulators = `-- name: AdvanceFirmwareRolloutEvidenceAccumulators :execrows
+WITH locked AS (
+    SELECT accumulator.member_id,
+           accumulator.processed_through
+    FROM firmware_rollout_evidence_accumulator accumulator
+    WHERE accumulator.rollout_id = $2
+      AND accumulator.batch_id = $3
+      AND accumulator.org_id = $4
+      AND accumulator.processed_through < $1
+    ORDER BY accumulator.member_id
+    FOR UPDATE
+),
+deltas AS (
+    SELECT locked.member_id,
+           MAX(metrics.time) FILTER (WHERE metrics.hash_rate_hs IS NOT NULL) AS observed_at,
+           COALESCE(SUM(metrics.hash_rate_hs), 0)::float8 AS hashrate_sum,
+           COALESCE(SUM(metrics.power_w), 0)::float8 AS power_sum,
+           COUNT(metrics.power_w)::bigint AS power_sample_count,
+           COALESCE(SUM(metrics.temp_c), 0)::float8 AS temperature_sum,
+           COUNT(metrics.temp_c)::bigint AS temperature_sample_count,
+           COUNT(metrics.hash_rate_hs)::bigint AS sample_count
+    FROM locked
+    JOIN firmware_rollout_member member
+      ON member.id = locked.member_id
+     AND member.rollout_id = $2
+     AND member.batch_id = $3
+     AND member.org_id = $4
+    JOIN device
+      ON device.id = member.device_id
+     AND device.org_id = member.org_id
+    LEFT JOIN device_metrics metrics
+      ON metrics.device_identifier = device.device_identifier
+     AND metrics.time >= locked.processed_through
+     AND metrics.time < $1
+    GROUP BY locked.member_id
+)
+UPDATE firmware_rollout_evidence_accumulator accumulator
+SET processed_through = $1,
+    observed_at = GREATEST(accumulator.observed_at, deltas.observed_at),
+    hashrate_sum = accumulator.hashrate_sum + deltas.hashrate_sum,
+    power_sum = accumulator.power_sum + deltas.power_sum,
+    power_sample_count = accumulator.power_sample_count + deltas.power_sample_count,
+    temperature_sum = accumulator.temperature_sum + deltas.temperature_sum,
+    temperature_sample_count =
+        accumulator.temperature_sample_count + deltas.temperature_sample_count,
+    sample_count = accumulator.sample_count + deltas.sample_count
+FROM deltas
+WHERE accumulator.member_id = deltas.member_id
+`
+
+type AdvanceFirmwareRolloutEvidenceAccumulatorsParams struct {
+	StableCutoff time.Time
+	RolloutID    uuid.UUID
+	BatchID      int64
+	OrgID        int64
+}
+
+func (q *Queries) AdvanceFirmwareRolloutEvidenceAccumulators(ctx context.Context, arg AdvanceFirmwareRolloutEvidenceAccumulatorsParams) (int64, error) {
+	result, err := q.exec(ctx, q.advanceFirmwareRolloutEvidenceAccumulatorsStmt, advanceFirmwareRolloutEvidenceAccumulators,
+		arg.StableCutoff,
+		arg.RolloutID,
+		arg.BatchID,
+		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelFirmwareRolloutEvidence = `-- name: CancelFirmwareRolloutEvidence :one
 WITH cancelled_batches AS (
     UPDATE firmware_rollout_batch batch
@@ -92,26 +162,39 @@ INSERT INTO firmware_rollout_evidence (
     error_count,
     sample_count
 )
-SELECT member.rollout_id,
-       member.id,
-       member.org_id,
+SELECT accumulator.rollout_id,
+       accumulator.member_id,
+       accumulator.org_id,
        'post',
        $1,
        $2,
-       MAX(metrics.time) FILTER (WHERE metrics.hash_rate_hs IS NOT NULL),
-       AVG(metrics.hash_rate_hs)::float8,
+       GREATEST(
+           accumulator.observed_at,
+           MAX(metrics.time) FILTER (WHERE metrics.hash_rate_hs IS NOT NULL)
+       ),
        CASE
-           WHEN COUNT(metrics.hash_rate_hs) > 0
-               THEN AVG(metrics.power_w)::float8
+           WHEN accumulator.sample_count + COUNT(metrics.hash_rate_hs) > 0
+               THEN (
+                   accumulator.hashrate_sum + COALESCE(SUM(metrics.hash_rate_hs), 0)
+               ) / (accumulator.sample_count + COUNT(metrics.hash_rate_hs))
            ELSE NULL
        END,
        CASE
-           WHEN COUNT(metrics.hash_rate_hs) > 0
-               THEN AVG(metrics.temp_c)::float8
+           WHEN accumulator.power_sample_count + COUNT(metrics.power_w) > 0
+               THEN (
+                   accumulator.power_sum + COALESCE(SUM(metrics.power_w), 0)
+               ) / (accumulator.power_sample_count + COUNT(metrics.power_w))
            ELSE NULL
        END,
        CASE
-           WHEN COUNT(metrics.hash_rate_hs) > 0 THEN (
+           WHEN accumulator.temperature_sample_count + COUNT(metrics.temp_c) > 0
+               THEN (
+                   accumulator.temperature_sum + COALESCE(SUM(metrics.temp_c), 0)
+               ) / (accumulator.temperature_sample_count + COUNT(metrics.temp_c))
+           ELSE NULL
+       END,
+       CASE
+           WHEN accumulator.sample_count + COUNT(metrics.hash_rate_hs) > 0 THEN (
                SELECT COUNT(*)::bigint
                FROM errors error_row
                WHERE error_row.device_id = member.device_id
@@ -122,23 +205,37 @@ SELECT member.rollout_id,
            ELSE NULL
        END,
        CASE
-           WHEN COUNT(metrics.hash_rate_hs) > 0
-               THEN COUNT(metrics.hash_rate_hs)::bigint
+           WHEN accumulator.sample_count + COUNT(metrics.hash_rate_hs) > 0
+               THEN accumulator.sample_count + COUNT(metrics.hash_rate_hs)
            ELSE NULL
        END
-FROM firmware_rollout_member member
+FROM firmware_rollout_evidence_accumulator accumulator
+JOIN firmware_rollout_member member
+  ON member.id = accumulator.member_id
+ AND member.rollout_id = accumulator.rollout_id
+ AND member.batch_id = accumulator.batch_id
+ AND member.org_id = accumulator.org_id
 JOIN device
   ON device.id = member.device_id
  AND device.org_id = member.org_id
 LEFT JOIN device_metrics metrics
   ON metrics.device_identifier = device.device_identifier
- AND metrics.time >= $1
+ AND metrics.time >= accumulator.processed_through
  AND metrics.time <= $2
-WHERE member.rollout_id = $3
-  AND member.batch_id = $4
-  AND member.org_id = $5
-GROUP BY member.rollout_id,
-         member.id,
+WHERE accumulator.rollout_id = $3
+  AND accumulator.batch_id = $4
+  AND accumulator.org_id = $5
+GROUP BY accumulator.rollout_id,
+         accumulator.member_id,
+         accumulator.org_id,
+         accumulator.processed_through,
+         accumulator.observed_at,
+         accumulator.hashrate_sum,
+         accumulator.power_sum,
+         accumulator.power_sample_count,
+         accumulator.temperature_sum,
+         accumulator.temperature_sample_count,
+         accumulator.sample_count,
          member.org_id,
          member.device_id,
          member.position
@@ -371,6 +468,130 @@ func (q *Queries) CompleteFirmwareRolloutEvidenceRows(ctx context.Context, arg C
 	return result.RowsAffected()
 }
 
+const ensureFirmwareRolloutEvidenceAccumulators = `-- name: EnsureFirmwareRolloutEvidenceAccumulators :execrows
+INSERT INTO firmware_rollout_evidence_accumulator (
+    rollout_id,
+    batch_id,
+    member_id,
+    org_id,
+    processed_through
+)
+SELECT member.rollout_id,
+       member.batch_id,
+       member.id,
+       member.org_id,
+       $1
+FROM firmware_rollout_member member
+WHERE member.rollout_id = $2
+  AND member.batch_id = $3
+  AND member.org_id = $4
+ON CONFLICT (member_id) DO NOTHING
+`
+
+type EnsureFirmwareRolloutEvidenceAccumulatorsParams struct {
+	WindowStart time.Time
+	RolloutID   uuid.UUID
+	BatchID     int64
+	OrgID       int64
+}
+
+func (q *Queries) EnsureFirmwareRolloutEvidenceAccumulators(ctx context.Context, arg EnsureFirmwareRolloutEvidenceAccumulatorsParams) (int64, error) {
+	result, err := q.exec(ctx, q.ensureFirmwareRolloutEvidenceAccumulatorsStmt, ensureFirmwareRolloutEvidenceAccumulators,
+		arg.WindowStart,
+		arg.RolloutID,
+		arg.BatchID,
+		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getFirmwareRolloutBatchHashrateEvidenceSummary = `-- name: GetFirmwareRolloutBatchHashrateEvidenceSummary :one
+WITH member_evidence AS (
+    SELECT member.id AS member_id,
+           baseline.avg_hashrate_hs AS baseline_hashrate_hs,
+           post.avg_hashrate_hs AS post_hashrate_hs,
+           post.observed_at AS post_observed_at
+    FROM firmware_rollout_member member
+    LEFT JOIN firmware_rollout_evidence baseline
+      ON baseline.member_id = member.id
+     AND baseline.rollout_id = member.rollout_id
+     AND baseline.org_id = member.org_id
+     AND baseline.phase = 'baseline'
+    LEFT JOIN firmware_rollout_evidence post
+      ON post.member_id = member.id
+     AND post.rollout_id = member.rollout_id
+     AND post.org_id = member.org_id
+     AND post.phase = 'post'
+    WHERE member.rollout_id = $1
+      AND member.batch_id = $2
+      AND member.org_id = $3
+)
+SELECT COUNT(*)::bigint AS total_count,
+       COUNT(*) FILTER (
+           WHERE baseline_hashrate_hs > 0
+             AND baseline_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+             AND post_hashrate_hs >= 0
+             AND post_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+       )::bigint AS paired_count,
+       COALESCE(BOOL_AND(
+           baseline_hashrate_hs > 0
+           AND baseline_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+       ), FALSE)::boolean AS baseline_available,
+       COALESCE(BOOL_AND(
+           post_hashrate_hs >= 0
+           AND post_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+       ), FALSE)::boolean AS post_available,
+       COALESCE(AVG(baseline_hashrate_hs) FILTER (
+           WHERE baseline_hashrate_hs > 0
+             AND baseline_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+             AND post_hashrate_hs >= 0
+             AND post_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+       ), 0)::float8 AS baseline_average,
+       COALESCE(AVG(post_hashrate_hs) FILTER (
+           WHERE baseline_hashrate_hs > 0
+             AND baseline_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+             AND post_hashrate_hs >= 0
+             AND post_hashrate_hs NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+       ), 0)::float8 AS post_average,
+       COALESCE(MIN(post_observed_at), 'epoch'::timestamptz)::timestamptz
+           AS oldest_post_observed_at
+FROM member_evidence
+`
+
+type GetFirmwareRolloutBatchHashrateEvidenceSummaryParams struct {
+	RolloutID uuid.UUID
+	BatchID   int64
+	OrgID     int64
+}
+
+type GetFirmwareRolloutBatchHashrateEvidenceSummaryRow struct {
+	TotalCount           int64
+	PairedCount          int64
+	BaselineAvailable    bool
+	PostAvailable        bool
+	BaselineAverage      float64
+	PostAverage          float64
+	OldestPostObservedAt time.Time
+}
+
+func (q *Queries) GetFirmwareRolloutBatchHashrateEvidenceSummary(ctx context.Context, arg GetFirmwareRolloutBatchHashrateEvidenceSummaryParams) (GetFirmwareRolloutBatchHashrateEvidenceSummaryRow, error) {
+	row := q.queryRow(ctx, q.getFirmwareRolloutBatchHashrateEvidenceSummaryStmt, getFirmwareRolloutBatchHashrateEvidenceSummary, arg.RolloutID, arg.BatchID, arg.OrgID)
+	var i GetFirmwareRolloutBatchHashrateEvidenceSummaryRow
+	err := row.Scan(
+		&i.TotalCount,
+		&i.PairedCount,
+		&i.BaselineAvailable,
+		&i.PostAvailable,
+		&i.BaselineAverage,
+		&i.PostAverage,
+		&i.OldestPostObservedAt,
+	)
+	return i, err
+}
+
 const listCompleteFirmwareRolloutPolicyBuckets = `-- name: ListCompleteFirmwareRolloutPolicyBuckets :many
 WITH frozen_members AS (
     SELECT member.id AS member_id,
@@ -380,8 +601,8 @@ WITH frozen_members AS (
       ON device.id = member.device_id
      AND device.org_id = member.org_id
     WHERE member.rollout_id = $1
-      AND member.batch_id = $2
-      AND member.org_id = $3
+      AND member.batch_id = $3
+      AND member.org_id = $2
 ),
 member_buckets AS (
     SELECT frozen.member_id,
@@ -410,37 +631,47 @@ complete_buckets AS (
            + (member_buckets.bucket_index + 1) * INTERVAL '10 seconds'
            > $5::timestamptz
 )
-SELECT member_buckets.member_id,
-       member_buckets.avg_hashrate_hs,
-       member_buckets.observed_at,
-       member_buckets.bucket_index
+SELECT member_buckets.bucket_index,
+       COUNT(*)::bigint AS member_count,
+       AVG(baseline.avg_hashrate_hs)::float8 AS baseline_average,
+       AVG(member_buckets.avg_hashrate_hs)::float8 AS current_average,
+       MIN(member_buckets.observed_at)::timestamptz AS oldest_observed_at
 FROM member_buckets
 JOIN complete_buckets
   ON complete_buckets.bucket_index = member_buckets.bucket_index
-ORDER BY member_buckets.bucket_index, member_buckets.member_id
+JOIN firmware_rollout_evidence baseline
+  ON baseline.member_id = member_buckets.member_id
+ AND baseline.rollout_id = $1
+ AND baseline.org_id = $2
+ AND baseline.phase = 'baseline'
+ AND baseline.avg_hashrate_hs > 0
+GROUP BY member_buckets.bucket_index
+HAVING COUNT(*) = (SELECT COUNT(*) FROM frozen_members)
+ORDER BY member_buckets.bucket_index
 `
 
 type ListCompleteFirmwareRolloutPolicyBucketsParams struct {
 	RolloutID    uuid.UUID
-	BatchID      int64
 	OrgID        int64
+	BatchID      int64
 	WindowStart  time.Time
 	BucketAfter  time.Time
 	BucketCutoff time.Time
 }
 
 type ListCompleteFirmwareRolloutPolicyBucketsRow struct {
-	MemberID      int64
-	AvgHashrateHs float64
-	ObservedAt    time.Time
-	BucketIndex   int64
+	BucketIndex      int64
+	MemberCount      int64
+	BaselineAverage  float64
+	CurrentAverage   float64
+	OldestObservedAt time.Time
 }
 
 func (q *Queries) ListCompleteFirmwareRolloutPolicyBuckets(ctx context.Context, arg ListCompleteFirmwareRolloutPolicyBucketsParams) ([]ListCompleteFirmwareRolloutPolicyBucketsRow, error) {
 	rows, err := q.query(ctx, q.listCompleteFirmwareRolloutPolicyBucketsStmt, listCompleteFirmwareRolloutPolicyBuckets,
 		arg.RolloutID,
-		arg.BatchID,
 		arg.OrgID,
+		arg.BatchID,
 		arg.WindowStart,
 		arg.BucketAfter,
 		arg.BucketCutoff,
@@ -453,10 +684,11 @@ func (q *Queries) ListCompleteFirmwareRolloutPolicyBuckets(ctx context.Context, 
 	for rows.Next() {
 		var i ListCompleteFirmwareRolloutPolicyBucketsRow
 		if err := rows.Scan(
-			&i.MemberID,
-			&i.AvgHashrateHs,
-			&i.ObservedAt,
 			&i.BucketIndex,
+			&i.MemberCount,
+			&i.BaselineAverage,
+			&i.CurrentAverage,
+			&i.OldestObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -590,64 +822,97 @@ func (q *Queries) ListFirmwareRolloutEvidence(ctx context.Context, arg ListFirmw
 }
 
 const listFirmwareRolloutEvidenceCandidates = `-- name: ListFirmwareRolloutEvidenceCandidates :many
-SELECT batch.id AS batch_id,
-       batch.rollout_id,
-       batch.org_id,
-       batch.completed_at,
-       (rollout.hashrate_policy_max_drop_basis_points IS NOT NULL)::boolean AS policy_enabled,
-       COALESCE(rollout.hashrate_policy_max_drop_basis_points, 0)::int AS max_drop_basis_points,
-       COALESCE(rollout.hashrate_policy_healthy_duration_seconds, 0)::int AS healthy_duration_seconds,
-       rollout.state AS rollout_state,
-       rollout.revision AS rollout_revision,
-       rollout.created_by_user_id AS rollout_created_by_user_id,
-       NOT EXISTS (
-           SELECT 1
-           FROM firmware_rollout_batch later_completed
-           WHERE later_completed.rollout_id = batch.rollout_id
-             AND later_completed.org_id = batch.org_id
-             AND later_completed.state = 'completed'
-             AND later_completed.position > batch.position
-       ) AS is_current_review_batch,
-       EXISTS (
-           SELECT 1
-           FROM firmware_rollout_batch pending
-           WHERE pending.rollout_id = batch.rollout_id
-             AND pending.org_id = batch.org_id
-             AND pending.state = 'pending'
-             AND pending.position > batch.position
-       ) AS has_pending_batch,
-       batch.evidence_status,
-       batch.healthy_since,
-       batch.last_policy_bucket_boundary,
-       batch.latest_policy_bucket_hashrate_hs,
-       batch.latest_policy_bucket_delta_basis_points,
-       batch.evaluated_at,
-       batch.evidence_error_message,
-       auto_control.status AS auto_control_status,
-       auto_control.expected_revision AS auto_control_expected_revision,
-       auto_control.resulting_revision AS auto_control_resulting_revision
-FROM firmware_rollout_batch batch
-JOIN firmware_rollout rollout
-  ON rollout.id = batch.rollout_id
- AND rollout.org_id = batch.org_id
-LEFT JOIN firmware_rollout_control auto_control
-  ON auto_control.rollout_id = batch.rollout_id
- AND auto_control.org_id = batch.org_id
- AND auto_control.operation = 'continue'
- AND auto_control.idempotency_key =
-     CONCAT('rollout-evidence-auto-continue-batch-', batch.id)
-WHERE batch.state = 'completed'
-  AND batch.completed_at IS NOT NULL
-  AND NOT batch.post_window_finalized
-  AND batch.evidence_status <> 'finalized'
-  AND rollout.state IN (
-      'running',
-      'paused',
-      'review',
-      'completed',
-      'completed_with_failures'
-  )
-ORDER BY batch.evaluated_at ASC NULLS FIRST, batch.completed_at, batch.id
+WITH candidate_rows AS (
+    SELECT batch.id AS batch_id,
+           batch.rollout_id,
+           batch.org_id,
+           batch.completed_at,
+           (rollout.hashrate_policy_max_drop_basis_points IS NOT NULL)::boolean AS policy_enabled,
+           COALESCE(rollout.hashrate_policy_max_drop_basis_points, 0)::int AS max_drop_basis_points,
+           COALESCE(rollout.hashrate_policy_healthy_duration_seconds, 0)::int AS healthy_duration_seconds,
+           rollout.state AS rollout_state,
+           rollout.revision AS rollout_revision,
+           rollout.created_by_user_id AS rollout_created_by_user_id,
+           NOT EXISTS (
+               SELECT 1
+               FROM firmware_rollout_batch later_completed
+               WHERE later_completed.rollout_id = batch.rollout_id
+                 AND later_completed.org_id = batch.org_id
+                 AND later_completed.state = 'completed'
+                 AND later_completed.position > batch.position
+           ) AS is_current_review_batch,
+           EXISTS (
+               SELECT 1
+               FROM firmware_rollout_batch pending
+               WHERE pending.rollout_id = batch.rollout_id
+                 AND pending.org_id = batch.org_id
+                 AND pending.state = 'pending'
+                 AND pending.position > batch.position
+           ) AS has_pending_batch,
+           batch.evidence_status,
+           batch.healthy_since,
+           batch.last_policy_bucket_boundary,
+           batch.latest_policy_bucket_hashrate_hs,
+           batch.latest_policy_bucket_delta_basis_points,
+           batch.evaluated_at,
+           batch.evidence_error_message,
+           auto_control.status AS auto_control_status,
+           auto_control.expected_revision AS auto_control_expected_revision,
+           auto_control.resulting_revision AS auto_control_resulting_revision,
+           (
+               SELECT COUNT(*)::bigint
+               FROM firmware_rollout_member member
+               WHERE member.rollout_id = batch.rollout_id
+                 AND member.batch_id = batch.id
+                 AND member.org_id = batch.org_id
+           ) AS member_count
+    FROM firmware_rollout_batch batch
+    JOIN firmware_rollout rollout
+      ON rollout.id = batch.rollout_id
+     AND rollout.org_id = batch.org_id
+    LEFT JOIN firmware_rollout_control auto_control
+      ON auto_control.rollout_id = batch.rollout_id
+     AND auto_control.org_id = batch.org_id
+     AND auto_control.operation = 'continue'
+     AND auto_control.idempotency_key =
+         CONCAT('rollout-evidence-auto-continue-batch-', batch.id)
+    WHERE batch.state = 'completed'
+      AND batch.completed_at IS NOT NULL
+      AND NOT batch.post_window_finalized
+      AND batch.evidence_status <> 'finalized'
+      AND rollout.state IN (
+          'running',
+          'paused',
+          'review',
+          'completed',
+          'completed_with_failures'
+      )
+)
+SELECT batch_id,
+       rollout_id,
+       org_id,
+       completed_at,
+       policy_enabled,
+       max_drop_basis_points,
+       healthy_duration_seconds,
+       rollout_state,
+       rollout_revision,
+       rollout_created_by_user_id,
+       is_current_review_batch,
+       has_pending_batch,
+       evidence_status,
+       healthy_since,
+       last_policy_bucket_boundary,
+       latest_policy_bucket_hashrate_hs,
+       latest_policy_bucket_delta_basis_points,
+       evaluated_at,
+       evidence_error_message,
+       auto_control_status,
+       auto_control_expected_revision,
+       auto_control_resulting_revision,
+       member_count
+FROM candidate_rows
+ORDER BY evaluated_at ASC NULLS FIRST, completed_at, batch_id
 LIMIT $1
 `
 
@@ -674,6 +939,7 @@ type ListFirmwareRolloutEvidenceCandidatesRow struct {
 	AutoControlStatus                  sql.NullString
 	AutoControlExpectedRevision        sql.NullInt64
 	AutoControlResultingRevision       sql.NullInt64
+	MemberCount                        int64
 }
 
 func (q *Queries) ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error) {
@@ -708,6 +974,7 @@ func (q *Queries) ListFirmwareRolloutEvidenceCandidates(ctx context.Context, lim
 			&i.AutoControlStatus,
 			&i.AutoControlExpectedRevision,
 			&i.AutoControlResultingRevision,
+			&i.MemberCount,
 		); err != nil {
 			return nil, err
 		}

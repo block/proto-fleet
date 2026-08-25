@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
+	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	rolloutEvidence "github.com/block/proto-fleet/server/internal/domain/rollout/evidence"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -55,31 +56,32 @@ type Config struct {
 	// to name the sending instance when several of them post to one Slack channel.
 	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links and to name this instance in them (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
 
-	DB              db.Config                      `embed:"" prefix:"db-" envprefix:"DB_"`
-	Log             logging.Config                 `embed:"" prefix:"logging-" envprefix:"LOG_"`
-	HTTP            HTTPConfig                     `embed:"" prefix:"http-" envprefix:"HTTP_"`
-	Auth            token.Config                   `embed:"" prefix:"auth-" envprefix:"AUTH_"`
-	Session         session.Config                 `embed:"" prefix:"session-" envprefix:"SESSION_"`
-	Pools           pools.Config                   `embed:"" prefix:"pools-" envprefix:"POOLS_"`
-	Encrypt         encrypt.Config                 `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
-	Command         command.Config                 `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
-	Curtailment     curtailmentReconciler.Config   `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
-	Channel         channelReconciler.Config       `embed:"" prefix:"channel-enforcement-" envprefix:"CHANNEL_ENFORCEMENT_"`
-	RolloutLane     betweenchannel.FinalizerConfig `embed:"" prefix:"rollout-lane-finalizer-" envprefix:"ROLLOUT_LANE_FINALIZER_"`
-	RolloutEvidence rolloutEvidence.Config         `embed:"" prefix:"rollout-evidence-" envprefix:"ROLLOUT_EVIDENCE_"`
-	Queue           queue.Config                   `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
-	TimescaleDB     timescaledb.Config             `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
-	Telemetry       telemetry.Config               `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
-	Scheduler       scheduler.Config               `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
-	Plugins         plugins.Config                 `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
-	IPScanner       ipscanner.Config               `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
-	Diagnostics     diagnostics.Config             `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
-	Updates         updates.Config                 `embed:"" prefix:"updates-" envprefix:"UPDATES_"`
-	Infrastructure  infrastructureDomain.Config    `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
-	Files           files.Config                   `embed:"" prefix:"files-" envprefix:"FILES_"`
-	FleetTelemetry  fleet_telemetry.Config         `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
-	Metrics         metrics.Config                 `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
-	HA              ha.Config                      `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
+	DB              db.Config                             `embed:"" prefix:"db-" envprefix:"DB_"`
+	Log             logging.Config                        `embed:"" prefix:"logging-" envprefix:"LOG_"`
+	HTTP            HTTPConfig                            `embed:"" prefix:"http-" envprefix:"HTTP_"`
+	Auth            token.Config                          `embed:"" prefix:"auth-" envprefix:"AUTH_"`
+	Session         session.Config                        `embed:"" prefix:"session-" envprefix:"SESSION_"`
+	Pools           pools.Config                          `embed:"" prefix:"pools-" envprefix:"POOLS_"`
+	Encrypt         encrypt.Config                        `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
+	Command         command.Config                        `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
+	Curtailment     curtailmentReconciler.Config          `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
+	Channel         channelReconciler.Config              `embed:"" prefix:"channel-enforcement-" envprefix:"CHANNEL_ENFORCEMENT_"`
+	RolloutControl  rolloutDomain.ControlReconcilerConfig `embed:"" prefix:"rollout-control-reconciler-" envprefix:"ROLLOUT_CONTROL_RECONCILER_"`
+	RolloutLane     betweenchannel.FinalizerConfig        `embed:"" prefix:"rollout-lane-finalizer-" envprefix:"ROLLOUT_LANE_FINALIZER_"`
+	RolloutEvidence rolloutEvidence.Config                `embed:"" prefix:"rollout-evidence-" envprefix:"ROLLOUT_EVIDENCE_"`
+	Queue           queue.Config                          `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
+	TimescaleDB     timescaledb.Config                    `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
+	Telemetry       telemetry.Config                      `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
+	Scheduler       scheduler.Config                      `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
+	Plugins         plugins.Config                        `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
+	IPScanner       ipscanner.Config                      `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
+	Diagnostics     diagnostics.Config                    `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
+	Updates         updates.Config                        `embed:"" prefix:"updates-" envprefix:"UPDATES_"`
+	Infrastructure  infrastructureDomain.Config           `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
+	Files           files.Config                          `embed:"" prefix:"files-" envprefix:"FILES_"`
+	FleetTelemetry  fleet_telemetry.Config                `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	Metrics         metrics.Config                        `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+	HA              ha.Config                             `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
 
 	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

@@ -1,3 +1,45 @@
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM firmware_rollout_batch
+        WHERE evidence_status = 'cancelled'
+           OR evidence_cancellation_reason IS NOT NULL
+           OR evidence_cancelled_at IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1
+        FROM firmware_rollout_evidence
+        WHERE status = 'cancelled'
+           OR cancellation_reason IS NOT NULL
+           OR cancelled_at IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1
+        FROM firmware_rollout
+        WHERE group_id IS NOT NULL
+           OR lane_model_id IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM firmware_rollout_group
+    ) OR EXISTS (
+        SELECT 1 FROM rollout_lane_topology_admin_operation
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model_channel
+        WHERE origin <> 'legacy_backfill'
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model_binding
+        WHERE origin <> 'legacy_backfill'
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model
+        WHERE origin <> 'legacy_backfill'
+    ) THEN
+        RAISE EXCEPTION
+            'cannot downgrade after rollout topology or cancellation history exists';
+    END IF;
+END;
+$$;
+
 DROP INDEX IF EXISTS idx_firmware_rollout_evidence_open;
 
 ALTER TABLE firmware_rollout_evidence

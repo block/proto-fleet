@@ -56,6 +56,27 @@ func (s *SQLRolloutLaneStore) startModelRollout(
 		if !cutover.Enabled {
 			return nil, betweenchannel.ErrTopologyNotReady
 		}
+		if req.LegacyCompatibility {
+			models, modelsErr := q.ListRolloutLaneModels(
+				txCtx,
+				sqlc.ListRolloutLaneModelsParams{LaneID: req.LaneID, OrgID: req.OrgID},
+			)
+			if modelsErr != nil {
+				return nil, modelsErr
+			}
+			if len(req.ModelPlans) != 1 || len(models) != 1 ||
+				models[0].ID != req.ModelPlans[0].LaneModelID {
+				return nil, betweenchannel.ErrScalarProjectionUnavailable
+			}
+		}
+		if _, releaseErr := releaseRolloutLaneActiveParentIfSettled(
+			txCtx,
+			q,
+			req.LaneID,
+			req.OrgID,
+		); releaseErr != nil {
+			return nil, releaseErr
+		}
 		if _, claimErr := q.GetRolloutLaneActiveParent(
 			txCtx,
 			sqlc.GetRolloutLaneActiveParentParams{LaneID: req.LaneID, OrgID: req.OrgID},

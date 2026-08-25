@@ -15,6 +15,7 @@ import {
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
+import { registerRolloutLaneTabPollingOwner } from "@/protoFleet/api/rolloutPollingOwnership";
 import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 
@@ -165,6 +166,23 @@ describe("useRolloutPillData", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("suspends duplicate header polling while the rollout lane tab owns refreshes", async () => {
+    const release = registerRolloutLaneTabPollingOwner();
+    const { unmount } = renderHook(() => useRolloutPillData());
+
+    await runInitialRefresh();
+    expect(listRolloutGroups).not.toHaveBeenCalled();
+    expect(listRolloutLanes).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(listRolloutGroups).toHaveBeenCalledOnce();
+    expect(listRolloutLanes).toHaveBeenCalledOnce();
+    unmount();
   });
 
   it("prefers an active persisted firmware rollout over active firmware convergence", async () => {

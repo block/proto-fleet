@@ -1,3 +1,39 @@
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM firmware_rollout
+        WHERE group_id IS NOT NULL
+           OR lane_model_id IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1
+        FROM firmware_rollout_group_model
+        WHERE child_rollout_id IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM rollout_lane_topology_admin_operation
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model_channel
+        WHERE origin <> 'legacy_backfill'
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model_binding
+        WHERE origin <> 'legacy_backfill'
+    ) OR EXISTS (
+        SELECT 1
+        FROM rollout_lane_model
+        WHERE origin <> 'legacy_backfill'
+    ) THEN
+        RAISE EXCEPTION
+            'cannot downgrade rollout model runtime after topology history exists';
+    END IF;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS rollout_lane_channel_legacy_attachment_gate
+    ON rollout_lane_channel;
+DROP FUNCTION IF EXISTS validate_legacy_rollout_lane_attachment();
+
 DROP INDEX IF EXISTS idx_channel_firmware_enforcement_model_identity;
 DROP INDEX IF EXISTS idx_firmware_rollout_group_child;
 
@@ -61,8 +97,18 @@ ALTER TABLE firmware_rollout_batch
     DROP CONSTRAINT IF EXISTS ck_firmware_rollout_batch_admission_attempt,
     DROP COLUMN IF EXISTS admission_attempt;
 
+ALTER TABLE firmware_rollout_group_model
+    DROP CONSTRAINT IF EXISTS fk_firmware_rollout_group_model_child,
+    ADD CONSTRAINT fk_firmware_rollout_group_model_child
+        FOREIGN KEY (child_rollout_id, org_id)
+        REFERENCES firmware_rollout(id, org_id)
+        ON DELETE RESTRICT;
+
 ALTER TABLE firmware_rollout
     DROP CONSTRAINT IF EXISTS ck_firmware_rollout_model_child_shape,
+    DROP CONSTRAINT IF EXISTS uq_firmware_rollout_child_topology,
+    DROP CONSTRAINT IF EXISTS fk_firmware_rollout_target_physical_release,
+    DROP CONSTRAINT IF EXISTS fk_firmware_rollout_source_physical_release,
     DROP CONSTRAINT IF EXISTS fk_firmware_rollout_target_release_target,
     DROP CONSTRAINT IF EXISTS fk_firmware_rollout_source_release_target,
     DROP CONSTRAINT IF EXISTS fk_firmware_rollout_lane_model,

@@ -19,10 +19,15 @@ type Store interface {
 	CaptureEvidence(ctx context.Context, req EvidenceRequest) ([]Evidence, error)
 }
 
+type PagedStore interface {
+	ListGroupsPage(ctx context.Context, orgID int64, req ListPageRequest) (GroupPage, error)
+	ListLegacyPage(ctx context.Context, orgID int64, req ListPageRequest) (RolloutPage, error)
+}
+
 type AdmissionStrategy interface {
 	Key() string
 	Admit(ctx context.Context, req AdmissionRequest) AdmissionResult
-	Revert(ctx context.Context, req RevertRequest) error
+	Revert(ctx context.Context, req RevertRequest) RevertResult
 }
 
 type CreationStrategy interface {

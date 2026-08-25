@@ -717,6 +717,23 @@ WHERE attachment.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
   AND attachment.org_id = sqlc.arg('org_id')
 ORDER BY attachment.lane_id, attachment.position, attachment.channel_id;
 
+-- name: ListLatestRolloutLaneChannelDetailsByLaneIDs :many
+SELECT DISTINCT ON (attachment.lane_id)
+       attachment.lane_id,
+       attachment.org_id,
+       attachment.channel_id,
+       channel.release_set_id,
+       attachment.position,
+       attachment.rollout_id,
+       attachment.created_at
+FROM rollout_lane_channel attachment
+JOIN device_set_channel channel
+  ON channel.device_set_id = attachment.channel_id
+ AND channel.org_id = attachment.org_id
+WHERE attachment.lane_id = ANY(sqlc.arg('lane_ids')::uuid[])
+  AND attachment.org_id = sqlc.arg('org_id')
+ORDER BY attachment.lane_id, attachment.position DESC, attachment.channel_id DESC;
+
 -- name: ListRolloutLaneModels :many
 SELECT model.id,
        model.lane_id,
@@ -1027,6 +1044,19 @@ WHERE channel.org_id = sqlc.arg('org_id')
   AND parent.deleted_at IS NULL
 ORDER BY channel.device_set_id
 FOR UPDATE OF channel, parent;
+
+-- name: LockBetweenChannelChannelsForValidation :many
+SELECT channel.device_set_id
+FROM device_set_channel channel
+JOIN device_set parent
+  ON parent.id = channel.device_set_id
+ AND parent.org_id = channel.org_id
+WHERE channel.org_id = sqlc.arg('org_id')
+  AND channel.device_set_id = ANY(sqlc.arg('channel_ids')::bigint[])
+  AND parent.type = 'channel'
+  AND parent.deleted_at IS NULL
+ORDER BY channel.device_set_id
+FOR KEY SHARE OF channel, parent;
 
 -- name: LockBetweenChannelDevices :many
 SELECT device.id
@@ -1894,7 +1924,7 @@ LEFT JOIN rollout_lane_model declaration
  AND declaration.org_id = lane.org_id
 WHERE member.id = sqlc.arg('member_id')
   AND member.org_id = sqlc.arg('org_id')
-FOR UPDATE OF member, enforcement, rollout, lane;
+FOR UPDATE OF member, enforcement, rollout;
 
 -- name: GetDeviceChannelMembership :one
 SELECT device_set_id
@@ -2675,6 +2705,11 @@ WHERE org_id = sqlc.arg('org_id')
 -- name: RunRolloutLaneTopologyBackfill :exec
 SELECT backfill_rollout_lane_model_topology(sqlc.arg('org_id'));
 
+-- name: EnsureRolloutLaneTopologyCutover :exec
+INSERT INTO rollout_lane_topology_cutover (org_id)
+VALUES (sqlc.arg('org_id'))
+ON CONFLICT (org_id) DO NOTHING;
+
 -- name: GetRolloutLaneTopologyCutover :one
 SELECT *
 FROM rollout_lane_topology_cutover
@@ -2699,6 +2734,30 @@ SELECT anomaly_id,
 FROM rollout_lane_topology_anomaly
 WHERE org_id = sqlc.arg('org_id')
 ORDER BY lane_id, device_identifier, anomaly_type, anomaly_id;
+
+-- name: ListRolloutLaneTopologyAnomaliesPage :many
+SELECT anomaly_id,
+       lane_id,
+       device_id,
+       device_identifier,
+       lane_model_id,
+       lane_model_revision,
+       anomaly_type,
+       supported_repair_actions,
+       details
+FROM rollout_lane_topology_anomaly
+WHERE org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.narg('after_lane_id')::uuid IS NULL
+      OR (lane_id, device_identifier, anomaly_type, anomaly_id) > (
+          sqlc.narg('after_lane_id')::uuid,
+          sqlc.narg('after_device_identifier')::text,
+          sqlc.narg('after_anomaly_type')::text,
+          sqlc.narg('after_anomaly_id')::uuid
+      )
+  )
+ORDER BY lane_id, device_identifier, anomaly_type, anomaly_id
+LIMIT sqlc.arg('limit_count');
 
 -- name: CountRolloutLaneTopologyAnomalies :one
 SELECT COUNT(*)::bigint
@@ -2916,6 +2975,19 @@ WHERE lane_id = sqlc.arg('lane_id')
           AND model_identity_key = sqlc.narg('model_identity_key')::text)
   )
 FOR UPDATE;
+
+-- name: GetRolloutLaneModelForMutation :one
+SELECT *
+FROM rollout_lane_model
+WHERE lane_id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND (
+      (sqlc.narg('lane_model_id')::uuid IS NOT NULL
+          AND id = sqlc.narg('lane_model_id')::uuid)
+      OR
+      (sqlc.narg('model_identity_key')::text IS NOT NULL
+          AND model_identity_key = sqlc.narg('model_identity_key')::text)
+  );
 
 -- name: LockRolloutLaneModelsForMutation :many
 SELECT *

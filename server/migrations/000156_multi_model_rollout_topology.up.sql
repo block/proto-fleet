@@ -6,6 +6,21 @@ SET model_identity_observed_at = COALESCE(last_seen, updated_at, created_at)
 WHERE btrim(COALESCE(manufacturer, '')) <> ''
   AND btrim(COALESCE(model, '')) <> '';
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'uq_device_set_channel_physical_release'
+          AND conrelid = 'device_set_channel'::regclass
+    ) THEN
+        ALTER TABLE device_set_channel
+            ADD CONSTRAINT uq_device_set_channel_physical_release
+            UNIQUE (device_set_id, org_id, release_set_id);
+    END IF;
+END;
+$$;
+
 CREATE FUNCTION rollout_model_identity_v1(manufacturer TEXT, model TEXT)
 RETURNS TEXT
 LANGUAGE sql
@@ -47,6 +62,10 @@ CREATE TABLE rollout_lane_model (
     CONSTRAINT fk_rollout_lane_model_channel
         FOREIGN KEY (lane_id, org_id, current_channel_id)
         REFERENCES rollout_lane_channel(lane_id, org_id, channel_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_rollout_lane_model_physical_release
+        FOREIGN KEY (current_channel_id, org_id, current_release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
         ON DELETE RESTRICT,
     CONSTRAINT fk_rollout_lane_model_target
         FOREIGN KEY (
@@ -95,6 +114,10 @@ CREATE TABLE rollout_lane_model_channel (
     CONSTRAINT fk_rollout_lane_model_channel_registry
         FOREIGN KEY (lane_id, org_id, channel_id)
         REFERENCES rollout_lane_channel(lane_id, org_id, channel_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_rollout_lane_model_channel_physical_release
+        FOREIGN KEY (channel_id, org_id, release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
         ON DELETE RESTRICT,
     CONSTRAINT fk_rollout_lane_model_channel_target
         FOREIGN KEY (release_target_id, release_set_id, org_id)
@@ -270,9 +293,17 @@ CREATE TABLE firmware_rollout_group_model (
         FOREIGN KEY (lane_id, org_id, source_channel_id)
         REFERENCES rollout_lane_channel(lane_id, org_id, channel_id)
         ON DELETE RESTRICT,
+    CONSTRAINT fk_firmware_rollout_group_model_source_physical_release
+        FOREIGN KEY (source_channel_id, org_id, source_release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
+        ON DELETE RESTRICT,
     CONSTRAINT fk_firmware_rollout_group_model_target_channel
         FOREIGN KEY (lane_id, org_id, target_channel_id)
         REFERENCES rollout_lane_channel(lane_id, org_id, channel_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_firmware_rollout_group_model_target_physical_release
+        FOREIGN KEY (target_channel_id, org_id, target_release_set_id)
+        REFERENCES device_set_channel(device_set_id, org_id, release_set_id)
         ON DELETE RESTRICT,
     CONSTRAINT fk_firmware_rollout_group_model_source_target
         FOREIGN KEY (
@@ -510,6 +541,12 @@ BEGIN
     WHERE target_org_id IS NULL OR organization.id = target_org_id
     ON CONFLICT (org_id) DO NOTHING;
 
+    PERFORM 1
+    FROM rollout_lane_topology_cutover cutover
+    WHERE target_org_id IS NULL OR cutover.org_id = target_org_id
+    ORDER BY cutover.org_id
+    FOR UPDATE;
+
     INSERT INTO rollout_lane_channel (
         lane_id,
         org_id,
@@ -525,6 +562,9 @@ BEGIN
                WHERE existing.lane_id = lane.id
            ), 0)
     FROM rollout_lane lane
+    JOIN rollout_lane_topology_cutover cutover
+      ON cutover.org_id = lane.org_id
+     AND NOT cutover.enabled
     WHERE (target_org_id IS NULL OR lane.org_id = target_org_id)
       AND NOT EXISTS (
           SELECT 1
@@ -559,32 +599,92 @@ BEGIN
            target.release_target_id,
            'legacy_backfill'
     FROM rollout_lane lane
+    JOIN rollout_lane_topology_cutover cutover
+      ON cutover.org_id = lane.org_id
+     AND NOT cutover.enabled
     JOIN device_set_channel channel
       ON channel.device_set_id = lane.current_channel_id
      AND channel.org_id = lane.org_id
-    JOIN (
-        SELECT release_set_id,
-               org_id,
+    JOIN LATERAL (
+        SELECT candidate.release_set_id,
+               candidate.org_id,
                rollout_model_identity_v1(
-                   target_manufacturer,
-                   target_model
+                   candidate.target_manufacturer,
+                   candidate.target_model
                ) AS model_identity_key,
-               lower(btrim(MIN(target_manufacturer))) AS manufacturer,
-               lower(btrim(MIN(target_model))) AS model,
-               MIN(id) AS release_target_id
-        FROM firmware_release_target
-        GROUP BY release_set_id,
-                 org_id,
-                 rollout_model_identity_v1(
-                     target_manufacturer,
-                     target_model
-                 )
-    ) target
-      ON target.release_set_id = channel.release_set_id
-     AND target.org_id = channel.org_id
+               lower(btrim(candidate.target_manufacturer)) AS manufacturer,
+               lower(btrim(candidate.target_model)) AS model,
+               candidate.id AS release_target_id
+        FROM firmware_release_target candidate
+        WHERE candidate.release_set_id = channel.release_set_id
+          AND candidate.org_id = channel.org_id
+          AND NOT EXISTS (
+              SELECT 1
+              FROM firmware_release_target duplicate
+              WHERE duplicate.release_set_id = candidate.release_set_id
+                AND duplicate.org_id = candidate.org_id
+                AND duplicate.id <> candidate.id
+                AND rollout_model_identity_v1(
+                    duplicate.target_manufacturer,
+                    duplicate.target_model
+                ) = rollout_model_identity_v1(
+                    candidate.target_manufacturer,
+                    candidate.target_model
+                )
+          )
+    ) target ON TRUE
     WHERE target.model_identity_key IS NOT NULL
       AND (target_org_id IS NULL OR lane.org_id = target_org_id)
     ON CONFLICT (lane_id, model_identity_key) DO NOTHING;
+
+    WITH desired AS (
+        SELECT declaration.id,
+               lane.current_channel_id,
+               channel.release_set_id,
+               target.id AS release_target_id
+        FROM rollout_lane_model declaration
+        JOIN rollout_lane lane
+          ON lane.id = declaration.lane_id
+         AND lane.org_id = declaration.org_id
+        JOIN rollout_lane_topology_cutover cutover
+          ON cutover.org_id = declaration.org_id
+         AND NOT cutover.enabled
+        JOIN device_set_channel channel
+          ON channel.device_set_id = lane.current_channel_id
+         AND channel.org_id = lane.org_id
+        JOIN firmware_release_target target
+          ON target.release_set_id = channel.release_set_id
+         AND target.org_id = channel.org_id
+         AND rollout_model_identity_v1(
+             target.target_manufacturer,
+             target.target_model
+         ) = declaration.model_identity_key
+         AND NOT EXISTS (
+             SELECT 1
+             FROM firmware_release_target duplicate
+             WHERE duplicate.release_set_id = target.release_set_id
+               AND duplicate.org_id = target.org_id
+               AND duplicate.id <> target.id
+               AND rollout_model_identity_v1(
+                   duplicate.target_manufacturer,
+                   duplicate.target_model
+               ) = declaration.model_identity_key
+         )
+        WHERE declaration.origin = 'legacy_backfill'
+          AND (target_org_id IS NULL OR declaration.org_id = target_org_id)
+    )
+    UPDATE rollout_lane_model declaration
+    SET current_channel_id = desired.current_channel_id,
+        current_release_set_id = desired.release_set_id,
+        current_release_target_id = desired.release_target_id,
+        revision = declaration.revision + 1
+    FROM desired
+    WHERE declaration.id = desired.id
+      AND (
+          declaration.current_channel_id IS DISTINCT FROM desired.current_channel_id
+          OR declaration.current_release_set_id IS DISTINCT FROM desired.release_set_id
+          OR declaration.current_release_target_id IS DISTINCT FROM desired.release_target_id
+      );
 
     INSERT INTO rollout_lane_model_channel (
         lane_model_id,
@@ -602,12 +702,77 @@ BEGIN
            model.current_channel_id,
            model.current_release_set_id,
            model.current_release_target_id,
-           0,
+           (
+               SELECT COALESCE(MAX(existing.position) + 1, 0)
+               FROM rollout_lane_model_channel existing
+               WHERE existing.lane_model_id = model.id
+           ),
            'legacy_backfill'
     FROM rollout_lane_model model
+    JOIN rollout_lane_topology_cutover cutover
+      ON cutover.org_id = model.org_id
+     AND NOT cutover.enabled
     WHERE model.origin = 'legacy_backfill'
       AND (target_org_id IS NULL OR model.org_id = target_org_id)
     ON CONFLICT (lane_model_id, channel_id) DO NOTHING;
+
+    WITH eligible AS (
+        SELECT declaration.id,
+               declaration.lane_id,
+               declaration.org_id,
+               declaration.current_channel_id,
+               declaration.model_identity_key
+        FROM rollout_lane_model declaration
+        JOIN rollout_lane lane
+          ON lane.id = declaration.lane_id
+         AND lane.org_id = declaration.org_id
+         AND lane.current_channel_id = declaration.current_channel_id
+        JOIN rollout_lane_topology_cutover cutover
+          ON cutover.org_id = declaration.org_id
+         AND NOT cutover.enabled
+        JOIN firmware_release_target target
+          ON target.id = declaration.current_release_target_id
+         AND target.release_set_id = declaration.current_release_set_id
+         AND target.org_id = declaration.org_id
+         AND rollout_model_identity_v1(
+             target.target_manufacturer,
+             target.target_model
+         ) = declaration.model_identity_key
+         AND NOT EXISTS (
+             SELECT 1
+             FROM firmware_release_target duplicate
+             WHERE duplicate.release_set_id = target.release_set_id
+               AND duplicate.org_id = target.org_id
+               AND duplicate.id <> target.id
+               AND rollout_model_identity_v1(
+                   duplicate.target_manufacturer,
+                   duplicate.target_model
+               ) = declaration.model_identity_key
+         )
+        WHERE declaration.origin = 'legacy_backfill'
+          AND (target_org_id IS NULL OR declaration.org_id = target_org_id)
+    )
+    UPDATE rollout_lane_model_binding binding
+    SET ended_at = CURRENT_TIMESTAMP,
+        revision = binding.revision + 1
+    FROM eligible
+    WHERE binding.lane_model_id = eligible.id
+      AND binding.lane_id = eligible.lane_id
+      AND binding.org_id = eligible.org_id
+      AND binding.origin = 'legacy_backfill'
+      AND binding.ended_at IS NULL
+      AND (
+          binding.channel_id <> eligible.current_channel_id
+          OR binding.model_identity_key <> eligible.model_identity_key
+          OR NOT EXISTS (
+              SELECT 1
+              FROM device_set_membership membership
+              WHERE membership.device_set_id = eligible.current_channel_id
+                AND membership.org_id = eligible.org_id
+                AND membership.device_id = binding.device_id
+                AND membership.device_set_type = 'channel'
+          )
+      );
 
     INSERT INTO rollout_lane_model_binding (
         id,
@@ -624,6 +789,7 @@ BEGIN
                model.lane_id::text
                || ':' || device.id::text
                || ':' || model.id::text
+               || ':' || membership.device_set_id::text
            )::uuid,
            model.lane_id,
            model.id,
@@ -634,6 +800,9 @@ BEGIN
            discovered.model_identity_observed_at,
            'legacy_backfill'
     FROM rollout_lane_model model
+    JOIN rollout_lane_topology_cutover cutover
+      ON cutover.org_id = model.org_id
+     AND NOT cutover.enabled
     JOIN device_set_membership membership
       ON membership.device_set_id = model.current_channel_id
      AND membership.org_id = model.org_id
@@ -646,20 +815,30 @@ BEGIN
       ON discovered.id = device.discovered_device_id
      AND discovered.org_id = device.org_id
      AND discovered.deleted_at IS NULL
+    JOIN firmware_release_target target
+      ON target.id = model.current_release_target_id
+     AND target.release_set_id = model.current_release_set_id
+     AND target.org_id = model.org_id
+     AND rollout_model_identity_v1(
+         target.target_manufacturer,
+         target.target_model
+     ) = model.model_identity_key
+     AND NOT EXISTS (
+         SELECT 1
+         FROM firmware_release_target duplicate
+         WHERE duplicate.release_set_id = target.release_set_id
+           AND duplicate.org_id = target.org_id
+           AND duplicate.id <> target.id
+           AND rollout_model_identity_v1(
+               duplicate.target_manufacturer,
+               duplicate.target_model
+           ) = model.model_identity_key
+     )
     WHERE model.model_identity_key = rollout_model_identity_v1(
               discovered.manufacturer,
               discovered.model
           )
-      AND (
-          SELECT COUNT(*)
-          FROM firmware_release_target target
-          WHERE target.release_set_id = model.current_release_set_id
-            AND target.org_id = model.org_id
-            AND rollout_model_identity_v1(
-                target.target_manufacturer,
-                target.target_model
-            ) = model.model_identity_key
-      ) = 1
+      AND model.origin = 'legacy_backfill'
       AND (target_org_id IS NULL OR model.org_id = target_org_id)
     ON CONFLICT (lane_id, device_id) WHERE ended_at IS NULL DO NOTHING;
 END;
@@ -761,7 +940,7 @@ anomalies AS (
            lane_model_id,
            lane_model_revision,
            'ambiguous_target_match',
-           ARRAY['select_declaration', 'repair_binding', 'rerun_backfill']::text[],
+           ARRAY['rerun_backfill']::text[],
            jsonb_build_object(
                'model_identity_key', model_identity_key,
                'target_match_count', target_match_count
@@ -769,15 +948,6 @@ anomalies AS (
     FROM member_matches
     WHERE model_identity_key IS NOT NULL
       AND target_match_count > 1
-      AND NOT EXISTS (
-          SELECT 1
-          FROM rollout_lane_model_binding binding
-          WHERE binding.lane_id = member_matches.lane_id
-            AND binding.org_id = member_matches.org_id
-            AND binding.device_id = member_matches.device_id
-            AND binding.lane_model_id = member_matches.lane_model_id
-            AND binding.ended_at IS NULL
-      )
 
     UNION ALL
 

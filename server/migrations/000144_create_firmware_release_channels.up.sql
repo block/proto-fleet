@@ -52,8 +52,8 @@ CREATE TABLE firmware_release_target (
 CREATE UNIQUE INDEX uq_firmware_release_target_model
     ON firmware_release_target(
         release_set_id,
-        lower(target_manufacturer),
-        lower(target_model)
+        lower(btrim(target_manufacturer)),
+        lower(btrim(target_model))
     );
 
 CREATE INDEX idx_firmware_release_target_file
@@ -73,7 +73,9 @@ CREATE TABLE device_set_channel (
     CONSTRAINT fk_device_set_channel_release_set_org
         FOREIGN KEY (release_set_id, org_id)
         REFERENCES firmware_release_set(id, org_id)
-        ON DELETE RESTRICT
+        ON DELETE RESTRICT,
+    CONSTRAINT uq_device_set_channel_physical_release
+        UNIQUE (device_set_id, org_id, release_set_id)
 );
 
 CREATE INDEX idx_device_set_channel_release_set

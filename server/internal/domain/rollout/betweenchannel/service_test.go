@@ -231,6 +231,27 @@ func TestValidateStartRolloutRequestHashratePolicy(t *testing.T) {
 	req = validRequest()
 	req.HashratePolicy = nil
 	require.NoError(t, validateStartRolloutRequest(req))
+
+	req = validRequest()
+	req.FirmwareFileIDs = nil
+	req.Batches = nil
+	req.ModelPlans = []StartRolloutModelPlan{{
+		LaneModelID:           uuid.New(),
+		ExpectedModelRevision: 1,
+		FirmwareFileID:        "firmware-a",
+		Batches:               []rollout.CreateBatch{{Members: []rollout.CreateMember{{DeviceIdentifier: "miner-a"}}}},
+		ModelStartKey:         "model-start",
+	}}
+	err = validateStartRolloutRequest(req)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "top-level hashrate policy")
+
+	req.HashratePolicy = nil
+	req.ModelPlans[0].HashratePolicy = &rollout.HashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
+	}
+	require.NoError(t, validateStartRolloutRequest(req))
 }
 
 func TestFingerprintLaneStartIncludesHashratePolicy(t *testing.T) {

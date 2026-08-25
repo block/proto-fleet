@@ -9,16 +9,19 @@ import (
 )
 
 const (
-	defaultTickInterval  = 5 * time.Second
-	defaultBatchSize     = 20
-	postWindow           = 30 * time.Minute
-	staleAfter           = 20 * time.Second
-	PolicyBucketDuration = 10 * time.Second
+	defaultTickInterval    = 5 * time.Second
+	defaultBatchSize       = 20
+	defaultWorkBudget      = 20_000
+	postWindow             = 30 * time.Minute
+	AcceptedSampleLateness = 20 * time.Second
+	staleAfter             = AcceptedSampleLateness
+	PolicyBucketDuration   = 10 * time.Second
 )
 
 type Config struct {
 	TickInterval time.Duration `help:"Interval between rollout evidence evaluation passes." default:"5s" env:"TICK_INTERVAL"`
 	BatchSize    int32         `help:"Maximum completed rollout batches evaluated per pass." default:"20" env:"BATCH_SIZE"`
+	WorkBudget   int32         `help:"Maximum rollout members evaluated per pass." default:"20000" env:"WORK_BUDGET"`
 }
 
 func (c Config) withDefaults() Config {
@@ -27,6 +30,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
+	}
+	if c.WorkBudget <= 0 {
+		c.WorkBudget = defaultWorkBudget
 	}
 	return c
 }
@@ -54,6 +60,7 @@ type Candidate struct {
 	AutoControlStatus                  *rollout.ControlStatus
 	AutoControlExpectedRevision        *int64
 	AutoControlResultingRevision       *int64
+	MemberCount                        int64
 }
 
 type MemberEvidence struct {
@@ -70,13 +77,28 @@ type BucketMember struct {
 }
 
 type PolicyBucket struct {
-	Boundary time.Time
-	Members  []BucketMember
+	Boundary         time.Time
+	Members          []BucketMember
+	MemberCount      int64
+	BaselineAverage  float64
+	CurrentAverage   float64
+	OldestObservedAt time.Time
 }
 
 type Snapshot struct {
 	Members       []MemberEvidence
 	PolicyBuckets []PolicyBucket
+	Aggregate     *EvidenceAggregate
+}
+
+type EvidenceAggregate struct {
+	TotalCount           int64
+	PairedCount          int64
+	BaselineAvailable    bool
+	PostAvailable        bool
+	BaselineAverage      *float64
+	PostAverage          *float64
+	OldestPostObservedAt *time.Time
 }
 
 type Summary struct {

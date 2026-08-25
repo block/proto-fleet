@@ -1,0 +1,3 @@
+DROP TRIGGER IF EXISTS update_firmware_rollout_evidence_accumulator_updated_at
+    ON firmware_rollout_evidence_accumulator;
+DROP TABLE IF EXISTS firmware_rollout_evidence_accumulator;

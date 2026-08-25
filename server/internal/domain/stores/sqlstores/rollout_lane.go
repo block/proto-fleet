@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/channel"
 	"github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	infrastructuredb "github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
@@ -24,7 +26,7 @@ const baselineWindow = 30 * time.Minute
 
 type SQLRolloutLaneStore struct {
 	SQLConnectionManager
-	transactor *SQLTransactor
+	transactor interfaces.Transactor
 }
 
 var (
@@ -34,9 +36,19 @@ var (
 )
 
 func NewSQLRolloutLaneStore(conn *sql.DB) *SQLRolloutLaneStore {
+	return NewSQLRolloutLaneStoreWithTransactor(conn, NewSQLTransactor(conn))
+}
+
+// NewSQLRolloutLaneStoreWithTransactor exposes the transaction boundary for
+// integration tests that need to reproduce driver-level commit ambiguity while
+// still executing the store's real transactional callback.
+func NewSQLRolloutLaneStoreWithTransactor(
+	conn *sql.DB,
+	transactor interfaces.Transactor,
+) *SQLRolloutLaneStore {
 	return &SQLRolloutLaneStore{
 		SQLConnectionManager: NewSQLConnectionManager(conn),
-		transactor:           NewSQLTransactor(conn),
+		transactor:           transactor,
 	}
 }
 
@@ -747,9 +759,9 @@ func (s *SQLRolloutLaneStore) ListLanes(
 			})
 		}
 	}
-	channelRows, err := q.ListRolloutLaneChannelDetailsByLaneIDs(
+	channelRows, err := q.ListLatestRolloutLaneChannelDetailsByLaneIDs(
 		ctx,
-		sqlc.ListRolloutLaneChannelDetailsByLaneIDsParams{OrgID: orgID, LaneIds: laneIDs},
+		sqlc.ListLatestRolloutLaneChannelDetailsByLaneIDsParams{OrgID: orgID, LaneIds: laneIDs},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list rollout lane channels: %w", err)
@@ -771,7 +783,7 @@ func (s *SQLRolloutLaneStore) ListLanes(
 	}
 	modelsByLane := make(map[uuid.UUID][]betweenchannel.LaneModel)
 	if topologyEnabled {
-		modelsByLane, err = loadRolloutLaneModelsByLaneIDs(ctx, q, laneIDs, orgID)
+		modelsByLane, err = loadRolloutLaneModelsByLaneIDs(ctx, q, laneIDs, orgID, false)
 		if err != nil {
 			return nil, fmt.Errorf("list rollout lane models: %w", err)
 		}
@@ -902,6 +914,14 @@ func (s *SQLRolloutLaneStore) GetTopologyReadiness(
 	return loadTopologyReadiness(ctx, s.GetQueries(ctx), orgID)
 }
 
+func (s *SQLRolloutLaneStore) GetTopologyReadinessPage(
+	ctx context.Context,
+	orgID int64,
+	req betweenchannel.TopologyReadinessRequest,
+) (betweenchannel.TopologyReadiness, error) {
+	return loadTopologyReadinessPage(ctx, s.GetQueries(ctx), orgID, req)
+}
+
 func (s *SQLRolloutLaneStore) RepairModelBinding(
 	ctx context.Context,
 	req betweenchannel.RepairModelBindingRequest,
@@ -910,8 +930,8 @@ func (s *SQLRolloutLaneStore) RepairModelBinding(
 		ctx,
 		func(txCtx context.Context) (any, error) {
 			q := s.GetQueries(txCtx)
-			if backfillErr := refreshRolloutLaneTopologyBackfill(txCtx, q, req.OrgID); backfillErr != nil {
-				return nil, backfillErr
+			if ensureErr := q.EnsureRolloutLaneTopologyCutover(txCtx, req.OrgID); ensureErr != nil {
+				return nil, ensureErr
 			}
 			if replay, replayErr := replayTopologyRepair(txCtx, q, req); replayErr == nil {
 				return replay, nil
@@ -1231,9 +1251,13 @@ func (s *SQLRolloutLaneStore) UpdateMembership(
 		if !lane.ScalarProjectionAvailable || len(lane.Models) != 1 {
 			return betweenchannel.UpdateMembershipResult{}, betweenchannel.ErrScalarProjectionUnavailable
 		}
+		expectedModelRevision := req.ExpectedRevision
+		if req.ExpectedRevision == lane.Revision {
+			expectedModelRevision = lane.Models[0].Revision
+		}
 		return s.UpdateModelMembership(ctx, betweenchannel.UpdateModelMembershipRequest{
 			OperationID: req.ChangeID, OrgID: req.OrgID, LaneID: req.LaneID,
-			LaneModelID: lane.Models[0].ID, ExpectedRevision: req.ExpectedRevision,
+			LaneModelID: lane.Models[0].ID, ExpectedRevision: expectedModelRevision,
 			AddIdentifiers: req.AddIdentifiers, RemoveIdentifiers: req.RemoveIdentifiers,
 			ConfirmFirmware: req.ConfirmFirmware, ConfirmReassign: req.ConfirmReassign,
 			IdempotencyKey: req.IdempotencyKey, RequestFingerprint: req.RequestFingerprint,
@@ -1833,6 +1857,10 @@ func (s *SQLRolloutLaneStore) DeleteLane(
 	return nil
 }
 
+type translatedLegacyStart struct {
+	request betweenchannel.StartRolloutRequest
+}
+
 func (s *SQLRolloutLaneStore) StartRollout(
 	ctx context.Context,
 	req betweenchannel.StartRolloutRequest,
@@ -1894,6 +1922,38 @@ func (s *SQLRolloutLaneStore) StartRollout(
 				}, laneErr
 			case !errors.Is(getErr, sql.ErrNoRows):
 				return nil, getErr
+			}
+			if backfillErr := refreshRolloutLaneTopologyBackfill(txCtx, q, req.OrgID); backfillErr != nil {
+				return nil, backfillErr
+			}
+			cutover, cutoverErr := q.LockRolloutLaneTopologyCutover(txCtx, req.OrgID)
+			if cutoverErr != nil {
+				return nil, cutoverErr
+			}
+			if cutover.Enabled {
+				models, modelsErr := loadRolloutLaneModels(txCtx, q, req.LaneID, req.OrgID)
+				if modelsErr != nil {
+					return nil, modelsErr
+				}
+				if len(models) != 1 || len(req.ReleaseTargets) != 1 {
+					return nil, betweenchannel.ErrScalarProjectionUnavailable
+				}
+				req.ParentID = uuid.New()
+				req.LegacyCompatibility = true
+				req.ModelPlans = []betweenchannel.StartRolloutModelPlan{{
+					LaneModelID:           models[0].ID,
+					ExpectedModelRevision: models[0].Revision,
+					FirmwareFileID:        req.ReleaseTargets[0].FirmwareFileID,
+					ReleaseTarget:         req.ReleaseTargets[0],
+					Batches:               req.Batches,
+					HashratePolicy:        req.HashratePolicy,
+					ModelStartKey:         "legacy-model-start:" + req.ID.String(),
+				}}
+				req.FirmwareFileIDs = nil
+				req.ReleaseTargets = nil
+				req.Batches = nil
+				req.HashratePolicy = nil
+				return translatedLegacyStart{request: req}, nil
 			}
 			memberCount, countErr := q.CountRolloutLaneMembers(
 				txCtx,
@@ -2102,14 +2162,21 @@ func (s *SQLRolloutLaneStore) StartRollout(
 		}
 		return betweenchannel.StartRolloutResult{}, fmt.Errorf("start rollout lane: %w", err)
 	}
-	started, ok := result.(*betweenchannel.StartRolloutResult)
-	if !ok {
+	switch started := result.(type) {
+	case translatedLegacyStart:
+		translated, startErr := s.startModelRollout(ctx, started.request)
+		if startErr == nil && len(translated.Children) == 1 {
+			translated.Rollout = translated.Children[0].Child
+		}
+		return translated, startErr
+	case *betweenchannel.StartRolloutResult:
+		return *started, nil
+	default:
 		return betweenchannel.StartRolloutResult{}, fmt.Errorf(
 			"start rollout lane: unexpected result %T",
 			result,
 		)
 	}
-	return *started, nil
 }
 
 func (s *SQLRolloutLaneStore) AdmitBatch(
@@ -2308,8 +2375,8 @@ func (s *SQLRolloutLaneStore) AdmitBatch(
 func (s *SQLRolloutLaneStore) PrepareRevert(
 	ctx context.Context,
 	req rollout.RevertRequest,
-) error {
-	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+) rollout.RevertResult {
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if req.Rollout.SourceChannelID == nil ||
 			req.Rollout.TargetChannelID == nil ||
 			req.Rollout.SourceReleaseSetID == nil ||
@@ -2490,6 +2557,20 @@ func (s *SQLRolloutLaneStore) PrepareRevert(
 		}
 		return nil
 	})
+	if err == nil {
+		return rollout.RevertResult{Outcome: rollout.RevertOutcomeCommitted}
+	}
+	var outcomeUnknown *infrastructuredb.TransactionOutcomeUnknownError
+	if errors.As(err, &outcomeUnknown) {
+		return rollout.RevertResult{
+			Outcome: rollout.RevertOutcomeUnknown,
+			Err:     err,
+		}
+	}
+	return rollout.RevertResult{
+		Outcome: rollout.RevertOutcomeDefinitivelyRolledBack,
+		Err:     err,
+	}
 }
 
 func (s *SQLRolloutLaneStore) GetCompletionStatus(
@@ -2743,6 +2824,26 @@ func (s *SQLRolloutLaneStore) Finalize(
 			"finalize between-channel member: unexpected result %T",
 			result,
 		)
+	}
+	if finalized.ParentID != nil {
+		releaseErr := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+			_, releaseErr := releaseRolloutLaneActiveParentIfSettled(
+				txCtx,
+				s.GetQueries(txCtx),
+				finalized.LaneID,
+				finalized.OrgID,
+			)
+			return releaseErr
+		})
+		if releaseErr != nil {
+			slog.Warn(
+				"rollout member finalization could not release settled parent claim",
+				"rollout_id", finalized.RolloutID,
+				"member_id", finalized.MemberID,
+				"lane_id", finalized.LaneID,
+				"error", releaseErr,
+			)
+		}
 	}
 	return *finalized, nil
 }
@@ -3957,7 +4058,7 @@ func loadRolloutLaneModels(
 	laneID uuid.UUID,
 	orgID int64,
 ) ([]betweenchannel.LaneModel, error) {
-	modelsByLane, err := loadRolloutLaneModelsByLaneIDs(ctx, q, []uuid.UUID{laneID}, orgID)
+	modelsByLane, err := loadRolloutLaneModelsByLaneIDs(ctx, q, []uuid.UUID{laneID}, orgID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -3969,6 +4070,7 @@ func loadRolloutLaneModelsByLaneIDs(
 	q sqlc.Querier,
 	laneIDs []uuid.UUID,
 	orgID int64,
+	includeHistory bool,
 ) (map[uuid.UUID][]betweenchannel.LaneModel, error) {
 	rows, err := q.ListRolloutLaneModelsByLaneIDs(
 		ctx,
@@ -3977,12 +4079,15 @@ func loadRolloutLaneModelsByLaneIDs(
 	if err != nil {
 		return nil, err
 	}
-	historyRows, err := q.ListRolloutLaneModelChannelsByLaneIDs(
-		ctx,
-		sqlc.ListRolloutLaneModelChannelsByLaneIDsParams{LaneIds: laneIDs, OrgID: orgID},
-	)
-	if err != nil {
-		return nil, err
+	var historyRows []sqlc.ListRolloutLaneModelChannelsByLaneIDsRow
+	if includeHistory {
+		historyRows, err = q.ListRolloutLaneModelChannelsByLaneIDs(
+			ctx,
+			sqlc.ListRolloutLaneModelChannelsByLaneIDsParams{LaneIds: laneIDs, OrgID: orgID},
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 	statusRows, err := q.ListRolloutLaneModelFirmwareConvergenceStatusesByLaneIDs(
 		ctx,
@@ -4937,6 +5042,20 @@ func loadTopologyReadiness(
 	q sqlc.Querier,
 	orgID int64,
 ) (betweenchannel.TopologyReadiness, error) {
+	return loadTopologyReadinessPage(
+		ctx,
+		q,
+		orgID,
+		betweenchannel.TopologyReadinessRequest{Limit: 100},
+	)
+}
+
+func loadTopologyReadinessPage(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID int64,
+	req betweenchannel.TopologyReadinessRequest,
+) (betweenchannel.TopologyReadiness, error) {
 	cutover, err := q.GetRolloutLaneTopologyCutover(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
 		cutover = sqlc.RolloutLaneTopologyCutover{OrgID: orgID, Revision: 1}
@@ -4947,9 +5066,39 @@ func loadTopologyReadiness(
 	if err != nil {
 		return betweenchannel.TopologyReadiness{}, err
 	}
-	rows, err := q.ListRolloutLaneTopologyAnomalies(ctx, orgID)
+	anomalyCount, err := q.CountRolloutLaneTopologyAnomalies(ctx, orgID)
 	if err != nil {
 		return betweenchannel.TopologyReadiness{}, err
+	}
+	var (
+		afterLaneID           uuid.NullUUID
+		afterDeviceIdentifier sql.NullString
+		afterAnomalyType      sql.NullString
+		afterAnomalyID        uuid.NullUUID
+	)
+	if req.After != nil {
+		afterLaneID = uuid.NullUUID{UUID: req.After.LaneID, Valid: true}
+		afterDeviceIdentifier = sql.NullString{String: req.After.DeviceIdentifier, Valid: true}
+		afterAnomalyType = sql.NullString{String: string(req.After.Type), Valid: true}
+		afterAnomalyID = uuid.NullUUID{UUID: req.After.ID, Valid: true}
+	}
+	rows, err := q.ListRolloutLaneTopologyAnomaliesPage(
+		ctx,
+		sqlc.ListRolloutLaneTopologyAnomaliesPageParams{
+			OrgID:                 orgID,
+			AfterLaneID:           afterLaneID,
+			AfterDeviceIdentifier: afterDeviceIdentifier,
+			AfterAnomalyType:      afterAnomalyType,
+			AfterAnomalyID:        afterAnomalyID,
+			LimitCount:            req.Limit + 1,
+		},
+	)
+	if err != nil {
+		return betweenchannel.TopologyReadiness{}, err
+	}
+	hasMore := len(rows) > int(req.Limit)
+	if hasMore {
+		rows = rows[:req.Limit]
 	}
 	anomalies := make([]betweenchannel.TopologyAnomaly, 0, len(rows))
 	for _, row := range rows {
@@ -4984,15 +5133,25 @@ func loadTopologyReadiness(
 		}
 		anomalies = append(anomalies, anomaly)
 	}
-	return betweenchannel.TopologyReadiness{
+	result := betweenchannel.TopologyReadiness{
 		OrgID:                    orgID,
 		Enabled:                  cutover.Enabled,
 		Revision:                 cutover.Revision,
-		AnomalyCount:             int64(len(anomalies)),
+		AnomalyCount:             anomalyCount,
 		ActiveLegacyRolloutCount: activeLegacyCount,
 		Anomalies:                anomalies,
 		UpdatedAt:                cutover.UpdatedAt,
-	}, nil
+	}
+	if hasMore && len(anomalies) > 0 {
+		last := anomalies[len(anomalies)-1]
+		result.NextCursor = &betweenchannel.TopologyAnomalyCursor{
+			LaneID:           last.LaneID,
+			DeviceIdentifier: last.DeviceIdentifier,
+			Type:             last.Type,
+			ID:               last.ID,
+		}
+	}
+	return result, nil
 }
 
 func refreshRolloutLaneTopologyBackfill(

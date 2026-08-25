@@ -56,9 +56,9 @@ import {
   mapRolloutLaneTopologyReadiness,
   mapRolloutStateToProto,
 } from "@/protoFleet/api/rolloutMappers";
+import { newestRollout, newestRolloutGroup } from "@/protoFleet/api/rolloutMerge";
 import type {
   PreviewModelDeclaration,
-  RolloutBatchEvidenceSummary,
   RolloutGroup,
   RolloutHashratePolicy,
   RolloutLane,
@@ -94,6 +94,11 @@ export interface GetRolloutLaneOptions extends RolloutRequestOptions {
   includeDeviceSetMembers?: boolean;
   includeFirmwareConvergenceMembers?: boolean;
   firmwareConvergenceMembersUpdatedAfter?: Timestamp;
+}
+
+export interface GetTopologyReadinessOptions extends RolloutRequestOptions {
+  anomalyPageSize?: number;
+  anomalyPageToken?: string;
 }
 
 export interface CreateRolloutMemberInput {
@@ -205,16 +210,28 @@ export interface UpdateRolloutLaneModelMembershipInput extends PreviewRolloutLan
   reason: string;
 }
 
-export interface StartRolloutLaneInput extends RolloutRequestOptions {
+interface StartRolloutLaneInputBase extends RolloutRequestOptions {
   laneId: string;
   name: string;
-  firmwareFileIds?: string[];
-  batches?: CreateRolloutBatchInput[];
-  modelPlans?: StartRolloutLaneModelPlanInput[];
-  hashratePolicy?: RolloutHashratePolicy;
   idempotencyKey: string;
   reason: string;
 }
+
+export type StartRolloutLaneInput = StartRolloutLaneInputBase &
+  (
+    | {
+        firmwareFileIds: string[];
+        batches: CreateRolloutBatchInput[];
+        modelPlans?: never;
+        hashratePolicy?: RolloutHashratePolicy;
+      }
+    | {
+        firmwareFileIds?: never;
+        batches?: never;
+        modelPlans: StartRolloutLaneModelPlanInput[];
+        hashratePolicy?: never;
+      }
+  );
 
 export interface StartRolloutLaneModelPlanInput {
   laneModelId: string;
@@ -288,6 +305,7 @@ export interface UseRolloutApiResult {
   lanes: RolloutLane[];
   rollout: RolloutRecord | null;
   rollouts: RolloutRecord[];
+  rolloutGroups: RolloutGroup[];
   isLoading: boolean;
   isMutating: boolean;
   loadError: string | null;
@@ -319,7 +337,7 @@ export interface UseRolloutApiResult {
   previewRolloutLane: (input: PreviewRolloutLaneInput) => Promise<RolloutLanePreview>;
   createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
   deleteRolloutLane: (input: DeleteRolloutLaneInput) => Promise<void>;
-  getRolloutLaneTopologyReadiness: (options?: RolloutRequestOptions) => Promise<RolloutLaneTopologyReadiness>;
+  getRolloutLaneTopologyReadiness: (options?: GetTopologyReadinessOptions) => Promise<RolloutLaneTopologyReadiness>;
   repairRolloutLaneModelBinding: (input: RepairRolloutLaneModelBindingInput) => Promise<RolloutLaneTopologyReadiness>;
   enableRolloutLaneModelTopology: (input: EnableRolloutLaneModelTopologyInput) => Promise<RolloutLaneTopologyReadiness>;
   startRolloutLane: (input: StartRolloutLaneInput) => Promise<StartRolloutLaneResult>;
@@ -352,54 +370,6 @@ function rolloutLaneModelSelector(input: RolloutLaneModelSelectorInput) {
     return { selector: { case: "modelIdentityKey" as const, value: input.modelIdentityKey } };
   }
   throw new Error("Exactly one rollout lane model selector is required.");
-}
-
-function newestEvidenceSummary(
-  existing: RolloutBatchEvidenceSummary | undefined,
-  incoming: RolloutBatchEvidenceSummary | undefined,
-): RolloutBatchEvidenceSummary | undefined {
-  if (!existing || !incoming) {
-    return existing ?? incoming;
-  }
-
-  const existingFinalized =
-    existing.postWindowFinalized || existing.status === "finalized" || existing.status === "cancelled";
-  const incomingFinalized =
-    incoming.postWindowFinalized || incoming.status === "finalized" || incoming.status === "cancelled";
-  if (existingFinalized !== incomingFinalized) {
-    return existingFinalized ? existing : incoming;
-  }
-
-  const existingEvaluatedAt = existing.evaluatedAt ? Date.parse(existing.evaluatedAt) : Number.NaN;
-  const incomingEvaluatedAt = incoming.evaluatedAt ? Date.parse(incoming.evaluatedAt) : Number.NaN;
-  if (Number.isFinite(existingEvaluatedAt) && !Number.isFinite(incomingEvaluatedAt)) {
-    return existing;
-  }
-  if (Number.isFinite(incomingEvaluatedAt) && !Number.isFinite(existingEvaluatedAt)) {
-    return incoming;
-  }
-  if (Number.isFinite(existingEvaluatedAt) && Number.isFinite(incomingEvaluatedAt)) {
-    return existingEvaluatedAt > incomingEvaluatedAt ? existing : incoming;
-  }
-  return incoming;
-}
-
-function newestRollout(existing: RolloutRecord | undefined, incoming: RolloutRecord): RolloutRecord {
-  if (!existing || existing.revision > incoming.revision) {
-    return existing ?? incoming;
-  }
-
-  const existingBatchById = new Map(existing.batches.map((batch) => [batch.id, batch]));
-  return {
-    ...incoming,
-    batches: incoming.batches.map((batch) => {
-      const evidenceSummary = newestEvidenceSummary(
-        existingBatchById.get(batch.id)?.evidenceSummary,
-        batch.evidenceSummary,
-      );
-      return evidenceSummary === batch.evidenceSummary ? batch : { ...batch, evidenceSummary };
-    }),
-  };
 }
 
 function createRolloutRequest(input: CreateRolloutInput) {
@@ -577,6 +547,7 @@ export function useRolloutApi(): UseRolloutApiResult {
   const lanesRef = useRef(lanes);
   const [rollout, setRollout] = useState<RolloutRecord | null>(null);
   const [rollouts, setRollouts] = useState<RolloutRecord[]>([]);
+  const [rolloutGroups, setRolloutGroups] = useState<RolloutGroup[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -588,6 +559,8 @@ export function useRolloutApi(): UseRolloutApiResult {
   const [topologyReadinessStale, setTopologyReadinessStale] = useState(false);
   const latestListRequestIdRef = useRef(0);
   const activeGetRequestByRolloutRef = useRef(new Map<string, symbol>());
+  const groupRequestGenerationRef = useRef(0);
+  const latestGroupGenerationByParentRef = useRef(new Map<string, number>());
   const latestLaneListRequestIdRef = useRef(0);
   const latestLaneGetRequestIdRef = useRef(0);
   const activeLoadCountRef = useRef(0);
@@ -646,6 +619,22 @@ export function useRolloutApi(): UseRolloutApiResult {
         return current;
       }
       return current.map((item, index) => (index === existingIndex ? newest : item));
+    });
+  }, []);
+
+  const applyGroupResult = useCallback((nextGroup: RolloutGroup, requestGeneration: number) => {
+    const latestGeneration = latestGroupGenerationByParentRef.current.get(nextGroup.id) ?? 0;
+    if (requestGeneration < latestGeneration) {
+      return;
+    }
+    latestGroupGenerationByParentRef.current.set(nextGroup.id, requestGeneration);
+    setRolloutGroups((current) => {
+      const existingIndex = current.findIndex((group) => group.id === nextGroup.id);
+      if (existingIndex === -1) {
+        return [nextGroup, ...current];
+      }
+      const mergedGroup = newestRolloutGroup(current[existingIndex], nextGroup);
+      return current.map((group, index) => (index === existingIndex ? mergedGroup : group));
     });
   }, []);
 
@@ -891,8 +880,10 @@ export function useRolloutApi(): UseRolloutApiResult {
   );
 
   const getRolloutGroup = useCallback(
-    ({ parentId, signal }: GetRolloutGroupOptions) =>
-      executeIsolatedRequest(
+    ({ parentId, signal }: GetRolloutGroupOptions) => {
+      const requestGeneration = ++groupRequestGenerationRef.current;
+      latestGroupGenerationByParentRef.current.set(parentId, requestGeneration);
+      return executeIsolatedRequest(
         async () => {
           const response = await rolloutClient.getRolloutGroup(
             create(GetRolloutGroupRequestSchema, { parentId }),
@@ -903,31 +894,40 @@ export function useRolloutApi(): UseRolloutApiResult {
             throw new Error("Rollout response was missing an aggregate parent.");
           }
           const parent = mapRolloutGroup(response.parent);
+          applyGroupResult(parent, requestGeneration);
           parent.children.forEach(applyMutationResult);
           return parent;
         },
         signal,
         "Couldn't load the aggregate rollout.",
-      ),
-    [applyMutationResult, executeIsolatedRequest],
+      );
+    },
+    [applyGroupResult, applyMutationResult, executeIsolatedRequest],
   );
 
   const listRolloutGroups = useCallback(
-    ({ signal }: RolloutRequestOptions = {}) =>
-      executeIsolatedRequest(
+    ({ signal }: RolloutRequestOptions = {}) => {
+      const requestGeneration = ++groupRequestGenerationRef.current;
+      return executeIsolatedRequest(
         async () => {
           const response = await rolloutClient.listRolloutGroups(
-            create(ListRolloutGroupsRequestSchema),
+            create(ListRolloutGroupsRequestSchema, {
+              pageSize: 100,
+              legacyPageSize: 100,
+            }),
             rpcOptions(signal),
           );
           const parents = response.parents.map(mapRolloutGroup);
+          parents.forEach((parent) => applyGroupResult(parent, requestGeneration));
           parents.flatMap((parent) => parent.children).forEach(applyMutationResult);
+          (response.legacyHistory ?? []).map(mapRollout).forEach(applyMutationResult);
           return parents;
         },
         signal,
         "Couldn't load aggregate rollouts.",
-      ),
-    [applyMutationResult, executeIsolatedRequest],
+      );
+    },
+    [applyGroupResult, applyMutationResult, executeIsolatedRequest],
   );
 
   const executeMutation = useCallback(
@@ -1295,6 +1295,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       signal: AbortSignal | undefined,
       fallbackMessage: string,
       permissionMode: "read" | "manage",
+      appendAnomalies = false,
     ) => {
       if (permissionMode === "read") {
         assertNotAborted(signal);
@@ -1307,7 +1308,11 @@ export function useRolloutApi(): UseRolloutApiResult {
       try {
         const mapped = await request();
         assertNotAborted(signal);
-        setTopologyReadiness(mapped);
+        setTopologyReadiness((current) =>
+          appendAnomalies && current && current.revision === mapped.revision
+            ? { ...mapped, anomalies: [...current.anomalies, ...mapped.anomalies] }
+            : mapped,
+        );
         setTopologyReadinessStale(false);
         return mapped;
       } catch (error) {
@@ -1329,11 +1334,14 @@ export function useRolloutApi(): UseRolloutApiResult {
   );
 
   const getRolloutLaneTopologyReadiness = useCallback(
-    ({ signal }: RolloutRequestOptions = {}) =>
+    ({ signal, anomalyPageSize = 25, anomalyPageToken = "" }: GetTopologyReadinessOptions = {}) =>
       executeTopologyRequest(
         async () => {
           const response = await rolloutClient.getRolloutLaneTopologyReadiness(
-            create(GetRolloutLaneTopologyReadinessRequestSchema),
+            create(GetRolloutLaneTopologyReadinessRequestSchema, {
+              anomalyPageSize,
+              anomalyPageToken,
+            }),
             rpcOptions(signal),
           );
           if (!response.readiness) {
@@ -1344,6 +1352,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         signal,
         "Couldn't load rollout lane readiness.",
         "read",
+        anomalyPageToken !== "",
       ),
     [executeTopologyRequest],
   );
@@ -1409,7 +1418,7 @@ export function useRolloutApi(): UseRolloutApiResult {
               name: input.name,
               firmwareFileIds: input.firmwareFileIds ?? [],
               batches: input.batches ?? [],
-              hashratePolicy: input.hashratePolicy,
+              hashratePolicy: input.modelPlans ? undefined : input.hashratePolicy,
               modelPlans: input.modelPlans ?? [],
               idempotencyKey: input.idempotencyKey,
               reason: input.reason,
@@ -1524,6 +1533,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       lanes,
       rollout,
       rollouts,
+      rolloutGroups,
       isLoading,
       isMutating,
       loadError,
@@ -1599,6 +1609,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       resumeRollout,
       revertRollout,
       rollout,
+      rolloutGroups,
       rollouts,
       startRolloutLane,
       topologyReadiness,

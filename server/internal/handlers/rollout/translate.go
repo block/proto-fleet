@@ -388,9 +388,38 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 		ModelIdentityKey:   optionalString(input.ModelIdentityKey),
 		Manufacturer:       optionalString(input.Manufacturer),
 		Model:              optionalString(input.Model),
+		MemberCount:        nonNegativeInt64Uint32(input.MemberCount),
+		SummaryOnly:        input.SummaryOnly,
+		FailedAdmission:    input.FailedAdmission,
+		MemberStateCounts:  make([]*pb.RolloutMemberStateCount, 0, len(input.MemberStateCounts)),
+		BatchSummaries:     make([]*pb.RolloutBatchSummary, 0, len(input.Batches)),
+	}
+	if result.MemberCount == 0 && len(input.Members) > 0 {
+		result.MemberCount = uint32(len(input.Members)) //nolint:gosec // Rollout member creation is API bounded.
+	}
+	for _, state := range []rolloutDomain.MemberState{
+		rolloutDomain.MemberStatePending,
+		rolloutDomain.MemberStateAdmitted,
+		rolloutDomain.MemberStateSucceeded,
+		rolloutDomain.MemberStateFailed,
+		rolloutDomain.MemberStateAttentionRequired,
+		rolloutDomain.MemberStateCancelled,
+		rolloutDomain.MemberStateReverting,
+		rolloutDomain.MemberStateReverted,
+	} {
+		if count := input.MemberStateCounts[state]; count > 0 {
+			result.MemberStateCounts = append(result.MemberStateCounts, &pb.RolloutMemberStateCount{
+				State: memberStateToProto(state),
+				Count: nonNegativeInt64Uint32(count),
+			})
+		}
 	}
 	for index := range input.Batches {
-		result.Batches = append(result.Batches, batchToProto(&input.Batches[index]))
+		if input.SummaryOnly {
+			result.BatchSummaries = append(result.BatchSummaries, batchSummaryToProto(&input.Batches[index]))
+		} else {
+			result.Batches = append(result.Batches, batchToProto(&input.Batches[index]))
+		}
 	}
 	for index := range input.Members {
 		result.Members = append(result.Members, memberToProto(&input.Members[index]))
@@ -399,6 +428,25 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 		result.Causes = append(result.Causes, causeToProto(&input.Causes[index]))
 	}
 	return result
+}
+
+func batchSummaryToProto(input *rolloutDomain.Batch) *pb.RolloutBatchSummary {
+	detail := batchToProto(input)
+	memberCount := input.MemberCount
+	if memberCount == 0 {
+		memberCount = int64(len(input.Members))
+	}
+	return &pb.RolloutBatchSummary{
+		BatchId:          detail.BatchId,
+		Position:         detail.Position,
+		Label:            detail.Label,
+		State:            detail.State,
+		Revision:         detail.Revision,
+		MemberCount:      nonNegativeInt64Uint32(memberCount),
+		CompletedAt:      detail.CompletedAt,
+		EvidenceSummary:  detail.EvidenceSummary,
+		AdmissionAttempt: detail.AdmissionAttempt,
+	}
 }
 
 func batchToProto(input *rolloutDomain.Batch) *pb.RolloutBatch {

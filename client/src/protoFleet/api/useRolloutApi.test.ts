@@ -13,6 +13,11 @@ import {
   RolloutBatchSchema,
   RolloutBatchState,
   RolloutEvidenceStatus,
+  RolloutGroupActivity,
+  RolloutGroupEvidenceReadiness,
+  RolloutGroupLifecycle,
+  RolloutGroupSchema,
+  RolloutGroupTerminalOutcome,
   RolloutLaneChannelSchema,
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
@@ -22,7 +27,10 @@ import {
   RolloutLanePreviewMinerSchema,
   RolloutLanePreviewSchema,
   RolloutLaneSchema,
+  RolloutLaneTopologyAnomalySchema,
   RolloutLaneTopologyReadinessSchema,
+  RolloutMemberSchema,
+  RolloutMemberState,
   RolloutSchema,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -48,6 +56,8 @@ const rolloutClientMock = vi.hoisted(() => ({
   startRolloutLane: vi.fn(),
   createRollout: vi.fn(),
   getRollout: vi.fn(),
+  getRolloutGroup: vi.fn(),
+  listRolloutGroups: vi.fn(),
   listRollouts: vi.fn(),
   admitRollout: vi.fn(),
   continueRollout: vi.fn(),
@@ -83,6 +93,34 @@ function protoRollout(id: string, state = RolloutState.RUNNING, revision = 1n) {
     strategyKey: "fixture-strategy",
     state,
     revision,
+  });
+}
+
+function protoRolloutGroup(name: string, lifecycle = RolloutGroupLifecycle.ACTIVE, resultRevision = 0n) {
+  return create(RolloutGroupSchema, {
+    parentId: "parent",
+    laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+    name,
+    reason: "test",
+    resultRevision,
+    lifecycle,
+    activity:
+      lifecycle === RolloutGroupLifecycle.TERMINAL ? RolloutGroupActivity.SETTLED : RolloutGroupActivity.RUNNING,
+    terminalOutcome:
+      lifecycle === RolloutGroupLifecycle.TERMINAL
+        ? RolloutGroupTerminalOutcome.SUCCESSFUL
+        : RolloutGroupTerminalOutcome.PENDING,
+    resultReady: lifecycle === RolloutGroupLifecycle.TERMINAL,
+    evidenceReadiness:
+      lifecycle === RolloutGroupLifecycle.TERMINAL
+        ? RolloutGroupEvidenceReadiness.READY
+        : RolloutGroupEvidenceReadiness.PENDING,
+    children: [
+      protoRollout(
+        "group-child",
+        lifecycle === RolloutGroupLifecycle.TERMINAL ? RolloutState.COMPLETED : RolloutState.RUNNING,
+      ),
+    ],
   });
 }
 
@@ -271,6 +309,50 @@ describe("useRolloutApi", () => {
     expect(result.current.loadError).toBeNull();
     expect(result.current.mutationError).toBeNull();
     expect(handleAuthErrorsMock).not.toHaveBeenCalled();
+  });
+
+  it("appends bounded topology anomaly pages without replacing loaded lanes", async () => {
+    const firstAnomaly = create(RolloutLaneTopologyAnomalySchema, {
+      anomalyId: "anomaly-1",
+      laneId: "lane-1",
+      deviceIdentifier: "miner-1",
+    });
+    const secondAnomaly = create(RolloutLaneTopologyAnomalySchema, {
+      anomalyId: "anomaly-2",
+      laneId: "lane-1",
+      deviceIdentifier: "miner-2",
+    });
+    rolloutClientMock.getRolloutLaneTopologyReadiness
+      .mockResolvedValueOnce({
+        readiness: create(RolloutLaneTopologyReadinessSchema, {
+          revision: 4n,
+          anomalyCount: 2n,
+          anomalies: [firstAnomaly],
+          nextAnomalyPageToken: "next-page",
+        }),
+      })
+      .mockResolvedValueOnce({
+        readiness: create(RolloutLaneTopologyReadinessSchema, {
+          revision: 4n,
+          anomalyCount: 2n,
+          anomalies: [secondAnomaly],
+        }),
+      });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLaneTopologyReadiness();
+      await result.current.getRolloutLaneTopologyReadiness({ anomalyPageToken: "next-page" });
+    });
+
+    expect(result.current.topologyReadiness?.anomalies.map((anomaly) => anomaly.id)).toEqual([
+      "anomaly-1",
+      "anomaly-2",
+    ]);
+    expect(rolloutClientMock.getRolloutLaneTopologyReadiness).toHaveBeenLastCalledWith(
+      expect.objectContaining({ anomalyPageSize: 25, anomalyPageToken: "next-page" }),
+      undefined,
+    );
   });
 
   it("preserves read-versus-manage readiness permission semantics and abort cleanup", async () => {
@@ -1283,6 +1365,10 @@ describe("useRolloutApi", () => {
             expectedModelRevision: 4n,
             firmwareFileId: "proto-2",
             batches: [{ label: "all", members: [{ deviceIdentifier: "miner-1" }] }],
+            hashratePolicy: {
+              maxDropBasisPoints: 10,
+              healthyDurationSeconds: 30,
+            },
             modelStartKey: "proto-start",
           },
         ],
@@ -1300,9 +1386,14 @@ describe("useRolloutApi", () => {
           expectedModelRevision: 4n,
           firmwareFileId: "proto-2",
           modelStartKey: "proto-start",
+          hashratePolicy: {
+            maxDropBasisPoints: 10,
+            healthyDurationSeconds: 30,
+          },
         },
       ],
     });
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toBeUndefined();
     expect(started).toMatchObject({
       parent: { id: "parent", children: [{ id: "child" }] },
       rollout: { id: "child", parentId: "parent" },
@@ -1401,6 +1492,70 @@ describe("useRolloutApi", () => {
     });
 
     expect(result.current.rollouts.map(({ id }) => id).sort()).toEqual(["one", "two"]);
+  });
+
+  it("stores refreshed parents and ignores a stale group response", async () => {
+    const stale = deferred<{ parent: ReturnType<typeof protoRolloutGroup> }>();
+    rolloutClientMock.getRolloutGroup
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce({ parent: protoRolloutGroup("Terminal parent", RolloutGroupLifecycle.TERMINAL, 1n) });
+    const { result } = renderHook(() => useRolloutApi());
+    let staleRequest!: Promise<unknown>;
+    let freshRequest!: Promise<unknown>;
+
+    act(() => {
+      staleRequest = result.current.getRolloutGroup({ parentId: "parent" });
+      freshRequest = result.current.getRolloutGroup({ parentId: "parent" });
+    });
+    await act(async () => {
+      await freshRequest;
+    });
+    await act(async () => {
+      stale.resolve({ parent: protoRolloutGroup("Stale active parent") });
+      await staleRequest;
+    });
+
+    expect(result.current.rolloutGroups).toHaveLength(1);
+    expect(result.current.rolloutGroups[0]).toMatchObject({
+      name: "Terminal parent",
+      lifecycle: "terminal",
+      resultReady: true,
+    });
+  });
+
+  it("preserves hydrated child members when a newer group summary refresh arrives", async () => {
+    const detailed = protoRolloutGroup("Detailed parent");
+    detailed.children[0].members = [
+      create(RolloutMemberSchema, {
+        memberId: 1n,
+        batchId: 1n,
+        deviceIdentifier: "miner-1",
+        position: 0,
+        state: RolloutMemberState.SUCCEEDED,
+        revision: 1n,
+      }),
+    ];
+    const summary = protoRolloutGroup("Detailed parent");
+    summary.children[0].revision = 2n;
+    summary.children[0].summaryOnly = true;
+    rolloutClientMock.getRolloutGroup.mockResolvedValue({ parent: detailed });
+    rolloutClientMock.listRolloutGroups.mockResolvedValue({
+      parents: [summary],
+      legacyHistory: [],
+      nextPageToken: "",
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutGroup({ parentId: "parent" });
+      await result.current.listRolloutGroups();
+    });
+
+    expect(result.current.rolloutGroups[0].children[0]).toMatchObject({
+      revision: 2n,
+      summaryOnly: false,
+      members: [{ deviceIdentifier: "miner-1", state: "succeeded" }],
+    });
   });
 
   it("forwards revision and idempotency fields to distinct abort and revert controls", async () => {

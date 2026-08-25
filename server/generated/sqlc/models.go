@@ -1094,6 +1094,23 @@ type FirmwareRolloutEvidence struct {
 	CancelledAt        sql.NullTime
 }
 
+type FirmwareRolloutEvidenceAccumulator struct {
+	RolloutID              uuid.UUID
+	BatchID                int64
+	MemberID               int64
+	OrgID                  int64
+	ProcessedThrough       time.Time
+	ObservedAt             sql.NullTime
+	HashrateSum            float64
+	PowerSum               float64
+	PowerSampleCount       int64
+	TemperatureSum         float64
+	TemperatureSampleCount int64
+	SampleCount            int64
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
 type FirmwareRolloutGroup struct {
 	ID                uuid.UUID
 	LaneID            uuid.UUID

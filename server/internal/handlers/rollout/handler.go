@@ -27,6 +27,16 @@ type rolloutService interface { //nolint:interfacebloat // Handler controls and 
 	Get(ctx context.Context, orgID int64, rolloutID uuid.UUID) (*rolloutDomain.Rollout, error)
 	GetGroup(ctx context.Context, orgID int64, groupID uuid.UUID) (*rolloutDomain.Group, error)
 	ListGroups(ctx context.Context, orgID int64) ([]rolloutDomain.Group, error)
+	ListGroupsPage(
+		ctx context.Context,
+		orgID int64,
+		req rolloutDomain.ListPageRequest,
+	) (rolloutDomain.GroupPage, error)
+	ListLegacyPage(
+		ctx context.Context,
+		orgID int64,
+		req rolloutDomain.ListPageRequest,
+	) (rolloutDomain.RolloutPage, error)
 	List(ctx context.Context, orgID int64, states []rolloutDomain.State) ([]rolloutDomain.Rollout, error)
 	Admit(ctx context.Context, req rolloutDomain.AdmitRequest) (*rolloutDomain.Rollout, error)
 	Continue(ctx context.Context, req rolloutDomain.AdmitRequest) (*rolloutDomain.Rollout, error)
@@ -107,6 +117,14 @@ type laneService interface {
 		ctx context.Context,
 		req betweenchannel.StartRolloutRequest,
 	) (betweenchannel.StartRolloutResult, error)
+}
+
+type pagedTopologyReadinessService interface {
+	GetTopologyReadinessPage(
+		ctx context.Context,
+		orgID int64,
+		req betweenchannel.TopologyReadinessRequest,
+	) (betweenchannel.TopologyReadiness, error)
 }
 
 type Handler struct {
@@ -826,7 +844,7 @@ func (h *Handler) DeleteRolloutLane(
 
 func (h *Handler) GetRolloutLaneTopologyReadiness(
 	ctx context.Context,
-	_ *connect.Request[pb.GetRolloutLaneTopologyReadinessRequest],
+	req *connect.Request[pb.GetRolloutLaneTopologyReadinessRequest],
 ) (*connect.Response[pb.GetRolloutLaneTopologyReadinessResponse], error) {
 	info, err := middleware.RequireAnyPermission(
 		ctx,
@@ -841,7 +859,23 @@ func (h *Handler) GetRolloutLaneTopologyReadiness(
 			"rollout lane service is not registered",
 		)
 	}
-	readiness, err := h.laneService.GetTopologyReadiness(ctx, info.OrganizationID)
+	cursor, err := decodeTopologyAnomalyPageToken(req.Msg.GetAnomalyPageToken())
+	if err != nil {
+		return nil, err
+	}
+	var readiness betweenchannel.TopologyReadiness
+	if paged, ok := h.laneService.(pagedTopologyReadinessService); ok {
+		readiness, err = paged.GetTopologyReadinessPage(
+			ctx,
+			info.OrganizationID,
+			betweenchannel.TopologyReadinessRequest{
+				Limit: int32(req.Msg.GetAnomalyPageSize()), //nolint:gosec // Protobuf validation caps this at 100.
+				After: cursor,
+			},
+		)
+	} else {
+		readiness, err = h.laneService.GetTopologyReadiness(ctx, info.OrganizationID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -964,6 +998,9 @@ func topologyReadinessToProto(
 		Anomalies:                make([]*pb.RolloutLaneTopologyAnomaly, 0, len(readiness.Anomalies)),
 		UpdatedAt:                timestamppb.New(readiness.UpdatedAt),
 	}
+	if readiness.NextCursor != nil {
+		result.NextAnomalyPageToken = encodeTopologyAnomalyPageToken(*readiness.NextCursor)
+	}
 	for _, anomaly := range readiness.Anomalies {
 		details, err := structpb.NewStruct(anomaly.Details)
 		if err != nil {
@@ -999,6 +1036,57 @@ func topologyReadinessToProto(
 		result.Anomalies = append(result.Anomalies, translated)
 	}
 	return result, nil
+}
+
+const topologyAnomalyPageTokenVersion = 1
+
+type topologyAnomalyPageToken struct {
+	Version          int       `json:"v"`
+	LaneID           uuid.UUID `json:"lane_id"`
+	DeviceIdentifier string    `json:"device_identifier"`
+	Type             string    `json:"type"`
+	ID               uuid.UUID `json:"id"`
+}
+
+func encodeTopologyAnomalyPageToken(cursor betweenchannel.TopologyAnomalyCursor) string {
+	encoded, err := json.Marshal(topologyAnomalyPageToken{
+		Version:          topologyAnomalyPageTokenVersion,
+		LaneID:           cursor.LaneID,
+		DeviceIdentifier: cursor.DeviceIdentifier,
+		Type:             string(cursor.Type),
+		ID:               cursor.ID,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func decodeTopologyAnomalyPageToken(
+	value string,
+) (*betweenchannel.TopologyAnomalyCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("invalid topology anomaly page token")
+	}
+	var token topologyAnomalyPageToken
+	if err = json.Unmarshal(decoded, &token); err != nil ||
+		token.Version != topologyAnomalyPageTokenVersion ||
+		token.LaneID == uuid.Nil ||
+		token.DeviceIdentifier == "" ||
+		token.Type == "" ||
+		token.ID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid topology anomaly page token")
+	}
+	return &betweenchannel.TopologyAnomalyCursor{
+		LaneID:           token.LaneID,
+		DeviceIdentifier: token.DeviceIdentifier,
+		Type:             betweenchannel.TopologyAnomalyType(token.Type),
+		ID:               token.ID,
+	}, nil
 }
 
 func topologyAnomalyTypeToProto(
@@ -1083,6 +1171,56 @@ func decodeLaneMemberPageToken(value string) (laneMemberPageToken, error) {
 		)
 	}
 	return token, nil
+}
+
+const rolloutListPageTokenVersion = 1
+
+type rolloutListPageToken struct {
+	Version     int       `json:"v"`
+	Kind        string    `json:"kind"`
+	CreatedAt   time.Time `json:"created_at"`
+	ID          uuid.UUID `json:"id"`
+	Active      bool      `json:"active,omitempty"`
+	ResultReady bool      `json:"result_ready,omitempty"`
+}
+
+func encodeRolloutListPageToken(kind string, cursor rolloutDomain.PageCursor) string {
+	encoded, err := json.Marshal(rolloutListPageToken{
+		Version:     rolloutListPageTokenVersion,
+		Kind:        kind,
+		CreatedAt:   cursor.CreatedAt,
+		ID:          cursor.ID,
+		Active:      cursor.Active,
+		ResultReady: cursor.ResultReady,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func decodeRolloutListPageToken(value, kind string) (*rolloutDomain.PageCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("invalid rollout list page token")
+	}
+	var token rolloutListPageToken
+	if err = json.Unmarshal(decoded, &token); err != nil ||
+		token.Version != rolloutListPageTokenVersion ||
+		token.Kind != kind ||
+		token.CreatedAt.IsZero() ||
+		token.ID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid rollout list page token")
+	}
+	return &rolloutDomain.PageCursor{
+		CreatedAt:   token.CreatedAt,
+		ID:          token.ID,
+		Active:      token.Active,
+		ResultReady: token.ResultReady,
+	}, nil
 }
 
 func (h *Handler) StartRolloutLane(
@@ -1255,7 +1393,7 @@ func (h *Handler) GetRolloutGroup(
 
 func (h *Handler) ListRolloutGroups(
 	ctx context.Context,
-	_ *connect.Request[pb.ListRolloutGroupsRequest],
+	req *connect.Request[pb.ListRolloutGroupsRequest],
 ) (*connect.Response[pb.ListRolloutGroupsResponse], error) {
 	info, err := middleware.RequirePermission(
 		ctx,
@@ -1265,25 +1403,67 @@ func (h *Handler) ListRolloutGroups(
 	if err != nil {
 		return nil, err
 	}
-	parents, err := h.service.ListGroups(ctx, info.OrganizationID)
+	parentCursor, err := decodeRolloutListPageToken(req.Msg.GetPageToken(), "group")
 	if err != nil {
 		return nil, err
 	}
-	legacy, err := h.service.List(ctx, info.OrganizationID, nil)
+	legacyCursor, err := decodeRolloutListPageToken(req.Msg.GetLegacyPageToken(), "legacy")
+	if err != nil {
+		return nil, err
+	}
+	parentPage, err := h.service.ListGroupsPage(ctx, info.OrganizationID, rolloutDomain.ListPageRequest{
+		Limit:  int32(req.Msg.GetPageSize()), //nolint:gosec // Protobuf validation caps this at 100.
+		Before: parentCursor,
+	})
+	if err != nil {
+		return nil, err
+	}
+	legacyPage, err := h.service.ListLegacyPage(ctx, info.OrganizationID, rolloutDomain.ListPageRequest{
+		Limit:  int32(req.Msg.GetLegacyPageSize()), //nolint:gosec // Protobuf validation caps this at 100.
+		Before: legacyCursor,
+	})
 	if err != nil {
 		return nil, err
 	}
 	response := &pb.ListRolloutGroupsResponse{
-		Parents:       make([]*pb.RolloutGroup, 0, len(parents)),
-		LegacyHistory: make([]*pb.Rollout, 0, len(legacy)),
+		Parents:       make([]*pb.RolloutGroup, 0, len(parentPage.Groups)),
+		LegacyHistory: make([]*pb.Rollout, 0, len(legacyPage.Rollouts)),
 	}
-	for index := range parents {
-		response.Parents = append(response.Parents, groupToProto(&parents[index]))
+	for index := range parentPage.Groups {
+		response.Parents = append(response.Parents, groupToProto(&parentPage.Groups[index]))
 	}
-	for index := range legacy {
-		response.LegacyHistory = append(response.LegacyHistory, rolloutToProto(&legacy[index]))
+	for index := range legacyPage.Rollouts {
+		response.LegacyHistory = append(response.LegacyHistory, rolloutToProto(&legacyPage.Rollouts[index]))
+	}
+	if parentPage.HasMore && len(parentPage.Groups) > 0 {
+		last := parentPage.Groups[len(parentPage.Groups)-1]
+		response.NextPageToken = encodeRolloutListPageToken(
+			"group",
+			rolloutDomain.PageCursor{
+				CreatedAt:   last.CreatedAt,
+				ID:          last.ID,
+				Active:      groupHasNonterminalChild(last),
+				ResultReady: last.ResultReady,
+			},
+		)
+	}
+	if legacyPage.HasMore && len(legacyPage.Rollouts) > 0 {
+		last := legacyPage.Rollouts[len(legacyPage.Rollouts)-1]
+		response.NextLegacyPageToken = encodeRolloutListPageToken(
+			"legacy",
+			rolloutDomain.PageCursor{CreatedAt: last.CreatedAt, ID: last.ID},
+		)
 	}
 	return connect.NewResponse(response), nil
+}
+
+func groupHasNonterminalChild(group rolloutDomain.Group) bool {
+	for _, child := range group.Children {
+		if !child.State.IsTerminal() {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) ListRollouts(

@@ -11,6 +11,7 @@ import {
   type RolloutBatch as ProtoRolloutBatch,
   type RolloutBatchEvidenceSummary as ProtoRolloutBatchEvidenceSummary,
   RolloutBatchState as ProtoRolloutBatchState,
+  type RolloutBatchSummary as ProtoRolloutBatchSummary,
   type RolloutCause as ProtoRolloutCause,
   type RolloutEvidence as ProtoRolloutEvidence,
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
@@ -446,6 +447,7 @@ export function mapRolloutLaneTopologyReadiness(
       supportedRepairActions: anomaly.supportedRepairActions.map(mapTopologyRepairAction),
       details: anomaly.details ?? {},
     })),
+    nextAnomalyPageToken: readiness.nextAnomalyPageToken,
     updatedAt: timestampToIsoString(readiness.updatedAt),
   };
 }
@@ -622,6 +624,22 @@ function mapRolloutBatch(batch: ProtoRolloutBatch): RolloutBatch {
     completedAt: timestampToIsoString(batch.completedAt),
     evidenceSummary: batch.evidenceSummary ? mapRolloutBatchEvidenceSummary(batch.evidenceSummary) : undefined,
     admissionAttempt: batch.admissionAttempt,
+    memberCount: batch.members.length,
+  };
+}
+
+function mapRolloutBatchSummary(batch: ProtoRolloutBatchSummary): RolloutBatch {
+  return {
+    id: batch.batchId,
+    position: batch.position,
+    label: batch.label,
+    state: mapRolloutBatchState(batch.state),
+    revision: batch.revision,
+    members: [],
+    completedAt: timestampToIsoString(batch.completedAt),
+    evidenceSummary: batch.evidenceSummary ? mapRolloutBatchEvidenceSummary(batch.evidenceSummary) : undefined,
+    admissionAttempt: batch.admissionAttempt,
+    memberCount: batch.memberCount,
   };
 }
 
@@ -641,6 +659,9 @@ function mapRolloutCause(cause: ProtoRolloutCause): RolloutCause {
 
 export function mapRollout(rollout: ProtoRollout): RolloutRecord {
   const state = mapRolloutState(rollout.state);
+  const memberStateCounts = Object.fromEntries(
+    rollout.memberStateCounts.map((entry) => [mapRolloutMemberState(entry.state), entry.count]),
+  );
   return {
     id: rollout.rolloutId,
     name: rollout.name,
@@ -664,7 +685,10 @@ export function mapRollout(rollout: ProtoRollout): RolloutRecord {
     revertedAt: timestampToIsoString(rollout.revertedAt),
     createdAt: timestampToIsoString(rollout.createdAt),
     updatedAt: timestampToIsoString(rollout.updatedAt),
-    batches: rollout.batches.map(mapRolloutBatch),
+    batches:
+      rollout.batchSummaries.length > 0
+        ? rollout.batchSummaries.map(mapRolloutBatchSummary)
+        : rollout.batches.map(mapRolloutBatch),
     members: rollout.members.map(mapRolloutMember),
     causes: rollout.causes.map(mapRolloutCause),
     availableActions: getRolloutActionEligibility(state),
@@ -674,6 +698,10 @@ export function mapRollout(rollout: ProtoRollout): RolloutRecord {
     modelIdentityKey: rollout.modelIdentityKey,
     manufacturer: rollout.manufacturer,
     model: rollout.model,
+    memberCount: rollout.memberCount || rollout.members.length,
+    memberStateCounts: rollout.memberStateCounts.length > 0 ? memberStateCounts : undefined,
+    summaryOnly: rollout.summaryOnly,
+    failedAdmission: rollout.failedAdmission,
   };
 }
 
@@ -781,11 +809,15 @@ function mapRolloutGroupEvidenceReadiness(
 }
 
 function countMemberState(rollout: RolloutRecord, state: RolloutMemberState): number {
+  if (rollout.memberStateCounts?.[state] !== undefined) {
+    return rollout.memberStateCounts[state] ?? 0;
+  }
   return rollout.members.filter((member) => member.state === state).length;
 }
 
 function memberCountForBatch(rollout: RolloutRecord, batchId: bigint): number {
-  return rollout.members.filter((member) => member.batchId === batchId).length;
+  const batch = rollout.batches.find((candidate) => candidate.id === batchId);
+  return batch?.memberCount ?? rollout.members.filter((member) => member.batchId === batchId).length;
 }
 
 function rolloutErrors(rollout: RolloutRecord) {
@@ -852,7 +884,7 @@ export function mapRolloutToEvent(
   const failed = countMemberState(rollout, "failed");
   const attentionRequired = countMemberState(rollout, "attentionRequired");
   const reverted = countMemberState(rollout, "reverted");
-  const total = rollout.members.length;
+  const total = rollout.memberCount ?? rollout.members.length;
   const membershipCompleted = rollout.state === "reverting" || rollout.state === "reverted" ? reverted : succeeded;
   const convergenceCompleted = succeeded + failed + attentionRequired + reverted;
   const memberStates: RolloutMemberState[] = [
@@ -883,7 +915,9 @@ export function mapRolloutToEvent(
     rollout.batches.find((batch) => batch.state === "admitted") ??
     rollout.batches.find((batch) => batch.state === "pending") ??
     rollout.batches[rollout.batches.length - 1];
-  const batchCounts = rollout.batches.map((batch) => batch.members.length || memberCountForBatch(rollout, batch.id));
+  const batchCounts = rollout.batches.map(
+    (batch) => (batch.memberCount ?? batch.members.length) || memberCountForBatch(rollout, batch.id),
+  );
   const pilotSize = strategy === "pilotThenContinue" ? batchCounts[0] : undefined;
   const batchSize = strategy === "batched" && batchCounts.length > 0 ? Math.max(...batchCounts) : undefined;
   const evidenceBatch = latestCompletedBatch(rollout);

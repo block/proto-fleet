@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,300 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
+
+func TestLegacyStartAfterTopologyUsesOrdinaryAggregatePath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID: orgID, Label: "Legacy aggregate translation",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs, IdempotencyKey: "legacy-aggregate-lane", ActorUserID: actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID: orgID, ExpectedRevision: readiness.Revision,
+		IdempotencyKey: "legacy-aggregate-enable", Reason: "enable aggregate translation", ActorUserID: actorID,
+	})
+	require.NoError(t, err)
+
+	request := betweenchannel.StartRolloutRequest{
+		OrgID: orgID, LaneID: lane.ID, Name: "Legacy translated start",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+		Batches: []rollout.CreateBatch{{
+			Label: "all", Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "legacy-translated-start", Reason: "old client request", ActorUserID: actorID,
+	}
+	started, err := service.StartRollout(t.Context(), request)
+	require.NoError(t, err)
+	require.NotNil(t, started.Parent)
+	require.Len(t, started.Children, 1)
+	require.NotNil(t, started.Rollout)
+	require.NotNil(t, started.Children[0].Child)
+	require.NotNil(t, started.Children[0].Child.GroupID)
+	require.NotNil(t, started.Children[0].Child.LaneModelID)
+	assert.Equal(t, started.Children[0].Child.ID, started.Rollout.ID)
+	assert.Equal(t, started.Parent.ID, *started.Children[0].Child.GroupID)
+	replayed, err := service.StartRollout(t.Context(), request)
+	require.NoError(t, err)
+	require.NotNil(t, replayed.Rollout)
+	assert.Equal(t, started.Parent.ID, replayed.Parent.ID)
+	assert.Equal(t, started.Rollout.ID, replayed.Rollout.ID)
+
+	var parentless int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM firmware_rollout
+		WHERE org_id = $1 AND lane_id = $2 AND group_id IS NULL
+	`, orgID, lane.ID).Scan(&parentless))
+	assert.Zero(t, parentless)
+}
+
+func TestLegacyStartAfterTopologyRejectsNonScalarLane(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMinerB")
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID: orgID, Label: "Legacy non-scalar rejection",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{
+			testLaneTargetForModel("TestMiner", "1.0.0", "a"),
+			testLaneTargetForModel("TestMinerB", "1.0.0", "b"),
+		},
+		DeviceIdentifiers: deviceIDs, IdempotencyKey: "legacy-nonscalar-lane", ActorUserID: actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	_, err = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID: orgID, ExpectedRevision: readiness.Revision,
+		IdempotencyKey: "legacy-nonscalar-enable", Reason: "enable non-scalar lane", ActorUserID: actorID,
+	})
+	require.NoError(t, err)
+
+	_, err = service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID: orgID, LaneID: lane.ID, Name: "Rejected legacy start",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{
+			testLaneTargetForModel("TestMiner", "2.0.0", "c"),
+			testLaneTargetForModel("TestMinerB", "2.0.0", "d"),
+		},
+		Batches: []rollout.CreateBatch{{
+			Label: "all", Members: []rollout.CreateMember{
+				{DeviceIdentifier: deviceIDs[0]}, {DeviceIdentifier: deviceIDs[1]},
+			},
+		}},
+		IdempotencyKey: "legacy-nonscalar-start", Reason: "old client request", ActorUserID: actorID,
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrScalarProjectionUnavailable)
+}
+
+func TestConcurrentTopologyEnableAndLegacyStartCannotCreatePostCutoverParentlessWork(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID: orgID, Label: "Concurrent legacy cutover",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs, IdempotencyKey: "concurrent-cutover-lane", ActorUserID: actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := service.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+
+	startGate := make(chan struct{})
+	var wait sync.WaitGroup
+	wait.Add(2)
+	var enableErr, startErr error
+	var started betweenchannel.StartRolloutResult
+	go func() {
+		defer wait.Done()
+		<-startGate
+		_, enableErr = service.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+			OrgID: orgID, ExpectedRevision: readiness.Revision,
+			IdempotencyKey: "concurrent-cutover-enable", Reason: "race legacy start", ActorUserID: actorID,
+		})
+	}()
+	go func() {
+		defer wait.Done()
+		<-startGate
+		started, startErr = service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+			OrgID: orgID, LaneID: lane.ID, Name: "Concurrent legacy start",
+			ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+			Batches: []rollout.CreateBatch{{
+				Label: "all", Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+			}},
+			IdempotencyKey: "concurrent-legacy-start", Reason: "race cutover", ActorUserID: actorID,
+		})
+	}()
+	close(startGate)
+	wait.Wait()
+
+	var enabled bool
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT enabled FROM rollout_lane_topology_cutover WHERE org_id = $1
+	`, orgID).Scan(&enabled))
+	var parentless int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM firmware_rollout
+		WHERE org_id = $1 AND lane_id = $2 AND group_id IS NULL
+	`, orgID, lane.ID).Scan(&parentless))
+	if enabled {
+		assert.Zero(t, parentless)
+		require.NoError(t, startErr)
+		require.NotNil(t, started.Parent)
+		return
+	}
+	require.NoError(t, startErr)
+	assert.Nil(t, started.Parent)
+	assert.Error(t, enableErr)
+}
+
+func TestTopologyEnableSerializesWithLegacyDatabaseAttachment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneService := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Legacy database attachment race",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "legacy-database-attachment-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := laneService.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	legacyChannelID := createLegacyAttachmentChannel(t, db, orgID, lane.CurrentChannelID, "race")
+
+	legacy, err := sqlstores.NewSQLRolloutStore(db).Create(
+		t.Context(),
+		rolloutCreateRequest(t, db, orgID, "legacy-database-attachment", [][]string{deviceIDs}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, legacy.Rollout)
+
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(t.Context(), `
+		INSERT INTO rollout_lane_channel (
+			lane_id, org_id, channel_id, position, rollout_id,
+			start_idempotency_key, start_fingerprint
+		)
+		VALUES ($3, $4, $5, 1, $1, 'legacy-database-attachment', $2)
+	`, legacy.Rollout.ID, strings.Repeat("a", 64), lane.ID, orgID, legacyChannelID)
+	require.NoError(t, err)
+
+	enableResult := make(chan error, 1)
+	go func() {
+		_, enableErr := laneService.EnableTopology(
+			context.Background(),
+			betweenchannel.EnableTopologyRequest{
+				OrgID:            orgID,
+				ExpectedRevision: readiness.Revision,
+				IdempotencyKey:   "legacy-database-attachment-enable",
+				Reason:           "race old writer attachment",
+				ActorUserID:      actorID,
+			},
+		)
+		enableResult <- enableErr
+	}()
+
+	var returnedBeforeLegacyCommit bool
+	select {
+	case <-enableResult:
+		returnedBeforeLegacyCommit = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+
+	var enableErr error
+	if !returnedBeforeLegacyCommit {
+		enableErr = <-enableResult
+	}
+	assert.False(t, returnedBeforeLegacyCommit, "enablement must wait for the legacy attachment transaction")
+	require.ErrorIs(t, enableErr, betweenchannel.ErrTopologyNotReady)
+
+	var enabled bool
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT enabled FROM rollout_lane_topology_cutover WHERE org_id = $1
+	`, orgID).Scan(&enabled))
+	assert.False(t, enabled)
+}
+
+func TestEnabledTopologyRejectsDirectLegacyDatabaseAttachment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneService := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Post-cutover legacy database gate",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "post-cutover-legacy-gate-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	readiness, err := laneService.GetTopologyReadiness(t.Context(), orgID)
+	require.NoError(t, err)
+	legacyChannelID := createLegacyAttachmentChannel(t, db, orgID, lane.CurrentChannelID, "post-cutover")
+	_, err = laneService.EnableTopology(t.Context(), betweenchannel.EnableTopologyRequest{
+		OrgID:            orgID,
+		ExpectedRevision: readiness.Revision,
+		IdempotencyKey:   "post-cutover-legacy-gate-enable",
+		Reason:           "enable database writer gate",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+
+	legacy, err := sqlstores.NewSQLRolloutStore(db).Create(
+		t.Context(),
+		rolloutCreateRequest(t, db, orgID, "post-cutover-parentless", [][]string{deviceIDs}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, legacy.Rollout)
+
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO rollout_lane_channel (
+			lane_id, org_id, channel_id, position, rollout_id,
+			start_idempotency_key, start_fingerprint
+		)
+		VALUES ($3, $4, $5, 1, $1, 'post-cutover-parentless', $2)
+	`, legacy.Rollout.ID, strings.Repeat("b", 64), lane.ID, orgID, legacyChannelID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "legacy rollout attachment is disabled after topology cutover")
+
+	var attachments int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM rollout_lane_channel
+		WHERE lane_id = $1 AND org_id = $2 AND rollout_id = $3
+	`, lane.ID, orgID, legacy.Rollout.ID).Scan(&attachments))
+	assert.Zero(t, attachments)
+}
 
 func TestStartRolloutLaneCreatesOneModelChildAndLeavesSiblingUntouched(t *testing.T) {
 	if testing.Short() {
@@ -399,6 +695,17 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, started.Parent)
 	require.Len(t, started.Children, 2)
+	refreshParentResult := func() {
+		t.Helper()
+		_, refreshErr := queries.RefreshFirmwareRolloutGroupResult(
+			t.Context(),
+			sqlc.RefreshFirmwareRolloutGroupResultParams{
+				GroupID: started.Parent.ID,
+				OrgID:   orgID,
+			},
+		)
+		require.NoError(t, refreshErr)
+	}
 
 	firstID := started.Children[0].Child.ID
 	secondID := started.Children[1].Child.ID
@@ -457,6 +764,7 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 		WHERE org_id = $1 AND rollout_id IN ($2, $3)
 	`, orgID, firstID, secondID)
 	require.NoError(t, err)
+	refreshParentResult()
 	parent, err = rolloutService.GetGroup(t.Context(), orgID, started.Parent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.GroupLifecycleTerminal, parent.Lifecycle)
@@ -477,6 +785,17 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 		WHERE org_id = $1 AND rollout_id IN ($2, $3)
 	`, orgID, firstID, secondID)
 	require.NoError(t, err)
+	released, err := queries.ReleaseRolloutLaneActiveParent(
+		t.Context(),
+		sqlc.ReleaseRolloutLaneActiveParentParams{
+			LaneID:  lane.ID,
+			OrgID:   orgID,
+			GroupID: started.Parent.ID,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), released)
+	refreshParentResult()
 	parent, err = rolloutService.GetGroup(t.Context(), orgID, started.Parent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.GroupEvidenceReady, parent.EvidenceReadiness)
@@ -493,6 +812,7 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 		WHERE org_id = $1 AND id IN ($2, $3)
 	`, orgID, firstID, secondID)
 	require.NoError(t, err)
+	refreshParentResult()
 	parent, err = rolloutService.GetGroup(t.Context(), orgID, started.Parent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.GroupTerminalOutcomeCompletedWithFailures, parent.TerminalOutcome)
@@ -505,6 +825,7 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 		WHERE org_id = $1 AND id IN ($2, $3)
 	`, orgID, firstID, secondID)
 	require.NoError(t, err)
+	refreshParentResult()
 	parent, err = rolloutService.GetGroup(t.Context(), orgID, started.Parent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.GroupTerminalOutcomeAborted, parent.TerminalOutcome)
@@ -517,6 +838,7 @@ func TestRolloutGroupPersistsProjectionAndResultRevisionAcrossTwoChildren(t *tes
 		WHERE org_id = $1 AND id = $2
 	`, orgID, secondID)
 	require.NoError(t, err)
+	refreshParentResult()
 	parent, err = rolloutService.GetGroup(t.Context(), orgID, started.Parent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.GroupTerminalOutcomeMixed, parent.TerminalOutcome)
@@ -737,6 +1059,112 @@ func TestModelChildAtomicStartFailureReleasesParentClaim(t *testing.T) {
 	assert.Zero(t, claims, "failed atomic start must not leak its lane claim")
 }
 
+func TestModelChildStartReleasesSettledStaleParentClaimBeforeRejecting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startSingleModelChild(t, "start-releases-settled-claim", 1)
+	_, err := fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout
+		SET state = 'aborted',
+		    aborted_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND org_id = $2
+	`, fixture.child.ID, fixture.orgID)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE channel_firmware_enforcement enforcement
+		SET state = 'cancelled'
+		FROM firmware_rollout child
+		WHERE child.id = $1
+		  AND child.org_id = $2
+		  AND enforcement.org_id = child.org_id
+		  AND enforcement.authority_id IN (
+		      child.forward_authority_id,
+		      child.revert_authority_id
+		  )
+	`, fixture.child.ID, fixture.orgID)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET state = 'cancelled',
+		    evidence_status = 'cancelled',
+		    evidence_cancellation_reason = 'settled before next start',
+		    evidence_cancelled_at = CURRENT_TIMESTAMP,
+		    post_window_finalized = TRUE,
+		    post_window_finalized_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $1 AND org_id = $2
+	`, fixture.child.ID, fixture.orgID)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_member
+		SET state = 'cancelled',
+		    settled_at = CURRENT_TIMESTAMP,
+		    owner_released_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $1 AND org_id = $2
+	`, fixture.child.ID, fixture.orgID)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_evidence
+		SET status = 'cancelled',
+		    cancellation_reason = 'settled before next start',
+		    cancelled_at = CURRENT_TIMESTAMP
+		WHERE rollout_id = $1
+		  AND org_id = $2
+		  AND status = 'open'
+	`, fixture.child.ID, fixture.orgID)
+	require.NoError(t, err)
+	haltRolloutAuthorities(t, fixture.db, fixture.orgID, fixture.child.ID)
+
+	before, err := sqlc.New(fixture.db).CountRolloutLaneActiveParentsForTest(
+		t.Context(),
+		sqlc.CountRolloutLaneActiveParentsForTestParams{
+			LaneID: fixture.laneID,
+			OrgID:  fixture.orgID,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), before)
+
+	lane, err := fixture.laneService.GetLane(
+		t.Context(),
+		fixture.orgID,
+		fixture.laneID,
+		false,
+		nil,
+	)
+	require.NoError(t, err)
+	model := laneModelByName(t, lane, "TestMiner")
+	target := testLaneTargetForModel("TestMiner", "3.0.0", "e")
+	started, err := fixture.laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID: fixture.orgID, LaneID: fixture.laneID, Name: "Next parent after settlement",
+		IdempotencyKey: "start-after-settled-stale-claim",
+		Reason:         "prove start reconciles stale claim",
+		ActorUserID:    fixture.actorID,
+		ModelPlans: []betweenchannel.StartRolloutModelPlan{{
+			LaneModelID: model.ID, ExpectedModelRevision: model.Revision,
+			FirmwareFileID: target.FirmwareFileID, ReleaseTarget: target,
+			ModelStartKey: "start-after-settled-stale-claim-child",
+			Batches: []rollout.CreateBatch{{
+				Label:   "all",
+				Members: []rollout.CreateMember{{DeviceIdentifier: fixture.deviceID}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, started.Parent)
+
+	claim, err := sqlc.New(fixture.db).GetRolloutLaneActiveParentForTest(
+		t.Context(),
+		sqlc.GetRolloutLaneActiveParentForTestParams{
+			LaneID: fixture.laneID,
+			OrgID:  fixture.orgID,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, started.Parent.ID, claim.GroupID)
+}
+
 type modelChildFixture struct {
 	db              *sql.DB
 	orgID           int64
@@ -885,6 +1313,34 @@ func setDiscoveredIdentityObservation(
 	require.NoError(t, err)
 }
 
+func createLegacyAttachmentChannel(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	sourceChannelID int64,
+	suffix string,
+) int64 {
+	t.Helper()
+	var channelID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		WITH created AS (
+			INSERT INTO device_set (org_id, type, label, description)
+			VALUES ($1, 'channel', $3, 'legacy attachment gate fixture')
+			RETURNING id, org_id
+		), extended AS (
+			INSERT INTO device_set_channel (device_set_id, org_id, release_set_id)
+			SELECT created.id, created.org_id, source.release_set_id
+			FROM created
+			JOIN device_set_channel source
+			  ON source.device_set_id = $2
+			 AND source.org_id = created.org_id
+			RETURNING device_set_id
+		)
+		SELECT device_set_id FROM extended
+	`, orgID, sourceChannelID, "legacy-attachment-"+suffix).Scan(&channelID))
+	return channelID
+}
+
 type definitiveRollbackStrategy struct {
 	calls int
 }
@@ -904,8 +1360,14 @@ func (s *definitiveRollbackStrategy) Admit(
 	}
 }
 
-func (s *definitiveRollbackStrategy) Revert(context.Context, rollout.RevertRequest) error {
-	return errors.New("unexpected revert")
+func (s *definitiveRollbackStrategy) Revert(
+	context.Context,
+	rollout.RevertRequest,
+) rollout.RevertResult {
+	return rollout.RevertResult{
+		Outcome: rollout.RevertOutcomeDefinitivelyRolledBack,
+		Err:     errors.New("unexpected revert"),
+	}
 }
 
 func parentControlRequest(

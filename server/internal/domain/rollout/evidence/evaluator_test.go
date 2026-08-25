@@ -27,14 +27,16 @@ type fakeStore struct {
 	updates          []Summary
 	automationErrors []Summary
 	listLimits       []int32
+	listWorkBudgets  []int32
 	listCalls        int
 }
 
-func (s *fakeStore) ListCandidates(_ context.Context, limit int32) ([]Candidate, error) {
+func (s *fakeStore) ListCandidates(_ context.Context, limit int32, workBudget int32) ([]Candidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.listCalls++
 	s.listLimits = append(s.listLimits, limit)
+	s.listWorkBudgets = append(s.listWorkBudgets, workBudget)
 	return append([]Candidate(nil), s.candidates...), nil
 }
 
@@ -127,6 +129,7 @@ func TestEvaluatorLifecycleRunsImmediatelyTicksStopsAndRestarts(t *testing.T) {
 	require.Eventually(t, func() bool { return store.callCount() > stoppedAt }, time.Second, time.Millisecond)
 	require.NoError(t, evaluator.Stop(context.Background()))
 	require.Equal(t, []int32{7, 7, 7}, store.listLimits)
+	require.Equal(t, []int32{defaultWorkBudget, defaultWorkBudget, defaultWorkBudget}, store.listWorkBudgets)
 }
 
 func TestEvaluatorRunOnceIsolatesCandidateErrors(t *testing.T) {
@@ -217,6 +220,72 @@ func TestBuildSummaryUsesPairedEqualMemberWeighting(t *testing.T) {
 	assert.Equal(t, rollout.EvidenceStatusStale, summary.Status)
 }
 
+func TestBuildSummaryAggregateMatchesFullMemberWindow(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	candidate := testCandidate(1, now.Add(-time.Minute))
+	members := Snapshot{Members: []MemberEvidence{
+		{
+			MemberID:           1,
+			BaselineHashrateHS: float64Pointer(100),
+			PostHashrateHS:     float64Pointer(80),
+			PostObservedAt:     timePointer(now.Add(-2 * time.Second)),
+		},
+		{
+			MemberID:           2,
+			BaselineHashrateHS: float64Pointer(200),
+			PostHashrateHS:     float64Pointer(220),
+			PostObservedAt:     timePointer(now.Add(-time.Second)),
+		},
+	}}
+	aggregate := Snapshot{Aggregate: &EvidenceAggregate{
+		TotalCount:           2,
+		PairedCount:          2,
+		BaselineAvailable:    true,
+		PostAvailable:        true,
+		BaselineAverage:      float64Pointer(150),
+		PostAverage:          float64Pointer(150),
+		OldestPostObservedAt: timePointer(now.Add(-2 * time.Second)),
+	}}
+
+	full := buildSummary(candidate, members, now)
+	incremental := buildSummary(candidate, aggregate, now)
+
+	assert.Equal(t, full.Status, incremental.Status)
+	assert.Equal(t, full.TotalCount, incremental.TotalCount)
+	assert.Equal(t, full.PairedCount, incremental.PairedCount)
+	assert.Equal(t, full.CumulativeBaselineHashrateHS, incremental.CumulativeBaselineHashrateHS)
+	assert.Equal(t, full.CumulativeCurrentHashrateHS, incremental.CumulativeCurrentHashrateHS)
+	assert.Equal(t, full.CumulativeDeltaBasisPoints, incremental.CumulativeDeltaBasisPoints)
+}
+
+func TestPolicyBucketAggregateMatchesFullMemberBucket(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 19, 12, 0, 30, 0, time.UTC)
+	baselines := map[int64]float64{1: 100, 2: 200}
+	full := PolicyBucket{
+		Members: []BucketMember{
+			{MemberID: 1, AvgHashrateHS: 80, ObservedAt: now.Add(-2 * time.Second)},
+			{MemberID: 2, AvgHashrateHS: 220, ObservedAt: now.Add(-time.Second)},
+		},
+	}
+	aggregate := PolicyBucket{
+		MemberCount:      2,
+		BaselineAverage:  150,
+		CurrentAverage:   150,
+		OldestObservedAt: now.Add(-2 * time.Second),
+	}
+
+	fullDelta, fullAverage, fullOK := policyBucketDelta(full, 2, baselines, now)
+	incrementalDelta, incrementalAverage, incrementalOK := policyBucketDelta(aggregate, 2, nil, now)
+
+	assert.Equal(t, fullOK, incrementalOK)
+	assert.Equal(t, fullDelta, incrementalDelta)
+	assert.Equal(t, fullAverage, incrementalAverage)
+}
+
 func TestBuildSummaryMakesMissingOrZeroBaselineUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -236,7 +305,7 @@ func TestBuildSummaryMakesMissingOrZeroBaselineUnavailable(t *testing.T) {
 	}
 }
 
-func TestBuildSummaryPersistsOnlyNewPolicyBuckets(t *testing.T) {
+func TestBuildSummaryRecomputesMutableLatestPolicyBucket(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 19, 12, 0, 30, 0, time.UTC)
@@ -259,7 +328,7 @@ func TestBuildSummaryPersistsOnlyNewPolicyBuckets(t *testing.T) {
 
 	assert.Equal(t, boundary, *summary.LastPolicyBucketBoundary)
 	assert.Equal(t, float64(95), *summary.LatestPolicyBucketHashrateHS)
-	assert.Equal(t, int32(-500), *summary.LatestPolicyBucketDeltaBasisPoints)
+	assert.Equal(t, int32(-3667), *summary.LatestPolicyBucketDeltaBasisPoints)
 }
 
 func TestBuildSummaryStoresLatestCompletePolicyBucketWithEqualWeighting(t *testing.T) {
@@ -756,6 +825,28 @@ func TestEvaluatorAutoContinueSafetyStatesAndControlOutcomes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSucceededAutomaticControlPreservesHistoricalHealthyVerdict(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 19, 12, 1, 0, 0, time.UTC)
+	candidate := automaticCandidate(now)
+	candidate.Status = rollout.EvidenceStatusStale
+	candidate.AutoControlStatus = controlStatusPointer(rollout.ControlStatusSucceeded)
+	store := &fakeStore{
+		candidates: []Candidate{candidate},
+		snapshots: map[int64]Snapshot{
+			candidate.BatchID: automaticHealthySnapshot(now.Add(-time.Minute)),
+		},
+	}
+	evaluator := NewEvaluator(Config{}, store, &fakeController{})
+	evaluator.now = func() time.Time { return now }
+
+	evaluator.RunOnce(t.Context())
+
+	require.Len(t, store.updates, 1)
+	assert.Equal(t, rollout.EvidenceStatusHealthy, store.updates[0].Status)
 }
 
 func TestAutoContinueIdempotencyKeyIsScopedToBatch(t *testing.T) {

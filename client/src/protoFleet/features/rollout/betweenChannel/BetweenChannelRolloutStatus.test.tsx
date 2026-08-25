@@ -144,6 +144,42 @@ describe("BetweenChannelRolloutStatus", () => {
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
   });
 
+  it("uses fresh summary counts while detailed members are being rehydrated", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          memberCount: 2,
+          memberStateCounts: { pending: 1, succeeded: 1 },
+          members: baseRollout.members.map((member) => ({ ...member, state: "pending" })),
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.getByText("1 miners remain on the current release")).toBeInTheDocument();
+    expect(screen.getByText("1 miners confirmed and moved")).toBeInTheDocument();
+  });
+
+  it("keeps reverting miners on the target side until reverse finalization", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "reverting",
+          memberCount: 2,
+          memberStateCounts: { reverted: 1, reverting: 1 },
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.getByText("1 miners remain on the current release")).toBeInTheDocument();
+    expect(screen.getByText("1 miners confirmed and moved")).toBeInTheDocument();
+  });
+
   it("hides control actions for read-only operators", () => {
     render(
       <BetweenChannelRolloutStatus
@@ -267,8 +303,7 @@ describe("BetweenChannelRolloutStatus", () => {
     expect(onContinue).toHaveBeenCalledWith("Override held hashrate evidence");
   });
 
-  it("keeps completed batch evidence and performance visible while paused", async () => {
-    const user = userEvent.setup();
+  it("keeps completed batch evidence and performance visible while paused", () => {
     render(
       <BetweenChannelRolloutStatus
         rollout={{
@@ -303,8 +338,81 @@ describe("BetweenChannelRolloutStatus", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent("Observing hashrate");
-    await user.click(screen.getByRole("button", { name: "View details" }));
     expect(screen.getByTestId("active-rollout-performance")).toHaveTextContent("237.5 TH/s");
+  });
+
+  it("auto-expands once when performance arrives and preserves a later explicit collapse", async () => {
+    const user = userEvent.setup();
+    const rolloutWithoutPerformance = {
+      ...baseRollout,
+      state: "paused" as const,
+      availableActions: {
+        ...baseRollout.availableActions,
+        pause: false,
+        resume: true,
+      },
+    };
+    const { rerender } = render(
+      <BetweenChannelRolloutStatus rollout={rolloutWithoutPerformance} laneLabel="Stable production" canControl />,
+    );
+
+    expect(screen.queryByTestId("active-rollout-performance")).not.toBeInTheDocument();
+    rerender(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...rolloutWithoutPerformance,
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "observing",
+                totalCount: 2n,
+                pairedCount: 2n,
+                cumulativeBaselineHashrateHs: 250_000_000_000_000,
+                cumulativeCurrentHashrateHs: 237_500_000_000_000,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: false,
+              },
+            },
+            baseRollout.batches[1],
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(await screen.findByTestId("active-rollout-performance")).toHaveTextContent("237.5 TH/s");
+    await user.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByTestId("active-rollout-performance")).not.toBeInTheDocument();
+
+    rerender(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...rolloutWithoutPerformance,
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "observing",
+                totalCount: 2n,
+                pairedCount: 2n,
+                cumulativeBaselineHashrateHs: 250_000_000_000_000,
+                cumulativeCurrentHashrateHs: 240_000_000_000_000,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: false,
+              },
+            },
+            baseRollout.batches[1],
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+    expect(screen.queryByTestId("active-rollout-performance")).not.toBeInTheDocument();
   });
 
   it("uses distinct abort aftermath and revert confirmations", async () => {
@@ -365,10 +473,12 @@ describe("BetweenChannelRolloutStatus", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Revert" }));
+    const revertButton = screen.getByRole("button", { name: "Revert" });
+    await user.click(revertButton);
     expect(screen.getByText("Revert this model for 1 confirmed miner?")).toBeInTheDocument();
     await user.click(screen.getByTestId("confirm-revert-rollout"));
     expect(onRevert).toHaveBeenCalledTimes(1);
+    expect(revertButton).toHaveFocus();
   });
 
   it("offers permission-gated explicit completion for a settled final batch with failures", async () => {

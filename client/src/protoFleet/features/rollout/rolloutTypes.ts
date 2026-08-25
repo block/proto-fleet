@@ -166,6 +166,7 @@ export interface RolloutBatch {
   completedAt?: string;
   evidenceSummary?: RolloutBatchEvidenceSummary;
   admissionAttempt?: number;
+  memberCount?: number;
 }
 
 export interface RolloutCause {
@@ -410,6 +411,7 @@ export interface RolloutLaneTopologyReadiness {
   anomalyCount: bigint;
   activeLegacyRolloutCount: bigint;
   anomalies: RolloutLaneTopologyAnomaly[];
+  nextAnomalyPageToken?: string;
   updatedAt?: string;
 }
 
@@ -447,6 +449,10 @@ export interface RolloutRecord {
   modelIdentityKey?: string;
   manufacturer?: string;
   model?: string;
+  memberCount?: number;
+  memberStateCounts?: Partial<Record<RolloutMemberState, number>>;
+  summaryOnly?: boolean;
+  failedAdmission?: boolean;
 }
 
 export interface RolloutGroup {

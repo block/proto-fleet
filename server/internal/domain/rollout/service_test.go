@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 )
 
 func TestNextStateManualGateLifecycle(t *testing.T) {
@@ -191,6 +193,21 @@ func TestDeriveGroupProjectionKeepsDimensionsIndependent(t *testing.T) {
 			activity: GroupActivitySettled, lifecycle: GroupLifecycleTerminal,
 			outcome: GroupTerminalOutcomeSuccessful, evidence: GroupEvidenceReady, resultReady: true,
 		},
+		{
+			name:     "lone post-terminal revert keeps parent terminal",
+			children: []Rollout{{State: StateReverting}},
+			activity: GroupActivityReverting, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomePending, evidence: GroupEvidencePending,
+		},
+		{
+			name: "mixed post-terminal revert keeps parent terminal",
+			children: []Rollout{
+				{State: StateReverting},
+				{State: StateCompleted},
+			},
+			activity: GroupActivityReverting, lifecycle: GroupLifecycleTerminal,
+			outcome: GroupTerminalOutcomePending, evidence: GroupEvidencePending,
+		},
 	}
 
 	for _, test := range tests {
@@ -205,6 +222,39 @@ func TestDeriveGroupProjectionKeepsDimensionsIndependent(t *testing.T) {
 			assert.Equal(t, test.resultReady, got.ResultReady)
 		})
 	}
+}
+
+func TestServiceGroupReadsPreservePersistedSettlementAuthority(t *testing.T) {
+	t.Parallel()
+
+	parent := Group{
+		ID:              uuid.New(),
+		TerminalOutcome: GroupTerminalOutcomeSuccessful,
+		ResultReady:     false,
+		Children: []Rollout{{
+			State: StateCompleted,
+		}},
+	}
+	store := &fakeStore{
+		groupResult:  &parent,
+		groupResults: []Group{parent},
+	}
+	service := NewService(store)
+
+	got, err := service.GetGroup(t.Context(), 42, parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, GroupLifecycleTerminal, got.Lifecycle)
+	assert.Equal(t, GroupTerminalOutcomeSuccessful, got.TerminalOutcome)
+	assert.Equal(t, GroupEvidencePending, got.EvidenceReadiness)
+	assert.False(t, got.ResultReady)
+
+	listed, err := service.ListGroups(t.Context(), 42)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, GroupLifecycleTerminal, listed[0].Lifecycle)
+	assert.Equal(t, GroupTerminalOutcomeSuccessful, listed[0].TerminalOutcome)
+	assert.Equal(t, GroupEvidencePending, listed[0].EvidenceReadiness)
+	assert.False(t, listed[0].ResultReady)
 }
 
 func TestFingerprintCreateRejectsUnmarshalableSnapshots(t *testing.T) {
@@ -516,6 +566,52 @@ func TestServiceAdmitUnknownOutcomeReconcilesOnSameKeyReplay(t *testing.T) {
 	assert.True(t, store.finishRequests[0].Success)
 }
 
+func TestServiceAdmitProjectsActivityOnlyAfterUnknownOutcomeSettles(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	parentID := uuid.New()
+	batch := Batch{ID: 7, RolloutID: rolloutID, State: BatchStateAdmitted}
+	child := &Rollout{
+		ID: rolloutID, OrgID: 42, StrategyKey: "fake", State: StateRunning,
+		Revision: 2, Batches: []Batch{batch}, GroupID: &parentID,
+	}
+	started := ControlResult{
+		Rollout: child,
+		Batch:   &batch,
+		Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+	}
+	replay := started
+	replay.Replayed = true
+	store := &fakeStore{
+		getResult:      child,
+		controlResults: []ControlResult{started, replay},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		admitResults: []AdmissionResult{
+			{Outcome: AdmissionOutcomeUnknown, Err: errors.New("commit response lost")},
+			{Outcome: AdmissionOutcomeCommitted},
+		},
+	}
+	logger := &recordingActivityLogger{}
+	service := NewServiceWithActivity(store, logger, strategy)
+	request := AdmitRequest{
+		OrgID: 42, RolloutID: rolloutID, BatchID: 7, ExpectedRevision: 1,
+		IdempotencyKey: "admit-attempt-0", Reason: "operator approved", ActorUserID: 9,
+	}
+
+	_, err := service.Admit(t.Context(), request)
+	require.ErrorContains(t, err, "replay the same idempotency key")
+	assert.Empty(t, logger.events)
+
+	_, err = service.Admit(t.Context(), request)
+	require.NoError(t, err)
+	require.Len(t, logger.events, 1)
+	assert.Equal(t, activitymodels.ResultSuccess, logger.events[0].Result)
+	assert.Nil(t, logger.events[0].ErrorMessage)
+}
+
 func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
 	t.Parallel()
 
@@ -553,6 +649,120 @@ func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
 	assert.Equal(t, 0, strategy.validateRevertCalls)
 	assert.Equal(t, 1, strategy.revertCalls)
 	assert.Equal(t, 1, store.finishCalls)
+}
+
+func TestServiceRevertDefinitiveRollbackFinishesFailedControl(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	current := &Rollout{
+		ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+		State: StateCompleted, Revision: 3,
+	}
+	store := &fakeStore{
+		getResult: current,
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+				State: StateReverting, Revision: 4,
+			},
+			Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		revertResult: RevertResult{
+			Outcome: RevertOutcomeDefinitivelyRolledBack,
+			Err:     errors.New("revert transaction rolled back"),
+		},
+	}
+
+	_, err := NewService(store, strategy).Revert(t.Context(), ControlRequest{
+		OrgID: 42, RolloutID: rolloutID, ExpectedRevision: 3,
+		IdempotencyKey: "revert-definitive-rollback", Reason: "operator approved", ActorUserID: 9,
+	})
+
+	require.ErrorContains(t, err, "revert transaction rolled back")
+	require.Len(t, store.finishRequests, 1)
+	assert.False(t, store.finishRequests[0].Success)
+}
+
+func TestServiceRevertUnknownOutcomePreservesStartedControl(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	current := &Rollout{
+		ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+		State: StateCompleted, Revision: 3,
+	}
+	store := &fakeStore{
+		getResult: current,
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+				State: StateReverting, Revision: 4,
+			},
+			Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		revertResult: RevertResult{
+			Outcome: RevertOutcomeUnknown,
+			Err:     errors.New("commit response lost"),
+		},
+	}
+
+	_, err := NewService(store, strategy).Revert(t.Context(), ControlRequest{
+		OrgID: 42, RolloutID: rolloutID, ExpectedRevision: 3,
+		IdempotencyKey: "revert-outcome-unknown", Reason: "operator approved", ActorUserID: 9,
+	})
+
+	require.ErrorContains(t, err, "replay the same idempotency key")
+	assert.Empty(t, store.finishRequests)
+}
+
+func TestServiceRevertUnknownOutcomeReconcilesOnSameKeyReplay(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	current := &Rollout{
+		ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+		State: StateCompleted, Revision: 3,
+	}
+	started := ControlResult{
+		Rollout: &Rollout{
+			ID: rolloutID, OrgID: 42, StrategyKey: "fake",
+			State: StateReverting, Revision: 4,
+		},
+		Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+	}
+	replay := started
+	replay.Replayed = true
+	store := &fakeStore{
+		getResult:      current,
+		controlResults: []ControlResult{started, replay},
+	}
+	strategy := &fakeAdmissionStrategy{
+		key: "fake",
+		revertResults: []RevertResult{
+			{Outcome: RevertOutcomeUnknown, Err: errors.New("commit response lost")},
+			{Outcome: RevertOutcomeCommitted},
+		},
+	}
+	service := NewService(store, strategy)
+	request := ControlRequest{
+		OrgID: 42, RolloutID: rolloutID, ExpectedRevision: 3,
+		IdempotencyKey: "revert-replay-after-unknown", Reason: "operator approved", ActorUserID: 9,
+	}
+
+	_, err := service.Revert(t.Context(), request)
+	require.ErrorContains(t, err, "replay the same idempotency key")
+	_, err = service.Revert(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, 2, strategy.revertCalls)
+	require.Len(t, store.finishRequests, 1)
+	assert.True(t, store.finishRequests[0].Success)
 }
 
 func TestServiceRevertWithPriorAuthorityStillValidatesNewControl(t *testing.T) {
@@ -713,6 +923,8 @@ func TestServiceManualContinueRemainsAvailableAfterAutomationError(t *testing.T)
 type fakeStore struct {
 	getResult        *Rollout
 	getErr           error
+	groupResult      *Group
+	groupResults     []Group
 	controlResults   []ControlResult
 	controlErr       error
 	controlRequests  []ControlRequest
@@ -731,7 +943,10 @@ func (s *fakeStore) Get(context.Context, int64, uuid.UUID) (*Rollout, error) {
 }
 
 func (s *fakeStore) GetGroup(context.Context, int64, uuid.UUID) (*Group, error) {
-	return nil, errors.New("unexpected GetGroup call")
+	if s.groupResult == nil {
+		return nil, errors.New("unexpected GetGroup call")
+	}
+	return s.groupResult, nil
 }
 
 func (s *fakeStore) List(context.Context, int64, []State) ([]Rollout, error) {
@@ -739,7 +954,10 @@ func (s *fakeStore) List(context.Context, int64, []State) ([]Rollout, error) {
 }
 
 func (s *fakeStore) ListGroups(context.Context, int64) ([]Group, error) {
-	return nil, errors.New("unexpected ListGroups call")
+	if s.groupResults == nil {
+		return nil, errors.New("unexpected ListGroups call")
+	}
+	return s.groupResults, nil
 }
 
 func (s *fakeStore) CheckControlReplay(context.Context, ControlRequest) (bool, error) {
@@ -770,6 +988,14 @@ func (s *fakeStore) CaptureEvidence(context.Context, EvidenceRequest) ([]Evidenc
 	return nil, errors.New("unexpected CaptureEvidence call")
 }
 
+type recordingActivityLogger struct {
+	events []activitymodels.Event
+}
+
+func (l *recordingActivityLogger) Log(_ context.Context, event activitymodels.Event) {
+	l.events = append(l.events, event)
+}
+
 type fakeAdmissionStrategy struct {
 	key                 string
 	admitCalls          int
@@ -778,6 +1004,8 @@ type fakeAdmissionStrategy struct {
 	validateRevertCalls int
 	validateRevertErr   error
 	revertCalls         int
+	revertResult        RevertResult
+	revertResults       []RevertResult
 }
 
 func (s *fakeAdmissionStrategy) Key() string {
@@ -797,9 +1025,17 @@ func (s *fakeAdmissionStrategy) Admit(context.Context, AdmissionRequest) Admissi
 	return s.admitResult
 }
 
-func (s *fakeAdmissionStrategy) Revert(context.Context, RevertRequest) error {
+func (s *fakeAdmissionStrategy) Revert(context.Context, RevertRequest) RevertResult {
 	s.revertCalls++
-	return nil
+	if len(s.revertResults) > 0 {
+		result := s.revertResults[0]
+		s.revertResults = s.revertResults[1:]
+		return result
+	}
+	if s.revertResult.Outcome == "" {
+		return RevertResult{Outcome: RevertOutcomeCommitted}
+	}
+	return s.revertResult
 }
 
 func (s *fakeAdmissionStrategy) ValidateRevert(context.Context, RevertValidationRequest) error {

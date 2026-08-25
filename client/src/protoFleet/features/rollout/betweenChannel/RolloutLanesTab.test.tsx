@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type {
+  RolloutGroup,
   RolloutLane,
   RolloutLaneTopologyReadiness,
   RolloutMemberState,
@@ -19,6 +20,7 @@ const rolloutApi = vi.hoisted(() => ({
   lane: null as RolloutLane | null,
   lanes: [] as RolloutLane[],
   rollouts: [] as RolloutRecord[],
+  rolloutGroups: [] as RolloutGroup[],
   isLoading: false,
   isMutating: false,
   loadError: null as string | null,
@@ -53,6 +55,7 @@ const rolloutApi = vi.hoisted(() => ({
   enableRolloutLaneModelTopology: vi.fn(),
   startRolloutLane: vi.fn(),
   listRollouts: vi.fn(),
+  listRolloutGroups: vi.fn(),
   getRollout: vi.fn(),
   getRolloutGroup: vi.fn(),
   admitRollout: vi.fn(),
@@ -523,6 +526,7 @@ describe("RolloutLanesTab", () => {
     rolloutApi.lane = null;
     rolloutApi.lanes = [lane("lane-1", "Stable production")];
     rolloutApi.rollouts = [];
+    rolloutApi.rolloutGroups = [];
     rolloutApi.isLoading = false;
     rolloutApi.isMutating = false;
     rolloutApi.loadError = null;
@@ -554,6 +558,7 @@ describe("RolloutLanesTab", () => {
       revision: 2n,
     });
     rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+    rolloutApi.listRolloutGroups.mockResolvedValue(rolloutApi.rolloutGroups);
     rolloutApi.getRolloutLane.mockImplementation(async ({ laneId }: { laneId: string }) => {
       const result = rolloutApi.lanes.find(({ id }) => id === laneId);
       if (!result) {
@@ -645,6 +650,108 @@ describe("RolloutLanesTab", () => {
     await user.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("location-probe")).toHaveTextContent("rolloutChild=child-1");
+  });
+
+  it("hydrates active aggregate work on a plain reload and opens the parent from the lane row", async () => {
+    const user = userEvent.setup();
+    const child = {
+      ...rollout("cold-child", "running"),
+      parentId: "cold-parent",
+      laneModelId: "model-1",
+      manufacturer: "Proto",
+      model: "Alpha",
+    };
+    const parent: RolloutGroup = {
+      id: "cold-parent",
+      laneId: "lane-1",
+      name: "Cold aggregate",
+      reason: "Durable active work",
+      resultRevision: 0n,
+      terminalOutcome: "pending",
+      resultReady: false,
+      lifecycle: "active",
+      activity: "running",
+      needsAction: false,
+      evidenceReadiness: "pending",
+      models: [],
+      children: [child],
+    };
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.permissions.canManage = true;
+    rolloutApi.lanes = [lane("lane-1", "Stable production", child.id)];
+    rolloutApi.rolloutGroups = [parent];
+    rolloutApi.listRolloutGroups.mockResolvedValue([parent]);
+
+    renderRolloutLanesTab();
+
+    expect(await screen.findByRole("button", { name: "View Rollout cold-child" })).toBeInTheDocument();
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "View Rollout cold-child" }));
+    expect(await screen.findByTestId("rollout-parent-summary")).toHaveTextContent("Cold aggregate");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("rolloutParent=cold-parent");
+    expect(screen.getByRole("button", { name: /Proto Alpha.*running/ })).toBeInTheDocument();
+  });
+
+  it("stores a polled terminal parent projection without dropping sibling children", async () => {
+    const user = userEvent.setup();
+    const first = {
+      ...rollout("poll-child-a", "running"),
+      parentId: "poll-parent",
+      laneModelId: "model-a",
+      manufacturer: "Proto",
+      model: "Alpha",
+    };
+    const sibling = {
+      ...rollout("poll-child-b", "running"),
+      parentId: "poll-parent",
+      laneModelId: "model-b",
+      manufacturer: "Antminer",
+      model: "S21",
+    };
+    const active: RolloutGroup = {
+      id: "poll-parent",
+      laneId: "lane-1",
+      name: "Polling aggregate",
+      reason: "Refresh projection",
+      resultRevision: 0n,
+      terminalOutcome: "pending",
+      resultReady: false,
+      lifecycle: "active",
+      activity: "running",
+      needsAction: false,
+      evidenceReadiness: "pending",
+      models: [],
+      children: [first, sibling],
+    };
+    const terminal: RolloutGroup = {
+      ...active,
+      resultRevision: 1n,
+      terminalOutcome: "completedWithFailures",
+      resultReady: true,
+      lifecycle: "terminal",
+      activity: "settled",
+      children: [
+        { ...first, state: "completedWithFailures", revision: first.revision + 1n },
+        { ...sibling, state: "completed", revision: sibling.revision + 1n },
+      ],
+    };
+    rolloutApi.lanes = [lane("lane-1", "Stable production", first.id)];
+    rolloutApi.rolloutGroups = [active];
+    rolloutApi.listRolloutGroups.mockResolvedValueOnce([active]).mockResolvedValue([terminal]);
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "View Rollout poll-child-a" }));
+    expect(await screen.findByTestId("rollout-parent-summary")).toHaveTextContent("Polling aggregate");
+
+    await act(async () => {
+      window.dispatchEvent(new Event(ROLLOUT_CHANGED_EVENT));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("rollout-parent-summary")).toHaveTextContent("Result: completed with failures"),
+    );
+    expect(screen.getByRole("button", { name: /Proto Alpha.*completed with failures/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Antminer S21.*completed/ })).toBeInTheDocument();
   });
 
   it("shows parent-scoped loading while a URL-selected aggregate is hydrating", async () => {
@@ -787,7 +894,7 @@ describe("RolloutLanesTab", () => {
 
     await waitFor(() => {
       expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
-      expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
+      expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(1);
     });
     expect(await screen.findByText("Stable production")).toBeInTheDocument();
 
@@ -795,7 +902,7 @@ describe("RolloutLanesTab", () => {
       window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT));
     });
     await waitFor(() => expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2));
-    expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
 
     unmount();
     act(() => {
@@ -966,7 +1073,7 @@ describe("RolloutLanesTab", () => {
     expect(rolloutApi.listRollouts).not.toHaveBeenCalled();
   });
 
-  it("polls only active and unsettled rollout IDs while preserving history", async () => {
+  it("polls one bounded summary while preserving history", async () => {
     vi.useFakeTimers();
     rolloutApi.rollouts = [
       rollout("running", "running", ["admitted"]),
@@ -979,48 +1086,46 @@ describe("RolloutLanesTab", () => {
       lane("lane-history", "History", "history", 42n),
     ];
     rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
-    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+    rolloutApi.listRolloutGroups.mockResolvedValue([]);
 
     renderRolloutLanesTab();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
 
-    expect(rolloutApi.getRollout.mock.calls.map(([request]) => request.rolloutId).sort()).toEqual([
-      "aborted-unsettled",
-      "running",
-    ]);
-    expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.getRollout).not.toHaveBeenCalled();
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
     expect(rolloutApi.completeRollout).not.toHaveBeenCalled();
   });
 
-  it("polls each aggregate parent once and merges its children", async () => {
+  it("polls all aggregate parents with one summary request", async () => {
     vi.useFakeTimers();
     const first = { ...rollout("child-a", "running", ["admitted"]), parentId: "parent-1" };
     const second = { ...rollout("child-b", "review", ["succeeded"]), parentId: "parent-1" };
     rolloutApi.rollouts = [first, second];
-    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
-    rolloutApi.getRolloutGroup.mockResolvedValue({
-      id: "parent-1",
-      laneId: "lane-1",
-      name: "Two models",
-      reason: "test",
-      children: [first, second],
-    });
+    rolloutApi.listRolloutGroups.mockResolvedValue([
+      {
+        id: "parent-1",
+        laneId: "lane-1",
+        name: "Two models",
+        reason: "test",
+        children: [first, second],
+      },
+    ]);
 
     renderRolloutLanesTab();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
 
-    expect(rolloutApi.getRolloutGroup).toHaveBeenCalledOnce();
-    expect(rolloutApi.getRolloutGroup).toHaveBeenCalledWith(expect.objectContaining({ parentId: "parent-1" }));
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
+    expect(rolloutApi.getRolloutGroup).not.toHaveBeenCalled();
     expect(rolloutApi.getRollout).not.toHaveBeenCalled();
   });
 
@@ -1057,7 +1162,7 @@ describe("RolloutLanesTab", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
 
     rolloutApi.rollouts = [
       {
@@ -1081,7 +1186,7 @@ describe("RolloutLanesTab", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
   });
 
   it("does not poll a legacy completed batch without a completion time or evidence summary", async () => {
@@ -1208,30 +1313,30 @@ describe("RolloutLanesTab", () => {
   it("does not overlap bounded rollout refreshes", async () => {
     vi.useFakeTimers();
     const liveRollout = rollout("running", "running", ["admitted"]);
-    const firstRefresh = deferred<RolloutRecord>();
+    const firstRefresh = deferred<RolloutGroup[]>();
     rolloutApi.rollouts = [liveRollout];
     rolloutApi.lanes = [lane("lane-running", "Running", liveRollout.id)];
     rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
     rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
-    rolloutApi.getRollout.mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(liveRollout);
+    rolloutApi.listRolloutGroups.mockReturnValueOnce(firstRefresh.promise).mockResolvedValue([]);
 
     renderRolloutLanesTab();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      firstRefresh.resolve(liveRollout);
+      firstRefresh.resolve([]);
       await firstRefresh.promise;
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(2);
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalledTimes(2);
   });
 
   it("closes creation and focuses the new lane setup view", async () => {
@@ -1711,7 +1816,7 @@ describe("RolloutLanesTab", () => {
 
     act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
     await waitFor(() => expect(rolloutApi.getRolloutLane).toHaveBeenCalledTimes(1));
-    expect(rolloutApi.getRollout).toHaveBeenCalledWith(expect.objectContaining({ rolloutId: liveRollout.id }));
+    expect(rolloutApi.listRolloutGroups).toHaveBeenCalled();
 
     const aggregateReady = {
       ...setupLane,

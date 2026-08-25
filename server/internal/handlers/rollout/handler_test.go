@@ -357,10 +357,16 @@ func TestTopologyReadinessUsesChannelReadWhileMutationsUseChannelManage(t *testi
 		topologyReadiness: betweenchannel.TopologyReadiness{
 			OrgID:    42,
 			Revision: 3,
+			NextCursor: &betweenchannel.TopologyAnomalyCursor{
+				LaneID:           laneID,
+				DeviceIdentifier: "miner-page",
+				Type:             betweenchannel.TopologyAnomalyMissingBinding,
+				ID:               uuid.New(),
+			},
 		},
 	}
 	handler := NewHandler(nil, laneService)
-	readinessRequest := connect.NewRequest(&pb.GetRolloutLaneTopologyReadinessRequest{})
+	readinessRequest := connect.NewRequest(&pb.GetRolloutLaneTopologyReadinessRequest{AnomalyPageSize: 5})
 	repairRequest := connect.NewRequest(&pb.RepairRolloutLaneModelBindingRequest{
 		LaneId:           laneID.String(),
 		LaneModelId:      laneModelID.String(),
@@ -379,6 +385,18 @@ func TestTopologyReadinessUsesChannelReadWhileMutationsUseChannelManage(t *testi
 	readiness, err := handler.GetRolloutLaneTopologyReadiness(readOnly, readinessRequest)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), readiness.Msg.GetReadiness().GetRevision())
+	assert.Equal(t, int32(5), laneService.topologyReadinessPageRequest.Limit)
+	assert.NotEmpty(t, readiness.Msg.GetReadiness().GetNextAnomalyPageToken())
+	_, err = handler.GetRolloutLaneTopologyReadiness(
+		readOnly,
+		connect.NewRequest(&pb.GetRolloutLaneTopologyReadinessRequest{
+			AnomalyPageSize:  5,
+			AnomalyPageToken: readiness.Msg.GetReadiness().GetNextAnomalyPageToken(),
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, laneService.topologyReadinessPageRequest.After)
+	assert.Equal(t, laneID, laneService.topologyReadinessPageRequest.After.LaneID)
 	_, err = handler.RepairRolloutLaneModelBinding(readOnly, repairRequest)
 	assertPermissionDenied(t, err)
 	_, err = handler.EnableRolloutLaneModelTopology(readOnly, enableRequest)
@@ -929,9 +947,11 @@ func TestAggregateHandlersKeepParentsAndLegacyHistorySeparate(t *testing.T) {
 		UpdatedAt: now.Add(-time.Hour),
 	}
 	service := &recordingRolloutService{
-		group:  &parent,
-		groups: []rolloutDomain.Group{parent},
-		legacy: []rolloutDomain.Rollout{legacy},
+		group:         &parent,
+		groups:        []rolloutDomain.Group{parent},
+		legacy:        []rolloutDomain.Rollout{legacy},
+		groupHasMore:  true,
+		legacyHasMore: true,
 	}
 	handler := NewHandler(service, nil)
 	ctx := rolloutHandlerContext(t, 42, 9, authz.PermRolloutRead)
@@ -950,7 +970,7 @@ func TestAggregateHandlersKeepParentsAndLegacyHistorySeparate(t *testing.T) {
 
 	listed, err := handler.ListRolloutGroups(
 		ctx,
-		connect.NewRequest(&pb.ListRolloutGroupsRequest{}),
+		connect.NewRequest(&pb.ListRolloutGroupsRequest{PageSize: 2, LegacyPageSize: 3}),
 	)
 	require.NoError(t, err)
 	require.Len(t, listed.Msg.GetParents(), 1)
@@ -959,6 +979,25 @@ func TestAggregateHandlersKeepParentsAndLegacyHistorySeparate(t *testing.T) {
 	assert.Equal(t, legacyID.String(), listed.Msg.GetLegacyHistory()[0].GetRolloutId())
 	assert.Empty(t, listed.Msg.GetLegacyHistory()[0].GetParentId())
 	assert.Equal(t, int64(42), service.listGroupOrgID)
+	assert.Equal(t, int32(2), service.groupPageReq.Limit)
+	assert.Equal(t, int32(3), service.legacyPageReq.Limit)
+	assert.NotEmpty(t, listed.Msg.GetNextPageToken())
+	assert.NotEmpty(t, listed.Msg.GetNextLegacyPageToken())
+
+	_, err = handler.ListRolloutGroups(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutGroupsRequest{
+			PageSize:        2,
+			PageToken:       listed.Msg.GetNextPageToken(),
+			LegacyPageSize:  3,
+			LegacyPageToken: listed.Msg.GetNextLegacyPageToken(),
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, service.groupPageReq.Before)
+	require.NotNil(t, service.legacyPageReq.Before)
+	assert.Equal(t, parent.ID, service.groupPageReq.Before.ID)
+	assert.Equal(t, legacy.ID, service.legacyPageReq.Before.ID)
 }
 
 func TestHandlerDerivesControlOrganizationAndActorFromSession(t *testing.T) {
@@ -1126,6 +1165,17 @@ func TestRolloutHashratePolicyProtoValidation(t *testing.T) {
 			Batches:               manualBatch,
 			ModelStartKey:         "model-child-start",
 		}},
+	}
+	require.NoError(t, protovalidate.Validate(modelStart))
+	modelStart.HashratePolicy = &pb.RolloutHashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
+	}
+	require.Error(t, protovalidate.Validate(modelStart))
+	modelStart.HashratePolicy = nil
+	modelStart.ModelPlans[0].HashratePolicy = &pb.RolloutHashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
 	}
 	require.NoError(t, protovalidate.Validate(modelStart))
 	modelStart.FirmwareFileIds = []string{"legacy-mixed-input"}
@@ -1350,6 +1400,10 @@ type recordingRolloutService struct {
 	getGroupOrgID  int64
 	getGroupID     uuid.UUID
 	listGroupOrgID int64
+	groupPageReq   rolloutDomain.ListPageRequest
+	legacyPageReq  rolloutDomain.ListPageRequest
+	groupHasMore   bool
+	legacyHasMore  bool
 	createdRollout rolloutDomain.CreateRequest
 	control        rolloutDomain.ControlRequest
 }
@@ -1378,6 +1432,7 @@ type recordingLaneService struct {
 	startedRollout                betweenchannel.StartRolloutRequest
 	preview                       betweenchannel.InitialEnforcementPreview
 	topologyReadiness             betweenchannel.TopologyReadiness
+	topologyReadinessPageRequest  betweenchannel.TopologyReadinessRequest
 	repairedBinding               betweenchannel.RepairModelBindingRequest
 	enabledTopology               betweenchannel.EnableTopologyRequest
 }
@@ -1525,6 +1580,15 @@ func (s *recordingLaneService) EnableTopology(
 	return betweenchannel.EnableTopologyResult{Readiness: s.topologyReadiness}, nil
 }
 
+func (s *recordingLaneService) GetTopologyReadinessPage(
+	_ context.Context,
+	_ int64,
+	req betweenchannel.TopologyReadinessRequest,
+) (betweenchannel.TopologyReadiness, error) {
+	s.topologyReadinessPageRequest = req
+	return s.topologyReadiness, nil
+}
+
 func (s *recordingRolloutService) Create(
 	_ context.Context,
 	req rolloutDomain.CreateRequest,
@@ -1561,6 +1625,25 @@ func (s *recordingRolloutService) ListGroups(
 ) ([]rolloutDomain.Group, error) {
 	s.listGroupOrgID = orgID
 	return s.groups, nil
+}
+
+func (s *recordingRolloutService) ListGroupsPage(
+	_ context.Context,
+	orgID int64,
+	req rolloutDomain.ListPageRequest,
+) (rolloutDomain.GroupPage, error) {
+	s.listGroupOrgID = orgID
+	s.groupPageReq = req
+	return rolloutDomain.GroupPage{Groups: s.groups, HasMore: s.groupHasMore}, nil
+}
+
+func (s *recordingRolloutService) ListLegacyPage(
+	_ context.Context,
+	_ int64,
+	req rolloutDomain.ListPageRequest,
+) (rolloutDomain.RolloutPage, error) {
+	s.legacyPageReq = req
+	return rolloutDomain.RolloutPage{Rollouts: s.legacy, HasMore: s.legacyHasMore}, nil
 }
 
 func (s *recordingRolloutService) List(

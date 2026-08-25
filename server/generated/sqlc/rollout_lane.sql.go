@@ -2642,6 +2642,17 @@ func (q *Queries) EndRolloutLaneModelBindingsForArchive(ctx context.Context, arg
 	return result.RowsAffected()
 }
 
+const ensureRolloutLaneTopologyCutover = `-- name: EnsureRolloutLaneTopologyCutover :exec
+INSERT INTO rollout_lane_topology_cutover (org_id)
+VALUES ($1)
+ON CONFLICT (org_id) DO NOTHING
+`
+
+func (q *Queries) EnsureRolloutLaneTopologyCutover(ctx context.Context, orgID int64) error {
+	_, err := q.exec(ctx, q.ensureRolloutLaneTopologyCutoverStmt, ensureRolloutLaneTopologyCutover, orgID)
+	return err
+}
+
 const finalizeBetweenChannelForward = `-- name: FinalizeBetweenChannelForward :one
 WITH removed AS (
     DELETE FROM device_set_membership membership
@@ -3290,7 +3301,7 @@ LEFT JOIN rollout_lane_model declaration
  AND declaration.org_id = lane.org_id
 WHERE member.id = $1
   AND member.org_id = $2
-FOR UPDATE OF member, enforcement, rollout, lane
+FOR UPDATE OF member, enforcement, rollout
 `
 
 type GetBetweenChannelFinalizationForUpdateParams struct {
@@ -4071,6 +4082,54 @@ func (q *Queries) GetRolloutLaneModelCurrentTarget(ctx context.Context, arg GetR
 		&i.Model,
 		&i.FirmwareVersion,
 		&i.Sha256,
+	)
+	return i, err
+}
+
+const getRolloutLaneModelForMutation = `-- name: GetRolloutLaneModelForMutation :one
+SELECT id, lane_id, org_id, model_identity_key, normalization_version, manufacturer, model, current_channel_id, current_release_set_id, current_release_target_id, revision, origin, created_at, updated_at
+FROM rollout_lane_model
+WHERE lane_id = $1
+  AND org_id = $2
+  AND (
+      ($3::uuid IS NOT NULL
+          AND id = $3::uuid)
+      OR
+      ($4::text IS NOT NULL
+          AND model_identity_key = $4::text)
+  )
+`
+
+type GetRolloutLaneModelForMutationParams struct {
+	LaneID           uuid.UUID
+	OrgID            int64
+	LaneModelID      uuid.NullUUID
+	ModelIdentityKey sql.NullString
+}
+
+func (q *Queries) GetRolloutLaneModelForMutation(ctx context.Context, arg GetRolloutLaneModelForMutationParams) (RolloutLaneModel, error) {
+	row := q.queryRow(ctx, q.getRolloutLaneModelForMutationStmt, getRolloutLaneModelForMutation,
+		arg.LaneID,
+		arg.OrgID,
+		arg.LaneModelID,
+		arg.ModelIdentityKey,
+	)
+	var i RolloutLaneModel
+	err := row.Scan(
+		&i.ID,
+		&i.LaneID,
+		&i.OrgID,
+		&i.ModelIdentityKey,
+		&i.NormalizationVersion,
+		&i.Manufacturer,
+		&i.Model,
+		&i.CurrentChannelID,
+		&i.CurrentReleaseSetID,
+		&i.CurrentReleaseTargetID,
+		&i.Revision,
+		&i.Origin,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -5281,6 +5340,70 @@ func (q *Queries) ListBetweenChannelFinalizations(ctx context.Context, finalizeL
 			&i.LaneID,
 			&i.CurrentChannelID,
 			&i.ModelCurrentChannelID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestRolloutLaneChannelDetailsByLaneIDs = `-- name: ListLatestRolloutLaneChannelDetailsByLaneIDs :many
+SELECT DISTINCT ON (attachment.lane_id)
+       attachment.lane_id,
+       attachment.org_id,
+       attachment.channel_id,
+       channel.release_set_id,
+       attachment.position,
+       attachment.rollout_id,
+       attachment.created_at
+FROM rollout_lane_channel attachment
+JOIN device_set_channel channel
+  ON channel.device_set_id = attachment.channel_id
+ AND channel.org_id = attachment.org_id
+WHERE attachment.lane_id = ANY($1::uuid[])
+  AND attachment.org_id = $2
+ORDER BY attachment.lane_id, attachment.position DESC, attachment.channel_id DESC
+`
+
+type ListLatestRolloutLaneChannelDetailsByLaneIDsParams struct {
+	LaneIds []uuid.UUID
+	OrgID   int64
+}
+
+type ListLatestRolloutLaneChannelDetailsByLaneIDsRow struct {
+	LaneID       uuid.UUID
+	OrgID        int64
+	ChannelID    int64
+	ReleaseSetID int64
+	Position     int32
+	RolloutID    uuid.NullUUID
+	CreatedAt    time.Time
+}
+
+func (q *Queries) ListLatestRolloutLaneChannelDetailsByLaneIDs(ctx context.Context, arg ListLatestRolloutLaneChannelDetailsByLaneIDsParams) ([]ListLatestRolloutLaneChannelDetailsByLaneIDsRow, error) {
+	rows, err := q.query(ctx, q.listLatestRolloutLaneChannelDetailsByLaneIDsStmt, listLatestRolloutLaneChannelDetailsByLaneIDs, pq.Array(arg.LaneIds), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLatestRolloutLaneChannelDetailsByLaneIDsRow
+	for rows.Next() {
+		var i ListLatestRolloutLaneChannelDetailsByLaneIDsRow
+		if err := rows.Scan(
+			&i.LaneID,
+			&i.OrgID,
+			&i.ChannelID,
+			&i.ReleaseSetID,
+			&i.Position,
+			&i.RolloutID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -7013,6 +7136,92 @@ func (q *Queries) ListRolloutLaneTopologyAnomalies(ctx context.Context, orgID in
 	return items, nil
 }
 
+const listRolloutLaneTopologyAnomaliesPage = `-- name: ListRolloutLaneTopologyAnomaliesPage :many
+SELECT anomaly_id,
+       lane_id,
+       device_id,
+       device_identifier,
+       lane_model_id,
+       lane_model_revision,
+       anomaly_type,
+       supported_repair_actions,
+       details
+FROM rollout_lane_topology_anomaly
+WHERE org_id = $1
+  AND (
+      $2::uuid IS NULL
+      OR (lane_id, device_identifier, anomaly_type, anomaly_id) > (
+          $2::uuid,
+          $3::text,
+          $4::text,
+          $5::uuid
+      )
+  )
+ORDER BY lane_id, device_identifier, anomaly_type, anomaly_id
+LIMIT $6
+`
+
+type ListRolloutLaneTopologyAnomaliesPageParams struct {
+	OrgID                 int64
+	AfterLaneID           uuid.NullUUID
+	AfterDeviceIdentifier sql.NullString
+	AfterAnomalyType      sql.NullString
+	AfterAnomalyID        uuid.NullUUID
+	LimitCount            int32
+}
+
+type ListRolloutLaneTopologyAnomaliesPageRow struct {
+	AnomalyID              uuid.UUID
+	LaneID                 uuid.UUID
+	DeviceID               int64
+	DeviceIdentifier       string
+	LaneModelID            uuid.NullUUID
+	LaneModelRevision      sql.NullInt64
+	AnomalyType            string
+	SupportedRepairActions []string
+	Details                json.RawMessage
+}
+
+func (q *Queries) ListRolloutLaneTopologyAnomaliesPage(ctx context.Context, arg ListRolloutLaneTopologyAnomaliesPageParams) ([]ListRolloutLaneTopologyAnomaliesPageRow, error) {
+	rows, err := q.query(ctx, q.listRolloutLaneTopologyAnomaliesPageStmt, listRolloutLaneTopologyAnomaliesPage,
+		arg.OrgID,
+		arg.AfterLaneID,
+		arg.AfterDeviceIdentifier,
+		arg.AfterAnomalyType,
+		arg.AfterAnomalyID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRolloutLaneTopologyAnomaliesPageRow
+	for rows.Next() {
+		var i ListRolloutLaneTopologyAnomaliesPageRow
+		if err := rows.Scan(
+			&i.AnomalyID,
+			&i.LaneID,
+			&i.DeviceID,
+			&i.DeviceIdentifier,
+			&i.LaneModelID,
+			&i.LaneModelRevision,
+			&i.AnomalyType,
+			pq.Array(&i.SupportedRepairActions),
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRolloutLanes = `-- name: ListRolloutLanes :many
 SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
@@ -7084,6 +7293,48 @@ type LockBetweenChannelChannelsParams struct {
 
 func (q *Queries) LockBetweenChannelChannels(ctx context.Context, arg LockBetweenChannelChannelsParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.lockBetweenChannelChannelsStmt, lockBetweenChannelChannels, arg.OrgID, pq.Array(arg.ChannelIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_set_id int64
+		if err := rows.Scan(&device_set_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_set_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockBetweenChannelChannelsForValidation = `-- name: LockBetweenChannelChannelsForValidation :many
+SELECT channel.device_set_id
+FROM device_set_channel channel
+JOIN device_set parent
+  ON parent.id = channel.device_set_id
+ AND parent.org_id = channel.org_id
+WHERE channel.org_id = $1
+  AND channel.device_set_id = ANY($2::bigint[])
+  AND parent.type = 'channel'
+  AND parent.deleted_at IS NULL
+ORDER BY channel.device_set_id
+FOR KEY SHARE OF channel, parent
+`
+
+type LockBetweenChannelChannelsForValidationParams struct {
+	OrgID      int64
+	ChannelIds []int64
+}
+
+func (q *Queries) LockBetweenChannelChannelsForValidation(ctx context.Context, arg LockBetweenChannelChannelsForValidationParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockBetweenChannelChannelsForValidationStmt, lockBetweenChannelChannelsForValidation, arg.OrgID, pq.Array(arg.ChannelIds))
 	if err != nil {
 		return nil, err
 	}

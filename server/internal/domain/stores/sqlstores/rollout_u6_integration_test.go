@@ -29,12 +29,16 @@ func TestModelChildBlockedControlDoesNotBlockSiblingControl(t *testing.T) {
 	blocker, err := fixture.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blocker.Rollback() })
+	require.NotNil(t, first.SourceChannelID)
+	require.NotNil(t, first.TargetChannelID)
+	require.NotNil(t, second.SourceChannelID)
+	require.Equal(t, *first.SourceChannelID, *second.SourceChannelID)
 	_, err = blocker.ExecContext(t.Context(), `
 		SELECT 1
-		FROM firmware_rollout
-		WHERE id = $1 AND org_id = $2
+		FROM device_set_channel
+		WHERE device_set_id = $1 AND org_id = $2
 		FOR UPDATE
-	`, first.ID, fixture.orgID)
+	`, *first.TargetChannelID, fixture.orgID)
 	require.NoError(t, err)
 
 	firstDone := runAsyncError(func() error {
@@ -49,6 +53,12 @@ func TestModelChildBlockedControlDoesNotBlockSiblingControl(t *testing.T) {
 		return controlErr
 	})
 	requireStillBlocked(t, firstDone, "first model control")
+	waitForLockedRow(t, fixture.db, `
+		SELECT 1
+		FROM device_set_channel
+		WHERE device_set_id = $1 AND org_id = $2
+		FOR UPDATE
+	`, *first.SourceChannelID, fixture.orgID)
 
 	secondDone := runAsyncError(func() error {
 		_, controlErr := fixture.rolloutService.Pause(t.Context(), rollout.ControlRequest{
@@ -94,19 +104,121 @@ func TestListGroupsBulkHydratesChildrenInCanonicalOrder(t *testing.T) {
 	require.Len(t, parent.Children[1].Members, 1)
 }
 
-func TestListGroupsDoesNotLockLanesWithoutActiveClaims(t *testing.T) {
+func TestListGroupsPageBoundsLargeHistoryAndReturnsChildSummaries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startTwoModelChildren(t, "paged-group-history")
+	_, err := fixture.db.ExecContext(t.Context(), `
+		INSERT INTO firmware_rollout_group (
+		    id, lane_id, org_id, name, idempotency_key, create_fingerprint,
+		    reason, created_by_user_id, actor_type, created_at, updated_at
+		)
+		SELECT gen_random_uuid(), $1, $2, 'Historical parent ' || n,
+		       'paged-group-' || n, repeat('a', 64), 'pagination fixture',
+		       $3, 'user', CURRENT_TIMESTAMP + n * INTERVAL '1 second',
+		       CURRENT_TIMESTAMP + n * INTERVAL '1 second'
+		FROM generate_series(1, 205) AS n
+	`, fixture.lane.ID, fixture.orgID, fixture.actorID)
+	require.NoError(t, err)
+
+	store := sqlstores.NewSQLRolloutStore(fixture.db)
+	first, err := store.ListGroupsPage(
+		t.Context(),
+		fixture.orgID,
+		rollout.ListPageRequest{Limit: 100},
+	)
+	require.NoError(t, err)
+	require.Len(t, first.Groups, 100)
+	assert.True(t, first.HasMore)
+	assert.Equal(t, fixture.parentID, first.Groups[0].ID, "active work must sort before newer history")
+
+	var active *rollout.Group
+	for index := range first.Groups {
+		if first.Groups[index].ID == fixture.parentID {
+			active = &first.Groups[index]
+			break
+		}
+	}
+	require.NotNil(t, active)
+	require.Len(t, active.Children, 2)
+	for _, child := range active.Children {
+		assert.True(t, child.SummaryOnly)
+		assert.Empty(t, child.Members)
+		assert.Empty(t, child.Causes)
+		assert.Equal(t, int64(1), child.MemberCount)
+	}
+
+	last := first.Groups[len(first.Groups)-1]
+	second, err := store.ListGroupsPage(
+		t.Context(),
+		fixture.orgID,
+		rollout.ListPageRequest{
+			Limit:  100,
+			Before: &rollout.PageCursor{CreatedAt: last.CreatedAt, ID: last.ID},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, second.Groups, 100)
+	assert.True(t, second.HasMore)
+	assert.NotEqual(t, first.Groups[len(first.Groups)-1].ID, second.Groups[0].ID)
+
+	last = second.Groups[len(second.Groups)-1]
+	third, err := store.ListGroupsPage(
+		t.Context(),
+		fixture.orgID,
+		rollout.ListPageRequest{
+			Limit:  100,
+			Before: &rollout.PageCursor{CreatedAt: last.CreatedAt, ID: last.ID},
+		},
+	)
+	require.NoError(t, err)
+	assert.Len(t, third.Groups, 6)
+	assert.False(t, third.HasMore)
+}
+
+func TestListRolloutLanesReturnsCurrentSummariesWithoutChannelHistory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startTwoModelChildren(t, "lane-summary-history")
+	store := sqlstores.NewSQLRolloutLaneStore(fixture.db)
+	detail, err := store.GetLane(t.Context(), fixture.orgID, fixture.lane.ID, false, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, detail.Channels)
+	require.NotEmpty(t, detail.Models)
+	for _, model := range detail.Models {
+		require.NotEmpty(t, model.Channels)
+	}
+
+	lanes, err := store.ListLanes(t.Context(), fixture.orgID, false)
+	require.NoError(t, err)
+	var summary *betweenchannel.Lane
+	for index := range lanes {
+		if lanes[index].ID == fixture.lane.ID {
+			summary = &lanes[index]
+			break
+		}
+	}
+	require.NotNil(t, summary)
+	assert.LessOrEqual(t, len(summary.Channels), 1)
+	require.Len(t, summary.Models, len(detail.Models))
+	for _, model := range summary.Models {
+		assert.Empty(t, model.Channels)
+		assert.NotZero(t, model.CurrentChannelID)
+		assert.NotNil(t, model.CurrentFirmwareTarget)
+		assert.GreaterOrEqual(t, model.MemberCount, int32(0))
+	}
+}
+
+func TestGetAndListGroupsRemainReadOnlyWithActiveClaims(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
 	fixture := startTwoModelChildren(t, "historical-group-read")
-	_, err := fixture.db.ExecContext(
-		t.Context(),
-		`DELETE FROM rollout_lane_active_parent WHERE lane_id = $1 AND org_id = $2`,
-		fixture.lane.ID,
-		fixture.orgID,
-	)
-	require.NoError(t, err)
 	blocker, err := fixture.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = blocker.Rollback() })
@@ -118,6 +230,21 @@ func TestListGroupsDoesNotLockLanesWithoutActiveClaims(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	getDone := runAsyncError(func() error {
+		_, getErr := sqlstores.NewSQLRolloutStore(fixture.db).GetGroup(
+			t.Context(),
+			fixture.orgID,
+			fixture.parentID,
+		)
+		return getErr
+	})
+	select {
+	case getErr := <-getDone:
+		require.NoError(t, getErr)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("GetGroup blocked on the rollout lane row")
+	}
+
 	done := runAsyncError(func() error {
 		_, listErr := sqlstores.NewSQLRolloutStore(fixture.db).ListGroups(t.Context(), fixture.orgID)
 		return listErr
@@ -126,7 +253,7 @@ func TestListGroupsDoesNotLockLanesWithoutActiveClaims(t *testing.T) {
 	case listErr := <-done:
 		require.NoError(t, listErr)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("historical aggregate read blocked on the rollout lane row")
+		t.Fatal("ListGroups blocked on the rollout lane row")
 	}
 }
 
@@ -417,6 +544,25 @@ func TestModelChildAbortDurablyCancelsEvidenceAndMakesParentReady(t *testing.T) 
 		require.NoError(t, err)
 		haltRolloutAuthorities(t, fixture.db, fixture.orgID, sibling.ID)
 	}
+	queries := sqlc.New(fixture.db)
+	released, err := queries.ReleaseRolloutLaneActiveParent(
+		t.Context(),
+		sqlc.ReleaseRolloutLaneActiveParentParams{
+			LaneID:  fixture.lane.ID,
+			OrgID:   fixture.orgID,
+			GroupID: fixture.parentID,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), released)
+	_, err = queries.RefreshFirmwareRolloutGroupResult(
+		t.Context(),
+		sqlc.RefreshFirmwareRolloutGroupResultParams{
+			GroupID: fixture.parentID,
+			OrgID:   fixture.orgID,
+		},
+	)
+	require.NoError(t, err)
 	parent, err := fixture.rolloutService.GetGroup(
 		t.Context(),
 		fixture.orgID,
@@ -459,7 +605,6 @@ func TestModelChildRestartReconstructsCompositeRuntimeStateWithoutDuplicates(t *
 
 	fixture := startTwoModelChildren(t, "restart-composite")
 	running := fixture.children[0]
-	created := fixture.children[1]
 	completedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	_, err := fixture.db.ExecContext(t.Context(), `
 		UPDATE firmware_rollout_batch
@@ -469,27 +614,16 @@ func TestModelChildRestartReconstructsCompositeRuntimeStateWithoutDuplicates(t *
 	`, running.Batches[0].ID, completedAt)
 	require.NoError(t, err)
 	_, err = fixture.db.ExecContext(t.Context(), `
-		UPDATE firmware_rollout
-		SET state = 'created',
-		    started_at = NULL
-		WHERE id = $1 AND org_id = $2
-	`, created.ID, fixture.orgID)
-	require.NoError(t, err)
-	_, err = fixture.db.ExecContext(t.Context(), `
-		INSERT INTO firmware_rollout_control (
-		    id, rollout_id, org_id, batch_id, operation, idempotency_key,
-		    request_fingerprint, expected_revision, resulting_revision,
-		    status, admission_attempt, created_by_user_id
-		)
-		VALUES (
-		    gen_random_uuid(), $1, $2, $3, 'admit', $4,
-		    repeat('f', 64), $5::bigint, $5::bigint + 1, 'started', 0, $6
-		)
-	`, created.ID, fixture.orgID, created.Batches[0].ID,
-		"u6-restart-ambiguous-admit", created.Revision, fixture.actorID)
+		UPDATE firmware_rollout_control
+		SET status = 'started',
+		    updated_at = CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+		WHERE rollout_id = $1
+		  AND org_id = $2
+		  AND idempotency_key = $3
+	`, running.ID, fixture.orgID, running.ID.String()+":admit:0")
 	require.NoError(t, err)
 
-	var beforeChildren, beforeControls int64
+	var beforeChildren, beforeControls, beforeEnforcements int64
 	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
 		SELECT COUNT(*) FROM firmware_rollout WHERE group_id = $1 AND org_id = $2
 	`, fixture.parentID, fixture.orgID).Scan(&beforeChildren))
@@ -497,25 +631,40 @@ func TestModelChildRestartReconstructsCompositeRuntimeStateWithoutDuplicates(t *
 		SELECT COUNT(*)
 		FROM firmware_rollout_control
 		WHERE rollout_id = $1 AND idempotency_key = $2
-	`, created.ID, "u6-restart-ambiguous-admit").Scan(&beforeControls))
+	`, running.ID, running.ID.String()+":admit:0").Scan(&beforeControls))
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement enforcement
+		JOIN firmware_rollout child
+		  ON child.forward_authority_id = enforcement.authority_id
+		 AND child.org_id = enforcement.org_id
+		WHERE child.id = $1
+		  AND child.org_id = $2
+		  AND enforcement.cause_type = 'between_channel_forward'
+	`, running.ID, fixture.orgID).Scan(&beforeEnforcements))
 
 	restartedEvidence := sqlstores.NewSQLRolloutEvidenceStore(fixture.db)
-	candidates, err := restartedEvidence.ListCandidates(t.Context(), 10)
+	candidates, err := restartedEvidence.ListCandidates(t.Context(), 10, 20_000)
 	require.NoError(t, err)
 	require.NotEmpty(t, candidates)
 	assert.Equal(t, running.ID, candidates[0].RolloutID)
 
+	restartedStore := sqlstores.NewSQLRolloutStore(fixture.db)
+	rollout.NewControlReconciler(
+		rollout.ControlReconcilerConfig{BatchSize: 10, StaleAfter: time.Nanosecond},
+		restartedStore,
+	).RunOnce(t.Context())
 	restartedService := rollout.NewService(
-		sqlstores.NewSQLRolloutStore(fixture.db),
+		restartedStore,
 		betweenchannel.NewStrategy(sqlstores.NewSQLRolloutLaneStore(fixture.db)),
 	)
 	parent, err := restartedService.GetGroup(t.Context(), fixture.orgID, fixture.parentID)
 	require.NoError(t, err)
 	require.Len(t, parent.Children, 2)
 	assert.Equal(t, rollout.StateRunning, parent.Children[0].State)
-	assert.Equal(t, rollout.StateCreated, parent.Children[1].State)
+	assert.Equal(t, rollout.StateRunning, parent.Children[1].State)
 
-	var afterChildren, afterControls int64
+	var afterChildren, afterControls, afterEnforcements int64
 	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
 		SELECT COUNT(*) FROM firmware_rollout WHERE group_id = $1 AND org_id = $2
 	`, fixture.parentID, fixture.orgID).Scan(&afterChildren))
@@ -523,9 +672,36 @@ func TestModelChildRestartReconstructsCompositeRuntimeStateWithoutDuplicates(t *
 		SELECT COUNT(*)
 		FROM firmware_rollout_control
 		WHERE rollout_id = $1 AND idempotency_key = $2
-	`, created.ID, "u6-restart-ambiguous-admit").Scan(&afterControls))
+	`, running.ID, running.ID.String()+":admit:0").Scan(&afterControls))
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement enforcement
+		JOIN firmware_rollout child
+		  ON child.forward_authority_id = enforcement.authority_id
+		 AND child.org_id = enforcement.org_id
+		WHERE child.id = $1
+		  AND child.org_id = $2
+		  AND enforcement.cause_type = 'between_channel_forward'
+	`, running.ID, fixture.orgID).Scan(&afterEnforcements))
 	assert.Equal(t, beforeChildren, afterChildren)
 	assert.Equal(t, beforeControls, afterControls)
+	assert.Equal(t, beforeEnforcements, afterEnforcements)
+
+	var controlStatus string
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT status
+		FROM firmware_rollout_control
+		WHERE rollout_id = $1 AND idempotency_key = $2
+	`, running.ID, running.ID.String()+":admit:0").Scan(&controlStatus))
+	assert.Equal(t, string(rollout.ControlStatusSucceeded), controlStatus)
+	_, err = restartedService.Admit(t.Context(), rollout.AdmitRequest{
+		OrgID: fixture.orgID, RolloutID: running.ID, BatchID: running.Batches[0].ID,
+		ExpectedRevision: running.Revision - 1,
+		IdempotencyKey:   running.ID.String() + ":admit:0",
+		Reason:           "admit U6 fixture child",
+		ActorUserID:      fixture.actorID,
+	})
+	require.NoError(t, err)
 
 	claimCount, err := sqlc.New(fixture.db).CountRolloutLaneActiveParentsForTest(
 		t.Context(),
@@ -536,6 +712,282 @@ func TestModelChildRestartReconstructsCompositeRuntimeStateWithoutDuplicates(t *
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), claimCount)
+}
+
+func TestStartedControlReconciliationWaitsForInFlightStrategyRolloutLock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startSingleModelChild(t, "control-reconciliation-lock-order", 1)
+	store := sqlstores.NewSQLRolloutStore(fixture.db)
+	current, err := store.Get(t.Context(), fixture.orgID, fixture.child.ID)
+	require.NoError(t, err)
+	require.Len(t, current.Batches, 1)
+	require.NotNil(t, current.LaneModelID)
+
+	controlKey := "identity-admit-control-reconciliation-lock-order"
+	control, err := sqlc.New(fixture.db).GetFirmwareRolloutControlByKey(
+		t.Context(),
+		sqlc.GetFirmwareRolloutControlByKeyParams{
+			RolloutID:      current.ID,
+			OrgID:          fixture.orgID,
+			IdempotencyKey: controlKey,
+		},
+	)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_control
+		SET status = 'started',
+		    error_message = NULL
+		WHERE id = $1
+		  AND rollout_id = $2
+		  AND org_id = $3
+	`, control.ID, current.ID, fixture.orgID)
+	require.NoError(t, err)
+
+	countEnforcements := func() int64 {
+		t.Helper()
+		var count int64
+		require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+			SELECT COUNT(*)
+			FROM channel_firmware_enforcement enforcement
+			JOIN firmware_rollout child
+			  ON child.forward_authority_id = enforcement.authority_id
+			 AND child.org_id = enforcement.org_id
+			WHERE child.id = $1
+			  AND child.org_id = $2
+			  AND enforcement.cause_type = 'between_channel_forward'
+		`, current.ID, fixture.orgID).Scan(&count))
+		return count
+	}
+	beforeEnforcements := countEnforcements()
+	require.Equal(t, int64(1), beforeEnforcements)
+
+	declarationBlocker, err := fixture.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = declarationBlocker.Rollback() })
+	_, err = declarationBlocker.ExecContext(t.Context(), `
+		SELECT 1
+		FROM rollout_lane_model
+		WHERE id = $1
+		  AND lane_id = $2
+		  AND org_id = $3
+		FOR UPDATE
+	`, *current.LaneModelID, fixture.laneID, fixture.orgID)
+	require.NoError(t, err)
+
+	strategyDone := make(chan rollout.AdmissionResult, 1)
+	go func() {
+		strategyDone <- fixture.laneStore.AdmitBatch(t.Context(), rollout.AdmissionRequest{
+			Rollout:        *current,
+			Batch:          current.Batches[0],
+			ControlID:      control.ID,
+			IdempotencyKey: controlKey,
+		})
+	}()
+	waitForLockedRow(t, fixture.db, `
+		SELECT 1
+		FROM firmware_rollout
+		WHERE id = $1 AND org_id = $2
+		FOR UPDATE
+	`, current.ID, fixture.orgID)
+
+	type reconciliationResult struct {
+		outcome rollout.ControlReconciliationOutcome
+		err     error
+	}
+	reconciliationDone := make(chan reconciliationResult, 1)
+	go func() {
+		outcome, reconcileErr := store.ReconcileStartedControl(
+			t.Context(),
+			rollout.StartedControlCandidate{
+				ID:        control.ID,
+				RolloutID: current.ID,
+				OrgID:     fixture.orgID,
+				Operation: rollout.ControlOperationAdmit,
+				UpdatedAt: control.UpdatedAt,
+			},
+		)
+		reconciliationDone <- reconciliationResult{outcome: outcome, err: reconcileErr}
+	}()
+	waitForBlockedFirmwareRolloutLock(t, fixture.db)
+
+	controlProbe, err := fixture.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	_, err = controlProbe.ExecContext(t.Context(), "SET LOCAL lock_timeout = '250ms'")
+	require.NoError(t, err)
+	var lockedControlID uuid.UUID
+	err = controlProbe.QueryRowContext(t.Context(), `
+		SELECT id
+		FROM firmware_rollout_control
+		WHERE id = $1
+		  AND rollout_id = $2
+		  AND org_id = $3
+		FOR UPDATE
+	`, control.ID, current.ID, fixture.orgID).Scan(&lockedControlID)
+	require.NoError(t, err, "reconciliation must wait on the rollout before locking the control")
+	assert.Equal(t, control.ID, lockedControlID)
+	require.NoError(t, controlProbe.Rollback())
+
+	require.NoError(t, declarationBlocker.Commit())
+	select {
+	case strategy := <-strategyDone:
+		require.NoError(t, strategy.Err)
+		assert.Equal(t, rollout.AdmissionOutcomeCommitted, strategy.Outcome)
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight strategy transaction did not terminate")
+	}
+	select {
+	case reconciled := <-reconciliationDone:
+		require.NoError(t, reconciled.err)
+		assert.Equal(t, rollout.ControlReconciliationCommitted, reconciled.outcome)
+	case <-time.After(5 * time.Second):
+		t.Fatal("started-control reconciliation did not terminate")
+	}
+
+	var controlStatus, rolloutState string
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT status
+		FROM firmware_rollout_control
+		WHERE id = $1
+	`, control.ID).Scan(&controlStatus))
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT state
+		FROM firmware_rollout
+		WHERE id = $1 AND org_id = $2
+	`, current.ID, fixture.orgID).Scan(&rolloutState))
+	assert.Equal(t, string(rollout.ControlStatusSucceeded), controlStatus)
+	assert.Equal(t, string(rollout.StateRunning), rolloutState)
+	assert.Equal(t, beforeEnforcements, countEnforcements())
+}
+
+func TestModelChildRevertDefinitiveRollbackRestoresStateAndFailsAudit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startSingleModelChild(t, "revert-definitive-rollback", 1)
+	completed := completeModelChildSuccessfully(t, fixture)
+	store := sqlstores.NewSQLRolloutStore(fixture.db)
+	request := rolloutControlRequest(
+		completed,
+		rollout.ControlOperationRevert,
+		"u6-revert-definitive-rollback",
+	)
+	started, err := store.ApplyControl(t.Context(), request)
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateReverting, started.Rollout.State)
+
+	restored, err := store.FinishControl(t.Context(), rollout.FinishControlRequest{
+		OrgID:        fixture.orgID,
+		RolloutID:    completed.ID,
+		ControlID:    started.Control.ID,
+		Success:      false,
+		ErrorMessage: "revert preparation rolled back",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateCompleted, restored.State)
+	require.Len(t, restored.Members, 1)
+	assert.Equal(t, rollout.MemberStateSucceeded, restored.Members[0].State)
+	assert.NotNil(t, restored.Members[0].OwnerReleasedAt)
+
+	var status, message string
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT status, error_message
+		FROM firmware_rollout_control
+		WHERE id = $1
+	`, started.Control.ID).Scan(&status, &message))
+	assert.Equal(t, string(rollout.ControlStatusFailed), status)
+	assert.Equal(t, "revert preparation rolled back", message)
+}
+
+func waitForBlockedFirmwareRolloutLock(t *testing.T, db *sql.DB) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := db.QueryRowContext(t.Context(), `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_stat_activity
+				WHERE datname = current_database()
+				  AND pid <> pg_backend_pid()
+				  AND state = 'active'
+				  AND wait_event_type = 'Lock'
+				  AND query LIKE '%name: LockFirmwareRollout%'
+			)
+		`).Scan(&blocked)
+		return err == nil && blocked
+	}, 5*time.Second, 10*time.Millisecond, "reconciliation did not block on the child rollout")
+}
+
+func TestModelChildRestartReconcilesCommittedRevertWithoutDuplicateWork(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	fixture := startSingleModelChild(t, "restart-revert-control", 1)
+	completed := completeModelChildSuccessfully(t, fixture)
+	request := rollout.ControlRequest{
+		OrgID: fixture.orgID, RolloutID: completed.ID,
+		ExpectedRevision: completed.Revision,
+		IdempotencyKey:   "u6-restart-revert-control",
+		Reason:           "prepare restart-safe revert",
+		ActorUserID:      fixture.actorID,
+	}
+	_, err := fixture.rolloutService.Revert(t.Context(), request)
+	require.NoError(t, err)
+	_, err = fixture.db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_control
+		SET status = 'started',
+		    updated_at = CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+		WHERE rollout_id = $1
+		  AND org_id = $2
+		  AND idempotency_key = $3
+	`, completed.ID, fixture.orgID, request.IdempotencyKey)
+	require.NoError(t, err)
+
+	var beforeEnforcements int64
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement enforcement
+		JOIN firmware_rollout child
+		  ON child.revert_authority_id = enforcement.authority_id
+		 AND child.org_id = enforcement.org_id
+		WHERE child.id = $1
+		  AND child.org_id = $2
+		  AND enforcement.cause_type = 'between_channel_revert'
+	`, completed.ID, fixture.orgID).Scan(&beforeEnforcements))
+	require.Positive(t, beforeEnforcements)
+
+	store := sqlstores.NewSQLRolloutStore(fixture.db)
+	rollout.NewControlReconciler(
+		rollout.ControlReconcilerConfig{BatchSize: 10, StaleAfter: time.Nanosecond},
+		store,
+	).RunOnce(t.Context())
+
+	var status string
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT status
+		FROM firmware_rollout_control
+		WHERE rollout_id = $1 AND idempotency_key = $2
+	`, completed.ID, request.IdempotencyKey).Scan(&status))
+	assert.Equal(t, string(rollout.ControlStatusSucceeded), status)
+	_, err = fixture.rolloutService.Revert(t.Context(), request)
+	require.NoError(t, err)
+
+	var afterEnforcements int64
+	require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement enforcement
+		JOIN firmware_rollout child
+		  ON child.revert_authority_id = enforcement.authority_id
+		 AND child.org_id = enforcement.org_id
+		WHERE child.id = $1
+		  AND child.org_id = $2
+		  AND enforcement.cause_type = 'between_channel_revert'
+	`, completed.ID, fixture.orgID).Scan(&afterEnforcements))
+	assert.Equal(t, beforeEnforcements, afterEnforcements)
 }
 
 func TestModelChildPostTerminalRevertUsesModelPointerAndRejectsStaleWork(t *testing.T) {
@@ -562,6 +1014,17 @@ func TestModelChildPostTerminalRevertUsesModelPointerAndRejectsStaleWork(t *test
 		})
 		require.NoError(t, err)
 		assert.Equal(t, rollout.StateReverting, reverting.State)
+		parent, err := fixture.rolloutService.GetGroup(
+			t.Context(),
+			fixture.orgID,
+			*fixture.child.GroupID,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, rollout.GroupLifecycleTerminal, parent.Lifecycle)
+		assert.Equal(t, rollout.GroupActivityReverting, parent.Activity)
+		assert.Equal(t, rollout.GroupTerminalOutcomeSuccessful, parent.TerminalOutcome)
+		assert.Equal(t, rollout.GroupEvidencePending, parent.EvidenceReadiness)
+		assert.False(t, parent.ResultReady)
 		var evidenceStatus, cancellationReason string
 		var cancelledAt time.Time
 		require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
@@ -857,6 +1320,81 @@ func TestRolloutLaneArchiveRejectsEachUnsettledChildWorkClass(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorContains(t, err, "child "+blocker)
 		})
+	}
+}
+
+func TestParentReadKeepsPersistedOutcomePendingUntilEverySettlementClassClears(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	for _, blocker := range []string{
+		"control",
+		"enforcement",
+		"finalization",
+		"revert",
+		"ownership",
+		"authority",
+		"evidence",
+	} {
+		t.Run(blocker, func(t *testing.T) {
+			fixture := startSingleModelChild(t, "parent-read-"+blocker, 1)
+			completed := completeModelChildSuccessfully(t, fixture)
+			seedParentReadBlocker(t, fixture.db, fixture.orgID, fixture.actorID, completed, blocker)
+
+			parent, err := fixture.rolloutService.GetGroup(
+				t.Context(),
+				fixture.orgID,
+				*fixture.child.GroupID,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, rollout.GroupLifecycleTerminal, parent.Lifecycle)
+			assert.Equal(t, rollout.GroupTerminalOutcomeSuccessful, parent.TerminalOutcome)
+			assert.Equal(t, rollout.GroupEvidencePending, parent.EvidenceReadiness)
+			assert.False(t, parent.ResultReady)
+			if blocker == "revert" {
+				assert.Equal(t, rollout.GroupActivityReverting, parent.Activity)
+			}
+
+			var claims int64
+			require.NoError(t, fixture.db.QueryRowContext(t.Context(), `
+				SELECT COUNT(*)
+				FROM rollout_lane_active_parent
+				WHERE lane_id = $1 AND org_id = $2 AND group_id = $3
+			`, fixture.laneID, fixture.orgID, *fixture.child.GroupID).Scan(&claims))
+			assert.Equal(t, int64(1), claims)
+		})
+	}
+}
+
+func seedParentReadBlocker(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	actorID int64,
+	child *rollout.Rollout,
+	blocker string,
+) {
+	t.Helper()
+	switch blocker {
+	case "enforcement":
+		_, err := db.ExecContext(t.Context(), `
+			UPDATE channel_firmware_enforcement
+			SET state = 'pending', confirmed_at = NULL
+			WHERE org_id = $1
+			  AND cause_type = 'between_channel_rollout'
+			  AND cause_reference = $2
+		`, orgID, child.ID.String())
+		require.NoError(t, err)
+	case "evidence":
+		_, err := db.ExecContext(t.Context(), `
+			UPDATE firmware_rollout_batch
+			SET post_window_finalized = FALSE, post_window_finalized_at = NULL
+			WHERE rollout_id = $1 AND org_id = $2
+		`, child.ID, orgID)
+		require.NoError(t, err)
+	default:
+		seedArchiveBlocker(t, db, orgID, actorID, child, blocker)
 	}
 }
 

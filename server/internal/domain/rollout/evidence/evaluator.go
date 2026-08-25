@@ -131,7 +131,7 @@ func (e *Evaluator) safeRunOnce(ctx context.Context) {
 }
 
 func (e *Evaluator) RunOnce(ctx context.Context) {
-	candidates, err := e.store.ListCandidates(ctx, e.cfg.BatchSize)
+	candidates, err := e.store.ListCandidates(ctx, e.cfg.BatchSize, e.cfg.WorkBudget)
 	if err != nil {
 		slog.Error("rollout evidence evaluator failed to list candidates", "error", err)
 		return
@@ -289,39 +289,58 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 	}
 
 	baselineByMember := make(map[int64]float64, len(snapshot.Members))
-	var baselineSum, currentSum float64
 	baselineUnavailable := len(snapshot.Members) == 0
 	postMissing := len(snapshot.Members) == 0
 	stale := false
-	for _, member := range snapshot.Members {
-		if member.BaselineHashrateHS == nil ||
-			!isFiniteNonNegative(*member.BaselineHashrateHS) ||
-			*member.BaselineHashrateHS == 0 {
-			baselineUnavailable = true
-			continue
-		}
-		baselineByMember[member.MemberID] = *member.BaselineHashrateHS
-		if member.PostHashrateHS == nil || !isFiniteNonNegative(*member.PostHashrateHS) {
-			postMissing = true
-			if now.Sub(candidate.CompletedAt) > staleAfter {
-				stale = true
-			}
-			continue
-		}
-		if !isFreshObservation(member.PostObservedAt, now) {
+	if snapshot.Aggregate != nil {
+		aggregate := snapshot.Aggregate
+		summary.TotalCount = aggregate.TotalCount
+		summary.PairedCount = aggregate.PairedCount
+		baselineUnavailable = aggregate.TotalCount == 0 || !aggregate.BaselineAvailable
+		postMissing = aggregate.TotalCount == 0 || !aggregate.PostAvailable
+		stale = postMissing && now.Sub(candidate.CompletedAt) > staleAfter
+		if !postMissing && !isFreshObservation(aggregate.OldestPostObservedAt, now) {
 			stale = true
 		}
-		summary.PairedCount++
-		baselineSum += *member.BaselineHashrateHS
-		currentSum += *member.PostHashrateHS
-	}
-
-	if summary.PairedCount > 0 {
-		baselineAverage := baselineSum / float64(summary.PairedCount)
-		currentAverage := currentSum / float64(summary.PairedCount)
-		summary.CumulativeBaselineHashrateHS = &baselineAverage
-		summary.CumulativeCurrentHashrateHS = &currentAverage
-		summary.CumulativeDeltaBasisPoints = deltaBasisPoints(baselineAverage, currentAverage)
+		summary.CumulativeBaselineHashrateHS = aggregate.BaselineAverage
+		summary.CumulativeCurrentHashrateHS = aggregate.PostAverage
+		if aggregate.BaselineAverage != nil && aggregate.PostAverage != nil {
+			summary.CumulativeDeltaBasisPoints = deltaBasisPoints(
+				*aggregate.BaselineAverage,
+				*aggregate.PostAverage,
+			)
+		}
+	} else {
+		var baselineSum, currentSum float64
+		for _, member := range snapshot.Members {
+			if member.BaselineHashrateHS == nil ||
+				!isFiniteNonNegative(*member.BaselineHashrateHS) ||
+				*member.BaselineHashrateHS == 0 {
+				baselineUnavailable = true
+				continue
+			}
+			baselineByMember[member.MemberID] = *member.BaselineHashrateHS
+			if member.PostHashrateHS == nil || !isFiniteNonNegative(*member.PostHashrateHS) {
+				postMissing = true
+				if now.Sub(candidate.CompletedAt) > staleAfter {
+					stale = true
+				}
+				continue
+			}
+			if !isFreshObservation(member.PostObservedAt, now) {
+				stale = true
+			}
+			summary.PairedCount++
+			baselineSum += *member.BaselineHashrateHS
+			currentSum += *member.PostHashrateHS
+		}
+		if summary.PairedCount > 0 {
+			baselineAverage := baselineSum / float64(summary.PairedCount)
+			currentAverage := currentSum / float64(summary.PairedCount)
+			summary.CumulativeBaselineHashrateHS = &baselineAverage
+			summary.CumulativeCurrentHashrateHS = &currentAverage
+			summary.CumulativeDeltaBasisPoints = deltaBasisPoints(baselineAverage, currentAverage)
+		}
 	}
 
 	postWindowEnd := candidate.CompletedAt.Add(postWindow)
@@ -330,10 +349,16 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 		summary.PostWindowFinalized = true
 		summary.PostWindowFinalizedAt = &postWindowEnd
 	}
+	autoControlSucceeded :=
+		candidate.AutoControlStatus != nil && *candidate.AutoControlStatus == rollout.ControlStatusSucceeded
 
 	switch {
+	case candidate.Status == rollout.EvidenceStatusCancelled:
+		summary.Status = rollout.EvidenceStatusCancelled
 	case candidate.Status == rollout.EvidenceStatusAutomationError:
 		summary.Status = rollout.EvidenceStatusAutomationError
+	case autoControlSucceeded:
+		summary.Status = rollout.EvidenceStatusHealthy
 	case baselineUnavailable:
 		summary.Status = rollout.EvidenceStatusUnavailable
 	case postMissing && windowClosed:
@@ -443,6 +468,39 @@ func applyPolicyBuckets(
 
 	for index := range buckets {
 		bucket := &buckets[index]
+		if candidate.LastPolicyBucketBoundary == nil ||
+			bucket.Boundary.After(*candidate.LastPolicyBucketBoundary) {
+			continue
+		}
+		delta, currentAverage, ok := policyBucketDelta(
+			*bucket,
+			summary.TotalCount,
+			baselineByMember,
+			now,
+		)
+		if !ok {
+			healthySince = nil
+			status = rollout.EvidenceStatusStale
+			continue
+		}
+		if bucket.Boundary.Equal(*candidate.LastPolicyBucketBoundary) {
+			summary.LatestPolicyBucketHashrateHS = &currentAverage
+			summary.LatestPolicyBucketDeltaBasisPoints = &delta
+		}
+		if delta < -candidate.MaxDropBasisPoints {
+			healthySince = nil
+			status = rollout.EvidenceStatusHeld
+			continue
+		}
+		if status == rollout.EvidenceStatusHeld && healthySince == nil {
+			start := bucket.Boundary.Add(-PolicyBucketDuration)
+			healthySince = &start
+			status = rollout.EvidenceStatusObserving
+		}
+	}
+
+	for index := range buckets {
+		bucket := &buckets[index]
 		if candidate.LastPolicyBucketBoundary != nil &&
 			!bucket.Boundary.After(*candidate.LastPolicyBucketBoundary) {
 			continue
@@ -517,6 +575,20 @@ func policyBucketDelta(
 	baselineByMember map[int64]float64,
 	now time.Time,
 ) (int32, float64, bool) {
+	if bucket.MemberCount > 0 {
+		if bucket.MemberCount != totalCount ||
+			!isFiniteNonNegative(bucket.BaselineAverage) ||
+			bucket.BaselineAverage == 0 ||
+			!isFiniteNonNegative(bucket.CurrentAverage) ||
+			!isFreshTime(bucket.OldestObservedAt, now) {
+			return 0, 0, false
+		}
+		delta := deltaBasisPoints(bucket.BaselineAverage, bucket.CurrentAverage)
+		if delta == nil {
+			return 0, 0, false
+		}
+		return *delta, bucket.CurrentAverage, true
+	}
 	if len(bucket.Members) != int(totalCount) || totalCount == 0 {
 		return 0, 0, false
 	}
