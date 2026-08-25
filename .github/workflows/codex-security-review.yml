@@ -460,7 +460,7 @@ jobs:
   post-review:
     name: Post Codex Security Review
     needs: security-review
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ always() && needs.security-review.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:

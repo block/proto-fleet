@@ -129,6 +129,10 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(finalizer["timeout-minutes"], 5)
         self.assertEqual(finalizer["needs"], "review-agent")
         self.assertIn("always()", finalizer["if"])
+        post_review = workflow["jobs"]["post-review"]
+        self.assertEqual(post_review["needs"], "security-review")
+        self.assertIn("always()", post_review["if"])
+        self.assertIn("needs.security-review.result == 'success'", post_review["if"])
         self.assertEqual(codex["timeout-minutes"], 9)
         self.assertTrue(codex["continue-on-error"])
         self.assertIn('"additionalProperties": false', codex["with"]["output-schema"])
