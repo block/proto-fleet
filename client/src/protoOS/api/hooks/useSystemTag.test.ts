@@ -7,6 +7,7 @@ import { useAuthRetry } from "@/protoOS/store";
 const mockGetSystemTag = vi.fn();
 const mockPutSystemTag = vi.fn();
 const mockAuthRetry = vi.fn();
+const mockSetSystemTag = vi.fn();
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
@@ -14,6 +15,8 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
 
 vi.mock("@/protoOS/store", () => ({
   useAuthRetry: vi.fn(),
+  useSetSystemTag: vi.fn(() => mockSetSystemTag),
+  useSystemTagValue: vi.fn(() => undefined),
 }));
 
 describe("useSystemTag", () => {
@@ -21,16 +24,16 @@ describe("useSystemTag", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         getSystemTag: mockGetSystemTag,
-        putSystemTag: mockPutSystemTag,
+        setSystemTag: mockPutSystemTag,
       },
     });
     (useAuthRetry as Mock).mockReturnValue(mockAuthRetry);
   });
 
   test("unwraps the firmware tag response object", async () => {
-    mockGetSystemTag.mockResolvedValue({ data: { tag: "PM-H132435034" } });
+    mockGetSystemTag.mockResolvedValue("PM-H132435034");
     const onSuccess = vi.fn();
 
     const { result } = renderHook(() => useSystemTag());
@@ -39,11 +42,12 @@ describe("useSystemTag", () => {
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledWith("PM-H132435034");
+      expect(mockSetSystemTag).toHaveBeenCalledWith("PM-H132435034");
     });
   });
 
   test("treats an empty firmware tag response object as no miner id", async () => {
-    mockGetSystemTag.mockResolvedValue({ data: { tag: "" } });
+    mockGetSystemTag.mockResolvedValue("");
     const onSuccess = vi.fn();
 
     const { result } = renderHook(() => useSystemTag());

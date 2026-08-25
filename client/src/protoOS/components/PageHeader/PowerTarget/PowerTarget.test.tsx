@@ -47,6 +47,7 @@ vi.mock("@/protoOS/store", async () => {
 
 describe("PowerTarget", () => {
   const mockUpdateMiningTarget = vi.fn();
+  const mockSetPending = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,7 +61,7 @@ describe("PowerTarget", () => {
       bounds: { min: 1000, max: 6000 },
       pending: false,
       updateMiningTarget: mockUpdateMiningTarget,
-      setPending: vi.fn(),
+      setPending: mockSetPending,
     });
   });
 
@@ -80,6 +81,14 @@ describe("PowerTarget", () => {
     expect(mockSetPausedAuthAction).toHaveBeenCalledWith(AUTH_ACTIONS.miningTarget);
     expect(mockCheckAccess).toHaveBeenCalledTimes(1);
     expect(mockUpdateMiningTarget).not.toHaveBeenCalled();
+  });
+
+  test("direct mode marks the target pending immediately on Apply", () => {
+    // The Apply button's disabled/spinner state keys off pending, so it must flip
+    // on click rather than waiting for the auth gate to resolve updateMiningTarget.
+    openAndApply();
+
+    expect(mockSetPending).toHaveBeenCalledWith(true);
   });
 
   test("fleet-hosted mode applies the target directly without the auth gate", () => {

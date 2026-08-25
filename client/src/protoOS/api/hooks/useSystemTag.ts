@@ -1,34 +1,25 @@
 import { useCallback, useMemo } from "react";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthRetry } from "@/protoOS/store";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const normalizeSystemTag = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (isRecord(value) && typeof value.tag === "string") {
-    return value.tag;
-  }
-
-  return JSON.stringify(value);
-};
+import { useAuthRetry, useSetSystemTag, useSystemTagValue } from "@/protoOS/store";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 
 const useSystemTag = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
+  const systemTag = useSystemTagValue();
+  const setSystemTag = useSetSystemTag();
 
   const getSystemTag = useCallback(
     ({ onSuccess, onError }: { onSuccess?: (tag: string) => void; onError?: (message: string) => void }) => {
-      if (!api) return;
+      if (!adapter) return;
+      const accept = beginStoreWrite("systemInfo:tag");
 
-      api
+      adapter
         .getSystemTag()
-        .then((res) => {
-          onSuccess?.(normalizeSystemTag(res.data));
+        .then((tag) => {
+          if (!accept()) return;
+          setSystemTag(tag);
+          onSuccess?.(tag);
         })
         .catch((err) => {
           if (err?.status === 404) {
@@ -38,7 +29,7 @@ const useSystemTag = () => {
           onError?.(err?.error?.message ?? "Failed to get system tag");
         });
     },
-    [api],
+    [adapter, setSystemTag],
   );
 
   const putSystemTag = useCallback(
@@ -52,18 +43,22 @@ const useSystemTag = () => {
         onError?: (message: string) => void;
       },
     ) => {
-      if (!api) return;
+      if (!adapter) return;
+      const accept = beginStoreWrite("systemInfo:tag");
 
       authRetry({
-        request: (header) => api.putSystemTag(value, header),
-        onSuccess: () => onSuccess?.(),
+        request: (params) => adapter.setSystemTag(value, params),
+        onSuccess: () => {
+          if (accept()) setSystemTag(value);
+          onSuccess?.();
+        },
         onError: (err) => onError?.(err?.error?.message ?? "Failed to save system tag"),
       });
     },
-    [api, authRetry],
+    [adapter, authRetry, setSystemTag],
   );
 
-  return useMemo(() => ({ getSystemTag, putSystemTag }), [getSystemTag, putSystemTag]);
+  return useMemo(() => ({ systemTag, getSystemTag, putSystemTag }), [systemTag, getSystemTag, putSystemTag]);
 };
 
 export { useSystemTag };

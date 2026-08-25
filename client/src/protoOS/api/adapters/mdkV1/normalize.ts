@@ -1,4 +1,6 @@
 import type {
+  CoolingConfig,
+  CoolingStatusCoolingstatus,
   ErrorListResponse,
   HardwareInfoHardwareinfo,
   MiningStatusMiningstatus,
@@ -15,7 +17,6 @@ import {
   asAsicId,
   asComponentId,
   asDeviceId,
-  asHashboardId,
   type AsicHardware,
   type AsicTelemetry,
   asPoolId,
@@ -23,8 +24,10 @@ import {
   type CommandCapabilities,
   type ComponentId,
   type ControlBoardHardware,
+  type CoolingMode,
   type DeviceType,
   type FanHardware,
+  type FanTelemetry,
   type HardwareState,
   type HashboardHardware,
   type HashboardId,
@@ -49,6 +52,9 @@ import {
   type TelemetryState,
   type Topology,
 } from "@/protoOS/store/contract";
+import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
+import { getFanId, getHashboardId, getPsuId } from "@/protoOS/store/utils/entityIds";
+import { getAsicId } from "@/protoOS/store/utils/getAsicId";
 
 const V1_COMMANDS: CommandCapabilities = {
   startStop: "supported",
@@ -64,6 +70,34 @@ const V1_COMMANDS: CommandCapabilities = {
 
 const ready = () => ({ status: "ready" as const, updatedAtMs: Date.now() });
 const moduleOwner = { kind: "module" as const, id: ROOT_MODULE_ID };
+
+export const toCanonicalCoolingStatus = (
+  wire: CoolingStatusCoolingstatus | undefined,
+): { mode: CoolingMode; fans: FanTelemetry[] } => ({
+  mode:
+    wire?.fan_mode === "Auto"
+      ? "automatic"
+      : wire?.fan_mode === "Manual"
+        ? "manual"
+        : wire?.fan_mode === "Off"
+          ? "off"
+          : "unknown",
+  fans: (wire?.fans ?? []).flatMap((fan) => {
+    if (fan.slot === undefined) return [];
+    const componentId = getFanId(fan.slot);
+    return [
+      {
+        componentId,
+        rpm: fan.rpm === undefined ? undefined : { latest: { value: fan.rpm, units: "RPM" as const } },
+        speedPercent:
+          fan.percentage === undefined ? undefined : { latest: { value: fan.percentage, units: "%" as const } },
+      },
+    ];
+  }),
+});
+
+export const toV1CoolingMode = (mode: CoolingMode): CoolingConfig["mode"] =>
+  mode === "automatic" ? "Auto" : mode === "manual" ? "Manual" : mode === "off" ? "Off" : "Unknown";
 
 const toCanonicalUnit = (
   unit: V1MetricUnit | string | undefined,
@@ -113,6 +147,14 @@ const toCanonicalMeasurement = (
   return { value: value === null ? null : value * canonical.factor, units: canonical.units };
 };
 
+const normalizeLatestMetric = (
+  value: number | null | undefined,
+  unit: string | undefined,
+): MetricTelemetry | undefined => {
+  const latest = toCanonicalMeasurement(value, unit);
+  return latest ? { latest } : undefined;
+};
+
 type V1Firmware = {
   name?: string;
   version?: string;
@@ -139,6 +181,12 @@ const toServiceHealth = (name: string | undefined) => {
   return /tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(name)
     ? ("error" as const)
     : ("running" as const);
+};
+
+export const toCanonicalSystemTag = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "tag" in value && typeof value.tag === "string") return value.tag;
+  return JSON.stringify(value) ?? "";
 };
 
 export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoData => {
@@ -295,24 +343,19 @@ export const toCanonicalErrors = (wire: ErrorListResponse): MinerError[] =>
     const source = error.source ?? "rig";
     const slot = error.slot;
     const component =
-      source === "rig" || slot === undefined
+      source === "rig" || source === "hashboard" || slot === undefined
         ? undefined
-        : source === "hashboard"
-          ? {
-              id: asHashboardId(`slot:${slot}`),
-              kind: "hashboard" as const,
-              owner: moduleOwner,
-            }
-          : {
-              id: asComponentId(`${ROOT_MODULE_ID}:${source}:${slot}`),
-              kind: source as "fan" | "psu",
-              owner: moduleOwner,
-            };
+        : {
+            id: source === "fan" ? getFanId(slot) : getPsuId(slot),
+            kind: source as "fan" | "psu",
+            owner: moduleOwner,
+          };
     return {
       id: `${error.error_code ?? "unknown"}:${error.timestamp ?? "none"}:${source}:${slot ?? "none"}:${index}`,
       code: error.error_code ?? "UNKNOWN",
       message: error.message ?? "Unknown miner error",
       owner: moduleOwner,
+      source: { kind: source, slot },
       component,
       severity: "critical",
       timestampMs: error.timestamp === undefined ? undefined : error.timestamp * 1_000,
@@ -334,7 +377,7 @@ export const toCanonicalHardware = (
 
   for (const board of wire["hashboards-info"] ?? []) {
     if (!board.hb_sn) continue;
-    const id = asHashboardId(`serial:${board.hb_sn}`);
+    const id = getHashboardId(board.hb_sn);
     const ref = { id, kind: "hashboard" as const, owner: moduleOwner };
     hashboards.set(id, {
       ref,
@@ -364,7 +407,7 @@ export const toCanonicalHardware = (
 
   for (const psu of wire["psus-info"] ?? []) {
     if (psu.slot === undefined) continue;
-    const id = asComponentId(`${ROOT_MODULE_ID}:psu:${psu.slot}`);
+    const id = getPsuId(psu.slot);
     psus.set(id, {
       ref: { id, kind: "psu", owner: moduleOwner },
       slot: psu.slot,
@@ -381,7 +424,7 @@ export const toCanonicalHardware = (
 
   for (const fan of wire["fans-info"] ?? []) {
     if (fan.slot === undefined) continue;
-    const id = asComponentId(`${ROOT_MODULE_ID}:fan:${fan.slot}`);
+    const id = getFanId(fan.slot);
     fans.set(id, { ref: { id, kind: "fan", owner: moduleOwner }, slot: fan.slot, name: fan.name });
   }
 
@@ -441,16 +484,20 @@ export const toCanonicalHardware = (
   return { resource: ready(), topology, controlBoards, hashboards, asics, psus, fans };
 };
 
-const emptyTelemetry = (): TelemetryState => ({
-  resourceByScope: new Map(),
-  rollupsByEntity: new Map(),
-  hashboards: new Map(),
-  asics: new Map(),
-  psus: new Map(),
-  fans: new Map(),
-  coolingModeByOwner: new Map(),
-  asicLoadByHashboard: new Map(),
-});
+export const toCanonicalHardwareTelemetry = (wire: HardwareInfoHardwareinfo): TelemetryState => {
+  const state = createEmptyTelemetryState();
+  state.resourceByScope.set(asResourceKey("telemetry:fan-calibration:module:root"), ready());
+  for (const fan of wire["fans-info"] ?? []) {
+    if (fan.slot === undefined) continue;
+    const componentId = getFanId(fan.slot);
+    state.fans.set(componentId, {
+      componentId,
+      minimumRpm: fan.min_rpm === undefined ? undefined : { latest: { value: fan.min_rpm, units: "RPM" } },
+      maximumRpm: fan.max_rpm === undefined ? undefined : { latest: { value: fan.max_rpm, units: "RPM" } },
+    });
+  }
+  return state;
+};
 
 type WireLatestMetric = { value?: number | null; unit?: string };
 type WireSeriesMetric = TimeSeriesMetricData & { unit?: string };
@@ -469,7 +516,7 @@ const applyLatestMetrics = (target: LevelRollup | HashboardTelemetry, source: Re
 };
 
 export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
-  const state = emptyTelemetry();
+  const state = createEmptyTelemetryState();
   const timestampMs = Date.parse(wire.timestamp);
   state.resourceByScope.set(asResourceKey("telemetry:current:module:root"), {
     status: "ready",
@@ -484,14 +531,14 @@ export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
 
   for (const board of wire.hashboards ?? []) {
     if (!board.serial_number) continue;
-    const id = asHashboardId(`serial:${board.serial_number}`);
+    const id = getHashboardId(board.serial_number);
     const normalized: HashboardTelemetry = { hashboardId: id };
     applyLatestMetrics(normalized, board as unknown as Record<string, unknown>);
     const temp = board.temperature;
     if (temp) {
-      normalized.temperature = { latest: toCanonicalMeasurement(temp.average, temp.unit) };
-      normalized.inletTemperature = { latest: toCanonicalMeasurement(temp.inlet, temp.unit) };
-      normalized.outletTemperature = { latest: toCanonicalMeasurement(temp.outlet, temp.unit) };
+      normalized.temperature = normalizeLatestMetric(temp.average, temp.unit);
+      normalized.inletTemperature = normalizeLatestMetric(temp.inlet, temp.unit);
+      normalized.outletTemperature = normalizeLatestMetric(temp.outlet, temp.unit);
     }
     state.hashboards.set(id, normalized);
 
@@ -501,7 +548,7 @@ export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
     );
     const temperatures: number[] = [];
     for (let index = 0; index < asicCount; index += 1) {
-      const asicId = asAsicId(`${id}:asic:${index}`);
+      const asicId = getAsicId(board.serial_number, index);
       const asic: AsicTelemetry = { asicId };
       const hashrate = toCanonicalMeasurement(board.asics?.hashrate?.values?.[index], board.asics?.hashrate?.unit);
       const temperature = toCanonicalMeasurement(
@@ -524,18 +571,20 @@ export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
   }
 
   for (const psu of wire.psus ?? []) {
+    // MDK v1 telemetry indexes physical PSU positions from zero, while hardware
+    // inventory exposes the corresponding physical slots from one.
     const slot = psu.index + 1;
-    const id = asComponentId(`${ROOT_MODULE_ID}:psu:${slot}`);
+    const id = getPsuId(slot);
     const normalized: PsuTelemetry = { componentId: id };
-    normalized.inputVoltage = { latest: toCanonicalMeasurement(psu.voltage?.input, psu.voltage?.unit) };
-    normalized.outputVoltage = { latest: toCanonicalMeasurement(psu.voltage?.output, psu.voltage?.unit) };
-    normalized.inputCurrent = { latest: toCanonicalMeasurement(psu.current?.input, psu.current?.unit) };
-    normalized.outputCurrent = { latest: toCanonicalMeasurement(psu.current?.output, psu.current?.unit) };
-    normalized.inputPower = { latest: toCanonicalMeasurement(psu.power?.input, psu.power?.unit) };
-    normalized.outputPower = { latest: toCanonicalMeasurement(psu.power?.output, psu.power?.unit) };
-    normalized.ambientTemperature = { latest: toCanonicalMeasurement(psu.temperature?.ambient, psu.temperature?.unit) };
-    normalized.averageTemperature = { latest: toCanonicalMeasurement(psu.temperature?.average, psu.temperature?.unit) };
-    normalized.hotspotTemperature = { latest: toCanonicalMeasurement(psu.temperature?.hotspot, psu.temperature?.unit) };
+    normalized.inputVoltage = normalizeLatestMetric(psu.voltage?.input, psu.voltage?.unit);
+    normalized.outputVoltage = normalizeLatestMetric(psu.voltage?.output, psu.voltage?.unit);
+    normalized.inputCurrent = normalizeLatestMetric(psu.current?.input, psu.current?.unit);
+    normalized.outputCurrent = normalizeLatestMetric(psu.current?.output, psu.current?.unit);
+    normalized.inputPower = normalizeLatestMetric(psu.power?.input, psu.power?.unit);
+    normalized.outputPower = normalizeLatestMetric(psu.power?.output, psu.power?.unit);
+    normalized.ambientTemperature = normalizeLatestMetric(psu.temperature?.ambient, psu.temperature?.unit);
+    normalized.averageTemperature = normalizeLatestMetric(psu.temperature?.average, psu.temperature?.unit);
+    normalized.hotspotTemperature = normalizeLatestMetric(psu.temperature?.hotspot, psu.temperature?.unit);
     state.psus.set(id, normalized);
   }
 
@@ -546,7 +595,8 @@ const parseDurationMs = (duration: string | undefined): number | undefined => {
   if (!duration) return undefined;
   const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
   if (!match) return undefined;
-  return (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+  const durationMs = (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+  return durationMs > 0 ? durationMs : undefined;
 };
 
 const toCanonicalSeries = (
@@ -561,6 +611,7 @@ const toCanonicalSeries = (
   return {
     timeSeries: {
       bucketSizeMs,
+      units: canonical.units,
       points: metric.values.map((value, index) => ({
         timestampMs: startTimeMs + index * bucketSizeMs,
         value: value === null ? null : value * canonical.factor,
@@ -592,13 +643,28 @@ const applySeriesMetrics = (
 
 export const toCanonicalTimeSeries = (
   wire: TimeSeriesResponse,
-  options: { startTimeMs?: number } = {},
+  options: { startTimeMs?: number; interval?: string } = {},
 ): TelemetryState => {
-  const state = emptyTelemetry();
-  const startTimeMs = options.startTimeMs ?? Date.parse(wire.meta?.start_time ?? "");
-  const safeStartTimeMs = Number.isNaN(startTimeMs) ? Date.now() : startTimeMs;
-  const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? 0;
+  const state = createEmptyTelemetryState();
+  const responseStartTimeMs = Date.parse(wire.meta?.start_time ?? "");
+  const safeStartTimeMs = Number.isNaN(responseStartTimeMs) ? (options.startTimeMs ?? Date.now()) : responseStartTimeMs;
+  const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? parseDurationMs(options.interval);
+  if (bucketSizeMs === undefined)
+    throw new Error("MDK v1 time-series response did not provide a valid positive interval");
   state.resourceByScope.set(asResourceKey("telemetry:history:module:root"), ready());
+
+  type TimeSeriesHashboard = NonNullable<NonNullable<TimeSeriesResponse["data"]>["hashboards"]>[number];
+  const boardByIndex = new Map<number, TimeSeriesHashboard>();
+  const ambiguousBoardIndexes = new Set<number>();
+  for (const board of wire.data?.hashboards ?? []) {
+    if (board.index === undefined || !board.serial_number || ambiguousBoardIndexes.has(board.index)) continue;
+    if (boardByIndex.has(board.index)) {
+      boardByIndex.delete(board.index);
+      ambiguousBoardIndexes.add(board.index);
+    } else {
+      boardByIndex.set(board.index, board);
+    }
+  }
 
   if (wire.data?.miner) {
     const rollup: LevelRollup = {};
@@ -608,16 +674,16 @@ export const toCanonicalTimeSeries = (
 
   for (const board of wire.data?.hashboards ?? []) {
     if (!board.serial_number) continue;
-    const id = asHashboardId(`serial:${board.serial_number}`);
+    const id = getHashboardId(board.serial_number);
     const normalized: HashboardTelemetry = { hashboardId: id };
     applySeriesMetrics(normalized, board, safeStartTimeMs, bucketSizeMs);
     state.hashboards.set(id, normalized);
   }
 
   for (const asicWire of wire.data?.asics ?? []) {
-    const board = wire.data?.hashboards?.find((candidate) => candidate.index === asicWire.hashboard_index);
+    const board = boardByIndex.get(asicWire.hashboard_index);
     if (!board?.serial_number) continue;
-    const id = asAsicId(`serial:${board.serial_number}:asic:${asicWire.index}`);
+    const id = getAsicId(board.serial_number, asicWire.index);
     const normalized: AsicTelemetry = { asicId: id };
     for (const field of ["hashrate", "temperature"] as const) {
       const metric = asicWire[field];

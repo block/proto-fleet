@@ -1,4 +1,3 @@
-// import { AsicStats, HashboardInfo } from "@/protoOS/api/generatedApi";
 import { AsicData } from "@/protoOS/store";
 
 export const sortAsics = (asics: AsicData[]) => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { convertAndFormatTemperature } from "./utility";
+import { convertAndFormatTemperature, convertTelemetryTemperatureToChartData } from "./utility";
 
 describe("convertAndFormatTemperature", () => {
   test("formats Celsius with space before degree sign", () => {
@@ -31,5 +31,25 @@ describe("convertAndFormatTemperature", () => {
     const result = convertAndFormatTemperature(50, "C");
     expect(result).toContain("°"); // U+00B0
     expect(result).not.toContain("º"); // not U+00BA
+  });
+});
+
+describe("convertTelemetryTemperatureToChartData", () => {
+  const metric = {
+    units: "C" as const,
+    values: [60, 61],
+    startTime: 1_000,
+    endTime: 61_000,
+  };
+
+  test("uses the normalized bucket size", () => {
+    expect(convertTelemetryTemperatureToChartData(metric, 60_000)).toEqual([
+      { datetime: 1, value: 60 },
+      { datetime: 61, value: 61 },
+    ]);
+  });
+
+  test("does not invent timestamps when the bucket size is absent", () => {
+    expect(convertTelemetryTemperatureToChartData(metric, undefined)).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { Aggregates, TimeSeriesData } from "@/protoOS/api/generatedApi";
+import type { Aggregates, TimeSeriesData } from "@/protoOS/features/kpis/types";
 import { Duration } from "@/shared/components/DurationSelector";
 import { getDateFromEpoch } from "@/shared/utils/datetime";
 import { convertMegahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/telemetryFormat";

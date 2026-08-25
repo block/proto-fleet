@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type TimeSeriesRequest, type TimeSeriesResponse } from "@/protoOS/api/generatedApi";
+import type { TimeSeriesLevel, TimeSeriesQuery } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { getAsicId, useMinerStore } from "@/protoOS/store";
+import { useMinerStore } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { type Duration, getDurationMs } from "@/shared/components/DurationSelector";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -29,15 +30,15 @@ function getIntervalMinutes(duration: Duration): number {
 
 interface UseTimeSeriesProps {
   duration: Duration;
-  levels: TimeSeriesRequest["levels"];
+  levels: TimeSeriesLevel[];
   poll?: boolean;
   pollIntervalMs?: number;
 }
 
 const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 1000 }: UseTimeSeriesProps) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
-  const [data, setData] = useState<TimeSeriesResponse>();
+  const data = useMinerStore((state) => state.telemetry);
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
@@ -46,7 +47,7 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
   const hashboardCount = useMinerStore((state) => state.hardware.hashboards.size);
 
   const fetchData = useCallback(async () => {
-    if (!api) {
+    if (!adapter) {
       return;
     }
 
@@ -57,6 +58,7 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
     }
 
     setPending(true);
+    const accept = beginStoreWrite(`telemetry:history:${duration}:${levels.join(",")}`);
     setError(undefined);
 
     // Capture the current duration at the start of the request
@@ -67,8 +69,8 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
     const intervalMinutes = getIntervalMinutes(duration);
     const startTime = new Date(Date.now() - timeRangeMs);
 
-    const request: TimeSeriesRequest = {
-      start_time: startTime.toISOString(),
+    const request: TimeSeriesQuery = {
+      startTime: startTime.toISOString(),
       duration: `PT${Math.floor(timeRangeMs / (60 * 1000))}M`,
       interval: `PT${intervalMinutes}M`,
       levels,
@@ -76,46 +78,16 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
     };
 
     await authRetry({
-      request: (params) => api.getTimeSeries(request, params),
-      onSuccess: (response) => {
+      request: (params) => adapter.getTimeSeries(request, params),
+      onSuccess: (normalized) => {
         // Only update if the duration hasn't changed since we started the request
         const currentDuration = useMinerStore.getState().ui.duration;
         if (requestDuration !== currentDuration) {
           return;
         }
+        if (!accept()) return;
 
-        setData(response.data);
-
-        // Update hardware store with ASIC index/hashboardIndex data from time series API
-        // TODO: [STORE_REFACTOR] We shouldnt need to populate hardware data from timeseries api
-        // ideally the useHardware hook would fetch and populate this data
-        if (response.data?.data?.asics) {
-          response.data.data.asics.forEach((asicData) => {
-            if (asicData.index !== undefined && asicData.hashboard_index !== undefined) {
-              const hashboardSerialNumber = response.data?.data?.hashboards?.find(
-                (hb) => hb.index === asicData.hashboard_index,
-              )?.serial_number;
-
-              if (hashboardSerialNumber) {
-                const asicId = getAsicId(hashboardSerialNumber, asicData.index.toString());
-
-                // Update existing ASIC with index/hashboardIndex data
-                const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
-
-                if (existingAsic) {
-                  useMinerStore.getState().hardware.addAsic({
-                    ...existingAsic,
-                    index: asicData.index,
-                    hashboardIndex: asicData.hashboard_index,
-                  });
-                }
-              }
-            }
-          });
-        }
-
-        // Update the telemetry store with the new data
-        useMinerStore.getState().telemetry.updateTimeSeriesTelemetry(response.data);
+        useMinerStore.getState().telemetry.mergeTelemetry(normalized, accept.requestId);
       },
       onError: (err) => {
         setError(err?.error?.message ?? "Unknown error occurred");
@@ -123,9 +95,9 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
     }).finally(() => {
       setPending(false);
     });
-  }, [duration, levels, api, authRetry]);
+  }, [duration, levels, adapter, authRetry]);
 
-  // Trigger fetch when hashboards change or when fetchData dependencies change (duration, levels, api)
+  // Trigger fetch when hashboards change or when request dependencies change.
   useEffect(() => {
     if (hashboardCount > 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on deps change; setState inside async fetch is the external-sync pattern

@@ -120,6 +120,7 @@ export interface MetricPoint {
 export interface MetricTimeSeries {
   points: MetricPoint[];
   bucketSizeMs?: number;
+  units?: MetricUnit;
   aggregates?: { min?: Measurement; avg?: Measurement; max?: Measurement };
 }
 
@@ -413,6 +414,7 @@ export interface SystemInfoData {
 export interface SystemInfoState {
   resource: ResourceState;
   data?: SystemInfoData;
+  systemTag?: string;
 }
 
 export interface NetworkInterface {
@@ -463,11 +465,17 @@ export interface OperationalStatus {
   message?: string;
 }
 
+export interface ErrorSourceLocator {
+  kind: "rig" | "fan" | "psu" | "hashboard";
+  slot?: number;
+}
+
 export interface MinerError {
   id: string;
   code: string;
   message: string;
   owner: EntityRef;
+  source?: ErrorSourceLocator;
   component?: ComponentRef;
   severity: "info" | "warning" | "critical";
   timestampMs?: number;
@@ -531,6 +539,11 @@ export interface UIState {
   showLoginModal: boolean;
   dismissedLoginModal: boolean;
   pausedAuthAction: string | null;
+}
+
+export interface StoreWriteToken {
+  connectionGeneration: number;
+  requestId: number;
 }
 
 export const ROOT_MODULE_ID = "module:root" as ModuleId;

@@ -23,9 +23,11 @@ vi.mock("../useMinerStore", () => ({
     vi.fn((selector: any) =>
       selector({
         auth: {
-          authTokens: {
-            refreshToken: { value: "test-refresh-token", expiry: "" },
-            accessToken: { value: "test-access-token", expiry: "" },
+          session: {
+            mode: "bearer",
+            status: "authenticated",
+            accessToken: { value: "test-access-token", expiresAtMs: 0 },
+            refreshToken: { value: "test-refresh-token", expiresAtMs: 0 },
           },
           logout: mockLogout,
           setAuthTokens: vi.fn(),
@@ -64,8 +66,10 @@ describe("useAuthErrors", () => {
     mockUseMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
     mockGetState.mockReturnValue({
       auth: {
-        authTokens: {
-          refreshToken: { value: "test-refresh-token", expiry: "" },
+        session: {
+          mode: "bearer",
+          status: "authenticated",
+          refreshToken: { value: "test-refresh-token", expiresAtMs: 0 },
         },
       },
     });
@@ -121,8 +125,10 @@ describe("useAuthErrors", () => {
     test("uses the latest refresh token from store when handling 401s", () => {
       mockGetState.mockReturnValue({
         auth: {
-          authTokens: {
-            refreshToken: { value: "fresh-refresh-token", expiry: "" },
+          session: {
+            mode: "bearer",
+            status: "authenticated",
+            refreshToken: { value: "fresh-refresh-token", expiresAtMs: 0 },
           },
         },
       });

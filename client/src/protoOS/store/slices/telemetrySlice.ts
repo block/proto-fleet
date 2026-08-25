@@ -1,759 +1,228 @@
 import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
-import type {
-  AsicTelemetryData,
-  FanTelemetryData,
-  HashboardTelemetryData,
-  Measurement,
-  MetricTelemetry,
-  MetricTimeSeries,
-  MetricUnit,
-  MinerTelemetryData,
-  PsuTelemetryData,
-} from "../types";
-import type { MinerStore } from "../useMinerStore";
-import { getAsicId } from "../utils/getAsicId";
-import type { CoolingStatusCoolingstatus, TelemetryData, TimeSeriesResponse } from "@/protoOS/api/generatedApi";
 
-// Enable Map/Set support for Immer
+import {
+  type CoolingMode,
+  type FanTelemetry,
+  type Measurement,
+  type MetricTelemetry,
+  ROOT_MODULE_KEY,
+  type TelemetryState,
+} from "../contract";
+import type { FanTelemetryData, PsuTelemetryData } from "../types";
+import type { MinerStore } from "../useMinerStore";
+import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
+import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
+
 enableMapSet();
 
-// Type helpers to extract metric fields
-type MetricKeys<T> = {
-  [K in keyof T]: T[K] extends MetricTelemetry | undefined ? K : never;
-}[keyof T] &
-  string;
+type MetricContainer = Record<string, unknown>;
+const metricFields = [
+  "hashrate",
+  "power",
+  "efficiency",
+  "temperature",
+  "inletTemperature",
+  "outletTemperature",
+  "averageAsicTemperature",
+  "maximumAsicTemperature",
+  "voltage",
+  "frequency",
+  "inputVoltage",
+  "inputCurrent",
+  "inputPower",
+  "outputVoltage",
+  "outputCurrent",
+  "outputPower",
+  "ambientTemperature",
+  "averageTemperature",
+  "hotspotTemperature",
+  "rpm",
+  "speedPercent",
+  "minimumRpm",
+  "maximumRpm",
+] as const;
 
-type MinerMetricKeys = MetricKeys<MinerTelemetryData>;
-type HashboardMetricKeys = MetricKeys<HashboardTelemetryData>;
-type AsicMetricKeys = MetricKeys<AsicTelemetryData>;
-
-// Helper to check if a field is a metric field
-const isMetricField = (obj: any, key: string): boolean => {
-  const value = obj[key];
-  return value && typeof value === "object" && "unit" in value;
+// When `preferCurrent` is true the incoming snapshot is stale for this entity
+// (an older request landing after a newer one already wrote): current values win
+// on conflict, and stale data may only fill fields the current snapshot lacks.
+const mergeMetrics = <T extends object>(current: T | undefined, incoming: T, preferCurrent = false): T => {
+  const merged = (preferCurrent ? { ...incoming, ...(current ?? {}) } : { ...(current ?? {}), ...incoming }) as T &
+    MetricContainer;
+  for (const field of metricFields) {
+    const before = (current as MetricContainer | undefined)?.[field] as MetricTelemetry | undefined;
+    const after = (incoming as MetricContainer)[field] as MetricTelemetry | undefined;
+    if (!before && !after) continue;
+    // Lower-priority source is applied first, then the winner overrides it.
+    const lower = preferCurrent ? after : before;
+    const higher = preferCurrent ? before : after;
+    const metric: MetricTelemetry = {};
+    if (lower?.latest !== undefined) metric.latest = lower.latest;
+    if (lower?.timeSeries !== undefined) metric.timeSeries = lower.timeSeries;
+    if (higher?.latest !== undefined) metric.latest = higher.latest;
+    if (higher?.timeSeries !== undefined) metric.timeSeries = higher.timeSeries;
+    if (metric.latest !== undefined || metric.timeSeries !== undefined) (merged as MetricContainer)[field] = metric;
+    else delete (merged as MetricContainer)[field];
+  }
+  return merged;
 };
 
-// Helper functions for API data transformation
-const parseISODateToTimestamp = (isoString?: string): number | undefined => {
-  if (!isoString) return undefined;
-  return new Date(isoString).getTime();
+// Per-entity newest-write-wins gate. Returns whether the incoming write is stale
+// for a given entity id, recording the requestId of accepted (fresh) writes so a
+// slower response keyed on a different resource string can't clobber fresher data.
+interface StalenessGate {
+  requestId: number;
+  lastApplied: Map<string, number>;
+  prefix: string;
+}
+
+const mergeMap = <K, V extends object>(target: Map<K, V>, incoming: Map<K, V>, gate?: StalenessGate) => {
+  incoming.forEach((value, key) => {
+    let preferCurrent = false;
+    if (gate) {
+      const entityId = `${gate.prefix}:${String(key)}`;
+      if (gate.requestId < (gate.lastApplied.get(entityId) ?? 0)) preferCurrent = true;
+      else gate.lastApplied.set(entityId, gate.requestId);
+    }
+    target.set(key, mergeMetrics(target.get(key), value, preferCurrent));
+  });
 };
 
-const parseISO8601DurationToMs = (duration?: string): number => {
-  if (!duration) return 60000; // Default to 1 minute
+const mapMeasurement = (
+  value: { latest?: { value: number | null; units?: string } } | undefined,
+  fallback: Measurement["units"],
+): MetricTelemetry | undefined =>
+  value?.latest
+    ? {
+        latest: {
+          value: value.latest.value,
+          units: (value.latest.units as Measurement["units"] | undefined) ?? fallback,
+        },
+      }
+    : undefined;
 
-  // Parse ISO 8601 duration format like "PT15M", "PT1H", "PT5M"
-  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!match) return 60000; // Default to 1 minute
-
-  const hours = parseInt(match[1] || "0", 10);
-  const minutes = parseInt(match[2] || "0", 10);
-  const seconds = parseInt(match[3] || "0", 10);
-
-  return hours * 60 * 60 * 1000 + minutes * 60 * 1000 + seconds * 1000;
-};
-
-const createMeasurement = (value: number | undefined, units: MetricUnit): Measurement | undefined => {
-  if (value === undefined) return undefined;
-  return {
-    value,
-    units,
-  };
-};
-
-// =============================================================================
-// Telemetry Slice Interface
-// =============================================================================
-
-export interface TelemetrySlice {
-  // State - normalized data structure
-  miner: MinerTelemetryData | null;
-  hashboards: Map<string, HashboardTelemetryData>;
-  asics: Map<string, AsicTelemetryData>;
-  psus: Map<number, PsuTelemetryData>;
-  fans: Map<number, FanTelemetryData>;
-  coolingMode: CoolingStatusCoolingstatus["fan_mode"] | null; // Current cooling mode (e.g., "Auto", "Off", "Manual")
-  lastApiResponse: any | null; // Store the API response
-  lastUpdated: number;
-  intervalMs: number; // sampling interval from API
-
-  // Data Update Actions
-  updateTimeSeriesTelemetry: (apiResponse: TimeSeriesResponse) => void;
-  updateLatestTelemetry: (telemetryData: TelemetryData) => void;
-
-  // need this because time series API currently doesn not return
-  // inlet/outlet temps so we need to get them from separate API call
+export interface TelemetrySlice extends TelemetryState {
+  // Tracks the last-applied requestId per entity so newest-write-wins is enforced
+  // per entity, independent of the caller's resource-key string. Not part of the
+  // persisted/reset TelemetryState contract; cleared explicitly in clearAllData.
+  lastAppliedRequestByEntity: Map<string, number>;
+  mergeTelemetry: (telemetry: TelemetryState, requestId?: number) => void;
   updateHashboardTemperatures: (
-    hashboardSerial: string,
-    inletTemp?: Measurement,
-    outletTemp?: Measurement,
-    avgAsicTemp?: Measurement,
-    maxAsicTemp?: Measurement,
+    serial: string,
+    inlet?: Measurement,
+    outlet?: Measurement,
+    average?: Measurement,
+    maximum?: Measurement,
   ) => void;
-
-  // PSU/Fan Update Actions
-  updatePsuTelemetry: (psuId: number, telemetryData: Partial<PsuTelemetryData>) => void;
-  updateFanTelemetry: (fanSlot: number, telemetryData: Partial<FanTelemetryData>) => void;
-
-  // Cooling Mode Actions
-  updateCoolingMode: (mode: CoolingStatusCoolingstatus["fan_mode"]) => void;
-
-  // Utility Actions
+  updatePsuTelemetry: (slot: number, telemetry: Partial<PsuTelemetryData>) => void;
+  updateFanTelemetry: (slot: number, telemetry: Partial<FanTelemetryData>) => void;
+  replaceFanLiveTelemetry: (fans: FanTelemetry[]) => void;
+  updateCoolingMode: (mode: CoolingMode) => void;
   clearOldData: (olderThanTimestamp: number) => void;
   clearTimeSeriesData: () => void;
   clearLatestData: () => void;
   clearAllData: () => void;
 }
 
-// =============================================================================
-// Telemetry Slice Implementation
-// =============================================================================
+const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") => {
+  const values: object[] = [
+    ...state.rollupsByEntity.values(),
+    ...state.hashboards.values(),
+    ...state.asics.values(),
+    ...state.psus.values(),
+    ...state.fans.values(),
+  ];
+  values.forEach((value) =>
+    metricFields.forEach((field) => {
+      const metric = (value as MetricContainer)[field] as MetricTelemetry | undefined;
+      if (metric) delete metric[part];
+    }),
+  );
+};
 
 export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", never]], [], TelemetrySlice> = (
   set,
 ) => ({
-  // Initial state - normalized structure
-  miner: null,
-  hashboards: new Map(),
-  asics: new Map(),
-  psus: new Map(),
-  fans: new Map(),
-  coolingMode: null,
-  lastApiResponse: null,
-  lastUpdated: Date.now(),
-  intervalMs: 900000, // Default 15 minutes
-
-  // Update time series telemetry data from time series API
-  updateTimeSeriesTelemetry: (apiResponse: TimeSeriesResponse) =>
+  ...createEmptyTelemetryState(),
+  lastAppliedRequestByEntity: new Map<string, number>(),
+  mergeTelemetry: (incoming, requestId) =>
     set((state) => {
-      // adds ms equivalent to ISO8601 timestamps returned by API
-      const transformedApiResponse = {
-        ...apiResponse,
-        meta: {
-          ...apiResponse.meta,
-          ...(apiResponse.meta?.start_time && {
-            start_time_ms: new Date(apiResponse.meta.start_time).getTime(),
-          }),
-          ...(apiResponse.meta?.end_time && {
-            end_time_ms: new Date(apiResponse.meta.end_time).getTime(),
-          }),
-        },
-      };
-
-      const now = Date.now();
-      state.telemetry.lastApiResponse = transformedApiResponse;
-      state.telemetry.lastUpdated = now;
-      state.telemetry.intervalMs = parseISO8601DurationToMs(transformedApiResponse.meta?.interval);
-
-      const startTime = parseISODateToTimestamp(transformedApiResponse.meta?.start_time);
-      const endTime = parseISODateToTimestamp(transformedApiResponse.meta?.end_time);
-
-      // Validate that we have required timestamp data
-      if (startTime === undefined || endTime === undefined) {
-        console.warn("Missing start_time or end_time in API response, skipping update");
-        return;
-      }
-
-      // Initialize miner if it doesn't exist
-      if (!state.telemetry.miner) {
-        state.telemetry.miner = {
-          hashboards: [],
-        };
-      }
-
-      // Update miner metrics
-      if (transformedApiResponse.data?.miner) {
-        const minerData = transformedApiResponse.data.miner;
-
-        Object.keys(minerData)
-          .filter((key) => isMetricField(minerData, key))
-          .forEach((field) => {
-            const metric = minerData[field as MinerMetricKeys];
-
-            // Get or create the metric object
-            if (!state.telemetry.miner![field as MinerMetricKeys]) {
-              state.telemetry.miner![field as MinerMetricKeys] = {};
-            }
-
-            const metricTelemetry = state.telemetry.miner![field as MinerMetricKeys] as MetricTelemetry;
-
-            // Update only timeSeries, Immer preserves latest automatically
-            metricTelemetry.timeSeries = {
-              aggregates: metric.aggregates
-                ? {
-                    min: createMeasurement(metric.aggregates.min, metric.unit as MetricUnit),
-                    avg: createMeasurement(metric.aggregates.avg, metric.unit as MetricUnit),
-                    max: createMeasurement(metric.aggregates.max, metric.unit as MetricUnit),
-                  }
-                : undefined,
-              units: metric.unit as MetricUnit,
-              values: metric.values || [],
-              startTime,
-              endTime,
-            };
-          });
-      }
-
-      // Update hashboards
-      if (transformedApiResponse.data?.hashboards) {
-        const hashboardIds: string[] = [];
-        transformedApiResponse.data.hashboards.forEach((hashboardData) => {
-          const hashboardId = hashboardData.serial_number;
-          if (!hashboardId) {
-            console.warn("Hashboard data missing serial_number:", hashboardData);
-            return;
-          }
-
-          hashboardIds.push(hashboardId);
-
-          // TODO: [STORE_REFACTOR] generated API currently types serial_number as optional
-          // even though it should always be present. We should fix this in the API spec
-          // and then we can remove check for serial_number here.
-
-          // Create or update hashboard
-          if (!state.telemetry.hashboards.has(hashboardId) && hashboardData.serial_number) {
-            state.telemetry.hashboards.set(hashboardId, {
-              serial: hashboardData.serial_number,
-            });
-          }
-
-          const hashboard = state.telemetry.hashboards.get(hashboardId)!;
-
-          // Update hashboard metrics
-          Object.keys(hashboardData)
-            .filter((key) => isMetricField(hashboardData, key))
-            .forEach((field) => {
-              const metric = hashboardData[field as HashboardMetricKeys];
-
-              // Get or create the metric object
-              if (!hashboard[field as HashboardMetricKeys]) {
-                hashboard[field as HashboardMetricKeys] = {};
-              }
-
-              const metricTelemetry = hashboard[field as HashboardMetricKeys] as MetricTelemetry;
-
-              // Update only timeSeries, Immer preserves latest automatically
-              metricTelemetry.timeSeries = {
-                aggregates: metric.aggregates
-                  ? {
-                      min: createMeasurement(metric.aggregates.min, metric.unit),
-                      avg: createMeasurement(metric.aggregates.avg, metric.unit),
-                      max: createMeasurement(metric.aggregates.max, metric.unit),
-                    }
-                  : undefined,
-                units: metric.unit,
-                values: metric.values || [],
-                startTime,
-                endTime,
-              };
-            });
-        });
-
-        // Update miner's hashboard reference
-        state.telemetry.miner!.hashboards = hashboardIds;
-      }
-
-      // Update ASICs
-      if (transformedApiResponse.data?.asics) {
-        transformedApiResponse.data?.asics.forEach((asicData) => {
-          // Validate required fields
-          if (asicData.index === undefined || asicData.hashboard_index === undefined) {
-            console.warn("ASIC data missing required index or hashboard_index:", asicData);
-            return;
-          }
-
-          // TODO: [STORE_REFACTOR] could implement a simple cache Map here so
-          // that we dont have to iterate through all hashboards for every asic
-          // alternatively when we could key hashboards by their index instead of serial
-          // but since we currenlty still need to use some of the old apis that depend on serial number
-          // we cant do that yet.
-          const hashboardSerialNumber = transformedApiResponse.data?.hashboards?.find(
-            (hb) => hb.index === asicData.hashboard_index,
-          )?.serial_number;
-          if (!hashboardSerialNumber) {
-            console.warn(`Hashboard serial number not found for ASIC with index ${asicData.index}`);
-            return;
-          }
-
-          //TODO: [STORE_REFACTOR] MDK-API.json needs updated to always provide asic index
-          const asicId = getAsicId(hashboardSerialNumber, asicData.index.toString());
-
-          // Create or update ASIC
-          if (!state.telemetry.asics.has(asicId)) {
-            state.telemetry.asics.set(asicId, {
-              id: asicId,
-            });
-          }
-
-          const asic = state.telemetry.asics.get(asicId)!;
-
-          // Update ASIC metrics
-          Object.keys(asicData)
-            .filter((key) => isMetricField(asicData, key))
-            .forEach((field) => {
-              const metric = asicData[field as AsicMetricKeys];
-
-              // Get or create the metric object
-              if (!asic[field as AsicMetricKeys]) {
-                asic[field as AsicMetricKeys] = {};
-              }
-
-              const metricTelemetry = asic[field as AsicMetricKeys] as MetricTelemetry;
-
-              // Update only timeSeries, Immer preserves latest automatically
-              metricTelemetry.timeSeries = {
-                aggregates: metric.aggregates
-                  ? {
-                      min: createMeasurement(metric.aggregates.min, metric.unit),
-                      avg: createMeasurement(metric.aggregates.avg, metric.unit),
-                      max: createMeasurement(metric.aggregates.max, metric.unit),
-                    }
-                  : undefined,
-                units: metric.unit,
-                values: metric.values,
-                startTime,
-                endTime,
-              };
-            });
-        });
-      }
+      const lastApplied = state.telemetry.lastAppliedRequestByEntity;
+      const gate = (prefix: string): StalenessGate | undefined =>
+        requestId === undefined ? undefined : { requestId, lastApplied, prefix };
+      incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
+      mergeMap(state.telemetry.rollupsByEntity, incoming.rollupsByEntity, gate("rollup"));
+      mergeMap(state.telemetry.hashboards, incoming.hashboards, gate("hashboard"));
+      mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
+      mergeMap(state.telemetry.psus, incoming.psus, gate("psu"));
+      mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
+      incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));
+      incoming.asicLoadByHashboard.forEach((value, key) => state.telemetry.asicLoadByHashboard.set(key, value));
     }),
-
-  // Update latest telemetry values from real-time telemetry API
-  updateLatestTelemetry: (telemetryData: TelemetryData) =>
+  updateHashboardTemperatures: (serial, inlet, outlet, average, maximum) =>
     set((state) => {
-      const now = Date.now();
-      state.telemetry.lastUpdated = now;
-
-      // Initialize miner if it doesn't exist
-      if (!state.telemetry.miner) {
-        state.telemetry.miner = {
-          hashboards: [],
-        };
-      }
-
-      // Update miner latest metrics
-      if (telemetryData.miner) {
-        const minerData = telemetryData.miner;
-
-        Object.keys(minerData)
-          .filter((key) => isMetricField(minerData, key))
-          .forEach((field) => {
-            const metric = minerData[field as MinerMetricKeys];
-
-            // Get or create the metric object
-            if (!state.telemetry.miner![field as MinerMetricKeys]) {
-              state.telemetry.miner![field as MinerMetricKeys] = {};
-            }
-
-            const metricTelemetry = state.telemetry.miner![field as MinerMetricKeys] as MetricTelemetry;
-
-            // Update only latest, Immer preserves timeSeries automatically
-            metricTelemetry.latest = createMeasurement(metric.value, metric.unit as MetricUnit);
-          });
-      }
-
-      // Update hashboard latest metrics
-      if (telemetryData.hashboards) {
-        telemetryData.hashboards.forEach((hashboardData) => {
-          const hashboardId = hashboardData.serial_number;
-          if (!hashboardId) return;
-
-          // Create or get hashboard
-          if (!state.telemetry.hashboards.has(hashboardId)) {
-            state.telemetry.hashboards.set(hashboardId, {
-              serial: hashboardId,
-            });
-          }
-
-          const hashboard = state.telemetry.hashboards.get(hashboardId)!;
-
-          // Update standard metrics (excluding special temperature handling below)
-          Object.keys(hashboardData)
-            .filter((key) => key !== "temperature" && isMetricField(hashboardData, key))
-            .forEach((field) => {
-              const metric = hashboardData[field as keyof typeof hashboardData];
-              if (metric && typeof metric === "object" && "value" in metric) {
-                // Get or create the metric object
-                if (!hashboard[field as HashboardMetricKeys]) {
-                  hashboard[field as HashboardMetricKeys] = {};
-                }
-
-                const metricTelemetry = hashboard[field as HashboardMetricKeys] as MetricTelemetry;
-
-                // Update only latest, Immer preserves timeSeries automatically
-                metricTelemetry.latest = createMeasurement(metric.value, metric.unit as MetricUnit);
-              }
-            });
-
-          // Update temperature metrics (special handling for hashboard temperature structure)
-          if (hashboardData.temperature) {
-            const temp = hashboardData.temperature;
-
-            // Update aggregate temperature
-            if (temp.average !== undefined) {
-              if (!hashboard.temperature) {
-                hashboard.temperature = {};
-              }
-              hashboard.temperature.latest = createMeasurement(temp.average, temp.unit as MetricUnit);
-            }
-
-            // Update inlet temp
-            if (temp.inlet !== undefined) {
-              if (!hashboard.inletTemp) {
-                hashboard.inletTemp = {};
-              }
-              hashboard.inletTemp.latest = createMeasurement(temp.inlet, temp.unit as MetricUnit);
-            }
-
-            // Update outlet temp
-            if (temp.outlet !== undefined) {
-              if (!hashboard.outletTemp) {
-                hashboard.outletTemp = {};
-              }
-              hashboard.outletTemp.latest = createMeasurement(temp.outlet, temp.unit as MetricUnit);
-            }
-          }
-
-          // Update ASIC latest metrics (nested within hashboard)
-          if (hashboardData.asics && hashboardData.serial_number) {
-            const asicTelemetry = hashboardData.asics;
-
-            // ASICs are returned as arrays of values indexed by ASIC position
-            const numAsics = asicTelemetry.hashrate?.values?.length || asicTelemetry.temperature?.values?.length || 0;
-
-            // Collect valid temperatures while updating ASICs (for avg/max computation)
-            const temps: number[] = [];
-            const tempUnit = asicTelemetry.temperature?.unit as MetricUnit | undefined;
-
-            for (let asicIndex = 0; asicIndex < numAsics; asicIndex++) {
-              const asicId = getAsicId(hashboardData.serial_number, asicIndex.toString());
-
-              // Create or get ASIC
-              if (!state.telemetry.asics.has(asicId)) {
-                state.telemetry.asics.set(asicId, {
-                  id: asicId,
-                });
-              }
-
-              const asic = state.telemetry.asics.get(asicId)!;
-
-              // Update temperature
-              if (asicTelemetry.temperature?.values?.[asicIndex] !== undefined) {
-                const tempValue = asicTelemetry.temperature.values[asicIndex];
-
-                if (!asic.temperature) {
-                  asic.temperature = {};
-                }
-                asic.temperature.latest = createMeasurement(tempValue, asicTelemetry.temperature.unit as MetricUnit);
-
-                // Collect valid temperature for avg/max computation
-                if (tempValue !== null && tempValue !== undefined) {
-                  temps.push(tempValue);
-                }
-              }
-
-              // Update hashrate
-              if (asicTelemetry.hashrate?.values?.[asicIndex] !== undefined) {
-                if (!asic.hashrate) {
-                  asic.hashrate = {};
-                }
-                asic.hashrate.latest = createMeasurement(
-                  asicTelemetry.hashrate.values[asicIndex],
-                  asicTelemetry.hashrate.unit as MetricUnit,
-                );
-              }
-            }
-
-            // Compute avg/max ASIC temperatures for this hashboard
-            if (temps.length > 0 && tempUnit) {
-              const avgTemp = temps.reduce((sum, t) => sum + t, 0) / temps.length;
-              const maxTemp = Math.max(...temps);
-
-              if (!hashboard.avgAsicTemp) {
-                hashboard.avgAsicTemp = {};
-              }
-              hashboard.avgAsicTemp.latest = createMeasurement(avgTemp, tempUnit);
-
-              if (!hashboard.maxAsicTemp) {
-                hashboard.maxAsicTemp = {};
-              }
-              hashboard.maxAsicTemp.latest = createMeasurement(maxTemp, tempUnit);
-            }
-          }
-        });
-      }
-
-      // Update PSU latest metrics
-      if (telemetryData.psus) {
-        telemetryData.psus.forEach((psuData) => {
-          try {
-            // PSU index is 0-based in API, but we use 1-based IDs (slot numbers)
-            const psuId = psuData.index + 1;
-
-            // Validate required fields exist
-            if (!psuData.voltage || !psuData.current || !psuData.power || !psuData.temperature) {
-              console.warn(`PSU ${psuId} missing required telemetry fields`);
-              return; // Skip this PSU
-            }
-
-            // Create or get PSU
-            if (!state.telemetry.psus.has(psuId)) {
-              state.telemetry.psus.set(psuId, { id: psuId });
-            }
-
-            const psu = state.telemetry.psus.get(psuId)!;
-
-            // Update voltage metrics (voltage is required per API schema)
-            if (psuData.voltage.input !== undefined && psuData.voltage.input !== null) {
-              if (!psu.inputVoltage) psu.inputVoltage = {};
-              psu.inputVoltage.latest = createMeasurement(psuData.voltage.input, psuData.voltage.unit as MetricUnit);
-            }
-            if (psuData.voltage.output !== undefined && psuData.voltage.output !== null) {
-              if (!psu.outputVoltage) psu.outputVoltage = {};
-              psu.outputVoltage.latest = createMeasurement(psuData.voltage.output, psuData.voltage.unit as MetricUnit);
-            }
-
-            // Update current metrics (current is required per API schema)
-            if (psuData.current.input !== undefined && psuData.current.input !== null) {
-              if (!psu.inputCurrent) psu.inputCurrent = {};
-              psu.inputCurrent.latest = createMeasurement(psuData.current.input, psuData.current.unit as MetricUnit);
-            }
-            if (psuData.current.output !== undefined && psuData.current.output !== null) {
-              if (!psu.outputCurrent) psu.outputCurrent = {};
-              psu.outputCurrent.latest = createMeasurement(psuData.current.output, psuData.current.unit as MetricUnit);
-            }
-
-            // Update power metrics (power is required per API schema)
-            if (psuData.power.input !== undefined && psuData.power.input !== null) {
-              if (!psu.inputPower) psu.inputPower = {};
-              psu.inputPower.latest = createMeasurement(psuData.power.input, psuData.power.unit as MetricUnit);
-            }
-            if (psuData.power.output !== undefined && psuData.power.output !== null) {
-              if (!psu.outputPower) psu.outputPower = {};
-              psu.outputPower.latest = createMeasurement(psuData.power.output, psuData.power.unit as MetricUnit);
-            }
-
-            // Update temperature metrics as individual properties (temperature is required per API schema)
-            const tempUnit = psuData.temperature.unit as MetricUnit;
-
-            if (psuData.temperature.ambient !== undefined && psuData.temperature.ambient !== null) {
-              if (!psu.temperatureAmbient) psu.temperatureAmbient = {};
-              psu.temperatureAmbient.latest = createMeasurement(psuData.temperature.ambient, tempUnit);
-            }
-
-            if (psuData.temperature.average !== undefined && psuData.temperature.average !== null) {
-              if (!psu.temperatureAverage) psu.temperatureAverage = {};
-              psu.temperatureAverage.latest = createMeasurement(psuData.temperature.average, tempUnit);
-            }
-
-            if (psuData.temperature.hotspot !== undefined && psuData.temperature.hotspot !== null) {
-              if (!psu.temperatureHotspot) psu.temperatureHotspot = {};
-              psu.temperatureHotspot.latest = createMeasurement(psuData.temperature.hotspot, tempUnit);
-            }
-          } catch (error) {
-            console.error(`Failed to update PSU ${psuData.index + 1} telemetry:`, error);
-          }
-        });
-      }
+      const id = getHashboardId(serial);
+      const current = state.telemetry.hashboards.get(id) ?? { hashboardId: id };
+      if (inlet) current.inletTemperature = { latest: inlet };
+      if (outlet) current.outletTemperature = { latest: outlet };
+      if (average) current.averageAsicTemperature = { latest: average };
+      if (maximum) current.maximumAsicTemperature = { latest: maximum };
+      state.telemetry.hashboards.set(id, current);
     }),
-
-  // Utility Actions
-  clearOldData: (olderThanTimestamp) =>
+  updatePsuTelemetry: (slot, input) =>
     set((state) => {
-      if (state.telemetry.lastUpdated < olderThanTimestamp) {
-        state.telemetry.lastApiResponse = null;
-      }
-
-      // Clear old time series data
-      if (state.telemetry.miner) {
-        Object.keys(state.telemetry.miner).forEach((key) => {
-          const metric = state.telemetry.miner![key as keyof MinerTelemetryData];
-          // Only clear if this is actually a MetricTimeSeries (has endTime property)
-          if (metric && typeof metric === "object" && "endTime" in metric && typeof metric.endTime === "number") {
-            if (metric.endTime < olderThanTimestamp) {
-              // Type assertion is safe here because we've verified it's a MetricTimeSeries
-              (state.telemetry.miner![key as keyof MinerTelemetryData] as MetricTimeSeries | undefined) = undefined;
-            }
-          }
-        });
-      }
-
-      // Clear old hashboard data
-      for (const [, hashboard] of state.telemetry.hashboards) {
-        Object.keys(hashboard).forEach((key) => {
-          const metric = hashboard[key as keyof HashboardTelemetryData];
-          // Only clear if this is actually a MetricTimeSeries (has endTime property)
-          if (metric && typeof metric === "object" && "endTime" in metric && typeof metric.endTime === "number") {
-            if (metric.endTime < olderThanTimestamp) {
-              (hashboard[key as keyof HashboardTelemetryData] as MetricTimeSeries | undefined) = undefined;
-            }
-          }
-        });
-      }
-
-      // Clear old asic data
-      for (const [, asic] of state.telemetry.asics) {
-        Object.keys(asic).forEach((key) => {
-          const metric = asic[key as keyof AsicTelemetryData];
-          // Only clear if this is actually a MetricTimeSeries (has endTime property)
-          if (metric && typeof metric === "object" && "endTime" in metric && typeof metric.endTime === "number") {
-            if (metric.endTime < olderThanTimestamp) {
-              (asic[key as keyof AsicTelemetryData] as MetricTimeSeries | undefined) = undefined;
-            }
-          }
-        });
-      }
+      const id = getPsuId(slot);
+      const current = state.telemetry.psus.get(id) ?? { componentId: id };
+      if (input.inputVoltage !== undefined) current.inputVoltage = mapMeasurement(input.inputVoltage, "V");
+      if (input.inputCurrent !== undefined) current.inputCurrent = mapMeasurement(input.inputCurrent, "A");
+      if (input.inputPower !== undefined) current.inputPower = mapMeasurement(input.inputPower, "W");
+      if (input.outputVoltage !== undefined) current.outputVoltage = mapMeasurement(input.outputVoltage, "V");
+      if (input.outputCurrent !== undefined) current.outputCurrent = mapMeasurement(input.outputCurrent, "A");
+      if (input.outputPower !== undefined) current.outputPower = mapMeasurement(input.outputPower, "W");
+      if (input.temperatureAmbient !== undefined)
+        current.ambientTemperature = mapMeasurement(input.temperatureAmbient, "°C");
+      if (input.temperatureAverage !== undefined)
+        current.averageTemperature = mapMeasurement(input.temperatureAverage, "°C");
+      if (input.temperatureHotspot !== undefined)
+        current.hotspotTemperature = mapMeasurement(input.temperatureHotspot, "°C");
+      state.telemetry.psus.set(id, current);
     }),
-
-  // Update optional hashboard temperature sensors
-  updateHashboardTemperatures: (hashboardSerial, inletTemp, outletTemp, avgAsicTemp, maxAsicTemp) =>
+  updateFanTelemetry: (slot, input) =>
     set((state) => {
-      let hashboard = state.telemetry.hashboards.get(hashboardSerial);
-
-      // Create hashboard if it doesn't exist
-      if (!hashboard) {
-        hashboard = {
-          serial: hashboardSerial,
-        };
-        state.telemetry.hashboards.set(hashboardSerial, hashboard);
-      }
-
-      // Update temperature data - wrap Measurement in MetricTelemetry structure
-      if (inletTemp) {
-        hashboard.inletTemp = { latest: inletTemp };
-      }
-      if (outletTemp) {
-        hashboard.outletTemp = { latest: outletTemp };
-      }
-      if (avgAsicTemp) {
-        hashboard.avgAsicTemp = { latest: avgAsicTemp };
-      }
-      if (maxAsicTemp) {
-        hashboard.maxAsicTemp = { latest: maxAsicTemp };
-      }
+      const id = getFanId(slot);
+      const current = state.telemetry.fans.get(id) ?? { componentId: id };
+      if (input.rpm !== undefined) current.rpm = mapMeasurement(input.rpm, "RPM");
+      if (input.percentage !== undefined) current.speedPercent = mapMeasurement(input.percentage, "%");
+      if (input.minRpm !== undefined) current.minimumRpm = mapMeasurement(input.minRpm, "RPM");
+      if (input.maxRpm !== undefined) current.maximumRpm = mapMeasurement(input.maxRpm, "RPM");
+      state.telemetry.fans.set(id, current);
     }),
-
-  // PSU/Fan Update Actions
-  updatePsuTelemetry: (psuId, telemetryData) =>
+  replaceFanLiveTelemetry: (fans) =>
     set((state) => {
-      let psu = state.telemetry.psus.get(psuId);
-
-      // Create PSU if it doesn't exist
-      if (!psu) {
-        psu = { id: psuId };
-        state.telemetry.psus.set(psuId, psu);
-      }
-
-      // Update telemetry data
-      Object.entries(telemetryData).forEach(([key, value]) => {
-        if (key !== "id" && value !== undefined) {
-          (psu as any)[key] = value;
-        }
+      state.telemetry.fans.forEach((fan) => {
+        fan.rpm = fan.rpm?.timeSeries ? { timeSeries: fan.rpm.timeSeries } : undefined;
+        fan.speedPercent = fan.speedPercent?.timeSeries ? { timeSeries: fan.speedPercent.timeSeries } : undefined;
+      });
+      fans.forEach((fan) => {
+        state.telemetry.fans.set(fan.componentId, mergeMetrics(state.telemetry.fans.get(fan.componentId), fan));
       });
     }),
-
-  updateFanTelemetry: (fanSlot, telemetryData) =>
-    set((state) => {
-      let fan = state.telemetry.fans.get(fanSlot);
-
-      // Create Fan if it doesn't exist
-      if (!fan) {
-        fan = { slot: fanSlot };
-        state.telemetry.fans.set(fanSlot, fan);
-      }
-
-      // Update telemetry data
-      Object.entries(telemetryData).forEach(([key, value]) => {
-        if (key !== "slot" && value !== undefined) {
-          (fan as any)[key] = value;
-        }
-      });
-    }),
-
-  // Update cooling mode
   updateCoolingMode: (mode) =>
     set((state) => {
-      state.telemetry.coolingMode = mode;
+      state.telemetry.coolingModeByOwner.set(ROOT_MODULE_KEY, mode);
     }),
-
-  // Clear all telemetry data (useful when duration changes)
-  clearTimeSeriesData: () =>
-    set((state) => {
-      // Clear timeSeries from miner metrics, preserve latest
-      if (state.telemetry.miner) {
-        Object.keys(state.telemetry.miner).forEach((key) => {
-          const metric = state.telemetry.miner![key as keyof MinerTelemetryData];
-          if (metric && typeof metric === "object" && "timeSeries" in metric) {
-            delete (metric as MetricTelemetry).timeSeries;
-          }
-        });
-      }
-
-      // Clear timeSeries from hashboard metrics, preserve latest
-      for (const hashboard of state.telemetry.hashboards.values()) {
-        Object.keys(hashboard).forEach((key) => {
-          const metric = hashboard[key as keyof HashboardTelemetryData];
-          if (metric && typeof metric === "object" && "timeSeries" in metric) {
-            delete (metric as MetricTelemetry).timeSeries;
-          }
-        });
-      }
-
-      // Clear timeSeries from ASIC metrics, preserve latest
-      for (const asic of state.telemetry.asics.values()) {
-        Object.keys(asic).forEach((key) => {
-          const metric = asic[key as keyof AsicTelemetryData];
-          if (metric && typeof metric === "object" && "timeSeries" in metric) {
-            delete (metric as MetricTelemetry).timeSeries;
-          }
-        });
-      }
-    }),
-
-  clearLatestData: () =>
-    set((state) => {
-      // Clear latest from miner metrics, preserve timeSeries
-      if (state.telemetry.miner) {
-        Object.keys(state.telemetry.miner).forEach((key) => {
-          const metric = state.telemetry.miner![key as keyof MinerTelemetryData];
-          if (metric && typeof metric === "object" && "latest" in metric) {
-            delete (metric as MetricTelemetry).latest;
-          }
-        });
-      }
-
-      // Clear latest from hashboard metrics, preserve timeSeries
-      for (const hashboard of state.telemetry.hashboards.values()) {
-        Object.keys(hashboard).forEach((key) => {
-          const metric = hashboard[key as keyof HashboardTelemetryData];
-          if (metric && typeof metric === "object" && "latest" in metric) {
-            delete (metric as MetricTelemetry).latest;
-          }
-        });
-      }
-
-      // Clear latest from ASIC metrics, preserve timeSeries
-      for (const asic of state.telemetry.asics.values()) {
-        Object.keys(asic).forEach((key) => {
-          const metric = asic[key as keyof AsicTelemetryData];
-          if (metric && typeof metric === "object" && "latest" in metric) {
-            delete (metric as MetricTelemetry).latest;
-          }
-        });
-      }
-    }),
-
+  clearOldData: (cutoff) =>
+    set((state) =>
+      state.telemetry.resourceByScope.forEach((resource, key) => {
+        if (resource.updatedAtMs !== undefined && resource.updatedAtMs < cutoff)
+          state.telemetry.resourceByScope.set(key, { status: "stale", updatedAtMs: resource.updatedAtMs });
+      }),
+    ),
+  clearTimeSeriesData: () => set((state) => clearMetricPart(state.telemetry, "timeSeries")),
+  clearLatestData: () => set((state) => clearMetricPart(state.telemetry, "latest")),
   clearAllData: () =>
     set((state) => {
-      state.telemetry.miner = null;
-      state.telemetry.hashboards = new Map();
-      state.telemetry.asics = new Map();
-      state.telemetry.psus = new Map();
-      state.telemetry.fans = new Map();
-      state.telemetry.coolingMode = null;
-      state.telemetry.lastApiResponse = null;
-      state.telemetry.lastUpdated = Date.now();
+      Object.assign(state.telemetry, createEmptyTelemetryState());
+      state.telemetry.lastAppliedRequestByEntity.clear();
     }),
 });

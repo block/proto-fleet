@@ -4,6 +4,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetMiningStatus, useMiningStatus as useStoredMiningStatus } from "@/protoOS/store";
 import type { OperationalStatus } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface GetMiningStatusProps {
@@ -29,10 +30,12 @@ const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMi
       if (!enabled || !adapter) return;
 
       setPending(true);
+      const accept = beginStoreWrite("operationalStatus:module:root");
       setError(undefined);
       return adapter
         .getMiningStatus()
         .then((status) => {
+          if (!accept()) return;
           setMiningStatus(status);
           onSuccess?.(status);
         })

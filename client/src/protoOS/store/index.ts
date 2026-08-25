@@ -26,6 +26,7 @@ export type {
 export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
+export { getFanId, getHashboardId, getPsuId } from "./utils/entityIds";
 export { getAsicName } from "./utils/getAsicName";
 export {
   getContainerAsicLabel,
@@ -61,7 +62,6 @@ export {
   useFansTelemetry,
   useFanTelemetry,
   useCoolingMode,
-  useIntervalMs,
 } from "./hooks/useTelemetry";
 
 export {
@@ -150,6 +150,7 @@ export {
   useSerialNumber,
   useOSVersion,
   useFwUpdateStatus,
+  useSystemTagValue,
   useSystemInfoPending,
   useSystemInfoError,
   useIsProtoRig,
@@ -160,6 +161,7 @@ export {
   useHasFirmwareUpdate,
   useFirmwareUpdateInstalling,
   useSetSystemInfo,
+  useSetSystemTag,
   useSetSystemInfoError,
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
@@ -207,6 +209,7 @@ export {
   useMiningTargetDefault,
   useMiningTargetPerformanceMode,
   useMiningTargetBounds,
+  useMiningTargetStatus,
   useMiningTargetPending,
   useMiningTargetError,
   useSetMiningTargetValue,

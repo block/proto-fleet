@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { authTokensFromSlice, authTokensView } from "../slices/authSlice";
 import useMinerStore from "../useMinerStore";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { isDefaultPasswordActiveError } from "@/protoOS/api/defaultPasswordContract";
@@ -11,9 +12,13 @@ import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 // Auth State Selectors
 // =============================================================================
 
-export const useAuthTokens = () => useMinerStore((state) => state.auth.authTokens);
-export const useRefreshToken = () => useMinerStore((state) => state.auth.authTokens.refreshToken);
-export const useAuthLoading = () => useMinerStore((state) => state.auth.loading);
+export const useAuthTokens = () => {
+  const session = useMinerStore((state) => state.auth.session);
+  return useMemo(() => authTokensView(session), [session]);
+};
+export const useRefreshToken = () => useAuthTokens().refreshToken;
+export const useAuthLoading = () =>
+  useMinerStore((state) => state.auth.session?.status === "loading" || state.auth.session?.status === "refreshing");
 
 // =============================================================================
 // Auth Action Selectors
@@ -92,7 +97,7 @@ export const useAuthErrors = () => {
         if (!refreshPromise) {
           refreshPromise = new Promise<string | null>((resolve) => {
             void refresh({
-              refreshToken: useMinerStore.getState().auth.authTokens.refreshToken?.value || "",
+              refreshToken: authTokensFromSlice(useMinerStore.getState().auth).refreshToken.value,
               onSuccess: (accessToken) => {
                 resolve(accessToken);
               },

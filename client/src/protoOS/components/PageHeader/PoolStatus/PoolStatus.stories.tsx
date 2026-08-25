@@ -3,13 +3,13 @@ import { MemoryRouter } from "react-router-dom";
 import { action } from "storybook/actions";
 
 import PoolStatusComponent from "./PoolStatus";
-import { Pool } from "@/protoOS/api/generatedApi";
+import type { PoolInfo } from "@/protoOS/store/contract";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 interface PoolStatusProps {
   loading: boolean;
   numberOfPools: number;
-  poolStatus: Pool["status"];
+  poolStatus: PoolInfo["status"];
 }
 
 export const PoolStatus = ({ loading, numberOfPools, poolStatus }: PoolStatusProps) => {
@@ -42,7 +42,7 @@ export const PoolStatus = ({ loading, numberOfPools, poolStatus }: PoolStatusPro
                       priority: 8,
                     }),
                   },
-                ].filter((pool) => !!pool.url) as Pool[])
+                ].filter((pool) => !!pool.url) as Array<Pick<PoolInfo, "status" | "url" | "priority">>)
           }
           loading={loading}
           onClickViewPools={action("View mining pools clicked")}

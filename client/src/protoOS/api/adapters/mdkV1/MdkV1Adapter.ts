@@ -1,59 +1,77 @@
-import type { MinerAdapter } from "../types";
+import type { AdapterRequestOptions, MinerAdapter, TelemetryLevel, TimeSeriesQuery } from "../types";
 import {
+  toCanonicalCoolingStatus,
   toCanonicalErrors,
   toCanonicalHardware,
+  toCanonicalHardwareTelemetry,
   toCanonicalMiningStatus,
   toCanonicalMiningTarget,
   toCanonicalNetworkInfo,
   toCanonicalPools,
   toCanonicalSystemInfo,
+  toCanonicalSystemTag,
   toCanonicalTelemetry,
   toCanonicalTimeSeries,
+  toV1CoolingMode,
 } from "./normalize";
-import { type Api, type RequestParams, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
-import type { MiningTargetUpdate } from "@/protoOS/store/contract";
+import {
+  type Api,
+  type GetCurrentTelemetryParams,
+  type TimeSeriesRequest,
+  PerformanceMode as V1PerformanceMode,
+} from "@/protoOS/api/generatedApi";
+import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 
 export class MdkV1Adapter implements MinerAdapter {
   constructor(private readonly client: MdkV1Client) {}
 
-  async getSystemInfo(params: RequestParams = {}) {
+  async getSystemInfo(params: AdapterRequestOptions = {}) {
     const response = await this.client.getSystemInfo(params);
     return toCanonicalSystemInfo(response.data["system-info"] ?? {});
   }
 
-  async getNetworkInfo(params: RequestParams = {}) {
+  async getNetworkInfo(params: AdapterRequestOptions = {}) {
     const response = await this.client.getNetwork(params);
     return toCanonicalNetworkInfo(response.data["network-info"] ?? {});
   }
 
-  async getSystemStatus(params: RequestParams = {}) {
+  async getSystemStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.getSystemStatus(params);
     return { onboarded: response.data.onboarded, passwordSet: response.data.password_set };
   }
 
-  async getMiningStatus(params: RequestParams = {}) {
+  async getSystemTag(params: AdapterRequestOptions = {}) {
+    const response = await this.client.getSystemTag(params);
+    return toCanonicalSystemTag(response.data);
+  }
+
+  async setSystemTag(value: string, params: AdapterRequestOptions = {}) {
+    await this.client.putSystemTag(value, params);
+  }
+
+  async getMiningStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.getMiningStatus(params);
     return toCanonicalMiningStatus(response.data["mining-status"] ?? {});
   }
 
-  async getErrors(params: RequestParams = {}) {
+  async getErrors(params: AdapterRequestOptions = {}) {
     const response = await this.client.getErrors(params);
     return toCanonicalErrors(response.data);
   }
 
-  async getPools(params: RequestParams = {}) {
+  async getPools(params: AdapterRequestOptions = {}) {
     const response = await this.client.listPools(params);
     return toCanonicalPools(response.data.pools ?? []);
   }
 
-  async getMiningTarget(params: RequestParams = {}) {
+  async getMiningTarget(params: AdapterRequestOptions = {}) {
     const response = await this.client.getMiningTarget(params);
     return toCanonicalMiningTarget(response.data);
   }
 
-  async updateMiningTarget(update: MiningTargetUpdate, params: RequestParams = {}) {
+  async updateMiningTarget(update: MiningTargetUpdate, params: AdapterRequestOptions = {}) {
     const response = await this.client.editMiningTarget(
       {
         power_target_watts: update.valueWatts,
@@ -71,18 +89,56 @@ export class MdkV1Adapter implements MinerAdapter {
     return toCanonicalMiningTarget(response.data);
   }
 
-  async getHardware(context: { deviceId: string; profile: "r2" | "ct1" | "unknown" }, params: RequestParams = {}) {
+  async getHardware(
+    context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
+    params: AdapterRequestOptions = {},
+  ) {
     const response = await this.client.getHardware(params);
-    return toCanonicalHardware(response.data["hardware-info"] ?? {}, context);
+    const wire = response.data["hardware-info"] ?? {};
+    return { hardware: toCanonicalHardware(wire, context), telemetry: toCanonicalHardwareTelemetry(wire) };
   }
 
-  async getCurrentTelemetry(query = {}, params: RequestParams = {}) {
-    const response = await this.client.getCurrentTelemetry(query, params);
+  async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
+    // The MDK firmware expects `level` as a single comma-joined value
+    // (`level=miner,hashboard`), i.e. OpenAPI explode:false. Sending the array
+    // the generated type advertises serializes as repeated `level=` params and
+    // the device rejects it with 400 "Query deserialize error: duplicate field
+    // `level`". Join manually; the cast is required because the generated type
+    // does not match the firmware's actual query contract. Verified against a
+    // real rig: the comma form returns miner/hashboards/psus/asics.
+    const level = levels.length ? (levels.join(",") as unknown as GetCurrentTelemetryParams["level"]) : undefined;
+    const response = await this.client.getCurrentTelemetry({ level }, params);
     return toCanonicalTelemetry(response.data);
   }
 
-  async getTimeSeries(request: Parameters<MdkV1Client["getTimeSeries"]>[0], params: RequestParams = {}) {
-    const response = await this.client.getTimeSeries(request, params);
-    return toCanonicalTimeSeries(response.data);
+  async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
+    const needsHashboardIdentity =
+      request.levels.some((level) => level.type === "asic") &&
+      !request.levels.some((level) => level.type === "hashboard");
+    const levels = needsHashboardIdentity
+      ? [...request.levels, { type: "hashboard" as const, fields: ["hashrate" as const] }]
+      : request.levels;
+    const wireRequest: TimeSeriesRequest = {
+      start_time: request.startTime,
+      duration: request.duration,
+      end_time: request.endTime,
+      interval: request.interval,
+      levels: levels as TimeSeriesRequest["levels"],
+      aggregation: request.aggregation,
+    };
+    const response = await this.client.getTimeSeries(wireRequest, params);
+    return toCanonicalTimeSeries(response.data, {
+      startTimeMs: Date.parse(request.startTime),
+      interval: request.interval,
+    });
+  }
+
+  async getCoolingStatus(params: AdapterRequestOptions = {}) {
+    const response = await this.client.getCooling(params);
+    return toCanonicalCoolingStatus(response.data["cooling-status"]);
+  }
+
+  async setCoolingMode(mode: CoolingMode, params: AdapterRequestOptions = {}) {
+    await this.client.setCoolingMode({ mode: toV1CoolingMode(mode) }, params);
   }
 }

@@ -17,6 +17,8 @@ export const useMiningTargetPerformanceMode = () => useMinerStore((state) => sel
 
 export const useMiningTargetBounds = () => useMinerStore((state) => selectTarget(state)?.boundsWatts);
 
+export const useMiningTargetStatus = () => useMinerStore((state) => selectTarget(state)?.resource.status ?? "idle");
+
 export const useMiningTargetPending = () =>
   useMinerStore((state) => selectTarget(state)?.resource.status === "loading");
 

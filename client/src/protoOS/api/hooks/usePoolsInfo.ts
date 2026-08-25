@@ -4,6 +4,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
 import type { PoolInfo } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
@@ -30,11 +31,13 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
       if (!adapter) return;
 
       const performFetch = () => {
+        const accept = beginStoreWrite("pools:module:root");
         setPending(true);
         setError(undefined);
         authRetry({
           request: (params) => adapter.getPools(params),
           onSuccess: (sortedPools) => {
+            if (!accept()) return;
             setPoolsInfo(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {

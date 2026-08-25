@@ -11,6 +11,7 @@ import {
   useSystemInfo as useSystemInfoFromStore,
   useSystemInfoPending,
 } from "@/protoOS/store";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseSystemInfoProps {
@@ -44,11 +45,13 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
     }
 
     isFetchingRef.current = true;
+    const accept = beginStoreWrite("systemInfo");
     setSystemInfoPending(true);
 
     adapter
       .getSystemInfo()
       .then((systemInfo) => {
+        if (!accept()) return;
         setSystemInfo(systemInfo);
         setSystemInfoPending(false);
       })

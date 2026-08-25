@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
+import { asAsicId } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
@@ -20,11 +21,15 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
   const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  // Staleness guard: if hashboardSerialNumbers changes mid-fetch, an older
+  // Promise.all resolving after a newer one must not overwrite fresher data.
+  const fetchIdRef = useRef(0);
   const fetchData = useCallback(() => {
     if (!api || hashboardSerialNumbers.length === 0) return;
 
     setPending(true);
     setError(undefined);
+    const fetchId = ++fetchIdRef.current;
 
     return authRetry({
       request: (params) =>
@@ -35,6 +40,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
           }),
         ),
       onSuccess: (results) => {
+        if (fetchId !== fetchIdRef.current) return;
         const newData: Record<string, HashboardStatsHashboardstats> = {};
         results.forEach(({ serial, data }) => {
           if (data) {
@@ -102,6 +108,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
             ...existingAsic,
             id: asicId,
             hashboardSerial: hashboardSerialNumber,
+            index: asic.index,
             row: asic.row,
             column: asic.column,
           });
@@ -112,11 +119,12 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
           // Update telemetry store with voltage and frequency data using Immer-safe setState
           useMinerStore.setState((state) => {
-            let asicTelemetry = state.telemetry.asics.get(asicId);
+            const normalizedAsicId = asAsicId(asicId);
+            let asicTelemetry = state.telemetry.asics.get(normalizedAsicId);
 
             if (!asicTelemetry) {
-              asicTelemetry = { id: asicId };
-              state.telemetry.asics.set(asicId, asicTelemetry);
+              asicTelemetry = { asicId: normalizedAsicId };
+              state.telemetry.asics.set(normalizedAsicId, asicTelemetry);
             }
 
             // Update voltage (voltage_mv from API)
@@ -125,8 +133,8 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
                 asicTelemetry.voltage = {};
               }
               asicTelemetry.voltage.latest = {
-                value: asic.voltage_mv,
-                units: "mV",
+                value: asic.voltage_mv / 1000,
+                units: "V",
               };
             }
 

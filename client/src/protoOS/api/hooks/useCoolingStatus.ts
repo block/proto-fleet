@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
-import { TOTAL_FAN_SLOTS } from "../constants";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { CoolingConfig, CoolingStatusCoolingstatus, FanStatus, HttpResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthRetry, useMinerStore } from "@/protoOS/store";
+import { useAuthRetry, useCoolingMode, useFansTelemetry, useMinerStore } from "@/protoOS/store";
+import type { CoolingMode } from "@/protoOS/store/contract";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
-
-// Extended type to account for null fan statuses when slots are missing
-export type CoolingStatusWithNullableFans = Omit<CoolingStatusCoolingstatus, "fans"> & {
-  fans?: (FanStatus | null)[];
-};
 
 interface UseCoolingStatusProps {
   poll?: boolean;
@@ -18,133 +13,93 @@ interface UseCoolingStatusProps {
 }
 
 interface SetCoolingProps {
-  mode: CoolingConfig["mode"];
-  onSuccess?: (res: HttpResponse<CoolingConfig>) => void;
+  mode: CoolingMode;
+  onSuccess?: () => void;
   onError?: (error: ErrorProps) => void;
 }
 
 const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) => {
-  const { api } = useMinerHosting();
-  const [data, setData] = useState<CoolingStatusWithNullableFans>();
+  const { adapter } = useMinerHosting();
   const [error, setError] = useState<string>();
-  const [loaded, setLoaded] = useState<boolean>(false);
-  const [pending, setPending] = useState<boolean>(false);
+  const [loaded, setLoaded] = useState(false);
+  const [pending, setPending] = useState(false);
+  const nextCommandIdRef = useRef(0);
+  const activeCommandIdRef = useRef<number | undefined>(undefined);
   const authRetry = useAuthRetry();
+  const mode = useCoolingMode();
+  const fans = useFansTelemetry();
+  const data = useMemo(
+    () =>
+      loaded
+        ? {
+            mode,
+            fans: fans.map((fan) => ({
+              slot: fan.slot,
+              rpm: fan.rpm?.latest?.value ?? undefined,
+              percentage: fan.percentage?.latest?.value ?? undefined,
+            })),
+          }
+        : undefined,
+    [fans, loaded, mode],
+  );
 
   const fetchData = useCallback(() => {
-    if (!api) return;
-
+    if (!adapter || activeCommandIdRef.current !== undefined) return;
+    const commandIdAtStart = nextCommandIdRef.current;
+    const accept = beginStoreWrite("cooling:read:module:root");
     setPending(true);
-    api
-      .getCooling()
-      .then((res) => {
-        const coolingData = res?.data["cooling-status"];
-
-        // Fill out fans array with all slots
-        if (coolingData) {
-          const fans = coolingData.fans;
-          const fansBySlot = new Map<number, FanStatus>();
-          fans?.forEach((fan) => {
-            if (fan.slot !== undefined) {
-              fansBySlot.set(fan.slot, fan);
-            }
-          });
-          const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
-            const slot = i + 1;
-            return fansBySlot.get(slot) || null;
-          });
-
-          setData({
-            ...coolingData,
-            fans: allFans,
-          });
-
-          // Update cooling mode in store
-          if (coolingData.fan_mode) {
-            useMinerStore.getState().telemetry.updateCoolingMode(coolingData.fan_mode);
-          }
-        } else {
-          setData(coolingData);
-        }
-        setLoaded(true);
-        setPending(false);
+    return adapter
+      .getCoolingStatus()
+      .then((status) => {
+        if (commandIdAtStart !== nextCommandIdRef.current || activeCommandIdRef.current !== undefined || !accept())
+          return;
+        const telemetry = useMinerStore.getState().telemetry;
+        telemetry.updateCoolingMode(status.mode);
+        telemetry.replaceFanLiveTelemetry(status.fans);
       })
-      .catch((err) => {
-        setError(err?.error?.message ?? "An error occurred");
+      .catch((err) => setError(err?.error?.message ?? "An error occurred"))
+      .finally(() => {
         setLoaded(true);
-        setPending(false);
+        if (activeCommandIdRef.current === undefined) setPending(false);
       });
-  }, [api]);
+  }, [adapter]);
 
-  usePoll({
-    fetchData,
-    enabled,
-    poll,
-  });
-
-  // Update telemetry store when data changes
-  useEffect(() => {
-    if (!data?.fans) return;
-
-    data.fans.forEach((fan) => {
-      if (fan?.slot !== undefined) {
-        useMinerStore.getState().telemetry.updateFanTelemetry(fan.slot, {
-          slot: fan.slot,
-          rpm:
-            fan.rpm !== undefined
-              ? {
-                  latest: {
-                    value: fan.rpm,
-                    units: "RPM",
-                  },
-                }
-              : undefined,
-          percentage:
-            fan.percentage !== undefined
-              ? {
-                  latest: {
-                    value: fan.percentage,
-                    units: "%",
-                  },
-                }
-              : undefined,
-        });
-      }
-    });
-  }, [data]);
+  usePoll({ fetchData, enabled, poll });
 
   const setCooling = useCallback(
-    async ({ mode, onSuccess, onError }: SetCoolingProps) => {
-      if (!api) return;
-
+    async ({ mode: nextMode, onSuccess, onError }: SetCoolingProps) => {
+      if (!adapter) return;
+      const commandId = nextCommandIdRef.current + 1;
+      nextCommandIdRef.current = commandId;
+      activeCommandIdRef.current = commandId;
+      const accept = beginStoreWrite("cooling:command:module:root");
       setPending(true);
       await authRetry({
-        request: (header) => api.setCoolingMode({ mode }, header),
-        onSuccess: async (res) => {
-          const responseData = await res.json();
-          setPending(false);
-
-          if (mode !== undefined && mode !== null) {
-            setData((prevData) => {
-              if (!prevData) return prevData;
-              return {
-                ...prevData,
-                fan_mode: mode,
-              } as CoolingStatusWithNullableFans;
-            });
-
-            useMinerStore.getState().telemetry.updateCoolingMode(mode);
+        request: (params) => adapter.setCoolingMode(nextMode, params),
+        onSuccess: () => {
+          const isCurrentCommand = activeCommandIdRef.current === commandId;
+          if (isCurrentCommand) activeCommandIdRef.current = undefined;
+          const accepted = isCurrentCommand && accept();
+          if (isCurrentCommand) setPending(false);
+          if (accepted) {
+            useMinerStore.getState().telemetry.updateCoolingMode(nextMode);
+            void fetchData();
           }
-
-          onSuccess?.(responseData);
+          // A superseded command must not fire the caller's callback: it would
+          // surface a stale toast/side effect for a request the user replaced.
+          if (isCurrentCommand) onSuccess?.();
         },
-        onError: (error) => {
-          onError?.(error);
-          setPending(false);
+        onError: (requestError) => {
+          const isCurrentCommand = activeCommandIdRef.current === commandId;
+          if (isCurrentCommand) activeCommandIdRef.current = undefined;
+          if (isCurrentCommand) {
+            onError?.(requestError);
+            setPending(false);
+          }
         },
       });
     },
-    [api, authRetry],
+    [adapter, authRetry, fetchData],
   );
 
   return useMemo(() => ({ pending, error, data, loaded, setCooling }), [pending, error, data, loaded, setCooling]);

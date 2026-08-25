@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { devtools } from "zustand/middleware";
 import { persist, PersistStorage, StorageValue } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import type { ResourceKey, StoreWriteToken } from "./contract";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import { createHardwareSlice, type HardwareSlice } from "./slices/hardwareSlice";
 import { createMinerStatusSlice, type MinerStatusSlice } from "./slices/minerStatusSlice";
@@ -32,6 +33,11 @@ export interface MinerStore {
   networkInfo: NetworkInfoSlice;
   auth: AuthSlice;
   miningTarget: MiningTargetSlice;
+  connectionGeneration: number;
+  requestSequence: number;
+  lastAcceptedRequestByResource: Map<ResourceKey, number>;
+  beginStoreWrite: () => StoreWriteToken;
+  acceptStoreWrite: (resource: ResourceKey, token: StoreWriteToken) => boolean;
 
   /**
    * Clears every per-device slice so data from one miner never bleeds into
@@ -48,7 +54,7 @@ export interface MinerStore {
 
 // Type for the partial state that we persist
 type PersistedState = {
-  auth: Pick<AuthSlice, "authTokens">;
+  auth: Pick<AuthSlice, "session">;
   ui: Pick<UISlice, "duration" | "activeChartLines" | "theme" | "temperatureUnit">;
 };
 
@@ -103,7 +109,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
           JSON.stringify({
             state: {
               auth: {
-                authTokens: state.auth.authTokens,
+                session: state.auth.session,
               },
             },
             version: value.version,
@@ -155,9 +161,33 @@ const useMinerStore = create<MinerStore>()(
           networkInfo: createNetworkInfoSlice(set, get, api),
           auth: createAuthSlice(set, get, api),
           miningTarget: createMiningTargetSlice(set, get, api),
+          connectionGeneration: 0,
+          requestSequence: 0,
+          lastAcceptedRequestByResource: new Map(),
+          beginStoreWrite: () => {
+            const requestId = get().requestSequence + 1;
+            set((state) => {
+              state.requestSequence = requestId;
+            });
+            return { connectionGeneration: get().connectionGeneration, requestId };
+          },
+          acceptStoreWrite: (resource, token) => {
+            const state = get();
+            const lastAccepted = state.lastAcceptedRequestByResource.get(resource) ?? 0;
+            if (token.connectionGeneration !== state.connectionGeneration || token.requestId < lastAccepted)
+              return false;
+            set((draft) => {
+              draft.lastAcceptedRequestByResource.set(resource, token.requestId);
+            });
+            return true;
+          },
 
           resetDeviceData: () => {
             const state = get();
+            set((draft) => {
+              draft.connectionGeneration += 1;
+              draft.lastAcceptedRequestByResource.clear();
+            });
             state.hardware.reset();
             state.telemetry.clearAllData();
             state.pools.setPoolsInfo(undefined);
@@ -175,7 +205,7 @@ const useMinerStore = create<MinerStore>()(
           storage: createMultiKeyStorage(),
           partialize: (state) => ({
             auth: {
-              authTokens: state.auth.authTokens,
+              session: state.auth.session,
             },
             ui: {
               duration: state.ui.duration,
@@ -192,7 +222,22 @@ const useMinerStore = create<MinerStore>()(
               ...currentState,
               auth: {
                 ...currentState.auth,
-                authTokens: persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                session:
+                  persisted?.auth?.session ??
+                  (persisted?.auth?.authTokens?.accessToken?.value
+                    ? {
+                        mode: "bearer",
+                        status: "authenticated",
+                        accessToken: {
+                          value: persisted.auth.authTokens.accessToken.value,
+                          expiresAtMs: new Date(persisted.auth.authTokens.accessToken.expiry).getTime(),
+                        },
+                        refreshToken: {
+                          value: persisted.auth.authTokens.refreshToken.value,
+                          expiresAtMs: new Date(persisted.auth.authTokens.refreshToken.expiry).getTime(),
+                        },
+                      }
+                    : currentState.auth.session),
               },
               ui: {
                 ...currentState.ui,

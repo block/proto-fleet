@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import type { Meta, StoryObj } from "@storybook/react";
 import HashboardStatusCard from "./HashboardStatusCard";
+import { asAsicId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 // Configuration for different stories
@@ -72,10 +73,9 @@ const StoreDecorator = (Story: any, context: any) => {
 
       // Store telemetry data
       asicTelemetry.set(asicId, {
+        asicId: asAsicId(asicId),
         temperature: {
-          unit: "C",
-          latest: { value: asicTemp, timestamp: Date.now() },
-          timeSeries: [],
+          latest: { value: asicTemp, units: "°C" },
         },
       });
     }
@@ -94,8 +94,9 @@ const StoreDecorator = (Story: any, context: any) => {
     // Add ASIC telemetry data to the store using setState to trigger Immer properly
     useMinerStore.setState((state) => {
       asicTelemetry.forEach((telemetry, asicId) => {
-        const existingAsicTelemetry = state.telemetry.asics.get(asicId) || {};
-        state.telemetry.asics.set(asicId, {
+        const id = asAsicId(asicId);
+        const existingAsicTelemetry = state.telemetry.asics.get(id);
+        state.telemetry.asics.set(id, {
           ...existingAsicTelemetry,
           ...telemetry,
         });
@@ -107,8 +108,8 @@ const StoreDecorator = (Story: any, context: any) => {
       serialNumber,
       undefined, // inletTemp
       undefined, // outletTemp
-      { value: config.avg, units: "C" }, // avgAsicTemp
-      { value: config.max, units: "C" }, // maxAsicTemp
+      { value: config.avg, units: "°C" }, // avgAsicTemp
+      { value: config.max, units: "°C" }, // maxAsicTemp
     );
   }, [serialNumber]);
 

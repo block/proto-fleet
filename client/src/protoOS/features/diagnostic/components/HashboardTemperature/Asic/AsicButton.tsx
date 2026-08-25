@@ -106,6 +106,11 @@ const AsicButton = ({
     }
 
     if (selectedMetric === "voltage") {
+      // ASIC voltage is normalized to volts in the store (see useHashboardStatus),
+      // but the grid displays millivolts (the "(mV)" column header) for the
+      // resolution operators need — getDisplayValue rounds to one decimal, so
+      // volts would collapse 850 mV to "0.8". convertAndFormatMeasurement now
+      // rescales V -> mV, so the stored volts value renders as "850".
       const formatted = convertAndFormatMeasurement(metricMeasurement, "mV", false);
       return formatMetricDisplay(formatted || "--");
     }

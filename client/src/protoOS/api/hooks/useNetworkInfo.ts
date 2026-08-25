@@ -10,6 +10,7 @@ import {
   useSetNetworkInfoPending,
 } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseNetworkInfoProps {
@@ -41,11 +42,13 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
     if (!adapter || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
+    const accept = beginStoreWrite("networkInfo");
     setNetworkInfoPending(true);
 
     authRetry({
       request: (params) => adapter.getNetworkInfo(params),
       onSuccess: (networkInfo) => {
+        if (!accept()) return;
         setNetworkInfo(networkInfo.interfaces);
       },
       onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
