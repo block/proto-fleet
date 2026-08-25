@@ -14,7 +14,6 @@ import Ellipsis from "@/shared/assets/icons/Ellipsis";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
-import type { PoolInfo } from "@/shared/components/MiningPools/types";
 import { getEmptyPoolsInfo } from "@/shared/components/MiningPools/utility";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -23,6 +22,7 @@ import { positions } from "@/shared/constants";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import type { PoolInfo } from "@/shared/types/pool";
 
 type ConnectionStatus = "idle" | "testing" | "failed";
 

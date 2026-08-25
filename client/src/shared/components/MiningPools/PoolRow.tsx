@@ -1,8 +1,8 @@
 import { ReactNode, useMemo } from "react";
 
-import { PoolIndex, PoolInfo } from "./types";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Row from "@/shared/components/Row";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 
 interface PoolRowProps {
   poolIndex: PoolIndex;

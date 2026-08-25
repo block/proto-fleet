@@ -8,7 +8,7 @@ import {
   urlValidationErrors,
   validateURLScheme,
 } from "./PoolForm/constants";
-import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
+import { PoolConnectionTestProps } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
 import { Alert, Success } from "@/shared/assets/icons";
@@ -19,6 +19,7 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolModalProps {

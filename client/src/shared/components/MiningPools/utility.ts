@@ -1,5 +1,5 @@
 import { emptyPoolInfo, poolInfoAttributes } from "./constants";
-import { PoolInfo } from "./types";
+import { PoolInfo } from "@/shared/types/pool";
 import { deepClone } from "@/shared/utils/utility";
 
 export const isValidPool = (pool?: PoolInfo) => {

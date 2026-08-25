@@ -4,7 +4,7 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolInfo } from "@/shared/types/pool";
 
 interface EditPoolProps {
   onError?: (err: ErrorProps) => void;

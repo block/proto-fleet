@@ -11,9 +11,10 @@ import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
-import { PoolConnectionTestProps, PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolConnectionTestProps } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
+import { PoolInfo } from "@/shared/types/pool";
 
 const filterPoolsByQuery = (pools: MiningPool[], query: string): MiningPool[] => {
   const lowerQuery = query.toLowerCase();
