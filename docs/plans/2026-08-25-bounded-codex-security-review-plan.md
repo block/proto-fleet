@@ -71,11 +71,12 @@ historical PRs with adjudicated findings. Hold model, reasoning effort, prompt,
 and sandbox constant while testing context. Then select a context strategy and
 measure reasoning effort and prompt constraints independently.
 
-Roll the selected configuration into the production workflow with a 10-minute
-Codex-step budget and enough job-level headroom to validate output and upload
-artifacts. If the model exceeds its budget or returns no usable output, create a
-structured `HIGH` result that states automated review was incomplete and human
-review is required. Missing secrets, malformed trusted workflow configuration,
+Roll the selected configuration into the production workflow with a nine-minute
+review-agent job budget and a separate trusted finalizer. The one-minute margin,
+plus GitHub's observed five-minute cancelled-job cleanup, leaves time to create
+and upload fallback artifacts within 15 minutes. If the model exceeds its budget
+or returns no usable output, create a structured `HIGH` result that states
+automated review was incomplete and human review is required. Missing secrets, malformed trusted workflow configuration,
 or artifact-writing errors remain workflow failures.
 
 ```mermaid
@@ -194,10 +195,15 @@ or the bounded prompt only if the same finding-recall criteria pass.
 Update `.github/workflows/codex-security-review.yml` with the selected context,
 effort, and prompt configuration.
 
-- Set the Codex step timeout to 10 minutes.
-- Set the security-review job timeout to 15 minutes so cleanup, fallback result
-  creation, validation, and artifact upload have bounded headroom.
-- Allow a timed-out or empty Codex step to continue into trusted fallback logic.
+- Keep a nine-minute timeout on both the Codex step and its outer `review-agent`
+  job. The job boundary is the enforceable control because the pinned composite
+  action did not stop at its caller step timeout in production.
+- Run trusted fallback creation and production artifact uploads in a separate
+  five-minute `security-review` finalizer that uses `always()` after the review
+  agent. A cancelled agent becomes a timeout fallback; an agent failure remains
+  a hard failure.
+- Pass completed output through a uniquely named internal artifact so the
+  finalizer can validate it without executing code from the PR checkout.
 - For timeout, empty output, or model-output parse failure, write:
   - `overall_risk: HIGH`
   - the exact base/head range and run ID
@@ -264,8 +270,8 @@ of model efficiency.
 | Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests, and assert in `evaluate_review_policy_test.py` that the output schema, safety strategy, sandbox, model, and review-packet body are identical across both workflows |
 | Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |
-| `continue-on-error` makes broken review automation look green | Classify the outcome as `codex-step-timeout` only when elapsed time reaches the step budget, and fail the `review-automation-health` check for every other incomplete reason, after both artifacts have uploaded |
-| Step timeout prevents fallback steps from running | `openai/codex-action@v1.12` is a composite action, and GitHub does not document whether a caller's step-level `timeout-minutes` bounds a composite action's internal steps — this is unverified, not known broken. Verify empirically before rollout by dispatching the benchmark with `corpus: large-pr` (both cases historically exceeded the production budget) and confirming that `benchmark-review.json` records `incomplete_reason: codex-step-timeout`, `benchmark-scope.json` records `elapsed_seconds` at or just above `timeout_budget_seconds`, and the artifacts upload. If the step instead runs past its budget until the 18-minute job cap, the fallback never writes and the bound must move to the job or into the prompt |
+| `continue-on-error` makes broken review automation look green | The review agent's trusted handoff rejects action failures before the budget; the final `security-review` job also rejects every agent result except `success` and budget cancellation |
+| Composite-action step timeout prevents fallback steps from running | PR #965 run `32828674887` proved the caller step remained in progress until the job was cancelled and cleanup finished five minutes later. Put the model in a nine-minute outer job and create fallback artifacts in a separate `always()` finalizer; keep the benchmark timeout behavior acceptance-gated until it uses the same enforceable boundary |
 | Sharding misses cross-subsystem bugs | Defer sharding; if needed, partition by architecture with shared contract context |
 | Prompt injection reaches the secret-backed reviewer | Preserve same-repo restriction, pinned SHAs, trusted workflow prompt, dropped sudo, and read-only sandbox |
 
@@ -286,13 +292,12 @@ of model efficiency.
   merge, by executing the artifact writer against every failure mode and by
   driving `evaluate_policy` with a `HIGH` review for an otherwise-eligible
   trusted-author pull request.
-- A benchmark dispatch against `corpus: large-pr` records
-  `incomplete_reason: codex-step-timeout` with `elapsed_seconds` at the step
-  budget, demonstrating that the step timeout bounds the pinned composite
-  action and still leaves the fallback writer time to run.
-- Broken review automation, as opposed to an exhausted time budget, turns the
-  `review-automation-health` check red without withholding the fail-closed
-  artifacts.
+- A benchmark dispatch against `corpus: large-pr` records a timeout result and
+  uploads its artifacts through an enforceable boundary outside the composite
+  action; caller step timeout alone is not accepted as evidence.
+- Broken review automation, as opposed to an exhausted outer job budget, makes
+  the final `security-review` check fail without classifying the result as an
+  expected timeout.
 - Existing exact-diff, security-boundary, sandbox, artifact, and stale-comment
   protections remain intact.
 - Any later sharding proposal has its own reviewed design and benchmark evidence.

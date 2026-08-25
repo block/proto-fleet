@@ -5,22 +5,24 @@ on:
     types: [edited, opened, reopened, ready_for_review, synchronize]
 
 jobs:
-  security-review:
+  review-agent:
+    name: Run bounded Codex reviewer
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # GitHub did not interrupt the pinned composite action at its caller step timeout.
+    # Leave one minute for trusted finalization before GitHub's five-minute cleanup.
+    # This outer job boundary is therefore the enforceable review budget.
+    timeout-minutes: 9
     concurrency:
-      group: codex-security-review-${{ github.ref }}
+      group: codex-security-review-agent-${{ github.ref }}
       cancel-in-progress: true
     permissions:
       contents: read
-    outputs:
-      incomplete_reason: ${{ steps.write_review_result.outputs.incomplete_reason }}
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: xhigh
-      CODEX_TIMEOUT_MINUTES: "10"
+      CODEX_TIMEOUT_MINUTES: "9"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -89,10 +91,16 @@ jobs:
           echo "hunks=$(grep -c '^@@' "$REVIEW_DIFF_FILE" || true)" >> "$GITHUB_OUTPUT"
           echo "context_lines=$(grep -c '^ ' "$REVIEW_DIFF_FILE" || true)" >> "$GITHUB_OUTPUT"
 
+      - name: Require review API key
+        run: |
+          if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
+            echo "OPENAI_API_KEY is required for Codex Security Review." >&2
+            exit 1
+          fi
+
       - name: Run Codex Security Review
         id: run_codex
-        if: ${{ env.OPENAI_API_KEY_PRESENT == 'true' }}
-        timeout-minutes: 10
+        timeout-minutes: 9
         continue-on-error: true
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
@@ -217,11 +225,11 @@ jobs:
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
-      - name: Write completed or fail-closed security review result
-        id: write_review_result
+
+      - name: Write trusted raw review handoff
+        id: write_raw_review
         if: ${{ always() && steps.validate_scope.outcome == 'success' && steps.write_diff.outcome == 'success' }}
         env:
-          OPENAI_API_KEY_PRESENT: ${{ env.OPENAI_API_KEY_PRESENT }}
           CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
           CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
@@ -236,10 +244,6 @@ jobs:
           PACKET_HUNKS: ${{ steps.write_diff.outputs.hunks }}
           PACKET_CONTEXT_LINES: ${{ steps.write_diff.outputs.context_lines }}
         run: |
-          if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
-            echo "OPENAI_API_KEY is required for Codex Security Review." >&2
-            exit 1
-          fi
           python3 - <<'PY'
           import json
           import os
@@ -247,35 +251,142 @@ jobs:
           import time
           from pathlib import Path
 
-          allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"}
           base_sha = os.environ["REVIEW_BASE_SHA"]
           head_sha = os.environ["REVIEW_HEAD_SHA"]
           commit_range = os.environ["REVIEW_COMMIT_RANGE"]
           run_id = os.environ["REVIEW_RUN_ID"]
           if not re.fullmatch(r"[0-9a-f]{40}", base_sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
               raise ValueError("Trusted review SHAs must be full lowercase commit IDs")
-          if commit_range != f"{base_sha}...{head_sha}":
-              raise ValueError("Trusted review range does not match its base/head SHAs")
-          if not run_id.isdigit():
-              raise ValueError("Trusted workflow run ID must be numeric")
+          if commit_range != f"{base_sha}...{head_sha}" or not run_id.isdigit():
+              raise ValueError("Trusted review identity is malformed")
 
-          timeout_minutes = int(os.environ["CODEX_TIMEOUT_MINUTES"])
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
           elapsed_seconds = max(0, int(time.time()) - int(os.environ["REVIEW_STARTED_AT"]))
-
-          raw = os.environ.get("REVIEW_OUTPUT", "").strip()
+          codex_outcome = os.environ.get("CODEX_OUTCOME", "")
           incomplete_reason = None
-          if os.environ.get("CODEX_OUTCOME") != "success":
-              # A step cancelled by its own timeout and a step that errored both report a
-              # failed outcome, so the elapsed budget is the only signal that separates an
-              # expected long review from broken review automation.
-              incomplete_reason = (
-                  "codex-step-timeout"
-                  if elapsed_seconds >= timeout_minutes * 60
-                  else "codex-step-failed"
-              )
-          elif not raw:
+          if codex_outcome != "success":
+              if elapsed_seconds < timeout_seconds:
+                  raise RuntimeError(
+                      f"Codex action failed before its budget ({elapsed_seconds}s, outcome={codex_outcome})"
+                  )
+              incomplete_reason = "codex-step-timeout"
+
+          Path("codex-security-review-raw-output.txt").write_text(
+              os.environ.get("REVIEW_OUTPUT", ""), encoding="utf-8"
+          )
+          metadata = {
+              "base_sha": base_sha,
+              "head_sha": head_sha,
+              "commit_range": commit_range,
+              "run_id": run_id,
+              "elapsed_seconds": elapsed_seconds,
+              "timeout_budget_seconds": timeout_seconds,
+              "incomplete_reason": incomplete_reason,
+              "review_packet": {
+                  "context_variant": "unified-40",
+                  "bytes": int(os.environ["PACKET_BYTES"]),
+                  "lines": int(os.environ["PACKET_LINES"]),
+                  "files": int(os.environ["PACKET_FILES"]),
+                  "hunks": int(os.environ["PACKET_HUNKS"]),
+                  "unchanged_context_lines": int(os.environ["PACKET_CONTEXT_LINES"]),
+              },
+          }
+          Path("codex-security-review-raw-metadata.json").write_text(
+              json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload trusted raw review handoff
+        if: ${{ always() && steps.write_raw_review.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codex-security-review-raw
+          path: |
+            codex-security-review-raw-output.txt
+            codex-security-review-raw-metadata.json
+          if-no-files-found: error
+
+  security-review:
+    name: security-review
+    needs: review-agent
+    if: ${{ always() && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    env:
+      CODEX_TIMEOUT_MINUTES: "9"
+      REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
+      REVIEW_RUN_ID: ${{ github.run_id }}
+      REVIEW_AGENT_RESULT: ${{ needs.review-agent.result }}
+    steps:
+      - name: Require completed or budget-cancelled review agent
+        id: validate_agent
+        run: |
+          case "$REVIEW_AGENT_RESULT" in
+            success|cancelled) ;;
+            *)
+              echo "Review automation failed before producing a trustworthy handoff: $REVIEW_AGENT_RESULT" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Download trusted raw review handoff
+        id: download_raw
+        if: ${{ needs.review-agent.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-security-review-raw
+          path: .
+
+      - name: Write completed or fail-closed security review result
+        id: write_review_result
+        if: ${{ always() && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"}
+          base_sha = os.environ["REVIEW_BASE_SHA"]
+          head_sha = os.environ["REVIEW_HEAD_SHA"]
+          commit_range = os.environ["REVIEW_COMMIT_RANGE"]
+          run_id = os.environ["REVIEW_RUN_ID"]
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
+          if not re.fullmatch(r"[0-9a-f]{40}", base_sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+              raise ValueError("Trusted review SHAs must be full lowercase commit IDs")
+          if commit_range != f"{base_sha}...{head_sha}" or not run_id.isdigit():
+              raise ValueError("Trusted review identity is malformed")
+
+          agent_result = os.environ["REVIEW_AGENT_RESULT"]
+          raw = ""
+          review_packet = None
+          elapsed_seconds = timeout_seconds
+          incomplete_reason = "codex-job-timeout" if agent_result == "cancelled" else None
+          if agent_result == "success":
+              metadata = json.loads(Path("codex-security-review-raw-metadata.json").read_text(encoding="utf-8"))
+              expected_identity = {
+                  "base_sha": base_sha,
+                  "head_sha": head_sha,
+                  "commit_range": commit_range,
+                  "run_id": run_id,
+              }
+              if any(metadata.get(key) != value for key, value in expected_identity.items()):
+                  raise ValueError("Raw review handoff identity does not match this workflow run")
+              elapsed_seconds = int(metadata["elapsed_seconds"])
+              if int(metadata["timeout_budget_seconds"]) != timeout_seconds:
+                  raise ValueError("Raw review handoff timeout budget is malformed")
+              review_packet = metadata["review_packet"]
+              incomplete_reason = metadata.get("incomplete_reason")
+              raw = Path("codex-security-review-raw-output.txt").read_text(encoding="utf-8").strip()
+
+          if incomplete_reason is None and not raw:
               incomplete_reason = "empty-model-output"
-          else:
+          if incomplete_reason is None:
               try:
                   parsed = json.loads(raw)
                   if not isinstance(parsed, dict) or set(parsed) != {"overall_risk", "review_markdown"}:
@@ -300,7 +411,7 @@ jobs:
                   "",
                   "#### [HIGH] Automated review incomplete",
                   "- **Category**: Other",
-                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_seconds}s, budget: {timeout_minutes} minutes).",
+                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_seconds}s, budget: {timeout_seconds // 60} minutes).",
                   "- **Impact**: The pull request has not received complete automated security, correctness, and reliability analysis.",
                   "- **Recommendation**: Require human review before merging. Do not treat this result as approval-free or low risk.",
                   "",
@@ -317,23 +428,13 @@ jobs:
               "overall_risk": risk,
               "automation_completed": incomplete_reason is None,
               "elapsed_seconds": elapsed_seconds,
-              "timeout_budget_seconds": timeout_minutes * 60,
-              "review_packet": {
-                  "context_variant": "unified-40",
-                  "bytes": int(os.environ["PACKET_BYTES"]),
-                  "lines": int(os.environ["PACKET_LINES"]),
-                  "files": int(os.environ["PACKET_FILES"]),
-                  "hunks": int(os.environ["PACKET_HUNKS"]),
-                  "unchanged_context_lines": int(os.environ["PACKET_CONTEXT_LINES"]),
-              },
+              "timeout_budget_seconds": timeout_seconds,
           }
+          if review_packet is not None:
+              result["review_packet"] = review_packet
           if incomplete_reason is not None:
               result["incomplete_reason"] = incomplete_reason
               print(f"Codex review incomplete: {incomplete_reason}; emitted fail-closed HIGH result")
-          step_output = os.environ.get("GITHUB_OUTPUT")
-          if step_output:
-              with open(step_output, "a", encoding="utf-8") as handle:
-                  handle.write(f"incomplete_reason={incomplete_reason or ''}\n")
           Path("codex-security-review-result.json").write_text(
               json.dumps(result, indent=2) + "\n", encoding="utf-8"
           )
@@ -355,42 +456,6 @@ jobs:
           name: codex-security-review-markdown
           path: codex-security-review.md
           if-no-files-found: error
-
-  review-automation-health:
-    name: Codex Security Review Automation Health
-    needs: security-review
-    if: ${{ always() && needs.security-review.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      # `continue-on-error` on the Codex step keeps the fail-closed HIGH artifact and the
-      # PR comment flowing when the review runs out of time, which is an expected outcome
-      # on very large diffs. It must not also hide review automation that is simply
-      # broken, so anything other than a completed or timed-out review turns this check
-      # red without suppressing the artifacts the merge policy reads.
-      - name: Require a completed or timed-out bounded review
-        env:
-          REVIEW_RESULT: ${{ needs.security-review.result }}
-          INCOMPLETE_REASON: ${{ needs.security-review.outputs.incomplete_reason }}
-        run: |
-          set -euo pipefail
-          if [ "$REVIEW_RESULT" != "success" ]; then
-            echo "The bounded security review job finished with result '$REVIEW_RESULT'." >&2
-            exit 1
-          fi
-          case "${INCOMPLETE_REASON:-}" in
-            "")
-              echo "The bounded Codex review completed with usable output."
-              ;;
-            codex-step-timeout)
-              echo "The bounded Codex review exhausted its time budget. The fail-closed HIGH result stands and human review is required."
-              ;;
-            *)
-              echo "The bounded Codex review did not complete for reason '$INCOMPLETE_REASON', which indicates broken review automation rather than an exhausted time budget." >&2
-              exit 1
-              ;;
-          esac
 
   post-review:
     name: Post Codex Security Review

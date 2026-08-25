@@ -25,8 +25,8 @@ FULL_SHA_PATTERN = re.compile(r"\A[0-9a-f]{40}\Z")
 # workflows classify independently, so each one's tests assert the full set and a
 # dropped or renamed reason in either workflow fails.
 INCOMPLETE_REASONS = (
+    "codex-job-timeout",
     "codex-step-timeout",
-    "codex-step-failed",
     "empty-model-output",
     "invalid-model-output",
 )
@@ -120,16 +120,19 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")
-        job = workflow["jobs"]["security-review"]
-        codex = find_step(workflow, "security-review", "run_codex")
+        agent = workflow["jobs"]["review-agent"]
+        finalizer = workflow["jobs"]["security-review"]
+        codex = find_step(workflow, "review-agent", "run_codex")
         writer = find_step(workflow, "security-review", "write_review_result")
 
-        self.assertEqual(job["timeout-minutes"], 15)
-        self.assertEqual(codex["timeout-minutes"], 10)
+        self.assertEqual(agent["timeout-minutes"], 9)
+        self.assertEqual(finalizer["timeout-minutes"], 5)
+        self.assertEqual(finalizer["needs"], "review-agent")
+        self.assertIn("always()", finalizer["if"])
+        self.assertEqual(codex["timeout-minutes"], 9)
         self.assertTrue(codex["continue-on-error"])
         self.assertIn('"additionalProperties": false', codex["with"]["output-schema"])
-        self.assertIn("steps.validate_scope.outcome == 'success'", writer["if"])
-        self.assertIn("steps.write_diff.outcome == 'success'", writer["if"])
+        self.assertIn("needs.review-agent.result == 'cancelled'", writer["if"])
         self.assertIn('risk = "HIGH"', writer["run"])
         self.assertIn(
             '"automation_completed": incomplete_reason is None', writer["run"]
@@ -138,7 +141,7 @@ class ReviewPolicyTest(unittest.TestCase):
 
         uploads = [
             step
-            for step in job["steps"]
+            for step in finalizer["steps"]
             if str(step.get("uses", "")).startswith("actions/upload-artifact@")
         ]
         self.assertEqual(len(uploads), 2)
@@ -176,7 +179,7 @@ class ReviewPolicyTest(unittest.TestCase):
         for case in cases:
             self.assertRegex(case["base"], FULL_SHA_PATTERN)
             self.assertRegex(case["head"], FULL_SHA_PATTERN)
-        production_codex = find_step(production, "security-review", "run_codex")
+        production_codex = find_step(production, "review-agent", "run_codex")
         benchmark_prompt = codex["with"]["prompt"]
         self.assertTrue(
             benchmark_prompt.startswith(production_codex["with"]["prompt"].rstrip())
@@ -268,9 +271,9 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_codex_review_workflows_share_bounded_review_configuration(self):
         production = load_workflow("codex-security-review.yml")
         benchmark = load_workflow("codex-security-review-benchmark.yml")
-        production_job = production["jobs"]["security-review"]
+        production_job = production["jobs"]["review-agent"]
         benchmark_job = benchmark["jobs"]["benchmark-review"]
-        production_codex = find_step(production, "security-review", "run_codex")
+        production_codex = find_step(production, "review-agent", "run_codex")
         benchmark_codex = find_step(benchmark, "benchmark-review", "run_codex")
 
         # The benchmark only predicts production behavior while the sandbox, safety, and
@@ -292,11 +295,11 @@ class ReviewPolicyTest(unittest.TestCase):
         # live in a local composite action; keeping the two copies byte-identical is what
         # makes a benchmark measurement describe the production packet.
         self.assertEqual(
-            find_step(production, "security-review", "write_diff")["run"],
+            find_step(production, "review-agent", "write_diff")["run"],
             find_step(benchmark, "benchmark-review", "packet")["run"],
         )
         self.assertEqual(
-            find_step(production, "security-review", "write_diff")["env"],
+            find_step(production, "review-agent", "write_diff")["env"],
             {"UNIFIED": "40", "INTER_HUNK": "0"},
         )
 
@@ -310,7 +313,7 @@ class ReviewPolicyTest(unittest.TestCase):
             benchmark_codex["timeout-minutes"],
             int(benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"]),
         )
-        self.assertLess(
+        self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
         )
         self.assertLess(
@@ -392,7 +395,13 @@ class ReviewPolicyTest(unittest.TestCase):
                 self.assertEqual(scope["completed"], expected_reason is None)
 
         self.assertEqual(
-            {reason for reason, _, _, _ in cases if reason}, set(INCOMPLETE_REASONS)
+            {reason for reason, _, _, _ in cases if reason},
+            {
+                "codex-step-timeout",
+                "codex-step-failed",
+                "empty-model-output",
+                "invalid-model-output",
+            },
         )
 
     def test_codex_benchmark_serializes_repeat_dispatches(self):
@@ -419,7 +428,9 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(allowed, {"LOW", "NONE"})
         self.assertNotIn("HIGH", allowed)
 
-    def _run_review_result_writer(self, *, codex_outcome, review_output, age_seconds=1):
+    def _run_review_result_writer(
+        self, *, agent_result, review_output="", incomplete_reason=None
+    ):
         body = extract_python_heredoc(
             find_step(
                 load_workflow("codex-security-review.yml"),
@@ -430,25 +441,39 @@ class ReviewPolicyTest(unittest.TestCase):
         base_sha = "a" * 40
         head_sha = "b" * 40
         with tempfile.TemporaryDirectory() as tmp:
-            step_output = Path(tmp) / "step-output.txt"
-            step_output.write_text("", encoding="utf-8")
+            if agent_result == "success":
+                metadata = {
+                    "base_sha": base_sha,
+                    "head_sha": head_sha,
+                    "commit_range": f"{base_sha}...{head_sha}",
+                    "run_id": "12345",
+                    "elapsed_seconds": 545 if incomplete_reason else 30,
+                    "timeout_budget_seconds": 540,
+                    "incomplete_reason": incomplete_reason,
+                    "review_packet": {
+                        "context_variant": "unified-40",
+                        "bytes": 4096,
+                        "lines": 120,
+                        "files": 3,
+                        "hunks": 7,
+                        "unchanged_context_lines": 80,
+                    },
+                }
+                (Path(tmp) / "codex-security-review-raw-metadata.json").write_text(
+                    json.dumps(metadata), encoding="utf-8"
+                )
+                (Path(tmp) / "codex-security-review-raw-output.txt").write_text(
+                    review_output, encoding="utf-8"
+                )
             result = run_python_heredoc(
                 body,
                 {
-                    "CODEX_OUTCOME": codex_outcome,
-                    "REVIEW_OUTPUT": review_output,
-                    "CODEX_TIMEOUT_MINUTES": "10",
+                    "CODEX_TIMEOUT_MINUTES": "9",
                     "REVIEW_BASE_SHA": base_sha,
                     "REVIEW_HEAD_SHA": head_sha,
                     "REVIEW_COMMIT_RANGE": f"{base_sha}...{head_sha}",
                     "REVIEW_RUN_ID": "12345",
-                    "REVIEW_STARTED_AT": str(int(time.time()) - age_seconds),
-                    "PACKET_BYTES": "4096",
-                    "PACKET_LINES": "120",
-                    "PACKET_FILES": "3",
-                    "PACKET_HUNKS": "7",
-                    "PACKET_CONTEXT_LINES": "80",
-                    "GITHUB_OUTPUT": str(step_output),
+                    "REVIEW_AGENT_RESULT": agent_result,
                 },
                 tmp,
             )
@@ -460,41 +485,28 @@ class ReviewPolicyTest(unittest.TestCase):
                     )
                 ),
                 (Path(tmp) / "codex-security-review.md").read_text(encoding="utf-8"),
-                step_output.read_text(encoding="utf-8"),
             )
 
     def test_review_result_writer_emits_fail_closed_high_for_every_failure_mode(self):
-        valid_output = json.dumps(
-            {"overall_risk": "LOW", "review_markdown": "## Review Summary\n\nfine\n"}
-        )
         cases = [
-            ("codex-step-timeout", "failure", valid_output, 10 * 60 + 5),
-            ("codex-step-failed", "failure", "", 3),
-            ("codex-step-failed", "cancelled", valid_output, 12),
-            ("empty-model-output", "success", "   ", 4),
-            ("invalid-model-output", "success", "not json at all", 4),
-            ("invalid-model-output", "success", '{"overall_risk": "SEVERE"}', 4),
-            (
-                "invalid-model-output",
-                "success",
-                json.dumps({"overall_risk": "LOW", "review_markdown": "  "}),
-                4,
-            ),
+            ("codex-job-timeout", "cancelled", "", None),
+            ("codex-step-timeout", "success", "", "codex-step-timeout"),
+            ("empty-model-output", "success", "   ", None),
+            ("invalid-model-output", "success", "not json at all", None),
         ]
-        for expected_reason, outcome, output, age in cases:
-            with self.subTest(reason=expected_reason, outcome=outcome, output=output):
-                result, markdown, emitted = self._run_review_result_writer(
-                    codex_outcome=outcome, review_output=output, age_seconds=age
+        for expected_reason, agent_result, output, handoff_reason in cases:
+            with self.subTest(reason=expected_reason):
+                result, markdown = self._run_review_result_writer(
+                    agent_result=agent_result,
+                    review_output=output,
+                    incomplete_reason=handoff_reason,
                 )
                 self.assertEqual(result["overall_risk"], "HIGH")
                 self.assertFalse(result["automation_completed"])
                 self.assertEqual(result["incomplete_reason"], expected_reason)
-                self.assertEqual(result["timeout_budget_seconds"], 600)
+                self.assertEqual(result["timeout_budget_seconds"], 540)
                 self.assertIn("Human review is required", markdown)
                 self.assertIn("Automated review incomplete", markdown)
-                self.assertEqual(
-                    emitted.strip(), f"incomplete_reason={expected_reason}"
-                )
 
         self.assertEqual({reason for reason, _, _, _ in cases}, set(INCOMPLETE_REASONS))
         allowed = {
@@ -504,8 +516,8 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("HIGH", allowed)
 
     def test_review_result_writer_passes_through_a_completed_review(self):
-        result, markdown, emitted = self._run_review_result_writer(
-            codex_outcome="success",
+        result, markdown = self._run_review_result_writer(
+            agent_result="success",
             review_output=json.dumps(
                 {
                     "overall_risk": "LOW",
@@ -520,61 +532,50 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(result["review_packet"]["context_variant"], "unified-40")
         self.assertEqual(result["review_packet"]["bytes"], 4096)
         self.assertIn("**Overall Risk**: LOW", markdown)
-        self.assertEqual(emitted.strip(), "incomplete_reason=")
 
-    def test_broken_review_automation_fails_its_check_but_a_timeout_does_not(self):
+    def test_broken_review_automation_remains_a_hard_failure(self):
         workflow = load_workflow("codex-security-review.yml")
-        health = workflow["jobs"]["review-automation-health"]
-        security_review = workflow["jobs"]["security-review"]
+        finalizer = workflow["jobs"]["security-review"]
+        gate = find_step(workflow, "security-review", "validate_agent")["run"]
+        self.assertEqual(finalizer["needs"], "review-agent")
+        self.assertIn("always()", finalizer["if"])
 
-        self.assertEqual(health["needs"], "security-review")
-        self.assertIn("always()", health["if"])
-        self.assertIn("needs.security-review.result != 'skipped'", health["if"])
-        self.assertEqual(
-            security_review["outputs"],
-            {
-                "incomplete_reason": "${{ steps.write_review_result.outputs.incomplete_reason }}"
-            },
-        )
-        # The gate must run after the artifacts are uploaded, otherwise failing it would
-        # withhold the fail-closed HIGH result the merge policy depends on.
-        step_ids = [step.get("id") for step in security_review["steps"]]
-        upload_positions = [
-            index
-            for index, step in enumerate(security_review["steps"])
-            if str(step.get("uses", "")).startswith("actions/upload-artifact@")
-        ]
-        self.assertTrue(upload_positions)
-        self.assertLess(step_ids.index("write_review_result"), min(upload_positions))
-
-        gate = health["steps"][0]["run"]
-        expectations = [
-            ("success", "", 0),
-            ("success", "codex-step-timeout", 0),
-            ("success", "codex-step-failed", 1),
-            ("success", "empty-model-output", 1),
-            ("success", "invalid-model-output", 1),
-            ("failure", "", 1),
-            ("cancelled", "", 1),
-        ]
-        for review_result, reason, expected_code in expectations:
-            with self.subTest(result=review_result, reason=reason):
+        for result, expected_code in (("success", 0), ("cancelled", 0), ("failure", 1)):
+            with self.subTest(result=result):
                 completed = subprocess.run(
                     ["bash", "-c", gate],
-                    env={
-                        **os.environ,
-                        "REVIEW_RESULT": review_result,
-                        "INCOMPLETE_REASON": reason,
-                    },
+                    env={**os.environ, "REVIEW_AGENT_RESULT": result},
                     check=False,
                     capture_output=True,
                     text=True,
                 )
-                self.assertEqual(
-                    completed.returncode,
-                    expected_code,
-                    f"stdout={completed.stdout} stderr={completed.stderr}",
-                )
+                self.assertEqual(completed.returncode, expected_code)
+
+        raw_writer = extract_python_heredoc(
+            find_step(workflow, "review-agent", "write_raw_review")["run"]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = run_python_heredoc(
+                raw_writer,
+                {
+                    "CODEX_OUTCOME": "failure",
+                    "REVIEW_OUTPUT": "",
+                    "CODEX_TIMEOUT_MINUTES": "9",
+                    "REVIEW_BASE_SHA": "a" * 40,
+                    "REVIEW_HEAD_SHA": "b" * 40,
+                    "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
+                    "REVIEW_RUN_ID": "12345",
+                    "REVIEW_STARTED_AT": str(int(time.time()) - 30),
+                    "PACKET_BYTES": "1",
+                    "PACKET_LINES": "1",
+                    "PACKET_FILES": "1",
+                    "PACKET_HUNKS": "1",
+                    "PACKET_CONTEXT_LINES": "1",
+                },
+                tmp,
+            )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("failed before its budget", completed.stderr)
 
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
