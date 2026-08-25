@@ -108,7 +108,7 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 
 	slog.Info("connected to database", "target", config.ConnectionTarget(), "database", config.Name)
 
-	err = runMigrations(connection, config)
+	err = runMigrationsWithCompatibilityBridges(connection, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -117,21 +117,61 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 	return connection, nil
 }
 
+// runMigrationsWithCompatibilityBridges runs immutable migrations around the
+// exact schema versions where a legacy compatibility bridge must intervene.
+func runMigrationsWithCompatibilityBridges(conn *sql.DB, config *Config) error {
+	ctx := context.Background()
+
+	// First recover an RC.1 database already left at version 143/dirty.
+	if err := runMigrationCompatibilityBridges(ctx, conn); err != nil {
+		return fmt.Errorf("failed to run migration compatibility bridges: %w", err)
+	}
+
+	// v0.2.9 is version 130. Stop at 142 so legacy curtailment rows can be
+	// prepared before immutable migration 143 evaluates its zero-row guard.
+	if err := runMigrationsThroughVersion(conn, config, 142); err != nil {
+		return err
+	}
+	if err := runMigrationCompatibilityBridges(ctx, conn); err != nil {
+		return fmt.Errorf("failed to run migration compatibility bridges: %w", err)
+	}
+
+	return runMigrations(conn, config)
+}
+
+// runMigrationsThroughVersion applies pending migrations through target but
+// never downgrades a database already at or beyond it.
+func runMigrationsThroughVersion(conn *sql.DB, config *Config, target uint) error {
+	exists, err := schemaMigrationsTableExists(context.Background(), conn)
+	if err != nil {
+		return err
+	}
+	if exists {
+		var current uint
+		var dirty bool
+		if err := conn.QueryRow("SELECT version, dirty FROM schema_migrations").Scan(&current, &dirty); err != nil {
+			return fmt.Errorf("read migration version before compatibility boundary: %w", err)
+		}
+		if current >= target {
+			return nil
+		}
+	}
+
+	m, err := newMigrator(conn, config)
+	if err != nil {
+		return err
+	}
+	if err := m.Migrate(target); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("failed to run migrations through version %d: %w", target, err)
+	}
+	return nil
+}
+
 // runMigrations runs all pending database migrations.
 func runMigrations(conn *sql.DB, config *Config) error {
-	fs, err := iofs.New(migrations.Migrations, ".")
+	m, err := newMigrator(conn, config)
 	if err != nil {
-		return fmt.Errorf("failed to create migration source: %w", err)
-	}
-
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to create migration driver: %w", err)
-	}
-
-	m, err := migrate.NewWithInstance("migrations", fs, config.Name, driver)
-	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		return err
 	}
 
 	start := time.Now()
@@ -147,4 +187,22 @@ func runMigrations(conn *sql.DB, config *Config) error {
 		"dirty", dirty)
 
 	return nil
+}
+
+func newMigrator(conn *sql.DB, config *Config) (*migrate.Migrate, error) {
+	fs, err := iofs.New(migrations.Migrations, ".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migration source: %w", err)
+	}
+
+	driver, err := postgres.WithInstance(conn, &postgres.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migration driver: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("migrations", fs, config.Name, driver)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+	return m, nil
 }
