@@ -3,13 +3,12 @@
 import io
 import json
 import subprocess
-import unittest
 import tempfile
+import unittest
 import zipfile
 from pathlib import Path
 
 import evaluate_review_policy as policy
-
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-policy.json"
@@ -51,6 +50,96 @@ class ReviewPolicyTest(unittest.TestCase):
             jobs["review-policy-tests"]["steps"][1]["run"],
             "python3 .github/scripts/evaluate_review_policy_test.py",
         )
+
+    def test_codex_security_review_is_bounded_and_fail_closed(self):
+        workflow = load_workflow("codex-security-review.yml")
+        job = workflow["jobs"]["security-review"]
+        steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
+        codex = steps["run_codex"]
+        writer = steps["write_review_result"]
+
+        self.assertEqual(job["timeout-minutes"], 15)
+        self.assertEqual(codex["timeout-minutes"], 10)
+        self.assertTrue(codex["continue-on-error"])
+        self.assertIn('"additionalProperties": false', codex["with"]["output-schema"])
+        self.assertIn("steps.validate_scope.outcome == 'success'", writer["if"])
+        self.assertIn("steps.write_diff.outcome == 'success'", writer["if"])
+        self.assertIn('risk = "HIGH"', writer["run"])
+        self.assertIn(
+            '"automation_completed": incomplete_reason is None', writer["run"]
+        )
+        self.assertIn("Human review is required", writer["run"])
+
+        uploads = [
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+        ]
+        self.assertEqual(len(uploads), 2)
+        self.assertTrue(
+            all(
+                "steps.write_review_result.outcome == 'success'" in step["if"]
+                for step in uploads
+            )
+        )
+
+    def test_codex_benchmark_uses_fixed_bounded_non_production_matrix(self):
+        workflow_text = read_workflow("codex-security-review-benchmark.yml")
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+        production = load_workflow("codex-security-review.yml")
+        job = workflow["jobs"]["benchmark-review"]
+        cases = job["strategy"]["matrix"]["case"]
+        variants = job["strategy"]["matrix"]["variant"]
+        steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
+
+        self.assertNotIn("pull_request:", workflow_text.split("permissions:", 1)[0])
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertFalse(job["strategy"]["fail-fast"])
+        self.assertEqual(job["strategy"]["max-parallel"], 2)
+        self.assertEqual(steps["run_codex"]["timeout-minutes"], 12)
+        self.assertTrue(steps["run_codex"]["continue-on-error"])
+        self.assertEqual(
+            {variant["id"] for variant in variants},
+            {"unified-40", "unified-10", "compact"},
+        )
+        self.assertEqual(
+            {case["pr"] for case in cases if case["corpus"] == "adjudicated"},
+            {944, 948, 953, 954, 956, 961},
+        )
+        self.assertTrue(
+            all(len(case["base"]) == 40 and len(case["head"]) == 40 for case in cases)
+        )
+        production_codex = next(
+            step
+            for step in production["jobs"]["security-review"]["steps"]
+            if step.get("id") == "run_codex"
+        )
+        benchmark_prompt = steps["run_codex"]["with"]["prompt"]
+        self.assertTrue(
+            benchmark_prompt.startswith(production_codex["with"]["prompt"].rstrip())
+        )
+        self.assertIn("return no more than five material findings", benchmark_prompt)
+        self.assertNotIn(
+            "codex-security-review-result", job["steps"][-1]["with"]["name"]
+        )
+        self.assertNotIn("issues: write", workflow_text)
+        self.assertNotIn("pull-requests: write", workflow_text)
+
+    def test_incomplete_codex_review_cannot_take_approval_free_path(self):
+        workflow = load_workflow("codex-security-review.yml")
+        writer = next(
+            step
+            for step in workflow["jobs"]["security-review"]["steps"]
+            if step.get("id") == "write_review_result"
+        )
+        self.assertIn('risk = "HIGH"', writer["run"])
+
+        config = load_policy_config()
+        allowed = {
+            risk.upper() for risk in config["low_risk"]["allowed_security_risks"]
+        }
+        self.assertEqual(allowed, {"LOW", "NONE"})
+        self.assertNotIn("HIGH", allowed)
 
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
