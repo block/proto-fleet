@@ -67,7 +67,8 @@ narrow compatibility bridge around its version boundary:
 1. Recover an RC.1 database already at `143/dirty` if neither envelope column
    exists.
 2. For older databases, run ordered migrations only through version 142.
-3. Lock `schema_migrations` and inspect the two curtailment tables.
+3. Acquire golang-migrate's PostgreSQL advisory lock, then lock
+   `schema_migrations` and inspect the two curtailment tables.
 4. If no rows exist, leave migration 143 to run unchanged (or reset an empty
    RC.1 dirty marker to 142 first).
 5. If rows exist, transactionally apply the exact final schema owned by migration
@@ -82,8 +83,11 @@ be reused. Saving a profile through the new API replaces it with a precise
 current envelope. Facility-fan events keep their persisted fan-site snapshot;
 legacy profiles containing fans require organization-wide site-read permission.
 
-The bridge refuses to guess if either envelope column already exists, because
-that indicates a partial/manual schema state requiring operator inspection.
+The advisory lock serializes the bridge with old and new migration runners during
+rolling startup, preventing another binary from overwriting the bridge's clean
+version marker. The bridge also refuses to guess if either envelope column
+already exists, because that indicates a partial/manual schema state requiring
+operator inspection.
 
 ## Verification
 
@@ -96,6 +100,7 @@ legacy response profile and nine legacy events (matching the incident):
 | v0.2.10-rc.15 / schema 142 clean | bridge rows, finish at 143 clean |
 | v0.3.0-rc.1 incident / schema 143 dirty, columns absent | bridge rows, finish at 143 clean |
 | schema 143 dirty, no rows or columns | reset to 142, run immutable 143 normally |
+| concurrent migration runner holds the advisory lock | bridge waits, then completes safely |
 
 For every row-preserving case, tests assert that row counts survive, both columns
 contain conservative envelopes, version 143 is clean, and golang-migrate accepts

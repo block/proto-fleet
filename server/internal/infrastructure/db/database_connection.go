@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
+	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
@@ -121,46 +122,75 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 // exact schema versions where a legacy compatibility bridge must intervene.
 func runMigrationsWithCompatibilityBridges(conn *sql.DB, config *Config) error {
 	ctx := context.Background()
+	m, driver, err := newMigrator(conn, config)
+	if err != nil {
+		return err
+	}
+	// Do not call m.Close: postgres.WithInstance treats the supplied *sql.DB as
+	// owned and would close the application connection returned by this function.
 
-	// First recover an RC.1 database already left at version 143/dirty.
-	if err := runMigrationCompatibilityBridges(ctx, conn); err != nil {
+	// First recover an RC.1 database already left at version 143/dirty. The
+	// golang-migrate lock prevents an older binary from racing the bridge and
+	// overwriting its clean version marker.
+	if err := runMigrationCompatibilityBridgesWithLock(ctx, conn, driver); err != nil {
 		return fmt.Errorf("failed to run migration compatibility bridges: %w", err)
 	}
 
 	// v0.2.9 is version 130. Stop at 142 so legacy curtailment rows can be
 	// prepared before immutable migration 143 evaluates its zero-row guard.
-	if err := runMigrationsThroughVersion(conn, config, 142); err != nil {
+	if err := runMigrationsThroughVersion(ctx, conn, m, 142); err != nil {
 		return err
 	}
-	if err := runMigrationCompatibilityBridges(ctx, conn); err != nil {
+	if err := runMigrationCompatibilityBridgesWithLock(ctx, conn, driver); err != nil {
 		return fmt.Errorf("failed to run migration compatibility bridges: %w", err)
 	}
 
-	return runMigrations(conn, config)
+	return runMigrations(m)
+}
+
+// runMigrationCompatibilityBridgesWithLock serializes bridge SQL with every
+// ordinary golang-migrate runner using the driver's database advisory lock.
+func runMigrationCompatibilityBridgesWithLock(
+	ctx context.Context,
+	conn *sql.DB,
+	driver migratedatabase.Driver,
+) (err error) {
+	if err := driver.Lock(); err != nil {
+		return fmt.Errorf("acquire migration lock for compatibility bridge: %w", err)
+	}
+	defer func() {
+		if unlockErr := driver.Unlock(); unlockErr != nil {
+			unlockErr = fmt.Errorf("release migration lock for compatibility bridge: %w", unlockErr)
+			if err == nil {
+				err = unlockErr
+			} else {
+				err = errors.Join(err, unlockErr)
+			}
+		}
+	}()
+
+	return runMigrationCompatibilityBridges(ctx, conn)
 }
 
 // runMigrationsThroughVersion applies pending migrations through target but
 // never downgrades a database already at or beyond it.
-func runMigrationsThroughVersion(conn *sql.DB, config *Config, target uint) error {
-	exists, err := schemaMigrationsTableExists(context.Background(), conn)
+func runMigrationsThroughVersion(ctx context.Context, conn *sql.DB, m *migrate.Migrate, target uint) error {
+	exists, err := schemaMigrationsTableExists(ctx, conn)
 	if err != nil {
 		return err
 	}
 	if exists {
 		var current uint
 		var dirty bool
-		if err := conn.QueryRow("SELECT version, dirty FROM schema_migrations").Scan(&current, &dirty); err != nil {
+		err := conn.QueryRowContext(ctx, "SELECT version, dirty FROM schema_migrations").Scan(&current, &dirty)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("read migration version before compatibility boundary: %w", err)
 		}
-		if current >= target {
+		if err == nil && current >= target {
 			return nil
 		}
 	}
 
-	m, err := newMigrator(conn, config)
-	if err != nil {
-		return err
-	}
 	if err := m.Migrate(target); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run migrations through version %d: %w", target, err)
 	}
@@ -168,14 +198,9 @@ func runMigrationsThroughVersion(conn *sql.DB, config *Config, target uint) erro
 }
 
 // runMigrations runs all pending database migrations.
-func runMigrations(conn *sql.DB, config *Config) error {
-	m, err := newMigrator(conn, config)
-	if err != nil {
-		return err
-	}
-
+func runMigrations(m *migrate.Migrate) error {
 	start := time.Now()
-	err = m.Up()
+	err := m.Up()
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -189,20 +214,20 @@ func runMigrations(conn *sql.DB, config *Config) error {
 	return nil
 }
 
-func newMigrator(conn *sql.DB, config *Config) (*migrate.Migrate, error) {
+func newMigrator(conn *sql.DB, config *Config) (*migrate.Migrate, migratedatabase.Driver, error) {
 	fs, err := iofs.New(migrations.Migrations, ".")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create migration source: %w", err)
+		return nil, nil, fmt.Errorf("failed to create migration source: %w", err)
 	}
 
 	driver, err := postgres.WithInstance(conn, &postgres.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create migration driver: %w", err)
+		return nil, nil, fmt.Errorf("failed to create migration driver: %w", err)
 	}
 
 	m, err := migrate.NewWithInstance("migrations", fs, config.Name, driver)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create migrate instance: %w", err)
+		return nil, nil, fmt.Errorf("failed to create migrate instance: %w", err)
 	}
-	return m, nil
+	return m, driver, nil
 }

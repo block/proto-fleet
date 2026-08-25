@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -60,6 +61,11 @@ func bridgeCurtailmentAuthorizationEnvelopes(ctx context.Context, conn *sql.DB) 
 	var dirty bool
 	if err := tx.QueryRowContext(ctx,
 		"SELECT version, dirty FROM schema_migrations FOR UPDATE").Scan(&version, &dirty); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// postgres.WithInstance creates schema_migrations before a fresh
+			// database has a version row. Ordered migrations own that bootstrap.
+			return nil
+		}
 		return fmt.Errorf("read migration version for compatibility bridge: %w", err)
 	}
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/alecthomas/kong"
@@ -68,6 +69,75 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 
 		})
 	}
+}
+
+func TestCurtailmentAuthorizationEnvelopeBridgeAllowsFreshBootstrap(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	assert.NoError(t, runMigrationsWithCompatibilityBridges(conn, config))
+
+	var version int
+	var dirty bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
+	assert.Equal(t, 143, version)
+	assert.False(t, dirty)
+}
+
+func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	migrateTestDBTo(t, conn, config.Name, 142)
+	insertLegacyCurtailmentRows(t, conn)
+
+	_, blocker, err := newMigrator(conn, config)
+	assert.NoError(t, err)
+	assert.NoError(t, blocker.Lock())
+	locked := true
+	defer func() {
+		if locked {
+			assert.NoError(t, blocker.Unlock())
+		}
+	}()
+
+	concurrentConn, err := ConnectToDatabase(config)
+	assert.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, concurrentConn.Close()) })
+	assert.NoError(t, concurrentConn.PingContext(t.Context()))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runMigrationsWithCompatibilityBridges(concurrentConn, config)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("migration bridge completed before advisory lock was released: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	assert.NoError(t, blocker.Unlock())
+	locked = false
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("migration bridge did not complete after advisory lock was released")
+	}
+
+	var version int
+	var dirty bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
+	assert.Equal(t, 143, version)
+	assert.False(t, dirty)
 }
 
 func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T) {
@@ -150,6 +220,8 @@ func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version ui
 	assert.NoError(t, err)
 	migration, err := migrate.NewWithInstance("migrations", source, databaseName, driver)
 	assert.NoError(t, err)
+	// Do not call migration.Close: postgres.WithInstance would close conn, which
+	// the caller continues using. Test cleanup closes conn and its driver resources.
 	assert.NoError(t, migration.Migrate(version))
 }
 
