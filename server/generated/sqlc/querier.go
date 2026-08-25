@@ -78,6 +78,10 @@ type Querier interface {
 	// concurrency control; the loser sees zero rows and the store re-reads
 	// to distinguish "already restoring" from "already terminal."
 	BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error)
+	// A topology watcher remains active while departed targets restore. Targets
+	// with no possible Curtail attempt release immediately; every other target
+	// enters the normal restore queue conservatively.
+	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
@@ -100,13 +104,15 @@ type Querier interface {
 	BulkInsertNotificationHistory(ctx context.Context, rowsJsonb json.RawMessage) (int64, error)
 	// Per-tick readiness refresh for all-paired policy rows, batched into one
 	// statement so a mass readiness flip (fleet-wide recovery or outage) does not
-	// issue one UPDATE round trip per device inside the shared tick budget.
+	// issue one UPDATE round trip per device inside the shared tick budget. The
+	// same transition parks topology restore obligations while uncommandable and
+	// requeues them after commandability returns.
 	//
 	// Guards mirror UpdateCurtailmentTargetState for this transition class:
 	// the parent event is locked and must still be in the caller's expected
-	// state, and each row must still be a refreshable policy row
-	// (desired_state='curtailed', state pending/unavailable). Rows that advanced
-	// concurrently (dispatch claim, Stop reset, release) are skipped; the next
+	// state, and each row must still be a refreshable policy row: pending or
+	// unavailable for curtail, plus restore_failed for topology restore parking.
+	// Rows that advanced concurrently (dispatch claim, Stop reset, release) are skipped; the next
 	// tick re-reads them. RETURNING reports exactly which rows applied so the
 	// reconciler mirrors only those — a skipped row must not be treated as
 	// promoted and dispatched against stale state. Empty last_error is the
@@ -177,14 +183,15 @@ type Querier interface {
 	CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error)
 	// Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 	// policy state (pending or unavailable) instead of immediately claiming them
-	// as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
-	// other same-event rows and cross-event conflicts are no-ops.
+	// as DISPATCHING. Same-event RELEASED, topology-restored RESOLVED, or failed
+	// restore rows may be reopened; other same-event rows and cross-event
+	// conflicts are no-ops.
 	ClaimAllPairedPolicyTargets(ctx context.Context, arg ClaimAllPairedPolicyTargetsParams) (int64, error)
 	// Closed-loop FULL_FLEET dispatch claim. Locks the parent event so
 	// Stop/AdminTerminate and dynamic target claims serialize on lifecycle state.
 	// Same-event duplicates and cross-event target conflicts are no-ops; the
 	// reconciler retries on a later tick if a conflicting event resolves.
-	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error)
+	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]ClaimClosedLoopFullFleetTargetsRow, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
 	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
 	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
@@ -254,9 +261,9 @@ type Querier interface {
 	CountCurtailmentAutomationRulesByMQTTSource(ctx context.Context, arg CountCurtailmentAutomationRulesByMQTTSourceParams) (int64, error)
 	CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
 	CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error)
-	// Hierarchy for currently supported closed-loop scopes: org > site.
-	// A new whole-org event conflicts with existing whole-org, site, or site-only mixed events.
-	// A new site or site-only mixed event conflicts with existing whole-org or overlapping site ownership.
+	// Serializes logical FULL_FLEET scope ownership. Whole-org conflicts with every
+	// hierarchy watcher; site selectors conflict on overlap; topology selectors
+	// conflict with whole-org and overlapping IDs of the same terminal type.
 	CountCurtailmentScopeConflicts(ctx context.Context, arg CountCurtailmentScopeConflictsParams) (int64, error)
 	// Counts distinct devices that have errors matching filter criteria.
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
@@ -956,6 +963,10 @@ type Querier interface {
 	ListDeviceSetMembersPaginatedAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedAfterParams) ([]ListDeviceSetMembersPaginatedAfterRow, error)
 	ListDeviceSetMembersPaginatedFiltered(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredParams) ([]ListDeviceSetMembersPaginatedFilteredRow, error)
 	ListDeviceSetMembersPaginatedFilteredAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredAfterParams) ([]ListDeviceSetMembersPaginatedFilteredAfterRow, error)
+	// Returns requested devices owned by an older concrete target or logical
+	// closed-loop scope. Admission holds the org scope lock while reading this
+	// list and claiming targets, so persisted event order decides ownership.
+	ListEarlierCurtailmentReservationDevices(ctx context.Context, arg ListEarlierCurtailmentReservationDevicesParams) ([]string, error)
 	// Single-query resolver source: one row per (assignment, permission)
 	// pair the user holds within an organization, with a NULL permission
 	// column when the assignment's role has no permissions attached.
@@ -1175,6 +1186,9 @@ type Querier interface {
 	// terminal UPDATE behind an in-flight command and rejects stale commands that
 	// begin after the transition.
 	LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error)
+	// Admission already has the event ID; derive its organization before taking
+	// the same lock used by Start conflict detection.
+	LockCurtailmentEventScopeForWrite(ctx context.Context, curtailmentEventID int64) error
 	// Per-device transaction lock closes concurrent Start races before the array
 	// overlap check. Callers acquire these in ascending ID order.
 	LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error
@@ -1194,6 +1208,12 @@ type Querier interface {
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error
+	// Pairing status participates in all-paired topology membership. Lock these
+	// device rows first, including devices that do not have a pairing row yet,
+	// then any existing pairing rows. Pairing inserts take the same device lock,
+	// so the later candidate read cannot classify a first-time pairing from a
+	// stale pre-insert snapshot.
+	LockCurtailmentTargetPairingStatusesForWrite(ctx context.Context, arg LockCurtailmentTargetPairingStatusesForWriteParams) ([]LockCurtailmentTargetPairingStatusesForWriteRow, error)
 	// Stabilizes the current member rows while an authorization envelope and its
 	// event targets/profile row are persisted. The query mirrors the executable
 	// topology selector predicates and locks in device.id order, matching the

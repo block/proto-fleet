@@ -180,14 +180,22 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 	assert.Contains(t, got, unavailable)
 	assert.NotContains(t, got, released,
 		"during restoring, reopen is impossible: released rows free their device instead of holding it until terminal")
+
+	_, err = store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "released-policy-row-competitor"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(released, models.TargetStateConfirmed, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err,
+		"the transactional reservation check must apply the same restoring/released exception as the selector")
 }
 
-// Pins BulkRefreshAllPairedTargetReadiness' real SQL: pending/unavailable
-// curtail-phase rows flip in one statement, rows that advanced past the
-// refreshable states are skipped (and reported via RETURNING so the caller
-// mirrors only applied rows), a stale expected event state applies nothing,
-// and promotion baselines backfill NULL only — an existing pre-curtail
-// baseline is never overwritten.
+// Pins BulkRefreshAllPairedTargetReadiness' real SQL: curtail and topology
+// restore readiness flips share one guarded batch, rows that advanced past
+// refreshable states are skipped, a stale event state applies nothing, and
+// curtail promotion baselines backfill NULL only.
 func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -202,6 +210,12 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	existingBaseline := 2500.0
 	seededBaselineTarget := curtailmentStoreAllPairedTarget("bulk-keeps-baseline", models.TargetStateUnavailable, "offline")
 	seededBaselineTarget.BaselinePowerW = &existingBaseline
+	restoreFailedTarget := curtailmentStoreAllPairedTarget("bulk-parks-restore-failure", models.TargetStateRestoreFailed, "restore dispatch failed")
+	restoreFailedTarget.DesiredState = models.DesiredStateActive
+	restoreUnavailableTarget := curtailmentStoreAllPairedTarget("bulk-requeues-restore", models.TargetStateUnavailable, "unpaired")
+	restoreUnavailableTarget.DesiredState = models.DesiredStateActive
+	staleRestoreTarget := curtailmentStoreAllPairedTarget("bulk-skips-stale-restore", models.TargetStateRestoreFailed, "restore dispatch failed")
+	staleRestoreTarget.DesiredState = models.DesiredStateActive
 
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(
@@ -212,6 +226,9 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 			curtailmentStoreAllPairedTarget("bulk-demotes", models.TargetStatePending, ""),
 			curtailmentStoreAllPairedTarget("bulk-dispatched", models.TargetStateDispatched, ""),
 			seededBaselineTarget,
+			restoreFailedTarget,
+			restoreUnavailableTarget,
+			staleRestoreTarget,
 		},
 	)
 	require.NoError(t, err)
@@ -221,24 +238,31 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 
 	applied, err := store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStatePending,
 		[]interfaces.AllPairedReadinessUpdate{
-			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
 		})
 	require.NoError(t, err)
 	assert.Empty(t, applied, "stale expected event state must apply nothing")
 
 	applied, err = store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStateActive,
 		[]interfaces.AllPairedReadinessUpdate{
-			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending, BaselinePowerW: &promotionBaseline},
-			{DeviceIdentifier: "bulk-demotes", State: models.TargetStateUnavailable, Reason: "offline"},
-			{DeviceIdentifier: "bulk-dispatched", State: models.TargetStateUnavailable, Reason: "offline"},
-			{DeviceIdentifier: "bulk-keeps-baseline", State: models.TargetStatePending, BaselinePowerW: &overwriteAttempt},
+			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending, BaselinePowerW: &promotionBaseline},
+			{DeviceIdentifier: "bulk-demotes", ExpectedState: models.TargetStatePending, State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-dispatched", ExpectedState: models.TargetStateDispatched, State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-keeps-baseline", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending, BaselinePowerW: &overwriteAttempt},
+			{DeviceIdentifier: "bulk-parks-restore-failure", ExpectedState: models.TargetStateRestoreFailed, State: models.TargetStateUnavailable, Reason: "unpaired"},
+			{DeviceIdentifier: "bulk-requeues-restore", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-skips-stale-restore", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
 		})
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"bulk-promotes", "bulk-demotes", "bulk-keeps-baseline"}, applied,
+	assert.ElementsMatch(t, []string{
+		"bulk-promotes", "bulk-demotes", "bulk-keeps-baseline",
+		"bulk-parks-restore-failure", "bulk-requeues-restore",
+	}, applied,
 		"the dispatched row is past the refreshable states and must be skipped — and not reported as applied")
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT device_identifier, state, last_error, curtail_state, curtail_failure_count, baseline_power_w
+		SELECT device_identifier, state, last_error, curtail_state, curtail_failure_count,
+		       baseline_power_w, restore_state, restore_completed_at, restore_retry_count
 		FROM curtailment_target
 		WHERE curtailment_event_id = $1
 	`, inserted.ID)
@@ -251,16 +275,22 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 		curtailState        sql.NullString
 		curtailFailureCount int32
 		baselinePowerW      sql.NullFloat64
+		restoreState        sql.NullString
+		restoreCompletedAt  sql.NullTime
+		restoreRetryCount   int32
 	}
 	got := map[string]refreshedRow{}
 	for rows.Next() {
 		var device string
 		var row refreshedRow
-		require.NoError(t, rows.Scan(&device, &row.state, &row.lastError, &row.curtailState, &row.curtailFailureCount, &row.baselinePowerW))
+		require.NoError(t, rows.Scan(
+			&device, &row.state, &row.lastError, &row.curtailState, &row.curtailFailureCount,
+			&row.baselinePowerW, &row.restoreState, &row.restoreCompletedAt, &row.restoreRetryCount,
+		))
 		got[device] = row
 	}
 	require.NoError(t, rows.Err())
-	require.Len(t, got, 4)
+	require.Len(t, got, 7)
 
 	promoted := got["bulk-promotes"]
 	assert.Equal(t, string(models.TargetStatePending), promoted.state)
@@ -286,6 +316,22 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	require.True(t, keepsBaseline.baselinePowerW.Valid)
 	assert.InDelta(t, existingBaseline, keepsBaseline.baselinePowerW.Float64, 0.001,
 		"an existing pre-curtail baseline is never overwritten by promotion telemetry")
+
+	parkedRestore := got["bulk-parks-restore-failure"]
+	assert.Equal(t, string(models.TargetStateUnavailable), parkedRestore.state)
+	assert.Equal(t, string(models.TargetStateUnavailable), parkedRestore.restoreState.String)
+	assert.False(t, parkedRestore.restoreCompletedAt.Valid, "parking reopens the restore obligation")
+
+	requeuedRestore := got["bulk-requeues-restore"]
+	assert.Equal(t, string(models.TargetStatePending), requeuedRestore.state)
+	assert.False(t, requeuedRestore.lastError.Valid)
+	assert.Equal(t, string(models.TargetStatePending), requeuedRestore.restoreState.String)
+	assert.False(t, requeuedRestore.restoreCompletedAt.Valid)
+	assert.Zero(t, requeuedRestore.restoreRetryCount, "re-pairing grants a fresh bounded restore attempt")
+
+	staleRestore := got["bulk-skips-stale-restore"]
+	assert.Equal(t, string(models.TargetStateRestoreFailed), staleRestore.state)
+	assert.Equal(t, "restore dispatch failed", staleRestore.lastError.String)
 }
 
 // Pins the graceful-Stop release predicate against real SQL: only all-paired

@@ -136,6 +136,7 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 				if baseline := curtailment.AllPairedPromotionBaselinePowerW(candidate, minPowerW); baseline != nil {
 					updates = append(updates, interfaces.AllPairedReadinessUpdate{
 						DeviceIdentifier: target.DeviceIdentifier,
+						ExpectedState:    target.State,
 						State:            nextState,
 						Reason:           reason,
 						BaselinePowerW:   baseline,
@@ -150,6 +151,7 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 		}
 		update := interfaces.AllPairedReadinessUpdate{
 			DeviceIdentifier: target.DeviceIdentifier,
+			ExpectedState:    target.State,
 			State:            nextState,
 			Reason:           reason,
 		}

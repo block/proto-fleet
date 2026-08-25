@@ -2118,15 +2118,21 @@ func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.
 }
 
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id
+    FROM device
+    WHERE device.id = $1
+    FOR UPDATE
+)
 INSERT INTO device_pairing (
     device_id,
     pairing_status,
     paired_at
-) VALUES (
-    $1,
+) SELECT
+    locked_device.id,
     'AUTHENTICATION_NEEDED'::pairing_status_enum,
     CURRENT_TIMESTAMP
-)
+FROM locked_device
 ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
     paired_at = CURRENT_TIMESTAMP,
@@ -2339,15 +2345,21 @@ func (q *Queries) UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, 
 }
 
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id
+    FROM device
+    WHERE device.id = $2
+    FOR UPDATE
+)
 INSERT INTO device_pairing (
     device_id,
     pairing_status,
     paired_at
-) VALUES (
+) SELECT
+    locked_device.id,
     $1,
-    $2,
     CURRENT_TIMESTAMP
-)
+FROM locked_device
 ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = EXCLUDED.pairing_status,
     paired_at = CURRENT_TIMESTAMP,
@@ -2355,12 +2367,12 @@ ON CONFLICT (device_id) DO UPDATE SET
 `
 
 type UpsertDevicePairingParams struct {
-	DeviceID      int64
 	PairingStatus PairingStatusEnum
+	DeviceID      int64
 }
 
 func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.DeviceID, arg.PairingStatus)
+	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.PairingStatus, arg.DeviceID)
 }
 
 const upsertDeviceStatus = `-- name: UpsertDeviceStatus :exec

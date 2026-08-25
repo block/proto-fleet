@@ -1931,6 +1931,7 @@ func TestReconciler_AllPairedPolicyStablePendingTargetBackfillsMissingBaseline(t
 
 	require.Len(t, store.lastBulkRefreshUpdates, 1,
 		"a stable pending row with a missing baseline must still get a backfill update")
+	assert.Equal(t, models.TargetStatePending, store.lastBulkRefreshUpdates[0].ExpectedState)
 	require.NotNil(t, store.lastBulkRefreshUpdates[0].BaselinePowerW)
 	final := store.targetsByEventID[eventID][0]
 	require.NotNil(t, final.BaselinePowerW,
@@ -2391,6 +2392,13 @@ func TestReconciler_AllPairedPolicyReadinessRefreshBatchesFlipsIntoOneCall(t *te
 
 	assert.Equal(t, 1, store.bulkRefreshCalls, "one bulk statement per tick, not one write per device")
 	require.Len(t, store.lastBulkRefreshUpdates, 3)
+	for _, update := range store.lastBulkRefreshUpdates {
+		if update.DeviceIdentifier == "sleeps" {
+			assert.Equal(t, models.TargetStatePending, update.ExpectedState)
+		} else {
+			assert.Equal(t, models.TargetStateUnavailable, update.ExpectedState)
+		}
+	}
 	byDevice := map[string]*models.Target{}
 	for _, target := range store.targetsByEventID[eventID] {
 		byDevice[target.DeviceIdentifier] = target
