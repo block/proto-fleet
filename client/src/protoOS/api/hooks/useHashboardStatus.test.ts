@@ -40,7 +40,6 @@ vi.mock("@/protoOS/store", () => ({
     }),
     setState: mockSetState,
   },
-  getAsicId: (serial: string, index: number) => `serial:${serial}:asic:${index}`,
 }));
 
 vi.mock("@/protoOS/store/hooks/useAuthRetry", () => ({
@@ -57,11 +56,11 @@ describe("useHashboardStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         getHashboardStatus: mockGetHashboardStatus,
       },
     });
-    mockGetHashboardStatus.mockResolvedValue({ data: {} });
+    mockGetHashboardStatus.mockResolvedValue([]);
     (usePoll as Mock).mockImplementation(() => {});
   });
 
@@ -79,7 +78,7 @@ describe("useHashboardStatus", () => {
       await pollArgs.fetchData();
     });
 
-    expect(mockGetHashboardStatus).toHaveBeenCalledWith({ hbSn: "HB-1" }, expect.any(Object));
+    expect(mockGetHashboardStatus).toHaveBeenCalledWith(["HB-1"], expect.any(Object));
   });
 
   // When useTelemetry has already created an ASIC entry (with index but no
@@ -94,13 +93,14 @@ describe("useHashboardStatus", () => {
       index: 0,
       hashboardIndex: 1,
     });
-    mockGetHashboardStatus.mockResolvedValue({
-      data: {
-        "hashboard-stats": {
-          asics: [{ index: 0, row: 2, column: 3 }],
-        },
+    mockGetHashboardStatus.mockResolvedValue([
+      {
+        serial: "HB-1",
+        asicIds: ["serial:HB-1:asic:0"],
+        asics: [{ id: "serial:HB-1:asic:0", hashboardSerial: "HB-1", index: 0, row: 2, column: 3 }],
+        asicTelemetry: [{ asicId: "serial:HB-1:asic:0" }],
       },
-    });
+    ]);
 
     renderHook(() =>
       useHashboardStatus({
@@ -133,13 +133,14 @@ describe("useHashboardStatus", () => {
   test("preserves the device-local index when creating ASIC hardware", async () => {
     mockGetHashboard.mockReturnValue(undefined);
     mockGetAsic.mockReturnValue(undefined);
-    mockGetHashboardStatus.mockResolvedValue({
-      data: {
-        "hashboard-stats": {
-          asics: [{ index: 0, row: 0, column: 0 }],
-        },
+    mockGetHashboardStatus.mockResolvedValue([
+      {
+        serial: "HB-1",
+        asicIds: ["serial:HB-1:asic:0"],
+        asics: [{ id: "serial:HB-1:asic:0", hashboardSerial: "HB-1", index: 0, row: 0, column: 0 }],
+        asicTelemetry: [{ asicId: "serial:HB-1:asic:0" }],
       },
-    });
+    ]);
 
     renderHook(() =>
       useHashboardStatus({

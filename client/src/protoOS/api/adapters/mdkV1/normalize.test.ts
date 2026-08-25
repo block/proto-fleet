@@ -3,6 +3,8 @@ import {
   toCanonicalCoolingStatus,
   toCanonicalErrors,
   toCanonicalHardware,
+  toCanonicalHashboards,
+  toCanonicalHashboardStatus,
   toCanonicalMiningStatus,
   toCanonicalMiningTarget,
   toCanonicalNetworkInfo,
@@ -303,5 +305,46 @@ describe("MDK v1 normalization", () => {
   it("unwraps the v1 system-tag response", () => {
     expect(toCanonicalSystemTag({ tag: "rig-01" })).toBe("rig-01");
     expect(toCanonicalSystemTag("rig-02")).toBe("rig-02");
+  });
+
+  it("derives hashboard bays from slots and drops entries missing serial or slot", () => {
+    expect(
+      toCanonicalHashboards([
+        { hb_sn: "HB-1", slot: 1, board: "B3a" },
+        { hb_sn: "HB-4", slot: 4, board: "B3a" },
+        { hb_sn: "HB-no-slot" }, // dropped: no slot
+        { slot: 2 }, // dropped: no serial
+      ]),
+    ).toEqual([
+      { serial: "HB-1", slot: 1, board: "B3a", bay: 1, asicIds: [] },
+      { serial: "HB-4", slot: 4, board: "B3a", bay: 2, asicIds: [] },
+    ]);
+  });
+
+  it("normalizes hashboard status: asic ids, positions, and volts/MHz telemetry", () => {
+    expect(
+      toCanonicalHashboardStatus("HB-1", {
+        asics: [
+          { index: 0, row: 0, column: 1, voltage_mv: 308.44, freq_mhz: 650.05 },
+          { index: 1, row: 1, column: 2 }, // no telemetry fields
+          { index: 2 }, // in asicIds but not asic hardware (no row/column)
+        ],
+      }),
+    ).toEqual({
+      serial: "HB-1",
+      asicIds: [getAsicId("HB-1", 0), getAsicId("HB-1", 1), getAsicId("HB-1", 2)],
+      asics: [
+        { id: getAsicId("HB-1", 0), hashboardSerial: "HB-1", index: 0, row: 0, column: 1 },
+        { id: getAsicId("HB-1", 1), hashboardSerial: "HB-1", index: 1, row: 1, column: 2 },
+      ],
+      asicTelemetry: [
+        {
+          asicId: getAsicId("HB-1", 0),
+          voltage: { value: 308.44 / 1000, units: "V" },
+          frequency: { value: 650.05, units: "MHz" },
+        },
+        { asicId: getAsicId("HB-1", 1) },
+      ],
+    });
   });
 });

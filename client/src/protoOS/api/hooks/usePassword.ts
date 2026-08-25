@@ -27,17 +27,17 @@ const getErrorMessage = (err: unknown, fallback = "An error occurred"): string =
   (err as { error?: { message?: string } })?.error?.message ?? fallback;
 
 const usePassword = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
   const setPasswordSet = useSetPasswordSet();
   const setDefaultPasswordActive = useSetDefaultPasswordActive();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
-      if (!api) return;
+      if (!adapter) return;
 
       await authRetry({
-        request: () => api.setPassword({ password }, { secure: false }),
+        request: () => adapter.setPassword(password, { secure: false }),
         onSuccess: () => {
           setPasswordSet(true);
           setDefaultPasswordActive(false);
@@ -46,21 +46,21 @@ const usePassword = () => {
         onError: (err) => onError?.(getErrorMessage(err)),
       }).finally(() => onFinally?.());
     },
-    [api, authRetry, setPasswordSet, setDefaultPasswordActive],
+    [adapter, authRetry, setPasswordSet, setDefaultPasswordActive],
   );
 
   const changePassword = useCallback(
     async ({ changePasswordRequest, onSuccess, onError, onFinally }: ChangePasswordProps) => {
-      if (!api) return;
+      if (!adapter) return;
 
       await authRetry({
-        request: (header) => api.changePassword(changePasswordRequest, header),
+        request: (header) => adapter.changePassword(changePasswordRequest, header),
         onSuccess,
         onError: (err) => onError?.(getErrorMessage(err)),
         shouldRetry: (err) => !isPasswordVerificationError(err),
       }).finally(() => onFinally?.());
     },
-    [api, authRetry],
+    [adapter, authRetry],
   );
 
   return useMemo(() => ({ setPassword, changePassword }), [setPassword, changePassword]);

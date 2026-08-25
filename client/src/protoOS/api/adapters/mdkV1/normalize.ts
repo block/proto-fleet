@@ -1,8 +1,11 @@
+import type { AsicTelemetrySample, HashboardStatus } from "../types";
 import type {
   CoolingConfig,
   CoolingStatusCoolingstatus,
   ErrorListResponse,
   HardwareInfoHardwareinfo,
+  HashboardInfo,
+  HashboardStatsHashboardstats,
   MiningStatusMiningstatus,
   MiningTargetResponse,
   NetworkInfoNetworkinfo,
@@ -52,6 +55,7 @@ import {
   type TelemetryState,
   type Topology,
 } from "@/protoOS/store/contract";
+import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { getFanId, getHashboardId, getPsuId } from "@/protoOS/store/utils/entityIds";
 import { getAsicId } from "@/protoOS/store/utils/getAsicId";
@@ -693,4 +697,43 @@ export const toCanonicalTimeSeries = (
   }
 
   return state;
+};
+
+// The v1 firmware lays hashboards out three-to-a-bay; the store carries the bay
+// so components never re-derive it. Slots are 1-based (bay 1 = slots 1-3).
+const bayForSlot = (slot: number) => Math.floor((slot - 1) / 3) + 1;
+
+export const toCanonicalHashboards = (wire: HashboardInfo[]): HashboardHardwareData[] =>
+  wire
+    .filter((hb): hb is HashboardInfo & { hb_sn: string; slot: number } => Boolean(hb.hb_sn) && hb.slot !== undefined)
+    .map((hb) => ({
+      serial: hb.hb_sn,
+      slot: hb.slot,
+      board: hb.board,
+      bay: bayForSlot(hb.slot),
+      // Populated later by the hashboard-status endpoint (see toCanonicalHashboardStatus).
+      asicIds: [],
+    }));
+
+export const toCanonicalHashboardStatus = (serial: string, wire: HashboardStatsHashboardstats): HashboardStatus => {
+  const asics = wire.asics ?? [];
+  const asicIds = asics.filter((asic) => asic.index !== undefined).map((asic) => getAsicId(serial, asic.index!));
+
+  const asicHardware: AsicHardwareData[] = [];
+  const asicTelemetry: AsicTelemetrySample[] = [];
+  for (const asic of asics) {
+    if (asic.index === undefined || asic.row === undefined || asic.column === undefined) continue;
+    const id = getAsicId(serial, asic.index);
+    asicHardware.push({ id, hashboardSerial: serial, index: asic.index, row: asic.row, column: asic.column });
+    const sample: AsicTelemetrySample = { asicId: id };
+    if (asic.voltage_mv !== undefined && asic.voltage_mv !== null) {
+      sample.voltage = { value: asic.voltage_mv / 1000, units: "V" };
+    }
+    if (asic.freq_mhz !== undefined && asic.freq_mhz !== null) {
+      sample.frequency = { value: asic.freq_mhz, units: "MHz" };
+    }
+    asicTelemetry.push(sample);
+  }
+
+  return { serial, asicIds, asics: asicHardware, asicTelemetry };
 };
