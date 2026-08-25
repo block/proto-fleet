@@ -167,7 +167,9 @@ class ReviewPolicyTest(unittest.TestCase):
         codex = find_step(workflow, "benchmark-review", "run_codex")
 
         self.assertEqual(set(workflow_triggers(workflow)), {"workflow_dispatch"})
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(
+            workflow["permissions"], {"actions": "read", "contents": "read"}
+        )
         self.assertFalse(job["strategy"]["fail-fast"])
         self.assertEqual(job["strategy"]["max-parallel"], 2)
         self.assertEqual(codex["timeout-minutes"], 12)
@@ -321,7 +323,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
         )
-        self.assertLess(
+        self.assertLessEqual(
             benchmark_codex["timeout-minutes"], benchmark_job["timeout-minutes"]
         )
 
@@ -408,6 +410,80 @@ class ReviewPolicyTest(unittest.TestCase):
                 "invalid-model-output",
             },
         )
+
+    def test_codex_benchmark_finalizes_cancelled_matrix_jobs(self):
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+        review_job = workflow["jobs"]["benchmark-review"]
+        finalizer = workflow["jobs"]["benchmark-finalize"]
+
+        self.assertEqual(review_job["timeout-minutes"], 12)
+        self.assertEqual(finalizer["needs"], ["select-cases", "benchmark-review"])
+        self.assertIn("always()", finalizer["if"])
+        self.assertEqual(
+            finalizer["strategy"]["matrix"], review_job["strategy"]["matrix"]
+        )
+        self.assertEqual(finalizer["strategy"]["max-parallel"], 2)
+
+        gate = find_step(workflow, "benchmark-finalize", "validate")["run"]
+        cases = [
+            ("success", "true", 0),
+            ("success", "false", 1),
+            ("cancelled", "false", 0),
+            ("failure", "false", 1),
+        ]
+        for conclusion, artifact_exists, expected_code in cases:
+            with self.subTest(conclusion=conclusion, artifact_exists=artifact_exists):
+                result = subprocess.run(
+                    ["bash", "-c", gate],
+                    env={
+                        **os.environ,
+                        "AGENT_CONCLUSION": conclusion,
+                        "ARTIFACT_EXISTS": artifact_exists,
+                        "ARTIFACT_NAME": "benchmark-pr-957-unified-40-initial-123",
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, expected_code)
+
+        body = extract_python_heredoc(
+            find_step(workflow, "benchmark-finalize", "write_timeout")["run"]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_python_heredoc(
+                body,
+                {
+                    "CODEX_TIMEOUT_MINUTES": "12",
+                    "CODEX_MODEL": "gpt-5.6-sol",
+                    "CODEX_REASONING_EFFORT": "xhigh",
+                    "REVIEW_BASE_SHA": "a" * 40,
+                    "REVIEW_HEAD_SHA": "b" * 40,
+                    "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
+                    "CASE_ID": "pr-957",
+                    "CASE_PR": "957",
+                    "CASE_PURPOSE": "Historical production timeout",
+                    "EXPECTED_RESULT": "adjudicate manually",
+                    "SOURCE_RUN": "https://example.invalid/run",
+                    "SOURCE_COMMENT": "",
+                    "VARIANT_ID": "unified-40",
+                    "UNIFIED": "40",
+                    "INTER_HUNK": "0",
+                    "REPEAT": "initial",
+                    "PROMPT_PROFILE": "baseline",
+                },
+                tmp,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            review = json.loads(
+                (Path(tmp) / "benchmark-review.json").read_text(encoding="utf-8")
+            )
+            scope = json.loads(
+                (Path(tmp) / "benchmark-scope.json").read_text(encoding="utf-8")
+            )
+        self.assertEqual(review["incomplete_reason"], "codex-job-timeout")
+        self.assertEqual(scope["incomplete_reason"], "codex-job-timeout")
+        self.assertEqual(scope["timeout_budget_seconds"], 720)
 
     def test_codex_benchmark_serializes_repeat_dispatches(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")

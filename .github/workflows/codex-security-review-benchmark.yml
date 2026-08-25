@@ -48,6 +48,7 @@ on:
           - repeat-2
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -116,7 +117,10 @@ jobs:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ inputs.repeat }}
     needs: select-cases
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    # The composite action ignored its caller step timeout in production, so the
+    # matrix job itself is the enforceable model budget. A separate matrix finalizer
+    # creates timeout artifacts after GitHub finishes cancelled-job cleanup.
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -434,6 +438,167 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: benchmark-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}
+          path: |
+            benchmark-review.json
+            benchmark-review.md
+            benchmark-scope.json
+            benchmark-elapsed-time.txt
+          if-no-files-found: error
+
+  benchmark-finalize:
+    name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ inputs.repeat }}
+    needs: [select-cases, benchmark-review]
+    if: ${{ always() && needs.select-cases.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.select-cases.outputs.matrix) }}
+    permissions:
+      actions: read
+    env:
+      AGENT_JOB_NAME: ${{ format('{0} / {1} / {2}', matrix.case.id, matrix.variant.id, inputs.repeat) }}
+      ARTIFACT_NAME: benchmark-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}
+      CODEX_MODEL: gpt-5.6-sol
+      CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
+      CODEX_TIMEOUT_MINUTES: "12"
+      REVIEW_BASE_SHA: ${{ matrix.case.base }}
+      REVIEW_HEAD_SHA: ${{ matrix.case.head }}
+      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', matrix.case.base, matrix.case.head) }}
+    steps:
+      - name: Inspect bounded benchmark job
+        id: inspect
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          AGENT_JOB_NAME: ${{ env.AGENT_JOB_NAME }}
+          ARTIFACT_NAME: ${{ env.ARTIFACT_NAME }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const matches = jobs.filter(job => job.name === process.env.AGENT_JOB_NAME);
+            if (matches.length !== 1) {
+              core.setFailed(`Expected one benchmark job named ${process.env.AGENT_JOB_NAME}, found ${matches.length}.`);
+              return;
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            core.setOutput('conclusion', matches[0].conclusion || '');
+            core.setOutput(
+              'artifact_exists',
+              artifacts.some(artifact => artifact.name === process.env.ARTIFACT_NAME && !artifact.expired) ? 'true' : 'false'
+            );
+
+      - name: Require completed or budget-cancelled benchmark
+        id: validate
+        env:
+          AGENT_CONCLUSION: ${{ steps.inspect.outputs.conclusion }}
+          ARTIFACT_EXISTS: ${{ steps.inspect.outputs.artifact_exists }}
+        run: |
+          case "$AGENT_CONCLUSION" in
+            success)
+              if [ "$ARTIFACT_EXISTS" != "true" ]; then
+                echo "Completed benchmark job did not upload $ARTIFACT_NAME." >&2
+                exit 1
+              fi
+              ;;
+            cancelled) ;;
+            *)
+              echo "Benchmark automation failed instead of exhausting its budget: $AGENT_CONCLUSION" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Write benchmark timeout artifacts
+        id: write_timeout
+        if: ${{ steps.inspect.outputs.conclusion == 'cancelled' && steps.inspect.outputs.artifact_exists != 'true' }}
+        env:
+          CASE_ID: ${{ matrix.case.id }}
+          CASE_PR: ${{ matrix.case.pr }}
+          CASE_PURPOSE: ${{ matrix.case.purpose }}
+          EXPECTED_RESULT: ${{ matrix.case.expected }}
+          SOURCE_RUN: ${{ matrix.case['source-run'] }}
+          SOURCE_COMMENT: ${{ matrix.case['source-comment'] }}
+          VARIANT_ID: ${{ matrix.variant.id }}
+          UNIFIED: ${{ matrix.variant.unified }}
+          INTER_HUNK: ${{ matrix.variant['inter-hunk'] }}
+          REPEAT: ${{ inputs.repeat }}
+          PROMPT_PROFILE: ${{ inputs['prompt-profile'] }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
+          reason = "codex-job-timeout"
+          review = {
+              "benchmark_status": "incomplete",
+              "action_outcome": "cancelled",
+              "incomplete_reason": reason,
+              "review": None,
+          }
+          markdown = (
+              "## Benchmark review incomplete\n\n"
+              f"The bounded Codex job exhausted its {timeout_seconds}s budget.\n"
+          )
+          scope = {
+              "case": os.environ["CASE_ID"],
+              "pull_request": int(os.environ["CASE_PR"]),
+              "base_sha": os.environ["REVIEW_BASE_SHA"],
+              "head_sha": os.environ["REVIEW_HEAD_SHA"],
+              "commit_range": os.environ["REVIEW_COMMIT_RANGE"],
+              "purpose": os.environ["CASE_PURPOSE"],
+              "adjudicated_result": os.environ["EXPECTED_RESULT"],
+              "source_run": os.environ["SOURCE_RUN"],
+              "source_comment": os.environ["SOURCE_COMMENT"],
+              "variant": os.environ["VARIANT_ID"],
+              "repeat": os.environ["REPEAT"],
+              "model": os.environ["CODEX_MODEL"],
+              "reasoning_effort": os.environ["CODEX_REASONING_EFFORT"],
+              "prompt_profile": os.environ["PROMPT_PROFILE"],
+              "diff": {
+                  "unified": int(os.environ["UNIFIED"]),
+                  "inter_hunk_context": int(os.environ["INTER_HUNK"]),
+                  "bytes": None,
+                  "lines": None,
+                  "files": None,
+                  "hunks": None,
+                  "unchanged_context_lines": None,
+              },
+              "completed": False,
+              "action_outcome": "cancelled",
+              "incomplete_reason": reason,
+              "elapsed_seconds": timeout_seconds,
+              "timeout_budget_seconds": timeout_seconds,
+              "log_metrics": {
+                  "tool_calls": "adjudicate from action log",
+                  "repeated_reads": "adjudicate from action log",
+                  "context_compactions": "adjudicate from action log",
+                  "reported_token_usage": "adjudicate from action log",
+              },
+          }
+          Path("benchmark-review.json").write_text(json.dumps(review, indent=2) + "\n", encoding="utf-8")
+          Path("benchmark-review.md").write_text(markdown, encoding="utf-8")
+          Path("benchmark-scope.json").write_text(json.dumps(scope, indent=2) + "\n", encoding="utf-8")
+          Path("benchmark-elapsed-time.txt").write_text(f"{timeout_seconds}\n", encoding="utf-8")
+          PY
+
+      - name: Upload uniquely named benchmark timeout artifacts
+        if: ${{ steps.write_timeout.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             benchmark-review.json
             benchmark-review.md

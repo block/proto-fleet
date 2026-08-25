@@ -273,7 +273,7 @@ of model efficiency.
 | Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |
 | `continue-on-error` makes broken review automation look green | The review agent's trusted handoff rejects action failures before the budget; the final `security-review` job also rejects every agent result except `success` and budget cancellation |
-| Composite-action step timeout prevents fallback steps from running | PR #965 run `32828674887` proved the caller step remained in progress until the job was cancelled and cleanup finished five minutes later. Put the model in a nine-minute outer job and create fallback artifacts in a separate `always()` finalizer; keep the benchmark timeout behavior acceptance-gated until it uses the same enforceable boundary |
+| Composite-action step timeout prevents fallback steps from running | PR #965 run `32828674887` proved the caller step remained in progress until the job was cancelled and cleanup finished five minutes later. Production uses a nine-minute outer job and the benchmark uses a 12-minute outer matrix job; separate `always()` finalizers create uniquely named timeout artifacts after cleanup |
 | Sharding misses cross-subsystem bugs | Defer sharding; if needed, partition by architecture with shared contract context |
 | Prompt injection reaches the secret-backed reviewer | Preserve same-repo restriction, pinned SHAs, trusted workflow prompt, dropped sudo, and read-only sandbox |
 
