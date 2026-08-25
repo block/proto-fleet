@@ -87,6 +87,10 @@ func verifyConnectionEstablished(ctx context.Context, conn *sql.DB, config *Conf
 // ConnectAndMigrate connects to the database and runs all pending migrations.
 // Returns the database connection ready for use.
 func ConnectAndMigrate(config *Config) (*sql.DB, error) {
+	if config.MaxOpenConns == 1 {
+		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS cannot be 1: database migrations require at least two connections")
+	}
+
 	connection, err := ConnectToDatabase(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
