@@ -889,6 +889,25 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FirmwareRollout struct {
+	ID              int64
+	OrgID           int64
+	LaneID          int64
+	Model           string
+	FirmwareFileID  string
+	FirmwareVersion string
+	Status          string
+	CreatedBy       int64
+	CreatedAt       time.Time
+	FinishedAt      sql.NullTime
+}
+
+type FirmwareRolloutDevice struct {
+	RolloutID    int64
+	DeviceID     int64
+	UpdateSentAt time.Time
+}
+
 type FleetActiveOrganization struct {
 	OrganizationID string
 }
@@ -1186,6 +1205,28 @@ type Role struct {
 type RolePermission struct {
 	RoleID       int64
 	PermissionID int64
+}
+
+type RolloutLane struct {
+	ID        int64
+	OrgID     int64
+	Name      string
+	CreatedAt time.Time
+}
+
+type RolloutLaneFirmware struct {
+	LaneID          int64
+	Model           string
+	FirmwareFileID  string
+	FirmwareVersion string
+	AssignedBy      int64
+	UpdatedAt       time.Time
+}
+
+type RolloutLaneMember struct {
+	DeviceID int64
+	LaneID   int64
+	AddedAt  time.Time
 }
 
 type Schedule struct {

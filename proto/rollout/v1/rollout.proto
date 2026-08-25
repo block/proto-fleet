@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package rollout.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Service for managing firmware rollout lanes.
+//
+// A rollout lane is a container of miners. Miners inside a lane are grouped
+// by model, and each model may have one firmware version assigned. Once a
+// firmware version is assigned to a model, the server enforces it: any lane
+// member of that model not running the assigned version is updated. Each
+// enforcement run for one (lane, model) pair is tracked as a rollout.
+//
+// A miner can belong to at most one lane; adding a miner to a lane moves it
+// out of its previous lane.
+service RolloutService {
+    // Lists all rollout lanes with members grouped by model, current
+    // firmware assignments, and active rollout ids.
+    rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
+
+    // Creates an empty rollout lane.
+    rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
+
+    // Deletes a rollout lane, its memberships, firmware assignments, and rollout history.
+    rpc DeleteRolloutLane(DeleteRolloutLaneRequest) returns (DeleteRolloutLaneResponse);
+
+    // Adds and/or removes lane members. Added miners are moved out of any
+    // lane they currently belong to.
+    rpc UpdateRolloutLaneMembers(UpdateRolloutLaneMembersRequest) returns (UpdateRolloutLaneMembersResponse);
+
+    // Replaces the per-model firmware assignments of a lane and starts a
+    // rollout for every model whose assignment changed.
+    rpc ApplyRolloutLaneFirmware(ApplyRolloutLaneFirmwareRequest) returns (ApplyRolloutLaneFirmwareResponse);
+
+    // Lists rollouts (newest first) with live per-device progress.
+    rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
+}
+
+// A container of miners with per-model firmware assignments.
+message RolloutLane {
+    int64 id = 1;
+    string name = 2;
+    google.protobuf.Timestamp created_at = 3;
+    // One group per distinct model among members, plus one group per model
+    // that has a firmware assignment but currently no members.
+    repeated RolloutLaneModelGroup model_groups = 4;
+}
+
+// Lane members of one model together with the model's firmware assignment.
+message RolloutLaneModelGroup {
+    string model = 1;
+    // Empty when no firmware is assigned to this model.
+    string firmware_file_id = 2;
+    string firmware_version = 3;
+    repeated RolloutLaneMiner miners = 4;
+    // Id of the active rollout for this model, 0 if none.
+    int64 active_rollout_id = 5;
+}
+
+// A miner that is a member of a rollout lane.
+message RolloutLaneMiner {
+    int64 device_id = 1;
+    string device_identifier = 2;
+    string model = 3;
+    // Firmware version the miner currently reports.
+    string firmware_version = 4;
+}
+
+// Desired firmware for one model within a lane.
+message FirmwareAssignment {
+    string model = 1;
+    // Firmware file to enforce for this model; empty clears the assignment.
+    string firmware_file_id = 2;
+}
+
+// Lifecycle of a rollout.
+enum RolloutStatus {
+    ROLLOUT_STATUS_UNSPECIFIED = 0;
+    // The rollout is enforcing its firmware version.
+    ROLLOUT_STATUS_ACTIVE = 1;
+    // Every targeted miner reported the assigned version.
+    ROLLOUT_STATUS_COMPLETED = 2;
+    // Superseded by a newer assignment or cleared before completion.
+    ROLLOUT_STATUS_CANCELED = 3;
+}
+
+// Per-device progress within a rollout.
+enum RolloutDeviceState {
+    ROLLOUT_DEVICE_STATE_UNSPECIFIED = 0;
+    // No update command sent yet.
+    ROLLOUT_DEVICE_STATE_PENDING = 1;
+    // Update command sent; miner has not reported the target version yet.
+    ROLLOUT_DEVICE_STATE_UPDATING = 2;
+    // Miner reports the target version.
+    ROLLOUT_DEVICE_STATE_UPDATED = 3;
+}
+
+// A firmware change being enforced for one model within one lane.
+message Rollout {
+    int64 id = 1;
+    int64 lane_id = 2;
+    string lane_name = 3;
+    string model = 4;
+    string firmware_file_id = 5;
+    string firmware_version = 6;
+    RolloutStatus status = 7;
+    google.protobuf.Timestamp created_at = 8;
+    // Set when the rollout completed or was canceled.
+    google.protobuf.Timestamp finished_at = 9;
+    // Current lane members of the rollout's model with their progress.
+    repeated RolloutDevice devices = 10;
+}
+
+// Progress of one miner within a rollout.
+message RolloutDevice {
+    int64 device_id = 1;
+    string device_identifier = 2;
+    // Firmware version the miner currently reports.
+    string firmware_version = 3;
+    RolloutDeviceState state = 4;
+}
+
+message ListRolloutLanesRequest {}
+
+message ListRolloutLanesResponse {
+    repeated RolloutLane lanes = 1;
+}
+
+message CreateRolloutLaneRequest {
+    string name = 1;
+}
+
+message CreateRolloutLaneResponse {
+    RolloutLane lane = 1;
+}
+
+message DeleteRolloutLaneRequest {
+    int64 lane_id = 1;
+}
+
+message DeleteRolloutLaneResponse {}
+
+message UpdateRolloutLaneMembersRequest {
+    int64 lane_id = 1;
+    // Device identifiers to add to the lane (moving them from other lanes).
+    repeated string add_device_identifiers = 2;
+    // Device identifiers to remove from the lane.
+    repeated string remove_device_identifiers = 3;
+}
+
+message UpdateRolloutLaneMembersResponse {
+    RolloutLane lane = 1;
+}
+
+message ApplyRolloutLaneFirmwareRequest {
+    int64 lane_id = 1;
+    // Full desired set of assignments for the lane. Models omitted here keep
+    // their current assignment.
+    repeated FirmwareAssignment assignments = 2;
+}
+
+message ApplyRolloutLaneFirmwareResponse {
+    RolloutLane lane = 1;
+    // Rollouts started by this call, one per changed model with members.
+    repeated Rollout started_rollouts = 2;
+}
+
+message ListRolloutsRequest {
+    // When set, only rollouts for this lane are returned.
+    int64 lane_id = 1;
+}
+
+message ListRolloutsResponse {
+    repeated Rollout rollouts = 1;
+}

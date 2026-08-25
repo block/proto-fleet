@@ -37,6 +37,9 @@ const (
 	// ActorCurtailment marks sessions synthesized by the curtailment
 	// reconciler so CurtailmentActiveFilter can bypass self-traffic.
 	ActorCurtailment Actor = "curtailment"
+	// ActorRolloutEnforcement marks sessions synthesized by the rollout-lane
+	// firmware enforcement loop.
+	ActorRolloutEnforcement Actor = "rollout_enforcement"
 )
 
 // Source carries optional policy context for command preflight filters.

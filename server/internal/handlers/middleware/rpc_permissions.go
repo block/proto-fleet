@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -277,6 +278,16 @@ var ProcedurePermissions = map[string]string{
 	minercommandv1connect.MinerCommandServiceGetCommandBatchDeviceResultsProcedure: authz.PermFleetRead,
 	minercommandv1connect.MinerCommandServiceGetCommandBatchLogBundleProcedure:     authz.PermMinerDownloadLogs,
 	minercommandv1connect.MinerCommandServiceStreamCommandBatchUpdatesProcedure:    authz.PermFleetRead,
+
+	// RolloutService — rollout lanes exist solely to drive firmware
+	// updates, so every procedure (including reads) sits on the same
+	// miner:firmware_update gate as the manual firmware-update RPC.
+	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCreateRolloutLaneProcedure:        authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceDeleteRolloutLaneProcedure:        authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceUpdateRolloutLaneMembersProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceApplyRolloutLaneFirmwareProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutsProcedure:             authz.PermMinerFirmwareUpdate,
 
 	// NetworkInfoService — GetNetworkInfo returns the device's own
 	// IP/gateway/subnet (shown on Settings → General to every user with
