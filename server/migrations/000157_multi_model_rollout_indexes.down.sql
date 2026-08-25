@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS idx_rollout_lane_model_binding_history_counts;

@@ -91,15 +91,6 @@ const (
 	// DeviceSetServiceAssignDevicesToRackProcedure is the fully-qualified name of the
 	// DeviceSetService's AssignDevicesToRack RPC.
 	DeviceSetServiceAssignDevicesToRackProcedure = "/device_set.v1.DeviceSetService/AssignDevicesToRack"
-	// DeviceSetServiceCreateFirmwareReleaseSetProcedure is the fully-qualified name of the
-	// DeviceSetService's CreateFirmwareReleaseSet RPC.
-	DeviceSetServiceCreateFirmwareReleaseSetProcedure = "/device_set.v1.DeviceSetService/CreateFirmwareReleaseSet"
-	// DeviceSetServiceGetFirmwareReleaseSetProcedure is the fully-qualified name of the
-	// DeviceSetService's GetFirmwareReleaseSet RPC.
-	DeviceSetServiceGetFirmwareReleaseSetProcedure = "/device_set.v1.DeviceSetService/GetFirmwareReleaseSet"
-	// DeviceSetServiceAssignDevicesToChannelProcedure is the fully-qualified name of the
-	// DeviceSetService's AssignDevicesToChannel RPC.
-	DeviceSetServiceAssignDevicesToChannelProcedure = "/device_set.v1.DeviceSetService/AssignDevicesToChannel"
 )
 
 // DeviceSetServiceClient is a client for the device_set.v1.DeviceSetService service.
@@ -182,13 +173,6 @@ type DeviceSetServiceClient interface {
 	// SaveRack for every edit — SaveRack replaces the rack's whole member
 	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
-	// Creates an immutable set of per-model firmware release targets.
-	CreateFirmwareReleaseSet(context.Context, *connect.Request[v1.CreateFirmwareReleaseSetRequest]) (*connect.Response[v1.CreateFirmwareReleaseSetResponse], error)
-	// Gets an immutable firmware release set by ID.
-	GetFirmwareReleaseSet(context.Context, *connect.Request[v1.GetFirmwareReleaseSetRequest]) (*connect.Response[v1.GetFirmwareReleaseSetResponse], error)
-	// Atomically moves devices into one exclusive software channel, or
-	// clears channel membership when target_channel_id is unset.
-	AssignDevicesToChannel(context.Context, *connect.Request[v1.AssignDevicesToChannelRequest]) (*connect.Response[v1.AssignDevicesToChannelResponse], error)
 }
 
 // NewDeviceSetServiceClient constructs a client for the device_set.v1.DeviceSetService service. By
@@ -296,48 +280,30 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceAssignDevicesToRackProcedure,
 			opts...,
 		),
-		createFirmwareReleaseSet: connect.NewClient[v1.CreateFirmwareReleaseSetRequest, v1.CreateFirmwareReleaseSetResponse](
-			httpClient,
-			baseURL+DeviceSetServiceCreateFirmwareReleaseSetProcedure,
-			opts...,
-		),
-		getFirmwareReleaseSet: connect.NewClient[v1.GetFirmwareReleaseSetRequest, v1.GetFirmwareReleaseSetResponse](
-			httpClient,
-			baseURL+DeviceSetServiceGetFirmwareReleaseSetProcedure,
-			opts...,
-		),
-		assignDevicesToChannel: connect.NewClient[v1.AssignDevicesToChannelRequest, v1.AssignDevicesToChannelResponse](
-			httpClient,
-			baseURL+DeviceSetServiceAssignDevicesToChannelProcedure,
-			opts...,
-		),
 	}
 }
 
 // deviceSetServiceClient implements DeviceSetServiceClient.
 type deviceSetServiceClient struct {
-	createDeviceSet          *connect.Client[v1.CreateDeviceSetRequest, v1.CreateDeviceSetResponse]
-	getDeviceSet             *connect.Client[v1.GetDeviceSetRequest, v1.GetDeviceSetResponse]
-	updateDeviceSet          *connect.Client[v1.UpdateDeviceSetRequest, v1.UpdateDeviceSetResponse]
-	deleteDeviceSet          *connect.Client[v1.DeleteDeviceSetRequest, v1.DeleteDeviceSetResponse]
-	listDeviceSets           *connect.Client[v1.ListDeviceSetsRequest, v1.ListDeviceSetsResponse]
-	addDevicesToGroup        *connect.Client[v1.AddDevicesToGroupRequest, v1.AddDevicesToGroupResponse]
-	removeDevicesFromGroup   *connect.Client[v1.RemoveDevicesFromGroupRequest, v1.RemoveDevicesFromGroupResponse]
-	listDeviceSetMembers     *connect.Client[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse]
-	getDeviceDeviceSets      *connect.Client[v1.GetDeviceDeviceSetsRequest, v1.GetDeviceDeviceSetsResponse]
-	setRackSlotPosition      *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
-	clearRackSlotPosition    *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
-	getRackSlots             *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
-	getDeviceSetStats        *connect.Client[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse]
-	listRackZones            *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
-	listRackZoneRefs         *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
-	listRackTypes            *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
-	saveRack                 *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
-	createRacks              *connect.Client[v1.CreateRacksRequest, v1.CreateRacksResponse]
-	assignDevicesToRack      *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
-	createFirmwareReleaseSet *connect.Client[v1.CreateFirmwareReleaseSetRequest, v1.CreateFirmwareReleaseSetResponse]
-	getFirmwareReleaseSet    *connect.Client[v1.GetFirmwareReleaseSetRequest, v1.GetFirmwareReleaseSetResponse]
-	assignDevicesToChannel   *connect.Client[v1.AssignDevicesToChannelRequest, v1.AssignDevicesToChannelResponse]
+	createDeviceSet        *connect.Client[v1.CreateDeviceSetRequest, v1.CreateDeviceSetResponse]
+	getDeviceSet           *connect.Client[v1.GetDeviceSetRequest, v1.GetDeviceSetResponse]
+	updateDeviceSet        *connect.Client[v1.UpdateDeviceSetRequest, v1.UpdateDeviceSetResponse]
+	deleteDeviceSet        *connect.Client[v1.DeleteDeviceSetRequest, v1.DeleteDeviceSetResponse]
+	listDeviceSets         *connect.Client[v1.ListDeviceSetsRequest, v1.ListDeviceSetsResponse]
+	addDevicesToGroup      *connect.Client[v1.AddDevicesToGroupRequest, v1.AddDevicesToGroupResponse]
+	removeDevicesFromGroup *connect.Client[v1.RemoveDevicesFromGroupRequest, v1.RemoveDevicesFromGroupResponse]
+	listDeviceSetMembers   *connect.Client[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse]
+	getDeviceDeviceSets    *connect.Client[v1.GetDeviceDeviceSetsRequest, v1.GetDeviceDeviceSetsResponse]
+	setRackSlotPosition    *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
+	clearRackSlotPosition  *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
+	getRackSlots           *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
+	getDeviceSetStats      *connect.Client[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse]
+	listRackZones          *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
+	listRackZoneRefs       *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
+	listRackTypes          *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
+	saveRack               *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
+	createRacks            *connect.Client[v1.CreateRacksRequest, v1.CreateRacksResponse]
+	assignDevicesToRack    *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
 }
 
 // CreateDeviceSet calls device_set.v1.DeviceSetService.CreateDeviceSet.
@@ -435,21 +401,6 @@ func (c *deviceSetServiceClient) AssignDevicesToRack(ctx context.Context, req *c
 	return c.assignDevicesToRack.CallUnary(ctx, req)
 }
 
-// CreateFirmwareReleaseSet calls device_set.v1.DeviceSetService.CreateFirmwareReleaseSet.
-func (c *deviceSetServiceClient) CreateFirmwareReleaseSet(ctx context.Context, req *connect.Request[v1.CreateFirmwareReleaseSetRequest]) (*connect.Response[v1.CreateFirmwareReleaseSetResponse], error) {
-	return c.createFirmwareReleaseSet.CallUnary(ctx, req)
-}
-
-// GetFirmwareReleaseSet calls device_set.v1.DeviceSetService.GetFirmwareReleaseSet.
-func (c *deviceSetServiceClient) GetFirmwareReleaseSet(ctx context.Context, req *connect.Request[v1.GetFirmwareReleaseSetRequest]) (*connect.Response[v1.GetFirmwareReleaseSetResponse], error) {
-	return c.getFirmwareReleaseSet.CallUnary(ctx, req)
-}
-
-// AssignDevicesToChannel calls device_set.v1.DeviceSetService.AssignDevicesToChannel.
-func (c *deviceSetServiceClient) AssignDevicesToChannel(ctx context.Context, req *connect.Request[v1.AssignDevicesToChannelRequest]) (*connect.Response[v1.AssignDevicesToChannelResponse], error) {
-	return c.assignDevicesToChannel.CallUnary(ctx, req)
-}
-
 // DeviceSetServiceHandler is an implementation of the device_set.v1.DeviceSetService service.
 type DeviceSetServiceHandler interface {
 	// Creates a new device set
@@ -530,13 +481,6 @@ type DeviceSetServiceHandler interface {
 	// SaveRack for every edit — SaveRack replaces the rack's whole member
 	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
-	// Creates an immutable set of per-model firmware release targets.
-	CreateFirmwareReleaseSet(context.Context, *connect.Request[v1.CreateFirmwareReleaseSetRequest]) (*connect.Response[v1.CreateFirmwareReleaseSetResponse], error)
-	// Gets an immutable firmware release set by ID.
-	GetFirmwareReleaseSet(context.Context, *connect.Request[v1.GetFirmwareReleaseSetRequest]) (*connect.Response[v1.GetFirmwareReleaseSetResponse], error)
-	// Atomically moves devices into one exclusive software channel, or
-	// clears channel membership when target_channel_id is unset.
-	AssignDevicesToChannel(context.Context, *connect.Request[v1.AssignDevicesToChannelRequest]) (*connect.Response[v1.AssignDevicesToChannelResponse], error)
 }
 
 // NewDeviceSetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -640,21 +584,6 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.AssignDevicesToRack,
 		opts...,
 	)
-	deviceSetServiceCreateFirmwareReleaseSetHandler := connect.NewUnaryHandler(
-		DeviceSetServiceCreateFirmwareReleaseSetProcedure,
-		svc.CreateFirmwareReleaseSet,
-		opts...,
-	)
-	deviceSetServiceGetFirmwareReleaseSetHandler := connect.NewUnaryHandler(
-		DeviceSetServiceGetFirmwareReleaseSetProcedure,
-		svc.GetFirmwareReleaseSet,
-		opts...,
-	)
-	deviceSetServiceAssignDevicesToChannelHandler := connect.NewUnaryHandler(
-		DeviceSetServiceAssignDevicesToChannelProcedure,
-		svc.AssignDevicesToChannel,
-		opts...,
-	)
 	return "/device_set.v1.DeviceSetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceSetServiceCreateDeviceSetProcedure:
@@ -695,12 +624,6 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceCreateRacksHandler.ServeHTTP(w, r)
 		case DeviceSetServiceAssignDevicesToRackProcedure:
 			deviceSetServiceAssignDevicesToRackHandler.ServeHTTP(w, r)
-		case DeviceSetServiceCreateFirmwareReleaseSetProcedure:
-			deviceSetServiceCreateFirmwareReleaseSetHandler.ServeHTTP(w, r)
-		case DeviceSetServiceGetFirmwareReleaseSetProcedure:
-			deviceSetServiceGetFirmwareReleaseSetHandler.ServeHTTP(w, r)
-		case DeviceSetServiceAssignDevicesToChannelProcedure:
-			deviceSetServiceAssignDevicesToChannelHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -784,16 +707,4 @@ func (UnimplementedDeviceSetServiceHandler) CreateRacks(context.Context, *connec
 
 func (UnimplementedDeviceSetServiceHandler) AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.AssignDevicesToRack is not implemented"))
-}
-
-func (UnimplementedDeviceSetServiceHandler) CreateFirmwareReleaseSet(context.Context, *connect.Request[v1.CreateFirmwareReleaseSetRequest]) (*connect.Response[v1.CreateFirmwareReleaseSetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.CreateFirmwareReleaseSet is not implemented"))
-}
-
-func (UnimplementedDeviceSetServiceHandler) GetFirmwareReleaseSet(context.Context, *connect.Request[v1.GetFirmwareReleaseSetRequest]) (*connect.Response[v1.GetFirmwareReleaseSetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.GetFirmwareReleaseSet is not implemented"))
-}
-
-func (UnimplementedDeviceSetServiceHandler) AssignDevicesToChannel(context.Context, *connect.Request[v1.AssignDevicesToChannelRequest]) (*connect.Response[v1.AssignDevicesToChannelResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.AssignDevicesToChannel is not implemented"))
 }

@@ -21,7 +21,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -173,38 +172,6 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
-	rolloutv1connect.RolloutServiceGetRolloutLaneProcedure:                          authz.PermChannelRead,
-	rolloutv1connect.RolloutServiceGetRolloutLaneForRolloutProcedure:                authz.PermChannelRead,
-	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:                        authz.PermChannelRead,
-	rolloutv1connect.RolloutServiceListRolloutLaneMembersProcedure:                  authz.PermChannelRead,
-	rolloutv1connect.RolloutServiceGetRolloutLaneAssignmentsProcedure:               authz.PermChannelRead,
-	rolloutv1connect.RolloutServicePreviewRolloutLaneProcedure:                      authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceCreateRolloutLaneProcedure:                       authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceDeleteRolloutLaneProcedure:                       authz.PermChannelManage,
-	rolloutv1connect.RolloutServicePreviewRolloutLaneMembershipChangeProcedure:      authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceUpdateRolloutLaneMembershipProcedure:             authz.PermChannelManage,
-	rolloutv1connect.RolloutServicePreviewRolloutLaneModelDeclarationProcedure:      authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceCreateRolloutLaneModelDeclarationProcedure:       authz.PermChannelManage,
-	rolloutv1connect.RolloutServicePublishRolloutLaneModelTargetProcedure:           authz.PermChannelManage,
-	rolloutv1connect.RolloutServicePreviewRolloutLaneModelMembershipChangeProcedure: authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceUpdateRolloutLaneModelMembershipProcedure:        authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceGetRolloutLaneTopologyReadinessProcedure:         authz.PermChannelRead,
-	rolloutv1connect.RolloutServiceRepairRolloutLaneModelBindingProcedure:           authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceEnableRolloutLaneModelTopologyProcedure:          authz.PermChannelManage,
-	rolloutv1connect.RolloutServiceStartRolloutLaneProcedure:                        authz.PermRolloutManage,
-	rolloutv1connect.RolloutServiceGetRolloutProcedure:                              authz.PermRolloutRead,
-	rolloutv1connect.RolloutServiceListRolloutsProcedure:                            authz.PermRolloutRead,
-	rolloutv1connect.RolloutServiceGetRolloutGroupProcedure:                         authz.PermRolloutRead,
-	rolloutv1connect.RolloutServiceListRolloutGroupsProcedure:                       authz.PermRolloutRead,
-	rolloutv1connect.RolloutServiceCreateRolloutProcedure:                           authz.PermRolloutManage,
-	rolloutv1connect.RolloutServiceAdmitRolloutProcedure:                            authz.PermRolloutControl,
-	rolloutv1connect.RolloutServiceContinueRolloutProcedure:                         authz.PermRolloutControl,
-	rolloutv1connect.RolloutServicePauseRolloutProcedure:                            authz.PermRolloutControl,
-	rolloutv1connect.RolloutServiceResumeRolloutProcedure:                           authz.PermRolloutControl,
-	rolloutv1connect.RolloutServiceAbortRolloutProcedure:                            authz.PermRolloutControl,
-	rolloutv1connect.RolloutServiceRevertRolloutProcedure:                           authz.PermRolloutControl,
-	rolloutv1connect.RolloutServiceCompleteRolloutProcedure:                         authz.PermRolloutControl,
-
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.
 	// Collections are the legacy name for racks; the wire surface still
 	// carries Collection-prefixed names while the domain has been
@@ -226,28 +193,25 @@ var ProcedurePermissions = map[string]string{
 
 	// DeviceSetService (racks via the new wire surface) — same mapping
 	// as DeviceCollectionService; the handler is a proto-adapter shim.
-	device_setv1connect.DeviceSetServiceGetDeviceSetProcedure:             authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceGetDeviceSetStatsProcedure:        authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceListDeviceSetsProcedure:           authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceListDeviceSetMembersProcedure:     authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceGetDeviceDeviceSetsProcedure:      authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceListRackTypesProcedure:            authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceListRackZonesProcedure:            authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceListRackZoneRefsProcedure:         authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceGetRackSlotsProcedure:             authz.PermRackRead,
-	device_setv1connect.DeviceSetServiceCreateDeviceSetProcedure:          authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceUpdateDeviceSetProcedure:          authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceDeleteDeviceSetProcedure:          authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceAddDevicesToGroupProcedure:        authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceRemoveDevicesFromGroupProcedure:   authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceSaveRackProcedure:                 authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceCreateRacksProcedure:              authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:      authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:      authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:    authz.PermRackManage,
-	device_setv1connect.DeviceSetServiceGetFirmwareReleaseSetProcedure:    authz.PermChannelRead,
-	device_setv1connect.DeviceSetServiceCreateFirmwareReleaseSetProcedure: authz.PermChannelManage,
-	device_setv1connect.DeviceSetServiceAssignDevicesToChannelProcedure:   authz.PermChannelManage,
+	device_setv1connect.DeviceSetServiceGetDeviceSetProcedure:           authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceGetDeviceSetStatsProcedure:      authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceListDeviceSetsProcedure:         authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceListDeviceSetMembersProcedure:   authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceGetDeviceDeviceSetsProcedure:    authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceListRackTypesProcedure:          authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceListRackZonesProcedure:          authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceListRackZoneRefsProcedure:       authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceGetRackSlotsProcedure:           authz.PermRackRead,
+	device_setv1connect.DeviceSetServiceCreateDeviceSetProcedure:        authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceUpdateDeviceSetProcedure:        authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceDeleteDeviceSetProcedure:        authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceAddDevicesToGroupProcedure:      authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceRemoveDevicesFromGroupProcedure: authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceSaveRackProcedure:               authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceCreateRacksProcedure:            authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:    authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:    authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:  authz.PermRackManage,
 
 	// ErrorQueryService — fleet:read; diagnostics are scoped to the org
 	// and live alongside the fleet dashboard.

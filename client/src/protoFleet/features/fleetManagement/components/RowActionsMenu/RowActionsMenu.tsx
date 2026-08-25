@@ -1,5 +1,4 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
-import clsx from "clsx";
 
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -20,7 +19,6 @@ export interface RowAction {
   showGroupDivider?: boolean;
   hidden?: boolean;
   disabled?: boolean;
-  danger?: boolean;
   testId?: string;
 }
 
@@ -106,7 +104,7 @@ const RowActionsMenuInner = ({
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
 
-  // Disabled hard-closes; re-enable doesn't resurrect, operator must reopen.
+  // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
   const open = isOpen && !disabled;
 
   const setMenuOpen = useCallback(
@@ -148,7 +146,6 @@ const RowActionsMenuInner = ({
         <ActionSheet
           items={visibleActions.map((action) => ({
             disabled: action.disabled,
-            danger: action.danger,
             icon: action.icon,
             label: action.label,
             onClick: action.onClick,
@@ -181,7 +178,7 @@ const RowActionsMenuInner = ({
             <Fragment key={action.testId ?? `${action.label}-${index}`}>
               <div className="px-4">
                 <Row
-                  className={clsx("text-emphasis-300", action.danger && "text-intent-critical-fill")}
+                  className="text-emphasis-300"
                   prefixIcon={action.icon}
                   testId={action.testId}
                   onClick={() => {

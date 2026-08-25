@@ -4,10 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
-	"time"
-
-	"github.com/sqlc-dev/pqtype"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -44,7 +40,7 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID s
 	for _, deviceID := range deviceIDs {
 		messages = append(messages, encodedMessage{deviceID: deviceID, payload: payloadBytes})
 	}
-	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, messages, d.config.MaxFailureRetries)
+	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, messages)
 }
 
 func (d DatabaseMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []EnqueueMessage) error {
@@ -56,50 +52,15 @@ func (d DatabaseMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUU
 		}
 		encoded = append(encoded, encodedMessage{deviceID: message.DeviceID, payload: payloadBytes})
 	}
-	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, encoded, d.config.MaxFailureRetries)
+	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, encoded)
 }
 
-func (d DatabaseMessageQueue) EnqueueCommandBatch(ctx context.Context, batch CommandBatch) error {
-	maxAttempts, err := d.resolveMaxAttempts(batch.MaxAttempts)
-	if err != nil {
-		return err
-	}
-	encoded := make([]encodedMessage, 0, len(batch.Messages))
-	for _, message := range batch.Messages {
-		payloadBytes, err := json.Marshal(message.Payload)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to marshal payload: %v", err)
-		}
-		encoded = append(encoded, encodedMessage{deviceID: message.DeviceID, payload: payloadBytes})
-	}
-	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
-		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:           batch.Identifier,
-			Type:           batch.CommandType.String(),
-			CreatedBy:      batch.CreatedBy,
-			CreatedAt:      time.Now(),
-			Status:         sqlc.BatchStatusEnumPENDING,
-			DevicesCount:   int32(len(batch.Messages)), //nolint:gosec // bounded by fleet size
-			Payload:        pqtype.NullRawMessage{RawMessage: batch.LogPayload, Valid: len(batch.LogPayload) > 0},
-			OrganizationID: sql.NullInt64{Int64: batch.OrgID, Valid: true},
-		})
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to create command batch: %v", err)
-		}
-		return createQueueMessages(ctx, q, batch.Identifier, batch.CommandType, encoded, maxAttempts)
-	})
-}
-
-func (d DatabaseMessageQueue) enqueueEncoded(
-	ctx context.Context,
-	commandBatchLogUUID string,
-	commandType commandtype.Type,
-	messages []encodedMessage,
-	maxAttempts int32,
-) error {
-	resolvedMaxAttempts, err := d.resolveMaxAttempts(maxAttempts)
-	if err != nil {
-		return err
+func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []encodedMessage) error {
+	deviceIDs := make([]int64, len(messages))
+	payloads := make([]string, len(messages))
+	for i, message := range messages {
+		deviceIDs[i] = message.deviceID
+		payloads[i] = string(message.payload)
 	}
 	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		batchStatus, err := q.LockCommandBatch(ctx, commandBatchLogUUID)
@@ -109,48 +70,18 @@ func (d DatabaseMessageQueue) enqueueEncoded(
 		if batchStatus != sqlc.BatchStatusEnumPENDING {
 			return fleeterror.NewInternalErrorf("cannot enqueue messages for command batch in %s status", batchStatus)
 		}
-		return createQueueMessages(ctx, q, commandBatchLogUUID, commandType, messages, resolvedMaxAttempts)
-	})
-}
 
-// resolveMaxAttempts maps an explicit per-batch ceiling to a positive value.
-// Zero means inherit the queue service configured default (MaxFailureRetries).
-func (d DatabaseMessageQueue) resolveMaxAttempts(explicit int32) (int32, error) {
-	if explicit > 0 {
-		return explicit, nil
-	}
-	if d.config.MaxFailureRetries > 0 {
-		return d.config.MaxFailureRetries, nil
-	}
-	return 0, fleeterror.NewInternalError("queue max attempts must be greater than zero")
-}
-
-func createQueueMessages(
-	ctx context.Context,
-	q sqlc.Querier,
-	commandBatchLogUUID string,
-	commandType commandtype.Type,
-	messages []encodedMessage,
-	maxAttempts int32,
-) error {
-	if maxAttempts <= 0 {
-		return fleeterror.NewInternalError("queue max attempts must be greater than zero")
-	}
-	for _, message := range messages {
-		err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+		err = q.CreateQueueMessages(ctx, sqlc.CreateQueueMessagesParams{
 			CommandBatchLogUuid: commandBatchLogUUID,
 			CommandType:         commandType.String(),
-			DeviceID:            message.deviceID,
-			Status:              sqlc.QueueStatusEnumPENDING,
-			RetryCount:          0,
-			MaxAttempts:         maxAttempts,
-			Payload:             pqtype.NullRawMessage{RawMessage: message.payload, Valid: true},
+			DeviceIds:           deviceIDs,
+			Payloads:            payloads,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to enqueue message: %v", err)
+			return fleeterror.NewInternalErrorf("failed to enqueue messages: %v", err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Message, error) {
@@ -161,7 +92,10 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 		limit = min(limit, d.config.DequeLimit)
 	}
 	messages, err := db.WithTransactionTimeout(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) ([]Message, error) {
-		dbMessages, err := q.GetMessagesToProcess(ctx, limit)
+		dbMessages, err := q.GetMessagesToProcess(ctx, sqlc.GetMessagesToProcessParams{
+			RetryCount: d.config.MaxFailureRetries,
+			Limit:      limit,
+		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get messages to process: %v", err)
 		}
@@ -189,7 +123,6 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 				DeviceID:     dbMsg.DeviceID,
 				Payload:      dbMsg.Payload.RawMessage,
 				RetryCount:   dbMsg.RetryCount,
-				MaxAttempts:  dbMsg.MaxAttempts,
 				OrgID:        dbMsg.OrgID,
 			})
 		}
@@ -203,71 +136,6 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 
 	return messages, nil
 }
-
-func (d DatabaseMessageQueue) MarkSuccess(ctx context.Context, messageID int64) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
-		result, err := q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
-			ID:     messageID,
-			Status: sqlc.QueueStatusEnumSUCCESS,
-		})
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("failed to mark message as a success: %v", err)
-		}
-		rowsAffected, _ := result.RowsAffected()
-		return rowsAffected > 0, nil
-	})
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return fmt.Errorf("message %d: %w", messageID, ErrStale)
-	}
-	return nil
-}
-
-func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
-		result, err := q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
-			ID:        messageID,
-			ErrorInfo: sql.NullString{String: errorInfo, Valid: true},
-		})
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("failed to mark message as failed: %v", err)
-		}
-		rowsAffected, _ := result.RowsAffected()
-		return rowsAffected > 0, nil
-	})
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return fmt.Errorf("message %d: %w", messageID, ErrStale)
-	}
-	return nil
-}
-
-func (d DatabaseMessageQueue) MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
-		result, err := q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
-			ID:        messageID,
-			ErrorInfo: sql.NullString{String: errorInfo, Valid: true},
-		})
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("failed to mark message as permanently failed: %v", err)
-		}
-		rowsAffected, _ := result.RowsAffected()
-		return rowsAffected > 0, nil
-	})
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return fmt.Errorf("message %d: %w", messageID, ErrStale)
-	}
-	return nil
-}
-
-type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bool, error)
 
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {

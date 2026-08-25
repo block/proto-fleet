@@ -60,7 +60,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -71,7 +70,6 @@ import (
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
-	channelReconciler "github.com/block/proto-fleet/server/internal/domain/channel/reconciler"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -91,9 +89,6 @@ import (
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
-	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
-	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
-	rolloutEvidence "github.com/block/proto-fleet/server/internal/domain/rollout/evidence"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -130,7 +125,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
-	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
@@ -199,7 +193,6 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
-	rolloutv1connect.RolloutServiceName,
 	instancev1connect.InstanceUpdateServiceName,
 }
 
@@ -518,25 +511,6 @@ func start(config *Config) (result error) {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
-	channelEnforcementStore := sqlstores.NewSQLChannelEnforcementStore(conn)
-	rolloutStore := sqlstores.NewSQLRolloutStore(conn)
-	rolloutLaneStore := sqlstores.NewSQLRolloutLaneStore(conn)
-	rolloutLaneStrategy := betweenchannel.NewStrategy(rolloutLaneStore)
-	rolloutSvc := rolloutDomain.NewServiceWithActivity(rolloutStore, activitySvc, rolloutLaneStrategy)
-	rolloutControlReconciler := rolloutDomain.NewControlReconciler(
-		config.RolloutControl,
-		rolloutStore,
-	)
-	rolloutLaneFinalizer := betweenchannel.NewFinalizer(
-		config.RolloutLane,
-		rolloutLaneStore,
-		activitySvc,
-	)
-	rolloutEvidenceEvaluator := rolloutEvidence.NewEvaluator(
-		config.RolloutEvidence,
-		sqlstores.NewSQLRolloutEvidenceStore(conn),
-		rolloutSvc,
-	)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	facilityFanController := curtailmentDomain.NewFacilityFanController(
 		infrastructureStore,
@@ -569,9 +543,6 @@ func start(config *Config) (result error) {
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
-	// ChannelManagedFilter runs after curtailment so curtailment keeps
-	// precedence. The channel actor bypasses only this firmware gate.
-	commandSvc.RegisterFilter(commandDomain.NewChannelManagedFilter(channelEnforcementStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 
@@ -587,12 +558,6 @@ func start(config *Config) (result error) {
 		// telemetry service's read-only seam (shared worker pool, no
 		// persistence side effects).
 		curtailmentReconciler.WithConfirmationSampler(telemetryService),
-	)
-	channelEnforcementRec := channelReconciler.New(
-		config.Channel,
-		channelEnforcementStore,
-		commandSvc,
-		telemetryService,
 	)
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
@@ -663,33 +628,7 @@ func start(config *Config) (result error) {
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc, filesService)
-	rolloutLaneSvc := betweenchannel.NewServiceWithActivity(
-		rolloutLaneStore,
-		betweenchannel.ReleaseTargetResolverFunc(func(
-			_ context.Context,
-			firmwareFileIDs []string,
-		) ([]betweenchannel.ReleaseTarget, func(), error) {
-			targets, release, err := collectionSvc.ResolveFirmwareReleaseTargets(
-				firmwareFileIDs,
-			)
-			if err != nil {
-				return nil, release, err
-			}
-			result := make([]betweenchannel.ReleaseTarget, 0, len(targets))
-			for _, target := range targets {
-				result = append(result, betweenchannel.ReleaseTarget{
-					FirmwareFileID:  target.GetFirmwareFileId(),
-					Manufacturer:    target.GetTargetManufacturer(),
-					Model:           target.GetTargetModel(),
-					FirmwareVersion: target.GetFirmwareVersion(),
-					SHA256:          target.GetSha256(),
-				})
-			}
-			return result, release, nil
-		}),
-		activitySvc,
-	)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
@@ -766,10 +705,6 @@ func start(config *Config) (result error) {
 		commandExecution:          executionService,
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
-		rolloutControlReconciler:  rolloutControlReconciler,
-		channelEnforcement:        channelEnforcementRec,
-		rolloutLaneFinalizer:      rolloutLaneFinalizer,
-		rolloutEvidenceEvaluator:  rolloutEvidenceEvaluator,
 		curtailmentMQTTSubscriber: mqttSubscriber,
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
@@ -844,9 +779,9 @@ func start(config *Config) (result error) {
 	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver)))
 	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
 	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore)))
-	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver, collectionStore)))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver, collectionStore)))
-	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver, collectionStore)))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver)))
 	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
 
 	if len(reflectEnabledServices) != 0 {
@@ -870,10 +805,6 @@ func start(config *Config) (result error) {
 		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
 		li,
 		curtailmentHandler.RequestReadLimitOption(),
-	))
-	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(
-		rolloutHandler.NewHandler(rolloutSvc, rolloutLaneSvc),
-		li,
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))

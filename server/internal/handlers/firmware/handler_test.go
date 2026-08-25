@@ -38,32 +38,11 @@ type testEnv struct {
 	sessionSvc         *session.Service
 	sessionID          string
 	permissionResolver effectivePermissionResolver
-	referenceChecker   *stubFirmwareReferenceChecker
 }
 
 type staticPermissionResolver struct {
 	permissions []string
 	err         error
-}
-
-type stubFirmwareReferenceChecker struct {
-	referenced map[string]bool
-	any        bool
-	err        error
-}
-
-func (c *stubFirmwareReferenceChecker) FirmwareArtifactReferenced(_ context.Context, fileID string) (bool, error) {
-	if c.err != nil {
-		return false, c.err
-	}
-	return c.referenced[fileID], nil
-}
-
-func (c *stubFirmwareReferenceChecker) AnyFirmwareArtifactReferenced(_ context.Context) (bool, error) {
-	if c.err != nil {
-		return false, c.err
-	}
-	return c.any, nil
 }
 
 func assertJSONErrorResponse(t *testing.T, rr *httptest.ResponseRecorder, status int, message string) {
@@ -121,7 +100,6 @@ func newTestEnv(t *testing.T) *testEnv {
 		permissionResolver: staticPermissionResolver{
 			permissions: []string{authz.PermMinerFirmwareUpdate},
 		},
-		referenceChecker: &stubFirmwareReferenceChecker{referenced: make(map[string]bool)},
 	}
 }
 
@@ -201,7 +179,6 @@ func (e *testEnv) updateMetadataHandler() *updateMetadataHandler {
 		sessionService:     e.sessionSvc,
 		userStore:          e.userStoreMock,
 		permissionResolver: e.permissionResolver,
-		referenceChecker:   e.referenceChecker,
 	}
 }
 
@@ -795,7 +772,6 @@ func (e *testEnv) deleteFileHandler() *deleteFileHandler {
 		sessionService:     e.sessionSvc,
 		userStore:          e.userStoreMock,
 		permissionResolver: e.permissionResolver,
-		referenceChecker:   e.referenceChecker,
 	}
 }
 
@@ -805,7 +781,6 @@ func (e *testEnv) deleteAllFilesHandler() *deleteAllFilesHandler {
 		sessionService:     e.sessionSvc,
 		userStore:          e.userStoreMock,
 		permissionResolver: e.permissionResolver,
-		referenceChecker:   e.referenceChecker,
 	}
 }
 
@@ -1020,27 +995,6 @@ func TestUpdateMetadataHandler_Returns404ForMissingFile(t *testing.T) {
 	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+fileID)
 }
 
-func TestUpdateMetadataHandler_RejectsReferencedFirmware(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
-	require.NoError(t, err)
-	env.referenceChecker.referenced[fileID] = true
-
-	body := `{"target_manufacturer":"Bitmain","target_model":"S21","firmware_version":"3.0.0"}`
-	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
-	req.SetPathValue("fileId", fileID)
-	req.AddCookie(validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.updateMetadataHandler().ServeHTTP(rr, req)
-
-	assertJSONErrorResponse(t, rr, http.StatusConflict, "firmware file is referenced by an immutable release set")
-	metadata, err := env.fileSvc.GetFirmwareMetadata(fileID)
-	require.NoError(t, err)
-	assert.Equal(t, testFirmwareMetadata(), metadata)
-}
-
 // --- Delete file handler tests ---
 
 func TestDeleteFileHandler_RejectsNoCookie(t *testing.T) {
@@ -1102,25 +1056,6 @@ func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
 	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+missingID)
 }
 
-func TestDeleteFileHandler_RejectsReferencedFirmware(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
-	require.NoError(t, err)
-	env.referenceChecker.referenced[fileID] = true
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/"+fileID, nil)
-	req.SetPathValue("fileId", fileID)
-	req.AddCookie(validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.deleteFileHandler().ServeHTTP(rr, req)
-
-	assertJSONErrorResponse(t, rr, http.StatusConflict, "firmware file is referenced by an immutable release set")
-	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
-	require.NoError(t, err)
-}
-
 // --- Delete all files handler tests ---
 
 func TestDeleteAllFilesHandler_RejectsNoCookie(t *testing.T) {
@@ -1172,40 +1107,4 @@ func TestDeleteAllFilesHandler_EmptyReturnsZero(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.DeletedCount)
-}
-
-func TestDeleteAllFilesHandler_RejectsWhenAnyFirmwareIsReferenced(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
-	require.NoError(t, err)
-	env.referenceChecker.any = true
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
-	req.AddCookie(validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.deleteAllFilesHandler().ServeHTTP(rr, req)
-
-	assertJSONErrorResponse(t, rr, http.StatusConflict, "one or more firmware files are referenced by immutable release sets")
-	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
-	require.NoError(t, err)
-}
-
-func TestDeleteAllFilesHandler_FailsClosedWhenReferenceCheckFails(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
-	require.NoError(t, err)
-	env.referenceChecker.err = fmt.Errorf("database unavailable")
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
-	req.AddCookie(validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.deleteAllFilesHandler().ServeHTTP(rr, req)
-
-	assertJSONErrorResponse(t, rr, http.StatusInternalServerError, "failed to validate firmware references")
-	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
-	require.NoError(t, err)
 }

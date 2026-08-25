@@ -134,7 +134,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   const showUploadFields = !missingTarget && serverConfig && (!hasExistingFiles || showUploadZone);
   const uploadMetadataLocked = uploadState !== "idle";
 
-  const buttons = [{ text: "Continue", variant: variants.primary, onClick: handleConfirm, disabled: !isReady }];
+  const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>

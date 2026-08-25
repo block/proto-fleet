@@ -559,24 +559,6 @@ func (s *Service) getFirmwareMetadataUnlocked(fileID string) (FirmwareMetadata, 
 // metadata transition. This also allows a legacy payload without a sidecar to
 // become eligible for new deployments once complete metadata has been supplied.
 func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadata) (FirmwareMetadataUpdateResult, error) {
-	return s.updateFirmwareMetadata(fileID, metadata, nil)
-}
-
-// UpdateFirmwareMetadataGuarded runs guard while holding the firmware lifecycle
-// write lock, then updates metadata only when the guard succeeds.
-func (s *Service) UpdateFirmwareMetadataGuarded(
-	fileID string,
-	metadata FirmwareMetadata,
-	guard func() error,
-) (FirmwareMetadataUpdateResult, error) {
-	return s.updateFirmwareMetadata(fileID, metadata, guard)
-}
-
-func (s *Service) updateFirmwareMetadata(
-	fileID string,
-	metadata FirmwareMetadata,
-	guard func() error,
-) (FirmwareMetadataUpdateResult, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
@@ -591,11 +573,6 @@ func (s *Service) updateFirmwareMetadata(
 	// state, never a sidecar that disagrees with its index snapshot.
 	s.firmwareMetadataReuseMu.Lock()
 	defer s.firmwareMetadataReuseMu.Unlock()
-	if guard != nil {
-		if err := guard(); err != nil {
-			return FirmwareMetadataUpdateResult{}, err
-		}
-	}
 
 	dir := getFirmwareDirPath(canonical)
 	dirInfo, err := os.Stat(dir)
@@ -822,16 +799,6 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 // DeleteFirmwareFile removes a firmware file from disk and the checksum index.
 // Returns a NotFoundError if no file with the given ID exists.
 func (s *Service) DeleteFirmwareFile(fileID string) error {
-	return s.deleteFirmwareFile(fileID, nil)
-}
-
-// DeleteFirmwareFileGuarded runs guard while holding the firmware lifecycle
-// write lock, then deletes the artifact only when the guard succeeds.
-func (s *Service) DeleteFirmwareFileGuarded(fileID string, guard func() error) error {
-	return s.deleteFirmwareFile(fileID, guard)
-}
-
-func (s *Service) deleteFirmwareFile(fileID string, guard func() error) error {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return err
@@ -841,16 +808,7 @@ func (s *Service) deleteFirmwareFile(fileID string, guard func() error) error {
 	// an existing artifact or observes its completed removal.
 	s.firmwareMetadataReuseMu.Lock()
 	defer s.firmwareMetadataReuseMu.Unlock()
-	if guard != nil {
-		if err := guard(); err != nil {
-			return err
-		}
-	}
 
-	return s.deleteFirmwareFileUnlocked(canonical)
-}
-
-func (s *Service) deleteFirmwareFileUnlocked(canonical string) error {
 	dir := getFirmwareDirPath(canonical)
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
@@ -1012,46 +970,6 @@ func (s *Service) DeleteAllFirmwareFiles() (int, error) {
 		deleted++
 	}
 
-	if deleted > 0 {
-		slog.Info("deleted all firmware files", "count", deleted)
-	}
-	return deleted, firstErr
-}
-
-// DeleteAllFirmwareFilesGuarded runs guard while holding the firmware lifecycle
-// write lock, then deletes all artifacts only when the guard succeeds.
-func (s *Service) DeleteAllFirmwareFilesGuarded(guard func() error) (int, error) {
-	s.firmwareMetadataReuseMu.Lock()
-	defer s.firmwareMetadataReuseMu.Unlock()
-	if guard != nil {
-		if err := guard(); err != nil {
-			return 0, err
-		}
-	}
-
-	entries, err := os.ReadDir(firmwareDir)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read firmware dir: %w", err)
-	}
-	deleted := 0
-	var firstErr error
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "staging" {
-			continue
-		}
-		fileID, err := canonicalizeFirmwareFileID(entry.Name())
-		if err != nil {
-			continue
-		}
-		if err := s.deleteFirmwareFileUnlocked(fileID); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			slog.Warn("failed to delete firmware file during delete-all", "file_id", fileID, "error", err)
-			continue
-		}
-		deleted++
-	}
 	if deleted > 0 {
 		slog.Info("deleted all firmware files", "count", deleted)
 	}

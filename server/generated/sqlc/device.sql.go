@@ -1862,65 +1862,6 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	return count, err
 }
 
-const hasUnconfirmedRolloutLaneFirmwareConvergence = `-- name: HasUnconfirmedRolloutLaneFirmwareConvergence :one
-SELECT EXISTS (
-    SELECT 1
-    FROM channel_firmware_enforcement enforcement
-    JOIN channel_firmware_authority authority
-      ON authority.id = enforcement.authority_id
-     AND authority.org_id = enforcement.org_id
-    WHERE enforcement.org_id = $1
-      AND enforcement.device_id = ANY($2::bigint[])
-      AND (
-          (
-              authority.authority_type = 'rollout_lane_initial'
-              AND EXISTS (
-                  SELECT 1
-                  FROM rollout_lane_channel attachment
-                  JOIN device_set_membership membership
-                    ON membership.device_set_id = attachment.channel_id
-                   AND membership.org_id = attachment.org_id
-                   AND membership.device_set_type = 'channel'
-                   AND membership.device_id = enforcement.device_id
-                  WHERE attachment.lane_id::text = authority.authority_reference
-                    AND attachment.org_id = authority.org_id
-              )
-          )
-          OR (
-              authority.authority_type = 'rollout_lane_membership'
-              AND EXISTS (
-                  SELECT 1
-                  FROM rollout_lane_membership_change membership_change
-                  JOIN rollout_lane_channel attachment
-                    ON attachment.lane_id = membership_change.target_lane_id
-                   AND attachment.org_id = membership_change.org_id
-                  JOIN device_set_membership membership
-                    ON membership.device_set_id = attachment.channel_id
-                   AND membership.org_id = attachment.org_id
-                   AND membership.device_set_type = 'channel'
-                   AND membership.device_id = enforcement.device_id
-                  WHERE membership_change.authority_id = authority.id
-                    AND membership_change.org_id = authority.org_id
-              )
-          )
-      )
-      AND authority.halted_at IS NULL
-      AND enforcement.state <> 'confirmed'
-)
-`
-
-type HasUnconfirmedRolloutLaneFirmwareConvergenceParams struct {
-	OrgID     int64
-	DeviceIds []int64
-}
-
-func (q *Queries) HasUnconfirmedRolloutLaneFirmwareConvergence(ctx context.Context, arg HasUnconfirmedRolloutLaneFirmwareConvergenceParams) (bool, error) {
-	row := q.queryRow(ctx, q.hasUnconfirmedRolloutLaneFirmwareConvergenceStmt, hasUnconfirmedRolloutLaneFirmwareConvergence, arg.OrgID, pq.Array(arg.DeviceIds))
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const insertDevice = `-- name: InsertDevice :one
 INSERT INTO device (
     org_id,
@@ -2085,50 +2026,6 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const lockDevicesForSoftDelete = `-- name: LockDevicesForSoftDelete :many
-SELECT device.id
-FROM device
-JOIN discovered_device discovered
-  ON discovered.id = device.discovered_device_id
- AND discovered.org_id = device.org_id
-WHERE device.device_identifier = ANY($1::text[])
-  AND device.org_id = $2
-  AND device.deleted_at IS NULL
-ORDER BY device.device_identifier
-FOR UPDATE OF device, discovered
-`
-
-type LockDevicesForSoftDeleteParams struct {
-	DeviceIdentifiers []string
-	OrgID             int64
-}
-
-// Locks live target device and discovery rows before deletion checks or mutations.
-// The join, ordering, and lock list match LockBetweenChannelInitialDevices so lane
-// creation and deletion acquire shared rows in the same order.
-func (q *Queries) LockDevicesForSoftDelete(ctx context.Context, arg LockDevicesForSoftDeleteParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.lockDevicesForSoftDeleteStmt, lockDevicesForSoftDelete, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

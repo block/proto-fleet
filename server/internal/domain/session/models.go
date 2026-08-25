@@ -37,9 +37,6 @@ const (
 	// ActorCurtailment marks sessions synthesized by the curtailment
 	// reconciler so CurtailmentActiveFilter can bypass self-traffic.
 	ActorCurtailment Actor = "curtailment"
-	// ActorChannelEnforcement marks the single software-channel firmware
-	// executor. It bypasses only ChannelManagedFilter.
-	ActorChannelEnforcement Actor = "channel_enforcement"
 )
 
 // Source carries optional policy context for command preflight filters.

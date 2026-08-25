@@ -52,12 +52,6 @@ type CreateRackExtensionParams struct {
 	BuildingID   *int64
 }
 
-type CreateChannelExtensionParams struct {
-	OrgID        int64
-	CollectionID int64
-	ReleaseSetID int64
-}
-
 // ZoneRefRow is the domain shape returned by ListRackZoneRefs. Maps to
 // common.v1.ZoneRef on the wire. BuildingID == 0 indicates a rack with
 // NULL building_id (legacy / Phase 1 uncategorized).
@@ -94,10 +88,6 @@ type CollectionStore interface {
 	// Must be called after CreateCollection for rack-type collections.
 	CreateRackExtension(ctx context.Context, params CreateRackExtensionParams) error
 
-	// CreateChannelExtension links a channel device set to an immutable
-	// firmware release set in the same organization.
-	CreateChannelExtension(ctx context.Context, params CreateChannelExtensionParams) error
-
 	// ListTakenLabels returns the subset of labels already used by a live
 	// collection of this type in the org. Bulk create calls it to report
 	// collisions per row instead of surfacing one opaque AlreadyExists from
@@ -111,30 +101,6 @@ type CollectionStore interface {
 	// GetRackInfo retrieves rack-specific info for a collection.
 	// Returns nil if the collection is not a rack.
 	GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error)
-
-	// GetChannelInfo retrieves channel-specific release metadata.
-	GetChannelInfo(ctx context.Context, collectionID, orgID int64) (*pb.ChannelInfo, error)
-
-	// LockChannelForWrite locks the channel extension and parent device-set row
-	// using the same order as channel membership assignment.
-	LockChannelForWrite(ctx context.Context, collectionID, orgID int64) error
-
-	// CreateFirmwareReleaseSet creates the immutable release-set parent row.
-	CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (*pb.FirmwareReleaseSet, error)
-
-	// CreateFirmwareReleaseTarget adds one snapshotted model target while
-	// its release set is being created.
-	CreateFirmwareReleaseTarget(ctx context.Context, orgID, releaseSetID int64, target *pb.FirmwareReleaseTarget) error
-
-	// GetFirmwareReleaseSet returns an immutable release set and all targets.
-	GetFirmwareReleaseSet(ctx context.Context, orgID, releaseSetID int64) (*pb.FirmwareReleaseSet, error)
-
-	// FirmwareReleaseSetBelongsToOrg checks release-set ownership.
-	FirmwareReleaseSetBelongsToOrg(ctx context.Context, orgID, releaseSetID int64) (bool, error)
-
-	// UpdateChannelReleaseSet changes only the channel's pointer. Release-set
-	// rows and targets remain immutable.
-	UpdateChannelReleaseSet(ctx context.Context, orgID, collectionID, releaseSetID int64) error
 
 	// UpdateCollection updates a collection's label and/or description.
 	// Only non-nil values are updated.
@@ -343,41 +309,6 @@ type CollectionStore interface {
 	// LockRackPlacementForWrite call on the target still happens for
 	// its placement read; this query handles the rack-id locks.
 	LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error)
-
-	// LockChannelsForReparent locks source and target channels in ascending
-	// device-set order before a membership move.
-	LockChannelsForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) ([]int64, error)
-
-	// LockDevicesForChannelAssignment locks every requested live device in
-	// stable identifier order and returns the owned identifiers.
-	LockDevicesForChannelAssignment(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
-
-	// ListCurrentChannelIDsForDevices re-reads current channel memberships
-	// after device locks are held so ownership checks use fresh state.
-	ListCurrentChannelIDsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]int64, error)
-
-	// IsRolloutLaneChannel reports whether a physical channel is retained as
-	// rollout-lane state, including after its lane is archived.
-	IsRolloutLaneChannel(ctx context.Context, orgID, channelID int64) (bool, error)
-
-	// ListRolloutLaneOwnedChannelIDs returns the requested channels retained as
-	// rollout-lane state, including channels belonging to archived lanes.
-	ListRolloutLaneOwnedChannelIDs(ctx context.Context, orgID int64, channelIDs []int64) ([]int64, error)
-
-	// ListActiveRolloutOwnedDeviceIdentifiers returns requested devices whose
-	// channel membership is currently owned by a rollout.
-	ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
-
-	// RemoveDevicesFromAnyChannel removes prior channel memberships while
-	// preserving membership in targetChannelID.
-	RemoveDevicesFromAnyChannel(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) (int64, error)
-
-	// FirmwareArtifactReferenced reports whether any immutable release target
-	// snapshots the given firmware file ID.
-	FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error)
-
-	// AnyFirmwareArtifactReferenced reports whether delete-all is safe.
-	AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

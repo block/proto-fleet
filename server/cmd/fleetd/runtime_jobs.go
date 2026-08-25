@@ -211,10 +211,6 @@ type runtimeJobLifecycles struct {
 	commandExecution          runtimejobs.Lifecycle
 	scheduleProcessor         runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
-	rolloutControlReconciler  runtimejobs.Lifecycle
-	channelEnforcement        runtimejobs.Lifecycle
-	rolloutLaneFinalizer      runtimejobs.Lifecycle
-	rolloutEvidenceEvaluator  runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
 	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
@@ -251,10 +247,6 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "command-execution", lifecycle: commandExecution},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
-		{name: "rollout-control-reconciler", lifecycle: lifecycles.rolloutControlReconciler},
-		{name: "channel-enforcement", lifecycle: lifecycles.channelEnforcement},
-		{name: "rollout-lane-finalizer", lifecycle: lifecycles.rolloutLaneFinalizer},
-		{name: "rollout-evidence-evaluator", lifecycle: lifecycles.rolloutEvidenceEvaluator},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
 		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
 	}

@@ -56,14 +56,6 @@ const (
 	PermCurtailmentManage = "curtailment:manage"
 	PermCurtailmentIngest = "curtailment:ingest"
 
-	// channel and rollout are organization-scoped firmware policy resources.
-	// rollout:manage creates frozen plans while rollout:control advances them.
-	PermChannelRead    = "channel:read"
-	PermChannelManage  = "channel:manage"
-	PermRolloutRead    = "rollout:read"
-	PermRolloutManage  = "rollout:manage"
-	PermRolloutControl = "rollout:control"
-
 	// pool — org-level mining pool definitions applied to miners. Not
 	// site-scoped: pools are a global org resource.
 	PermPoolRead   = "pool:read"
@@ -113,8 +105,6 @@ const (
 	ResourceActivity    = "activity"
 	ResourceServerLog   = "serverlog"
 	ResourceCurtailment = "curtailment"
-	ResourceChannel     = "channel"
-	ResourceRollout     = "rollout"
 	ResourcePool        = "pool"
 	ResourceSchedule    = "schedule"
 	ResourceFleetNode   = "fleetnode"
@@ -172,13 +162,6 @@ var catalog = []CatalogEntry{
 	{PermCurtailmentRead, "View curtailment events and active status.", ResourceCurtailment},
 	{PermCurtailmentManage, "Preview, start, stop, and override curtailment events, and manage profiles, automation rules, and dispatch sources.", ResourceCurtailment},
 	{PermCurtailmentIngest, "Accept external curtailment dispatch signals. Not yet implemented.", ResourceCurtailment},
-
-	{PermChannelRead, "View software channels, releases, and channel membership.", ResourceChannel},
-	{PermChannelManage, "Create and manage software channels, releases, and channel membership.", ResourceChannel},
-
-	{PermRolloutRead, "View firmware rollout state, members, evidence, and history.", ResourceRollout},
-	{PermRolloutManage, "Create firmware rollouts and their frozen batch plans.", ResourceRollout},
-	{PermRolloutControl, "Admit, pause, resume, abort, complete, and revert firmware rollouts.", ResourceRollout},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
 	{PermPoolManage, "Create, edit, delete, and validate saved mining pool configurations. Validation makes the server connect to a supplied address.", ResourcePool},

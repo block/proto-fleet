@@ -551,8 +551,6 @@ func generatedDeviceSetTypeName(deviceSetType devicesetv1.DeviceSetType) string 
 		return "group"
 	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK:
 		return "rack"
-	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_CHANNEL:
-		return "channel"
 	default:
 		return "device set"
 	}

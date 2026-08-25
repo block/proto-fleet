@@ -125,41 +125,6 @@ describe("formatActivityDescription", () => {
 
     expect(formatActivityDescription(entry)).toBe("Future event not completed on 2 miners");
   });
-
-  it("formats parent and child rollout activity with stable model metadata", () => {
-    const parent = create(ActivityEntrySchema, {
-      eventType: "rollout_group.started",
-      description: "Started aggregate rollout",
-      metadata: { model_count: 2 },
-    });
-    const child = create(ActivityEntrySchema, {
-      eventType: "rollout_child.paused",
-      description: "Paused rollout child",
-      parentRolloutId: "parent-1",
-      childRolloutId: "child-1",
-      modelIdentityKey: "v1:5:proto:5:alpha",
-      manufacturer: "Proto",
-      model: "Alpha",
-      metadata: {
-        parent_id: "parent-1",
-        child_id: "child-1",
-        model_identity_key: "v1:5:proto:5:alpha",
-        manufacturer: "Stale",
-        model: "Metadata",
-      },
-    });
-
-    expect(formatActivityDescription(parent)).toBe("Started rollout for 2 models");
-    expect(formatActivityDescription(child)).toBe("Paused Proto Alpha rollout");
-
-    const identityOnly = create(ActivityEntrySchema, {
-      eventType: "rollout_child.resumed",
-      description: "Resumed rollout child",
-      modelIdentityKey: "v1:5:proto:4:beta",
-      metadata: { model_identity_key: "stale-identity" },
-    });
-    expect(formatActivityDescription(identityOnly)).toBe("Resumed v1:5:proto:4:beta rollout");
-  });
 });
 
 describe("formatActivityErrorMessage", () => {

@@ -25,8 +25,6 @@ export interface MinerSelectionModalProps {
   // can't call (e.g. rack/group filters need rack:read).
   filterConfig?: FilterConfig;
   initialFilter?: MinerListFilter;
-  showSelectAllFooter?: boolean;
-  showRolloutLaneColumn?: boolean;
   onDismiss: () => void;
   onSave: (selection: MinerSelectionValue) => void;
 }
@@ -38,8 +36,6 @@ const MinerSelectionModal = ({
   scope,
   filterConfig,
   initialFilter,
-  showSelectAllFooter,
-  showRolloutLaneColumn,
   onDismiss,
   onSave,
 }: MinerSelectionModalProps) => {
@@ -94,8 +90,6 @@ const MinerSelectionModal = ({
           initialSelectedItems={selectedMinerIds}
           initialFilter={initialFilter}
           disableFilteredSelectAll
-          showSelectAllFooter={showSelectAllFooter}
-          showRolloutLaneColumn={showRolloutLaneColumn}
           scope={scope}
           filterConfig={filterConfig}
           onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>

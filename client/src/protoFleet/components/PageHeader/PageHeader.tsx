@@ -8,18 +8,17 @@ import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import {
   getPhoneHeaderWidgetRowCount,
   getPhoneHeaderWidgetRowHeightClass,
+  getVisibleHeaderWidgetCount,
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "./headerWidgetLayout";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseActiveAlertsPillDataResult } from "./useActiveAlertsPillData";
-import type { UseRolloutPillDataResult } from "./useRolloutPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
 import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
-import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
@@ -34,7 +33,6 @@ interface PageHeaderProps {
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
-  rolloutPillData?: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   updatePill?: UpdatePillData | null;
 }
@@ -53,7 +51,6 @@ interface HeaderWidgetsProps {
   dismissedSetup: boolean;
   onContinueSetup: () => void;
   onSelectAlertGroup: (group: ActiveAlertGroup) => void;
-  rolloutPillData: UseRolloutPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
   stacked?: boolean;
   testId?: string;
@@ -68,13 +65,7 @@ const noActiveAlerts: UseActiveAlertsPillDataResult = {
   hasMore: false,
   hasVisiblePill: false,
 };
-const noActiveRollout: UseRolloutPillDataResult = {
-  activeEvent: null,
-  detailsPath: null,
-  hasVisiblePill: false,
-  onViewRollout: null,
-};
-type HeaderWidgetKind = "alerts" | "curtailment" | "rollout" | "schedule" | "update" | "setup";
+type HeaderWidgetKind = "alerts" | "curtailment" | "schedule" | "update" | "setup";
 
 function HeaderWidgets({
   activeAlertsPillData,
@@ -85,7 +76,6 @@ function HeaderWidgets({
   dismissedSetup,
   onContinueSetup,
   onSelectAlertGroup,
-  rolloutPillData,
   schedulePillData,
   stacked = false,
   testId,
@@ -124,15 +114,6 @@ function HeaderWidgets({
           case "curtailment":
             return activeCurtailmentEvent && canReadCurtailment ? (
               <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
-            ) : null;
-          case "rollout":
-            return rolloutPillData.hasVisiblePill && rolloutPillData.activeEvent ? (
-              <RolloutPill
-                key={widget}
-                event={rolloutPillData.activeEvent}
-                {...(rolloutPillData.detailsPath ? { detailsPath: rolloutPillData.detailsPath } : {})}
-                {...(rolloutPillData.onViewRollout ? { onViewRollout: rolloutPillData.onViewRollout } : {})}
-              />
             ) : null;
           case "schedule":
             return pillSchedule ? (
@@ -182,7 +163,6 @@ function PageHeader({
   activeCurtailmentEvent = null,
   isMenuOpen,
   openMenu,
-  rolloutPillData = noActiveRollout,
   schedulePillData,
   updatePill = null,
 }: PageHeaderProps): ReactElement {
@@ -219,23 +199,26 @@ function PageHeader({
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     onSelectAlertGroup: setDrilledInAlertGroup,
-    rolloutPillData,
     schedulePillData,
     updatePill,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
-  const hasVisibleRolloutPill = rolloutPillData.hasVisiblePill;
   const hasVisibleUpdatePill = updatePill !== null;
   // Alerts lead: only the first widget stays inline in the phone top bar, and a firing alert outranks the rest.
   const headerWidgetKinds: HeaderWidgetKind[] = [
     ...(activeAlertsPillData.hasVisiblePill ? (["alerts"] as const) : []),
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
-    ...(hasVisibleRolloutPill ? (["rollout"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
     ...(hasVisibleUpdatePill ? (["update"] as const) : []),
     ...(hasDismissedSetup ? (["setup"] as const) : []),
   ];
-  const headerWidgetCount = headerWidgetKinds.length;
+  const headerWidgetCount = getVisibleHeaderWidgetCount({
+    hasDismissedSetup,
+    hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
+    hasVisibleUpdatePill,
+    hasVisibleCurtailmentPill,
+    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
+  });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
   const phoneTopWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(0, 1) : [];
   const phoneRowWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(1) : headerWidgetKinds;

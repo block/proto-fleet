@@ -26,12 +26,7 @@ import {
 
 export type ActivityIconTone = "default" | "critical";
 
-const alertEventTypes = new Set([
-  "login_failed",
-  ALERT_FIRING_EVENT_TYPE,
-  "between_channel_rollout_member.attention_required",
-  "between_channel_rollout_member.membership_conflict",
-]);
+const alertEventTypes = new Set(["login_failed", ALERT_FIRING_EVENT_TYPE]);
 
 function isCreateEvent(eventType: string): boolean {
   return eventType.startsWith("create_") || eventType.split(/[._]/).includes("created");
@@ -115,10 +110,6 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   update_role: Edit,
   delete_role: MinusFilled,
 
-  "between_channel_rollout_member.moved": Settings,
-  "between_channel_rollout_member.attention_required": Alert,
-  "between_channel_rollout_member.cancelled": MinusFilled,
-  "between_channel_rollout_member.membership_conflict": Alert,
   [ALERT_FIRING_EVENT_TYPE]: Alert,
   [ALERT_RESOLVED_EVENT_TYPE]: Alert,
 };

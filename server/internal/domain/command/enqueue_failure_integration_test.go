@@ -48,18 +48,6 @@ func (q failingEnqueueQueue) EnqueueMany(ctx context.Context, batchUUID string, 
 	return q.err
 }
 
-func (q failingEnqueueQueue) EnqueueCommandBatch(ctx context.Context, batch queue.CommandBatch) error {
-	if q.batchUUID != nil {
-		*q.batchUUID = batch.Identifier
-	}
-	if q.delegate != nil {
-		if err := q.delegate.EnqueueCommandBatch(ctx, batch); err != nil {
-			return err
-		}
-	}
-	return q.err
-}
-
 func (failingEnqueueQueue) Dequeue(context.Context, int32) ([]queue.Message, error) {
 	return nil, nil
 }
@@ -121,10 +109,8 @@ func TestCommandEnqueueCommittedBeforeErrorReturnsSuccessAndTracksBatch(t *testi
 	device := dbService.CreateDevice(user.OrganizationID, "proto")
 	statusChecks := make(chan string, 1)
 	messageQueue := failingEnqueueQueue{
-		err: errors.New("connection lost after commit"),
-		delegate: queue.NewDatabaseMessageQueue(&queue.Config{
-			MaxFailureRetries: 5,
-		}, conn),
+		err:          errors.New("connection lost after commit"),
+		delegate:     queue.NewDatabaseMessageQueue(&queue.Config{}, conn),
 		statusChecks: statusChecks,
 	}
 	svc := newDispatchIntegrationTestService(t, conn, messageQueue)

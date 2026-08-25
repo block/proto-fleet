@@ -29,14 +29,7 @@ WHERE a.organization_id = $1
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
-            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description),
-            a.metadata->>'manufacturer',
-            a.metadata->>'model',
-            a.metadata->>'model_identity_key',
-            a.metadata->>'parent_id',
-            a.metadata->>'child_id',
-            a.metadata->>'parent_rollout_id',
-            a.metadata->>'child_rollout_id'
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
         ) ILIKE $6 ESCAPE '\'
     )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)
@@ -328,14 +321,7 @@ WHERE a.organization_id = $1
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
-            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description),
-            a.metadata->>'manufacturer',
-            a.metadata->>'model',
-            a.metadata->>'model_identity_key',
-            a.metadata->>'parent_id',
-            a.metadata->>'child_id',
-            a.metadata->>'parent_rollout_id',
-            a.metadata->>'child_rollout_id'
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
         ) ILIKE $6 ESCAPE '\'
     )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)

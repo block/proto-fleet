@@ -81,7 +81,6 @@ func newTestHandler(t *testing.T) *testHarness {
 		noopResolver,
 		nil, // telemetry: unused
 		activitySvc,
-		nil, // firmware artifacts: unused
 	)
 
 	return &testHarness{
@@ -721,14 +720,6 @@ func ctxWithPerms(perms ...string) context.Context {
 		ScopeType:    authz.ScopeOrg,
 		Permissions:  perms,
 	}}))
-}
-
-func requirePermissionDenied(t *testing.T, err error) {
-	t.Helper()
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 func ctxWithAssignments(assignments ...authz.Assignment) context.Context {
@@ -1380,7 +1371,6 @@ func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
 		resolver,
 		nil,
 		activitySvc,
-		nil,
 	)
 	return &testHarness{
 		handler:         NewHandler(svc),
@@ -1388,167 +1378,6 @@ func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
 		buildingStore:   buildingStore,
 		ctrl:            ctrl,
 	}
-}
-
-func TestCreateDeviceSet_ChannelConvertsChannelInfo(t *testing.T) {
-	h := newTestHandler(t)
-	channelInfo := &collectionpb.ChannelInfo{
-		ReleaseSetId: 91,
-		ReleaseTargets: []*collectionpb.FirmwareReleaseTarget{{
-			FirmwareFileId:     "firmware-1",
-			TargetManufacturer: "Proto",
-			TargetModel:        "Rig",
-			FirmwareVersion:    "2.0.0",
-			Sha256:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		}},
-	}
-	h.collectionStore.EXPECT().
-		FirmwareReleaseSetBelongsToOrg(gomock.Any(), testOrgID, int64(91)).
-		Return(true, nil)
-	h.collectionStore.EXPECT().
-		CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL, "Stable", "").
-		Return(&collectionpb.DeviceCollection{
-			Id:    33,
-			Type:  collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL,
-			Label: "Stable",
-		}, nil)
-	h.collectionStore.EXPECT().
-		CreateChannelExtension(gomock.Any(), interfaces.CreateChannelExtensionParams{
-			OrgID:        testOrgID,
-			CollectionID: 33,
-			ReleaseSetID: 91,
-		}).
-		Return(nil)
-	h.collectionStore.EXPECT().
-		GetChannelInfo(gomock.Any(), int64(33), testOrgID).
-		Return(channelInfo, nil)
-
-	response, err := h.handler.CreateDeviceSet(testCtx(t), connect.NewRequest(&dspb.CreateDeviceSetRequest{
-		Type:  dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
-		Label: "Stable",
-		TypeDetails: &dspb.CreateDeviceSetRequest_ChannelInfo{
-			ChannelInfo: &dspb.ChannelInfo{ReleaseSetId: 91},
-		},
-	}))
-
-	require.NoError(t, err)
-	require.Equal(t, dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL, response.Msg.DeviceSet.Type)
-	require.Equal(t, int64(91), response.Msg.DeviceSet.GetChannelInfo().ReleaseSetId)
-	require.Len(t, response.Msg.DeviceSet.GetChannelInfo().ReleaseTargets, 1)
-}
-
-func TestAssignDevicesToChannel_HappyPath(t *testing.T) {
-	h := newTestHandler(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"device-1", "device-2"}
-	gomock.InOrder(
-		h.collectionStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{12, 77}, nil),
-		h.collectionStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return(deviceIDs, nil),
-		h.collectionStore.EXPECT().
-			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		h.collectionStore.EXPECT().
-			GetCollection(gomock.Any(), testOrgID, targetChannelID).
-			Return(&collectionpb.DeviceCollection{
-				Id:    targetChannelID,
-				Type:  collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL,
-				Label: "Stable",
-			}, nil),
-		h.collectionStore.EXPECT().
-			GetChannelInfo(gomock.Any(), targetChannelID, testOrgID).
-			Return(&collectionpb.ChannelInfo{ReleaseSetId: 91}, nil),
-		h.collectionStore.EXPECT().
-			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return(int64(1), nil),
-		h.collectionStore.EXPECT().
-			AddDevicesToCollection(gomock.Any(), testOrgID, targetChannelID, deviceIDs).
-			Return(int64(2), nil),
-	)
-
-	response, err := h.handler.AssignDevicesToChannel(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToChannelRequest{
-		TargetChannelId: &targetChannelID,
-		DeviceSelector: &commonpb.DeviceSelector{
-			SelectionType: &commonpb.DeviceSelector_DeviceList{
-				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
-			},
-		},
-	}))
-
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), response.Msg.AssignedCount)
-	assert.Equal(t, int64(1), response.Msg.RemovedCount)
-}
-
-func TestGetFirmwareReleaseSet_ReturnsSnapshot(t *testing.T) {
-	h := newTestHandler(t)
-	h.collectionStore.EXPECT().
-		GetFirmwareReleaseSet(gomock.Any(), testOrgID, int64(91)).
-		Return(&collectionpb.FirmwareReleaseSet{
-			Id: 91,
-			Targets: []*collectionpb.FirmwareReleaseTarget{{
-				FirmwareFileId:     "firmware-1",
-				TargetManufacturer: "Proto",
-				TargetModel:        "Rig",
-				FirmwareVersion:    "2.0.0",
-				Sha256:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			}},
-		}, nil)
-
-	response, err := h.handler.GetFirmwareReleaseSet(
-		testCtx(t),
-		connect.NewRequest(&dspb.GetFirmwareReleaseSetRequest{ReleaseSetId: 91}),
-	)
-
-	require.NoError(t, err)
-	assert.Equal(t, int64(91), response.Msg.ReleaseSet.Id)
-	require.Len(t, response.Msg.ReleaseSet.Targets, 1)
-	assert.Equal(t, "firmware-1", response.Msg.ReleaseSet.Targets[0].FirmwareFileId)
-}
-
-func TestChannelRPCsRequireChannelPermissionsRatherThanRackPermissions(t *testing.T) {
-	h := newTestHandler(t)
-	channelID := int64(77)
-
-	_, err := h.handler.CreateDeviceSet(
-		ctxWithPerms(authz.PermRackManage),
-		connect.NewRequest(&dspb.CreateDeviceSetRequest{
-			Type: dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
-		}),
-	)
-	requirePermissionDenied(t, err)
-
-	_, err = h.handler.ListDeviceSets(
-		ctxWithPerms(authz.PermRackRead),
-		connect.NewRequest(&dspb.ListDeviceSetsRequest{
-			Type: dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
-		}),
-	)
-	requirePermissionDenied(t, err)
-
-	_, err = h.handler.CreateFirmwareReleaseSet(
-		ctxWithPerms(authz.PermRackManage),
-		connect.NewRequest(&dspb.CreateFirmwareReleaseSetRequest{}),
-	)
-	requirePermissionDenied(t, err)
-
-	_, err = h.handler.GetFirmwareReleaseSet(
-		ctxWithPerms(authz.PermRackRead),
-		connect.NewRequest(&dspb.GetFirmwareReleaseSetRequest{ReleaseSetId: 91}),
-	)
-	requirePermissionDenied(t, err)
-
-	_, err = h.handler.AssignDevicesToChannel(
-		ctxWithPerms(authz.PermRackManage),
-		connect.NewRequest(&dspb.AssignDevicesToChannelRequest{
-			TargetChannelId: &channelID,
-			DeviceSelector:  deviceListSelector("device-1"),
-		}),
-	)
-	requirePermissionDenied(t, err)
 }
 
 // --- CreateRacks (bulk) ---
@@ -1857,8 +1686,6 @@ func TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination(t *testing.T) {
 			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
 		// The rack currently lives in site A; the move targets site B. Only the
 		// source lookup runs — the source check denies before any write.
-		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
-			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
 		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
 
@@ -1878,8 +1705,6 @@ func TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination(t *testing.T) {
 			handlerstest.OrgAssignment(authz.PermRackManage),
 			handlerstest.SiteAssignment(siteA, authz.PermSiteManage),
 			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
-		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
-			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
 		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
 		// Authorization passes; the service is entered and stopped at its first
@@ -1915,8 +1740,6 @@ func TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage(t *testin
 		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
 			handlerstest.OrgAssignment(authz.PermRackManage),
 			handlerstest.SiteAssignment(siteA, authz.PermSiteManage))
-		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
-			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
 		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
 		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
@@ -1934,8 +1757,6 @@ func TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage(t *testin
 	t.Run("org-wide site:manage manager is admitted past authorization", func(t *testing.T) {
 		h := newTestHandler(t)
 		ctx := ctxWithPerms(authz.PermRackManage, authz.PermSiteManage)
-		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
-			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
 		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
 		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)

@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS idx_discovered_device_model_identity_observed;

@@ -36,10 +36,6 @@ interface ModalProps {
   onDismiss?: (buttonClicked?: boolean) => void;
   buttonSize?: keyof typeof buttonSizes;
   buttons?: ModalButtonProps[];
-  /** Optional action rendered immediately before the desktop button group. */
-  headerLeadingAction?: ReactNode;
-  /** Full action set used by the compact header overflow when it differs from desktop. */
-  compactHeaderButtons?: ModalButtonProps[];
   phoneFooterButtons?: ModalButtonProps[];
   phoneSheet?: boolean;
   icon?: ReactNode | null;
@@ -69,8 +65,6 @@ const Modal = ({
   onDismiss,
   buttonSize,
   buttons,
-  headerLeadingAction,
-  compactHeaderButtons,
   phoneFooterButtons,
   phoneSheet = false,
   open,
@@ -133,10 +127,6 @@ const Modal = ({
     [onDismiss],
   );
   const headerButtons = buttons?.map((button) => ({
-    ...button,
-    onClick: onButtonClick(button),
-  }));
-  const compactButtons = compactHeaderButtons?.map((button) => ({
     ...button,
     onClick: onButtonClick(button),
   }));
@@ -218,13 +208,11 @@ const Modal = ({
                   buttons={headerButtons}
                   inline
                   centerButton
-                >
-                  {headerLeadingAction ? <div className="shrink-0 phone:hidden">{headerLeadingAction}</div> : null}
-                </Header>
+                />
                 {hasPhoneFooterButtons ? null : (
                   <ModalHeaderActions
                     className="absolute top-0 right-0 !ml-0"
-                    buttons={compactButtons ?? headerButtons}
+                    buttons={headerButtons}
                     buttonSize={buttonSize}
                   />
                 )}

@@ -114,7 +114,6 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 						CommandType:         "CURTAIL",
 						DeviceID:            device.DatabaseID,
 						Status:              sqlc.QueueStatusEnumPENDING,
-						MaxAttempts:         5,
 					})
 				}); commandErr != nil {
 					return commandErr

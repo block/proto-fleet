@@ -1322,34 +1322,16 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 	}
 
 	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
-		deviceIDs, err := q.LockDevicesForSoftDelete(ctx, sqlc.LockDevicesForSoftDeleteParams{
+		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
+			ExpectedCount:     len(deviceIdentifiers),
 			DeviceIdentifiers: deviceIdentifiers,
 			OrgID:             orgID,
 		})
 		if err != nil {
-			return 0, fleeterror.NewInternalErrorf("failed to lock devices for deletion: %v", err)
+			return 0, fleeterror.NewInternalErrorf("failed to validate device ownership: %v", err)
 		}
-		if len(deviceIDs) != len(deviceIdentifiers) {
+		if !allBelong {
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
-		}
-
-		hasUnresolvedFirmwareConvergence, err := q.HasUnconfirmedRolloutLaneFirmwareConvergence(
-			ctx,
-			sqlc.HasUnconfirmedRolloutLaneFirmwareConvergenceParams{
-				OrgID:     orgID,
-				DeviceIds: deviceIDs,
-			},
-		)
-		if err != nil {
-			return 0, fleeterror.NewInternalErrorf(
-				"failed to check rollout lane firmware convergence: %v",
-				err,
-			)
-		}
-		if hasUnresolvedFirmwareConvergence {
-			return 0, fleeterror.NewFailedPreconditionError(
-				"cannot delete devices with unresolved rollout lane firmware convergence; wait for firmware confirmation",
-			)
 		}
 
 		if _, err := q.DeleteMinerCredentialsForDeviceIdentifiers(ctx, sqlc.DeleteMinerCredentialsForDeviceIdentifiersParams{

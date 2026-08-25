@@ -22,7 +22,6 @@ func (noopLifecycle) Stop(context.Context) error  { return nil }
 type funcLifecycle struct {
 	start func(context.Context) error
 	stop  func(context.Context) error
-	abort func()
 }
 
 func (l funcLifecycle) Start(ctx context.Context) error {
@@ -37,12 +36,6 @@ func (l funcLifecycle) Stop(ctx context.Context) error {
 		return nil
 	}
 	return l.stop(ctx)
-}
-
-func (l funcLifecycle) Abort() {
-	if l.abort != nil {
-		l.abort()
-	}
 }
 
 type scriptedRuntimeJobGroupStopper struct {
@@ -73,10 +66,6 @@ func TestNewRuntimeJobs(t *testing.T) {
 		commandExecution:          noopLifecycle{},
 		scheduleProcessor:         noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
-		rolloutControlReconciler:  noopLifecycle{},
-		channelEnforcement:        noopLifecycle{},
-		rolloutLaneFinalizer:      noopLifecycle{},
-		rolloutEvidenceEvaluator:  noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		curtailmentRigConfig:      noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
@@ -97,10 +86,6 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"command-execution",
 		"schedule-processor",
 		"curtailment-reconciler",
-		"rollout-control-reconciler",
-		"channel-enforcement",
-		"rollout-lane-finalizer",
-		"rollout-evidence-evaluator",
 		"curtailment-mqtt-subscriber",
 		"curtailment-rig-config",
 		"curtailment-alert-metrics",
@@ -125,10 +110,6 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"command-execution",
 		"schedule-processor",
 		"curtailment-reconciler",
-		"rollout-control-reconciler",
-		"channel-enforcement",
-		"rollout-lane-finalizer",
-		"rollout-evidence-evaluator",
 		"curtailment-mqtt-subscriber",
 		"curtailment-rig-config",
 		"chunked-upload-cleanup",
@@ -176,10 +157,6 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		commandExecution:          commandExecution,
 		scheduleProcessor:         producer,
 		curtailmentReconciler:     noopLifecycle{},
-		rolloutControlReconciler:  noopLifecycle{},
-		channelEnforcement:        noopLifecycle{},
-		rolloutLaneFinalizer:      noopLifecycle{},
-		rolloutEvidenceEvaluator:  noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
@@ -194,35 +171,6 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	default:
 		t.Fatal("command execution was not stopped")
 	}
-}
-
-func TestRuntimeJobGroupAbortsCommandExecution(t *testing.T) {
-	commandAborted := false
-	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
-		identityStateCleanup:      noopLifecycle{},
-		commandArtifactCleanup:    noopLifecycle{},
-		diagnosticsErrorCloser:    noopLifecycle{},
-		telemetry:                 noopLifecycle{},
-		ipScanner:                 noopLifecycle{},
-		commandExecution:          funcLifecycle{abort: func() { commandAborted = true }},
-		scheduleProcessor:         noopLifecycle{},
-		curtailmentReconciler:     noopLifecycle{},
-		rolloutControlReconciler:  noopLifecycle{},
-		channelEnforcement:        noopLifecycle{},
-		rolloutLaneFinalizer:      noopLifecycle{},
-		rolloutEvidenceEvaluator:  noopLifecycle{},
-		curtailmentMQTTSubscriber: noopLifecycle{},
-		curtailmentRigConfig:      noopLifecycle{},
-		chunkedUploadCleanup:      noopLifecycle{},
-	})
-	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup(jobs)
-	require.NoError(t, err)
-	require.NoError(t, group.Start(t.Context()))
-
-	require.NoError(t, group.Abort(t.Context()))
-
-	require.True(t, commandAborted)
 }
 
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {

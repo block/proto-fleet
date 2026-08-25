@@ -120,20 +120,6 @@ const formatDeletedBuilding = (entry: ActivityEntry): string | undefined => {
   return `Deleted building${buildingID ? ` ${buildingID}` : ""}: ${countLabel(rackCount, "rack")} unassigned`;
 };
 
-const rolloutModelLabel = (entry: ActivityEntry): string | undefined => {
-  const manufacturer = entry.manufacturer?.trim() || metadataString(entry, "manufacturer");
-  const model = entry.model?.trim() || metadataString(entry, "model");
-  const modelIdentity = entry.modelIdentityKey?.trim() || metadataString(entry, "model_identity_key");
-  return [manufacturer, model].filter(Boolean).join(" ") || modelIdentity;
-};
-
-const formatRolloutChildActivity =
-  (verb: string) =>
-  (entry: ActivityEntry): string => {
-    const modelLabel = rolloutModelLabel(entry);
-    return `${verb}${modelLabel ? ` ${modelLabel}` : ""} rollout`;
-  };
-
 const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | undefined> = {
   login: () => "Logged in",
   login_failed: () => "Couldn't log in",
@@ -221,19 +207,6 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
       ? "Command ran with skipped miners"
       : `Command ran with ${minerCountLabel(skippedCount)} skipped`;
   },
-  "rollout_group.started": (entry) => {
-    const modelCount = metadataNumber(entry, "model_count");
-    return modelCount === undefined ? "Started rollout" : `Started rollout for ${countLabel(modelCount, "model")}`;
-  },
-  "rollout_child.started": formatRolloutChildActivity("Started"),
-  "rollout_child.admitted": formatRolloutChildActivity("Started"),
-  "rollout_child.continued": formatRolloutChildActivity("Continued"),
-  "rollout_child.paused": formatRolloutChildActivity("Paused"),
-  "rollout_child.resumed": formatRolloutChildActivity("Resumed"),
-  "rollout_child.aborted": formatRolloutChildActivity("Aborted"),
-  "rollout_child.reverting": formatRolloutChildActivity("Reverting"),
-  "rollout_child.completed": formatRolloutChildActivity("Completed"),
-  "rollout_child.completed_with_failures": formatRolloutChildActivity("Completed"),
 
   // Alert descriptions carry user-authored rule names; pass them through untouched.
   [ALERT_FIRING_EVENT_TYPE]: (entry) => entry.description,

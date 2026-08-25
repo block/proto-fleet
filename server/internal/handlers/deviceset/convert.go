@@ -17,8 +17,6 @@ func toCollectionType(t dspb.DeviceSetType) collectionpb.CollectionType {
 		return collectionpb.CollectionType_COLLECTION_TYPE_GROUP
 	case dspb.DeviceSetType_DEVICE_SET_TYPE_RACK:
 		return collectionpb.CollectionType_COLLECTION_TYPE_RACK
-	case dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL:
-		return collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL
 	case dspb.DeviceSetType_DEVICE_SET_TYPE_UNSPECIFIED:
 		return collectionpb.CollectionType_COLLECTION_TYPE_UNSPECIFIED
 	default:
@@ -32,8 +30,6 @@ func toDeviceSetType(t collectionpb.CollectionType) dspb.DeviceSetType {
 		return dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP
 	case collectionpb.CollectionType_COLLECTION_TYPE_RACK:
 		return dspb.DeviceSetType_DEVICE_SET_TYPE_RACK
-	case collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL:
-		return dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL
 	case collectionpb.CollectionType_COLLECTION_TYPE_UNSPECIFIED:
 		return dspb.DeviceSetType_DEVICE_SET_TYPE_UNSPECIFIED
 	default:
@@ -62,59 +58,8 @@ func toDeviceSet(c *collectionpb.DeviceCollection) *dspb.DeviceSet {
 		ds.TypeDetails = &dspb.DeviceSet_RackInfo{RackInfo: toDeviceSetRackInfo(td.RackInfo)}
 	case *collectionpb.DeviceCollection_GroupInfo:
 		ds.TypeDetails = &dspb.DeviceSet_GroupInfo{GroupInfo: &dspb.GroupInfo{}}
-	case *collectionpb.DeviceCollection_ChannelInfo:
-		ds.TypeDetails = &dspb.DeviceSet_ChannelInfo{ChannelInfo: toDeviceSetChannelInfo(td.ChannelInfo)}
 	}
 	return ds
-}
-
-func toDeviceSetReleaseTarget(target *collectionpb.FirmwareReleaseTarget) *dspb.FirmwareReleaseTarget {
-	if target == nil {
-		return nil
-	}
-	return &dspb.FirmwareReleaseTarget{
-		FirmwareFileId:     target.FirmwareFileId,
-		TargetManufacturer: target.TargetManufacturer,
-		TargetModel:        target.TargetModel,
-		FirmwareVersion:    target.FirmwareVersion,
-		Sha256:             target.Sha256,
-	}
-}
-
-func toDeviceSetReleaseSet(releaseSet *collectionpb.FirmwareReleaseSet) *dspb.FirmwareReleaseSet {
-	if releaseSet == nil {
-		return nil
-	}
-	targets := make([]*dspb.FirmwareReleaseTarget, 0, len(releaseSet.Targets))
-	for _, target := range releaseSet.Targets {
-		targets = append(targets, toDeviceSetReleaseTarget(target))
-	}
-	return &dspb.FirmwareReleaseSet{
-		Id:        releaseSet.Id,
-		Targets:   targets,
-		CreatedAt: releaseSet.CreatedAt,
-	}
-}
-
-func toDeviceSetChannelInfo(info *collectionpb.ChannelInfo) *dspb.ChannelInfo {
-	if info == nil {
-		return nil
-	}
-	targets := make([]*dspb.FirmwareReleaseTarget, 0, len(info.ReleaseTargets))
-	for _, target := range info.ReleaseTargets {
-		targets = append(targets, toDeviceSetReleaseTarget(target))
-	}
-	return &dspb.ChannelInfo{
-		ReleaseSetId:   info.ReleaseSetId,
-		ReleaseTargets: targets,
-	}
-}
-
-func toCollectionChannelInfo(info *dspb.ChannelInfo) *collectionpb.ChannelInfo {
-	if info == nil {
-		return nil
-	}
-	return &collectionpb.ChannelInfo{ReleaseSetId: info.ReleaseSetId}
 }
 
 // --- RackInfo ---
@@ -259,8 +204,6 @@ func toCollectionCreateReq(r *dspb.CreateDeviceSetRequest) *collectionpb.CreateC
 		req.TypeDetails = &collectionpb.CreateCollectionRequest_RackInfo{RackInfo: toCollectionRackInfo(td.RackInfo)}
 	case *dspb.CreateDeviceSetRequest_GroupInfo:
 		req.TypeDetails = &collectionpb.CreateCollectionRequest_GroupInfo{GroupInfo: &collectionpb.GroupInfo{}}
-	case *dspb.CreateDeviceSetRequest_ChannelInfo:
-		req.TypeDetails = &collectionpb.CreateCollectionRequest_ChannelInfo{ChannelInfo: toCollectionChannelInfo(td.ChannelInfo)}
 	}
 	return req
 }
@@ -277,8 +220,6 @@ func toCollectionUpdateReq(r *dspb.UpdateDeviceSetRequest) *collectionpb.UpdateC
 		req.TypeDetails = &collectionpb.UpdateCollectionRequest_RackInfo{RackInfo: toCollectionRackInfo(td.RackInfo)}
 	case *dspb.UpdateDeviceSetRequest_GroupInfo:
 		req.TypeDetails = &collectionpb.UpdateCollectionRequest_GroupInfo{GroupInfo: &collectionpb.GroupInfo{}}
-	case *dspb.UpdateDeviceSetRequest_ChannelInfo:
-		req.TypeDetails = &collectionpb.UpdateCollectionRequest_ChannelInfo{ChannelInfo: toCollectionChannelInfo(td.ChannelInfo)}
 	}
 	return req
 }

@@ -19,7 +19,6 @@ func TestActorTypeFromSession(t *testing.T) {
 		{"empty actor defaults to user via activity service defaulting", &session.Info{}, ""},
 		{"scheduler actor", &session.Info{Actor: session.ActorScheduler}, activitymodels.ActorScheduler},
 		{"curtailment actor", &session.Info{Actor: session.ActorCurtailment}, activitymodels.ActorCurtailment},
-		{"channel enforcement actor", &session.Info{Actor: session.ActorChannelEnforcement}, activitymodels.ActorSystem},
 		{"unknown actor falls back to empty", &session.Info{Actor: session.Actor("mystery")}, ""},
 	}
 	for _, tc := range cases {

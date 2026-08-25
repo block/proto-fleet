@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildPermissionGroups,
-  type CatalogEntry,
-  dependencyGaps,
-  requiredReadsFor,
-  withRequiredReads,
-} from "./permissionCatalog";
+import { buildPermissionGroups, type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -19,11 +13,6 @@ const catalog: CatalogEntry[] = [
   { key: "rack:read", description: "List racks at a site.", resource: "rack" },
   { key: "schedule:read", description: "View scheduled miner actions.", resource: "schedule" },
   { key: "schedule:manage", description: "Create, edit, pause, resume, and delete schedules.", resource: "schedule" },
-  { key: "channel:read", description: "View firmware rollout lanes.", resource: "channel" },
-  { key: "channel:manage", description: "Create and update firmware rollout lanes.", resource: "channel" },
-  { key: "rollout:read", description: "View firmware rollouts.", resource: "rollout" },
-  { key: "rollout:manage", description: "Create firmware rollouts.", resource: "rollout" },
-  { key: "rollout:control", description: "Pause, abort, and revert firmware rollouts.", resource: "rollout" },
 ];
 
 describe("buildPermissionGroups", () => {
@@ -97,33 +86,5 @@ describe("dependencyGaps", () => {
     const gaps = dependencyGaps(["miner:reboot", "miner:read", "fleet:read"], catalog);
     expect(gaps.required).toEqual([]);
     expect(gaps.chooseOneOf).toEqual([]);
-  });
-});
-
-describe("firmware rollout permission catalog", () => {
-  it("groups channel and rollout permissions under firmware rollouts", () => {
-    const groups = buildPermissionGroups(catalog);
-    const firmwareGroup = groups.find((group) => group.resource === "firmwareRollouts");
-
-    expect(firmwareGroup?.label).toBe("Firmware rollouts");
-    expect(firmwareGroup?.entries.map((entry) => entry.key)).toEqual([
-      "channel:read",
-      "channel:manage",
-      "rollout:read",
-      "rollout:manage",
-      "rollout:control",
-    ]);
-  });
-
-  it("requires organization-scoped read grants for lane and rollout actions", () => {
-    expect(requiredReadsFor("channel:manage", catalog)).toEqual(["channel:read"]);
-    expect(requiredReadsFor("rollout:control", catalog)).toEqual(["rollout:read"]);
-  });
-
-  it("surfaces channel management as a rollout creation dependency", () => {
-    expect(dependencyGaps(["rollout:manage"], catalog)).toEqual({
-      required: ["channel:manage"],
-      chooseOneOf: [],
-    });
   });
 });

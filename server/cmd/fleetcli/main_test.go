@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v3"
@@ -41,16 +40,6 @@ func findSubcommand(t *testing.T, parent *cli.Command, name string) *cli.Command
 	}
 	t.Fatalf("subcommand %q not found under %q", name, parent.Name)
 	return nil
-}
-
-func TestGeneratedDeviceSetTypeNameIncludesChannel(t *testing.T) {
-	t.Parallel()
-
-	got := generatedDeviceSetTypeName(devicesetv1.DeviceSetType_DEVICE_SET_TYPE_CHANNEL)
-
-	if got != "channel" {
-		t.Fatalf("generatedDeviceSetTypeName(CHANNEL) = %q, want %q", got, "channel")
-	}
 }
 
 func leafCommandPaths(commands []*cli.Command) map[string]bool {

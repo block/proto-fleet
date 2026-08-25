@@ -92,11 +92,7 @@ func distinctSites(sites ...*int64) []*int64 {
 }
 
 func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.CreateDeviceSetRequest]) (*connect.Response[dspb.CreateDeviceSetResponse], error) {
-	permission := authz.PermRackManage
-	if r.Msg.GetType() == dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL {
-		permission = authz.PermChannelManage
-	}
-	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +116,7 @@ func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.C
 }
 
 func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetDeviceSetRequest]) (*connect.Response[dspb.GetDeviceSetResponse], error) {
-	if _, err := middleware.RequireAnyPermission(
-		ctx,
-		[]string{authz.PermRackRead, authz.PermChannelRead},
-		authz.ResourceContext{},
-	); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetCollection(ctx, &collectionpb.GetCollectionRequest{
@@ -133,36 +125,14 @@ func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetD
 	if err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequirePermission(
-		ctx,
-		deviceSetReadPermission(result.Collection.Type),
-		authz.ResourceContext{},
-	); err != nil {
-		return nil, err
-	}
 	return connect.NewResponse(&dspb.GetDeviceSetResponse{
 		DeviceSet: toDeviceSet(result.Collection),
 	}), nil
 }
 
 func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.UpdateDeviceSetRequest]) (*connect.Response[dspb.UpdateDeviceSetResponse], error) {
-	info, err := middleware.RequireAnyPermission(
-		ctx,
-		[]string{authz.PermRackManage, authz.PermChannelManage},
-		authz.ResourceContext{},
-	)
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, err
-	}
-	collectionType, err := h.svc.GetCollectionType(ctx, info.OrganizationID, r.Msg.DeviceSetId)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := middleware.RequirePermission(
-		ctx,
-		deviceSetManagePermission(collectionType),
-		authz.ResourceContext{},
-	); err != nil {
 		return nil, err
 	}
 	// Explicit placement intent (site_id/building_id, including 0 to unassign) is
@@ -189,27 +159,10 @@ func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.U
 }
 
 func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.DeleteDeviceSetRequest]) (*connect.Response[dspb.DeleteDeviceSetResponse], error) {
-	if _, err := middleware.RequireAnyPermission(
-		ctx,
-		[]string{authz.PermRackManage, authz.PermChannelManage},
-		authz.ResourceContext{},
-	); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	existing, err := h.svc.GetCollection(ctx, &collectionpb.GetCollectionRequest{
-		CollectionId: r.Msg.DeviceSetId,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := middleware.RequirePermission(
-		ctx,
-		deviceSetManagePermission(existing.Collection.Type),
-		authz.ResourceContext{},
-	); err != nil {
-		return nil, err
-	}
-	_, err = h.svc.DeleteCollection(ctx, &collectionpb.DeleteCollectionRequest{
+	_, err := h.svc.DeleteCollection(ctx, &collectionpb.DeleteCollectionRequest{
 		CollectionId: r.Msg.DeviceSetId,
 	})
 	if err != nil {
@@ -219,7 +172,7 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	if _, err := requireDeviceSetListPermission(ctx, r.Msg.GetType(), r.Msg.SiteIds); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
 	}
 	params, err := toListCollectionsParams(r.Msg)
@@ -274,42 +227,8 @@ func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request
 }
 
 func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[dspb.ListDeviceSetMembersRequest]) (*connect.Response[dspb.ListDeviceSetMembersResponse], error) {
-	rackReadChecked := len(r.Msg.SiteIds) > 0
-	if rackReadChecked {
-		if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
-			return nil, err
-		}
-	} else {
-		if _, err := middleware.RequireAnyPermission(
-			ctx,
-			[]string{authz.PermRackRead, authz.PermChannelRead},
-			authz.ResourceContext{},
-		); err != nil {
-			return nil, err
-		}
-	}
-	existing, err := h.svc.GetCollection(ctx, &collectionpb.GetCollectionRequest{
-		CollectionId: r.Msg.DeviceSetId,
-	})
-	if err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
-	}
-	if existing.Collection.Type == collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL &&
-		len(r.Msg.SiteIds) > 0 {
-		return nil, fleeterror.NewInvalidArgumentError("site filters are not supported for channels")
-	}
-	if existing.Collection.Type == collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL {
-		if _, err := middleware.RequirePermission(
-			ctx,
-			authz.PermChannelRead,
-			authz.ResourceContext{},
-		); err != nil {
-			return nil, err
-		}
-	} else if !rackReadChecked {
-		if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
-			return nil, err
-		}
 	}
 	result, err := h.svc.ListCollectionMembersDomain(ctx, collection.ListCollectionMembersParams{
 		CollectionID: r.Msg.DeviceSetId,
@@ -352,58 +271,6 @@ func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64) (*sess
 	return info, nil
 }
 
-func requireDeviceSetListPermission(
-	ctx context.Context,
-	deviceSetType dspb.DeviceSetType,
-	siteIDs []int64,
-) (*session.Info, error) {
-	switch deviceSetType {
-	case dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL:
-		if len(siteIDs) > 0 {
-			return nil, fleeterror.NewInvalidArgumentError(
-				"site filters are not supported for channels",
-			)
-		}
-		return middleware.RequirePermission(
-			ctx,
-			authz.PermChannelRead,
-			authz.ResourceContext{},
-		)
-	case dspb.DeviceSetType_DEVICE_SET_TYPE_UNSPECIFIED:
-		info, err := requireDeviceSetReadPermission(ctx, siteIDs)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := middleware.RequirePermission(
-			ctx,
-			authz.PermChannelRead,
-			authz.ResourceContext{},
-		); err != nil {
-			return nil, err
-		}
-		return info, nil
-	case dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
-		dspb.DeviceSetType_DEVICE_SET_TYPE_RACK:
-		return requireDeviceSetReadPermission(ctx, siteIDs)
-	default:
-		return requireDeviceSetReadPermission(ctx, siteIDs)
-	}
-}
-
-func deviceSetReadPermission(collectionType collectionpb.CollectionType) string {
-	if collectionType == collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL {
-		return authz.PermChannelRead
-	}
-	return authz.PermRackRead
-}
-
-func deviceSetManagePermission(collectionType collectionpb.CollectionType) string {
-	if collectionType == collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL {
-		return authz.PermChannelManage
-	}
-	return authz.PermRackManage
-}
-
 func validateDeviceSetSiteIDs(siteIDs []int64) error {
 	if len(siteIDs) > maxDeviceSetFilterValues {
 		return fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
@@ -417,7 +284,7 @@ func validateDeviceSetSiteIDs(siteIDs []int64) error {
 }
 
 func (h *Handler) GetDeviceDeviceSets(ctx context.Context, r *connect.Request[dspb.GetDeviceDeviceSetsRequest]) (*connect.Response[dspb.GetDeviceDeviceSetsResponse], error) {
-	if _, err := requireDeviceSetListPermission(ctx, r.Msg.GetType(), nil); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetDeviceCollections(ctx, &collectionpb.GetDeviceCollectionsRequest{
@@ -488,27 +355,8 @@ func (h *Handler) GetRackSlots(ctx context.Context, r *connect.Request[dspb.GetR
 }
 
 func (h *Handler) GetDeviceSetStats(ctx context.Context, r *connect.Request[dspb.GetDeviceSetStatsRequest]) (*connect.Response[dspb.GetDeviceSetStatsResponse], error) {
-	if _, err := middleware.RequireAnyPermission(
-		ctx,
-		[]string{authz.PermRackRead, authz.PermChannelRead},
-		authz.ResourceContext{},
-	); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
-	}
-	for _, deviceSetID := range r.Msg.DeviceSetIds {
-		existing, err := h.svc.GetCollection(ctx, &collectionpb.GetCollectionRequest{
-			CollectionId: deviceSetID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if _, err := middleware.RequirePermission(
-			ctx,
-			deviceSetReadPermission(existing.Collection.Type),
-			authz.ResourceContext{},
-		); err != nil {
-			return nil, err
-		}
 	}
 	result, err := h.svc.GetCollectionStats(ctx, &collectionpb.GetCollectionStatsRequest{
 		CollectionIds: r.Msg.DeviceSetIds,
@@ -677,59 +525,5 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 		AssignedCount:       result.AssignedCount,
 		RemovedCount:        result.RemovedCount,
 		SiteReassignedCount: result.SiteReassignedCount,
-	}), nil
-}
-
-func (h *Handler) CreateFirmwareReleaseSet(
-	ctx context.Context,
-	r *connect.Request[dspb.CreateFirmwareReleaseSetRequest],
-) (*connect.Response[dspb.CreateFirmwareReleaseSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermChannelManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	releaseSet, err := h.svc.CreateFirmwareReleaseSet(ctx, r.Msg.GetFirmwareFileIds())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&dspb.CreateFirmwareReleaseSetResponse{
-		ReleaseSet: toDeviceSetReleaseSet(releaseSet),
-	}), nil
-}
-
-func (h *Handler) GetFirmwareReleaseSet(
-	ctx context.Context,
-	r *connect.Request[dspb.GetFirmwareReleaseSetRequest],
-) (*connect.Response[dspb.GetFirmwareReleaseSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermChannelRead, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	releaseSet, err := h.svc.GetFirmwareReleaseSet(ctx, r.Msg.GetReleaseSetId())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&dspb.GetFirmwareReleaseSetResponse{
-		ReleaseSet: toDeviceSetReleaseSet(releaseSet),
-	}), nil
-}
-
-func (h *Handler) AssignDevicesToChannel(
-	ctx context.Context,
-	r *connect.Request[dspb.AssignDevicesToChannelRequest],
-) (*connect.Response[dspb.AssignDevicesToChannelResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermChannelManage, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	params, err := toAssignDevicesToChannelParams(r.Msg, info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	result, err := h.svc.AssignDevicesToChannel(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&dspb.AssignDevicesToChannelResponse{
-		AssignedCount: result.AssignedCount,
-		RemovedCount:  result.RemovedCount,
 	}), nil
 }

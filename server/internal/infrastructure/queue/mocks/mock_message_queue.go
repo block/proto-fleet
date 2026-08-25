@@ -71,20 +71,6 @@ func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogUUID, comman
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogUUID, commandType, deviceIDs, payload)
 }
 
-// EnqueueCommandBatch mocks base method.
-func (m *MockMessageQueue) EnqueueCommandBatch(ctx context.Context, batch queue.CommandBatch) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnqueueCommandBatch", ctx, batch)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// EnqueueCommandBatch indicates an expected call of EnqueueCommandBatch.
-func (mr *MockMessageQueueMockRecorder) EnqueueCommandBatch(ctx, batch any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueCommandBatch", reflect.TypeOf((*MockMessageQueue)(nil).EnqueueCommandBatch), ctx, batch)
-}
-
 // EnqueueMany mocks base method.
 func (m *MockMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []queue.EnqueueMessage) error {
 	m.ctrl.T.Helper()

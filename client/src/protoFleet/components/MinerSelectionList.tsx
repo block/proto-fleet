@@ -15,7 +15,6 @@ import {
   MinerListFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { getRolloutLaneAssignments } from "@/protoFleet/api/rolloutLaneAssignments";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
@@ -57,8 +56,6 @@ export type DeviceListItem = {
   siteLabel: string;
   buildingLabel: string;
   groupLabels: string[];
-  rolloutLaneLabel?: string;
-  rolloutLaneAssignmentState?: "loading" | "success" | "error";
   // Placement identity (id-based), undefined when the miner is unassigned at
   // that level. Drives eligibility checks that can't rely on labels (a
   // same-named rack in another building would otherwise slip past).
@@ -130,7 +127,6 @@ export interface MinerSelectionListProps {
   // Pairing statuses the list fetches; defaults to PAIRED-only. Rack flows pass
   // the wider visible set so non-paired members render.
   pairingStatuses?: PairingStatus[];
-  showRolloutLaneColumn?: boolean;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -148,7 +144,6 @@ const modalCols = {
   building: "building",
   rack: "rack",
   group: "group",
-  rolloutLane: "rolloutLane",
 } as const;
 
 type ModalColumn = (typeof modalCols)[keyof typeof modalCols];
@@ -161,10 +156,9 @@ const modalColTitles: ColTitles<ModalColumn> = {
   building: "Building",
   rack: "Rack",
   group: "Group",
-  rolloutLane: "Rollout lane",
 };
 
-const baseActiveCols: ModalColumn[] = [
+const activeCols: ModalColumn[] = [
   modalCols.name,
   modalCols.type,
   modalCols.ipAddress,
@@ -205,19 +199,6 @@ const modalColConfig: ColConfig<DeviceListItem, string, ModalColumn> = {
       return <span title={label}>{label}</span>;
     },
     width: "min-w-24 max-w-48",
-  },
-  [modalCols.rolloutLane]: {
-    component: (device: DeviceListItem) => (
-      <span>
-        {device.rolloutLaneLabel ??
-          (device.rolloutLaneAssignmentState === "success"
-            ? "—"
-            : device.rolloutLaneAssignmentState === "error"
-              ? "Unavailable"
-              : "Loading…")}
-      </span>
-    ),
-    width: "min-w-28",
   },
 };
 
@@ -309,7 +290,6 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       eligibility,
       targetRackLabel,
       pairingStatuses = FLEET_SELECTABLE_PAIRING_STATUSES,
-      showRolloutLaneColumn = false,
       onSelectionChange,
     },
     ref,
@@ -327,12 +307,6 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     } = filterConfig ?? {};
 
     const canReadSiteCatalog = useHasPermission("site:read");
-    const canReadChannels = useHasPermission("channel:read");
-    const shouldShowRolloutLaneColumn = showRolloutLaneColumn && canReadChannels;
-    const activeCols = useMemo(
-      () => (shouldShowRolloutLaneColumn ? [...baseActiveCols, modalCols.rolloutLane] : baseActiveCols),
-      [shouldShowRolloutLaneColumn],
-    );
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
@@ -512,70 +486,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       pairingStatuses,
     });
 
-    const [rolloutLaneLabels, setRolloutLaneLabels] = useState<Record<string, string>>({});
-    const [rolloutLaneAssignmentRequest, setRolloutLaneAssignmentRequest] = useState<{
-      identifierKey: string;
-      state: "loading" | "success" | "error";
-    } | null>(null);
-    const baseCurrentPageItems = useMemo(() => {
+    const currentPageItems = useMemo(() => {
       if (!miners) return [];
       return minerIds
         .map((id) => miners[id])
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
         .map(toDeviceListItem);
     }, [minerIds, miners]);
-    const currentPageIdentifierKey = useMemo(
-      () => baseCurrentPageItems.map((item) => item.deviceIdentifier).join("\0"),
-      [baseCurrentPageItems],
-    );
-    const currentPageItems = useMemo(
-      () =>
-        baseCurrentPageItems.map((item) => ({
-          ...item,
-          rolloutLaneLabel: rolloutLaneLabels[item.deviceIdentifier],
-          rolloutLaneAssignmentState:
-            rolloutLaneAssignmentRequest?.identifierKey === currentPageIdentifierKey
-              ? rolloutLaneAssignmentRequest.state
-              : "loading",
-        })),
-      [baseCurrentPageItems, currentPageIdentifierKey, rolloutLaneAssignmentRequest, rolloutLaneLabels],
-    );
-    useEffect(() => {
-      if (!shouldShowRolloutLaneColumn || baseCurrentPageItems.length === 0) {
-        return;
-      }
-      const controller = new AbortController();
-      setRolloutLaneAssignmentRequest({ identifierKey: currentPageIdentifierKey, state: "loading" });
-      void getRolloutLaneAssignments(
-        baseCurrentPageItems.map((item) => item.deviceIdentifier),
-        controller.signal,
-      )
-        .then((assignments) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-          setRolloutLaneLabels((current) => {
-            const next = { ...current };
-            for (const item of baseCurrentPageItems) {
-              delete next[item.deviceIdentifier];
-            }
-            for (const assignment of assignments) {
-              next[assignment.deviceIdentifier] = assignment.laneLabel;
-            }
-            return next;
-          });
-          setRolloutLaneAssignmentRequest({ identifierKey: currentPageIdentifierKey, state: "success" });
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setRolloutLaneAssignmentRequest({ identifierKey: currentPageIdentifierKey, state: "error" });
-          }
-        });
-      return () => controller.abort();
-      // The serialized identifier list is the request identity; item objects are
-      // intentionally excluded so label hydration cannot refetch on every render.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentPageIdentifierKey, shouldShowRolloutLaneColumn]);
 
     // Assignable-only + a conflicting placement facet = provably no results.
     //

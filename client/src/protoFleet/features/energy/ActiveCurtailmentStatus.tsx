@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -73,26 +73,12 @@ export interface ActiveCurtailmentUnavailableReasonCount {
 interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
   className?: string;
-  rolloutPresentation?: ActiveCurtailmentRolloutPresentation;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
   onRequestForceRelease?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
   onRequestTerminateRecovery?: () => void;
-}
-
-/** Optional rollout-framework presentation layered over the existing
- * curtailment data and control model. */
-export interface ActiveCurtailmentRolloutPresentation {
-  statusLabel: string;
-  statusValue: string;
-  statusIcon?: ReactNode;
-  actions?: ReactNode;
-  notice?: ReactNode;
-  supplementalDetails?: ReactNode;
-  defaultDetailsOpen?: boolean;
-  autoExpandDetails?: boolean;
 }
 
 interface ActiveCurtailmentActionButtonsProps {
@@ -229,11 +215,11 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
   return (
     <div className="min-w-0">
       <div className="text-200 text-text-primary-50">{label}</div>
-      <div className="mt-1 text-emphasis-300 break-words text-text-primary" title={value}>
+      <div className="mt-1 truncate text-emphasis-300 text-text-primary" title={value}>
         {value}
       </div>
       {detail ? (
-        <div className="mt-1 text-200 break-words text-text-primary-70" title={detail}>
+        <div className="mt-1 truncate text-200 text-text-primary-70" title={detail}>
           {detail}
         </div>
       ) : null}
@@ -789,7 +775,6 @@ function getActiveCurtailmentStatusIcon({
 export default function ActiveCurtailmentStatus({
   event,
   className,
-  rolloutPresentation,
   onDismissRestored,
   onRequestEdit,
   onRequestForceRelease,
@@ -797,7 +782,6 @@ export default function ActiveCurtailmentStatus({
   onRequestStop,
   onRequestTerminateRecovery,
 }: ActiveCurtailmentStatusProps): ReactElement {
-  const detailsId = useId();
   const targetKw = getTargetKw(event);
   const compliance = getActiveCurtailmentMinerCompliance(event);
   const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
@@ -853,87 +837,6 @@ export default function ActiveCurtailmentStatus({
   });
   const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
   const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow, displayState);
-  const hasRolloutPresentation = rolloutPresentation !== undefined;
-  const detailsStateKey = rolloutPresentation
-    ? `${rolloutPresentation.statusLabel}-${rolloutPresentation.statusValue}`
-    : "default";
-  const shouldDefaultDetailsOpen = Boolean(
-    rolloutPresentation?.defaultDetailsOpen || rolloutPresentation?.autoExpandDetails,
-  );
-  const [detailsState, setDetailsState] = useState(() => ({
-    key: detailsStateKey,
-    open: shouldDefaultDetailsOpen,
-  }));
-  const detailsOpen =
-    detailsState.key === detailsStateKey ? detailsState.open : Boolean(rolloutPresentation?.autoExpandDetails);
-  const primaryLabel = rolloutPresentation?.statusLabel ?? powerLabel;
-  const primaryValue = rolloutPresentation?.statusValue ?? powerValue;
-  const primaryIcon = rolloutPresentation?.statusIcon ?? statusIcon;
-  const detailsContent = (
-    <>
-      <div
-        className={clsx(
-          "grid gap-x-12 gap-y-5 text-text-primary",
-          hasRolloutPresentation ? "tablet:grid-cols-4" : "mt-12 tablet:grid-cols-5",
-        )}
-      >
-        {hasRolloutPresentation ? <StatBlock label={powerLabel} value={powerValue} /> : null}
-        {hasRolloutPresentation ? null : <StatBlock label="Dispatch status" value={dispatchStatus} />}
-        {displayFlags.isRestoreFlow ? (
-          <>
-            {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
-            <StatBlock label="Restore" value={formatRestoreProfile(event)} />
-            <StatBlock label={restoreTimeLabel} value={restoreTimeValue} />
-            {displayFlags.isRestoreIncomplete ? (
-              <StatBlock label="Failed to restore" value={restoreFailureValue} />
-            ) : shouldRenderRestoreCompletion ? (
-              <StatBlock label={restoreCompletionLabel} value={restoreCompletionValue} />
-            ) : null}
-          </>
-        ) : (
-          <>
-            <StatBlock
-              label="Applies to"
-              value={formatCurtailmentAppliesToSummary(event.selectedMiners, event.facilityFanDeviceCount)}
-            />
-            {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
-            <StatBlock label="Restore" value={formatRestoreProfile(event)} />
-            {curtailRemainingSeconds > 0 ? (
-              <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
-            ) : null}
-          </>
-        )}
-      </div>
-      {rolloutPresentation?.supplementalDetails}
-    </>
-  );
-  const progressContent = (
-    <>
-      {showCurtailProgress ? (
-        <ProgressSection
-          summary={getCurtailProgressSummary(curtailProgress)}
-          segments={getCurtailProgressSegments(curtailProgress)}
-          colorMap={curtailProgressColorMap}
-          elapsedAnchor={elapsedAnchor}
-          elapsedUntil={event.endedAt}
-          unavailableCount={curtailProgress.unavailableCount}
-          unavailableReasonCounts={event.unavailableReasonCounts}
-        />
-      ) : null}
-
-      {showRestoreProgress ? (
-        <ProgressSection
-          summary={getRestoreProgressSummary(restoreProgress)}
-          segments={getRestoreProgressSegments(restoreProgress)}
-          colorMap={restoreProgressColorMap}
-          elapsedAnchor={elapsedAnchor}
-          elapsedUntil={event.endedAt}
-          unavailableCount={restoreProgress.unavailableCount}
-          unavailableReasonCounts={event.unavailableReasonCounts}
-        />
-      ) : null}
-    </>
-  );
 
   return (
     <section className={clsx("grid gap-3", className)}>
@@ -944,64 +847,75 @@ export default function ActiveCurtailmentStatus({
       </SectionHeader>
 
       <div className="relative rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10">
-        {hasRolloutPresentation ? (
-          rolloutPresentation.actions ? (
-            <div className="mb-8 flex shrink-0 flex-wrap justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0 tablet:max-w-[24rem]">
-              {rolloutPresentation.actions}
-            </div>
-          ) : null
-        ) : (
-          <ActiveCurtailmentActionButtons
-            displayState={displayState}
-            onDismissRestored={onDismissRestored}
-            onRequestEdit={onRequestEdit}
-            onRequestForceRelease={onRequestForceRelease}
-            onRequestRestore={onRequestRestore}
-            onRequestStop={onRequestStop}
-            onRequestTerminateRecovery={onRequestTerminateRecovery}
-          />
-        )}
+        <ActiveCurtailmentActionButtons
+          displayState={displayState}
+          onDismissRestored={onDismissRestored}
+          onRequestEdit={onRequestEdit}
+          onRequestForceRelease={onRequestForceRelease}
+          onRequestRestore={onRequestRestore}
+          onRequestStop={onRequestStop}
+          onRequestTerminateRecovery={onRequestTerminateRecovery}
+        />
 
-        <div className={clsx("grid gap-3", rolloutPresentation?.actions ? "tablet:pr-96" : "tablet:pr-32")}>
-          <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">{primaryIcon}</div>
+        <div className="grid gap-3 tablet:pr-32">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">{statusIcon}</div>
           <div data-testid="active-curtailment-primary-lockup">
-            <div className="text-heading-50 text-text-primary-70">{primaryLabel}</div>
-            <div className="text-heading-300 text-text-primary">{primaryValue}</div>
+            <div className="text-heading-50 text-text-primary-70">{powerLabel}</div>
+            <div className="text-heading-300 text-text-primary">{powerValue}</div>
           </div>
         </div>
 
-        {hasRolloutPresentation ? (
-          <>
-            {rolloutPresentation.notice}
-            {progressContent}
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
-              <button
-                type="button"
-                className="cursor-pointer text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
-                aria-expanded={detailsOpen}
-                aria-controls={detailsId}
-                data-testid="active-curtailment-details-toggle"
-                onClick={() => setDetailsState({ key: detailsStateKey, open: !detailsOpen })}
-              >
-                {detailsOpen ? "Hide details" : "View details"}
-              </button>
-            </div>
-            {detailsOpen ? (
-              <div
-                id={detailsId}
-                className="mt-4 border-t border-border-5 pt-5"
-                data-testid="active-curtailment-details"
-              >
-                {detailsContent}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {detailsContent}
-            {progressContent}
-          </>
-        )}
+        <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+          <StatBlock label="Dispatch status" value={dispatchStatus} />
+          {displayFlags.isRestoreFlow ? (
+            <>
+              {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
+              <StatBlock label="Restore" value={formatRestoreProfile(event)} />
+              <StatBlock label={restoreTimeLabel} value={restoreTimeValue} />
+              {displayFlags.isRestoreIncomplete ? (
+                <StatBlock label="Failed to restore" value={restoreFailureValue} />
+              ) : shouldRenderRestoreCompletion ? (
+                <StatBlock label={restoreCompletionLabel} value={restoreCompletionValue} />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <StatBlock
+                label="Applies to"
+                value={formatCurtailmentAppliesToSummary(event.selectedMiners, event.facilityFanDeviceCount)}
+              />
+              {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
+              <StatBlock label="Restore" value={formatRestoreProfile(event)} />
+              {curtailRemainingSeconds > 0 ? (
+                <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+              ) : null}
+            </>
+          )}
+        </div>
+
+        {showCurtailProgress ? (
+          <ProgressSection
+            summary={getCurtailProgressSummary(curtailProgress)}
+            segments={getCurtailProgressSegments(curtailProgress)}
+            colorMap={curtailProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
+            unavailableCount={curtailProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
+          />
+        ) : null}
+
+        {showRestoreProgress ? (
+          <ProgressSection
+            summary={getRestoreProgressSummary(restoreProgress)}
+            segments={getRestoreProgressSegments(restoreProgress)}
+            colorMap={restoreProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
+            unavailableCount={restoreProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
+          />
+        ) : null}
 
         {event.isAutomationOwned ? (
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">

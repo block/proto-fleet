@@ -2,11 +2,8 @@ package collection
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"sort"
 	"strings"
@@ -27,7 +24,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
 const (
@@ -59,12 +55,7 @@ type DeviceQueryer interface {
 // DeviceIdentifierResolver resolves a DeviceSelector into device identifiers for an org.
 type DeviceIdentifierResolver func(ctx context.Context, selector *commonpb.DeviceSelector, orgID int64) ([]string, error)
 
-type FirmwareArtifactSource interface {
-	LeaseFirmwareMetadata(fileID string) (files.FirmwareMetadata, func(), error)
-	OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, files.FirmwareFileInfo, error)
-}
-
-// Service provides business logic for device sets.
+// Service provides business logic for device collections (groups).
 type Service struct {
 	collectionStore          interfaces.CollectionStore
 	deviceQueryer            DeviceQueryer
@@ -74,7 +65,6 @@ type Service struct {
 	resolveDeviceIdentifiers DeviceIdentifierResolver
 	telemetry                TelemetryCollector
 	activitySvc              *activity.Service
-	firmwareArtifacts        FirmwareArtifactSource
 }
 
 // NewService creates a new collection service. A nil siteStore disables
@@ -89,7 +79,6 @@ func NewService(
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
 	telemetry TelemetryCollector,
 	activitySvc *activity.Service,
-	firmwareArtifacts FirmwareArtifactSource,
 ) *Service {
 	return &Service{
 		collectionStore:          collectionStore,
@@ -100,7 +89,6 @@ func NewService(
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
 		telemetry:                telemetry,
 		activitySvc:              activitySvc,
-		firmwareArtifacts:        firmwareArtifacts,
 	}
 }
 
@@ -135,17 +123,10 @@ func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, id
 }
 
 func collectionScopeType(collType pb.CollectionType) string {
-	switch collType {
-	case pb.CollectionType_COLLECTION_TYPE_RACK:
+	if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
 		return "rack"
-	case pb.CollectionType_COLLECTION_TYPE_CHANNEL:
-		return "channel"
-	case pb.CollectionType_COLLECTION_TYPE_GROUP,
-		pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED:
-		return "group"
-	default:
-		return "group"
 	}
+	return "group"
 }
 
 // resolveAndLockRackPlacement derives the authoritative site for the rack
@@ -237,13 +218,6 @@ func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64
 		return nil, nil
 	}
 	return rackInfo.SiteId, nil
-}
-
-// GetCollectionType returns the persisted collection type without hydrating
-// rack or channel details. Handlers use it to select the exact permission for
-// type-neutral update and delete RPCs.
-func (s *Service) GetCollectionType(ctx context.Context, orgID, collectionID int64) (pb.CollectionType, error) {
-	return s.collectionStore.GetCollectionType(ctx, orgID, collectionID)
 }
 
 // verifyAuthorizedPlacement fails the write closed when the locked current/
@@ -368,136 +342,6 @@ func (s *Service) cascadeRackMembersToPlacement(ctx context.Context, orgID, coll
 	return siteCount, nil
 }
 
-func (s *Service) leaseFirmwareReleaseTarget(fileID string) (*pb.FirmwareReleaseTarget, func(), error) {
-	if s.firmwareArtifacts == nil {
-		return nil, nil, fleeterror.NewFailedPreconditionError("firmware artifact service is not configured")
-	}
-	metadata, release, err := s.firmwareArtifacts.LeaseFirmwareMetadata(fileID)
-	if err != nil {
-		return nil, nil, err
-	}
-	reader, info, err := s.firmwareArtifacts.OpenFirmwareFileWithInfo(fileID)
-	if err != nil {
-		release()
-		return nil, nil, err
-	}
-	hasher := sha256.New()
-	_, copyErr := io.Copy(hasher, reader)
-	closeErr := reader.Close()
-	if copyErr != nil {
-		release()
-		return nil, nil, fleeterror.NewFailedPreconditionErrorf("failed to verify firmware file %s: %v", fileID, copyErr)
-	}
-	if closeErr != nil {
-		release()
-		return nil, nil, fleeterror.NewFailedPreconditionErrorf("failed to close firmware file %s: %v", fileID, closeErr)
-	}
-	actualChecksum := hex.EncodeToString(hasher.Sum(nil))
-	if len(info.SHA256) != sha256.Size*2 || !strings.EqualFold(actualChecksum, info.SHA256) {
-		release()
-		return nil, nil, fleeterror.NewFailedPreconditionErrorf("firmware file %s failed checksum verification", fileID)
-	}
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
-		release()
-		return nil, nil, err
-	}
-	return &pb.FirmwareReleaseTarget{
-		FirmwareFileId:     info.ID,
-		TargetManufacturer: strings.TrimSpace(metadata.TargetManufacturer),
-		TargetModel:        strings.TrimSpace(metadata.TargetModel),
-		FirmwareVersion:    strings.TrimSpace(metadata.FirmwareVersion),
-		Sha256:             strings.ToLower(actualChecksum),
-	}, release, nil
-}
-
-func (s *Service) ResolveFirmwareReleaseTargets(
-	firmwareFileIDs []string,
-) ([]*pb.FirmwareReleaseTarget, func(), error) {
-	if len(firmwareFileIDs) == 0 {
-		return nil, func() {}, fleeterror.NewInvalidArgumentError(
-			"firmware_file_ids must not be empty",
-		)
-	}
-	if len(firmwareFileIDs) > 100 {
-		return nil, func() {}, fleeterror.NewInvalidArgumentError(
-			"firmware_file_ids must contain at most 100 entries",
-		)
-	}
-
-	targets := make([]*pb.FirmwareReleaseTarget, 0, len(firmwareFileIDs))
-	releases := make([]func(), 0, len(firmwareFileIDs))
-	releaseAll := func() {
-		for _, release := range releases {
-			release()
-		}
-	}
-	models := make(map[string]struct{}, len(firmwareFileIDs))
-	for _, fileID := range firmwareFileIDs {
-		target, release, err := s.leaseFirmwareReleaseTarget(fileID)
-		if err != nil {
-			releaseAll()
-			return nil, func() {}, err
-		}
-		releases = append(releases, release)
-		modelKey := strings.ToLower(target.TargetManufacturer) + "\x00" + strings.ToLower(target.TargetModel)
-		if _, duplicate := models[modelKey]; duplicate {
-			releaseAll()
-			return nil, func() {}, fleeterror.NewInvalidArgumentErrorf(
-				"duplicate firmware target for %s %s",
-				target.TargetManufacturer,
-				target.TargetModel,
-			)
-		}
-		models[modelKey] = struct{}{}
-		targets = append(targets, target)
-	}
-	return targets, releaseAll, nil
-}
-
-// CreateFirmwareReleaseSet snapshots verified artifacts into an immutable,
-// organization-owned release set.
-func (s *Service) CreateFirmwareReleaseSet(ctx context.Context, firmwareFileIDs []string) (*pb.FirmwareReleaseSet, error) {
-	targets, releaseAll, err := s.ResolveFirmwareReleaseTargets(firmwareFileIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer releaseAll()
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		releaseSet, err := s.collectionStore.CreateFirmwareReleaseSet(ctx, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-		for _, target := range targets {
-			if err := s.collectionStore.CreateFirmwareReleaseTarget(ctx, info.OrganizationID, releaseSet.Id, target); err != nil {
-				return nil, err
-			}
-		}
-		releaseSet.Targets = targets
-		return releaseSet, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	releaseSet, ok := result.(*pb.FirmwareReleaseSet)
-	if !ok {
-		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
-	}
-	return releaseSet, nil
-}
-
-func (s *Service) GetFirmwareReleaseSet(ctx context.Context, releaseSetID int64) (*pb.FirmwareReleaseSet, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.collectionStore.GetFirmwareReleaseSet(ctx, info.OrganizationID, releaseSetID)
-}
-
 // CreateCollection creates a new collection, optionally adding devices atomically.
 func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollectionRequest) (*pb.CreateCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -508,16 +352,6 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	rackInfo := req.GetRackInfo()
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
-	}
-	channelInfo := req.GetChannelInfo()
-	if req.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL && channelInfo == nil {
-		return nil, fleeterror.NewInvalidArgumentError("channel_info is required for channel collections")
-	}
-	if channelInfo != nil && req.Type != pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-		return nil, fleeterror.NewInvalidArgumentError("channel_info is only valid for channel collections")
-	}
-	if channelInfo != nil && channelInfo.ReleaseSetId <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("channel_info.release_set_id must be positive")
 	}
 	// Zone is an optional free-text sub-building label (nullable column, no
 	// placement dependency), so it is never required — matching SaveRack and
@@ -566,34 +400,6 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 				return nil, err
 			}
 		}
-		if req.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-			belongs, err := s.collectionStore.FirmwareReleaseSetBelongsToOrg(ctx, info.OrganizationID, channelInfo.ReleaseSetId)
-			if err != nil {
-				return nil, err
-			}
-			if !belongs {
-				return nil, fleeterror.NewNotFoundErrorf("firmware release set not found: %d", channelInfo.ReleaseSetId)
-			}
-			if len(deviceIdentifiers) > 0 {
-				if _, err := s.collectionStore.LockChannelsForReparent(ctx, info.OrganizationID, deviceIdentifiers, 0); err != nil {
-					return nil, err
-				}
-				owned, err := s.collectionStore.LockDevicesForChannelAssignment(ctx, info.OrganizationID, deviceIdentifiers)
-				if err != nil {
-					return nil, err
-				}
-				if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(deviceIdentifiers)) {
-					return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
-				}
-				if err := s.rejectRolloutOwnedChannelAssignment(
-					ctx,
-					info.OrganizationID,
-					deviceIdentifiers,
-				); err != nil {
-					return nil, err
-				}
-			}
-		}
 
 		collection, err := s.collectionStore.CreateCollection(ctx, info.OrganizationID, req.Type, req.Label, req.Description)
 		if err != nil {
@@ -619,23 +425,6 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			rackInfo.BuildingId = buildingID
 			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
 		}
-		if req.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-			if err := s.collectionStore.CreateChannelExtension(ctx, interfaces.CreateChannelExtensionParams{
-				OrgID:        info.OrganizationID,
-				CollectionID: collection.Id,
-				ReleaseSetID: channelInfo.ReleaseSetId,
-			}); err != nil {
-				return nil, err
-			}
-			storedChannelInfo, err := s.collectionStore.GetChannelInfo(ctx, collection.Id, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-			if storedChannelInfo == nil {
-				return nil, fleeterror.NewInternalError("channel extension was not created")
-			}
-			collection.TypeDetails = &pb.DeviceCollection_ChannelInfo{ChannelInfo: storedChannelInfo}
-		}
 
 		var (
 			addedCount        int64
@@ -644,11 +433,6 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			totalAffected     int
 		)
 		if len(deviceIdentifiers) > 0 {
-			if req.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-				if _, err := s.collectionStore.RemoveDevicesFromAnyChannel(ctx, info.OrganizationID, deviceIdentifiers, collection.Id); err != nil {
-					return nil, err
-				}
-			}
 			addedCount, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collection.Id, deviceIdentifiers)
 			if err != nil {
 				return nil, err
@@ -1050,15 +834,6 @@ func (s *Service) GetCollection(ctx context.Context, req *pb.GetCollectionReques
 			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
 		}
 	}
-	if collection.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-		channelInfo, err := s.collectionStore.GetChannelInfo(ctx, collection.Id, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-		if channelInfo != nil {
-			collection.TypeDetails = &pb.DeviceCollection_ChannelInfo{ChannelInfo: channelInfo}
-		}
-	}
 
 	return &pb.GetCollectionResponse{Collection: collection}, nil
 }
@@ -1090,10 +865,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			return nil, err
 		}
 	}
-	channelInfo := req.GetChannelInfo()
-	if channelInfo != nil && channelInfo.ReleaseSetId <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("channel_info.release_set_id must be positive")
-	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var label, description *string
@@ -1109,21 +880,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			return nil, err
 		}
 		isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
-		isChannel := collType == pb.CollectionType_COLLECTION_TYPE_CHANNEL
-		if rackInfo != nil && !isRack {
-			return nil, fleeterror.NewInvalidArgumentError("rack_info is only valid for rack collections")
-		}
-		if channelInfo != nil && !isChannel {
-			return nil, fleeterror.NewInvalidArgumentError("channel_info is only valid for channel collections")
-		}
-		if isChannel && hasDeviceSelector {
-			return nil, fleeterror.NewInvalidArgumentError("channel membership must be changed with AssignDevicesToChannel")
-		}
-		if isChannel {
-			if err := s.collectionStore.LockChannelForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
-				return nil, err
-			}
-		}
 
 		// Persist rack settings (placement + dimensions) BEFORE the label so
 		// the canonical site -> building -> rack lock order is taken first;
@@ -1173,23 +929,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		if err := s.collectionStore.UpdateCollection(ctx, info.OrganizationID, req.CollectionId, label, description); err != nil {
 			return nil, err
 		}
-		if isChannel && channelInfo != nil {
-			belongs, err := s.collectionStore.FirmwareReleaseSetBelongsToOrg(ctx, info.OrganizationID, channelInfo.ReleaseSetId)
-			if err != nil {
-				return nil, err
-			}
-			if !belongs {
-				return nil, fleeterror.NewNotFoundErrorf("firmware release set not found: %d", channelInfo.ReleaseSetId)
-			}
-			if err := s.collectionStore.UpdateChannelReleaseSet(
-				ctx,
-				info.OrganizationID,
-				req.CollectionId,
-				channelInfo.ReleaseSetId,
-			); err != nil {
-				return nil, err
-			}
-		}
 
 		if hasDeviceSelector {
 			// When settings weren't touched this call, read the current
@@ -1236,15 +975,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			}
 			if rackInfo != nil {
 				collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
-			}
-		}
-		if collection.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-			channelInfo, err := s.collectionStore.GetChannelInfo(ctx, collection.Id, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-			if channelInfo != nil {
-				collection.TypeDetails = &pb.DeviceCollection_ChannelInfo{ChannelInfo: channelInfo}
 			}
 		}
 
@@ -1336,13 +1066,8 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 				return err
 			}
 		}
-		if collType == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-			if err := s.collectionStore.LockChannelForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
-				return err
-			}
-		}
-		// Drop membership before soft-delete so rack and channel exclusivity
-		// indexes release members in the same transaction.
+		// Drop membership before soft-delete so idx_one_rack_per_device
+		// allows re-adding devices to another rack.
 		if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
 			return err
 		}
@@ -2241,214 +1966,6 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		RemovedCount:        out.removed,
 		SiteReassignedCount: out.siteReassigned,
 	}, nil
-}
-
-type AssignDevicesToChannelParams struct {
-	OrgID             int64
-	TargetChannelID   *int64
-	DeviceIdentifiers []string
-}
-
-type AssignDevicesToChannelResult struct {
-	AssignedCount int64
-	RemovedCount  int64
-}
-
-// AssignDevicesToChannel atomically replaces each selected device's exclusive
-// channel membership. Rack, site, building, and slot state are not touched.
-func (s *Service) AssignDevicesToChannel(
-	ctx context.Context,
-	params AssignDevicesToChannelParams,
-) (*AssignDevicesToChannelResult, error) {
-	if len(params.DeviceIdentifiers) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
-	}
-	type txOut struct {
-		assigned   int64
-		removed    int64
-		targetName string
-	}
-	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		var targetChannelID int64
-		if params.TargetChannelID != nil {
-			targetChannelID = *params.TargetChannelID
-		}
-		_, err := s.collectionStore.LockChannelsForReparent(
-			ctx,
-			params.OrgID,
-			params.DeviceIdentifiers,
-			targetChannelID,
-		)
-		if err != nil {
-			return nil, err
-		}
-		owned, err := s.collectionStore.LockDevicesForChannelAssignment(ctx, params.OrgID, params.DeviceIdentifiers)
-		if err != nil {
-			return nil, err
-		}
-		if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(params.DeviceIdentifiers)) {
-			return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
-		}
-		currentChannelIDs, err := s.collectionStore.ListCurrentChannelIDsForDevices(
-			ctx,
-			params.OrgID,
-			params.DeviceIdentifiers,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if params.TargetChannelID != nil {
-			laneOwned, err := s.collectionStore.IsRolloutLaneChannel(
-				ctx,
-				params.OrgID,
-				targetChannelID,
-			)
-			if err != nil {
-				return nil, err
-			}
-			if laneOwned {
-				return nil, fleeterror.NewFailedPreconditionErrorf(
-					"target channel %d is managed by a rollout lane and cannot accept direct assignments",
-					targetChannelID,
-				)
-			}
-		}
-		sourceChannelIDs := make([]int64, 0, len(currentChannelIDs))
-		for _, channelID := range currentChannelIDs {
-			if channelID == targetChannelID {
-				continue
-			}
-			sourceChannelIDs = append(sourceChannelIDs, channelID)
-		}
-		if len(sourceChannelIDs) > 0 {
-			laneOwnedChannelIDs, checkErr := s.collectionStore.ListRolloutLaneOwnedChannelIDs(
-				ctx,
-				params.OrgID,
-				sourceChannelIDs,
-			)
-			if checkErr != nil {
-				return nil, checkErr
-			}
-			if len(laneOwnedChannelIDs) > 0 {
-				return nil, fleeterror.NewFailedPreconditionErrorf(
-					"source channel %d is managed by a rollout lane and cannot accept direct membership changes",
-					laneOwnedChannelIDs[0],
-				)
-			}
-		}
-		if err := s.rejectRolloutOwnedChannelAssignment(
-			ctx,
-			params.OrgID,
-			params.DeviceIdentifiers,
-		); err != nil {
-			return nil, err
-		}
-
-		var targetName string
-		if params.TargetChannelID != nil {
-			target, err := s.collectionStore.GetCollection(ctx, params.OrgID, targetChannelID)
-			if err != nil {
-				return nil, err
-			}
-			if target.Type != pb.CollectionType_COLLECTION_TYPE_CHANNEL {
-				return nil, fleeterror.NewInvalidArgumentErrorf(
-					"target_channel_id %d is not a channel",
-					targetChannelID,
-				)
-			}
-			channelInfo, err := s.collectionStore.GetChannelInfo(ctx, targetChannelID, params.OrgID)
-			if err != nil {
-				return nil, err
-			}
-			if channelInfo == nil {
-				return nil, fleeterror.NewFailedPreconditionErrorf(
-					"target channel %d has no channel extension",
-					targetChannelID,
-				)
-			}
-			targetName = target.Label
-		}
-
-		removed, err := s.collectionStore.RemoveDevicesFromAnyChannel(
-			ctx,
-			params.OrgID,
-			params.DeviceIdentifiers,
-			targetChannelID,
-		)
-		if err != nil {
-			return nil, err
-		}
-		var assigned int64
-		if params.TargetChannelID != nil {
-			if _, err := s.collectionStore.AddDevicesToCollection(
-				ctx,
-				params.OrgID,
-				targetChannelID,
-				params.DeviceIdentifiers,
-			); err != nil {
-				return nil, err
-			}
-			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
-		}
-		return &txOut{assigned: assigned, removed: removed, targetName: targetName}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	out, ok := result.(*txOut)
-	if !ok {
-		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
-	}
-
-	scopeCount := len(uniqueIdentifiers(params.DeviceIdentifiers))
-	scopeType := "channel"
-	description := "Cleared devices from channel"
-	if params.TargetChannelID != nil {
-		description = fmt.Sprintf("Assigned devices to channel: %s", out.targetName)
-	}
-	event := activitymodels.Event{
-		Category:       activitymodels.CategoryCollection,
-		Type:           "assign_devices_to_channel",
-		Description:    description,
-		ScopeCount:     &scopeCount,
-		OrganizationID: &params.OrgID,
-	}
-	if params.TargetChannelID != nil {
-		event.ScopeType = &scopeType
-		event.ScopeLabel = &out.targetName
-	}
-	if info, infoErr := session.GetInfo(ctx); infoErr == nil {
-		event.UserID = &info.ExternalUserID
-		event.Username = &info.Username
-	}
-	s.logActivity(ctx, event)
-
-	return &AssignDevicesToChannelResult{
-		AssignedCount: out.assigned,
-		RemovedCount:  out.removed,
-	}, nil
-}
-
-func (s *Service) rejectRolloutOwnedChannelAssignment(
-	ctx context.Context,
-	orgID int64,
-	deviceIdentifiers []string,
-) error {
-	rolloutOwned, err := s.collectionStore.ListActiveRolloutOwnedDeviceIdentifiers(
-		ctx,
-		orgID,
-		deviceIdentifiers,
-	)
-	if err != nil {
-		return err
-	}
-	if len(rolloutOwned) > 0 {
-		return fleeterror.NewFailedPreconditionErrorf(
-			"channel membership is owned by an active rollout for %d device(s)",
-			len(rolloutOwned),
-		)
-	}
-	return nil
 }
 
 type ListCollectionMembersParams struct {

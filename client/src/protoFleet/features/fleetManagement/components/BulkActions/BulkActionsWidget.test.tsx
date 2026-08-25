@@ -3,7 +3,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import BulkActionsWidget from "./BulkActionsWidget";
 import { type BulkAction } from "./types";
-import { BulkActionsPopover } from ".";
 import { deviceActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import Button, { variants } from "@/shared/components/Button";
 import { PopoverProvider } from "@/shared/components/Popover";
@@ -57,32 +56,5 @@ describe("BulkActionsWidget", () => {
 
     expect(screen.getByText("Reboot miners?")).toBeInTheDocument();
     expect(screen.getByTestId("reboot-confirm-button")).toBeInTheDocument();
-  });
-
-  test("shows disabled action reasons in the popover", () => {
-    const actions: BulkAction<typeof deviceActions.firmwareUpdate>[] = [
-      {
-        action: deviceActions.firmwareUpdate,
-        title: "Firmware update",
-        icon: null,
-        actionHandler: vi.fn(),
-        requiresConfirmation: false,
-        disabled: true,
-        disabledReason: "Firmware is already updating on selected miners.",
-      },
-    ];
-
-    render(
-      <PopoverProvider>
-        <BulkActionsPopover<typeof deviceActions.firmwareUpdate>
-          actions={actions}
-          beforeEach={vi.fn()}
-          testId="actions-popover"
-        />
-      </PopoverProvider>,
-    );
-
-    expect(screen.getByTestId(`${deviceActions.firmwareUpdate}-popover-button`)).toBeDisabled();
-    expect(screen.getByText("Firmware is already updating on selected miners.")).toBeInTheDocument();
   });
 });

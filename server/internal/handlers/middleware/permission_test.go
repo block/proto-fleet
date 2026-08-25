@@ -157,79 +157,9 @@ func TestRequirePermission_UnknownActorDoesNotBypass(t *testing.T) {
 		"unknown Actor surfaces as Internal, not ALLOW and not PermissionDenied")
 }
 
-func TestChannelEnforcementActorCannotBypassRBAC(t *testing.T) {
-	t.Parallel()
-
-	ctx := ctxWithInfo(&session.Info{
-		AuthMethod: session.AuthMethodSession,
-		Actor:      session.ActorChannelEnforcement,
-	})
-	tests := []struct {
-		name string
-		call func() error
-	}{
-		{
-			name: "RequirePermission",
-			call: func() error {
-				_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
-				return err
-			},
-		},
-		{
-			name: "RequireOrgWidePermission",
-			call: func() error {
-				_, err := middleware.RequireOrgWidePermission(ctx, authz.PermFleetRead)
-				return err
-			},
-		},
-		{
-			name: "HasPermission",
-			call: func() error {
-				_, err := middleware.HasPermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
-				return err
-			},
-		},
-		{
-			name: "HasOrgWidePermission",
-			call: func() error {
-				_, err := middleware.HasOrgWidePermission(ctx, authz.PermFleetRead)
-				return err
-			},
-		},
-		{
-			name: "SiteScopeForPermission",
-			call: func() error {
-				_, _, err := middleware.SiteScopeForPermission(ctx, authz.PermFleetRead)
-				return err
-			},
-		},
-		{
-			name: "RequireAnyPermission",
-			call: func() error {
-				_, err := middleware.RequireAnyPermission(
-					ctx,
-					[]string{authz.PermFleetRead},
-					authz.ResourceContext{},
-				)
-				return err
-			},
-		},
-	}
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			err := testCase.call()
-
-			require.Error(t, err)
-			require.Equal(t, connect.CodeInternal, connectCode(t, err))
-		})
-	}
-}
-
 func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
-	// Curtailment is explicitly allowlisted alongside the scheduler.
+	// Any non-empty Actor short-circuits — the gate trusts internal
+	// orchestrators in general, not just the scheduler.
 	info := &session.Info{
 		AuthMethod: session.AuthMethodSession,
 		Actor:      session.ActorCurtailment,

@@ -66,14 +66,6 @@ message ActivityEntry {
     // Links this row to a command_batch_log.uuid so the UI can group
     // initiated + completed rows into one logical batch entry.
     optional string batch_id = 15;
-
-    // Rollout aggregate metadata is also projected explicitly for typed
-    // clients while remaining available in metadata for compatibility.
-    optional string parent_rollout_id = 16;
-    optional string child_rollout_id = 17;
-    optional string model_identity_key = 18;
-    optional string manufacturer = 19;
-    optional string model = 20;
 }
 
 // Criteria for filtering activity entries

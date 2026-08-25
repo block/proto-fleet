@@ -46,7 +46,7 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
     <>
       <div className="px-4" title={isDisabled ? action.disabledReason : undefined}>
         <Row
-          className={isDisabled ? "flex flex-col text-emphasis-300 opacity-50" : "flex flex-col text-emphasis-300"}
+          className={isDisabled ? "cursor-not-allowed text-emphasis-300 opacity-50" : "text-emphasis-300"}
           prefixIcon={action.icon}
           testId={action.action + "-popover-button"}
           onClick={() => onAction(action)}
@@ -54,10 +54,7 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
           compact
           divider={false}
         >
-          <span>{action.title}</span>
-          {isDisabled && action.disabledReason ? (
-            <span className="mt-1 text-200 text-text-primary-70">{action.disabledReason}</span>
-          ) : null}
+          {action.title}
         </Row>
       </div>
       {action.showGroupDivider ? <Divider dividerStyle="thick" /> : null}

@@ -103,9 +103,8 @@ func (ns NullDeviceCommandStatusEnum) Value() (driver.Value, error) {
 type DeviceSetType string
 
 const (
-	DeviceSetTypeGroup   DeviceSetType = "group"
-	DeviceSetTypeRack    DeviceSetType = "rack"
-	DeviceSetTypeChannel DeviceSetType = "channel"
+	DeviceSetTypeGroup DeviceSetType = "group"
+	DeviceSetTypeRack  DeviceSetType = "rack"
 )
 
 func (e *DeviceSetType) Scan(src interface{}) error {
@@ -433,53 +432,6 @@ type Building struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
-}
-
-type ChannelFirmwareAuthority struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	AuthorityType      string
-	AuthorityReference string
-	Revision           int64
-	HaltedAt           sql.NullTime
-	CreatedByUserID    int64
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
-
-type ChannelFirmwareEnforcement struct {
-	ID                          int64
-	OrgID                       int64
-	DeviceID                    int64
-	DesiredReleaseSetID         int64
-	DesiredReleaseTargetID      int64
-	DesiredFirmwareFileID       string
-	DesiredFirmwareVersion      string
-	CauseType                   string
-	CauseReference              sql.NullString
-	AuthorityID                 uuid.UUID
-	AuthorityRevision           int64
-	State                       string
-	AttemptCount                int32
-	CommandBatchUuid            sql.NullString
-	Revision                    int64
-	DesiredAt                   time.Time
-	HeldAt                      sql.NullTime
-	ClaimedAt                   sql.NullTime
-	EnqueuedAt                  sql.NullTime
-	CommandCompletedAt          sql.NullTime
-	LastObservedFirmwareVersion sql.NullString
-	FirmwareObservedAt          sql.NullTime
-	LastObservedHashrateHs      sql.NullFloat64
-	HashingObservedAt           sql.NullTime
-	ConfirmedAt                 sql.NullTime
-	AttentionRequiredAt         sql.NullTime
-	LastError                   sql.NullString
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	NextReconcileAt             time.Time
-	ExpectedModelIdentityKey    sql.NullString
-	ModelIdentityValidatedAt    sql.NullTime
 }
 
 type CommandBatchLog struct {
@@ -818,14 +770,6 @@ type DeviceSet struct {
 	DeletedAt   sql.NullTime
 }
 
-type DeviceSetChannel struct {
-	DeviceSetID  int64
-	OrgID        int64
-	ReleaseSetID int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
 type DeviceSetMembership struct {
 	ID               int64
 	OrgID            int64
@@ -919,7 +863,6 @@ type DiscoveredDevice struct {
 	DriverName              string
 	IpAddressInet           pqtype.Inet
 	DiscoveredByFleetNodeID sql.NullInt64
-	ModelIdentityObservedAt sql.NullTime
 }
 
 type Error struct {
@@ -944,235 +887,6 @@ type Error struct {
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	SiteID            sql.NullInt64
-}
-
-type FirmwareReleaseSet struct {
-	ID        int64
-	OrgID     int64
-	CreatedAt time.Time
-}
-
-type FirmwareReleaseTarget struct {
-	ID                 int64
-	ReleaseSetID       int64
-	OrgID              int64
-	FirmwareFileID     string
-	TargetManufacturer string
-	TargetModel        string
-	FirmwareVersion    string
-	Sha256             string
-	CreatedAt          time.Time
-}
-
-type FirmwareRollout struct {
-	ID                                   uuid.UUID
-	OrgID                                int64
-	Name                                 string
-	StrategyKey                          string
-	State                                string
-	ResumeState                          sql.NullString
-	Revision                             int64
-	ForwardAuthorityID                   uuid.UUID
-	ForwardAuthorityRevision             int64
-	RevertAuthorityID                    uuid.NullUUID
-	RevertAuthorityRevision              sql.NullInt64
-	SourceChannelID                      sql.NullInt64
-	TargetChannelID                      sql.NullInt64
-	SourceReleaseSetID                   sql.NullInt64
-	TargetReleaseSetID                   sql.NullInt64
-	SourceSnapshot                       json.RawMessage
-	TargetSnapshot                       json.RawMessage
-	RevertSnapshot                       json.RawMessage
-	IdempotencyKey                       string
-	CreateFingerprint                    string
-	Reason                               string
-	CreatedByUserID                      int64
-	StartedAt                            sql.NullTime
-	PausedAt                             sql.NullTime
-	AbortedAt                            sql.NullTime
-	CompletedAt                          sql.NullTime
-	RevertingAt                          sql.NullTime
-	RevertedAt                           sql.NullTime
-	CreatedAt                            time.Time
-	UpdatedAt                            time.Time
-	HashratePolicyMaxDropBasisPoints     sql.NullInt32
-	HashratePolicyHealthyDurationSeconds sql.NullInt32
-	GroupID                              uuid.NullUUID
-	LaneID                               uuid.NullUUID
-	LaneModelID                          uuid.NullUUID
-	ModelIdentityKey                     sql.NullString
-	ModelIdentityValidatedAt             sql.NullTime
-	SourceReleaseTargetID                sql.NullInt64
-	TargetReleaseTargetID                sql.NullInt64
-}
-
-type FirmwareRolloutBatch struct {
-	ID                                 int64
-	RolloutID                          uuid.UUID
-	OrgID                              int64
-	Position                           int32
-	Label                              string
-	State                              string
-	Revision                           int64
-	CreatedAt                          time.Time
-	UpdatedAt                          time.Time
-	CompletedAt                        sql.NullTime
-	EvidenceStatus                     string
-	EvidenceTotalCount                 int64
-	EvidencePairedCount                int64
-	CumulativeBaselineHashrateHs       sql.NullFloat64
-	CumulativeCurrentHashrateHs        sql.NullFloat64
-	CumulativeDeltaBasisPoints         sql.NullInt32
-	LatestPolicyBucketHashrateHs       sql.NullFloat64
-	LatestPolicyBucketDeltaBasisPoints sql.NullInt32
-	HealthySince                       sql.NullTime
-	LastPolicyBucketBoundary           sql.NullTime
-	EvaluatedAt                        sql.NullTime
-	EvidenceErrorMessage               sql.NullString
-	PostWindowFinalized                bool
-	PostWindowFinalizedAt              sql.NullTime
-	AdmissionAttempt                   int32
-	EvidenceCancellationReason         sql.NullString
-	EvidenceCancelledAt                sql.NullTime
-}
-
-type FirmwareRolloutCause struct {
-	ID                int64
-	RolloutID         uuid.UUID
-	MemberID          sql.NullInt64
-	ControlID         uuid.NullUUID
-	OrgID             int64
-	Operation         string
-	Reason            string
-	ActorUserID       int64
-	FromState         sql.NullString
-	ToState           string
-	RolloutRevision   int64
-	CreatedAt         time.Time
-	ActorType         string
-	ActorCredentialID sql.NullString
-}
-
-type FirmwareRolloutControl struct {
-	ID                 uuid.UUID
-	RolloutID          uuid.UUID
-	OrgID              int64
-	BatchID            sql.NullInt64
-	Operation          string
-	IdempotencyKey     string
-	RequestFingerprint string
-	ExpectedRevision   int64
-	ResultingRevision  int64
-	Status             string
-	ErrorMessage       sql.NullString
-	CreatedByUserID    int64
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	ActorType          string
-	ActorCredentialID  sql.NullString
-	AdmissionAttempt   sql.NullInt32
-}
-
-type FirmwareRolloutEvidence struct {
-	ID                 int64
-	RolloutID          uuid.UUID
-	MemberID           int64
-	OrgID              int64
-	Phase              string
-	WindowStart        time.Time
-	WindowEnd          time.Time
-	ObservedAt         sql.NullTime
-	AvgHashrateHs      sql.NullFloat64
-	AvgPowerW          sql.NullFloat64
-	AvgTemperatureC    sql.NullFloat64
-	ErrorCount         sql.NullInt64
-	SampleCount        sql.NullInt64
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Status             string
-	CancellationReason sql.NullString
-	CancelledAt        sql.NullTime
-}
-
-type FirmwareRolloutEvidenceAccumulator struct {
-	RolloutID              uuid.UUID
-	BatchID                int64
-	MemberID               int64
-	OrgID                  int64
-	ProcessedThrough       time.Time
-	ObservedAt             sql.NullTime
-	HashrateSum            float64
-	PowerSum               float64
-	PowerSampleCount       int64
-	TemperatureSum         float64
-	TemperatureSampleCount int64
-	SampleCount            int64
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-}
-
-type FirmwareRolloutGroup struct {
-	ID                uuid.UUID
-	LaneID            uuid.UUID
-	OrgID             int64
-	Name              string
-	IdempotencyKey    string
-	CreateFingerprint string
-	Reason            string
-	CreatedByUserID   int64
-	ActorType         string
-	ActorCredentialID sql.NullString
-	ResultRevision    int64
-	TerminalOutcome   sql.NullString
-	ResultReady       bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-type FirmwareRolloutGroupModel struct {
-	GroupID               uuid.UUID
-	LaneID                uuid.UUID
-	LaneModelID           uuid.UUID
-	OrgID                 int64
-	ModelIdentityKey      string
-	SourceChannelID       int64
-	SourceReleaseSetID    int64
-	SourceReleaseTargetID int64
-	TargetChannelID       int64
-	TargetReleaseSetID    int64
-	TargetReleaseTargetID int64
-	ChildRolloutID        uuid.NullUUID
-	Snapshot              json.RawMessage
-	CreatedAt             time.Time
-}
-
-type FirmwareRolloutMember struct {
-	ID                       int64
-	RolloutID                uuid.UUID
-	BatchID                  int64
-	OrgID                    int64
-	DeviceID                 int64
-	Position                 int32
-	State                    string
-	Revision                 int64
-	SourceSnapshot           json.RawMessage
-	TargetSnapshot           json.RawMessage
-	RevertSnapshot           json.RawMessage
-	EnforcementID            sql.NullInt64
-	CommandBatchUuid         sql.NullString
-	LastError                sql.NullString
-	AdmittedAt               sql.NullTime
-	SettledAt                sql.NullTime
-	OwnerReleasedAt          sql.NullTime
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	SourceReleaseSetID       sql.NullInt64
-	SourceReleaseTargetID    sql.NullInt64
-	TargetReleaseSetID       sql.NullInt64
-	TargetReleaseTargetID    sql.NullInt64
-	RevertSelectedAt         sql.NullTime
-	ModelIdentityKey         sql.NullString
-	ModelIdentityValidatedAt sql.NullTime
 }
 
 type FleetActiveOrganization struct {
@@ -1441,7 +1155,6 @@ type QueueMessage struct {
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	MaxAttempts         int32
 }
 
 type RackSlot struct {
@@ -1473,155 +1186,6 @@ type Role struct {
 type RolePermission struct {
 	RoleID       int64
 	PermissionID int64
-}
-
-type RolloutLane struct {
-	ID                       uuid.UUID
-	OrgID                    int64
-	Label                    string
-	Description              string
-	CurrentChannelID         int64
-	Revision                 int64
-	IdempotencyKey           string
-	CreateFingerprint        string
-	CreatedByUserID          int64
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	DeletedAt                sql.NullTime
-	DeletedByUserID          sql.NullInt64
-	DeletedActorType         sql.NullString
-	DeletedActorCredentialID sql.NullString
-	DeleteReason             sql.NullString
-	DeleteIdempotencyKey     sql.NullString
-	DeleteFingerprint        sql.NullString
-}
-
-type RolloutLaneActiveParent struct {
-	LaneID              uuid.UUID
-	OrgID               int64
-	GroupID             uuid.UUID
-	ClaimIdempotencyKey string
-	ClaimFingerprint    string
-	ClaimedAt           time.Time
-}
-
-type RolloutLaneChannel struct {
-	LaneID              uuid.UUID
-	OrgID               int64
-	ChannelID           int64
-	Position            int32
-	RolloutID           uuid.NullUUID
-	StartIdempotencyKey sql.NullString
-	StartFingerprint    sql.NullString
-	CreatedAt           time.Time
-}
-
-type RolloutLaneMembershipChange struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	TargetLaneID       uuid.UUID
-	AuthorityID        uuid.NullUUID
-	IdempotencyKey     string
-	RequestFingerprint string
-	Requested          json.RawMessage
-	Applied            json.RawMessage
-	Reason             string
-	ActorUserID        int64
-	ActorType          string
-	ActorCredentialID  sql.NullString
-	RequestedAt        time.Time
-	AppliedAt          time.Time
-}
-
-type RolloutLaneModel struct {
-	ID                     uuid.UUID
-	LaneID                 uuid.UUID
-	OrgID                  int64
-	ModelIdentityKey       string
-	NormalizationVersion   int16
-	Manufacturer           string
-	Model                  string
-	CurrentChannelID       int64
-	CurrentReleaseSetID    int64
-	CurrentReleaseTargetID int64
-	Revision               int64
-	Origin                 string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-}
-
-type RolloutLaneModelBinding struct {
-	ID                      uuid.UUID
-	LaneID                  uuid.UUID
-	LaneModelID             uuid.UUID
-	OrgID                   int64
-	DeviceID                int64
-	ChannelID               int64
-	ModelIdentityKey        string
-	ModelIdentityObservedAt sql.NullTime
-	Revision                int64
-	Origin                  string
-	CreatedAt               time.Time
-	EndedAt                 sql.NullTime
-	EndedByOperationID      uuid.NullUUID
-}
-
-type RolloutLaneModelChannel struct {
-	LaneModelID     uuid.UUID
-	LaneID          uuid.UUID
-	OrgID           int64
-	ChannelID       int64
-	ReleaseSetID    int64
-	ReleaseTargetID int64
-	Position        int32
-	Origin          string
-	CreatedAt       time.Time
-}
-
-type RolloutLaneTopologyAdminOperation struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	Operation          string
-	LaneID             uuid.NullUUID
-	LaneModelID        uuid.NullUUID
-	DeviceID           sql.NullInt64
-	IdempotencyKey     string
-	RequestFingerprint string
-	ExpectedRevision   int64
-	ResultingRevision  int64
-	Reason             string
-	Requested          json.RawMessage
-	Applied            json.RawMessage
-	ActorUserID        int64
-	ActorType          string
-	ActorCredentialID  sql.NullString
-	CreatedAt          time.Time
-}
-
-type RolloutLaneTopologyAnomaly struct {
-	AnomalyID              uuid.UUID
-	OrgID                  int64
-	LaneID                 uuid.UUID
-	DeviceID               int64
-	DeviceIdentifier       string
-	LaneModelID            uuid.NullUUID
-	LaneModelRevision      sql.NullInt64
-	AnomalyType            string
-	SupportedRepairActions []string
-	Details                json.RawMessage
-}
-
-type RolloutLaneTopologyCutover struct {
-	OrgID                    int64
-	Enabled                  bool
-	Revision                 int64
-	EnabledAt                sql.NullTime
-	EnabledByUserID          sql.NullInt64
-	EnabledActorType         sql.NullString
-	EnabledActorCredentialID sql.NullString
-	EnableReason             sql.NullString
-	EnableIdempotencyKey     sql.NullString
-	UpdatedAt                time.Time
 }
 
 type Schedule struct {

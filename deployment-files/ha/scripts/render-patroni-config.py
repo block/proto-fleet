@@ -6,6 +6,7 @@ import string
 import sys
 from pathlib import Path
 
+
 PASSWORD_FILES = {
     "PATRONI_ETCD_PASSWORD_YAML": "patroni-etcd-password",
     "PATRONI_REST_PASSWORD_YAML": "patroni-rest-password",

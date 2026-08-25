@@ -2,11 +2,7 @@ package collection
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -22,7 +18,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,48 +43,6 @@ type mockDeviceQueryer struct {
 	devicesByFilter         map[int64][]string // collectionID -> device identifiers
 	stateCountsByCollection map[int64]interfaces.MinerStateCounts
 	err                     error
-}
-
-type stubFirmwareArtifact struct {
-	content  string
-	metadata files.FirmwareMetadata
-	checksum string
-	err      error
-}
-
-type stubFirmwareArtifactSource map[string]stubFirmwareArtifact
-
-func (s stubFirmwareArtifactSource) LeaseFirmwareMetadata(fileID string) (files.FirmwareMetadata, func(), error) {
-	artifact, ok := s[fileID]
-	if !ok {
-		return files.FirmwareMetadata{}, nil, fleeterror.NewNotFoundErrorf("firmware file not found: %s", fileID)
-	}
-	if artifact.err != nil {
-		return files.FirmwareMetadata{}, nil, artifact.err
-	}
-	return artifact.metadata, func() {}, nil
-}
-
-func (s stubFirmwareArtifactSource) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, files.FirmwareFileInfo, error) {
-	artifact, ok := s[fileID]
-	if !ok {
-		return nil, files.FirmwareFileInfo{}, fleeterror.NewNotFoundErrorf("firmware file not found: %s", fileID)
-	}
-	if artifact.err != nil {
-		return nil, files.FirmwareFileInfo{}, artifact.err
-	}
-	checksum := artifact.checksum
-	if checksum == "" {
-		sum := sha256.Sum256([]byte(artifact.content))
-		checksum = hex.EncodeToString(sum[:])
-	}
-	return io.NopCloser(strings.NewReader(artifact.content)), files.FirmwareFileInfo{
-		ID:                 fileID,
-		SHA256:             checksum,
-		TargetManufacturer: artifact.metadata.TargetManufacturer,
-		TargetModel:        artifact.metadata.TargetModel,
-		FirmwareVersion:    artifact.metadata.FirmwareVersion,
-	}, nil
 }
 
 func (m *mockDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
@@ -142,7 +95,7 @@ func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.
 		return nil, nil
 	}
 
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -184,189 +137,6 @@ func TestService_CreateCollection_GroupDoesNotRequireRackInfo(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "My Group", resp.Collection.Label)
-}
-
-func TestService_CreateCollection_ChannelRequiresChannelInfo(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	ctx := testCtx(t)
-
-	resp, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
-		Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-		Label: "Stable",
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, resp)
-}
-
-func TestService_CreateFirmwareReleaseSet_MixedModels(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	svc.firmwareArtifacts = stubFirmwareArtifactSource{
-		"proto-file": {
-			content: "proto firmware",
-			metadata: files.FirmwareMetadata{
-				TargetManufacturer: "Proto",
-				TargetModel:        "Rig",
-				FirmwareVersion:    "2.0.0",
-			},
-		},
-		"antminer-file": {
-			content: "antminer firmware",
-			metadata: files.FirmwareMetadata{
-				TargetManufacturer: "Bitmain",
-				TargetModel:        "S21",
-				FirmwareVersion:    "1.4.2",
-			},
-		},
-	}
-	mockStore.EXPECT().
-		CreateFirmwareReleaseSet(gomock.Any(), testOrgID).
-		Return(&pb.FirmwareReleaseSet{Id: 41}, nil)
-	mockStore.EXPECT().
-		CreateFirmwareReleaseTarget(gomock.Any(), testOrgID, int64(41), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _ int64, target *pb.FirmwareReleaseTarget) error {
-			assert.Equal(t, "proto-file", target.FirmwareFileId)
-			assert.Equal(t, "Proto", target.TargetManufacturer)
-			assert.Equal(t, "Rig", target.TargetModel)
-			assert.Equal(t, "2.0.0", target.FirmwareVersion)
-			assert.Len(t, target.Sha256, 64)
-			return nil
-		})
-	mockStore.EXPECT().
-		CreateFirmwareReleaseTarget(gomock.Any(), testOrgID, int64(41), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _ int64, target *pb.FirmwareReleaseTarget) error {
-			assert.Equal(t, "antminer-file", target.FirmwareFileId)
-			assert.Equal(t, "Bitmain", target.TargetManufacturer)
-			assert.Equal(t, "S21", target.TargetModel)
-			assert.Equal(t, "1.4.2", target.FirmwareVersion)
-			assert.Len(t, target.Sha256, 64)
-			return nil
-		})
-
-	releaseSet, err := svc.CreateFirmwareReleaseSet(testCtx(t), []string{"proto-file", "antminer-file"})
-
-	require.NoError(t, err)
-	require.Equal(t, int64(41), releaseSet.Id)
-	require.Len(t, releaseSet.Targets, 2)
-}
-
-func TestService_CreateFirmwareReleaseSet_RejectsDuplicateModel(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	svc.firmwareArtifacts = stubFirmwareArtifactSource{
-		"first": {
-			content:  "first",
-			metadata: files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "1"},
-		},
-		"second": {
-			content:  "second",
-			metadata: files.FirmwareMetadata{TargetManufacturer: "proto", TargetModel: "rig", FirmwareVersion: "2"},
-		},
-	}
-
-	releaseSet, err := svc.CreateFirmwareReleaseSet(testCtx(t), []string{"first", "second"})
-
-	require.Error(t, err)
-	assert.Nil(t, releaseSet)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestService_CreateFirmwareReleaseSet_RejectsMissingArtifact(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	svc.firmwareArtifacts = stubFirmwareArtifactSource{}
-
-	releaseSet, err := svc.CreateFirmwareReleaseSet(testCtx(t), []string{"missing"})
-
-	require.Error(t, err)
-	assert.Nil(t, releaseSet)
-	assert.True(t, fleeterror.IsNotFoundError(err))
-}
-
-func TestService_CreateFirmwareReleaseSet_RejectsCorruptArtifact(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	svc.firmwareArtifacts = stubFirmwareArtifactSource{
-		"corrupt": {
-			content:  "payload changed after upload",
-			checksum: strings.Repeat("0", 64),
-			metadata: files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "2.0.0"},
-		},
-	}
-
-	releaseSet, err := svc.CreateFirmwareReleaseSet(testCtx(t), []string{"corrupt"})
-
-	require.Error(t, err)
-	assert.Nil(t, releaseSet)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-}
-
-func TestService_CreateCollection_ChannelCreatesExtension(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	channelInfo := &pb.ChannelInfo{
-		ReleaseSetId: 91,
-		ReleaseTargets: []*pb.FirmwareReleaseTarget{{
-			FirmwareFileId:     "firmware-1",
-			TargetManufacturer: "Proto",
-			TargetModel:        "Rig",
-			FirmwareVersion:    "2.0.0",
-			Sha256:             strings.Repeat("a", 64),
-		}},
-	}
-	mockStore.EXPECT().
-		FirmwareReleaseSetBelongsToOrg(gomock.Any(), testOrgID, int64(91)).
-		Return(true, nil)
-	mockStore.EXPECT().
-		CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_CHANNEL, "Stable", "Production").
-		Return(&pb.DeviceCollection{
-			Id:          33,
-			Type:        pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-			Label:       "Stable",
-			Description: "Production",
-		}, nil)
-	mockStore.EXPECT().
-		CreateChannelExtension(gomock.Any(), interfaces.CreateChannelExtensionParams{
-			OrgID:        testOrgID,
-			CollectionID: 33,
-			ReleaseSetID: 91,
-		}).
-		Return(nil)
-	mockStore.EXPECT().
-		GetChannelInfo(gomock.Any(), int64(33), testOrgID).
-		Return(channelInfo, nil)
-
-	response, err := svc.CreateCollection(testCtx(t), &pb.CreateCollectionRequest{
-		Type:        pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-		Label:       "Stable",
-		Description: "Production",
-		TypeDetails: &pb.CreateCollectionRequest_ChannelInfo{
-			ChannelInfo: &pb.ChannelInfo{ReleaseSetId: 91},
-		},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, channelInfo, response.Collection.GetChannelInfo())
-}
-
-func TestService_CreateCollection_ChannelExtensionFailureStopsBeforeMembership(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	mockStore.EXPECT().
-		FirmwareReleaseSetBelongsToOrg(gomock.Any(), testOrgID, int64(91)).
-		Return(true, nil)
-	mockStore.EXPECT().
-		CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_CHANNEL, "Stable", "").
-		Return(&pb.DeviceCollection{Id: 33, Type: pb.CollectionType_COLLECTION_TYPE_CHANNEL, Label: "Stable"}, nil)
-	mockStore.EXPECT().
-		CreateChannelExtension(gomock.Any(), gomock.Any()).
-		Return(fleeterror.NewInternalError("injected channel extension failure"))
-
-	response, err := svc.CreateCollection(testCtx(t), &pb.CreateCollectionRequest{
-		Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-		Label: "Stable",
-		TypeDetails: &pb.CreateCollectionRequest_ChannelInfo{
-			ChannelInfo: &pb.ChannelInfo{ReleaseSetId: 91},
-		},
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, response)
 }
 
 func TestService_CreateCollection_RackCreatesExtension(t *testing.T) {
@@ -529,37 +299,6 @@ func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestService_DeleteCollection_ChannelLocksWithoutRackSideEffects(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	mockStore.EXPECT().
-		GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{
-			Id:    testCollectionID,
-			Label: "Stable",
-			Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-		}, nil)
-	mockStore.EXPECT().
-		GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
-		Return(pb.CollectionType_COLLECTION_TYPE_CHANNEL, nil)
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelForWrite(gomock.Any(), testCollectionID, testOrgID).
-			Return(nil),
-		mockStore.EXPECT().
-			RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
-			Return(int64(2), nil),
-		mockStore.EXPECT().
-			SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
-			Return(int64(1), nil),
-	)
-
-	_, err := svc.DeleteCollection(testCtx(t), &pb.DeleteCollectionRequest{
-		CollectionId: testCollectionID,
-	})
-
-	require.NoError(t, err)
-}
-
 func TestService_AddDevicesToGroup_NotFoundWhenNotOwnedByOrg(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)
@@ -575,7 +314,7 @@ func TestService_AddDevicesToGroup_NotFoundWhenNotOwnedByOrg(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
@@ -816,7 +555,7 @@ func TestService_AddDevicesToGroup_ResolverError(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("access denied")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
@@ -844,7 +583,7 @@ func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *tes
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -886,7 +625,7 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("device not owned by org")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
@@ -914,7 +653,7 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -955,7 +694,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -1006,90 +745,6 @@ func TestService_UpdateCollection_WithoutDeviceSelectorLeavesMembers(t *testing.
 	assert.Equal(t, int32(3), resp.Collection.DeviceCount)
 }
 
-func TestService_UpdateCollection_ChannelOmittedFieldsPreserveState(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	current := &pb.ChannelInfo{
-		ReleaseSetId: 91,
-		ReleaseTargets: []*pb.FirmwareReleaseTarget{{
-			FirmwareFileId:     "firmware-1",
-			TargetManufacturer: "Proto",
-			TargetModel:        "Rig",
-			FirmwareVersion:    "2.0.0",
-			Sha256:             strings.Repeat("a", 64),
-		}},
-	}
-	mockStore.EXPECT().
-		GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
-		Return(pb.CollectionType_COLLECTION_TYPE_CHANNEL, nil)
-	mockStore.EXPECT().
-		LockChannelForWrite(gomock.Any(), testCollectionID, testOrgID).
-		Return(nil)
-	mockStore.EXPECT().
-		UpdateCollection(gomock.Any(), testOrgID, testCollectionID, (*string)(nil), (*string)(nil)).
-		Return(nil)
-	mockStore.EXPECT().
-		GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{
-			Id:          testCollectionID,
-			Type:        pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-			Label:       "Stable",
-			Description: "Production",
-			DeviceCount: 3,
-		}, nil)
-	mockStore.EXPECT().
-		GetChannelInfo(gomock.Any(), testCollectionID, testOrgID).
-		Return(current, nil)
-
-	response, err := svc.UpdateCollection(testCtx(t), &pb.UpdateCollectionRequest{
-		CollectionId: testCollectionID,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "Stable", response.Collection.Label)
-	assert.Equal(t, "Production", response.Collection.Description)
-	assert.Equal(t, current, response.Collection.GetChannelInfo())
-	assert.Equal(t, int32(3), response.Collection.DeviceCount)
-}
-
-func TestService_UpdateCollection_ChannelCanPointToSharedReleaseSet(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	updated := &pb.ChannelInfo{ReleaseSetId: 92}
-	mockStore.EXPECT().
-		GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
-		Return(pb.CollectionType_COLLECTION_TYPE_CHANNEL, nil)
-	mockStore.EXPECT().
-		LockChannelForWrite(gomock.Any(), testCollectionID, testOrgID).
-		Return(nil)
-	mockStore.EXPECT().
-		UpdateCollection(gomock.Any(), testOrgID, testCollectionID, (*string)(nil), (*string)(nil)).
-		Return(nil)
-	mockStore.EXPECT().
-		FirmwareReleaseSetBelongsToOrg(gomock.Any(), testOrgID, int64(92)).
-		Return(true, nil)
-	mockStore.EXPECT().
-		UpdateChannelReleaseSet(gomock.Any(), testOrgID, testCollectionID, int64(92)).
-		Return(nil)
-	mockStore.EXPECT().
-		GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{
-			Id:   testCollectionID,
-			Type: pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-		}, nil)
-	mockStore.EXPECT().
-		GetChannelInfo(gomock.Any(), testCollectionID, testOrgID).
-		Return(updated, nil)
-
-	response, err := svc.UpdateCollection(testCtx(t), &pb.UpdateCollectionRequest{
-		CollectionId: testCollectionID,
-		TypeDetails: &pb.UpdateCollectionRequest_ChannelInfo{
-			ChannelInfo: &pb.ChannelInfo{ReleaseSetId: 92},
-		},
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, updated, response.Collection.GetChannelInfo())
-}
-
 // mockTelemetryCollector implements TelemetryCollector for tests.
 type mockTelemetryCollector struct {
 	metrics map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics
@@ -1114,7 +769,7 @@ func newTestServiceWithTelemetry(t *testing.T, telemetry TelemetryCollector, dev
 	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, nil
 	}
-	svc := NewService(mockStore, deviceQ, nil, nil, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, deviceQ, nil, nil, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
 	return svc, mockStore
 }
 
@@ -1409,7 +1064,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 		}
 		return nil, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -1459,7 +1114,7 @@ func newTestServiceWithResolver(t *testing.T, resolver DeviceIdentifierResolver)
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -1482,7 +1137,7 @@ func newTestServiceWithSites(t *testing.T, resolver DeviceIdentifierResolver) (*
 	// scope stay simple. Tests that exercise scope use explicit expectations.
 	mockSiteStore.EXPECT().GetDistinctDeviceSiteIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockSiteStore
 }
 
@@ -1511,7 +1166,7 @@ func newTestServiceWithSitesRecordingActivity(t *testing.T, resolver DeviceIdent
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, activity.NewService(mockActivityStore), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, activity.NewService(mockActivityStore))
 	return svc, mockStore, mockSiteStore, &captured
 }
 
@@ -1917,7 +1572,7 @@ func TestService_SaveRack_RejectsCreateIntoFullBuilding(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, resolver, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	ctx := testCtx(t)
 
 	buildingID := int64(7)
@@ -2161,7 +1816,7 @@ func newTestServiceWithActivityAssertions(t *testing.T) (*Service, *mocks.MockCo
 	}
 
 	activitySvc := activity.NewService(mockActivityStore)
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, activitySvc, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, activitySvc)
 	return svc, mockStore, mockActivityStore
 }
 
@@ -4160,285 +3815,6 @@ func TestService_AssignDevicesToRack_lockReparentCrossOrgTargetReturnsEmpty(t *t
 	require.Error(t, err)
 }
 
-func TestService_AssignDevicesToChannel_OrgScopedAtomicMove(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"d1", "d2"}
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{12, 13, 77}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return(deviceIDs, nil),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return([]int64{12, 13}, nil),
-		mockStore.EXPECT().
-			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
-			Return(false, nil),
-		mockStore.EXPECT().
-			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12, 13}).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			GetCollection(gomock.Any(), testOrgID, targetChannelID).
-			Return(&pb.DeviceCollection{
-				Id:    targetChannelID,
-				Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-				Label: "Stable",
-			}, nil),
-		mockStore.EXPECT().
-			GetChannelInfo(gomock.Any(), targetChannelID, testOrgID).
-			Return(&pb.ChannelInfo{ReleaseSetId: 91}, nil),
-		mockStore.EXPECT().
-			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return(int64(2), nil),
-		mockStore.EXPECT().
-			AddDevicesToCollection(gomock.Any(), testOrgID, targetChannelID, deviceIDs).
-			Return(int64(2), nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), result.AssignedCount)
-	assert.Equal(t, int64(2), result.RemovedCount)
-}
-
-func TestService_AssignDevicesToChannel_MissingOrgDeviceWritesNothing(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"owned", "other-org"}
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{77}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return([]string{"owned"}, nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.True(t, fleeterror.IsNotFoundError(err))
-}
-
-func TestService_AssignDevicesToChannel_RejectsRolloutLaneTarget(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"d1"}
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{77}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return(deviceIDs, nil),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
-			Return(true, nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-}
-
-func TestService_AssignDevicesToChannel_UnassignDoesNotTouchRackPlacement(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	deviceIDs := []string{"d1"}
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).
-			Return([]int64{12}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return(deviceIDs, nil),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return([]int64{12}, nil),
-		mockStore.EXPECT().
-			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12}).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, int64(0)).
-			Return(int64(1), nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.NoError(t, err)
-	assert.Zero(t, result.AssignedCount)
-	assert.Equal(t, int64(1), result.RemovedCount)
-}
-
-func TestService_AssignDevicesToChannel_RejectsRolloutLaneSource(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"d1"}
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			// Simulate a lane add committing after the channel pre-lock snapshot.
-			Return([]int64{77}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			Return(deviceIDs, nil),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return([]int64{12}, nil),
-		mockStore.EXPECT().
-			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
-			Return(false, nil),
-		mockStore.EXPECT().
-			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12}).
-			Return([]int64{12}, nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-}
-
-func TestService_AssignDevicesToChannel_ConcurrentLaneAddWinsBeforePostLockRead(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	laneChannelID := int64(12)
-	deviceIDs := []string{"d1"}
-	assignmentReachedDeviceLock := make(chan struct{})
-	laneAddCommitted := make(chan struct{})
-	go func() {
-		<-assignmentReachedDeviceLock
-		close(laneAddCommitted)
-	}()
-
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{targetChannelID}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			DoAndReturn(func(context.Context, int64, []string) ([]string, error) {
-				close(assignmentReachedDeviceLock)
-				<-laneAddCommitted
-				return deviceIDs, nil
-			}),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return([]int64{laneChannelID}, nil),
-		mockStore.EXPECT().
-			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
-			Return(false, nil),
-		mockStore.EXPECT().
-			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{laneChannelID}).
-			Return([]int64{laneChannelID}, nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-}
-
-func TestService_AssignDevicesToChannel_ConcurrentGenericAssignmentWinsDeviceLock(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
-	targetChannelID := int64(77)
-	deviceIDs := []string{"d1"}
-	genericDeviceLocked := make(chan struct{})
-	laneAddAttempted := make(chan struct{})
-	go func() {
-		<-genericDeviceLocked
-		close(laneAddAttempted)
-	}()
-
-	gomock.InOrder(
-		mockStore.EXPECT().
-			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{targetChannelID}, nil),
-		mockStore.EXPECT().
-			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
-			DoAndReturn(func(context.Context, int64, []string) ([]string, error) {
-				close(genericDeviceLocked)
-				<-laneAddAttempted
-				return deviceIDs, nil
-			}),
-		mockStore.EXPECT().
-			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
-			Return(false, nil),
-		mockStore.EXPECT().
-			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
-			Return(nil, nil),
-		mockStore.EXPECT().
-			GetCollection(gomock.Any(), testOrgID, targetChannelID).
-			Return(&pb.DeviceCollection{
-				Id:    targetChannelID,
-				Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
-				Label: "Stable",
-			}, nil),
-		mockStore.EXPECT().
-			GetChannelInfo(gomock.Any(), targetChannelID, testOrgID).
-			Return(&pb.ChannelInfo{ReleaseSetId: 91}, nil),
-		mockStore.EXPECT().
-			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return(int64(1), nil),
-		mockStore.EXPECT().
-			AddDevicesToCollection(gomock.Any(), testOrgID, targetChannelID, deviceIDs).
-			Return(int64(1), nil),
-	)
-
-	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
-		OrgID:             testOrgID,
-		TargetChannelID:   &targetChannelID,
-		DeviceIdentifiers: deviceIDs,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), result.AssignedCount)
-	assert.Equal(t, int64(1), result.RemovedCount)
-}
-
 // --- CreateRacks (bulk) ---
 
 func newTestServiceForBulkRacks(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.MockSiteStore, *mocks.MockBuildingStore) {
@@ -4451,7 +3827,7 @@ func newTestServiceForBulkRacks(t *testing.T) (*Service, *mocks.MockCollectionSt
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, nil, nil, newStubActivityService(ctrl), nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, nil, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockSiteStore, mockBuildingStore
 }
 

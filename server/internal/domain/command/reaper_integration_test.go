@@ -63,7 +63,6 @@ func createStuckMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceID i
 			DeviceID:            deviceID,
 			Status:              sqlc.QueueStatusEnumPROCESSING,
 			RetryCount:          0,
-			MaxAttempts:         5,
 			Payload:             pqtype.NullRawMessage{Valid: false},
 		})
 	})
@@ -130,9 +129,6 @@ func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Ty
 	return nil
 }
 func (n *noopMessageQueue) EnqueueMany(_ context.Context, _ string, _ commandtype.Type, _ []queue.EnqueueMessage) error {
-	return nil
-}
-func (n *noopMessageQueue) EnqueueCommandBatch(_ context.Context, _ queue.CommandBatch) error {
 	return nil
 }
 func (n *noopMessageQueue) Dequeue(ctx context.Context, _ int32) ([]queue.Message, error) {
@@ -223,7 +219,6 @@ func TestReaperIntegration(t *testing.T) {
 				DeviceID:            device.DatabaseID,
 				Status:              sqlc.QueueStatusEnumSUCCESS,
 				RetryCount:          0,
-				MaxAttempts:         5,
 				Payload:             pqtype.NullRawMessage{Valid: false},
 			})
 		})
@@ -310,7 +305,6 @@ func TestExecutionServiceStartupPreservesPendingAndFailsProcessing(t *testing.T)
 		CommandType:         rebootCommand.String(),
 		DeviceID:            commandDevice.DatabaseID,
 		Status:              sqlc.QueueStatusEnumPENDING,
-		MaxAttempts:         5,
 		Payload:             pqtype.NullRawMessage{},
 	}))
 	require.NoError(t, queries.CreateQueueMessage(t.Context(), sqlc.CreateQueueMessageParams{
@@ -318,7 +312,6 @@ func TestExecutionServiceStartupPreservesPendingAndFailsProcessing(t *testing.T)
 		CommandType:         firmwareCommand.String(),
 		DeviceID:            firmwareDevice.DatabaseID,
 		Status:              sqlc.QueueStatusEnumPROCESSING,
-		MaxAttempts:         5,
 		Payload:             pqtype.NullRawMessage{},
 	}))
 	require.NoError(t, queries.UpsertDeviceStatus(t.Context(), sqlc.UpsertDeviceStatusParams{

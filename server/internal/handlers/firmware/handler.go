@@ -419,13 +419,6 @@ type deleteAllFilesResponse struct {
 	Error        string `json:"error,omitempty"`
 }
 
-type firmwareReferenceChecker interface {
-	FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error)
-	AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error)
-}
-
-var errFirmwareReferenceValidation = errors.New("firmware reference validation failed")
-
 // NewListFilesHandler returns an http.Handler that lists all uploaded firmware files.
 func NewListFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
 	return &listFilesHandler{
@@ -474,7 +467,6 @@ func NewUpdateMetadataHandler(
 	userStore interfaces.UserStore,
 	activitySvc *activityDomain.Service,
 	permissionResolver effectivePermissionResolver,
-	referenceChecker firmwareReferenceChecker,
 ) http.Handler {
 	return &updateMetadataHandler{
 		filesService:       filesService,
@@ -482,7 +474,6 @@ func NewUpdateMetadataHandler(
 		userStore:          userStore,
 		activitySvc:        activitySvc,
 		permissionResolver: permissionResolver,
-		referenceChecker:   referenceChecker,
 	}
 }
 
@@ -492,7 +483,6 @@ type updateMetadataHandler struct {
 	userStore          interfaces.UserStore
 	activitySvc        *activityDomain.Service
 	permissionResolver effectivePermissionResolver
-	referenceChecker   firmwareReferenceChecker
 }
 
 func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -527,19 +517,14 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	result, err := h.filesService.UpdateFirmwareMetadataGuarded(fileID, metadata, func() error {
-		return validateFirmwareArtifactMutation(ctx, h.referenceChecker, fileID)
-	})
+
+	result, err := h.filesService.UpdateFirmwareMetadata(fileID, metadata)
 	if err != nil {
 		switch {
 		case fleeterror.IsNotFoundError(err):
 			writeError(w, http.StatusNotFound, err.Error())
 		case fleeterror.IsInvalidArgumentError(err):
 			writeError(w, http.StatusBadRequest, err.Error())
-		case fleeterror.IsFailedPreconditionError(err):
-			writeError(w, http.StatusConflict, "firmware file is referenced by an immutable release set")
-		case errors.Is(err, errFirmwareReferenceValidation):
-			writeError(w, http.StatusInternalServerError, "failed to validate firmware references")
 		default:
 			slog.Error("failed to update firmware metadata", "file_id", fileID, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to update firmware metadata")
@@ -558,14 +543,12 @@ func NewDeleteFileHandler(
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
 	permissionResolver effectivePermissionResolver,
-	referenceChecker firmwareReferenceChecker,
 ) http.Handler {
 	return &deleteFileHandler{
 		filesService:       filesService,
 		sessionService:     sessionService,
 		userStore:          userStore,
 		permissionResolver: permissionResolver,
-		referenceChecker:   referenceChecker,
 	}
 }
 
@@ -574,19 +557,17 @@ type deleteFileHandler struct {
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
 	permissionResolver effectivePermissionResolver
-	referenceChecker   firmwareReferenceChecker
 }
 
 func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, ok := requireMutationPermission(
+	if _, ok := requireMutationPermission(
 		w,
 		r,
 		h.sessionService,
 		h.userStore,
 		h.permissionResolver,
 		"delete file",
-	)
-	if !ok {
+	); !ok {
 		return
 	}
 
@@ -595,23 +576,14 @@ func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file ID is required")
 		return
 	}
-	if err := h.filesService.DeleteFirmwareFileGuarded(fileID, func() error {
-		return validateFirmwareArtifactMutation(ctx, h.referenceChecker, fileID)
-	}); err != nil {
+
+	if err := h.filesService.DeleteFirmwareFile(fileID); err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
 		if fleeterror.IsInvalidArgumentError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if fleeterror.IsFailedPreconditionError(err) {
-			writeError(w, http.StatusConflict, "firmware file is referenced by an immutable release set")
-			return
-		}
-		if errors.Is(err, errFirmwareReferenceValidation) {
-			writeError(w, http.StatusInternalServerError, "failed to validate firmware references")
 			return
 		}
 		slog.Error("failed to delete firmware file", "file_id", fileID, "error", err)
@@ -628,14 +600,12 @@ func NewDeleteAllFilesHandler(
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
 	permissionResolver effectivePermissionResolver,
-	referenceChecker firmwareReferenceChecker,
 ) http.Handler {
 	return &deleteAllFilesHandler{
 		filesService:       filesService,
 		sessionService:     sessionService,
 		userStore:          userStore,
 		permissionResolver: permissionResolver,
-		referenceChecker:   referenceChecker,
 	}
 }
 
@@ -644,33 +614,22 @@ type deleteAllFilesHandler struct {
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
 	permissionResolver effectivePermissionResolver
-	referenceChecker   firmwareReferenceChecker
 }
 
 func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, ok := requireMutationPermission(
+	if _, ok := requireMutationPermission(
 		w,
 		r,
 		h.sessionService,
 		h.userStore,
 		h.permissionResolver,
 		"delete all files",
-	)
-	if !ok {
+	); !ok {
 		return
 	}
-	deleted, err := h.filesService.DeleteAllFirmwareFilesGuarded(func() error {
-		return validateAnyFirmwareArtifactMutation(ctx, h.referenceChecker)
-	})
+
+	deleted, err := h.filesService.DeleteAllFirmwareFiles()
 	if err != nil {
-		if fleeterror.IsFailedPreconditionError(err) {
-			writeError(w, http.StatusConflict, "one or more firmware files are referenced by immutable release sets")
-			return
-		}
-		if errors.Is(err, errFirmwareReferenceValidation) {
-			writeError(w, http.StatusInternalServerError, "failed to validate firmware references")
-			return
-		}
 		slog.Error("failed to delete all firmware files", "error", err, "deleted_before_error", deleted)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -688,38 +647,6 @@ func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	if err := json.NewEncoder(w).Encode(deleteAllFilesResponse{DeletedCount: deleted}); err != nil {
 		slog.Error("failed to encode delete-all response", "error", err)
 	}
-}
-
-func validateFirmwareArtifactMutation(
-	ctx context.Context,
-	checker firmwareReferenceChecker,
-	fileID string,
-) error {
-	if checker == nil {
-		return fmt.Errorf("%w: unavailable", errFirmwareReferenceValidation)
-	}
-	referenced, err := checker.FirmwareArtifactReferenced(ctx, fileID)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errFirmwareReferenceValidation, err)
-	}
-	if referenced {
-		return fleeterror.NewFailedPreconditionError("firmware file is referenced by an immutable release set")
-	}
-	return nil
-}
-
-func validateAnyFirmwareArtifactMutation(ctx context.Context, checker firmwareReferenceChecker) error {
-	if checker == nil {
-		return fmt.Errorf("%w: unavailable", errFirmwareReferenceValidation)
-	}
-	referenced, err := checker.AnyFirmwareArtifactReferenced(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errFirmwareReferenceValidation, err)
-	}
-	if referenced {
-		return fleeterror.NewFailedPreconditionError("one or more firmware files are referenced by immutable release sets")
-	}
-	return nil
 }
 
 func writeError(w http.ResponseWriter, statusCode int, message string) {
