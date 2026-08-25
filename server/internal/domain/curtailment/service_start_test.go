@@ -54,7 +54,7 @@ func TestService_Start_RejectsEmptyReason(t *testing.T) {
 	}
 }
 
-func TestService_Start_TopologyScopesFreezeSelectedTargets(t *testing.T) {
+func TestService_Start_FixedKWTopologyScopesFreezeSelectedTargets(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -123,25 +123,113 @@ func TestService_Start_TopologyScopesFreezeSelectedTargets(t *testing.T) {
 	}
 }
 
-func TestService_Start_RejectsTopologyFullFleetUntilLifecycleLands(t *testing.T) {
+func TestService_Start_TopologyFullFleetStartsClosedLoopWithoutFrozenTargets(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	svc := NewService(store)
-	req := validStartRequest(1)
-	req.Scope = Scope{
-		SchemaVersion: ScopeSchemaVersionCurrent,
-		BuildingIDs:   []int64{7},
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+		seed  func(*fakeStore, int64, *models.Candidate)
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.Mode = models.ModeFullFleet
+			req.TargetKW = 0
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+			assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+			assert.Empty(t, store.lastInsertTargets)
+		})
 	}
+}
+
+func TestService_Start_AllPairedTopologyFullFleetPersistsPolicyTargets(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("building-miner", 3000, 100, 30)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
 	req.Mode = models.ModeFullFleet
-	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
 
-	_, err := svc.Start(t.Context(), req)
+	plan, err := svc.Start(t.Context(), req)
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsUnimplementedError(err))
-	assert.Contains(t, err.Error(), "topology-following lifecycle")
-	assert.Zero(t, store.listCandidatesCalls)
+	require.NoError(t, err)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	require.Len(t, store.lastInsertTargets, 1)
+	assert.Equal(t, candidate.DeviceIdentifier, store.lastInsertTargets[0].DeviceIdentifier)
+}
+
+func TestService_Start_EmptyAllPairedTopologyPersistsPendingWatcher(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("unpaired-building-miner", 3000, 100, 30)
+	candidate.PairingStatus = "UNPAIRED"
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Empty(t, plan.Selected)
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+	assert.Nil(t, store.lastInsertEvent.StartedAt)
+	assert.Empty(t, store.lastInsertTargets)
 }
 
 func TestService_Start_EmptyTopologyScopeReturnsInsufficientLoadWithoutPersisting(t *testing.T) {
@@ -256,7 +344,7 @@ func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *te
 			_, err := svc.Start(t.Context(), req)
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			assert.Contains(t, err.Error(), "whole-org or site scope")
+			assert.Contains(t, err.Error(), "whole-org, site, building, rack, or group scope")
 		})
 	}
 }
@@ -946,6 +1034,34 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 	assert.True(t, store.lastInsertEvent.AllowUnbounded)
 	assert.Nil(t, store.lastInsertEvent.MaxDurationSeconds,
 		"allow_unbounded events must persist max_duration_seconds = NULL")
+}
+
+func TestStartRequiresAdminControls(t *testing.T) {
+	t.Parallel()
+
+	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
+	tests := []struct {
+		name string
+		req  StartRequest
+		want bool
+	}{
+		{name: "ordinary settings"},
+		{name: "allow unbounded", req: StartRequest{AllowUnbounded: true}, want: true},
+		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
+		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
+		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
+		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
+		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, startRequiresAdminControls(tt.req, orgConfig))
+		})
+	}
 }
 
 func TestService_Start_ForwardsIdempotencyAndExternalAttribution(t *testing.T) {

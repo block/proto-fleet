@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -60,10 +62,13 @@ type fakeStore struct {
 	listTargetsByEventCalls int
 	listCandidatesCalls     int
 	listCandidatesErr       error
+	listCandidatesHook      func()
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
 	claimedAllPairedParams  []models.InsertTargetParams
+	topologyRestoreCalls    int
+	topologyRestoreDevices  []string
 	bulkRefreshCalls        int
 	lastBulkRefreshUpdates  []interfaces.AllPairedReadinessUpdate
 	bulkRefreshErr          error
@@ -77,16 +82,15 @@ type fakeStore struct {
 	lastCooldownExcludeID  int64
 	lastCooldownSec        int32
 	lastCooldownFilter     []string
-	lastCooldownSiteIDs    []int64
 
 	heartbeatCalls               int
 	lastHeartbeatActive          int32
 	lastHeartbeatTickUUID        uuid.UUID
-	lastListCandidatesSiteIDs    []int64
-	lastListCandidatesFilter     []string
+	lastListCandidatesParams     interfaces.ListCandidatesParams
 	listCandidatesFilters        [][]string
 	topologyCoverage             interfaces.CurtailmentTopologyScopeCoverage
 	topologyCoverageErr          error
+	topologyDispatchMembers      []string
 	topologyDispatchErr          error
 	topologyDispatchCalls        int
 	topologyFenceErr             error
@@ -145,7 +149,6 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
 	f.lastCooldownExcludeID = params.ExcludeEventID
 	f.lastCooldownSec = params.CooldownSec
 	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
-	f.lastCooldownSiteIDs = append([]int64(nil), params.SiteIDs...)
 	return append([]string(nil), f.cooldownDevices...), nil
 }
 func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -227,6 +230,30 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	}
 	return claimed, nil
 }
+
+func (f *fakeStore) BeginCurtailmentTopologyTargetRestore(
+	_ context.Context,
+	event *models.Event,
+	deviceIdentifiers []string,
+) (int64, error) {
+	f.topologyRestoreCalls++
+	f.topologyRestoreDevices = append([]string(nil), deviceIdentifiers...)
+	wanted := toStringSet(deviceIdentifiers)
+	var transitioned int64
+	for _, target := range f.targetsByEventID[event.ID] {
+		if _, ok := wanted[target.DeviceIdentifier]; !ok || target.DesiredState == models.DesiredStateActive {
+			continue
+		}
+		target.DesiredState = models.DesiredStateActive
+		target.State = models.TargetStatePending
+		target.RestorePhase = &models.TargetPhaseSummary{
+			Phase: models.TargetPhaseRestore,
+			State: models.TargetStatePending,
+		}
+		transitioned++
+	}
+	return transitioned, nil
+}
 func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	_ context.Context,
 	eventID int64,
@@ -260,6 +287,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 			row.LastError = target.LastError
 			row.ReleasedAt = nil
 			row.CurtailPhase = models.TargetPhaseSummary{}
+			row.RestorePhase = nil
 			claimed++
 			continue
 		}
@@ -282,9 +310,9 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 }
 
 // BulkRefreshAllPairedTargetReadiness: real-fake mirroring the SQL guards —
-// only pending/unavailable curtail-phase rows on an event still in the
-// expected state flip; everything else is skipped, not clobbered. Returns
-// the applied device identifiers, mirroring the RETURNING clause.
+// only refreshable curtail or topology-restore policy rows on an event still
+// in the expected state flip; everything else is skipped, not clobbered.
+// Returns the applied device identifiers, mirroring the RETURNING clause.
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	_ context.Context,
 	eventID int64,
@@ -315,17 +343,24 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		if !ok {
 			continue
 		}
-		if t.DesiredState != update.ExpectedDesiredState {
+		desiredState := t.DesiredState
+		if desiredState == "" {
+			desiredState = models.DesiredStateCurtailed
+		}
+		if desiredState != update.ExpectedDesiredState {
 			continue
 		}
 		if t.State != update.ExpectedState {
 			continue
 		}
-		if (t.DesiredState == models.DesiredStateCurtailed && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable) ||
-			(t.DesiredState == models.DesiredStateActive && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable && t.State != models.TargetStateRestoreFailed) {
+		if (desiredState == models.DesiredStateCurtailed && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable) ||
+			(desiredState == models.DesiredStateActive && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable && t.State != models.TargetStateRestoreFailed) {
 			continue
 		}
 		if update.State != models.TargetStatePending && update.State != models.TargetStateUnavailable {
+			continue
+		}
+		if t.State != update.ExpectedState {
 			continue
 		}
 		t.State = update.State
@@ -338,6 +373,12 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		if update.BaselinePowerW != nil && t.BaselinePowerW == nil {
 			baseline := *update.BaselinePowerW
 			t.BaselinePowerW = &baseline
+		}
+		if desiredState == models.DesiredStateActive && update.State == models.TargetStatePending {
+			t.RetryCount = 0
+			t.LastDispatchedAt = nil
+			t.LastBatchUUID = nil
+			t.ConfirmedAt = nil
 		}
 		reason := update.Reason
 		updateTargetPhaseSummary(t, interfaces.UpdateCurtailmentTargetStateParams{
@@ -389,9 +430,11 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	f.listCandidatesCalls++
-	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
-	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.lastListCandidatesParams = params
 	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
+	if f.listCandidatesHook != nil {
+		f.listCandidatesHook()
+	}
 	if f.listCandidatesErr != nil {
 		return nil, f.listCandidatesErr
 	}
@@ -428,9 +471,13 @@ func (f *fakeStore) ResolveCurtailmentTopologyDispatch(
 		return interfaces.CurtailmentTopologyDispatchSnapshot{}, f.topologyDispatchErr
 	}
 	members := make(map[string]struct{}, len(f.candidates))
-	for _, candidate := range f.candidates {
-		if candidate != nil {
-			members[candidate.DeviceIdentifier] = struct{}{}
+	if f.topologyDispatchMembers != nil {
+		members = toStringSet(f.topologyDispatchMembers)
+	} else {
+		for _, candidate := range f.candidates {
+			if candidate != nil {
+				members[candidate.DeviceIdentifier] = struct{}{}
+			}
 		}
 	}
 	dispatchMembers := make([]string, 0, len(dispatchDeviceIdentifiers))
@@ -1021,24 +1068,30 @@ func identifiersFromSelector(selector *pb.DeviceSelector) []string {
 
 // --- helpers ---
 
-func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
+func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher, options ...Option) *Reconciler {
 	r := New(Config{
 		TickInterval:         time.Hour, // tests drive runTick directly
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
-	}, store, disp)
+	}, store, disp, options...)
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }
 
-func newReconcilerWithFansForTest(store *fakeStore, disp *fakeDispatcher, fans *fakeFanController) *Reconciler {
+func newReconcilerWithFansForTest(
+	store *fakeStore,
+	disp *fakeDispatcher,
+	fans *fakeFanController,
+	options ...Option,
+) *Reconciler {
+	options = append([]Option{WithFacilityFanController(fans)}, options...)
 	r := New(Config{
 		TickInterval:         time.Hour,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
-	}, store, disp, WithFacilityFanController(fans))
+	}, store, disp, options...)
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }
@@ -1064,6 +1117,8 @@ func ptrFloat64(v float64) *float64 { return &v }
 type staticDispatchPermissionResolver struct {
 	effective *authz.EffectivePermissions
 	err       error
+	roleName  string
+	roleErr   error
 }
 
 func (r staticDispatchPermissionResolver) LoadEffective(
@@ -1072,6 +1127,17 @@ func (r staticDispatchPermissionResolver) LoadEffective(
 	int64,
 ) (*authz.EffectivePermissions, error) {
 	return r.effective, r.err
+}
+
+func (r staticDispatchPermissionResolver) LoadRoleName(
+	context.Context,
+	int64,
+	int64,
+) (string, error) {
+	if r.roleName == "" && r.roleErr == nil {
+		return domainAuth.AdminRoleName, nil
+	}
+	return r.roleName, r.roleErr
 }
 
 // --- tests ---
@@ -2336,19 +2402,12 @@ func TestReconciler_AllPairedPolicyRefreshQueriesOnlyRefreshableTargets(t *testi
 			State:              models.TargetStateReleased,
 			DesiredState:       models.DesiredStateCurtailed,
 		},
-		{
-			CurtailmentEventID: eventID,
-			DeviceIdentifier:   "restore-pending",
-			State:              models.TargetStatePending,
-			DesiredState:       models.DesiredStateActive,
-		},
 	}
 	driver := "antminer"
 	store.candidates = []*models.Candidate{
 		{DeviceIdentifier: "needs-refresh", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
 		{DeviceIdentifier: "confirmed", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
 		{DeviceIdentifier: "released", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
-		{DeviceIdentifier: "restore-pending", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
 	}
 
 	r := newReconcilerForTest(store, disp)
@@ -2998,9 +3057,9 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesParams.SiteIDs)
 	assert.Equal(t, 1, store.cooldownCalls)
-	assert.Equal(t, []int64{siteID}, store.lastCooldownSiteIDs)
+	assert.Equal(t, []string{"site-miner"}, store.lastCooldownFilter)
 	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
 }
 
@@ -3042,11 +3101,808 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedMultiSiteScope(t *test
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, siteIDs, store.lastListCandidatesSiteIDs)
+	assert.Equal(t, siteIDs, store.lastListCandidatesParams.SiteIDs)
 	assert.Equal(t, 1, store.cooldownCalls)
-	assert.Equal(t, siteIDs, store.lastCooldownSiteIDs)
+	assert.Equal(t, []string{"site-miner"}, store.lastCooldownFilter)
 	assert.Equal(t, 1, store.claimTargetsCalls)
 	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
+}
+
+const (
+	topologyAdmissionTestEnvelope      = `{"schema_version":1,"selected_resource_site_ids":[7],"current_member_site_ids":[7],"miner_scope_unbounded":false,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`
+	topologyAdmissionTestBuildingScope = `{"scope_schema_version":1,"building_ids":[7]}`
+)
+
+func topologyAdmissionTestFixture(scopeJSON string) (*fakeStore, *models.Event) {
+	store := newFakeStore()
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	event := &models.Event{
+		ID:                        10,
+		EventUUID:                 uuid.New(),
+		OrgID:                     1,
+		CreatedByUserID:           99,
+		State:                     models.EventStateActive,
+		Mode:                      models.ModeFullFleet,
+		LoopType:                  models.LoopTypeClosed,
+		ScopeType:                 models.ScopeTypeMixed,
+		ScopeJSON:                 []byte(scopeJSON),
+		AuthorizationEnvelopeJSON: []byte(topologyAdmissionTestEnvelope),
+	}
+	store.events = []*models.Event{event}
+	return store, event
+}
+
+func TestClaimClosedLoopFullFleetTargetsUsesPersistedTopologyScope(t *testing.T) {
+	tests := []struct {
+		name       string
+		scopeJSON  string
+		wantParams interfaces.ListCandidatesParams
+	}{
+		{
+			name:       "buildings",
+			scopeJSON:  `{"scope_schema_version":1,"building_ids":[7,8]}`,
+			wantParams: interfaces.ListCandidatesParams{BuildingIDs: []int64{7, 8}},
+		},
+		{
+			name:       "racks",
+			scopeJSON:  `{"scope_schema_version":1,"rack_ids":[9,10]}`,
+			wantParams: interfaces.ListCandidatesParams{RackIDs: []int64{9, 10}},
+		},
+		{
+			name:       "groups",
+			scopeJSON:  `{"scope_schema_version":1,"group_ids":[11,12]}`,
+			wantParams: interfaces.ListCandidatesParams{GroupIDs: []int64{11, 12}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(tt.scopeJSON)
+			driver := "antminer"
+			now := time.Now()
+			store.candidates = []*models.Candidate{{
+				DeviceIdentifier: "topology-miner",
+				DriverName:       &driver,
+				DeviceStatus:     "ACTIVE",
+				PairingStatus:    "PAIRED",
+				LatestMetricsAt:  &now,
+				LatestPowerW:     ptrFloat64(3000),
+				LatestHashRateHS: ptrFloat64(100),
+			}}
+			event.DecisionSnapshotJSON = []byte(`{"post_event_cooldown_sec":600}`)
+
+			r := newReconcilerForTest(
+				store,
+				&fakeDispatcher{},
+				WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+					effective: topologyDispatchManagePermission(),
+				}),
+			)
+			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+
+			require.Len(t, claimed, 1)
+			tt.wantParams.OrgID = event.OrgID
+			tt.wantParams.ResultLimit = curtailment.ScopeResolvedMinerMax + 1
+			assert.Equal(t, tt.wantParams, store.lastListCandidatesParams)
+			assert.Equal(t, []string{"topology-miner"}, store.lastCooldownFilter)
+		})
+	}
+}
+
+func TestClaimClosedLoopFullFleetTargetsRejectsOversizedExpansion(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	store.candidates = make([]*models.Candidate, curtailment.ScopeResolvedMinerMax+1)
+	for index := range store.candidates {
+		store.candidates[index] = &models.Candidate{DeviceIdentifier: fmt.Sprintf("miner-%05d", index)}
+	}
+
+	r := newReconcilerForTest(
+		store,
+		&fakeDispatcher{},
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+
+	assert.Empty(t, claimed)
+	assert.Equal(t, int32(curtailment.ScopeResolvedMinerMax+1), store.lastListCandidatesParams.ResultLimit)
+	assert.Equal(t, 0, store.claimTargetsCalls)
+	assert.Equal(t, 1, store.beginRestoreCalls)
+}
+
+func TestClaimClosedLoopFullFleetTargetsRestoresTopologyDeparturesBeforeAdmission(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	store.targetsByEventID[event.ID] = []*models.Target{{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStateConfirmed,
+		DesiredState:       models.DesiredStateCurtailed,
+	}}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: "new-member",
+		DriverName:       &driver,
+		DeviceStatus:     "ACTIVE",
+		PairingStatus:    "PAIRED",
+		LatestMetricsAt:  &now,
+		LatestPowerW:     ptrFloat64(3000),
+		LatestHashRateHS: ptrFloat64(100),
+	}}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+
+	assert.Empty(t, claimed)
+	assert.Equal(t, 1, store.topologyRestoreCalls)
+	assert.Equal(t, []string{"departed-miner"}, store.topologyRestoreDevices)
+	assert.Equal(t, 0, store.claimTargetsCalls, "departure restoration must run before new admission")
+	restored := store.targetsByEventID[event.ID][0]
+	assert.Equal(t, models.DesiredStateActive, restored.DesiredState)
+	assert.Equal(t, models.TargetStatePending, restored.State)
+
+	r.observeActive(t.Context(), event)
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{"departed-miner"}, dispatcher.uncurtailLastIDs)
+	assert.Equal(t, 0, dispatcher.curtailCalls)
+}
+
+func TestReconcileClosedLoopTopologyDeparturesRestoresUnpairedOwnedMiner(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "unpaired-miner",
+		State:              models.TargetStateConfirmed,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	r := newReconcilerForTest(store, &fakeDispatcher{})
+
+	departures, ok := r.reconcileClosedLoopTopologyDepartures(
+		t.Context(),
+		event,
+		store.targetsByEventID[event.ID],
+		[]*models.Candidate{{DeviceIdentifier: target.DeviceIdentifier, PairingStatus: "UNPAIRED"}},
+	)
+
+	assert.True(t, ok)
+	assert.True(t, departures)
+	assert.Equal(t, []string{target.DeviceIdentifier}, store.topologyRestoreDevices)
+	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
+	assert.Equal(t, models.TargetStatePending, target.State)
+}
+
+func TestDriveTopologyRestoresCompletesWhileEventIsPending(t *testing.T) {
+	store := newFakeStore()
+	event := &models.Event{
+		ID:        11,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStatePending,
+		Mode:      models.ModeFullFleet,
+		LoopType:  models.LoopTypeClosed,
+	}
+	restoreTarget := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateActive,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase: models.TargetPhaseRestore,
+			State: models.TargetStatePending,
+		},
+	}
+	confirmedTarget := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "curtailed-miner",
+		State:              models.TargetStateConfirmed,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	targets := []*models.Target{restoreTarget, confirmedTarget}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = targets
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(store, dispatcher)
+
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, targets))
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateDispatched, restoreTarget.State)
+
+	metricsAt := r.now()
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: restoreTarget.DeviceIdentifier,
+		LatestMetricsAt:  &metricsAt,
+		LatestHashRateHS: ptrFloat64(100),
+	}}
+	assert.False(t, r.driveTopologyRestores(t.Context(), event, targets))
+	assert.Equal(t, models.TargetStateResolved, restoreTarget.State)
+
+	r.maybeMarkActive(t.Context(), event, targets)
+	assert.Equal(t, models.EventStateActive, event.State)
+}
+
+func TestMaybeMarkActiveIgnoresCompletedTopologyDepartures(t *testing.T) {
+	tests := []struct {
+		name         string
+		state        models.TargetState
+		desiredState string
+	}{
+		{
+			name:         "released before curtail dispatch",
+			state:        models.TargetStateReleased,
+			desiredState: models.DesiredStateCurtailed,
+		},
+		{
+			name:         "restore retries exhausted",
+			state:        models.TargetStateRestoreFailed,
+			desiredState: models.DesiredStateActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+			event.State = models.EventStatePending
+			target := &models.Target{
+				CurtailmentEventID: event.ID,
+				DeviceIdentifier:   "departed-miner",
+				State:              tt.state,
+				DesiredState:       tt.desiredState,
+			}
+			r := newReconcilerForTest(store, &fakeDispatcher{})
+
+			r.maybeMarkActive(t.Context(), event, []*models.Target{target})
+
+			assert.Equal(t, models.EventStateActive, event.State)
+			assert.Equal(t, models.EventStateActive, store.updateEventLast[event.ID])
+		})
+	}
+}
+
+func TestPendingEmptyAllPairedTopologyWatcherWaitsForConfirmedMember(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.State = models.EventStatePending
+	event.ForceIncludeAllPairedMiners = true
+	event.CreatedAt = time.Now()
+	driver := "antminer"
+	metricsAt := time.Now()
+	candidate := &models.Candidate{
+		DeviceIdentifier: "newly-paired-miner",
+		DriverName:       &driver,
+		DeviceStatus:     "ACTIVE",
+		PairingStatus:    "UNPAIRED",
+		LatestMetricsAt:  &metricsAt,
+		LatestPowerW:     ptrFloat64(3000),
+		LatestHashRateHS: ptrFloat64(100),
+	}
+	store.candidates = []*models.Candidate{candidate}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	r.runTick(t.Context())
+	assert.Equal(t, models.EventStatePending, event.State)
+	assert.Empty(t, store.targetsByEventID[event.ID])
+	assert.NotContains(t, store.updateEventLast, event.ID)
+
+	candidate.PairingStatus = "PAIRED"
+	r.runTick(t.Context())
+	assert.Equal(t, models.EventStatePending, event.State)
+	require.Len(t, store.targetsByEventID[event.ID], 1)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[event.ID][0].State)
+	assert.Equal(t, 0, dispatcher.curtailCalls)
+
+	dispatcher.curtailHook = func(_ []string) {
+		candidate.LatestPowerW = ptrFloat64(0)
+		candidate.LatestHashRateHS = ptrFloat64(0)
+	}
+	r.runTick(t.Context())
+
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[event.ID][0].State)
+	assert.Equal(t, models.EventStateActive, event.State)
+}
+
+func TestObserveRestoringRequeuesRepairedAllPairedTopologyTarget(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.State = models.EventStateRestoring
+	event.ForceIncludeAllPairedMiners = true
+	driver := "antminer"
+	reason := "unpaired"
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStateUnavailable,
+		DesiredState:       models.DesiredStateActive,
+		RetryCount:         2,
+		LastError:          &reason,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase:      models.TargetPhaseRestore,
+			State:      models.TargetStateUnavailable,
+			RetryCount: 2,
+		},
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: target.DeviceIdentifier,
+		DriverName:       &driver,
+		DeviceStatus:     "INACTIVE",
+		PairingStatus:    "PAIRED",
+	}}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(store, dispatcher)
+
+	r.observeRestoring(t.Context(), event)
+
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Zero(t, target.RetryCount)
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{target.DeviceIdentifier}, dispatcher.uncurtailLastIDs)
+}
+
+func TestObserveActiveReconcilesTopologyDepartureBeforeCurtailRedispatch(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStateDrifted,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	r.observeActive(t.Context(), event)
+
+	assert.Equal(t, 1, store.topologyRestoreCalls)
+	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
+	assert.Equal(t, models.TargetStatePending, target.State)
+	assert.Zero(t, dispatcher.curtailCalls)
+}
+
+func TestObserveActiveFindsAdditionalDepartureWhileTopologyRestoreIsParked(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	parked := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "already-departed",
+		State:              models.TargetStateUnavailable,
+		DesiredState:       models.DesiredStateActive,
+	}
+	newDeparture := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "newly-departed",
+		State:              models.TargetStateConfirmed,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{parked, newDeparture}
+	r := newReconcilerForTest(
+		store,
+		&fakeDispatcher{},
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	r.observeActive(t.Context(), event)
+
+	assert.Equal(t, 1, store.topologyRestoreCalls)
+	assert.Equal(t, []string{newDeparture.DeviceIdentifier}, store.topologyRestoreDevices)
+	assert.Equal(t, models.DesiredStateActive, newDeparture.DesiredState)
+	assert.Equal(t, models.TargetStatePending, newDeparture.State)
+}
+
+func TestParkedTopologyRestoreDoesNotBlockAdmission(t *testing.T) {
+	for _, eventState := range []models.EventState{models.EventStatePending, models.EventStateActive} {
+		t.Run(string(eventState), func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+			event.State = eventState
+			event.ForceIncludeAllPairedMiners = true
+			reason := "unpaired"
+			parked := &models.Target{
+				CurtailmentEventID: event.ID,
+				DeviceIdentifier:   "departed-miner",
+				State:              models.TargetStateUnavailable,
+				DesiredState:       models.DesiredStateActive,
+				LastError:          &reason,
+				RestorePhase: &models.TargetPhaseSummary{
+					Phase:     models.TargetPhaseRestore,
+					State:     models.TargetStateUnavailable,
+					LastError: &reason,
+				},
+			}
+			store.targetsByEventID[event.ID] = []*models.Target{parked}
+			driver := "antminer"
+			now := time.Now()
+			store.candidates = []*models.Candidate{
+				{
+					DeviceIdentifier: parked.DeviceIdentifier,
+					DeviceStatus:     "INACTIVE",
+					PairingStatus:    "UNPAIRED",
+				},
+				{
+					DeviceIdentifier: "new-member",
+					DriverName:       &driver,
+					DeviceStatus:     "ACTIVE",
+					PairingStatus:    "PAIRED",
+					LatestMetricsAt:  &now,
+					LatestPowerW:     ptrFloat64(3000),
+					LatestHashRateHS: ptrFloat64(100),
+				},
+			}
+			r := newReconcilerForTest(
+				store,
+				&fakeDispatcher{},
+				WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+					effective: topologyDispatchManagePermission(),
+				}),
+			)
+
+			r.runTick(t.Context())
+
+			assert.Equal(t, 1, store.claimAllPairedCalls)
+			require.Len(t, store.targetsByEventID[event.ID], 2)
+			assert.Equal(t, "new-member", store.targetsByEventID[event.ID][1].DeviceIdentifier)
+			assert.Equal(t, models.TargetStatePending, store.targetsByEventID[event.ID][1].State)
+		})
+	}
+}
+
+func TestObserveActiveAdvancesTopologyRestoreBeforeAdmissionPreflight(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	store.topologyCoverageErr = errors.New("topology unavailable")
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateActive,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase: models.TargetPhaseRestore,
+			State: models.TargetStatePending,
+		},
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(store, dispatcher)
+
+	r.observeActive(t.Context(), event)
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{target.DeviceIdentifier}, dispatcher.uncurtailLastIDs)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Zero(t, dispatcher.curtailCalls)
+}
+
+func TestDriveTopologyRestoresRetriesFailedAllPairedObligationAfterRepair(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	store.topologyDispatchMembers = []string{}
+	driver := "antminer"
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStateRestoreFailed,
+		DesiredState:       models.DesiredStateActive,
+		RetryCount:         10,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase:      models.TargetPhaseRestore,
+			State:      models.TargetStateRestoreFailed,
+			RetryCount: 10,
+		},
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: target.DeviceIdentifier,
+		DriverName:       &driver,
+		DeviceStatus:     "ACTIVE",
+		PairingStatus:    "UNPAIRED",
+	}}
+	dispatcher := &fakeDispatcher{}
+	r := newReconcilerForTest(store, dispatcher)
+
+	assert.False(t, r.driveTopologyRestores(t.Context(), event, store.targetsByEventID[event.ID]))
+	assert.Equal(t, models.TargetStateUnavailable, target.State)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	store.candidates[0].PairingStatus = "PAIRED"
+	store.candidates[0].DeviceStatus = "INACTIVE"
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, store.targetsByEventID[event.ID]))
+	assert.Equal(t, int32(0), target.RetryCount)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{target.DeviceIdentifier}, dispatcher.uncurtailLastIDs)
+}
+
+func TestDriveTopologyRestoresParksMinerThatUnpairsDuringDispatch(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	store.topologyDispatchMembers = []string{}
+	driver := "antminer"
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateActive,
+		RetryCount:         2,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase:      models.TargetPhaseRestore,
+			State:      models.TargetStatePending,
+			RetryCount: 2,
+		},
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: target.DeviceIdentifier,
+		DriverName:       &driver,
+		DeviceStatus:     "INACTIVE",
+		PairingStatus:    "PAIRED",
+	}}
+	dispatcher := &fakeDispatcher{
+		uncurtailResultOverride: &command.CommandResult{},
+	}
+	dispatcher.uncurtailHook = func(_ []string) {
+		store.candidates[0].PairingStatus = "UNPAIRED"
+	}
+	r := newReconcilerForTest(store, dispatcher)
+
+	assert.False(t, r.driveTopologyRestores(t.Context(), event, store.targetsByEventID[event.ID]))
+	assert.Equal(t, models.TargetStateUnavailable, target.State)
+	assert.Equal(t, int32(2), target.RetryCount)
+
+	dispatcher.uncurtailHook = nil
+	dispatcher.uncurtailResultOverride = nil
+	store.candidates[0].PairingStatus = "PAIRED"
+	assert.True(t, r.driveTopologyRestores(t.Context(), event, store.targetsByEventID[event.ID]))
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Equal(t, int32(0), target.RetryCount)
+	assert.Equal(t, 2, dispatcher.uncurtailCalls)
+}
+
+func TestDriveTopologyRestoresParksDispatchedMinerThatBecomesUnpaired(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "departed-miner",
+		State:              models.TargetStateDispatched,
+		DesiredState:       models.DesiredStateActive,
+		RetryCount:         2,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase:      models.TargetPhaseRestore,
+			State:      models.TargetStateDispatched,
+			RetryCount: 2,
+		},
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: target.DeviceIdentifier,
+		DeviceStatus:     "INACTIVE",
+		PairingStatus:    "UNPAIRED",
+	}}
+	r := newReconcilerForTest(store, &fakeDispatcher{})
+
+	assert.False(t, r.driveTopologyRestores(t.Context(), event, store.targetsByEventID[event.ID]))
+	assert.Equal(t, models.TargetStateUnavailable, target.State)
+	assert.Equal(t, int32(2), target.RetryCount)
+}
+
+func TestClaimClosedLoopFullFleetTargetsReadmitsRestoredTopologyMember(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	store.targetsByEventID[event.ID] = []*models.Target{{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "returning-miner",
+		State:              models.TargetStateResolved,
+		DesiredState:       models.DesiredStateActive,
+	}}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: "returning-miner",
+		DriverName:       &driver,
+		DeviceStatus:     "ACTIVE",
+		PairingStatus:    "PAIRED",
+		LatestMetricsAt:  &now,
+		LatestPowerW:     ptrFloat64(3000),
+		LatestHashRateHS: ptrFloat64(100),
+	}}
+	r := newReconcilerForTest(
+		store,
+		&fakeDispatcher{},
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "returning-miner", claimed[0].DeviceIdentifier)
+	assert.Equal(t, models.DesiredStateCurtailed, claimed[0].DesiredState)
+	assert.Equal(t, models.TargetStateDispatching, claimed[0].State)
+}
+
+func TestClaimClosedLoopFullFleetTargetsReadmitsRestoreFailedTopologyMember(t *testing.T) {
+	for _, allPaired := range []bool{false, true} {
+		name := "selected miners"
+		if allPaired {
+			name = "all paired miners"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+			event.ForceIncludeAllPairedMiners = allPaired
+			store.targetsByEventID[event.ID] = []*models.Target{{
+				CurtailmentEventID: event.ID,
+				DeviceIdentifier:   "returning-miner",
+				State:              models.TargetStateRestoreFailed,
+				DesiredState:       models.DesiredStateActive,
+				RestorePhase: &models.TargetPhaseSummary{
+					Phase: models.TargetPhaseRestore,
+					State: models.TargetStateRestoreFailed,
+				},
+			}}
+			driver := "antminer"
+			now := time.Now()
+			store.candidates = []*models.Candidate{{
+				DeviceIdentifier: "returning-miner",
+				DriverName:       &driver,
+				DeviceStatus:     "ACTIVE",
+				PairingStatus:    "PAIRED",
+				LatestMetricsAt:  &now,
+				LatestPowerW:     ptrFloat64(3000),
+				LatestHashRateHS: ptrFloat64(100),
+			}}
+			r := newReconcilerForTest(
+				store,
+				&fakeDispatcher{},
+				WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+					effective: topologyDispatchManagePermission(),
+				}),
+			)
+
+			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+
+			target := store.targetsByEventID[event.ID][0]
+			assert.Equal(t, models.DesiredStateCurtailed, target.DesiredState)
+			assert.Nil(t, target.RestorePhase)
+			if allPaired {
+				assert.Empty(t, claimed)
+				assert.Equal(t, 1, store.claimAllPairedCalls)
+				assert.Equal(t, models.TargetStatePending, target.State)
+			} else {
+				require.Len(t, claimed, 1)
+				assert.Equal(t, 1, store.claimTargetsCalls)
+				assert.Equal(t, models.TargetStateDispatching, target.State)
+			}
+		})
+	}
+}
+
+func TestClaimClosedLoopFullFleetTargetsHandlesTopologyAdmissionFailure(t *testing.T) {
+	outsideEnvelope := interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{8},
+	}
+	tests := []struct {
+		name                  string
+		coverage              *interfaces.CurtailmentTopologyScopeCoverage
+		resolveErr            error
+		permissions           DispatchPermissionResolver
+		configure             func(*fakeStore, *models.Event)
+		requiresAdminControls bool
+		wantRestoreCalls      int
+	}{
+		{
+			name:             "restores when topology exceeds envelope",
+			coverage:         &outsideEnvelope,
+			wantRestoreCalls: 1,
+		},
+		{
+			name:             "restores when topology resource is gone",
+			resolveErr:       fleeterror.NewNotFoundError("building not found"),
+			wantRestoreCalls: 1,
+		},
+		{
+			name:             "restores when topology exceeds miner limit",
+			resolveErr:       fleeterror.NewResourceExhaustedErrorf("scope resolves to too many miners"),
+			wantRestoreCalls: 1,
+		},
+		{
+			name:       "defers transient topology failure",
+			resolveErr: errors.New("database unavailable"),
+		},
+		{
+			name:             "restores when creator permission is revoked",
+			permissions:      staticDispatchPermissionResolver{effective: authz.NewEffectivePermissions(nil)},
+			wantRestoreCalls: 1,
+		},
+		{
+			name:                  "restores when admin-only event creator is demoted",
+			permissions:           staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
+			requiresAdminControls: true,
+			wantRestoreCalls:      1,
+		},
+		{
+			name:        "restores after update raises restore interval and creator is demoted",
+			permissions: staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
+			configure: func(_ *fakeStore, event *models.Event) {
+				event.RestoreBatchIntervalSec = int32((6 * time.Minute) / time.Second)
+			},
+			wantRestoreCalls: 1,
+		},
+		{
+			name:        "restores after update raises max duration and creator is demoted",
+			permissions: staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
+			configure: func(store *fakeStore, event *models.Event) {
+				store.orgConfig = &models.OrgConfig{OrgID: event.OrgID, MaxDurationDefaultSec: 100}
+				maxDurationSeconds := int32(101)
+				event.MaxDurationSeconds = &maxDurationSeconds
+			},
+			wantRestoreCalls: 1,
+		},
+		{
+			name:                  "defers transient role failure",
+			permissions:           staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleErr: errors.New("role database unavailable")},
+			requiresAdminControls: true,
+		},
+		{
+			name:        "defers transient permission failure",
+			permissions: staticDispatchPermissionResolver{err: errors.New("permission database unavailable")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+			if tt.requiresAdminControls {
+				event.DecisionSnapshotJSON = []byte(`{"requires_admin_controls":true}`)
+			}
+			if tt.configure != nil {
+				tt.configure(store, event)
+			}
+			if tt.coverage != nil {
+				store.topologyCoverage = *tt.coverage
+			}
+			store.topologyCoverageErr = tt.resolveErr
+			permissions := tt.permissions
+			if permissions == nil {
+				permissions = staticDispatchPermissionResolver{effective: topologyDispatchManagePermission()}
+			}
+
+			r := newReconcilerForTest(
+				store,
+				&fakeDispatcher{},
+				WithDispatchPermissionResolver(permissions),
+			)
+			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+
+			assert.Empty(t, claimed)
+			assert.Equal(t, 0, store.listCandidatesCalls)
+			assert.Equal(t, tt.wantRestoreCalls, store.beginRestoreCalls)
+		})
+	}
 }
 
 func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *testing.T) {
@@ -3081,6 +3937,40 @@ func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *te
 		"failed DISPATCHING recovery must consume only one retry slot per tick")
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "queue unavailable")
+}
+
+func TestDispatchPendingCurtailBatchesSkipsRestoreDirectionTargets(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	event := &models.Event{
+		ID:        10,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateActive,
+	}
+	curtailTarget := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "curtail-miner",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	restoreTarget := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "restore-miner",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateActive,
+	}
+	targets := []*models.Target{curtailTarget, restoreTarget}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = targets
+	r := newReconcilerForTest(store, dispatcher)
+
+	r.dispatchPendingCurtailBatches(t.Context(), event, targets)
+
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Equal(t, []string{curtailTarget.DeviceIdentifier}, dispatcher.curtailLastIDs)
+	assert.Equal(t, models.TargetStateDispatched, curtailTarget.State)
+	assert.Equal(t, models.TargetStatePending, restoreTarget.State)
 }
 
 func TestReconciler_CurtailBatchRecordsSkippedAndNotEnqueuedFailures(t *testing.T) {

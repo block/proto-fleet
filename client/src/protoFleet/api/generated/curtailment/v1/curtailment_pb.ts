@@ -971,7 +971,7 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   postEventCooldownSec: number;
 
   /**
-   * Admin-only FULL_FLEET override (whole-org or site scopes only). When
+   * Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
    * set, the event targets all paired-like miners in scope and holds
    * unavailable miners until they become commandable.
    *
@@ -1258,7 +1258,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   postEventCooldownSec: number;
 
   /**
-   * Admin-only FULL_FLEET override (whole-org or site scopes only). When
+   * Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
    * set, the event targets all paired-like miners in scope and holds
    * unavailable miners until they become commandable.
    *

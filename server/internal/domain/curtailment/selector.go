@@ -255,6 +255,7 @@ func BuildPlan(
 
 const (
 	allPairedUnavailableAuthenticationNeeded = "authentication_needed"
+	allPairedUnavailableUnpaired             = "unpaired"
 	allPairedUnavailableNoDriver             = "no_driver"
 	allPairedUnavailableMissingStatus        = "missing_status"
 	allPairedUnavailableOffline              = "offline"
@@ -271,10 +272,11 @@ const (
 	allPairedUnavailableStaleTelemetry = "stale_telemetry"
 )
 
-// deviceStatusNeedsMiningPool is the device_status_enum value for a reachable
-// miner with no pool configured. Referenced by both admission classifiers and
-// the status-authoritative hash override below.
-const deviceStatusNeedsMiningPool = "NEEDS_MINING_POOL"
+const (
+	deviceStatusNeedsMiningPool       = "NEEDS_MINING_POOL"
+	deviceStatusInactive              = "INACTIVE"
+	pairingStatusAuthenticationNeeded = "AUTHENTICATION_NEEDED"
+)
 
 // statusAuthoritativeHashRateHS returns the hash sample to use for selection
 // accounting and baseline-persistence decisions. Device status is
@@ -375,7 +377,7 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 	if c == nil {
 		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus
 	}
-	if c.PairingStatus == "AUTHENTICATION_NEEDED" {
+	if c.PairingStatus == pairingStatusAuthenticationNeeded {
 		return models.TargetStateUnavailable, allPairedUnavailableAuthenticationNeeded
 	}
 	if c.DriverName == nil || *c.DriverName == "" {
@@ -390,7 +392,7 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 		return models.TargetStateUnavailable, allPairedUnavailableUpdating
 	case "REBOOT_REQUIRED":
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
-	case "INACTIVE", "ERROR", "UNKNOWN":
+	case deviceStatusInactive, "ERROR", "UNKNOWN":
 		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
 	case deviceStatusNeedsMiningPool:
 		// Commandable (#663), but only dispatchable once a positive power
@@ -414,11 +416,35 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 
 func IsAllPairedPolicyPairingStatus(status string) bool {
 	switch status {
-	case "PAIRED", "DEFAULT_PASSWORD", "AUTHENTICATION_NEEDED":
+	case "PAIRED", "DEFAULT_PASSWORD", pairingStatusAuthenticationNeeded:
 		return true
 	default:
 		return false
 	}
+}
+
+// AllPairedPolicyRestoreTargetState classifies whether a topology restore
+// obligation can currently receive an Uncurtail command. INACTIVE is
+// intentionally commandable here: unlike curtail admission, this row proves
+// the policy previously put the miner to sleep and now owes the wake-up.
+func AllPairedPolicyRestoreTargetState(c *models.Candidate) (models.TargetState, string) {
+	if c == nil {
+		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus
+	}
+	switch c.PairingStatus {
+	case "PAIRED", "DEFAULT_PASSWORD":
+	case pairingStatusAuthenticationNeeded:
+		return models.TargetStateUnavailable, allPairedUnavailableAuthenticationNeeded
+	default:
+		return models.TargetStateUnavailable, allPairedUnavailableUnpaired
+	}
+	if c.DriverName == nil || *c.DriverName == "" {
+		return models.TargetStateUnavailable, allPairedUnavailableNoDriver
+	}
+	if c.DeviceStatus == deviceStatusInactive {
+		return models.TargetStatePending, ""
+	}
+	return AllPairedPolicyTargetState(c, true)
 }
 
 // AllPairedPromotionBaselinePowerW returns the pre-curtail baseline to

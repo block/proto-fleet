@@ -202,11 +202,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 			"topology-scoped Start is not available for automation",
 		)
 	}
-	if hasTopologySelectors(req.Scope) && req.Mode == models.ModeFullFleet {
-		return nil, fleeterror.NewUnimplementedError(
-			"topology-scoped FULL_FLEET Start requires topology-following lifecycle support",
-		)
-	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits
@@ -291,7 +286,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
 	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
-	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
+	requiresAdminControls := startRequiresAdminControls(req, orgConfig)
+	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW, requiresAdminControls)
 	if err != nil {
 		return nil, err
 	}
@@ -1596,7 +1592,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 	// and never reclaim them, silently breaking the policy's promise.
 	if req.ForceIncludeAllPairedMiners && !isClosedLoopFullFleetStart(req.Scope, req.Mode) {
 		return fleeterror.NewInvalidArgumentError(
-			"force_include_all_paired_miners requires a whole-org or site scope; explicit miner or device-set scopes are not supported",
+			"force_include_all_paired_miners requires a whole-org, site, building, rack, or group scope; explicit miner scopes are not supported",
 		)
 	}
 	if req.Level != "" && req.Level != models.LevelFull {
@@ -1961,7 +1957,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
-		case "INACTIVE":
+		case deviceStatusInactive:
 			// Excluded by design: INACTIVE means the miner is sleeping
 			// (operator- or curtailment-initiated). Curtailing it is a no-op
 			// and restoring it would wake a miner someone deliberately put
@@ -2091,7 +2087,12 @@ const targetTypeMiner = "miner"
 // plan. baseline_power_w comes from the telemetry snapshot the selector
 // ranked against; non-positive PowerW maps to NULL (a zero baseline would
 // produce a misleading "100% reduction" report at restore).
-func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.InsertEventParams, []models.InsertTargetParams, error) {
+func buildInsertParams(
+	req StartRequest,
+	plan *Plan,
+	minPowerW int32,
+	requiresAdminControls bool,
+) (models.InsertEventParams, []models.InsertTargetParams, error) {
 	scope := normalizeScope(req.Scope)
 	scopeJSON, err := MarshalScopeJSON(scope)
 	if err != nil {
@@ -2113,23 +2114,25 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			)
 		}
 	}
-	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW, req.PostEventCooldownSec, req.ForceIncludeAllPairedMiners)
+	decisionJSON, err := marshalDecisionSnapshot(
+		plan,
+		minPowerW,
+		req.PostEventCooldownSec,
+		req.ForceIncludeAllPairedMiners,
+		requiresAdminControls,
+	)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
 
 	startState := eventStartState(scope, mode, len(plan.Selected))
-	// An all-paired start whose every paired miner is currently unavailable
-	// holds in pending: closed-loop full-fleet starts otherwise insert as
-	// ACTIVE with started_at stamped, so observeActive would enforce
-	// max_duration_seconds before a single Curtail could be dispatched and
-	// the forced restore would release the never-dispatched policy rows —
-	// dropping durable ownership having curtailed nothing. The reconciler
-	// promotes the event to active (stamping started_at) once a target
-	// confirms; readiness refresh and admission both run during pending.
+	// An all-paired start with no currently owned miner, or whose every owned
+	// miner is unavailable, holds in pending. Otherwise max_duration_seconds
+	// could expire before a single Curtail is dispatched, dropping durable
+	// ownership having curtailed nothing. The reconciler promotes the event
+	// once a target confirms; readiness refresh and admission run while pending.
 	if req.ForceIncludeAllPairedMiners &&
-		len(plan.Selected) > 0 &&
-		plan.UnavailableTargetCount == len(plan.Selected) {
+		(len(plan.Selected) == 0 || plan.UnavailableTargetCount == len(plan.Selected)) {
 		startState = models.EventStatePending
 	}
 
@@ -2300,6 +2303,9 @@ func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 	scope = normalizeScope(scope)
 	if mode != models.ModeFullFleet {
 		return false
+	}
+	if IsTopologyScope(scope) {
+		return true
 	}
 	switch scope.Type {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
@@ -2555,7 +2561,13 @@ func cloneInt32Ptr(v *int32) *int32 {
 // marshalDecisionSnapshot captures the selector outputs for the
 // decision_snapshot column (rejection counters, realized vs. requested
 // kW, resolved candidate floor).
-func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec int32, forceIncludeAllPairedMiners bool) ([]byte, error) {
+func marshalDecisionSnapshot(
+	plan *Plan,
+	minPowerW int32,
+	postEventCooldownSec int32,
+	forceIncludeAllPairedMiners bool,
+	requiresAdminControls bool,
+) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
 		skipped[i] = map[string]string{
@@ -2572,6 +2584,7 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec i
 		"policy_target_count":             plan.PolicyTargetCount,
 		"unavailable_target_count":        plan.UnavailableTargetCount,
 		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
+		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
 	}
 	b, err := json.Marshal(snapshot)
@@ -2581,4 +2594,42 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec i
 		)
 	}
 	return b, nil
+}
+
+func startRequiresAdminControls(req StartRequest, orgConfig *models.OrgConfig) bool {
+	if req.AllowUnbounded || req.CandidateMinPowerWOverride != nil ||
+		req.ForceIncludeMaintenance || req.ForceIncludeAllPairedMiners ||
+		req.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax {
+		return true
+	}
+	return req.MaxDurationSeconds != nil && orgConfig != nil &&
+		orgConfig.MaxDurationDefaultSec > 0 && *req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec
+}
+
+// EventRequiresAdminControls combines the immutable Start-time marker with
+// controls that an operator may change while an event is pending or active.
+// Comparing max duration with the current organization default mirrors the
+// Update gate and prevents a later role demotion from authorizing new members.
+func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (bool, error) {
+	if ev == nil {
+		return false, nil
+	}
+	if ev.AllowUnbounded || ev.ForceIncludeMaintenance || ev.ForceIncludeAllPairedMiners ||
+		ev.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		ev.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		(ev.MaxDurationSeconds != nil && orgConfig != nil && orgConfig.MaxDurationDefaultSec > 0 &&
+			*ev.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec) {
+		return true, nil
+	}
+	if len(ev.DecisionSnapshotJSON) == 0 {
+		return false, nil
+	}
+	var snapshot struct {
+		RequiresAdminControls bool `json:"requires_admin_controls"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil {
+		return false, fmt.Errorf("parse decision snapshot admin marker: %w", err)
+	}
+	return snapshot.RequiresAdminControls, nil
 }
