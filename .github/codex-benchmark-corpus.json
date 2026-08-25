@@ -1,0 +1,109 @@
+{
+  "cases": [
+    {
+      "id": "pr-944",
+      "corpus": "adjudicated",
+      "pr": 944,
+      "base": "6837a03bd74d2d70ccd5e6ada8500d7b11899f1c",
+      "head": "ab5991b50cf71d653e2318f82fdd3742b2ea696e",
+      "expected": "NONE",
+      "purpose": "Large auth change; clean control",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32403679317",
+      "source-comment": "https://github.com/block/proto-fleet/pull/944#issuecomment-5346467378"
+    },
+    {
+      "id": "pr-948",
+      "corpus": "adjudicated",
+      "pr": 948,
+      "base": "0227f3e2e23c736af8738dbd620ec3457ad92ef9",
+      "head": "362381378a4d888077c813caf068977652c88c25",
+      "expected": "One MEDIUM finding",
+      "purpose": "Large client/domain cross-boundary finding",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32376653048",
+      "source-comment": "https://github.com/block/proto-fleet/pull/948#issuecomment-5356572949"
+    },
+    {
+      "id": "pr-953",
+      "corpus": "adjudicated",
+      "pr": 953,
+      "base": "333bad9ec56524262fae19979ef6241762b9428e",
+      "head": "586901c2c4b2ca21057202bac398718204ea6435",
+      "expected": "One HIGH and one MEDIUM finding",
+      "purpose": "Migration and lock-order recall",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32416657072",
+      "source-comment": "https://github.com/block/proto-fleet/pull/953#issuecomment-5359420763"
+    },
+    {
+      "id": "pr-954",
+      "corpus": "adjudicated",
+      "pr": 954,
+      "base": "333bad9ec56524262fae19979ef6241762b9428e",
+      "head": "a306748af46636ae6f03dea211f2b62db133b608",
+      "expected": "Two MEDIUM findings",
+      "purpose": "Small file count with deep database lifecycle reasoning",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32482667582",
+      "source-comment": "https://github.com/block/proto-fleet/pull/954#issuecomment-5366358476"
+    },
+    {
+      "id": "pr-956",
+      "corpus": "adjudicated",
+      "pr": 956,
+      "base": "75fcebbe240a67fd31a98ee260ae29599487ed2a",
+      "head": "db6effb90a1f14268bd0808942309c52f2d4226a",
+      "expected": "NONE",
+      "purpose": "Large dependency-only clean control",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32494488476",
+      "source-comment": "https://github.com/block/proto-fleet/pull/956#issuecomment-5371303254"
+    },
+    {
+      "id": "pr-961",
+      "corpus": "adjudicated",
+      "pr": 961,
+      "base": "2215589b1cc1318b5093543e6a6f1d6abcd8a749",
+      "head": "0e27f8631c98a934dc1a9c0ddb537d367dc273ba",
+      "expected": "One HIGH and one MEDIUM finding",
+      "purpose": "Small diff where unchanged deployment context matters",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32523475722",
+      "source-comment": "https://github.com/block/proto-fleet/pull/961#issuecomment-5375074092"
+    },
+    {
+      "id": "pr-957",
+      "corpus": "large-pr",
+      "pr": 957,
+      "base": "6dcf16c8440d90f03b0406fc05119638a0e662f2",
+      "head": "cef491477b6a0452241a52e0b1d13715df18847a",
+      "expected": "No completed baseline; adjudicate union manually",
+      "purpose": "Historical production timeout",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32521375916",
+      "source-comment": ""
+    },
+    {
+      "id": "pr-964",
+      "corpus": "large-pr",
+      "pr": 964,
+      "base": "85933d0d5ba37f03595b3f2f9230cbcb15dcc1fd",
+      "head": "f49d333696b75849677f8403b2d2907ae4f5e031",
+      "expected": "No completed baseline; adjudicate union manually",
+      "purpose": "Historical production timeout",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/32757955649",
+      "source-comment": ""
+    }
+  ],
+  "variants": [
+    {
+      "id": "unified-40",
+      "unified": 40,
+      "inter-hunk": 0
+    },
+    {
+      "id": "unified-10",
+      "unified": 10,
+      "inter-hunk": 0
+    },
+    {
+      "id": "compact",
+      "unified": 3,
+      "inter-hunk": 10
+    }
+  ]
+}

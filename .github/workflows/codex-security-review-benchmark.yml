@@ -50,102 +50,81 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Each benchmark configuration serializes with itself so a double dispatch queues
+  # instead of paying twice, while distinct repeats and corpora still run in parallel.
+  group: codex-security-review-benchmark-${{ inputs.corpus }}-${{ inputs['context-variant'] }}-${{ inputs['reasoning-effort'] }}-${{ inputs['prompt-profile'] }}-${{ inputs.repeat }}
+  cancel-in-progress: false
+
 jobs:
+  select-cases:
+    name: Select benchmark cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Check out the benchmark corpus
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/codex-benchmark-corpus.json
+          sparse-checkout-cone-mode: false
+
+      - name: Select benchmark cases and context variants
+        id: select
+        env:
+          CORPUS: ${{ inputs.corpus }}
+          CONTEXT_VARIANT: ${{ inputs['context-variant'] }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          corpus_name = os.environ["CORPUS"]
+          variant_name = os.environ["CONTEXT_VARIANT"]
+          corpus = json.loads(
+              Path(".github/codex-benchmark-corpus.json").read_text(encoding="utf-8")
+          )
+          cases = [case for case in corpus["cases"] if case["corpus"] == corpus_name]
+          variants = [
+              variant
+              for variant in corpus["variants"]
+              if variant_name == "all" or variant["id"] == variant_name
+          ]
+          if not cases:
+              raise SystemExit(f"No benchmark cases for corpus '{corpus_name}'")
+          if not variants:
+              raise SystemExit(f"No benchmark context variant named '{variant_name}'")
+
+          matrix = {
+              "include": [
+                  {"case": case, "variant": variant}
+                  for case in cases
+                  for variant in variants
+              ]
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+          for entry in matrix["include"]:
+              print(f"selected {entry['case']['id']} / {entry['variant']['id']}")
+          PY
+
   benchmark-review:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ inputs.repeat }}
-    if: ${{ matrix.case.corpus == inputs.corpus && (inputs['context-variant'] == 'all' || matrix.variant.id == inputs['context-variant']) }}
+    needs: select-cases
     runs-on: ubuntu-latest
     timeout-minutes: 18
     strategy:
       fail-fast: false
       max-parallel: 2
-      matrix:
-        case:
-          - id: pr-944
-            corpus: adjudicated
-            pr: 944
-            base: 6837a03bd74d2d70ccd5e6ada8500d7b11899f1c
-            head: ab5991b50cf71d653e2318f82fdd3742b2ea696e
-            expected: NONE
-            purpose: Large auth change; clean control
-            source-run: https://github.com/block/proto-fleet/actions/runs/32403679317
-            source-comment: https://github.com/block/proto-fleet/pull/944#issuecomment-5346467378
-          - id: pr-948
-            corpus: adjudicated
-            pr: 948
-            base: 0227f3e2e23c736af8738dbd620ec3457ad92ef9
-            head: 362381378a4d888077c813caf068977652c88c25
-            expected: One MEDIUM finding
-            purpose: Large client/domain cross-boundary finding
-            source-run: https://github.com/block/proto-fleet/actions/runs/32376653048
-            source-comment: https://github.com/block/proto-fleet/pull/948#issuecomment-5356572949
-          - id: pr-953
-            corpus: adjudicated
-            pr: 953
-            base: 333bad9ec56524262fae19979ef6241762b9428e
-            head: 586901c2c4b2ca21057202bac398718204ea6435
-            expected: One HIGH and one MEDIUM finding
-            purpose: Migration and lock-order recall
-            source-run: https://github.com/block/proto-fleet/actions/runs/32416657072
-            source-comment: https://github.com/block/proto-fleet/pull/953#issuecomment-5359420763
-          - id: pr-954
-            corpus: adjudicated
-            pr: 954
-            base: 333bad9ec56524262fae19979ef6241762b9428e
-            head: a306748af46636ae6f03dea211f2b62db133b608
-            expected: Two MEDIUM findings
-            purpose: Small file count with deep database lifecycle reasoning
-            source-run: https://github.com/block/proto-fleet/actions/runs/32482667582
-            source-comment: https://github.com/block/proto-fleet/pull/954#issuecomment-5366358476
-          - id: pr-956
-            corpus: adjudicated
-            pr: 956
-            base: 75fcebbe240a67fd31a98ee260ae29599487ed2a
-            head: db6effb90a1f14268bd0808942309c52f2d4226a
-            expected: NONE
-            purpose: Large dependency-only clean control
-            source-run: https://github.com/block/proto-fleet/actions/runs/32494488476
-            source-comment: https://github.com/block/proto-fleet/pull/956#issuecomment-5371303254
-          - id: pr-961
-            corpus: adjudicated
-            pr: 961
-            base: 2215589b1cc1318b5093543e6a6f1d6abcd8a749
-            head: 0e27f8631c98a934dc1a9c0ddb537d367dc273ba
-            expected: One HIGH and one MEDIUM finding
-            purpose: Small diff where unchanged deployment context matters
-            source-run: https://github.com/block/proto-fleet/actions/runs/32523475722
-            source-comment: https://github.com/block/proto-fleet/pull/961#issuecomment-5375074092
-          - id: pr-957
-            corpus: large-pr
-            pr: 957
-            base: 6dcf16c8440d90f03b0406fc05119638a0e662f2
-            head: cef491477b6a0452241a52e0b1d13715df18847a
-            expected: No completed baseline; adjudicate union manually
-            purpose: Historical production timeout
-            source-run: https://github.com/block/proto-fleet/actions/runs/32521375916
-            source-comment: ''
-          - id: pr-964
-            corpus: large-pr
-            pr: 964
-            base: 85933d0d5ba37f03595b3f2f9230cbcb15dcc1fd
-            head: f49d333696b75849677f8403b2d2907ae4f5e031
-            expected: No completed baseline; adjudicate union manually
-            purpose: Historical production timeout
-            source-run: https://github.com/block/proto-fleet/actions/runs/32757955649
-            source-comment: ''
-        variant:
-          - id: unified-40
-            unified: 40
-            inter-hunk: 0
-          - id: unified-10
-            unified: 10
-            inter-hunk: 0
-          - id: compact
-            unified: 3
-            inter-hunk: 10
+      matrix: ${{ fromJSON(needs.select-cases.outputs.matrix) }}
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
+      CODEX_TIMEOUT_MINUTES: "12"
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
@@ -178,6 +157,9 @@ jobs:
             exit 1
           fi
 
+      # This body is asserted byte-identical to the production review-packet step. It
+      # cannot move into a local composite action because the benchmark workspace is a
+      # historical commit that predates any such action.
       - name: Write review packet and scope metrics
         id: packet
         env:
@@ -337,6 +319,7 @@ jobs:
         env:
           CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+          CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
           STARTED_AT: ${{ steps.packet.outputs.started_at }}
           PACKET_BYTES: ${{ steps.packet.outputs.bytes }}
           PACKET_LINES: ${{ steps.packet.outputs.lines }}
@@ -363,9 +346,20 @@ jobs:
 
           raw = os.environ.get("REVIEW_OUTPUT", "").strip()
           outcome = os.environ.get("CODEX_OUTCOME", "")
-          completed = False
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
+          elapsed = max(0, int(time.time()) - int(os.environ.get("STARTED_AT") or time.time()))
+
           review = None
-          if outcome == "success" and raw:
+          incomplete_reason = None
+          if outcome != "success":
+              # A cancelled-on-timeout step and a step that errored both surface as a
+              # failed outcome, so the elapsed budget is the only available signal.
+              incomplete_reason = (
+                  "codex-step-timeout" if elapsed >= timeout_seconds else "codex-step-failed"
+              )
+          elif not raw:
+              incomplete_reason = "empty-model-output"
+          else:
               try:
                   candidate = json.loads(raw)
                   if (
@@ -376,20 +370,22 @@ jobs:
                       and candidate["review_markdown"].strip()
                   ):
                       review = candidate
-                      completed = True
+                  else:
+                      incomplete_reason = "invalid-model-output"
               except (json.JSONDecodeError, TypeError):
-                  pass
+                  incomplete_reason = "invalid-model-output"
 
-          elapsed = max(0, int(time.time()) - int(os.environ.get("STARTED_AT") or time.time()))
+          completed = incomplete_reason is None
           review_json = {
               "benchmark_status": "completed" if completed else "incomplete",
               "action_outcome": outcome,
+              "incomplete_reason": incomplete_reason,
               "review": review,
           }
           markdown = (
               review["review_markdown"]
               if completed
-              else "## Benchmark review incomplete\n\nThe bounded Codex step timed out, failed, or returned unusable output.\n"
+              else f"## Benchmark review incomplete\n\nThe bounded Codex step produced no usable result (reason: `{incomplete_reason}`, elapsed: {elapsed}s, budget: {timeout_seconds}s).\n"
           )
           scope = {
               "case": os.environ["CASE_ID"],
@@ -417,7 +413,9 @@ jobs:
               },
               "completed": completed,
               "action_outcome": outcome,
+              "incomplete_reason": incomplete_reason,
               "elapsed_seconds": elapsed,
+              "timeout_budget_seconds": timeout_seconds,
               "log_metrics": {
                   "tool_calls": "adjudicate from action log",
                   "repeated_reads": "adjudicate from action log",

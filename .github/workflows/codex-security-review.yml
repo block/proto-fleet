@@ -14,10 +14,13 @@ jobs:
       cancel-in-progress: true
     permissions:
       contents: read
+    outputs:
+      incomplete_reason: ${{ steps.write_review_result.outputs.incomplete_reason }}
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: xhigh
+      CODEX_TIMEOUT_MINUTES: "10"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -65,14 +68,20 @@ jobs:
             exit 1
           fi
 
+      # This body is asserted byte-identical to the benchmark review-packet step so a
+      # benchmark measurement always describes the packet production actually builds.
       - name: Write review diff
         id: write_diff
         env:
-          REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
-          REVIEW_DIFF_FILE: ${{ env.REVIEW_DIFF_FILE }}
+          UNIFIED: "40"
+          INTER_HUNK: "0"
         run: |
           set -euo pipefail
-          git diff --find-renames --submodule=diff --unified=40 "$REVIEW_COMMIT_RANGE" > "$REVIEW_DIFF_FILE"
+          args=(--find-renames --submodule=diff "--unified=$UNIFIED")
+          if [ "$INTER_HUNK" != "0" ]; then
+            args+=("--inter-hunk-context=$INTER_HUNK")
+          fi
+          git diff "${args[@]}" "$REVIEW_COMMIT_RANGE" > "$REVIEW_DIFF_FILE"
           echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$REVIEW_DIFF_FILE" | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "lines=$(wc -l < "$REVIEW_DIFF_FILE" | tr -d ' ')" >> "$GITHUB_OUTPUT"
@@ -215,6 +224,7 @@ jobs:
           OPENAI_API_KEY_PRESENT: ${{ env.OPENAI_API_KEY_PRESENT }}
           CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+          CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
           REVIEW_BASE_SHA: ${{ env.REVIEW_BASE_SHA }}
           REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
           REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
@@ -249,10 +259,20 @@ jobs:
           if not run_id.isdigit():
               raise ValueError("Trusted workflow run ID must be numeric")
 
+          timeout_minutes = int(os.environ["CODEX_TIMEOUT_MINUTES"])
+          elapsed_seconds = max(0, int(time.time()) - int(os.environ["REVIEW_STARTED_AT"]))
+
           raw = os.environ.get("REVIEW_OUTPUT", "").strip()
           incomplete_reason = None
           if os.environ.get("CODEX_OUTCOME") != "success":
-              incomplete_reason = "codex-step-did-not-complete"
+              # A step cancelled by its own timeout and a step that errored both report a
+              # failed outcome, so the elapsed budget is the only signal that separates an
+              # expected long review from broken review automation.
+              incomplete_reason = (
+                  "codex-step-timeout"
+                  if elapsed_seconds >= timeout_minutes * 60
+                  else "codex-step-failed"
+              )
           elif not raw:
               incomplete_reason = "empty-model-output"
           else:
@@ -280,7 +300,7 @@ jobs:
                   "",
                   "#### [HIGH] Automated review incomplete",
                   "- **Category**: Other",
-                  f"- **Description**: The automated review did not complete with usable output within its 10-minute budget for `{commit_range}` (workflow run `{run_id}`).",
+                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_seconds}s, budget: {timeout_minutes} minutes).",
                   "- **Impact**: The pull request has not received complete automated security, correctness, and reliability analysis.",
                   "- **Recommendation**: Require human review before merging. Do not treat this result as approval-free or low risk.",
                   "",
@@ -296,7 +316,8 @@ jobs:
               "run_id": run_id,
               "overall_risk": risk,
               "automation_completed": incomplete_reason is None,
-              "elapsed_seconds": max(0, int(time.time()) - int(os.environ["REVIEW_STARTED_AT"])),
+              "elapsed_seconds": elapsed_seconds,
+              "timeout_budget_seconds": timeout_minutes * 60,
               "review_packet": {
                   "context_variant": "unified-40",
                   "bytes": int(os.environ["PACKET_BYTES"]),
@@ -309,6 +330,10 @@ jobs:
           if incomplete_reason is not None:
               result["incomplete_reason"] = incomplete_reason
               print(f"Codex review incomplete: {incomplete_reason}; emitted fail-closed HIGH result")
+          step_output = os.environ.get("GITHUB_OUTPUT")
+          if step_output:
+              with open(step_output, "a", encoding="utf-8") as handle:
+                  handle.write(f"incomplete_reason={incomplete_reason or ''}\n")
           Path("codex-security-review-result.json").write_text(
               json.dumps(result, indent=2) + "\n", encoding="utf-8"
           )
@@ -330,6 +355,42 @@ jobs:
           name: codex-security-review-markdown
           path: codex-security-review.md
           if-no-files-found: error
+
+  review-automation-health:
+    name: Codex Security Review Automation Health
+    needs: security-review
+    if: ${{ always() && needs.security-review.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      # `continue-on-error` on the Codex step keeps the fail-closed HIGH artifact and the
+      # PR comment flowing when the review runs out of time, which is an expected outcome
+      # on very large diffs. It must not also hide review automation that is simply
+      # broken, so anything other than a completed or timed-out review turns this check
+      # red without suppressing the artifacts the merge policy reads.
+      - name: Require a completed or timed-out bounded review
+        env:
+          REVIEW_RESULT: ${{ needs.security-review.result }}
+          INCOMPLETE_REASON: ${{ needs.security-review.outputs.incomplete_reason }}
+        run: |
+          set -euo pipefail
+          if [ "$REVIEW_RESULT" != "success" ]; then
+            echo "The bounded security review job finished with result '$REVIEW_RESULT'." >&2
+            exit 1
+          fi
+          case "${INCOMPLETE_REASON:-}" in
+            "")
+              echo "The bounded Codex review completed with usable output."
+              ;;
+            codex-step-timeout)
+              echo "The bounded Codex review exhausted its time budget. The fail-closed HIGH result stands and human review is required."
+              ;;
+            *)
+              echo "The bounded Codex review did not complete for reason '$INCOMPLETE_REASON', which indicates broken review automation rather than an exhausted time budget." >&2
+              exit 1
+              ;;
+          esac
 
   post-review:
     name: Post Codex Security Review

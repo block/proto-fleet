@@ -1,23 +1,44 @@
 #!/usr/bin/env python3
 
+import functools
 import io
 import json
+import os
+import re
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
 
 import evaluate_review_policy as policy
 
-WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-policy.json"
+GITHUB_DIR = Path(__file__).resolve().parents[1]
+WORKFLOWS_DIR = GITHUB_DIR / "workflows"
+CONFIG_PATH = GITHUB_DIR / "review-policy.json"
+BENCHMARK_CORPUS_PATH = GITHUB_DIR / "codex-benchmark-corpus.json"
+FULL_SHA_PATTERN = re.compile(r"\A[0-9a-f]{40}\Z")
+
+# Every reason the bounded review can report for producing no usable output. Both
+# workflows classify independently, so each one's tests assert the full set and a
+# dropped or renamed reason in either workflow fails.
+INCOMPLETE_REASONS = (
+    "codex-step-timeout",
+    "codex-step-failed",
+    "empty-model-output",
+    "invalid-model-output",
+)
 
 
+@functools.cache
 def read_workflow(name):
     return (WORKFLOWS_DIR / name).read_text(encoding="utf-8")
 
 
+# Workflow files do not change during a run, and each parse costs a Ruby subprocess.
+@functools.cache
 def load_workflow(name):
     result = subprocess.run(
         [
@@ -39,6 +60,52 @@ def load_policy_config():
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+def workflow_triggers(workflow):
+    # A YAML 1.1 loader resolves the bare `on:` key to the boolean true.
+    return workflow.get("on", workflow.get("true"))
+
+
+def load_benchmark_corpus():
+    return json.loads(BENCHMARK_CORPUS_PATH.read_text(encoding="utf-8"))
+
+
+def find_step(workflow, job_id, step_id):
+    return next(
+        step for step in workflow["jobs"][job_id]["steps"] if step.get("id") == step_id
+    )
+
+
+def extract_python_heredoc(run_block):
+    """Return the `python3 - <<'PY' ... PY` body embedded in a workflow run block.
+
+    Workflow-embedded Python is only trustworthy if it can be executed, so the
+    tests below run these bodies directly instead of asserting on substrings.
+    """
+    marker = "python3 - <<'PY'\n"
+    found = run_block.count(marker)
+    if found != 1:
+        raise AssertionError(f"expected exactly one Python heredoc, found {found}")
+    body = run_block.split(marker, 1)[1]
+    if "\nPY\n" not in body:
+        raise AssertionError("Python heredoc is not terminated by a PY delimiter")
+    return body.split("\nPY\n", 1)[0] + "\n"
+
+
+def run_python_heredoc(body, env, cwd):
+    script = Path(cwd) / "heredoc.py"
+    script.write_text(body, encoding="utf-8")
+    child_env = dict(os.environ)
+    child_env.update(env)
+    return subprocess.run(
+        [sys.executable, str(script)],
+        cwd=cwd,
+        env=child_env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 class ReviewPolicyTest(unittest.TestCase):
     def test_pr_gate_runs_review_policy_tests(self):
         workflow = load_workflow("pr-gate.yml")
@@ -54,9 +121,8 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")
         job = workflow["jobs"]["security-review"]
-        steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
-        codex = steps["run_codex"]
-        writer = steps["write_review_result"]
+        codex = find_step(workflow, "security-review", "run_codex")
+        writer = find_step(workflow, "security-review", "write_review_result")
 
         self.assertEqual(job["timeout-minutes"], 15)
         self.assertEqual(codex["timeout-minutes"], 10)
@@ -88,16 +154,17 @@ class ReviewPolicyTest(unittest.TestCase):
         workflow = load_workflow("codex-security-review-benchmark.yml")
         production = load_workflow("codex-security-review.yml")
         job = workflow["jobs"]["benchmark-review"]
-        cases = job["strategy"]["matrix"]["case"]
-        variants = job["strategy"]["matrix"]["variant"]
-        steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
+        corpus = load_benchmark_corpus()
+        cases = corpus["cases"]
+        variants = corpus["variants"]
+        codex = find_step(workflow, "benchmark-review", "run_codex")
 
-        self.assertNotIn("pull_request:", workflow_text.split("permissions:", 1)[0])
+        self.assertEqual(set(workflow_triggers(workflow)), {"workflow_dispatch"})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertFalse(job["strategy"]["fail-fast"])
         self.assertEqual(job["strategy"]["max-parallel"], 2)
-        self.assertEqual(steps["run_codex"]["timeout-minutes"], 12)
-        self.assertTrue(steps["run_codex"]["continue-on-error"])
+        self.assertEqual(codex["timeout-minutes"], 12)
+        self.assertTrue(codex["continue-on-error"])
         self.assertEqual(
             {variant["id"] for variant in variants},
             {"unified-40", "unified-10", "compact"},
@@ -106,32 +173,243 @@ class ReviewPolicyTest(unittest.TestCase):
             {case["pr"] for case in cases if case["corpus"] == "adjudicated"},
             {944, 948, 953, 954, 956, 961},
         )
-        self.assertTrue(
-            all(len(case["base"]) == 40 and len(case["head"]) == 40 for case in cases)
-        )
-        production_codex = next(
-            step
-            for step in production["jobs"]["security-review"]["steps"]
-            if step.get("id") == "run_codex"
-        )
-        benchmark_prompt = steps["run_codex"]["with"]["prompt"]
+        for case in cases:
+            self.assertRegex(case["base"], FULL_SHA_PATTERN)
+            self.assertRegex(case["head"], FULL_SHA_PATTERN)
+        production_codex = find_step(production, "security-review", "run_codex")
+        benchmark_prompt = codex["with"]["prompt"]
         self.assertTrue(
             benchmark_prompt.startswith(production_codex["with"]["prompt"].rstrip())
         )
         self.assertIn("return no more than five material findings", benchmark_prompt)
-        self.assertNotIn(
-            "codex-security-review-result", job["steps"][-1]["with"]["name"]
-        )
+        uploads = [
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+        ]
+        self.assertEqual(len(uploads), 1)
+        self.assertNotIn("codex-security-review-result", uploads[0]["with"]["name"])
         self.assertNotIn("issues: write", workflow_text)
         self.assertNotIn("pull-requests: write", workflow_text)
 
+    def test_codex_benchmark_matrix_comes_from_needs_not_the_matrix_context(self):
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+        job = workflow["jobs"]["benchmark-review"]
+
+        # `matrix` is not one of the contexts GitHub provides to a job-level `if`, so a
+        # matrix-dependent filter there silently drops every job. The corpus is filtered
+        # in a preceding job and consumed through `needs`, which `strategy` does support.
+        self.assertNotIn("matrix", str(job.get("if", "")))
+        self.assertNotIn("matrix", str(workflow["jobs"]["select-cases"].get("if", "")))
+        self.assertEqual(job["needs"], "select-cases")
+        self.assertEqual(
+            job["strategy"]["matrix"],
+            "${{ fromJSON(needs.select-cases.outputs.matrix) }}",
+        )
+        self.assertEqual(
+            workflow["jobs"]["select-cases"]["outputs"],
+            {"matrix": "${{ steps.select.outputs.matrix }}"},
+        )
+
+    def test_codex_benchmark_selection_filters_the_requested_corpus_and_variant(self):
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+        body = extract_python_heredoc(
+            find_step(workflow, "select-cases", "select")["run"]
+        )
+        corpus = load_benchmark_corpus()
+        adjudicated = [
+            case["id"] for case in corpus["cases"] if case["corpus"] == "adjudicated"
+        ]
+        large_pr = [
+            case["id"] for case in corpus["cases"] if case["corpus"] == "large-pr"
+        ]
+
+        def select(corpus_name, variant_name):
+            with tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / ".github" / BENCHMARK_CORPUS_PATH.name
+                target.parent.mkdir()
+                target.write_bytes(BENCHMARK_CORPUS_PATH.read_bytes())
+                output = Path(tmp) / "step-output.txt"
+                output.write_text("", encoding="utf-8")
+                result = run_python_heredoc(
+                    body,
+                    {
+                        "CORPUS": corpus_name,
+                        "CONTEXT_VARIANT": variant_name,
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    tmp,
+                )
+                return result, output.read_text(encoding="utf-8")
+
+        result, emitted = select("adjudicated", "all")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        include = json.loads(emitted.split("matrix=", 1)[1])["include"]
+        self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
+        self.assertEqual({entry["case"]["id"] for entry in include}, set(adjudicated))
+        self.assertEqual(
+            {entry["variant"]["id"] for entry in include},
+            {variant["id"] for variant in corpus["variants"]},
+        )
+
+        result, emitted = select("large-pr", "compact")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        include = json.loads(emitted.split("matrix=", 1)[1])["include"]
+        self.assertEqual(
+            [(entry["case"]["id"], entry["variant"]["id"]) for entry in include],
+            [(case_id, "compact") for case_id in large_pr],
+        )
+
+        result, emitted = select("adjudicated", "does-not-exist")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does-not-exist", result.stderr)
+        self.assertEqual(emitted, "")
+
+    def test_codex_review_workflows_share_bounded_review_configuration(self):
+        production = load_workflow("codex-security-review.yml")
+        benchmark = load_workflow("codex-security-review-benchmark.yml")
+        production_job = production["jobs"]["security-review"]
+        benchmark_job = benchmark["jobs"]["benchmark-review"]
+        production_codex = find_step(production, "security-review", "run_codex")
+        benchmark_codex = find_step(benchmark, "benchmark-review", "run_codex")
+
+        # The benchmark only predicts production behavior while the sandbox, safety, and
+        # output contract are held constant; only the deliberately varied knobs may drift.
+        for key in ("output-schema", "safety-strategy", "sandbox"):
+            self.assertEqual(
+                production_codex["with"][key].strip()
+                if isinstance(production_codex["with"][key], str)
+                else production_codex["with"][key],
+                benchmark_codex["with"][key].strip()
+                if isinstance(benchmark_codex["with"][key], str)
+                else benchmark_codex["with"][key],
+                f"{key} drifted between the production and benchmark reviews",
+            )
+        self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
+        self.assertEqual(benchmark_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
+
+        # The benchmark checks out historical commits, so the review-packet body cannot
+        # live in a local composite action; keeping the two copies byte-identical is what
+        # makes a benchmark measurement describe the production packet.
+        self.assertEqual(
+            find_step(production, "security-review", "write_diff")["run"],
+            find_step(benchmark, "benchmark-review", "packet")["run"],
+        )
+        self.assertEqual(
+            find_step(production, "security-review", "write_diff")["env"],
+            {"UNIFIED": "40", "INTER_HUNK": "0"},
+        )
+
+        # A step budget that drifts from the budget reported in the artifact would
+        # misclassify a timeout as a hard failure.
+        self.assertEqual(
+            production_codex["timeout-minutes"],
+            int(production_job["env"]["CODEX_TIMEOUT_MINUTES"]),
+        )
+        self.assertEqual(
+            benchmark_codex["timeout-minutes"],
+            int(benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"]),
+        )
+        self.assertLess(
+            production_codex["timeout-minutes"], production_job["timeout-minutes"]
+        )
+        self.assertLess(
+            benchmark_codex["timeout-minutes"], benchmark_job["timeout-minutes"]
+        )
+
+    def test_codex_benchmark_records_timeouts_distinctly_from_failures(self):
+        # The timeout classification recorded here is the evidence used to decide whether
+        # a step-level budget actually bounds the pinned composite action, so it has to be
+        # executed rather than assumed.
+        body = extract_python_heredoc(
+            find_step(
+                load_workflow("codex-security-review-benchmark.yml"),
+                "benchmark-review",
+                "write_artifacts",
+            )["run"]
+        )
+        valid_output = json.dumps(
+            {"overall_risk": "MEDIUM", "review_markdown": "## Review Summary\n\nok\n"}
+        )
+        cases = [
+            (None, "success", valid_output, 30),
+            ("codex-step-timeout", "failure", "", 12 * 60),
+            ("codex-step-failed", "failure", "", 45),
+            ("empty-model-output", "success", "", 45),
+            ("invalid-model-output", "success", "{", 45),
+        ]
+        for expected_reason, outcome, output, age in cases:
+            with self.subTest(reason=expected_reason):
+                with tempfile.TemporaryDirectory() as tmp:
+                    result = run_python_heredoc(
+                        body,
+                        {
+                            "CODEX_OUTCOME": outcome,
+                            "REVIEW_OUTPUT": output,
+                            "CODEX_TIMEOUT_MINUTES": "12",
+                            "STARTED_AT": str(int(time.time()) - age),
+                            "PACKET_BYTES": "10",
+                            "PACKET_LINES": "2",
+                            "PACKET_FILES": "1",
+                            "PACKET_HUNKS": "1",
+                            "PACKET_CONTEXT_LINES": "1",
+                            "CASE_ID": "pr-957",
+                            "CASE_PR": "957",
+                            "CASE_PURPOSE": "Historical production timeout",
+                            "EXPECTED_RESULT": "adjudicate manually",
+                            "SOURCE_RUN": "https://example.invalid/run",
+                            "SOURCE_COMMENT": "",
+                            "VARIANT_ID": "unified-40",
+                            "UNIFIED": "40",
+                            "INTER_HUNK": "0",
+                            "REPEAT": "initial",
+                            "PROMPT_PROFILE": "baseline",
+                            "REVIEW_BASE_SHA": "a" * 40,
+                            "REVIEW_HEAD_SHA": "b" * 40,
+                            "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
+                            "CODEX_MODEL": "gpt-5.6-sol",
+                            "CODEX_REASONING_EFFORT": "xhigh",
+                        },
+                        tmp,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    review = json.loads(
+                        (Path(tmp) / "benchmark-review.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    scope = json.loads(
+                        (Path(tmp) / "benchmark-scope.json").read_text(encoding="utf-8")
+                    )
+
+                self.assertEqual(review["incomplete_reason"], expected_reason)
+                self.assertEqual(scope["incomplete_reason"], expected_reason)
+                self.assertEqual(scope["timeout_budget_seconds"], 12 * 60)
+                self.assertEqual(
+                    review["benchmark_status"],
+                    "completed" if expected_reason is None else "incomplete",
+                )
+                self.assertEqual(scope["completed"], expected_reason is None)
+
+        self.assertEqual(
+            {reason for reason, _, _, _ in cases if reason}, set(INCOMPLETE_REASONS)
+        )
+
+    def test_codex_benchmark_serializes_repeat_dispatches(self):
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+
+        # Repeat dispatches are variance measurements, not replacements for each other,
+        # so the group has to include every knob that distinguishes one run from another
+        # while still queueing an accidental duplicate of the same configuration.
+        group = workflow["concurrency"]["group"]
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        self.assertTrue(group.startswith("codex-security-review-benchmark-"))
+        for name in workflow_triggers(workflow)["workflow_dispatch"]["inputs"]:
+            self.assertIn(name, group)
+
     def test_incomplete_codex_review_cannot_take_approval_free_path(self):
         workflow = load_workflow("codex-security-review.yml")
-        writer = next(
-            step
-            for step in workflow["jobs"]["security-review"]["steps"]
-            if step.get("id") == "write_review_result"
-        )
+        writer = find_step(workflow, "security-review", "write_review_result")
         self.assertIn('risk = "HIGH"', writer["run"])
 
         config = load_policy_config()
@@ -140,6 +418,163 @@ class ReviewPolicyTest(unittest.TestCase):
         }
         self.assertEqual(allowed, {"LOW", "NONE"})
         self.assertNotIn("HIGH", allowed)
+
+    def _run_review_result_writer(self, *, codex_outcome, review_output, age_seconds=1):
+        body = extract_python_heredoc(
+            find_step(
+                load_workflow("codex-security-review.yml"),
+                "security-review",
+                "write_review_result",
+            )["run"]
+        )
+        base_sha = "a" * 40
+        head_sha = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            step_output = Path(tmp) / "step-output.txt"
+            step_output.write_text("", encoding="utf-8")
+            result = run_python_heredoc(
+                body,
+                {
+                    "CODEX_OUTCOME": codex_outcome,
+                    "REVIEW_OUTPUT": review_output,
+                    "CODEX_TIMEOUT_MINUTES": "10",
+                    "REVIEW_BASE_SHA": base_sha,
+                    "REVIEW_HEAD_SHA": head_sha,
+                    "REVIEW_COMMIT_RANGE": f"{base_sha}...{head_sha}",
+                    "REVIEW_RUN_ID": "12345",
+                    "REVIEW_STARTED_AT": str(int(time.time()) - age_seconds),
+                    "PACKET_BYTES": "4096",
+                    "PACKET_LINES": "120",
+                    "PACKET_FILES": "3",
+                    "PACKET_HUNKS": "7",
+                    "PACKET_CONTEXT_LINES": "80",
+                    "GITHUB_OUTPUT": str(step_output),
+                },
+                tmp,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (
+                json.loads(
+                    (Path(tmp) / "codex-security-review-result.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+                (Path(tmp) / "codex-security-review.md").read_text(encoding="utf-8"),
+                step_output.read_text(encoding="utf-8"),
+            )
+
+    def test_review_result_writer_emits_fail_closed_high_for_every_failure_mode(self):
+        valid_output = json.dumps(
+            {"overall_risk": "LOW", "review_markdown": "## Review Summary\n\nfine\n"}
+        )
+        cases = [
+            ("codex-step-timeout", "failure", valid_output, 10 * 60 + 5),
+            ("codex-step-failed", "failure", "", 3),
+            ("codex-step-failed", "cancelled", valid_output, 12),
+            ("empty-model-output", "success", "   ", 4),
+            ("invalid-model-output", "success", "not json at all", 4),
+            ("invalid-model-output", "success", '{"overall_risk": "SEVERE"}', 4),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps({"overall_risk": "LOW", "review_markdown": "  "}),
+                4,
+            ),
+        ]
+        for expected_reason, outcome, output, age in cases:
+            with self.subTest(reason=expected_reason, outcome=outcome, output=output):
+                result, markdown, emitted = self._run_review_result_writer(
+                    codex_outcome=outcome, review_output=output, age_seconds=age
+                )
+                self.assertEqual(result["overall_risk"], "HIGH")
+                self.assertFalse(result["automation_completed"])
+                self.assertEqual(result["incomplete_reason"], expected_reason)
+                self.assertEqual(result["timeout_budget_seconds"], 600)
+                self.assertIn("Human review is required", markdown)
+                self.assertIn("Automated review incomplete", markdown)
+                self.assertEqual(
+                    emitted.strip(), f"incomplete_reason={expected_reason}"
+                )
+
+        self.assertEqual({reason for reason, _, _, _ in cases}, set(INCOMPLETE_REASONS))
+        allowed = {
+            risk.upper()
+            for risk in load_policy_config()["low_risk"]["allowed_security_risks"]
+        }
+        self.assertNotIn("HIGH", allowed)
+
+    def test_review_result_writer_passes_through_a_completed_review(self):
+        result, markdown, emitted = self._run_review_result_writer(
+            codex_outcome="success",
+            review_output=json.dumps(
+                {
+                    "overall_risk": "LOW",
+                    "review_markdown": "## Review Summary\n\n**Overall Risk**: LOW\n",
+                }
+            ),
+        )
+
+        self.assertEqual(result["overall_risk"], "LOW")
+        self.assertTrue(result["automation_completed"])
+        self.assertNotIn("incomplete_reason", result)
+        self.assertEqual(result["review_packet"]["context_variant"], "unified-40")
+        self.assertEqual(result["review_packet"]["bytes"], 4096)
+        self.assertIn("**Overall Risk**: LOW", markdown)
+        self.assertEqual(emitted.strip(), "incomplete_reason=")
+
+    def test_broken_review_automation_fails_its_check_but_a_timeout_does_not(self):
+        workflow = load_workflow("codex-security-review.yml")
+        health = workflow["jobs"]["review-automation-health"]
+        security_review = workflow["jobs"]["security-review"]
+
+        self.assertEqual(health["needs"], "security-review")
+        self.assertIn("always()", health["if"])
+        self.assertIn("needs.security-review.result != 'skipped'", health["if"])
+        self.assertEqual(
+            security_review["outputs"],
+            {
+                "incomplete_reason": "${{ steps.write_review_result.outputs.incomplete_reason }}"
+            },
+        )
+        # The gate must run after the artifacts are uploaded, otherwise failing it would
+        # withhold the fail-closed HIGH result the merge policy depends on.
+        step_ids = [step.get("id") for step in security_review["steps"]]
+        upload_positions = [
+            index
+            for index, step in enumerate(security_review["steps"])
+            if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+        ]
+        self.assertTrue(upload_positions)
+        self.assertLess(step_ids.index("write_review_result"), min(upload_positions))
+
+        gate = health["steps"][0]["run"]
+        expectations = [
+            ("success", "", 0),
+            ("success", "codex-step-timeout", 0),
+            ("success", "codex-step-failed", 1),
+            ("success", "empty-model-output", 1),
+            ("success", "invalid-model-output", 1),
+            ("failure", "", 1),
+            ("cancelled", "", 1),
+        ]
+        for review_result, reason, expected_code in expectations:
+            with self.subTest(result=review_result, reason=reason):
+                completed = subprocess.run(
+                    ["bash", "-c", gate],
+                    env={
+                        **os.environ,
+                        "REVIEW_RESULT": review_result,
+                        "INCOMPLETE_REASON": reason,
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    expected_code,
+                    f"stdout={completed.stdout} stderr={completed.stderr}",
+                )
 
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
@@ -1529,6 +1964,118 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "trusted-author-low-risk")
         self.assertEqual(result.reasons, [])
+
+    def test_evaluate_policy_blocks_fail_closed_high_risk_for_a_trusted_author(self):
+        # The writer emits HIGH whenever the bounded review does not produce usable
+        # output; this is the other half of that contract, proving the same pull request
+        # that merges approval-free at LOW is blocked once the review is incomplete.
+        original_paginate = policy.github_paginate
+        original_request = policy.github_request
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        original_check_statuses = policy.check_statuses
+        original_extract_security_risk = policy.extract_security_risk
+        original_latest_check_runs = policy.latest_check_runs
+        original_workflow_runs = policy.latest_workflow_runs
+        try:
+
+            def fake_paginate(path, token):
+                if path.endswith("/commits/abc123/pulls"):
+                    return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": "client/src/foo.ts",
+                            "additions": 2,
+                            "deletions": 1,
+                            "patch": "@@\n+const x = 1",
+                        }
+                    ]
+                if path.endswith("/commits"):
+                    return [
+                        {
+                            "sha": "abc123",
+                            "author": {"login": "author"},
+                            "committer": {"login": "author"},
+                        }
+                    ]
+                if path.endswith("/reviews"):
+                    return []
+                return []
+
+            policy.github_paginate = fake_paginate
+            policy.github_request = lambda method, path, token, body=None: {
+                "state": "open",
+                "head": {"sha": "abc123"},
+                "base": {"sha": "base123"},
+            }
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    True,
+                    [f"author @{author} is explicitly trusted"],
+                )
+            )
+            policy.check_statuses = (
+                lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (
+                    True,
+                    [],
+                )
+            )
+            policy.extract_security_risk = (
+                lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                    "HIGH",
+                    [],
+                )
+            )
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
+            }
+            result = policy.evaluate_policy(
+                config={
+                    "trusted_authors": ["author"],
+                    "minimum_human_approvals": 1,
+                    "security_review_check": "security-review",
+                    "security_review_workflow_path": ".github/workflows/codex-security-review.yml",
+                    "security_review_artifact": "codex-security-review-result",
+                    "low_risk": {
+                        "max_changed_files": 10,
+                        "max_file_changes": 80,
+                        "max_total_changes": 200,
+                        "minimum_ai_confidence": 0.85,
+                        "trusted_actor_workflow": {
+                            "workflow_path": ".github/workflows/pr-gate.yml",
+                            "event": "pull_request",
+                        },
+                        "allowed_security_risks": ["LOW", "NONE"],
+                        "required_checks": ["Gate"],
+                        "deny_paths": [".github/**"],
+                        "content_deny_added_patterns": [],
+                    },
+                },
+                owner="block",
+                repo="proto-fleet",
+                pr_number=123,
+                author="author",
+                base_sha="base123",
+                head_sha="abc123",
+                token="token",
+                classifier_output='{"risk":"low","confidence":0.95,"requires_human_review":false,"reasons":["small"]}',
+            )
+        finally:
+            policy.github_paginate = original_paginate
+            policy.github_request = original_request
+            policy.trusted_author_reasons = original_trusted_author_reasons
+            policy.check_statuses = original_check_statuses
+            policy.extract_security_risk = original_extract_security_risk
+            policy.latest_check_runs = original_latest_check_runs
+            policy.latest_workflow_runs = original_workflow_runs
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.decision, "needs-human-review")
+        self.assertIn(
+            "Codex security review risk is HIGH, not one of ['LOW', 'NONE']",
+            result.reasons,
+        )
 
     def test_evaluate_policy_prefers_low_risk_when_human_approval_also_exists(self):
         original_paginate = policy.github_paginate

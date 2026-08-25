@@ -123,9 +123,16 @@ Use this initial corpus:
 | PR #956 | `75fcebb...db6effb` | `NONE` | Large dependency-only clean control |
 | PR #961 | `2215589...0e27f86` | One `HIGH`, one `MEDIUM` | Small diff where unchanged deployment context matters |
 
-Store full 40-character SHAs in the workflow case map; the table abbreviates
-them for readability. Preserve links to the original successful run and final
-review comment in benchmark metadata.
+Store full 40-character SHAs in `.github/codex-benchmark-corpus.json`; the table
+abbreviates them for readability. Preserve links to the original successful run
+and final review comment in benchmark metadata.
+
+Keep the corpus in that data file rather than inline in the workflow's
+`strategy.matrix`. GitHub does not provide the `matrix` context to a job-level
+`if`, so the corpus cannot be filtered by dispatch input at the job that
+consumes it. A `select-cases` job filters the data file and publishes the matrix
+as a job output, which `strategy` reads through the `needs` context. Keeping the
+corpus as data also makes the filter itself testable.
 
 ### 2. Pressure-test diff context independently
 
@@ -254,9 +261,11 @@ of model efficiency.
 | Less diff context hides a causal relationship | Replay adjudicated findings; retain `unified=40` unless a candidate meets recall gates |
 | Model variance is mistaken for a context effect | Repeat only disagreeing or near-budget cases twice more |
 | Benchmark invokes expensive secret-backed jobs | Manual dispatch, fixed corpus, `max-parallel: 2`, 12-minute cap |
-| Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests and review both files together |
+| Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests, and assert in `evaluate_review_policy_test.py` that the output schema, safety strategy, sandbox, model, and review-packet body are identical across both workflows |
+| Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |
-| Step timeout prevents fallback steps from running | Prove timeout/`continue-on-error` behavior in the benchmark before production rollout |
+| `continue-on-error` makes broken review automation look green | Classify the outcome as `codex-step-timeout` only when elapsed time reaches the step budget, and fail the `review-automation-health` check for every other incomplete reason, after both artifacts have uploaded |
+| Step timeout prevents fallback steps from running | `openai/codex-action@v1.12` is a composite action, and GitHub does not document whether a caller's step-level `timeout-minutes` bounds a composite action's internal steps — this is unverified, not known broken. Verify empirically before rollout by dispatching the benchmark with `corpus: large-pr` (both cases historically exceeded the production budget) and confirming that `benchmark-review.json` records `incomplete_reason: codex-step-timeout`, `benchmark-scope.json` records `elapsed_seconds` at or just above `timeout_budget_seconds`, and the artifacts upload. If the step instead runs past its budget until the 18-minute job cap, the fallback never writes and the bound must move to the job or into the prompt |
 | Sharding misses cross-subsystem bugs | Defer sharding; if needed, partition by architecture with shared contract context |
 | Prompt injection reaches the secret-backed reviewer | Preserve same-repo restriction, pinned SHAs, trusted workflow prompt, dropped sudo, and read-only sandbox |
 
@@ -274,7 +283,16 @@ of model efficiency.
 - Missing secrets, unsafe checkout metadata, and artifact failures remain hard
   workflow failures.
 - Review-policy tests prove fallback results cannot authorize approval-free
-  merge.
+  merge, by executing the artifact writer against every failure mode and by
+  driving `evaluate_policy` with a `HIGH` review for an otherwise-eligible
+  trusted-author pull request.
+- A benchmark dispatch against `corpus: large-pr` records
+  `incomplete_reason: codex-step-timeout` with `elapsed_seconds` at the step
+  budget, demonstrating that the step timeout bounds the pinned composite
+  action and still leaves the fallback writer time to run.
+- Broken review automation, as opposed to an exhausted time budget, turns the
+  `review-automation-health` check red without withholding the fail-closed
+  artifacts.
 - Existing exact-diff, security-boundary, sandbox, artifact, and stale-comment
   protections remain intact.
 - Any later sharding proposal has its own reviewed design and benchmark evidence.
