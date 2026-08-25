@@ -70,6 +70,8 @@ describe("useSystemStatus", () => {
 
     mockGetStoreState.mockImplementation(() => ({
       minerStatus: { lifecycle: { defaultPasswordActive: currentDefaultPasswordActive } },
+      beginStoreWrite: () => ({ connectionGeneration: 0, requestId: 1 }),
+      acceptStoreWrite: () => true,
     }));
 
     mockGetSystemStatus.mockResolvedValue({ onboarded: true, passwordSet: true });
