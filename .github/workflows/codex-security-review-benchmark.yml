@@ -29,6 +29,7 @@ on:
         options:
           - xhigh
           - high
+          - medium
       prompt-profile:
         description: Keep baseline for context/effort tests; compare bounded separately
         required: true

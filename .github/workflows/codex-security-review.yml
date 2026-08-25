@@ -21,7 +21,7 @@ jobs:
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
-      CODEX_REASONING_EFFORT: high
+      CODEX_REASONING_EFFORT: medium
       CODEX_TIMEOUT_MINUTES: "9"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -64,7 +64,7 @@ jobs:
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
           test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
           test "$CODEX_MODEL" = "gpt-5.6-sol"
-          test "$CODEX_REASONING_EFFORT" = "high"
+          test "$CODEX_REASONING_EFFORT" = "medium"
           if git config --local --get-regexp '^http\..*\.extraheader$'; then
             echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
             exit 1

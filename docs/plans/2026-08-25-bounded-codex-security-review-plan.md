@@ -178,7 +178,7 @@ of accepting an unmeasured recall loss.
 After selecting the context strategy, replay the same corpus with one variable
 changed at a time:
 
-- Compare `xhigh` with `high` reasoning effort.
+- Compare `xhigh`, `high`, and `medium` reasoning effort.
 - Add explicit review-budget guidance: prioritize material findings, avoid
   tests/lint/type checks covered by other CI, inspect tests only to validate a
   suspected finding, avoid rereading the complete diff, and return no more than
@@ -193,9 +193,9 @@ or the bounded prompt only if the same finding-recall criteria pass.
 ### 4. Bound production execution and fail closed
 
 Update `.github/workflows/codex-security-review.yml` with the selected context,
-effort, and prompt configuration. PR #965 uses `high` plus the bounded prompt
+effort, and prompt configuration. PR #965 uses `medium` plus the bounded prompt
 as the production candidate after repeated `xhigh` runs exhausted the enforced
-job budget and an unbounded `high` run remained sensitive to diff growth. Both
+job budget and `high` completed only one of two equivalent large-diff runs. Both
 changes remain acceptance-gated on the adjudicated benchmark corpus before
 rollout.
 

@@ -298,7 +298,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 f"{key} drifted between the production and benchmark reviews",
             )
         self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
-        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "high")
+        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "medium")
         self.assertEqual(benchmark_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
 
         # The benchmark checks out historical commits, so the review-packet body cannot
