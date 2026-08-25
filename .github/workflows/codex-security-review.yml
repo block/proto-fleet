@@ -223,6 +223,9 @@ jobs:
             - Be specific: cite file paths and line numbers from the diff
             - Prioritize high-impact issues; avoid stylistic or low-risk nits
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
+            - Prioritize material findings; avoid tests, lint, and type checks covered by other CI
+            - Inspect tests only to validate a suspected finding; do not reread the complete diff
+            - Return no more than five material findings
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
 

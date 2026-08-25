@@ -186,10 +186,13 @@ class ReviewPolicyTest(unittest.TestCase):
             self.assertRegex(case["base"], FULL_SHA_PATTERN)
             self.assertRegex(case["head"], FULL_SHA_PATTERN)
         production_codex = find_step(production, "review-agent", "run_codex")
+        production_prompt = production_codex["with"]["prompt"]
         benchmark_prompt = codex["with"]["prompt"]
-        self.assertTrue(
-            benchmark_prompt.startswith(production_codex["with"]["prompt"].rstrip())
-        )
+        common_prompt = production_prompt.split("- Prioritize material findings", 1)[
+            0
+        ].rstrip()
+        self.assertTrue(benchmark_prompt.startswith(common_prompt))
+        self.assertIn("Return no more than five material findings", production_prompt)
         self.assertIn("return no more than five material findings", benchmark_prompt)
         uploads = [
             step

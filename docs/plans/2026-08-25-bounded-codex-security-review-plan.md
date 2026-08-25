@@ -193,9 +193,11 @@ or the bounded prompt only if the same finding-recall criteria pass.
 ### 4. Bound production execution and fail closed
 
 Update `.github/workflows/codex-security-review.yml` with the selected context,
-effort, and prompt configuration. PR #965 uses `high` as the production effort
-candidate after repeated `xhigh` runs exhausted the enforced job budget; it
-remains acceptance-gated on the adjudicated benchmark corpus before rollout.
+effort, and prompt configuration. PR #965 uses `high` plus the bounded prompt
+as the production candidate after repeated `xhigh` runs exhausted the enforced
+job budget and an unbounded `high` run remained sensitive to diff growth. Both
+changes remain acceptance-gated on the adjudicated benchmark corpus before
+rollout.
 
 - Keep a nine-minute timeout on both the Codex step and its outer `review-agent`
   job. The job boundary is the enforceable control because the pinned composite
