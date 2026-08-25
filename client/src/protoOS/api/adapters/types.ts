@@ -1,4 +1,4 @@
-import type { ChangePasswordRequest, GetSystemLogsParams, LogsResponseLogs } from "@/protoOS/api/generatedApi";
+import type { ChangePasswordRequest } from "@/protoOS/api/generatedApi";
 import type {
   CoolingMode,
   FanTelemetry,
@@ -26,6 +26,16 @@ export interface AdapterRequestOptions {
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+/** Which log stream to fetch from the miner. Mirrors the v1 logs source union. */
+export type SystemLogSource = "os" | "pool_sw" | "miner_sw" | "miner_web_server";
+
+/** Canonical system-logs payload, mirroring the v1 logs envelope. */
+export interface SystemLogs {
+  content?: string[];
+  lines?: number;
+  source?: string;
 }
 
 /** One ASIC's latest telemetry sample, in canonical units. */
@@ -104,9 +114,9 @@ export interface MinerAdapter {
   login(password: string, params?: AdapterRequestOptions): Promise<AuthTokens>;
   refreshAccessToken(refreshToken: string, params?: AdapterRequestOptions): Promise<{ accessToken: string }>;
   getSystemLogs(
-    query: { lines: number; source?: GetSystemLogsParams["source"] },
+    query: { lines: number; source?: SystemLogSource },
     params?: AdapterRequestOptions,
-  ): Promise<LogsResponseLogs>;
+  ): Promise<SystemLogs | undefined>;
   getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetryState>;
   getTimeSeries(request: TimeSeriesQuery, params?: AdapterRequestOptions): Promise<TelemetryState>;
   getCoolingStatus(params?: AdapterRequestOptions): Promise<{ mode: CoolingMode; fans: FanTelemetry[] }>;

@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import { useHashboardStatus } from "./useHashboardStatus";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { asAsicId } from "@/protoOS/store/contract";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const mockGetHashboardStatus = vi.fn();
@@ -164,5 +165,45 @@ describe("useHashboardStatus", () => {
         column: 0,
       }),
     ]);
+  });
+
+  test("writes canonical voltage and frequency samples into the telemetry store", async () => {
+    // The real store runs its setState updater against Immer draft state; drive
+    // the updater against a plain state object whose telemetry.asics is a real Map.
+    const asics = new Map();
+    mockSetState.mockImplementation((updater: (state: any) => void) => updater({ telemetry: { asics } }));
+    mockGetHashboard.mockReturnValue(undefined);
+    mockGetAsic.mockReturnValue(undefined);
+    mockGetHashboardStatus.mockResolvedValue([
+      {
+        serial: "HB-1",
+        asicIds: ["serial:HB-1:asic:0"],
+        asics: [{ id: "serial:HB-1:asic:0", hashboardSerial: "HB-1", index: 0, row: 0, column: 0 }],
+        asicTelemetry: [
+          {
+            asicId: "serial:HB-1:asic:0",
+            voltage: { value: 0.3, units: "V" },
+            frequency: { value: 650, units: "MHz" },
+          },
+        ],
+      },
+    ]);
+
+    renderHook(() =>
+      useHashboardStatus({
+        hashboardSerialNumbers: ["HB-1"],
+        poll: false,
+      }),
+    );
+
+    const pollArgs = (usePoll as Mock).mock.calls[0][0];
+
+    await act(async () => {
+      await pollArgs.fetchData();
+    });
+
+    const asic = asics.get(asAsicId("serial:HB-1:asic:0"));
+    expect(asic?.voltage?.latest).toEqual({ value: 0.3, units: "V" });
+    expect(asic?.frequency?.latest).toEqual({ value: 650, units: "MHz" });
   });
 });

@@ -705,7 +705,10 @@ const bayForSlot = (slot: number) => Math.floor((slot - 1) / 3) + 1;
 
 export const toCanonicalHashboards = (wire: HashboardInfo[]): HashboardHardwareData[] =>
   wire
-    .filter((hb): hb is HashboardInfo & { hb_sn: string; slot: number } => Boolean(hb.hb_sn) && hb.slot !== undefined)
+    .filter(
+      (hb): hb is HashboardInfo & { hb_sn: string; slot: number } =>
+        Boolean(hb.hb_sn) && hb.slot !== undefined && hb.slot > 0,
+    )
     .map((hb) => ({
       serial: hb.hb_sn,
       slot: hb.slot,

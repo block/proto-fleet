@@ -151,6 +151,13 @@ describe("MdkV1Adapter auth + logs", () => {
     expect(await adapter.getSystemLogs({ lines: 1, source: "miner_sw" })).toEqual({ content: ["line"], lines: 1 });
     expect(getSystemLogs).toHaveBeenCalledWith({ lines: 1, source: "miner_sw" }, {});
   });
+
+  test("getSystemLogs returns undefined when the logs envelope is missing", async () => {
+    const getSystemLogs = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getSystemLogs } as never);
+
+    expect(await adapter.getSystemLogs({ lines: 1 })).toBeUndefined();
+  });
 });
 
 describe("MdkV1Adapter commands", () => {
@@ -161,6 +168,34 @@ describe("MdkV1Adapter commands", () => {
     await adapter.startMining({ secure: true });
 
     expect(startMining).toHaveBeenCalledWith({ secure: true });
+  });
+
+  test("stopMining forwards the auth params to the client", async () => {
+    const stopMining = vi.fn().mockResolvedValue({});
+    const adapter = new MdkV1Adapter({ stopMining } as never);
+
+    await adapter.stopMining({ secure: true });
+
+    expect(stopMining).toHaveBeenCalledWith({ secure: true });
+  });
+
+  test("rebootSystem forwards the auth params to the client", async () => {
+    const rebootSystem = vi.fn().mockResolvedValue({});
+    const adapter = new MdkV1Adapter({ rebootSystem } as never);
+
+    await adapter.rebootSystem({ secure: true });
+
+    expect(rebootSystem).toHaveBeenCalledWith({ secure: true });
+  });
+
+  test("changePassword forwards the v1 request body and auth params", async () => {
+    const changePassword = vi.fn().mockResolvedValue({});
+    const adapter = new MdkV1Adapter({ changePassword } as never);
+
+    const request = { current_password: "current123", new_password: "new456789" };
+    await adapter.changePassword(request, { secure: false });
+
+    expect(changePassword).toHaveBeenCalledWith(request, { secure: false });
   });
 
   test("locateSystem maps canonical options to the v1 query, omitting undefined keys", async () => {

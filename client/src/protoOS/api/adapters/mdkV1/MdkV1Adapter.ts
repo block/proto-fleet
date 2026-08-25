@@ -1,5 +1,13 @@
 import { poolInfoToPoolConfig, poolInfoToTestConnection } from "../../poolAdapters";
-import type { AdapterRequestOptions, HashboardStatus, MinerAdapter, TelemetryLevel, TimeSeriesQuery } from "../types";
+import type {
+  AdapterRequestOptions,
+  HashboardStatus,
+  MinerAdapter,
+  SystemLogs,
+  SystemLogSource,
+  TelemetryLevel,
+  TimeSeriesQuery,
+} from "../types";
 import {
   toCanonicalCoolingStatus,
   toCanonicalErrors,
@@ -21,7 +29,6 @@ import {
   type Api,
   type ChangePasswordRequest,
   type GetCurrentTelemetryParams,
-  type GetSystemLogsParams,
   type LocateSystemParams,
   type TimeSeriesRequest,
   PerformanceMode as V1PerformanceMode,
@@ -130,11 +137,11 @@ export class MdkV1Adapter implements MinerAdapter {
   }
 
   async getSystemLogs(
-    query: { lines: number; source?: GetSystemLogsParams["source"] },
+    query: { lines: number; source?: SystemLogSource },
     params: AdapterRequestOptions = {},
-  ) {
+  ): Promise<SystemLogs | undefined> {
     const response = await this.client.getSystemLogs(query, params);
-    return response.data["logs"] ?? {};
+    return response.data["logs"];
   }
 
   async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {

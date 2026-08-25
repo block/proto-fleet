@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
+import type { SystemLogs } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 interface UseSystemLogsProps {
@@ -9,7 +9,7 @@ interface UseSystemLogsProps {
 
 const useSystemLogs = () => {
   const { adapter } = useMinerHosting();
-  const [data, setData] = useState<LogsResponseLogs>();
+  const [data, setData] = useState<SystemLogs>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
@@ -18,7 +18,7 @@ const useSystemLogs = () => {
       if (!adapter) return;
 
       setPending(true);
-      let logs: LogsResponseLogs | undefined;
+      let logs: SystemLogs | undefined;
       await adapter
         .getSystemLogs({ lines, source: "miner_sw" })
         .then((res) => {

@@ -313,6 +313,7 @@ describe("MDK v1 normalization", () => {
         { hb_sn: "HB-1", slot: 1, board: "B3a" },
         { hb_sn: "HB-4", slot: 4, board: "B3a" },
         { hb_sn: "HB-no-slot" }, // dropped: no slot
+        { hb_sn: "HB-slot-0", slot: 0 }, // dropped: slot 0 is not a valid 1-based slot
         { slot: 2 }, // dropped: no serial
       ]),
     ).toEqual([
@@ -345,6 +346,19 @@ describe("MDK v1 normalization", () => {
         },
         { asicId: getAsicId("HB-1", 1) },
       ],
+    });
+  });
+
+  it("omits voltage and frequency when the wire values are explicitly null", () => {
+    expect(
+      toCanonicalHashboardStatus("HB-1", {
+        asics: [{ index: 0, row: 0, column: 0, voltage_mv: null, freq_mhz: null }],
+      } as never),
+    ).toEqual({
+      serial: "HB-1",
+      asicIds: [getAsicId("HB-1", 0)],
+      asics: [{ id: getAsicId("HB-1", 0), hashboardSerial: "HB-1", index: 0, row: 0, column: 0 }],
+      asicTelemetry: [{ asicId: getAsicId("HB-1", 0) }],
     });
   });
 });

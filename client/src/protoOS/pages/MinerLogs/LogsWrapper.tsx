@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { usePoll, useSystemLogs } from "@/protoOS/api";
-import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
+import type { SystemLogs } from "@/protoOS/api/adapters/types";
 import Logs from "@/shared/components/Logs";
 
 const MAX_LOG_LINES = 10000;
@@ -10,7 +10,7 @@ const POLL_INTERVAL_MS = 10000;
 const LogsWrapper = () => {
   const { data: logsData, fetchData: fetchLogs } = useSystemLogs();
 
-  const fetchMaxLogs = useCallback(async (): Promise<LogsResponseLogs | undefined> => {
+  const fetchMaxLogs = useCallback(async (): Promise<SystemLogs | undefined> => {
     return await fetchLogs({ lines: MAX_LOG_LINES });
   }, [fetchLogs]);
 
