@@ -41,6 +41,19 @@ func TestConfigExplicitDSNOverridesLegacyFields(t *testing.T) {
 	require.Equal(t, "DB_DSN", cfg.ConnectionTarget())
 }
 
+func TestConfigValidateRejectsSingleConnectionPool(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Address:      "127.0.0.1:5432",
+		Name:         "fleet",
+		MaxOpenConns: 1,
+	}
+
+	require.EqualError(t, cfg.Validate(),
+		"DB_MAX_OPEN_CONNS cannot be 1: database migrations require at least two connections")
+}
+
 func TestConfigValidateAcceptsMultiHostReadWriteDSN(t *testing.T) {
 	t.Parallel()
 

@@ -49,6 +49,10 @@ func (c *Config) UsesExplicitDSN() bool {
 }
 
 func (c *Config) Validate() error {
+	if c.MaxOpenConns == 1 {
+		return fmt.Errorf("DB_MAX_OPEN_CONNS cannot be 1: database migrations require at least two connections")
+	}
+
 	parsedConfig, err := c.parsedConfig()
 	if err != nil {
 		return err
