@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
+	migratesource "github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 
@@ -130,8 +133,13 @@ func runMigrationsWithCompatibilityBridges(conn *sql.DB, config *Config) error {
 	if err != nil {
 		return err
 	}
-	// Do not call m.Close: postgres.WithInstance treats the supplied *sql.DB as
-	// owned and would close the application connection returned by this function.
+	through142, err := newMigratorThrough(config.Name, driver, 142)
+	if err != nil {
+		return err
+	}
+	// Do not call either migrator's Close method: postgres.WithInstance treats
+	// the supplied *sql.DB as owned and would close the application connection
+	// returned by this function.
 
 	// First recover an RC.1 database already left at version 143/dirty. The
 	// golang-migrate lock prevents an older binary from racing the bridge and
@@ -142,7 +150,7 @@ func runMigrationsWithCompatibilityBridges(conn *sql.DB, config *Config) error {
 
 	// v0.2.9 is version 130. Stop at 142 so legacy curtailment rows can be
 	// prepared before immutable migration 143 evaluates its zero-row guard.
-	if err := runMigrationsThroughVersion(ctx, conn, m, 142); err != nil {
+	if err := runMigrationsThroughVersion(through142, 142); err != nil {
 		return err
 	}
 	if err := runMigrationCompatibilityBridgesWithLock(ctx, conn, driver); err != nil {
@@ -176,26 +184,11 @@ func runMigrationCompatibilityBridgesWithLock(
 	return runMigrationCompatibilityBridges(ctx, conn)
 }
 
-// runMigrationsThroughVersion applies pending migrations through target but
-// never downgrades a database already at or beyond it.
-func runMigrationsThroughVersion(ctx context.Context, conn *sql.DB, m *migrate.Migrate, target uint) error {
-	exists, err := schemaMigrationsTableExists(ctx, conn)
-	if err != nil {
-		return err
-	}
-	if exists {
-		var current uint
-		var dirty bool
-		err := conn.QueryRowContext(ctx, "SELECT version, dirty FROM schema_migrations").Scan(&current, &dirty)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("read migration version before compatibility boundary: %w", err)
-		}
-		if err == nil && current >= target {
-			return nil
-		}
-	}
-
-	if err := m.Migrate(target); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+// runMigrationsThroughVersion applies only upward migrations exposed by a
+// source capped at target. Unlike Migrate(target), Up cannot downgrade a
+// database another runner has already advanced beyond the boundary.
+func runMigrationsThroughVersion(m *migrate.Migrate, target uint) error {
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run migrations through version %d: %w", target, err)
 	}
 	return nil
@@ -218,6 +211,33 @@ func runMigrations(m *migrate.Migrate) error {
 	return nil
 }
 
+type migrationSourceThrough struct {
+	migratesource.Driver
+	target uint
+}
+
+func (s *migrationSourceThrough) Next(version uint) (uint, error) {
+	next, err := s.Driver.Next(version)
+	if err != nil {
+		return 0, fmt.Errorf("find migration after version %d: %w", version, err)
+	}
+	if next > s.target {
+		return 0, os.ErrNotExist
+	}
+	return next, nil
+}
+
+func (s *migrationSourceThrough) ReadUp(version uint) (io.ReadCloser, string, error) {
+	if version > s.target {
+		return nil, "", os.ErrNotExist
+	}
+	r, identifier, err := s.Driver.ReadUp(version)
+	if err != nil {
+		return nil, "", fmt.Errorf("read up migration %d: %w", version, err)
+	}
+	return r, identifier, nil
+}
+
 func newMigrator(conn *sql.DB, config *Config) (*migrate.Migrate, migratedatabase.Driver, error) {
 	fs, err := iofs.New(migrations.Migrations, ".")
 	if err != nil {
@@ -234,4 +254,22 @@ func newMigrator(conn *sql.DB, config *Config) (*migrate.Migrate, migratedatabas
 		return nil, nil, fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 	return m, driver, nil
+}
+
+func newMigratorThrough(
+	databaseName string,
+	driver migratedatabase.Driver,
+	target uint,
+) (*migrate.Migrate, error) {
+	source, err := iofs.New(migrations.Migrations, ".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bounded migration source: %w", err)
+	}
+
+	bounded := &migrationSourceThrough{Driver: source, target: target}
+	m, err := migrate.NewWithInstance("bounded-migrations", bounded, databaseName, driver)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bounded migrate instance: %w", err)
+	}
+	return m, nil
 }

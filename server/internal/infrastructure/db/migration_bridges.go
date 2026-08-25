@@ -33,7 +33,7 @@ func runMigrationCompatibilityBridges(ctx context.Context, conn *sql.DB) error {
 func schemaMigrationsTableExists(ctx context.Context, conn *sql.DB) (bool, error) {
 	var exists bool
 	if err := conn.QueryRowContext(ctx,
-		"SELECT to_regclass('public.schema_migrations') IS NOT NULL").Scan(&exists); err != nil {
+		"SELECT to_regclass('schema_migrations') IS NOT NULL").Scan(&exists); err != nil {
 		return false, fmt.Errorf("inspect schema_migrations table: %w", err)
 	}
 	return exists, nil

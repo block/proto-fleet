@@ -66,7 +66,8 @@ narrow compatibility bridge around its version boundary:
 
 1. Recover an RC.1 database already at `143/dirty` if neither envelope column
    exists.
-2. For older databases, run ordered migrations only through version 142.
+2. For older databases, run an up-only migration source capped at version 142;
+   it cannot downgrade a database concurrently advanced past the boundary.
 3. Acquire golang-migrate's PostgreSQL advisory lock, then lock
    `schema_migrations` and inspect the two curtailment tables.
 4. If no rows exist, leave migration 143 to run unchanged (or reset an empty
@@ -85,7 +86,9 @@ legacy profiles containing fans require organization-wide site-read permission.
 
 The advisory lock serializes the bridge with old and new migration runners during
 rolling startup, preventing another binary from overwriting the bridge's clean
-version marker. The bridge also refuses to guess if either envelope column
+version marker. Schema inspection resolves `schema_migrations` through the
+connection's active search path rather than assuming `public`. The bridge also
+refuses to guess if either envelope column
 already exists, because that indicates a partial/manual schema state requiring
 operator inspection.
 
@@ -101,6 +104,8 @@ legacy response profile and nine legacy events (matching the incident):
 | v0.3.0-rc.1 incident / schema 143 dirty, columns absent | bridge rows, finish at 143 clean |
 | schema 143 dirty, no rows or columns | reset to 142, run immutable 143 normally |
 | concurrent migration runner holds the advisory lock | bridge waits, then completes safely |
+| database already advanced beyond 142 | capped up-only source does not downgrade it |
+| non-public active schema | bridge resolves and upgrades that schema |
 
 For every row-preserving case, tests assert that row counts survive, both columns
 contain conservative envelopes, version 143 is clean, and golang-migrate accepts

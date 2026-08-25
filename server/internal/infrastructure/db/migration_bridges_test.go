@@ -71,6 +71,66 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 	}
 }
 
+func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	const schema = "migration_bridge_schema"
+	_, err := conn.ExecContext(t.Context(), "CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public")
+	assert.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public")
+	assert.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "CREATE SCHEMA "+schema)
+	assert.NoError(t, err)
+
+	searchPathConfig := *config
+	searchPathConfig.ExplicitDSN = config.DSN() + "&search_path=" + schema + ",public"
+	searchPathConn, err := ConnectToDatabase(&searchPathConfig)
+	assert.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, searchPathConn.Close()) })
+	assert.NoError(t, searchPathConn.PingContext(t.Context()))
+
+	migrateTestDBTo(t, searchPathConn, config.Name, 142)
+	insertLegacyCurtailmentRows(t, searchPathConn)
+	assert.NoError(t, runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
+
+	var version int
+	var dirty bool
+	assert.NoError(t, searchPathConn.QueryRowContext(t.Context(),
+		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
+	assert.Equal(t, 143, version)
+	assert.False(t, dirty)
+	assertLegacyCurtailmentEnvelope(t, searchPathConn, "curtailment_response_profile", true)
+}
+
+func TestMigrationsThroughVersionNeverDowngrade(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	migrateTestDBTo(t, conn, config.Name, 142)
+	insertLegacyCurtailmentRows(t, conn)
+	assert.NoError(t, runMigrationsWithCompatibilityBridges(conn, config))
+
+	_, driver, err := newMigrator(conn, config)
+	assert.NoError(t, err)
+	through142, err := newMigratorThrough(config.Name, driver, 142)
+	assert.NoError(t, err)
+	assert.NoError(t, runMigrationsThroughVersion(through142, 142))
+
+	var version int
+	var dirty bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
+	assert.Equal(t, 143, version)
+	assert.False(t, dirty)
+	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_response_profile", true)
+	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_event", true)
+}
+
 func TestCurtailmentAuthorizationEnvelopeBridgeAllowsFreshBootstrap(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
