@@ -2347,7 +2347,6 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			return
 		}
 		commandTargets = fencedTargets
-		r.parkReturnedTopologyRestoreTargets(ctx, ev, dispatchSet, commandTargets)
 		if fenceErr != nil {
 			slog.Error("curtailment reconciler: topology restore fence ended after command callback",
 				"event_id", ev.ID, "error", fenceErr)
@@ -2426,41 +2425,6 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		t.LastDispatchedAt = &now
 		t.LastBatchUUID = &batchID
 		t.LastError = nil
-	}
-}
-
-func (r *Reconciler) parkReturnedTopologyRestoreTargets(
-	ctx context.Context,
-	ev *models.Event,
-	dispatchSet []*models.Target,
-	commandTargets []*models.Target,
-) {
-	commandDevices := make(map[string]struct{}, len(commandTargets))
-	for _, target := range commandTargets {
-		commandDevices[target.DeviceIdentifier] = struct{}{}
-	}
-	reason := "restore paused: device returned to topology scope"
-	expectedState := models.TargetStateDispatching
-	desiredActive := models.DesiredStateActive
-	for _, target := range dispatchSet {
-		if _, dispatched := commandDevices[target.DeviceIdentifier]; dispatched {
-			continue
-		}
-		params := interfaces.UpdateCurtailmentTargetStateParams{
-			State:                models.TargetStateRestoreFailed,
-			LastError:            &reason,
-			ExpectedDesiredState: &desiredActive,
-			ExpectedState:        &expectedState,
-		}
-		if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-				slog.Error("curtailment reconciler: failed to park returned topology restore target",
-					"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
-			}
-			continue
-		}
-		target.State = models.TargetStateRestoreFailed
-		target.LastError = &reason
 	}
 }
 

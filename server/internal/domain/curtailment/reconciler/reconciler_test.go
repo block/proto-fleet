@@ -485,7 +485,7 @@ func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
 	ctx context.Context,
 	event *models.Event,
 	dispatchDeviceIdentifiers []string,
-	command func(interfaces.CurtailmentTopologyDispatchFenceSnapshot) error,
+	command func(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
 ) error {
 	if f.topologyFenceErr != nil {
 		return f.topologyFenceErr
@@ -515,9 +515,27 @@ func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
 	}
 	f.topologyFenceActive = true
 	defer func() { f.topologyFenceActive = false }()
-	if err := command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
-		Event:    latest,
-		Topology: topology,
+	parkReturnedTargets := func(returnedDeviceIdentifiers []string) error {
+		reason := "restore paused: device returned to topology scope"
+		expectedState := models.TargetStateDispatching
+		desiredActive := models.DesiredStateActive
+		for _, deviceIdentifier := range returnedDeviceIdentifiers {
+			if err := f.UpdateTargetState(ctx, latest.ID, deviceIdentifier, interfaces.UpdateCurtailmentTargetStateParams{
+				State:                models.TargetStateRestoreFailed,
+				LastError:            &reason,
+				ExpectedEventState:   &latest.State,
+				ExpectedDesiredState: &desiredActive,
+				ExpectedState:        &expectedState,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := command(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot{
+		Event:               latest,
+		Topology:            topology,
+		ParkReturnedTargets: parkReturnedTargets,
 	}); err != nil {
 		return err
 	}
@@ -1378,6 +1396,13 @@ func TestReconciler_TopologyRestoreSuppressesReturnedMemberAtCommandBoundary(t *
 
 	store, event, target := topologyDispatchFixture()
 	target.DesiredState = models.DesiredStateActive
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if params.State == models.TargetStateRestoreFailed {
+			assert.True(t, store.topologyFenceActive,
+				"returned target must be parked before topology locks are released")
+		}
+		return nil
+	}
 	dispatcher := &fakeDispatcher{}
 	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
 
@@ -1387,6 +1412,22 @@ func TestReconciler_TopologyRestoreSuppressesReturnedMemberAtCommandBoundary(t *
 	assert.Equal(t, models.TargetStateRestoreFailed, target.State)
 	require.NotNil(t, target.LastError)
 	assert.Contains(t, *target.LastError, "returned to topology scope")
+}
+
+func TestReconciler_TopologyRestoreDispatchesCurrentMemberWhenEventIsRestoring(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	event.State = models.EventStateRestoring
+	target.DesiredState = models.DesiredStateActive
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{target.DeviceIdentifier}, dispatcher.uncurtailLastIDs)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
 func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *testing.T) {

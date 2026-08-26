@@ -195,20 +195,31 @@ func (r *Reconciler) fenceTopologyRestoreDispatch(
 		ctx,
 		ev,
 		deviceIdentifiers,
-		func(fenced interfaces.CurtailmentTopologyDispatchFenceSnapshot) error {
+		func(fenced interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error {
 			fenceReached = true
+			if fenced.Event.State == models.EventStateRestoring {
+				commandTargets = targets
+				command(commandTargets)
+				return nil
+			}
 			currentMembers := make(map[string]struct{}, len(fenced.Topology.DispatchMemberDeviceIdentifiers))
 			for _, deviceIdentifier := range fenced.Topology.DispatchMemberDeviceIdentifiers {
 				currentMembers[deviceIdentifier] = struct{}{}
 			}
 			commandTargets = make([]*models.Target, 0, len(targets))
+			returnedDeviceIdentifiers := make([]string, 0, len(targets))
 			for _, target := range targets {
 				if target == nil {
 					continue
 				}
-				if _, returned := currentMembers[target.DeviceIdentifier]; !returned {
-					commandTargets = append(commandTargets, target)
+				if _, returned := currentMembers[target.DeviceIdentifier]; returned {
+					returnedDeviceIdentifiers = append(returnedDeviceIdentifiers, target.DeviceIdentifier)
+					continue
 				}
+				commandTargets = append(commandTargets, target)
+			}
+			if err := fenced.ParkReturnedTargets(returnedDeviceIdentifiers); err != nil {
+				return err
 			}
 			if len(commandTargets) > 0 {
 				command(commandTargets)

@@ -312,16 +312,24 @@ type CurtailmentTopologyDispatchFenceStore interface {
 	) error
 }
 
+// CurtailmentTopologyRestoreDispatchFenceSnapshot is the event and topology
+// state protected by a restore dispatch fence. ParkReturnedTargets persists
+// returned active-watcher targets before the fence releases its locks.
+type CurtailmentTopologyRestoreDispatchFenceSnapshot struct {
+	Event               *models.Event
+	Topology            CurtailmentTopologyDispatchSnapshot
+	ParkReturnedTargets func([]string) error
+}
+
 // CurtailmentTopologyRestoreDispatchFenceStore holds the current event and
-// topology membership stable through a physical Uncurtail command. Unlike the
-// Curtail fence, restore candidates are expected to be outside the selector;
-// the callback receives any that returned so the reconciler can suppress them.
+// topology membership stable through returned-target parking and a physical
+// Uncurtail command.
 type CurtailmentTopologyRestoreDispatchFenceStore interface {
 	WithCurtailmentTopologyRestoreDispatchFence(
 		ctx context.Context,
 		event *models.Event,
 		dispatchDeviceIdentifiers []string,
-		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+		command func(CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
 	) error
 }
 

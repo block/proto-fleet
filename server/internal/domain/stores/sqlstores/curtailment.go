@@ -2266,7 +2266,7 @@ func (s *SQLCurtailmentStore) WithCurtailmentTopologyRestoreDispatchFence(
 	ctx context.Context,
 	event *models.Event,
 	dispatchDeviceIdentifiers []string,
-	command func(interfaces.CurtailmentTopologyDispatchFenceSnapshot) error,
+	command func(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
 ) error {
 	if event == nil || command == nil {
 		return fleeterror.NewInvalidArgumentError("topology restore dispatch fence requires an event and command")
@@ -2303,9 +2303,27 @@ func (s *SQLCurtailmentStore) WithCurtailmentTopologyRestoreDispatchFence(
 		if err != nil {
 			return err
 		}
-		return command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
-			Event:    latest,
-			Topology: topology,
+		parkReturnedTargets := func(returnedDeviceIdentifiers []string) error {
+			reason := "restore paused: device returned to topology scope"
+			expectedState := models.TargetStateDispatching
+			desiredActive := models.DesiredStateActive
+			for _, deviceIdentifier := range uniqueSortedStrings(returnedDeviceIdentifiers) {
+				if err := updateCurtailmentTargetState(ctx, q, latest.ID, deviceIdentifier, interfaces.UpdateCurtailmentTargetStateParams{
+					State:                models.TargetStateRestoreFailed,
+					LastError:            &reason,
+					ExpectedEventState:   &latest.State,
+					ExpectedDesiredState: &desiredActive,
+					ExpectedState:        &expectedState,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return command(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot{
+			Event:               latest,
+			Topology:            topology,
+			ParkReturnedTargets: parkReturnedTargets,
 		})
 	})
 }
@@ -2899,7 +2917,17 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 }
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
-	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+	return updateCurtailmentTargetState(ctx, s.GetQueries(ctx), eventID, deviceIdentifier, params)
+}
+
+func updateCurtailmentTargetState(
+	ctx context.Context,
+	q sqlc.Querier,
+	eventID int64,
+	deviceIdentifier string,
+	params interfaces.UpdateCurtailmentTargetStateParams,
+) error {
+	rows, err := q.UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
 		CurtailmentEventID:        eventID,
 		DeviceIdentifier:          deviceIdentifier,
 		State:                     string(params.State),
