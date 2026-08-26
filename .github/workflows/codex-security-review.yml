@@ -5,12 +5,16 @@ on:
     types: [edited, opened, reopened, ready_for_review, synchronize]
 
 jobs:
-  security-review:
+  review-agent:
+    name: Run bounded Codex reviewer
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # GitHub did not interrupt the pinned composite action at its caller step timeout.
+    # Leave one minute for trusted finalization before GitHub's five-minute cleanup.
+    # This outer job boundary is therefore the enforceable review budget.
+    timeout-minutes: 9
     concurrency:
-      group: codex-security-review-${{ github.ref }}
+      group: codex-security-review-agent-${{ github.ref }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -18,6 +22,8 @@ jobs:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: xhigh
+      CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -44,21 +50,77 @@ jobs:
               "$REVIEW_BASE_SHA" \
               "$REVIEW_HEAD_SHA"
 
-      - name: Write review diff
+      - name: Validate exact review scope and trusted configuration
+        id: validate_scope
         env:
+          REVIEW_BASE_SHA: ${{ env.REVIEW_BASE_SHA }}
+          REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
           REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
-          REVIEW_DIFF_FILE: ${{ env.REVIEW_DIFF_FILE }}
+          CODEX_MODEL: ${{ env.CODEX_MODEL }}
+          CODEX_REASONING_EFFORT: ${{ env.CODEX_REASONING_EFFORT }}
         run: |
-          git diff --find-renames --submodule=diff --unified=40 "$REVIEW_COMMIT_RANGE" > "$REVIEW_DIFF_FILE"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEW_HEAD_SHA"
+          git cat-file -e "$REVIEW_BASE_SHA^{commit}"
+          git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
+          test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
+          test "$CODEX_MODEL" = "gpt-5.6-sol"
+          test "$CODEX_REASONING_EFFORT" = "xhigh"
+          if git config --local --get-regexp '^http\..*\.extraheader$'; then
+            echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
+            exit 1
+          fi
+
+      # This body is asserted byte-identical to the benchmark review-packet step so a
+      # benchmark measurement always describes the packet production actually builds.
+      - name: Write review diff
+        id: write_diff
+        env:
+          UNIFIED: "40"
+          INTER_HUNK: "0"
+        run: |
+          set -euo pipefail
+          args=(--find-renames --submodule=diff "--unified=$UNIFIED")
+          if [ "$INTER_HUNK" != "0" ]; then
+            args+=("--inter-hunk-context=$INTER_HUNK")
+          fi
+          git diff "${args[@]}" "$REVIEW_COMMIT_RANGE" > "$REVIEW_DIFF_FILE"
+          echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+          echo "bytes=$(wc -c < "$REVIEW_DIFF_FILE" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "lines=$(wc -l < "$REVIEW_DIFF_FILE" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "files=$(git diff --name-only "$REVIEW_COMMIT_RANGE" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "hunks=$(grep -c '^@@' "$REVIEW_DIFF_FILE" || true)" >> "$GITHUB_OUTPUT"
+          echo "context_lines=$(grep -c '^ ' "$REVIEW_DIFF_FILE" || true)" >> "$GITHUB_OUTPUT"
+
+      - name: Require review API key
+        run: |
+          if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
+            echo "OPENAI_API_KEY is required for Codex Security Review." >&2
+            exit 1
+          fi
 
       - name: Run Codex Security Review
         id: run_codex
-        if: ${{ env.OPENAI_API_KEY_PRESENT == 'true' }}
+        timeout-minutes: 9
+        continue-on-error: true
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
           codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}"]'
+          output-schema: |
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["overall_risk", "review_markdown"],
+              "properties": {
+                "overall_risk": {
+                  "type": "string",
+                  "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"]
+                },
+                "review_markdown": {"type": "string", "minLength": 1}
+              }
+            }
 
           safety-strategy: drop-sudo
           sandbox: read-only
@@ -164,56 +226,401 @@ jobs:
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
-      - name: Require security review output
-        if: always()
-        env:
-          OPENAI_API_KEY_PRESENT: ${{ env.OPENAI_API_KEY_PRESENT }}
-          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
-        run: |
-          if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
-            echo "OPENAI_API_KEY is required for Codex Security Review." >&2
-            exit 1
-          fi
-          if [ -z "$REVIEW_OUTPUT" ]; then
-            echo "Codex Security Review did not produce final-message output." >&2
-            exit 1
-          fi
 
-      - name: Write security review result
-        if: steps.run_codex.outputs.final-message != ''
+      - name: Write trusted raw review handoff
+        id: write_raw_review
+        if: ${{ always() && steps.validate_scope.outcome == 'success' && steps.write_diff.outcome == 'success' }}
         env:
+          CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+          CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
+          REVIEW_BASE_SHA: ${{ env.REVIEW_BASE_SHA }}
           REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
           REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
           REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_STARTED_AT: ${{ steps.write_diff.outputs.started_at }}
+          PACKET_BYTES: ${{ steps.write_diff.outputs.bytes }}
+          PACKET_LINES: ${{ steps.write_diff.outputs.lines }}
+          PACKET_FILES: ${{ steps.write_diff.outputs.files }}
+          PACKET_HUNKS: ${{ steps.write_diff.outputs.hunks }}
+          PACKET_CONTEXT_LINES: ${{ steps.write_diff.outputs.context_lines }}
         run: |
           python3 - <<'PY'
           import json
           import os
+          import re
+          import time
+          from pathlib import Path
+
+          base_sha = os.environ["REVIEW_BASE_SHA"]
+          head_sha = os.environ["REVIEW_HEAD_SHA"]
+          commit_range = os.environ["REVIEW_COMMIT_RANGE"]
+          run_id = os.environ["REVIEW_RUN_ID"]
+          if not re.fullmatch(r"[0-9a-f]{40}", base_sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+              raise ValueError("Trusted review SHAs must be full lowercase commit IDs")
+          if commit_range != f"{base_sha}...{head_sha}" or not run_id.isdigit():
+              raise ValueError("Trusted review identity is malformed")
+
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
+          elapsed_seconds = max(0, int(time.time()) - int(os.environ["REVIEW_STARTED_AT"]))
+          codex_outcome = os.environ.get("CODEX_OUTCOME", "")
+          incomplete_reason = None
+          if codex_outcome != "success":
+              if elapsed_seconds < timeout_seconds:
+                  raise RuntimeError(
+                      f"Codex action failed before its budget ({elapsed_seconds}s, outcome={codex_outcome})"
+                  )
+              incomplete_reason = "codex-step-timeout"
+
+          Path("codex-security-review-raw-output.txt").write_text(
+              os.environ.get("REVIEW_OUTPUT", ""), encoding="utf-8"
+          )
+          metadata = {
+              "base_sha": base_sha,
+              "head_sha": head_sha,
+              "commit_range": commit_range,
+              "run_id": run_id,
+              "elapsed_seconds": elapsed_seconds,
+              "timeout_budget_seconds": timeout_seconds,
+              "incomplete_reason": incomplete_reason,
+              "review_packet": {
+                  "context_variant": "unified-40",
+                  "bytes": int(os.environ["PACKET_BYTES"]),
+                  "lines": int(os.environ["PACKET_LINES"]),
+                  "files": int(os.environ["PACKET_FILES"]),
+                  "hunks": int(os.environ["PACKET_HUNKS"]),
+                  "unchanged_context_lines": int(os.environ["PACKET_CONTEXT_LINES"]),
+              },
+          }
+          Path("codex-security-review-raw-metadata.json").write_text(
+              json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload trusted raw review handoff
+        if: ${{ always() && steps.write_raw_review.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codex-security-review-raw
+          path: |
+            codex-security-review-raw-output.txt
+            codex-security-review-raw-metadata.json
+          if-no-files-found: error
+
+  security-review:
+    name: security-review
+    needs: review-agent
+    if: ${{ always() && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    env:
+      CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
+      REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
+      REVIEW_RUN_ID: ${{ github.run_id }}
+      REVIEW_AGENT_RESULT: ${{ needs.review-agent.result }}
+      REVIEW_AGENT_JOB_NAME: Run bounded Codex reviewer
+      REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Classify review-agent result
+        id: classify_agent
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_AGENT_RESULT: ${{ env.REVIEW_AGENT_RESULT }}
+          REVIEW_AGENT_JOB_NAME: ${{ env.REVIEW_AGENT_JOB_NAME }}
+          REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
+          REVIEW_PR_NUMBER: ${{ env.REVIEW_PR_NUMBER }}
+          CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
+          CODEX_CANCELLATION_CLEANUP_SECONDS: ${{ env.CODEX_CANCELLATION_CLEANUP_SECONDS }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const agentResult = process.env.REVIEW_AGENT_RESULT;
+            if (agentResult === 'success') {
+              core.setOutput('classification', 'completed');
+              return;
+            }
+            if (agentResult !== 'cancelled') {
+              core.setOutput('classification', 'automation-failure');
+              return;
+            }
+
+            const prNumber = Number(process.env.REVIEW_PR_NUMBER);
+            const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+            const cleanupSeconds = Number(process.env.CODEX_CANCELLATION_CLEANUP_SECONDS);
+            const { data: currentRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const workflowRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: currentRun.workflow_id,
+              event: 'pull_request',
+              head_sha: process.env.REVIEW_HEAD_SHA,
+              per_page: 100,
+            });
+            const supersedingRun = workflowRuns.find(run =>
+              run.id > Number(context.runId) &&
+              run.head_sha === process.env.REVIEW_HEAD_SHA &&
+              run.pull_requests?.some(pullRequest => Number(pullRequest.number) === prNumber)
+            );
+            if (supersedingRun) {
+              core.setOutput('classification', 'superseded');
+              core.setOutput('detail', `newer workflow run ${supersedingRun.id} reviews this pull request head`);
+              return;
+            }
+
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              filter: 'latest',
+              per_page: 100,
+            });
+            const matches = jobs.filter(job => job.name === process.env.REVIEW_AGENT_JOB_NAME);
+            if (matches.length !== 1) {
+              core.setFailed(`Expected one review-agent job, found ${matches.length}.`);
+              return;
+            }
+
+            const job = matches[0];
+            const requiredSteps = [
+              'Checkout PR head commit',
+              'Fetch exact PR base and head commits',
+              'Validate exact review scope and trusted configuration',
+              'Write review diff',
+              'Require review API key',
+            ];
+            const prerequisitesSucceeded = requiredSteps.every(name =>
+              job.steps?.some(step => step.name === name && step.conclusion === 'success')
+            );
+            const codexStep = job.steps?.find(step => step.name === 'Run Codex Security Review');
+            const startedAt = Date.parse(job.started_at || '');
+            const completedAt = Date.parse(job.completed_at || '');
+            const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
+              ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
+              : null;
+            const codexReachedReviewPhase =
+              Boolean(codexStep?.started_at) &&
+              (
+                codexStep?.conclusion === 'success' ||
+                codexStep?.conclusion === 'cancelled' ||
+                (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
+              );
+            const budgetEvidence =
+              job.conclusion === 'cancelled' &&
+              prerequisitesSucceeded &&
+              codexReachedReviewPhase &&
+              elapsedSeconds !== null &&
+              elapsedSeconds >= budgetSeconds + cleanupSeconds;
+
+            core.setOutput('classification', budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation');
+            core.setOutput(
+              'detail',
+              JSON.stringify({
+                job_conclusion: job.conclusion,
+                prerequisites_succeeded: prerequisitesSucceeded,
+                codex_started: Boolean(codexStep?.started_at),
+                codex_status: codexStep?.status || null,
+                codex_conclusion: codexStep?.conclusion || null,
+                observed_job_seconds: elapsedSeconds,
+                budget_seconds: budgetSeconds,
+                expected_cleanup_seconds: cleanupSeconds,
+              })
+            );
+
+      - name: Require completed or budget-cancelled review agent
+        id: validate_agent
+        env:
+          AGENT_CLASSIFICATION: ${{ steps.classify_agent.outputs.classification }}
+          AGENT_CLASSIFICATION_DETAIL: ${{ steps.classify_agent.outputs.detail }}
+        run: |
+          case "$REVIEW_AGENT_RESULT:$AGENT_CLASSIFICATION" in
+            success:completed|cancelled:budget-timeout) ;;
+            *)
+              echo "Review automation did not produce a completed review or verified budget timeout: $REVIEW_AGENT_RESULT/$AGENT_CLASSIFICATION ($AGENT_CLASSIFICATION_DETAIL)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Download trusted raw review handoff
+        id: download_raw
+        if: ${{ needs.review-agent.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-security-review-raw
+          path: .
+
+      - name: Write completed or fail-closed security review result
+        id: write_review_result
+        if: ${{ always() && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
           from pathlib import Path
 
           allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"}
-          raw = os.environ["REVIEW_OUTPUT"].strip()
-          parsed = json.loads(raw)
-          risk = parsed.get("overall_risk")
-          review_markdown = parsed.get("review_markdown")
-          if risk not in allowed:
-              raise ValueError(f"Invalid overall_risk: {risk!r}")
-          if not isinstance(review_markdown, str) or not review_markdown.strip():
-              raise ValueError("review_markdown must be a non-empty string")
-          result = {
-              "head_sha": os.environ["REVIEW_HEAD_SHA"],
-              "commit_range": os.environ["REVIEW_COMMIT_RANGE"],
-              "run_id": os.environ["REVIEW_RUN_ID"],
-              "overall_risk": risk,
+          severity_rank = {
+              "NONE": 0,
+              "LOW": 1,
+              "MEDIUM": 2,
+              "HIGH": 3,
+              "CRITICAL": 4,
           }
-          output = Path("codex-security-review-result.json")
-          output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+
+          def validate_review_markdown(markdown, risk):
+              section_names = ("## Review Summary", "### Findings", "### Notes")
+              section_positions = []
+              for section in section_names:
+                  matches = list(re.finditer(rf"(?m)^{re.escape(section)}[ \t]*$", markdown))
+                  if len(matches) != 1:
+                      raise ValueError(f"review Markdown must contain exactly one {section} section")
+                  section_positions.append(matches[0].start())
+              if section_positions != sorted(section_positions):
+                  raise ValueError("review Markdown sections are out of order")
+
+              summary_risks = re.findall(
+                  r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
+                  markdown,
+              )
+              if summary_risks != [risk]:
+                  raise ValueError("model output risk disagrees with review summary")
+
+              exact_findings = list(re.finditer(
+                  r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+$",
+                  markdown,
+              ))
+              finding_like = list(re.finditer(
+                  r"(?mi)^[ \t]{0,3}#{1,6}[^\n]*\b(CRITICAL|HIGH|MEDIUM|LOW|NONE)\b[^\n]*$",
+                  markdown,
+              ))
+              if len(finding_like) != len(exact_findings) or any(
+                  broad.start() != exact.start()
+                  for broad, exact in zip(finding_like, exact_findings, strict=True)
+              ):
+                  raise ValueError("review Markdown contains an unparseable severity heading")
+              if risk == "NONE" and exact_findings:
+                  raise ValueError("NONE review Markdown must not contain findings")
+              if risk != "NONE" and not exact_findings:
+                  raise ValueError("non-NONE review Markdown must contain a finding")
+
+              notes_start = section_positions[2]
+              required_fields = (
+                  r"(?m)^- \*\*Category\*\*: \S.*$",
+                  r"(?m)^- \*\*Location\*\*: \[[^\]]+\]\([^\)]+\)[ \t]*$",
+                  r"(?m)^- \*\*Description\*\*: \S.*$",
+                  r"(?m)^- \*\*Impact\*\*: \S.*$",
+                  r"(?m)^- \*\*Recommendation\*\*: \S.*$",
+              )
+              for index, finding in enumerate(exact_findings):
+                  end = exact_findings[index + 1].start() if index + 1 < len(exact_findings) else notes_start
+                  block = markdown[finding.start():end]
+                  if not all(re.search(pattern, block) for pattern in required_fields):
+                      raise ValueError("review Markdown finding is missing required fields")
+                  if severity_rank[finding.group(1).upper()] > severity_rank[risk]:
+                      raise ValueError("model output risk is lower than a reported finding")
+
+          base_sha = os.environ["REVIEW_BASE_SHA"]
+          head_sha = os.environ["REVIEW_HEAD_SHA"]
+          commit_range = os.environ["REVIEW_COMMIT_RANGE"]
+          run_id = os.environ["REVIEW_RUN_ID"]
+          timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
+          if not re.fullmatch(r"[0-9a-f]{40}", base_sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+              raise ValueError("Trusted review SHAs must be full lowercase commit IDs")
+          if commit_range != f"{base_sha}...{head_sha}" or not run_id.isdigit():
+              raise ValueError("Trusted review identity is malformed")
+
+          agent_result = os.environ["REVIEW_AGENT_RESULT"]
+          raw = ""
+          review_packet = None
+          elapsed_seconds = None
+          incomplete_reason = "codex-job-timeout" if agent_result == "cancelled" else None
+          if agent_result == "success":
+              metadata = json.loads(Path("codex-security-review-raw-metadata.json").read_text(encoding="utf-8"))
+              expected_identity = {
+                  "base_sha": base_sha,
+                  "head_sha": head_sha,
+                  "commit_range": commit_range,
+                  "run_id": run_id,
+              }
+              if any(metadata.get(key) != value for key, value in expected_identity.items()):
+                  raise ValueError("Raw review handoff identity does not match this workflow run")
+              elapsed_seconds = int(metadata["elapsed_seconds"])
+              if int(metadata["timeout_budget_seconds"]) != timeout_seconds:
+                  raise ValueError("Raw review handoff timeout budget is malformed")
+              review_packet = metadata["review_packet"]
+              incomplete_reason = metadata.get("incomplete_reason")
+              raw = Path("codex-security-review-raw-output.txt").read_text(encoding="utf-8").strip()
+
+          if incomplete_reason is None and not raw:
+              incomplete_reason = "empty-model-output"
+          if incomplete_reason is None:
+              try:
+                  parsed = json.loads(raw)
+                  if not isinstance(parsed, dict) or set(parsed) != {"overall_risk", "review_markdown"}:
+                      raise ValueError("model output has missing or unexpected fields")
+                  risk = parsed["overall_risk"]
+                  review_markdown = parsed["review_markdown"]
+                  if risk not in allowed:
+                      raise ValueError("model output has an invalid overall_risk")
+                  if not isinstance(review_markdown, str) or not review_markdown.strip():
+                      raise ValueError("model output review_markdown must be non-empty")
+                  validate_review_markdown(review_markdown, risk)
+              except (json.JSONDecodeError, TypeError, ValueError):
+                  incomplete_reason = "invalid-model-output"
+
+          if incomplete_reason is not None:
+              risk = "HIGH"
+              elapsed_display = f"{elapsed_seconds}s" if elapsed_seconds is not None else "unknown"
+              review_markdown = "\n".join([
+                  "## Review Summary",
+                  "",
+                  "**Overall Risk**: HIGH",
+                  "",
+                  "### Findings",
+                  "",
+                  "#### [HIGH] Automated review incomplete",
+                  "- **Category**: Other",
+                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_display}, budget: {timeout_seconds // 60} minutes).",
+                  "- **Impact**: The pull request has not received complete automated security, correctness, and reliability analysis.",
+                  "- **Recommendation**: Require human review before merging. Do not treat this result as approval-free or low risk.",
+                  "",
+                  "### Notes",
+                  "",
+                  "Human review is required because the bounded automated review was incomplete.",
+                  "",
+              ])
+
+          result = {
+              "head_sha": head_sha,
+              "commit_range": commit_range,
+              "run_id": run_id,
+              "overall_risk": risk,
+              "automation_completed": incomplete_reason is None,
+              "elapsed_seconds": elapsed_seconds,
+              "timeout_budget_seconds": timeout_seconds,
+          }
+          if review_packet is not None:
+              result["review_packet"] = review_packet
+          if incomplete_reason is not None:
+              result["incomplete_reason"] = incomplete_reason
+              print(f"Codex review incomplete: {incomplete_reason}; emitted fail-closed HIGH result")
+          Path("codex-security-review-result.json").write_text(
+              json.dumps(result, indent=2) + "\n", encoding="utf-8"
+          )
           Path("codex-security-review.md").write_text(review_markdown, encoding="utf-8")
           PY
 
       - name: Upload security review result
-        if: steps.run_codex.outputs.final-message != ''
+        if: ${{ always() && steps.write_review_result.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codex-security-review-result
@@ -221,7 +628,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload security review markdown
-        if: steps.run_codex.outputs.final-message != ''
+        if: ${{ always() && steps.write_review_result.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codex-security-review-markdown
@@ -231,12 +638,14 @@ jobs:
   post-review:
     name: Post Codex Security Review
     needs: security-review
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ always() && needs.security-review.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Serialize posters without cancellation. A stale poster must reach the
+    # newer-run guard instead of cancelling the poster for the current run.
     concurrency:
       group: codex-security-review-post-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       actions: read
       issues: write
@@ -254,6 +663,7 @@ jobs:
           path: .
 
       - name: Post Codex security review
+        id: post_review
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_MARKDOWN_FILE: codex-security-review.md
@@ -271,7 +681,12 @@ jobs:
             const scopeSummaryLine = `Reviewed pull request diff only (\`${commitRange}\`, exact PR three-dot diff)`;
 
             const marker = '<!-- codex-security-review -->';
+            // Emit the authoring run id from the trusted template, ahead of the
+            // model-written review body. The guard below reads the first match, so a
+            // `/actions/runs/<id>` string inside `${review}` cannot impersonate it.
+            const runMarker = (runId) => `<!-- codex-security-review-run:${runId} -->`;
             const buildComment = (login) => `${marker}
+            ${runMarker(context.runId)}
             ## 🔐 Codex Security Review
 
             > **Note**: This is an automated security-focused code review generated by Codex.
@@ -313,6 +728,18 @@ jobs:
               );
 
               if (existingComment) {
+                const trustedRunPrefix = new RegExp(
+                  `^${marker}\\n<!-- codex-security-review-run:(\\d+) -->\\n`
+                );
+                const existingRunMatch = existingComment.body.match(trustedRunPrefix);
+                const existingRunId = existingRunMatch ? Number(existingRunMatch[1]) : 0;
+                if (existingRunId > Number(context.runId)) {
+                  core.notice(
+                    `Skipping Codex review comment from run ${context.runId}; ` +
+                    `the existing comment came from newer run ${existingRunId}.`
+                  );
+                  return;
+                }
                 await github.rest.issues.updateComment({
                   owner,
                   repo,
@@ -354,7 +781,10 @@ jobs:
                 return;
               }
 
+              // Posters are serialized. Publish this valid result unless the PR head is
+              // stale; postOrUpdateComment refuses to replace a comment from a newer run.
+
               await postOrUpdateComment(prNumber, pr.user.login);
             } catch (error) {
-              core.warning(`Unable to post Codex review comment: ${error.message}`);
+              core.setFailed(`Unable to post Codex review comment: ${error.message}`);
             }
