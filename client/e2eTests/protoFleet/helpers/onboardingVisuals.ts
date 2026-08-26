@@ -170,6 +170,10 @@ export class OnboardingVisualHelper {
     await minersPage.clickNavigationMenuIfMobile();
     const navigationMenu = page.getByRole("navigation", { name: "Main" });
     await expect(navigationMenu).toBeVisible();
+    const mobileSettingsSubmenu = navigationMenu.getByTestId("secondary-nav");
+    if (await mobileSettingsSubmenu.count()) {
+      await expect(mobileSettingsSubmenu).toHaveCSS("opacity", "1");
+    }
     await snapshots.captureLocator(navigationMenu, VISUAL_SNAPSHOTS.navigationMenu);
   }
 
