@@ -127,6 +127,13 @@ jobs:
           path: /tmp/nightly-assets/server
           merge-multiple: true
 
+      - name: Download Fleet Node artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: fleetnode-linux-*
+          path: /tmp/nightly-assets/fleetnode
+          merge-multiple: true
+
       - name: Download client artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -157,6 +164,23 @@ jobs:
             sha256sum "$bundle" > "$expected_sidecar"
             if ! cmp -s "$expected_sidecar" "$bundle.sha256"; then
               echo "::error::Deployment bundle checksum is not bound to $bundle"
+              exit 1
+            fi
+          done
+
+      - name: Verify Fleet Node checksums
+        run: |
+          cd /tmp/nightly-assets/fleetnode
+          for arch in amd64 arm64; do
+            archive="fleetnode-${VERSION}-linux-${arch}.tar.gz"
+            if [[ ! -f "$archive" || ! -f "$archive.sha256" ]]; then
+              echo "::error::Missing Fleet Node archive or checksum for $arch"
+              exit 1
+            fi
+            expected_sidecar="$RUNNER_TEMP/fleetnode-${arch}.sha256"
+            sha256sum "$archive" > "$expected_sidecar"
+            if ! cmp -s "$expected_sidecar" "$archive.sha256"; then
+              echo "::error::Fleet Node checksum is not bound to $archive"
               exit 1
             fi
           done
@@ -202,10 +226,13 @@ jobs:
             /tmp/nightly-assets/windows/installer.exe \
             /tmp/nightly-assets/windows/uninstall.exe \
             /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/fleetnode/fleetnode-${VERSION}-linux-*.tar.gz \
+            /tmp/nightly-assets/fleetnode/fleetnode-${VERSION}-linux-*.tar.gz.sha256 \
             /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
             ./deployment-files/install.sh \
+            ./deployment-files/fleetnode/install-fleetnode.sh \
             ./deployment-files/uninstall.sh \
             --draft \
             --notes-file /tmp/nightly-release-notes.md \
@@ -222,10 +249,13 @@ jobs:
             /tmp/nightly-assets/windows/installer.exe \
             /tmp/nightly-assets/windows/uninstall.exe \
             /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/fleetnode/fleetnode-${VERSION}-linux-*.tar.gz \
+            /tmp/nightly-assets/fleetnode/fleetnode-${VERSION}-linux-*.tar.gz.sha256 \
             /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
             ./deployment-files/install.sh \
+            ./deployment-files/fleetnode/install-fleetnode.sh \
             ./deployment-files/uninstall.sh \
             --clobber
 
@@ -298,10 +328,13 @@ jobs:
             echo "- \`proto-fleet-${NIGHTLY_VERSION}-arm64.tar.gz\`"
             echo "- \`proto-fleet-server-${NIGHTLY_VERSION}-amd64.tar.gz\`"
             echo "- \`proto-fleet-server-${NIGHTLY_VERSION}-arm64.tar.gz\`"
+            echo "- \`fleetnode-${NIGHTLY_VERSION}-linux-amd64.tar.gz\`"
+            echo "- \`fleetnode-${NIGHTLY_VERSION}-linux-arm64.tar.gz\`"
             echo "- \`proto-fleet-client-${NIGHTLY_VERSION}.tar.gz\`"
             echo "- \`proto-os-${NIGHTLY_VERSION}.tar.gz\`"
             echo "- \`proto-os_${NIGHTLY_VERSION}.ipk\`"
             echo "- \`installer.exe\`"
             echo "- \`uninstall.exe\`"
             echo "- \`install.sh\`"
+            echo "- \`install-fleetnode.sh\`"
           } >> "$GITHUB_STEP_SUMMARY"
