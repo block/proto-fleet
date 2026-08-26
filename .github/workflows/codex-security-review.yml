@@ -365,7 +365,7 @@ jobs:
           agent_result = os.environ["REVIEW_AGENT_RESULT"]
           raw = ""
           review_packet = None
-          elapsed_seconds = timeout_seconds
+          elapsed_seconds = None
           incomplete_reason = "codex-job-timeout" if agent_result == "cancelled" else None
           if agent_result == "success":
               metadata = json.loads(Path("codex-security-review-raw-metadata.json").read_text(encoding="utf-8"))
@@ -397,11 +397,31 @@ jobs:
                       raise ValueError("model output has an invalid overall_risk")
                   if not isinstance(review_markdown, str) or not review_markdown.strip():
                       raise ValueError("model output review_markdown must be non-empty")
+                  summary_risks = re.findall(
+                      r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
+                      review_markdown,
+                  )
+                  if summary_risks != [risk]:
+                      raise ValueError("model output risk disagrees with review summary")
+                  severity_rank = {
+                      "NONE": 0,
+                      "LOW": 1,
+                      "MEDIUM": 2,
+                      "HIGH": 3,
+                      "CRITICAL": 4,
+                  }
+                  finding_risks = re.findall(
+                      r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\]",
+                      review_markdown,
+                  )
+                  if any(severity_rank[finding] > severity_rank[risk] for finding in finding_risks):
+                      raise ValueError("model output risk is lower than a reported finding")
               except (json.JSONDecodeError, TypeError, ValueError):
                   incomplete_reason = "invalid-model-output"
 
           if incomplete_reason is not None:
               risk = "HIGH"
+              elapsed_display = f"{elapsed_seconds}s" if elapsed_seconds is not None else "unknown"
               review_markdown = "\n".join([
                   "## Review Summary",
                   "",
@@ -411,7 +431,7 @@ jobs:
                   "",
                   "#### [HIGH] Automated review incomplete",
                   "- **Category**: Other",
-                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_seconds}s, budget: {timeout_seconds // 60} minutes).",
+                  f"- **Description**: The automated review produced no usable result for `{commit_range}` (workflow run `{run_id}`; reason: `{incomplete_reason}`, elapsed: {elapsed_display}, budget: {timeout_seconds // 60} minutes).",
                   "- **Impact**: The pull request has not received complete automated security, correctness, and reliability analysis.",
                   "- **Recommendation**: Require human review before merging. Do not treat this result as approval-free or low risk.",
                   "",
@@ -628,5 +648,5 @@ jobs:
 
               await postOrUpdateComment(prNumber, pr.user.login);
             } catch (error) {
-              core.warning(`Unable to post Codex review comment: ${error.message}`);
+              core.setFailed(`Unable to post Codex review comment: ${error.message}`);
             }

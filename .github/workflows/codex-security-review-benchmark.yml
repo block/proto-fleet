@@ -320,7 +320,9 @@ jobs:
 
       - name: Write benchmark artifacts
         id: write_artifacts
-        if: always()
+        # A job-budget cancellation is finalized by benchmark-finalize. Do not let
+        # cancellation cleanup publish a lower-fidelity record under the normal name.
+        if: ${{ always() && !cancelled() }}
         env:
           CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
@@ -346,6 +348,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import re
           import time
           from pathlib import Path
 
@@ -356,9 +359,9 @@ jobs:
 
           review = None
           incomplete_reason = None
-          if outcome != "success":
-              # A cancelled-on-timeout step and a step that errored both surface as a
-              # failed outcome, so the elapsed budget is the only available signal.
+          if outcome == "cancelled":
+              incomplete_reason = "codex-step-cancelled"
+          elif outcome != "success":
               incomplete_reason = (
                   "codex-step-timeout" if elapsed >= timeout_seconds else "codex-step-failed"
               )
@@ -374,7 +377,30 @@ jobs:
                       and isinstance(candidate["review_markdown"], str)
                       and candidate["review_markdown"].strip()
                   ):
-                      review = candidate
+                      risk = candidate["overall_risk"]
+                      markdown = candidate["review_markdown"]
+                      summary_risks = re.findall(
+                          r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
+                          markdown,
+                      )
+                      severity_rank = {
+                          "NONE": 0,
+                          "LOW": 1,
+                          "MEDIUM": 2,
+                          "HIGH": 3,
+                          "CRITICAL": 4,
+                      }
+                      finding_risks = re.findall(
+                          r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\]",
+                          markdown,
+                      )
+                      if summary_risks == [risk] and not any(
+                          severity_rank[finding] > severity_rank[risk]
+                          for finding in finding_risks
+                      ):
+                          review = candidate
+                      else:
+                          incomplete_reason = "invalid-model-output"
                   else:
                       incomplete_reason = "invalid-model-output"
               except (json.JSONDecodeError, TypeError):
@@ -438,7 +464,7 @@ jobs:
         if: ${{ always() && steps.write_artifacts.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: benchmark-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}
+          name: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             benchmark-review.json
             benchmark-review.md
@@ -460,7 +486,8 @@ jobs:
       actions: read
     env:
       AGENT_JOB_NAME: ${{ format('{0} / {1} / {2}', matrix.case.id, matrix.variant.id, inputs.repeat) }}
-      ARTIFACT_NAME: benchmark-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}
+      RESULT_ARTIFACT_NAME: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
+      TIMEOUT_ARTIFACT_NAME: benchmark-timeout-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
       CODEX_TIMEOUT_MINUTES: "12"
@@ -473,7 +500,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           AGENT_JOB_NAME: ${{ env.AGENT_JOB_NAME }}
-          ARTIFACT_NAME: ${{ env.ARTIFACT_NAME }}
+          RESULT_ARTIFACT_NAME: ${{ env.RESULT_ARTIFACT_NAME }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -496,20 +523,20 @@ jobs:
             });
             core.setOutput('conclusion', matches[0].conclusion || '');
             core.setOutput(
-              'artifact_exists',
-              artifacts.some(artifact => artifact.name === process.env.ARTIFACT_NAME && !artifact.expired) ? 'true' : 'false'
+              'result_artifact_exists',
+              artifacts.some(artifact => artifact.name === process.env.RESULT_ARTIFACT_NAME && !artifact.expired) ? 'true' : 'false'
             );
 
       - name: Require completed or budget-cancelled benchmark
         id: validate
         env:
           AGENT_CONCLUSION: ${{ steps.inspect.outputs.conclusion }}
-          ARTIFACT_EXISTS: ${{ steps.inspect.outputs.artifact_exists }}
+          RESULT_ARTIFACT_EXISTS: ${{ steps.inspect.outputs.result_artifact_exists }}
         run: |
           case "$AGENT_CONCLUSION" in
             success)
-              if [ "$ARTIFACT_EXISTS" != "true" ]; then
-                echo "Completed benchmark job did not upload $ARTIFACT_NAME." >&2
+              if [ "$RESULT_ARTIFACT_EXISTS" != "true" ]; then
+                echo "Completed benchmark job did not upload $RESULT_ARTIFACT_NAME." >&2
                 exit 1
               fi
               ;;
@@ -522,7 +549,7 @@ jobs:
 
       - name: Write benchmark timeout artifacts
         id: write_timeout
-        if: ${{ steps.inspect.outputs.conclusion == 'cancelled' && steps.inspect.outputs.artifact_exists != 'true' }}
+        if: ${{ steps.inspect.outputs.conclusion == 'cancelled' }}
         env:
           CASE_ID: ${{ matrix.case.id }}
           CASE_PR: ${{ matrix.case.pr }}
@@ -580,7 +607,7 @@ jobs:
               "completed": False,
               "action_outcome": "cancelled",
               "incomplete_reason": reason,
-              "elapsed_seconds": timeout_seconds,
+              "elapsed_seconds": None,
               "timeout_budget_seconds": timeout_seconds,
               "log_metrics": {
                   "tool_calls": "adjudicate from action log",
@@ -592,14 +619,14 @@ jobs:
           Path("benchmark-review.json").write_text(json.dumps(review, indent=2) + "\n", encoding="utf-8")
           Path("benchmark-review.md").write_text(markdown, encoding="utf-8")
           Path("benchmark-scope.json").write_text(json.dumps(scope, indent=2) + "\n", encoding="utf-8")
-          Path("benchmark-elapsed-time.txt").write_text(f"{timeout_seconds}\n", encoding="utf-8")
+          Path("benchmark-elapsed-time.txt").write_text("unknown\n", encoding="utf-8")
           PY
 
       - name: Upload uniquely named benchmark timeout artifacts
         if: ${{ steps.write_timeout.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: ${{ env.TIMEOUT_ARTIFACT_NAME }}
           path: |
             benchmark-review.json
             benchmark-review.md

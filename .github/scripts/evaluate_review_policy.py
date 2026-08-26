@@ -982,6 +982,53 @@ def extract_run_id(details_url: str | None) -> str | None:
     return run_id if run_id.isdigit() else None
 
 
+def validate_security_review_result(
+    result: dict[str, Any], base_sha: str, head_sha: str, run_id: str
+) -> tuple[str | None, list[str]]:
+    if result.get("head_sha") != head_sha:
+        return None, ["Codex security-review result artifact is stale for this PR head"]
+    expected_commit_range = f"{base_sha}...{head_sha}"
+    if result.get("commit_range") != expected_commit_range:
+        return None, [
+            "Codex security-review result artifact is stale for this PR base/head range"
+        ]
+    if str(result.get("run_id")) != str(run_id):
+        return None, [
+            "Codex security-review result artifact does not match the workflow run"
+        ]
+    automation_completed = result.get("automation_completed")
+    if not isinstance(automation_completed, bool):
+        return None, [
+            "Codex security-review result artifact is missing or invalid automation_completed"
+        ]
+    risk_value = result.get("overall_risk")
+    if not isinstance(risk_value, str) or not risk_value:
+        return None, [
+            "Codex security-review result artifact is missing or invalid overall_risk"
+        ]
+    risk = risk_value.upper()
+    if risk not in SECURITY_RISK_LEVELS:
+        return None, [
+            f"Codex security-review result artifact has unknown overall_risk {risk!r}"
+        ]
+    if not automation_completed:
+        incomplete_reason = result.get("incomplete_reason")
+        if (
+            risk != "HIGH"
+            or not isinstance(incomplete_reason, str)
+            or not incomplete_reason.strip()
+        ):
+            return None, [
+                "Codex security-review incomplete artifact is not a fail-closed HIGH result"
+            ]
+        return "HIGH", []
+    if result.get("incomplete_reason") is not None:
+        return None, [
+            "Codex security-review completed artifact has an incomplete_reason"
+        ]
+    return risk, []
+
+
 def extract_security_risk(
     owner: str,
     repo: str,
@@ -1046,28 +1093,7 @@ def extract_security_risk(
                 "Codex security-review result artifact did not contain JSON"
             ) from error
 
-    if result.get("head_sha") != head_sha:
-        return None, ["Codex security-review result artifact is stale for this PR head"]
-    expected_commit_range = f"{base_sha}...{head_sha}"
-    if result.get("commit_range") != expected_commit_range:
-        return None, [
-            "Codex security-review result artifact is stale for this PR base/head range"
-        ]
-    if str(result.get("run_id")) != str(run_id):
-        return None, [
-            "Codex security-review result artifact does not match the workflow run"
-        ]
-    risk_value = result.get("overall_risk")
-    if not isinstance(risk_value, str) or not risk_value:
-        return None, [
-            "Codex security-review result artifact is missing or invalid overall_risk"
-        ]
-    risk = risk_value.upper()
-    if risk not in SECURITY_RISK_LEVELS:
-        return None, [
-            f"Codex security-review result artifact has unknown overall_risk {risk!r}"
-        ]
-    return risk, []
+    return validate_security_review_result(result, base_sha, head_sha, run_id)
 
 
 def evaluate_policy(

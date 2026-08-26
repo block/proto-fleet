@@ -106,6 +106,109 @@ def run_python_heredoc(body, env, cwd):
     )
 
 
+def run_github_script(body, scenario, cwd):
+    rendered = body.replace("${{ github.repository }}", "block/proto-fleet").replace(
+        "${{ github.run_id }}", str(scenario.get("run_id", 100))
+    )
+    harness = (
+        """
+const scenario = JSON.parse(process.env.SCENARIO_JSON);
+const calls = [];
+const notices = [];
+const failures = [];
+const maybeFail = (name) => {
+  if (scenario.fail_action === name) throw new Error(`forced ${name} failure`);
+};
+const context = {
+  runId: scenario.run_id || 100,
+  sha: scenario.head_sha || 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  repo: {owner: 'block', repo: 'proto-fleet'},
+};
+const core = {
+  info: message => calls.push({type: 'info', message}),
+  notice: message => notices.push(message),
+  warning: message => calls.push({type: 'warning', message}),
+  setFailed: message => failures.push(message),
+};
+const github = {
+  paginate: async (method, args) => {
+    const response = await method(args);
+    return response.data || response;
+  },
+  rest: {
+    pulls: {
+      get: async () => {
+        maybeFail('pulls.get');
+        return {data: scenario.pull_request};
+      },
+    },
+    actions: {
+      getWorkflowRun: async () => {
+        maybeFail('actions.getWorkflowRun');
+        return {data: {workflow_id: 42}};
+      },
+      listWorkflowRuns: async () => {
+        maybeFail('actions.listWorkflowRuns');
+        return {data: scenario.workflow_runs || []};
+      },
+    },
+    issues: {
+      listComments: async () => {
+        maybeFail('issues.listComments');
+        return {data: scenario.comments || []};
+      },
+      updateComment: async args => {
+        maybeFail('issues.updateComment');
+        calls.push({type: 'update', args});
+        return {data: {}};
+      },
+      createComment: async args => {
+        maybeFail('issues.createComment');
+        calls.push({type: 'create', args});
+        return {data: {}};
+      },
+    },
+  },
+};
+(async () => {
+"""
+        + rendered
+        + """
+})().then(() => {
+  console.log(JSON.stringify({calls, notices, failures}));
+  if (failures.length) process.exitCode = 1;
+}).catch(error => {
+  console.error(error.stack || String(error));
+  process.exitCode = 2;
+});
+"""
+    )
+    script = Path(cwd) / "github-script.js"
+    script.write_text(harness, encoding="utf-8")
+    (Path(cwd) / "codex-security-review.md").write_text(
+        "## Review Summary\n\n**Overall Risk**: HIGH\n", encoding="utf-8"
+    )
+    child_env = {
+        **os.environ,
+        "SCENARIO_JSON": json.dumps(scenario),
+        "REVIEW_MARKDOWN_FILE": "codex-security-review.md",
+        "REVIEW_HEAD_SHA": scenario.get("head_sha", "b" * 40),
+        "REVIEW_PR_NUMBER": "965",
+        "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
+        "CODEX_MODEL": "gpt-5.6-sol",
+    }
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=cwd,
+        env=child_env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    output = json.loads(completed.stdout.splitlines()[-1]) if completed.stdout else {}
+    return completed, output
+
+
 class ReviewPolicyTest(unittest.TestCase):
     def test_pr_gate_runs_review_policy_tests(self):
         workflow = load_workflow("pr-gate.yml")
@@ -174,6 +277,103 @@ class ReviewPolicyTest(unittest.TestCase):
             )
         )
 
+    def test_post_review_script_executes_stale_and_failure_guards(self):
+        workflow = load_workflow("codex-security-review.yml")
+        script = find_step(workflow, "post-review", "post_review")["with"]["script"]
+        head_sha = "b" * 40
+        base = {
+            "run_id": 100,
+            "head_sha": head_sha,
+            "pull_request": {
+                "state": "open",
+                "head": {"sha": head_sha},
+                "user": {"login": "author"},
+            },
+            "workflow_runs": [],
+            "comments": [],
+        }
+
+        scenarios = [
+            ("current", base, 0, "create", None),
+            (
+                "superseded-same-pr",
+                {
+                    **base,
+                    "workflow_runs": [
+                        {
+                            "id": 101,
+                            "head_sha": head_sha,
+                            "pull_requests": [{"number": 965}],
+                        }
+                    ],
+                },
+                0,
+                None,
+                "Skipping superseded",
+            ),
+            (
+                "same-head-other-pr",
+                {
+                    **base,
+                    "workflow_runs": [
+                        {
+                            "id": 101,
+                            "head_sha": head_sha,
+                            "pull_requests": [{"number": 966}],
+                        }
+                    ],
+                },
+                0,
+                "create",
+                None,
+            ),
+            (
+                "newer-existing-comment",
+                {
+                    **base,
+                    "comments": [
+                        {
+                            "id": 1,
+                            "user": {"login": "github-actions[bot]", "type": "Bot"},
+                            "body": (
+                                "<!-- codex-security-review -->\n"
+                                "<!-- codex-security-review-run:101 -->"
+                            ),
+                        }
+                    ],
+                },
+                0,
+                None,
+                "existing comment came from newer run",
+            ),
+            (
+                "api-failure",
+                {**base, "fail_action": "actions.getWorkflowRun"},
+                1,
+                None,
+                None,
+            ),
+        ]
+        for name, scenario, expected_code, expected_call, expected_notice in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                completed, output = run_github_script(script, scenario, tmp)
+                self.assertEqual(completed.returncode, expected_code, completed.stderr)
+                call_types = [call["type"] for call in output.get("calls", [])]
+                if expected_call:
+                    self.assertIn(expected_call, call_types)
+                else:
+                    self.assertNotIn("create", call_types)
+                    self.assertNotIn("update", call_types)
+                if expected_notice:
+                    self.assertTrue(
+                        any(
+                            expected_notice in notice
+                            for notice in output.get("notices", [])
+                        )
+                    )
+                if expected_code:
+                    self.assertTrue(output.get("failures"))
+
     def test_codex_benchmark_uses_fixed_bounded_non_production_matrix(self):
         workflow_text = read_workflow("codex-security-review-benchmark.yml")
         workflow = load_workflow("codex-security-review-benchmark.yml")
@@ -183,6 +383,7 @@ class ReviewPolicyTest(unittest.TestCase):
         cases = corpus["cases"]
         variants = corpus["variants"]
         codex = find_step(workflow, "benchmark-review", "run_codex")
+        benchmark_writer = find_step(workflow, "benchmark-review", "write_artifacts")
 
         self.assertEqual(set(workflow_triggers(workflow)), {"workflow_dispatch"})
         self.assertEqual(
@@ -192,6 +393,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(job["strategy"]["max-parallel"], 2)
         self.assertEqual(codex["timeout-minutes"], 12)
         self.assertTrue(codex["continue-on-error"])
+        self.assertIn("!cancelled()", benchmark_writer["if"])
         self.assertEqual(
             {variant["id"] for variant in variants},
             {"unified-40", "unified-10", "compact"},
@@ -217,7 +419,16 @@ class ReviewPolicyTest(unittest.TestCase):
             if str(step.get("uses", "")).startswith("actions/upload-artifact@")
         ]
         self.assertEqual(len(uploads), 1)
-        self.assertNotIn("codex-security-review-result", uploads[0]["with"]["name"])
+        result_artifact_name = uploads[0]["with"]["name"]
+        timeout_artifact_name = workflow["jobs"]["benchmark-finalize"]["env"][
+            "TIMEOUT_ARTIFACT_NAME"
+        ]
+        self.assertTrue(result_artifact_name.startswith("benchmark-result-"))
+        self.assertTrue(timeout_artifact_name.startswith("benchmark-timeout-"))
+        self.assertNotEqual(result_artifact_name, timeout_artifact_name)
+        self.assertIn("github.run_attempt", result_artifact_name)
+        self.assertIn("github.run_attempt", timeout_artifact_name)
+        self.assertNotIn("codex-security-review-result", result_artifact_name)
         self.assertNotIn("issues: write", workflow_text)
         self.assertNotIn("pull-requests: write", workflow_text)
 
@@ -298,7 +509,10 @@ class ReviewPolicyTest(unittest.TestCase):
         production = load_workflow("codex-security-review.yml")
         benchmark = load_workflow("codex-security-review-benchmark.yml")
         production_job = production["jobs"]["review-agent"]
+        production_finalizer = production["jobs"]["security-review"]
+        production_poster = production["jobs"]["post-review"]
         benchmark_job = benchmark["jobs"]["benchmark-review"]
+        benchmark_finalizer = benchmark["jobs"]["benchmark-finalize"]
         production_codex = find_step(production, "review-agent", "run_codex")
         benchmark_codex = find_step(benchmark, "benchmark-review", "run_codex")
 
@@ -316,7 +530,19 @@ class ReviewPolicyTest(unittest.TestCase):
             )
         self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
         self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "xhigh")
+        self.assertEqual(
+            production_poster["env"]["CODEX_MODEL"],
+            production_job["env"]["CODEX_MODEL"],
+        )
         self.assertEqual(benchmark_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
+        self.assertEqual(
+            benchmark_finalizer["env"]["CODEX_MODEL"],
+            benchmark_job["env"]["CODEX_MODEL"],
+        )
+        self.assertEqual(
+            benchmark_finalizer["env"]["CODEX_REASONING_EFFORT"],
+            benchmark_job["env"]["CODEX_REASONING_EFFORT"],
+        )
 
         # The benchmark checks out historical commits, so the review-packet body cannot
         # live in a local composite action; keeping the two copies byte-identical is what
@@ -340,6 +566,14 @@ class ReviewPolicyTest(unittest.TestCase):
             benchmark_codex["timeout-minutes"],
             int(benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"]),
         )
+        self.assertEqual(
+            production_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
+            production_job["env"]["CODEX_TIMEOUT_MINUTES"],
+        )
+        self.assertEqual(
+            benchmark_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
+            benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"],
+        )
         self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
         )
@@ -359,14 +593,29 @@ class ReviewPolicyTest(unittest.TestCase):
             )["run"]
         )
         valid_output = json.dumps(
-            {"overall_risk": "MEDIUM", "review_markdown": "## Review Summary\n\nok\n"}
+            {
+                "overall_risk": "MEDIUM",
+                "review_markdown": "## Review Summary\n\n**Overall Risk**: MEDIUM\n",
+            }
         )
         cases = [
             (None, "success", valid_output, 30),
+            ("codex-step-cancelled", "cancelled", "", 45),
             ("codex-step-timeout", "failure", "", 12 * 60),
             ("codex-step-failed", "failure", "", 45),
             ("empty-model-output", "success", "", 45),
             ("invalid-model-output", "success", "{", 45),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": "## Review Summary\n\n**Overall Risk**: HIGH\n",
+                    }
+                ),
+                45,
+            ),
         ]
         for expected_reason, outcome, output, age in cases:
             with self.subTest(reason=expected_reason):
@@ -424,6 +673,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(
             {reason for reason, _, _, _ in cases if reason},
             {
+                "codex-step-cancelled",
                 "codex-step-timeout",
                 "codex-step-failed",
                 "empty-model-output",
@@ -443,6 +693,11 @@ class ReviewPolicyTest(unittest.TestCase):
             finalizer["strategy"]["matrix"], review_job["strategy"]["matrix"]
         )
         self.assertEqual(finalizer["strategy"]["max-parallel"], 2)
+        timeout_writer = find_step(workflow, "benchmark-finalize", "write_timeout")
+        self.assertEqual(
+            timeout_writer["if"],
+            "${{ steps.inspect.outputs.conclusion == 'cancelled' }}",
+        )
 
         gate = find_step(workflow, "benchmark-finalize", "validate")["run"]
         cases = [
@@ -458,8 +713,8 @@ class ReviewPolicyTest(unittest.TestCase):
                     env={
                         **os.environ,
                         "AGENT_CONCLUSION": conclusion,
-                        "ARTIFACT_EXISTS": artifact_exists,
-                        "ARTIFACT_NAME": "benchmark-pr-957-unified-40-initial-123",
+                        "RESULT_ARTIFACT_EXISTS": artifact_exists,
+                        "RESULT_ARTIFACT_NAME": "benchmark-result-pr-957-unified-40-initial-123-1",
                     },
                     check=False,
                     capture_output=True,
@@ -501,9 +756,14 @@ class ReviewPolicyTest(unittest.TestCase):
             scope = json.loads(
                 (Path(tmp) / "benchmark-scope.json").read_text(encoding="utf-8")
             )
+            elapsed_text = (Path(tmp) / "benchmark-elapsed-time.txt").read_text(
+                encoding="utf-8"
+            )
         self.assertEqual(review["incomplete_reason"], "codex-job-timeout")
         self.assertEqual(scope["incomplete_reason"], "codex-job-timeout")
+        self.assertIsNone(scope["elapsed_seconds"])
         self.assertEqual(scope["timeout_budget_seconds"], 720)
+        self.assertEqual(elapsed_text, "unknown\n")
 
     def test_codex_benchmark_serializes_repeat_dispatches(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
@@ -530,7 +790,14 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("HIGH", allowed)
 
     def _run_review_result_writer(
-        self, *, agent_result, review_output="", incomplete_reason=None
+        self,
+        *,
+        agent_result,
+        review_output="",
+        incomplete_reason=None,
+        metadata_overrides=None,
+        environment_overrides=None,
+        expect_success=True,
     ):
         body = extract_python_heredoc(
             find_step(
@@ -560,25 +827,27 @@ class ReviewPolicyTest(unittest.TestCase):
                         "unchanged_context_lines": 80,
                     },
                 }
+                metadata.update(metadata_overrides or {})
                 (Path(tmp) / "codex-security-review-raw-metadata.json").write_text(
                     json.dumps(metadata), encoding="utf-8"
                 )
                 (Path(tmp) / "codex-security-review-raw-output.txt").write_text(
                     review_output, encoding="utf-8"
                 )
-            result = run_python_heredoc(
-                body,
-                {
-                    "CODEX_TIMEOUT_MINUTES": "9",
-                    "REVIEW_BASE_SHA": base_sha,
-                    "REVIEW_HEAD_SHA": head_sha,
-                    "REVIEW_COMMIT_RANGE": f"{base_sha}...{head_sha}",
-                    "REVIEW_RUN_ID": "12345",
-                    "REVIEW_AGENT_RESULT": agent_result,
-                },
-                tmp,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
+            environment = {
+                "CODEX_TIMEOUT_MINUTES": "9",
+                "REVIEW_BASE_SHA": base_sha,
+                "REVIEW_HEAD_SHA": head_sha,
+                "REVIEW_COMMIT_RANGE": f"{base_sha}...{head_sha}",
+                "REVIEW_RUN_ID": "12345",
+                "REVIEW_AGENT_RESULT": agent_result,
+            }
+            environment.update(environment_overrides or {})
+            completed = run_python_heredoc(body, environment, tmp)
+            if not expect_success:
+                self.assertNotEqual(completed.returncode, 0)
+                return None, completed.stderr
+            self.assertEqual(completed.returncode, 0, completed.stderr)
             return (
                 json.loads(
                     (Path(tmp) / "codex-security-review-result.json").read_text(
@@ -594,6 +863,31 @@ class ReviewPolicyTest(unittest.TestCase):
             ("codex-step-timeout", "success", "", "codex-step-timeout"),
             ("empty-model-output", "success", "   ", None),
             ("invalid-model-output", "success", "not json at all", None),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": "## Review Summary\n\n**Overall Risk**: HIGH\n",
+                    }
+                ),
+                None,
+            ),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": (
+                            "## Review Summary\n\n**Overall Risk**: LOW\n\n"
+                            "### Findings\n\n#### [HIGH] Contradictory finding\n"
+                        ),
+                    }
+                ),
+                None,
+            ),
         ]
         for expected_reason, agent_result, output, handoff_reason in cases:
             with self.subTest(reason=expected_reason):
@@ -606,6 +900,9 @@ class ReviewPolicyTest(unittest.TestCase):
                 self.assertFalse(result["automation_completed"])
                 self.assertEqual(result["incomplete_reason"], expected_reason)
                 self.assertEqual(result["timeout_budget_seconds"], 540)
+                if expected_reason == "codex-job-timeout":
+                    self.assertIsNone(result["elapsed_seconds"])
+                    self.assertIn("elapsed: unknown", markdown)
                 self.assertIn("Human review is required", markdown)
                 self.assertIn("Automated review incomplete", markdown)
 
@@ -633,6 +930,52 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(result["review_packet"]["context_variant"], "unified-40")
         self.assertEqual(result["review_packet"]["bytes"], 4096)
         self.assertIn("**Overall Risk**: LOW", markdown)
+
+    def test_review_result_writer_rejects_identity_and_budget_drift(self):
+        valid_output = json.dumps(
+            {
+                "overall_risk": "LOW",
+                "review_markdown": "## Review Summary\n\n**Overall Risk**: LOW\n",
+            }
+        )
+        metadata_cases = {
+            "base_sha": "c" * 40,
+            "head_sha": "c" * 40,
+            "commit_range": f"{'c' * 40}...{'b' * 40}",
+            "run_id": "99999",
+        }
+        for key, value in metadata_cases.items():
+            with self.subTest(metadata=key):
+                _, stderr = self._run_review_result_writer(
+                    agent_result="success",
+                    review_output=valid_output,
+                    metadata_overrides={key: value},
+                    expect_success=False,
+                )
+                self.assertIn("identity does not match", stderr)
+
+        _, stderr = self._run_review_result_writer(
+            agent_result="success",
+            review_output=valid_output,
+            metadata_overrides={"timeout_budget_seconds": 539},
+            expect_success=False,
+        )
+        self.assertIn("timeout budget is malformed", stderr)
+
+        trusted_identity_cases = [
+            ({"REVIEW_BASE_SHA": "a" * 39}, "full lowercase commit IDs"),
+            ({"REVIEW_COMMIT_RANGE": "malformed"}, "identity is malformed"),
+            ({"REVIEW_RUN_ID": "not-a-run"}, "identity is malformed"),
+        ]
+        for overrides, expected_message in trusted_identity_cases:
+            with self.subTest(environment=overrides):
+                _, stderr = self._run_review_result_writer(
+                    agent_result="success",
+                    review_output=valid_output,
+                    environment_overrides=overrides,
+                    expect_success=False,
+                )
+                self.assertIn(expected_message, stderr)
 
     def test_broken_review_automation_remains_a_hard_failure(self):
         workflow = load_workflow("codex-security-review.yml")
@@ -1749,6 +2092,73 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.extract_run_id("https://github.com/block/proto-fleet/runs/123")
         )
 
+    def test_security_review_result_contract_gates_automation_completion(self):
+        identity = {
+            "head_sha": "abc123",
+            "commit_range": "base123...abc123",
+            "run_id": "123",
+        }
+        cases = [
+            (
+                {**identity, "overall_risk": "LOW", "automation_completed": True},
+                "LOW",
+                [],
+            ),
+            (
+                {
+                    **identity,
+                    "overall_risk": "HIGH",
+                    "automation_completed": False,
+                    "incomplete_reason": "codex-job-timeout",
+                },
+                "HIGH",
+                [],
+            ),
+            (
+                {**identity, "overall_risk": "NONE"},
+                None,
+                ["missing or invalid automation_completed"],
+            ),
+            (
+                {
+                    **identity,
+                    "overall_risk": "NONE",
+                    "automation_completed": False,
+                    "incomplete_reason": "codex-job-timeout",
+                },
+                None,
+                ["not a fail-closed HIGH result"],
+            ),
+            (
+                {
+                    **identity,
+                    "overall_risk": "HIGH",
+                    "automation_completed": False,
+                },
+                None,
+                ["not a fail-closed HIGH result"],
+            ),
+            (
+                {
+                    **identity,
+                    "overall_risk": "LOW",
+                    "automation_completed": True,
+                    "incomplete_reason": "empty-model-output",
+                },
+                None,
+                ["completed artifact has an incomplete_reason"],
+            ),
+        ]
+        for result, expected_risk, blocker_fragments in cases:
+            with self.subTest(result=result):
+                risk, blockers = policy.validate_security_review_result(
+                    result, "base123", "abc123", "123"
+                )
+                self.assertEqual(risk, expected_risk)
+                self.assertEqual(len(blockers), len(blocker_fragments))
+                for fragment in blocker_fragments:
+                    self.assertTrue(any(fragment in blocker for blocker in blockers))
+
     def test_extract_security_risk_validates_workflow_run_identity(self):
         original_paginate_key = policy.github_paginate_key
         original_request = policy.github_request
@@ -1763,6 +2173,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "commit_range": "base123...abc123",
                         "run_id": "123",
                         "overall_risk": "LOW",
+                        "automation_completed": True,
                     }
                 ),
             )
@@ -1826,6 +2237,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "commit_range": "oldbase...abc123",
                         "run_id": "123",
                         "overall_risk": "LOW",
+                        "automation_completed": True,
                     }
                 ),
             )
@@ -1892,6 +2304,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "commit_range": "base123...abc123",
                         "run_id": "123",
                         "overall_risk": None,
+                        "automation_completed": True,
                     }
                 ),
             )

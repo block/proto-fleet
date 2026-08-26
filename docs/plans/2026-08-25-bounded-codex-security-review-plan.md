@@ -107,8 +107,9 @@ Add `.github/workflows/codex-security-review-benchmark.yml` with
   read-only sandbox, and review prompt for the context experiment.
 - Never post PR comments, publish the production artifact name, or participate
   in review-policy evaluation.
-- Upload uniquely named review JSON, Markdown, scope metadata, and elapsed-time
-  artifacts for each case and variant.
+- Upload distinct, uniquely named completed-result and outer-timeout artifacts
+  for each case and variant. Record cancellation elapsed time as unknown unless
+  it was measured before cancellation.
 - Limit matrix parallelism to two jobs to bound API load and cost.
 - Cap each benchmark review at 12 minutes. A timeout is a benchmark result, not
   a reason to extend the run.
@@ -207,7 +208,8 @@ fail-closed finalizer can roll out independently of model tuning.
   a hard failure.
 - Pass completed output through a uniquely named internal artifact so the
   finalizer can validate it without executing code from the PR checkout.
-- For timeout, empty output, or model-output parse failure, write:
+- For timeout, empty output, model-output parse failure, or disagreement between
+  the structured risk and review Markdown, write:
   - `overall_risk: HIGH`
   - the exact base/head range and run ID
   - Markdown stating that automated review did not complete within its budget
@@ -215,11 +217,13 @@ fail-closed finalizer can roll out independently of model tuning.
 - Keep a missing `OPENAI_API_KEY`, unsafe checkout state, malformed trusted
   configuration, stale SHA metadata, or artifact upload problem as a hard
   workflow failure.
-- Preserve the existing artifact names and schema consumed by
-  `.github/scripts/evaluate_review_policy.py`.
+- Preserve the existing production artifact names and schema consumed by
+  `.github/scripts/evaluate_review_policy.py`; require `automation_completed`
+  and force incomplete artifacts onto the human-review path.
 - Serialize post-review jobs without cancelling the running poster, preserve the
   head-SHA check, and reject newer runs for the same pull request so stale or
-  concurrency-cancelled results never update the PR comment.
+  concurrency-cancelled results never update the PR comment. Treat API and
+  posting failures as hard failures rather than warning-only success.
 - Select same-named policy checks by workflow invocation order before job start
   time so a superseded finalizer that starts late cannot replace newer policy
   input.
