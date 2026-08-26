@@ -3810,6 +3810,18 @@ func (q *retryingQuerier) ListCurtailmentTargetsByEventPage(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx context.Context, arg ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentTopologyMemberDeviceIdentifiersByOrg", func() error {
+		callResult, callErr := q.next.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
 	var result []Role
 	err := q.retrier.RetryQuery(ctx, "ListCustomRolesForOrg", func() error {

@@ -3282,6 +3282,101 @@ func (q *Queries) ListCurtailmentTargetsByEventPage(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listCurtailmentTopologyMemberDeviceIdentifiersByOrg = `-- name: ListCurtailmentTopologyMemberDeviceIdentifiersByOrg :many
+SELECT d.device_identifier
+FROM device d
+WHERE d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY($2::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = $1
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY($2::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = $1
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY($3::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = $1
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY($4::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001
+`
+
+type ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams struct {
+	OrgID       int64
+	BuildingIds []int64
+	RackIds     []int64
+	GroupIds    []int64
+}
+
+// Restore reads the live member IDs after locking the selector resources, then
+// locks these IDs together with departed restore candidates in one canonical
+// device order. Keeping this read non-locking avoids taking current-member rows
+// before lower-ID departed rows and deadlocking with bulk placement writes.
+func (q *Queries) ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx context.Context, arg ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt, listCurtailmentTopologyMemberDeviceIdentifiersByOrg,
+		arg.OrgID,
+		pq.Array(arg.BuildingIds),
+		pq.Array(arg.RackIds),
+		pq.Array(arg.GroupIds),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEarlierCurtailmentReservationDevices = `-- name: ListEarlierCurtailmentReservationDevices :many
 WITH current_event AS MATERIALIZED (
     SELECT curtailment_event.id, curtailment_event.org_id

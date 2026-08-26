@@ -3472,10 +3472,29 @@ func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(
 			return 0, err
 		}
 		scope.OrgID = lockedEvent.OrgID
-		if _, _, err := lockTopologyScopeCoverage(ctx, q, scope, nil); err != nil {
+		if err := lockTopologySelectorResourcesForWrite(ctx, q, scope); err != nil {
 			return 0, err
 		}
-		if _, _, err := lockDeviceScopeCoverage(ctx, q, event.OrgID, identifiers, nil); err != nil {
+		memberIdentifiers, err := q.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(
+			ctx,
+			sqlc.ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams{
+				OrgID:       scope.OrgID,
+				BuildingIds: scope.BuildingIDs,
+				RackIds:     scope.RackIDs,
+				GroupIds:    scope.GroupIDs,
+			},
+		)
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to list topology restore members: %v", err)
+		}
+		if len(memberIdentifiers) > interfaces.CurtailmentResolvedMinerMax {
+			return 0, fleeterror.NewResourceExhaustedErrorf(
+				"scope resolves to more than %d miners",
+				interfaces.CurtailmentResolvedMinerMax,
+			)
+		}
+		lockIdentifiers := append(append([]string(nil), memberIdentifiers...), identifiers...)
+		if _, _, err := lockDeviceScopeCoverage(ctx, q, event.OrgID, lockIdentifiers, nil); err != nil {
 			return 0, err
 		}
 		current, err := resolveCurtailmentTopologyDispatch(ctx, q, scope, identifiers)

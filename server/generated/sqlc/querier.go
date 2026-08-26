@@ -954,6 +954,11 @@ type Querier interface {
 	ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCurtailmentTargetsByEventParams) ([]CurtailmentTarget, error)
 	// Org-scoped, cursor-paginated target detail for large activity expansion.
 	ListCurtailmentTargetsByEventPage(ctx context.Context, arg ListCurtailmentTargetsByEventPageParams) ([]CurtailmentTarget, error)
+	// Restore reads the live member IDs after locking the selector resources, then
+	// locks these IDs together with departed restore candidates in one canonical
+	// device order. Keeping this read non-locking avoids taking current-member rows
+	// before lower-ID departed rows and deadlocking with bulk placement writes.
+	ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx context.Context, arg ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams) ([]string, error)
 	// Per-org custom roles. The role-list handler calls this with the
 	// caller's organization_id; the query never returns rows from other
 	// orgs, so an admin in org A cannot see or assign org B's custom

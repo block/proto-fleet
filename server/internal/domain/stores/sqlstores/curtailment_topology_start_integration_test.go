@@ -266,6 +266,84 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 		"a dispatch rejection must not queue Uncurtail for a miner that never received Curtail")
 }
 
+func TestSQLCurtailmentStore_BeginTopologyRestoreLocksCandidatesAndMembersInDeviceOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	buildingStore := sqlstores.NewSQLBuildingStore(database)
+	orgID := user.OrganizationID
+
+	building, err := buildingStore.CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID: orgID,
+		Name:  "Restore device lock order building",
+	})
+	require.NoError(t, err)
+	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
+	require.NoError(t, err)
+
+	event := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "restore-device-lock-order",
+	)
+	event.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+	_, err = store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, devices[:1])
+	require.NoError(t, err)
+	persisted, err := store.GetEventByUUID(ctx, orgID, event.EventUUID)
+	require.NoError(t, err)
+
+	lowDeviceTx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lowDeviceTx.Rollback() })
+	lowDeviceQueries := sqlc.New(lowDeviceTx)
+	_, err = lowDeviceQueries.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID: orgID, DeviceIdentifiers: devices[:1],
+	})
+	require.NoError(t, err)
+
+	restoreDone := make(chan struct {
+		transitioned int64
+		err          error
+	}, 1)
+	go func() {
+		transitioned, restoreErr := store.BeginCurtailmentTopologyTargetRestore(ctx, persisted, devices[:1])
+		restoreDone <- struct {
+			transitioned int64
+			err          error
+		}{transitioned: transitioned, err: restoreErr}
+	}()
+	select {
+	case result := <-restoreDone:
+		require.NoError(t, result.err)
+		t.Fatal("topology restore completed before the lower-ID candidate lock was released")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	highDeviceTx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = highDeviceTx.Rollback() })
+	highDeviceQueries := sqlc.New(highDeviceTx)
+	_, err = highDeviceQueries.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID: orgID, DeviceIdentifiers: devices[1:],
+	})
+	require.NoError(t, err, "restore must wait on the lower-ID candidate before locking the higher-ID member")
+	require.NoError(t, highDeviceTx.Rollback())
+	require.NoError(t, lowDeviceTx.Commit())
+
+	result := <-restoreDone
+	require.NoError(t, result.err)
+	assert.Equal(t, int64(1), result.transitioned)
+}
+
 func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttemptedTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

@@ -2274,6 +2274,65 @@ LIMIT 10001
 -- can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 FOR NO KEY UPDATE;
 
+-- name: ListCurtailmentTopologyMemberDeviceIdentifiersByOrg :many
+-- Restore reads the live member IDs after locking the selector resources, then
+-- locks these IDs together with departed restore candidates in one canonical
+-- device order. Keeping this read non-locking avoids taking current-member rows
+-- before lower-ID departed rows and deadlocking with bulk placement writes.
+SELECT d.device_identifier
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = sqlc.arg('org_id')
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY(sqlc.arg('group_ids')::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001;
+
 -- name: LockCurtailmentGroupsForWrite :many
 -- Serializes group membership changes with topology target/envelope writes.
 -- AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
