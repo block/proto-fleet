@@ -347,6 +347,32 @@ describe("UpdateMinerPasswordModal", () => {
         expect(screen.queryByTestId("weak-password-warning")).not.toBeInTheDocument();
       });
     });
+
+    test("refocuses the new password input when user clicks 'Create a stronger password'", async () => {
+      render(
+        <UpdateMinerPasswordModal
+          open={true}
+          hasThirdPartyMiners={false}
+          onConfirm={mockOnConfirm}
+          onDismiss={mockOnDismiss}
+        />,
+      );
+
+      fireEvent.change(screen.getByTestId("currentPassword"), { target: { value: "CurrentPassword123" } });
+      fireEvent.change(screen.getByTestId("newPassword"), { target: { value: "weakpass" } });
+      fireEvent.change(screen.getByTestId("confirmPassword"), { target: { value: "weakpass" } });
+      fireEvent.click(screen.getByTestId("modal-button-0"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("weak-password-warning")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Create a stronger password"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("newPassword")).toHaveFocus();
+      });
+    });
   });
 
   describe("Validation - Third-Party Miners", () => {
