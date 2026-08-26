@@ -82,6 +82,47 @@ func TestZoneFilter_CrossOrgIsolation(t *testing.T) {
 	assert.Equal(t, int64(1), totalB, "total count must reflect the filtered org-scoped result")
 }
 
+func TestMinerSearchFilter_MatchesAllIdentifierFields(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+	user := dbSvc.CreateSuperAdminUser()
+
+	type searchFixture struct {
+		query string
+		id    string
+		setup func(int64)
+	}
+	fixtures := []searchFixture{
+		{query: "name-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "name-marker", "", "", "") }},
+		{query: "serial-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "serial-marker", "", "") }},
+		{query: "aa:bb:cc", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "", "AA:BB:CC:DD:EE:FF", "") }},
+		{query: "192.0.2.42", setup: func(deviceID int64) { setDeviceIP(t, db, deviceID, "192.0.2.42") }},
+		{query: "worker-marker", setup: func(deviceID int64) { updateDeviceSearchFields(t, db, deviceID, "", "", "", "worker-marker") }},
+	}
+
+	for i := range fixtures {
+		dev := dbSvc.CreateDevice(user.OrganizationID, "proto")
+		fixtures[i].id = dev.ID
+		fixtures[i].setup(dev.DatabaseID)
+	}
+
+	for _, fixture := range fixtures {
+		rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, &stores.MinerFilter{
+			SearchQuery: fixture.query,
+		}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), total, "search %q should match one miner", fixture.query)
+		assert.Equal(t, []string{fixture.id}, identifiers(rows), "search %q should match its field", fixture.query)
+	}
+}
+
 // TestNumericRangeFilter_HashrateGreaterThan exercises the end-to-end numeric
 // filter pipeline against real Postgres/Timescale. It seeds three miners with
 // different hashrates and a fourth with stale telemetry, then proves the
@@ -479,6 +520,17 @@ func setDeviceIP(t *testing.T, db *sql.DB, deviceDatabaseID int64, ip string) {
          FROM device d
          WHERE discovered_device.id = d.discovered_device_id AND d.id = $2`,
 		ip, deviceDatabaseID)
+	require.NoError(t, err)
+}
+
+func updateDeviceSearchFields(t *testing.T, db *sql.DB, deviceDatabaseID int64, customName, serial, mac, worker string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE device
+         SET custom_name = NULLIF($1, ''), serial_number = NULLIF($2, ''),
+             mac_address = NULLIF($3, ''), worker_name = NULLIF($4, '')
+         WHERE id = $5`,
+		customName, serial, mac, worker, deviceDatabaseID)
 	require.NoError(t, err)
 }
 

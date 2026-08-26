@@ -374,6 +374,12 @@ message MinerListFilter {
   // survives a round-trip through the filter without being decomposed into
   // covering CIDRs. IPv4 only.
   repeated IpRange ip_ranges = 19;
+
+  // Case-insensitive substring search across the miner's display name, device
+  // identifier, serial number, MAC address, IP address, and worker name.
+  // When combined with other filters, the search predicate is AND-ed with
+  // those filters.
+  string search_query = 20 [(buf.validate.field).string.max_len = 255];
 }
 
 // An inclusive IPv4 address range (start and end are both matched).

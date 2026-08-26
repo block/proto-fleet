@@ -92,6 +92,33 @@ func TestBuildMinerFilterParams_CombinedFilters(t *testing.T) {
 	assert.True(t, params.pairingStatusFilter.Valid)
 }
 
+func TestBuildMinerFilterParams_SearchQuery(t *testing.T) {
+	params := buildMinerFilterParams(&stores.MinerFilter{SearchQuery: `  miner%_\  `})
+
+	require.True(t, params.searchQueryFilter.Valid)
+	assert.Equal(t, `%miner\%\_\\%`, params.searchQueryFilter.String)
+}
+
+func TestAppendFilterSQL_SearchQuery(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		searchQueryFilter: sql.NullString{String: "%worker%", Valid: true},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, nil, 1, 1, fp)
+
+	query := sb.String()
+	assert.Contains(t, query, "device.custom_name")
+	assert.Contains(t, query, "device.serial_number")
+	assert.Contains(t, query, "device.mac_address")
+	assert.Contains(t, query, "discovered_device.ip_address")
+	assert.Contains(t, query, "device.worker_name")
+	assert.Contains(t, query, "discovered_device.device_identifier")
+	assert.Contains(t, query, "ESCAPE '\\'")
+	assert.Equal(t, []any{"%worker%"}, resultArgs)
+	assert.Equal(t, 2, resultArgNum)
+}
+
 func TestAppendFilterSQL_PairingStatusFilter(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}

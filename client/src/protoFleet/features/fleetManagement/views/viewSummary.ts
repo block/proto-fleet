@@ -123,6 +123,9 @@ const summarizeTelemetryFilters = (params: URLSearchParams): FilterSummaryEntry[
 const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
   const entries: FilterSummaryEntry[] = [];
 
+  const searchQuery = params.get("search")?.trim();
+  if (searchQuery) entries.push({ key: "search", label: "Search", values: [searchQuery] });
+
   const statusValues = dedupedSorted(params, "status").map((value) => STATUS_LABELS[value] ?? value);
   if (statusValues.length) entries.push({ key: "status", label: "Status", values: statusValues });
 

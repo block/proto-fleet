@@ -9,11 +9,21 @@ interface SearchProps {
   initValue?: string;
   onChange: (value: string, id: string) => void;
   shouldFocus?: boolean;
+  id?: string;
+  label?: string;
 }
 
-const id = "search";
+const defaultId = "search";
 
-const Search = ({ className, compact, onChange, initValue, shouldFocus }: SearchProps) => {
+const Search = ({
+  className,
+  compact,
+  onChange,
+  initValue,
+  shouldFocus,
+  id = defaultId,
+  label = "Search",
+}: SearchProps) => {
   const [value, setValue] = useState(initValue);
   const [prevInitValue, setPrevInitValue] = useState(initValue);
   if (initValue !== prevInitValue) {
@@ -40,7 +50,7 @@ const Search = ({ className, compact, onChange, initValue, shouldFocus }: Search
         onChange("", id);
       }
     },
-    [onChange],
+    [id, onChange],
   );
 
   const handleChange = useCallback(
@@ -48,7 +58,7 @@ const Search = ({ className, compact, onChange, initValue, shouldFocus }: Search
       setValue(value);
       onChange(value, id);
     },
-    [onChange],
+    [id, onChange],
   );
 
   const cmdOrCtrl = useMemo(() => (window.navigator.platform.match(/^Mac/) ? "⌘" : "Ctrl"), []);
@@ -64,7 +74,7 @@ const Search = ({ className, compact, onChange, initValue, shouldFocus }: Search
       <Input
         id={id}
         className={className}
-        label="Search"
+        label={label}
         onChange={handleChange}
         hideLabelOnFocus
         dismiss
