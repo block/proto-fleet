@@ -232,6 +232,7 @@ type ListCandidatesParams struct {
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
 	OrgID             int64
+	ExcludeEventID    int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64

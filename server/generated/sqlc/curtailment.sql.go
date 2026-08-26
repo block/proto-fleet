@@ -3586,16 +3586,18 @@ SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
+    AND ($2::BIGINT = 0 OR ce.id <> $2::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
-        OR ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - ($3::int * INTERVAL '1 second')
     )
 `
 
 type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
-	OrgID       int64
-	CooldownSec int32
+	OrgID          int64
+	ExcludeEventID int64
+	CooldownSec    int32
 }
 
 // Restored/failed targets the selector excludes (unless priority=EMERGENCY,
@@ -3603,7 +3605,7 @@ type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
 // event is still non-terminal (the old org-level singleton enforced this
 // implicitly), then for `cooldown_sec` after the event ends.
 func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByOrgParams) ([]string, error) {
-	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByOrgStmt, listRecentlyResolvedCurtailedDevicesByOrg, arg.OrgID, arg.CooldownSec)
+	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByOrgStmt, listRecentlyResolvedCurtailedDevicesByOrg, arg.OrgID, arg.ExcludeEventID, arg.CooldownSec)
 	if err != nil {
 		return nil, err
 	}
@@ -3627,30 +3629,32 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 
 const listRecentlyResolvedCurtailedDevicesByScope = `-- name: ListRecentlyResolvedCurtailedDevicesByScope :many
 WITH scoped_devices AS MATERIALIZED (
-    SELECT unnest($3::text[]) AS device_identifier
-    WHERE $3::text[] IS NOT NULL
+    SELECT unnest($4::text[]) AS device_identifier
+    WHERE $4::text[] IS NOT NULL
     UNION
     SELECT d.device_identifier
     FROM device d
     WHERE d.org_id = $1
         AND d.deleted_at IS NULL
-        AND $4::BIGINT[] IS NOT NULL
-        AND d.site_id = ANY($4::BIGINT[])
+        AND $5::BIGINT[] IS NOT NULL
+        AND d.site_id = ANY($5::BIGINT[])
 )
 SELECT DISTINCT ct.device_identifier
 FROM scoped_devices sd
 JOIN curtailment_target ct ON ct.device_identifier = sd.device_identifier
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
+    AND ($2::BIGINT = 0 OR ce.id <> $2::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
-        OR ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - ($3::int * INTERVAL '1 second')
     )
 `
 
 type ListRecentlyResolvedCurtailedDevicesByScopeParams struct {
 	OrgID             int64
+	ExcludeEventID    int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIds           []int64
@@ -3661,6 +3665,7 @@ type ListRecentlyResolvedCurtailedDevicesByScopeParams struct {
 func (q *Queries) ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByScopeParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByScopeStmt, listRecentlyResolvedCurtailedDevicesByScope,
 		arg.OrgID,
+		arg.ExcludeEventID,
 		arg.CooldownSec,
 		pq.Array(arg.DeviceIdentifiers),
 		pq.Array(arg.SiteIds),

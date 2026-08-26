@@ -74,6 +74,7 @@ type fakeStore struct {
 	cooldownDevices        []string
 	cooldownCalls          int
 	lastCooldownOrgID      int64
+	lastCooldownExcludeID  int64
 	lastCooldownSec        int32
 	lastCooldownFilter     []string
 	lastCooldownSiteIDs    []int64
@@ -141,6 +142,7 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
 ) ([]string, error) {
 	f.cooldownCalls++
 	f.lastCooldownOrgID = params.OrgID
+	f.lastCooldownExcludeID = params.ExcludeEventID
 	f.lastCooldownSec = params.CooldownSec
 	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.lastCooldownSiteIDs = append([]int64(nil), params.SiteIDs...)
@@ -1553,16 +1555,17 @@ func TestReconciler_ActiveClosedLoopFullFleetReadmitsReturnedTargets(t *testing.
 	eventID := int64(10)
 	effectiveBatchSize := int32(10)
 	store.events = []*models.Event{{
-		ID:                 eventID,
-		EventUUID:          uuid.New(),
-		OrgID:              1,
-		State:              models.EventStateActive,
-		Mode:               models.ModeFullFleet,
-		LoopType:           models.LoopTypeClosed,
-		ScopeType:          models.ScopeTypeWholeOrg,
-		CurtailBatchSize:   &effectiveBatchSize,
-		EffectiveBatchSize: &effectiveBatchSize,
-		CreatedByUserID:    99,
+		ID:                   eventID,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		Mode:                 models.ModeFullFleet,
+		LoopType:             models.LoopTypeClosed,
+		ScopeType:            models.ScopeTypeWholeOrg,
+		CurtailBatchSize:     &effectiveBatchSize,
+		EffectiveBatchSize:   &effectiveBatchSize,
+		DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
+		CreatedByUserID:      99,
 	}}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-released", State: models.TargetStateReleased},
@@ -1587,6 +1590,8 @@ func TestReconciler_ActiveClosedLoopFullFleetReadmitsReturnedTargets(t *testing.
 	r.runTick(context.Background())
 
 	assert.Equal(t, 1, store.claimTargetsCalls)
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, eventID, store.lastCooldownExcludeID)
 	require.Len(t, store.claimedTargetParams, 2)
 	assert.ElementsMatch(t, []string{"miner-released", "miner-resolved"}, []string{
 		store.claimedTargetParams[0].DeviceIdentifier,

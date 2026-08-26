@@ -125,6 +125,7 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(
 		}
 		devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByScope(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByScopeParams{
 			OrgID:             params.OrgID,
+			ExcludeEventID:    params.ExcludeEventID,
 			SiteIds:           params.SiteIDs,
 			DeviceIdentifiers: params.DeviceIdentifiers,
 			CooldownSec:       params.CooldownSec,
@@ -135,8 +136,9 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(
 		return devices, nil
 	}
 	devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByOrg(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByOrgParams{
-		OrgID:       params.OrgID,
-		CooldownSec: params.CooldownSec,
+		OrgID:          params.OrgID,
+		ExcludeEventID: params.ExcludeEventID,
+		CooldownSec:    params.CooldownSec,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list recently resolved curtailed devices: %v", err)

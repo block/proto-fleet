@@ -207,6 +207,48 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_FillsBatchPastEarlierRe
 	})
 }
 
+func TestSQLCurtailmentStore_ListRecentlyResolvedCurtailedDevicesExcludesCurrentEvent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
+
+	insertResolved := func(deviceIdentifier string) *models.InsertEventResult {
+		params := curtailmentStoreTestEvent(
+			user.OrganizationID,
+			user.DatabaseID,
+			uuid.New(),
+			models.EventStateActive,
+			"cooldown-"+deviceIdentifier,
+		)
+		params.ScopeJSON = []byte(`{"device_identifiers":["` + deviceIdentifier + `"]}`)
+		inserted, err := store.InsertEventWithTargets(ctx, params, []models.InsertTargetParams{
+			curtailmentStoreTestTarget(deviceIdentifier, models.TargetStateResolved, models.DesiredStateActive),
+		})
+		require.NoError(t, err)
+		return inserted
+	}
+	current := insertResolved(deviceIDs[0])
+	insertResolved(deviceIDs[1])
+
+	cooldownDevices, err := store.ListRecentlyResolvedCurtailedDevices(
+		ctx,
+		interfaces.ListRecentlyResolvedCurtailedDevicesParams{
+			OrgID:             user.OrganizationID,
+			ExcludeEventID:    current.ID,
+			CooldownSec:       600,
+			DeviceIdentifiers: deviceIDs,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{deviceIDs[1]}, cooldownDevices)
+}
+
 // Pins the ownership-suppression semantics of ListActiveCurtailedDevices for
 // all-paired events: the scope watcher keeps devices locked before their
 // policy row exists (miners that became paired-like between admission ticks

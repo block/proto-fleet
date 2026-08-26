@@ -1325,6 +1325,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 			ctx,
 			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
 				OrgID:             ev.OrgID,
+				ExcludeEventID:    ev.ID,
 				CooldownSec:       cooldownSec,
 				DeviceIdentifiers: params.DeviceIdentifiers,
 				SiteIDs:           params.SiteIDs,

@@ -349,6 +349,7 @@ SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
+    AND (sqlc.arg('exclude_event_id')::BIGINT = 0 OR ce.id <> sqlc.arg('exclude_event_id')::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
@@ -374,6 +375,7 @@ FROM scoped_devices sd
 JOIN curtailment_target ct ON ct.device_identifier = sd.device_identifier
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
+    AND (sqlc.arg('exclude_event_id')::BIGINT = 0 OR ce.id <> sqlc.arg('exclude_event_id')::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
