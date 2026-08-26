@@ -66,7 +66,7 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 	)
 	require.NoError(t, err)
 
-	claimed, err := store.ClaimAllPairedPolicyTargets(ctx, policyEvent.ID, []models.InsertTargetParams{
+	claimed, err := store.ClaimAllPairedPolicyTargets(ctx, policyEvent.ID, user.OrganizationID, 100, []models.InsertTargetParams{
 		curtailmentStoreAllPairedTarget("ap-claim-new-pending", models.TargetStatePending, ""),
 		curtailmentStoreAllPairedTarget("ap-claim-new-unavailable", models.TargetStateUnavailable, "offline"),
 		curtailmentStoreAllPairedTarget("ap-claim-released", models.TargetStatePending, ""),
@@ -117,7 +117,7 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 	)
 	require.NoError(t, err)
 
-	claimed, err = store.ClaimAllPairedPolicyTargets(ctx, policyEvent.ID, []models.InsertTargetParams{
+	claimed, err = store.ClaimAllPairedPolicyTargets(ctx, policyEvent.ID, user.OrganizationID, 100, []models.InsertTargetParams{
 		curtailmentStoreAllPairedTarget("ap-claim-new-pending", models.TargetStatePending, ""),
 	})
 	require.NoError(t, err)
@@ -129,6 +129,22 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-claim-new-pending'
 	`, policyEvent.ID).Scan(&state))
 	assert.Equal(t, string(models.TargetStateReleased), state)
+
+	claimed, err = store.ClaimAllPairedPolicyTargets(ctx, policyEvent.ID, user.OrganizationID, 2, []models.InsertTargetParams{
+		curtailmentStoreAllPairedTarget("ap-batch-first", models.TargetStatePending, ""),
+		curtailmentStoreAllPairedTarget("ap-batch-second", models.TargetStatePending, ""),
+		curtailmentStoreAllPairedTarget("ap-batch-deferred", models.TargetStatePending, ""),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), claimed, "one admission tick must not exceed its configured batch size")
+	var deferredCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM curtailment_target
+		WHERE curtailment_event_id = $1
+		  AND device_identifier = 'ap-batch-deferred'
+	`, policyEvent.ID).Scan(&deferredCount))
+	assert.Zero(t, deferredCount)
 }
 
 // Pins the ownership-suppression semantics of ListActiveCurtailedDevices for
@@ -216,6 +232,8 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	restoreUnavailableTarget.DesiredState = models.DesiredStateActive
 	staleRestoreTarget := curtailmentStoreAllPairedTarget("bulk-skips-stale-restore", models.TargetStateRestoreFailed, "restore dispatch failed")
 	staleRestoreTarget.DesiredState = models.DesiredStateActive
+	staleCurtailDirection := curtailmentStoreAllPairedTarget("bulk-skips-active-direction", models.TargetStateUnavailable, "unpaired")
+	staleCurtailDirection.DesiredState = models.DesiredStateActive
 
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(
@@ -229,6 +247,8 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 			restoreFailedTarget,
 			restoreUnavailableTarget,
 			staleRestoreTarget,
+			staleCurtailDirection,
+			curtailmentStoreAllPairedTarget("bulk-skips-curtailed-direction", models.TargetStatePending, ""),
 		},
 	)
 	require.NoError(t, err)
@@ -236,22 +256,24 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	promotionBaseline := 3000.0
 	overwriteAttempt := 9999.0
 
-	applied, err := store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStatePending,
+	applied, err := store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, user.OrganizationID, models.EventStatePending,
 		[]interfaces.AllPairedReadinessUpdate{
-			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStatePending},
 		})
 	require.NoError(t, err)
 	assert.Empty(t, applied, "stale expected event state must apply nothing")
 
-	applied, err = store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStateActive,
+	applied, err = store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, user.OrganizationID, models.EventStateActive,
 		[]interfaces.AllPairedReadinessUpdate{
-			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending, BaselinePowerW: &promotionBaseline},
-			{DeviceIdentifier: "bulk-demotes", ExpectedState: models.TargetStatePending, State: models.TargetStateUnavailable, Reason: "offline"},
-			{DeviceIdentifier: "bulk-dispatched", ExpectedState: models.TargetStateDispatched, State: models.TargetStateUnavailable, Reason: "offline"},
-			{DeviceIdentifier: "bulk-keeps-baseline", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending, BaselinePowerW: &overwriteAttempt},
-			{DeviceIdentifier: "bulk-parks-restore-failure", ExpectedState: models.TargetStateRestoreFailed, State: models.TargetStateUnavailable, Reason: "unpaired"},
-			{DeviceIdentifier: "bulk-requeues-restore", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
-			{DeviceIdentifier: "bulk-skips-stale-restore", ExpectedState: models.TargetStateUnavailable, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-promotes", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStatePending, BaselinePowerW: &promotionBaseline},
+			{DeviceIdentifier: "bulk-demotes", ExpectedState: models.TargetStatePending, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-dispatched", ExpectedState: models.TargetStateDispatched, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-keeps-baseline", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStatePending, BaselinePowerW: &overwriteAttempt},
+			{DeviceIdentifier: "bulk-parks-restore-failure", ExpectedState: models.TargetStateRestoreFailed, ExpectedDesiredState: models.DesiredStateActive, State: models.TargetStateUnavailable, Reason: "unpaired"},
+			{DeviceIdentifier: "bulk-requeues-restore", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateActive, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-skips-stale-restore", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateActive, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-skips-active-direction", ExpectedState: models.TargetStateUnavailable, ExpectedDesiredState: models.DesiredStateCurtailed, State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-skips-curtailed-direction", ExpectedState: models.TargetStatePending, ExpectedDesiredState: models.DesiredStateActive, State: models.TargetStateUnavailable, Reason: "unpaired"},
 		})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
@@ -290,7 +312,7 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 		got[device] = row
 	}
 	require.NoError(t, rows.Err())
-	require.Len(t, got, 7)
+	require.Len(t, got, 9)
 
 	promoted := got["bulk-promotes"]
 	assert.Equal(t, string(models.TargetStatePending), promoted.state)
@@ -332,6 +354,10 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	staleRestore := got["bulk-skips-stale-restore"]
 	assert.Equal(t, string(models.TargetStateRestoreFailed), staleRestore.state)
 	assert.Equal(t, "restore dispatch failed", staleRestore.lastError.String)
+	assert.Equal(t, string(models.TargetStateUnavailable), got["bulk-skips-active-direction"].state,
+		"a curtail-phase decision must not overwrite a target that entered restore")
+	assert.Equal(t, string(models.TargetStatePending), got["bulk-skips-curtailed-direction"].state,
+		"a restore-phase decision must not overwrite a target that re-entered curtail")
 }
 
 // Pins the graceful-Stop release predicate against real SQL: only all-paired

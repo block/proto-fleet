@@ -1032,6 +1032,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEarlierCurtailmentReservationDevicesStmt, err = db.PrepareContext(ctx, listEarlierCurtailmentReservationDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEarlierCurtailmentReservationDevices: %w", err)
 	}
+	if q.listEarlierCurtailmentTopologyReservationScopesStmt, err = db.PrepareContext(ctx, listEarlierCurtailmentTopologyReservationScopes); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEarlierCurtailmentTopologyReservationScopes: %w", err)
+	}
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
@@ -3380,6 +3383,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEarlierCurtailmentReservationDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listEarlierCurtailmentTopologyReservationScopesStmt != nil {
+		if cerr := q.listEarlierCurtailmentTopologyReservationScopesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEarlierCurtailmentTopologyReservationScopesStmt: %w", cerr)
+		}
+	}
 	if q.listEffectivePermissionsForUserStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
@@ -4860,6 +4868,7 @@ type Queries struct {
 	listDeviceSetMembersPaginatedFilteredStmt                    *sql.Stmt
 	listDeviceSetMembersPaginatedFilteredAfterStmt               *sql.Stmt
 	listEarlierCurtailmentReservationDevicesStmt                 *sql.Stmt
+	listEarlierCurtailmentTopologyReservationScopesStmt          *sql.Stmt
 	listEffectivePermissionsForUserStmt                          *sql.Stmt
 	listEffectivePermissionsForUserForUpdateStmt                 *sql.Stmt
 	listEligibleConfirmationTargetsStmt                          *sql.Stmt
@@ -5423,6 +5432,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedFilteredStmt:                    q.listDeviceSetMembersPaginatedFilteredStmt,
 		listDeviceSetMembersPaginatedFilteredAfterStmt:               q.listDeviceSetMembersPaginatedFilteredAfterStmt,
 		listEarlierCurtailmentReservationDevicesStmt:                 q.listEarlierCurtailmentReservationDevicesStmt,
+		listEarlierCurtailmentTopologyReservationScopesStmt:          q.listEarlierCurtailmentTopologyReservationScopesStmt,
 		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
 		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
 		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,

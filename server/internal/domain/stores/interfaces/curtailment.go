@@ -69,17 +69,18 @@ type UpdateCurtailmentTargetStateParams struct {
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
 // bulk all-paired refresh. Restore-failed topology obligations may first park
 // as unavailable so a later commandability transition can requeue them.
-// ExpectedState prevents a decision made from a stale target snapshot from
-// overwriting a concurrent transition. Reason is the unavailable reason;
-// empty clears last_error. BaselinePowerW, when set on a curtail promotion,
-// backfills a NULL baseline from current telemetry; the SQL never overwrites
-// an existing baseline.
+// ExpectedState and ExpectedDesiredState prevent a decision made from a stale
+// target snapshot from overwriting a concurrent state or phase transition.
+// Reason is the unavailable reason; empty clears last_error. BaselinePowerW,
+// when set on a curtail promotion, backfills a NULL baseline from current
+// telemetry; the SQL never overwrites an existing baseline.
 type AllPairedReadinessUpdate struct {
-	DeviceIdentifier string
-	ExpectedState    models.TargetState
-	State            models.TargetState
-	Reason           string
-	BaselinePowerW   *float64
+	DeviceIdentifier     string
+	ExpectedState        models.TargetState
+	ExpectedDesiredState string
+	State                models.TargetState
+	Reason               string
+	BaselinePowerW       *float64
 }
 
 // ConfirmationBatchSize bounds both one fast-path eligibility page and each
@@ -495,10 +496,14 @@ type CurtailmentStore interface {
 
 	// ClaimAllPairedPolicyTargets inserts or reopens durable all-paired
 	// FULL_FLEET policy targets in their computed state. Unlike closed-loop
-	// dispatch claims, this does not pre-claim rows as DISPATCHING.
+	// dispatch claims, this does not pre-claim rows as DISPATCHING. It skips
+	// earlier reservations before selecting at most maxTargets, so a reserved
+	// prefix cannot starve the bounded admission batch.
 	ClaimAllPairedPolicyTargets(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) (int64, error)
 
@@ -511,6 +516,7 @@ type CurtailmentStore interface {
 	BulkRefreshAllPairedTargetReadiness(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
 		expectedEventState models.EventState,
 		updates []AllPairedReadinessUpdate,
 	) ([]string, error)

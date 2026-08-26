@@ -158,37 +158,8 @@ func lockTopologyScopeCoverage(
 	params interfaces.ListCandidatesParams,
 	requiredDeviceIdentifiers []string,
 ) ([]int64, bool, error) {
-	groupIDs := uniqueSortedInt64s(params.GroupIDs)
-	if len(groupIDs) > 0 {
-		lockedGroupIDs, err := q.LockCurtailmentGroupsForWrite(ctx, sqlc.LockCurtailmentGroupsForWriteParams{
-			OrgID: params.OrgID, GroupIds: groupIDs,
-		})
-		if err != nil {
-			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment group scope: %v", err)
-		}
-		if len(lockedGroupIDs) != len(groupIDs) {
-			return nil, false, fleeterror.NewNotFoundError("one or more curtailment groups were not found")
-		}
-	}
-	for _, buildingID := range uniqueSortedInt64s(params.BuildingIDs) {
-		if _, err := q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{
-			ID: buildingID, OrgID: params.OrgID,
-		}); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, false, fleeterror.NewNotFoundErrorf("building not found: %d", buildingID)
-			}
-			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment building scope: %v", err)
-		}
-	}
-	for _, rackID := range uniqueSortedInt64s(params.RackIDs) {
-		if _, err := q.LockRackPlacementForWrite(ctx, sqlc.LockRackPlacementForWriteParams{
-			DeviceSetID: rackID, OrgID: params.OrgID,
-		}); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, false, fleeterror.NewNotFoundErrorf("rack not found: %d", rackID)
-			}
-			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment rack scope: %v", err)
-		}
+	if err := lockTopologySelectorResourcesForWrite(ctx, q, params); err != nil {
+		return nil, false, err
 	}
 
 	rows, err := q.LockCurtailmentTopologyMemberDeviceSitesByOrg(
@@ -228,6 +199,92 @@ func lockTopologyScopeCoverage(
 		}
 	}
 	return uniqueSortedInt64s(memberSites), unbounded, nil
+}
+
+// lockTopologySelectorResourcesForWrite locks selected topology resources in
+// the same group -> building -> rack order used by the full coverage fence,
+// without expanding and locking every current member. Admission uses it for
+// older logical reservations, then locks only the candidate device rows.
+func lockTopologySelectorResourcesForWrite(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+) error {
+	return lockTopologySelectorResources(ctx, q, params, params)
+}
+
+// lockTopologySelectorResourcesForReservation tolerates an older watcher's
+// selector having been deleted, because that selector no longer reserves any
+// members. required contains the current Start selector, which must still
+// exist when it is locked together with the older selectors.
+func lockTopologySelectorResourcesForReservation(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+	required interfaces.ListCandidatesParams,
+) error {
+	return lockTopologySelectorResources(ctx, q, params, required)
+}
+
+func lockTopologySelectorResources(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+	required interfaces.ListCandidatesParams,
+) error {
+	requiredGroups := int64Set(required.GroupIDs)
+	groupIDs := uniqueSortedInt64s(params.GroupIDs)
+	if len(groupIDs) > 0 {
+		lockedGroupIDs, err := q.LockCurtailmentGroupsForWrite(ctx, sqlc.LockCurtailmentGroupsForWriteParams{
+			OrgID: params.OrgID, GroupIds: groupIDs,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to lock curtailment group scope: %v", err)
+		}
+		for _, groupID := range lockedGroupIDs {
+			delete(requiredGroups, groupID)
+		}
+		if len(requiredGroups) > 0 {
+			return fleeterror.NewNotFoundError("one or more curtailment groups were not found")
+		}
+	}
+	requiredBuildings := int64Set(required.BuildingIDs)
+	for _, buildingID := range uniqueSortedInt64s(params.BuildingIDs) {
+		if _, err := q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{
+			ID: buildingID, OrgID: params.OrgID,
+		}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				if _, isRequired := requiredBuildings[buildingID]; !isRequired {
+					continue
+				}
+				return fleeterror.NewNotFoundErrorf("building not found: %d", buildingID)
+			}
+			return fleeterror.NewInternalErrorf("failed to lock curtailment building scope: %v", err)
+		}
+	}
+	requiredRacks := int64Set(required.RackIDs)
+	for _, rackID := range uniqueSortedInt64s(params.RackIDs) {
+		if _, err := q.LockRackPlacementForWrite(ctx, sqlc.LockRackPlacementForWriteParams{
+			DeviceSetID: rackID, OrgID: params.OrgID,
+		}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				if _, isRequired := requiredRacks[rackID]; !isRequired {
+					continue
+				}
+				return fleeterror.NewNotFoundErrorf("rack not found: %d", rackID)
+			}
+			return fleeterror.NewInternalErrorf("failed to lock curtailment rack scope: %v", err)
+		}
+	}
+	return nil
+}
+
+func int64Set(values []int64) map[int64]struct{} {
+	set := make(map[int64]struct{}, len(values))
+	for _, value := range uniqueSortedInt64s(values) {
+		set[value] = struct{}{}
+	}
+	return set
 }
 
 func nonNilInt64Slice(values []int64) []int64 {

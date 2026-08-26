@@ -266,6 +266,81 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 		"a dispatch rejection must not queue Uncurtail for a miner that never received Curtail")
 }
 
+func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttemptedTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	buildingStore := sqlstores.NewSQLBuildingStore(database)
+	orgID := user.OrganizationID
+
+	building, err := buildingStore.CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID: orgID,
+		Name:  "Topology departure branches",
+	})
+	require.NoError(t, err)
+	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
+	require.NoError(t, err)
+
+	eventUUID := uuid.New()
+	event := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID,
+		user.DatabaseID,
+		eventUUID,
+		models.ScopeTypeMixed,
+		0,
+		"topology-departure-branches",
+	)
+	event.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+		curtailmentStoreTestTarget(devices[1], models.TargetStatePending, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `
+		UPDATE curtailment_target
+		SET retry_count = 1,
+		    last_dispatched_at = CURRENT_TIMESTAMP,
+		    curtail_dispatched_at = CURRENT_TIMESTAMP
+		WHERE curtailment_event_id = $1
+		  AND device_identifier = $2
+	`, inserted.ID, devices[1])
+	require.NoError(t, err)
+
+	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, devices)
+	require.NoError(t, err)
+	persisted, err := store.GetEventByUUID(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	transitioned, err := store.BeginCurtailmentTopologyTargetRestore(ctx, persisted, devices)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), transitioned)
+
+	targets, err := store.ListTargetsByEvent(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	byDevice := make(map[string]*models.Target, len(targets))
+	for _, target := range targets {
+		byDevice[target.DeviceIdentifier] = target
+	}
+	unsent := byDevice[devices[0]]
+	require.NotNil(t, unsent)
+	assert.Equal(t, models.TargetStateReleased, unsent.State)
+	assert.Equal(t, models.DesiredStateCurtailed, unsent.DesiredState)
+	assert.Nil(t, unsent.RestorePhase.StartedAt)
+
+	attempted := byDevice[devices[1]]
+	require.NotNil(t, attempted)
+	assert.Equal(t, models.TargetStatePending, attempted.State)
+	assert.Equal(t, models.DesiredStateActive, attempted.DesiredState)
+	assert.Equal(t, models.TargetStatePending, attempted.RestorePhase.State)
+	require.NotNil(t, attempted.RestorePhase.StartedAt)
+}
+
 func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFollowMembership(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -318,7 +393,7 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 	)
 	require.NoError(t, err)
 
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 6, "https://172.17.0.1:80")
+	devices := testContext.DatabaseService.CreateTestMiners(orgID, 7, "https://172.17.0.1:80")
 	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &site.ID, devices)
 	require.NoError(t, err)
 
@@ -375,6 +450,7 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 			"topology-watcher-"+watcher.name,
 		)
 		event.ScopeJSON = watcher.scopeJSON
+		event.ForceIncludeAllPairedMiners = watcher.name == "group"
 		watcherEvents[watcher.name], err = store.InsertEventWithTargets(ctx, event, nil)
 		require.NoError(t, err)
 
@@ -418,6 +494,32 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 	active, err = store.ListActiveCurtailedDevices(ctx, orgID)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{devices[0], devices[2], devices[4]}, active)
+
+	claimedAllPaired, err := store.ClaimAllPairedPolicyTargets(
+		ctx,
+		watcherEvents["group"].ID,
+		orgID,
+		1,
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(devices[6], models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), claimedAllPaired,
+		"the bounded batch must skip an earlier reservation without starving the next available miner")
+	var claimedDevice string
+	require.NoError(t, database.QueryRowContext(ctx, `
+		SELECT device_identifier
+		FROM curtailment_target
+		WHERE curtailment_event_id = $1
+	`, watcherEvents["group"].ID).Scan(&claimedDevice))
+	assert.Equal(t, devices[6], claimedDevice)
+	_, err = database.ExecContext(ctx, `
+		DELETE FROM curtailment_target
+		WHERE curtailment_event_id = $1
+	`, watcherEvents["group"].ID)
+	require.NoError(t, err)
 
 	_, err = store.InsertEventWithTargets(
 		ctx,
@@ -465,6 +567,196 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{devices[1], devices[3], devices[5]}, active,
 		"logical topology ownership must follow current membership even before target rows are admitted")
+}
+
+func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	buildingStore := sqlstores.NewSQLBuildingStore(database)
+	collectionStore := sqlstores.NewSQLCollectionStore(database)
+	orgID := user.OrganizationID
+
+	building, err := buildingStore.CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID: orgID,
+		Name:  "Admission reservation building",
+	})
+	require.NoError(t, err)
+	group, err := collectionStore.CreateCollection(
+		ctx,
+		orgID,
+		collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+		"Admission reservation group",
+		"",
+	)
+	require.NoError(t, err)
+	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+	require.NoError(t, err)
+
+	older := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "older-building-reservation",
+	)
+	older.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+	_, err = store.InsertEventWithTargets(ctx, older, nil)
+	require.NoError(t, err)
+	younger := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "younger-group-admission",
+	)
+	younger.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"group_ids":[%d]}`, group.Id))
+	youngerEvent, err := store.InsertEventWithTargets(ctx, younger, nil)
+	require.NoError(t, err)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	q := sqlc.New(tx)
+	_, err = q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{ID: building.ID, OrgID: orgID})
+	require.NoError(t, err)
+	_, err = q.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID: orgID, DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+	_, err = q.AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
+		OrgID: orgID, TargetBuildingID: sql.NullInt64{Int64: building.ID, Valid: true}, DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+
+	claimDone := make(chan struct {
+		targets []*models.Target
+		err     error
+	}, 1)
+	go func() {
+		targets, claimErr := store.ClaimClosedLoopFullFleetTargets(
+			ctx,
+			youngerEvent.ID,
+			orgID,
+			0,
+			[]models.InsertTargetParams{
+				curtailmentStoreTestTarget(device.ID, models.TargetStatePending, models.DesiredStateCurtailed),
+			},
+		)
+		claimDone <- struct {
+			targets []*models.Target
+			err     error
+		}{targets: targets, err: claimErr}
+	}()
+	select {
+	case result := <-claimDone:
+		require.NoError(t, result.err)
+		t.Fatal("claim completed before the in-flight topology move committed")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+	result := <-claimDone
+	require.NoError(t, result.err)
+	assert.Empty(t, result.targets, "the committed move must make the older targetless watcher authoritative")
+}
+
+func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	buildingStore := sqlstores.NewSQLBuildingStore(database)
+	collectionStore := sqlstores.NewSQLCollectionStore(database)
+	orgID := user.OrganizationID
+
+	building, err := buildingStore.CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID: orgID,
+		Name:  "Readiness reservation building",
+	})
+	require.NoError(t, err)
+	group, err := collectionStore.CreateCollection(
+		ctx,
+		orgID,
+		collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+		"Readiness policy group",
+		"",
+	)
+	require.NoError(t, err)
+	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+	require.NoError(t, err)
+
+	older := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "older-readiness-reservation",
+	)
+	older.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+	_, err = store.InsertEventWithTargets(ctx, older, nil)
+	require.NoError(t, err)
+	policy := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "younger-readiness-policy",
+	)
+	policy.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"group_ids":[%d]}`, group.Id))
+	policy.ForceIncludeAllPairedMiners = true
+	policyEvent, err := store.InsertEventWithTargets(ctx, policy, []models.InsertTargetParams{
+		curtailmentStoreTestTarget(device.ID, models.TargetStateRestoreFailed, models.DesiredStateActive),
+	})
+	require.NoError(t, err)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	q := sqlc.New(tx)
+	_, err = q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{ID: building.ID, OrgID: orgID})
+	require.NoError(t, err)
+	_, err = q.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID: orgID, DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+	_, err = q.AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
+		OrgID: orgID, TargetBuildingID: sql.NullInt64{Int64: building.ID, Valid: true}, DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+
+	refreshDone := make(chan struct {
+		applied []string
+		err     error
+	}, 1)
+	go func() {
+		applied, refreshErr := store.BulkRefreshAllPairedTargetReadiness(
+			ctx,
+			policyEvent.ID,
+			orgID,
+			models.EventStateActive,
+			[]interfaces.AllPairedReadinessUpdate{{
+				DeviceIdentifier:     device.ID,
+				ExpectedState:        models.TargetStateRestoreFailed,
+				ExpectedDesiredState: models.DesiredStateActive,
+				State:                models.TargetStatePending,
+			}},
+		)
+		refreshDone <- struct {
+			applied []string
+			err     error
+		}{applied: applied, err: refreshErr}
+	}()
+	select {
+	case result := <-refreshDone:
+		require.NoError(t, result.err)
+		t.Fatal("readiness refresh completed before the in-flight topology move committed")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+	result := <-refreshDone
+	require.NoError(t, result.err)
+	assert.Empty(t, result.applied)
+	targets, err := store.ListTargetsByEvent(ctx, orgID, policy.EventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, models.TargetStateRestoreFailed, targets[0].State)
 }
 
 func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElsewhere(t *testing.T) {
@@ -530,11 +822,13 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElse
 	applied, err := store.BulkRefreshAllPairedTargetReadiness(
 		ctx,
 		policyEvent.ID,
+		orgID,
 		models.EventStateActive,
 		[]interfaces.AllPairedReadinessUpdate{{
-			DeviceIdentifier: device.ID,
-			ExpectedState:    models.TargetStateRestoreFailed,
-			State:            models.TargetStatePending,
+			DeviceIdentifier:     device.ID,
+			ExpectedState:        models.TargetStateRestoreFailed,
+			ExpectedDesiredState: models.DesiredStateActive,
+			State:                models.TargetStatePending,
 		}},
 	)
 	require.NoError(t, err)

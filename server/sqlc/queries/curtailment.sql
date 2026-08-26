@@ -953,8 +953,27 @@ WHERE sqlc.arg('cooldown_sec')::INT <= 0
             AND (
                 cooldown_event.state IN ('pending', 'active', 'restoring')
                 OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::INT * INTERVAL '1 second')
-            )
+      )
     );
+
+-- name: ListEarlierCurtailmentTopologyReservationScopes :many
+-- Returns topology selector envelopes for older logical reservations. Dynamic
+-- admission locks these resources before locking candidate devices and
+-- re-reading ListEarlierCurtailmentReservationDevices, so membership changes
+-- cannot commit between reservation classification and target claim.
+SELECT older.scope_jsonb
+FROM curtailment_event older
+WHERE older.org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.arg('curtailment_event_id')::BIGINT = 0
+      OR older.id < sqlc.arg('curtailment_event_id')::BIGINT
+  )
+  AND older.state IN ('pending', 'active', 'restoring')
+  AND older.mode = 'FULL_FLEET'
+  AND older.loop_type = 'closed'
+  AND older.scope_type = 'mixed'
+  AND older.scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids']
+ORDER BY older.id;
 
 -- name: LockCurtailmentScopeForWrite :exec
 -- Serialize hierarchy start checks by org so conflict detection and event
@@ -1429,15 +1448,17 @@ SET state              = t.state,
     END
 FROM locked_event
 JOIN jsonb_to_recordset(sqlc.arg('updates_jsonb')::JSONB) AS t(
-    device_identifier TEXT,
-    expected_state    TEXT,
-    state             TEXT,
-    last_error        TEXT,
-    baseline_power_w  NUMERIC(12,3)
+    device_identifier      TEXT,
+    expected_state         TEXT,
+    expected_desired_state TEXT,
+    state                  TEXT,
+    last_error             TEXT,
+    baseline_power_w       NUMERIC(12,3)
 ) ON TRUE
 WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = t.device_identifier
   AND target.state = t.expected_state
+  AND target.desired_state = t.expected_desired_state
   AND (
       target.state <> 'restore_failed'
       OR NOT EXISTS (

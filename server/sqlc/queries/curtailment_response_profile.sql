@@ -38,7 +38,7 @@ FROM device
 WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
-ORDER BY device_identifier
+ORDER BY id
 FOR UPDATE;
 
 -- name: ListResponseProfileInfrastructureDevicesByOrg :many

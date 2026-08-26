@@ -967,6 +967,11 @@ type Querier interface {
 	// closed-loop scope. Admission holds the org scope lock while reading this
 	// list and claiming targets, so persisted event order decides ownership.
 	ListEarlierCurtailmentReservationDevices(ctx context.Context, arg ListEarlierCurtailmentReservationDevicesParams) ([]string, error)
+	// Returns topology selector envelopes for older logical reservations. Dynamic
+	// admission locks these resources before locking candidate devices and
+	// re-reading ListEarlierCurtailmentReservationDevices, so membership changes
+	// cannot commit between reservation classification and target claim.
+	ListEarlierCurtailmentTopologyReservationScopes(ctx context.Context, arg ListEarlierCurtailmentTopologyReservationScopesParams) ([]json.RawMessage, error)
 	// Single-query resolver source: one row per (assignment, permission)
 	// pair the user holds within an organization, with a NULL permission
 	// column when the assignment's role has no permissions attached.

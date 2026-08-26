@@ -75,7 +75,13 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 	if len(targets) == 0 {
 		return nil
 	}
-	claimed, err := r.store.ClaimAllPairedPolicyTargets(ctx, ev.ID, targets)
+	claimed, err := r.store.ClaimAllPairedPolicyTargets(
+		ctx,
+		ev.ID,
+		ev.OrgID,
+		int(curtailBatchSizeForEvent(ev, len(targets))),
+		targets,
+	)
 	if err != nil {
 		slog.Error("curtailment reconciler: claim all-paired policy targets failed",
 			"event_id", ev.ID, "candidate_count", len(targets),
@@ -135,11 +141,12 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			if nextState == models.TargetStatePending && target.BaselinePowerW == nil {
 				if baseline := curtailment.AllPairedPromotionBaselinePowerW(candidate, minPowerW); baseline != nil {
 					updates = append(updates, interfaces.AllPairedReadinessUpdate{
-						DeviceIdentifier: target.DeviceIdentifier,
-						ExpectedState:    target.State,
-						State:            nextState,
-						Reason:           reason,
-						BaselinePowerW:   baseline,
+						DeviceIdentifier:     target.DeviceIdentifier,
+						ExpectedState:        target.State,
+						ExpectedDesiredState: target.DesiredState,
+						State:                nextState,
+						Reason:               reason,
+						BaselinePowerW:       baseline,
 					})
 					refreshable[target.DeviceIdentifier] = target
 				}
@@ -150,10 +157,11 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			continue
 		}
 		update := interfaces.AllPairedReadinessUpdate{
-			DeviceIdentifier: target.DeviceIdentifier,
-			ExpectedState:    target.State,
-			State:            nextState,
-			Reason:           reason,
+			DeviceIdentifier:     target.DeviceIdentifier,
+			ExpectedState:        target.State,
+			ExpectedDesiredState: target.DesiredState,
+			State:                nextState,
+			Reason:               reason,
 		}
 		// Rows inserted while unavailable carry no pre-curtail baseline;
 		// backfill it from current telemetry at promotion so confirm/drift
@@ -168,7 +176,7 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 	if len(updates) == 0 {
 		return
 	}
-	appliedDevices, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.State, updates)
+	appliedDevices, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.OrgID, ev.State, updates)
 	if err != nil {
 		r.metrics.IncTargetWriteFailure()
 		slog.Error("curtailment reconciler: all-paired readiness bulk refresh failed",

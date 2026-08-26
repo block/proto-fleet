@@ -210,9 +210,14 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	_ context.Context,
 	eventID int64,
+	_ int64,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) (int64, error) {
 	f.claimAllPairedCalls++
+	if len(targets) > maxTargets {
+		targets = targets[:maxTargets]
+	}
 	f.claimedAllPairedParams = append([]models.InsertTargetParams(nil), targets...)
 	existing := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {
@@ -263,6 +268,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	_ context.Context,
 	eventID int64,
+	_ int64,
 	expectedEventState models.EventState,
 	updates []interfaces.AllPairedReadinessUpdate,
 ) ([]string, error) {
@@ -289,10 +295,14 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		if !ok {
 			continue
 		}
-		if t.DesiredState != "" && t.DesiredState != models.DesiredStateCurtailed {
+		if t.DesiredState != update.ExpectedDesiredState {
 			continue
 		}
-		if t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable {
+		if t.State != update.ExpectedState {
+			continue
+		}
+		if (t.DesiredState == models.DesiredStateCurtailed && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable) ||
+			(t.DesiredState == models.DesiredStateActive && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable && t.State != models.TargetStateRestoreFailed) {
 			continue
 		}
 		if update.State != models.TargetStatePending && update.State != models.TargetStateUnavailable {
@@ -1675,6 +1685,42 @@ func TestReconciler_ActiveAllPairedPolicyClaimsDispatchableAndUnavailableTargets
 	assert.Equal(t, models.TargetStateUnavailable, store.targetsByEventID[eventID][2].State)
 	require.NotNil(t, store.targetsByEventID[eventID][2].LastError)
 	assert.Equal(t, "authentication_needed", *store.targetsByEventID[eventID][2].LastError)
+}
+
+func TestReconciler_ActiveAllPairedPolicyBoundsAdmissionToCurtailBatchSize(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	batchSize := int32(2)
+	store.events = []*models.Event{{
+		ID:                          eventID,
+		EventUUID:                   uuid.New(),
+		OrgID:                       1,
+		State:                       models.EventStateActive,
+		Mode:                        models.ModeFullFleet,
+		LoopType:                    models.LoopTypeClosed,
+		ScopeType:                   models.ScopeTypeWholeOrg,
+		ForceIncludeAllPairedMiners: true,
+		CurtailBatchSize:            &batchSize,
+		CreatedByUserID:             99,
+	}}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "first", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "second", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "deferred", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimAllPairedCalls)
+	require.Len(t, store.claimedAllPairedParams, 2)
+	assert.Equal(t, []string{"first", "second"}, []string{
+		store.claimedAllPairedParams[0].DeviceIdentifier,
+		store.claimedAllPairedParams[1].DeviceIdentifier,
+	})
 }
 
 func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(t *testing.T) {

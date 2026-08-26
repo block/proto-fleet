@@ -1180,6 +1180,19 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				return nil, fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already owns this scope")
 			}
 		}
+		if usesTargetReservationGuard {
+			scopeFilter.OrgID = event.OrgID
+			if err := lockEarlierCurtailmentReservationBoundary(
+				ctx,
+				q,
+				0,
+				event.OrgID,
+				insertTargetDeviceIdentifiers(targets),
+				scopeFilter,
+			); err != nil {
+				return nil, err
+			}
+		}
 		authorizationEnvelopeJSON, err := buildAuthorizationEnvelopeJSON(
 			ctx,
 			q,
@@ -3115,6 +3128,16 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 		if err := q.LockCurtailmentEventScopeForWrite(ctx, eventID); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to lock curtailment admission scope: %v", err)
 		}
+		if err := lockEarlierCurtailmentReservationBoundary(
+			ctx,
+			q,
+			eventID,
+			orgID,
+			insertTargetDeviceIdentifiers(targets),
+			interfaces.ListCandidatesParams{},
+		); err != nil {
+			return nil, err
+		}
 		available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, targets)
 		if err != nil || len(available) == 0 {
 			return nil, err
@@ -3156,16 +3179,38 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 	ctx context.Context,
 	eventID int64,
+	orgID int64,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) (int64, error) {
-	if len(targets) == 0 {
+	if len(targets) == 0 || maxTargets <= 0 {
+		return 0, nil
+	}
+	available, err := excludeEarlierCurtailmentReservations(ctx, s.GetQueries(ctx), eventID, targets)
+	if err != nil {
+		return 0, err
+	}
+	if len(available) > maxTargets {
+		available = available[:maxTargets]
+	}
+	if len(available) == 0 {
 		return 0, nil
 	}
 	claimed, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
 		if err := q.LockCurtailmentEventScopeForWrite(ctx, eventID); err != nil {
 			return 0, fleeterror.NewInternalErrorf("failed to lock all-paired admission scope: %v", err)
 		}
-		available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, targets)
+		if err := lockEarlierCurtailmentReservationBoundary(
+			ctx,
+			q,
+			eventID,
+			orgID,
+			insertTargetDeviceIdentifiers(available),
+			interfaces.ListCandidatesParams{},
+		); err != nil {
+			return 0, err
+		}
+		available, err = excludeEarlierCurtailmentReservations(ctx, q, eventID, available)
 		if err != nil || len(available) == 0 {
 			return 0, err
 		}
@@ -3182,6 +3227,54 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 		return 0, fleeterror.NewInternalErrorf("failed to claim all-paired policy targets: %v", err)
 	}
 	return claimed, nil
+}
+
+// lockEarlierCurtailmentReservationBoundary fences every topology selector
+// that can dynamically reserve one of deviceIdentifiers, then locks those
+// device rows. Callers must re-read ListEarlierCurtailmentReservationDevices
+// after this returns and keep all subsequent target writes in the same
+// transaction. currentScope is included for Start, which has no event ID yet.
+func lockEarlierCurtailmentReservationBoundary(
+	ctx context.Context,
+	q sqlc.Querier,
+	eventID int64,
+	orgID int64,
+	deviceIdentifiers []string,
+	currentScope interfaces.ListCandidatesParams,
+) error {
+	scopeJSONs, err := q.ListEarlierCurtailmentTopologyReservationScopes(
+		ctx,
+		sqlc.ListEarlierCurtailmentTopologyReservationScopesParams{
+			OrgID:              orgID,
+			CurtailmentEventID: eventID,
+		},
+	)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to list earlier curtailment topology reservations: %v", err)
+	}
+	selectors := interfaces.ListCandidatesParams{
+		OrgID:       orgID,
+		BuildingIDs: append([]int64(nil), currentScope.BuildingIDs...),
+		RackIDs:     append([]int64(nil), currentScope.RackIDs...),
+		GroupIDs:    append([]int64(nil), currentScope.GroupIDs...),
+	}
+	for _, scopeJSON := range scopeJSONs {
+		scope, hasScope, err := domainCurtailment.ScopeFromJSON(scopeJSON)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("invalid persisted topology reservation scope: %v", err)
+		}
+		if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+			return fleeterror.NewInternalError("invalid persisted topology reservation scope")
+		}
+		selectors.BuildingIDs = append(selectors.BuildingIDs, scope.BuildingIDs...)
+		selectors.RackIDs = append(selectors.RackIDs, scope.RackIDs...)
+		selectors.GroupIDs = append(selectors.GroupIDs, scope.GroupIDs...)
+	}
+	if err := lockTopologySelectorResourcesForReservation(ctx, q, selectors, currentScope); err != nil {
+		return err
+	}
+	_, _, err = lockDeviceScopeCoverage(ctx, q, orgID, deviceIdentifiers, nil)
+	return err
 }
 
 func excludeEarlierCurtailmentReservations(
@@ -3315,39 +3408,84 @@ func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(
 // bulkReadinessUpdateRow mirrors BulkRefreshAllPairedTargetReadiness's
 // jsonb_to_recordset column list.
 type bulkReadinessUpdateRow struct {
-	DeviceIdentifier string   `json:"device_identifier"`
-	ExpectedState    string   `json:"expected_state"`
-	State            string   `json:"state"`
-	LastError        string   `json:"last_error"`
-	BaselinePowerW   *float64 `json:"baseline_power_w"`
+	DeviceIdentifier     string   `json:"device_identifier"`
+	ExpectedState        string   `json:"expected_state"`
+	ExpectedDesiredState string   `json:"expected_desired_state"`
+	State                string   `json:"state"`
+	LastError            string   `json:"last_error"`
+	BaselinePowerW       *float64 `json:"baseline_power_w"`
 }
 
 func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 	ctx context.Context,
 	eventID int64,
+	orgID int64,
 	expectedEventState models.EventState,
 	updates []interfaces.AllPairedReadinessUpdate,
 ) ([]string, error) {
 	if len(updates) == 0 {
 		return nil, nil
 	}
-	rows := make([]bulkReadinessUpdateRow, len(updates))
-	for i, u := range updates {
-		rows[i] = bulkReadinessUpdateRow{
-			DeviceIdentifier: u.DeviceIdentifier,
-			ExpectedState:    string(u.ExpectedState),
-			State:            string(u.State),
-			LastError:        u.Reason,
-			BaselinePowerW:   u.BaselinePowerW,
-		}
-	}
-	payload, err := json.Marshal(rows)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
-	}
 	applied, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) ([]string, error) {
 		if err := q.LockCurtailmentEventScopeForWrite(ctx, eventID); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to lock all-paired readiness scope: %v", err)
+		}
+		restoreFailedTargets := make([]models.InsertTargetParams, 0, len(updates))
+		for _, update := range updates {
+			if update.ExpectedState == models.TargetStateRestoreFailed {
+				restoreFailedTargets = append(restoreFailedTargets, models.InsertTargetParams{
+					DeviceIdentifier: update.DeviceIdentifier,
+				})
+			}
+		}
+		if len(restoreFailedTargets) > 0 {
+			if err := lockEarlierCurtailmentReservationBoundary(
+				ctx,
+				q,
+				eventID,
+				orgID,
+				insertTargetDeviceIdentifiers(restoreFailedTargets),
+				interfaces.ListCandidatesParams{},
+			); err != nil {
+				return nil, err
+			}
+			available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, restoreFailedTargets)
+			if err != nil {
+				return nil, err
+			}
+			availableSet := make(map[string]struct{}, len(available))
+			for _, target := range available {
+				availableSet[target.DeviceIdentifier] = struct{}{}
+			}
+			filtered := make([]interfaces.AllPairedReadinessUpdate, 0, len(updates))
+			for _, update := range updates {
+				if update.ExpectedState != models.TargetStateRestoreFailed {
+					filtered = append(filtered, update)
+					continue
+				}
+				if _, ok := availableSet[update.DeviceIdentifier]; ok {
+					filtered = append(filtered, update)
+				}
+			}
+			updates = filtered
+			if len(updates) == 0 {
+				return nil, nil
+			}
+		}
+		rows := make([]bulkReadinessUpdateRow, len(updates))
+		for i, update := range updates {
+			rows[i] = bulkReadinessUpdateRow{
+				DeviceIdentifier:     update.DeviceIdentifier,
+				ExpectedState:        string(update.ExpectedState),
+				ExpectedDesiredState: update.ExpectedDesiredState,
+				State:                string(update.State),
+				LastError:            update.Reason,
+				BaselinePowerW:       update.BaselinePowerW,
+			}
+		}
+		payload, err := json.Marshal(rows)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
 		}
 		return q.BulkRefreshAllPairedTargetReadiness(ctx, sqlc.BulkRefreshAllPairedTargetReadinessParams{
 			CurtailmentEventID: eventID,

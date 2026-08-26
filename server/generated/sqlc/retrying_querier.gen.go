@@ -3882,6 +3882,18 @@ func (q *retryingQuerier) ListEarlierCurtailmentReservationDevices(ctx context.C
 	return result, err
 }
 
+func (q *retryingQuerier) ListEarlierCurtailmentTopologyReservationScopes(ctx context.Context, arg ListEarlierCurtailmentTopologyReservationScopesParams) ([]json.RawMessage, error) {
+	var result []json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "ListEarlierCurtailmentTopologyReservationScopes", func() error {
+		callResult, callErr := q.next.ListEarlierCurtailmentTopologyReservationScopes(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error) {
 	var result []ListEffectivePermissionsForUserRow
 	err := q.retrier.RetryQuery(ctx, "ListEffectivePermissionsForUser", func() error {
