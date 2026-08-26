@@ -5,6 +5,7 @@ import AuthenticatedShell from "./AuthenticatedShell";
 import ErrorCallout from "./ErrorCallout";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
+import { useHardware } from "@/protoOS/api/hooks/useHardware";
 import { useMiningStart } from "@/protoOS/api/hooks/useMiningStart";
 import { useMiningStatus } from "@/protoOS/api/hooks/useMiningStatus";
 import { useSystemInfo } from "@/protoOS/api/hooks/useSystemInfo";
@@ -94,6 +95,10 @@ const App = ({
 
   // Fetch system status (populates store)
   useSystemStatus();
+
+  // Public hardware discovery is required to finish the welcome-screen
+  // bootstrap before the miner has credentials.
+  useHardware();
 
   // Get system status from store
   // undefined = pending/not fetched yet
