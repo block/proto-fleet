@@ -110,17 +110,17 @@ func activeDeviceGroupCopy(g alertGroup) string {
 	switch RuleTemplate(g.Template) {
 	case RuleTemplateOffline:
 		if rest, ok := strings.CutPrefix(summary, "Device is offline"); ok {
-			return count + " unreachable" + rest
+			return customRuleDeviceCopy(g, count+" unreachable"+rest)
 		}
 	case RuleTemplateHashrate:
 		for _, prefix := range []string{"Device hashrate has fallen below ", "Device hashrate is below "} {
 			if rest, ok := strings.CutPrefix(summary, prefix); ok {
-				return count + " hashing below " + rest
+				return customRuleDeviceCopy(g, count+" hashing below "+rest)
 			}
 		}
 	case RuleTemplateTemperature:
 		if rest, ok := strings.CutPrefix(summary, "Max sensor temperature for device is "); ok {
-			return count + " with sensor temperatures " + rest
+			return customRuleDeviceCopy(g, count+" with sensor temperatures "+rest)
 		}
 	case RuleTemplatePool,
 		RuleTemplateCommandFailure,
@@ -135,9 +135,18 @@ func activeDeviceGroupCopy(g alertGroup) string {
 		// Other and future templates use their rule-provided summary below.
 	}
 	if summary != "" {
-		return summary + " (" + count + " affected)"
+		return customRuleDeviceCopy(g, summary+" ("+count+" affected)")
 	}
 	return fmt.Sprintf("%s affecting %s", g.Name, count)
+}
+
+// Custom rule names carry the operator's scope or intent (for example, which site the rule watches).
+// Provisioned rules keep the shorter condition-only copy because their names add no new context.
+func customRuleDeviceCopy(g alertGroup, condition string) string {
+	if !strings.HasPrefix(g.RuleGroup, "proto-fleet-user-") {
+		return condition
+	}
+	return sentenceText(g.Name) + ": " + condition
 }
 
 func resolvedGroupCopy(g alertGroup) string {
@@ -145,11 +154,11 @@ func resolvedGroupCopy(g alertGroup) string {
 		count := fmt.Sprintf("%d device%s", g.DeviceCount, plural(g.DeviceCount))
 		switch RuleTemplate(g.Template) {
 		case RuleTemplateOffline:
-			return count + " reachable again"
+			return customRuleDeviceCopy(g, count+" reachable again")
 		case RuleTemplateHashrate:
-			return count + " hashing above alert threshold again"
+			return customRuleDeviceCopy(g, count+" hashing above alert threshold again")
 		case RuleTemplateTemperature:
-			return count + " below temperature threshold again"
+			return customRuleDeviceCopy(g, count+" below temperature threshold again")
 		case RuleTemplatePool,
 			RuleTemplateCommandFailure,
 			RuleTemplateTelemetryPoll,

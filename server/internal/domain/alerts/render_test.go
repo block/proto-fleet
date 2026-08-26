@@ -179,24 +179,24 @@ func TestRenderSlackUsesThresholdNeutralHashrateRecoveryCopy(t *testing.T) {
 }
 
 func TestRenderSlackRecoveryStaysScopedAcrossRules(t *testing.T) {
-	alert := func(status, ruleUID, deviceID string) Alert {
+	alert := func(status, ruleUID, name, deviceID string) Alert {
 		return Alert{
 			Status: status, RuleUID: ruleUID,
 			Labels: map[string]string{
-				"alertname": "Device Offline", "severity": "critical", "device_id": deviceID,
+				"alertname": name, "severity": "critical", "device_id": deviceID,
 				"rule_group": "proto-fleet-user-7", "template": "offline",
 			},
 			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
 		}
 	}
 	alerts := []Alert{
-		alert("firing", "offline-site-a", "dev-a"),
-		alert("resolved", "offline-site-b", "dev-b"),
+		alert("firing", "offline-site-a", "Site A offline", "dev-a"),
+		alert("resolved", "offline-site-b", "Site B offline", "dev-b"),
 	}
 
 	text := allSectionText(t, renderSlack("", alerts, nil))
-	assert.Contains(t, text, "🔴 1 device unreachable for at least five minutes")
-	assert.Contains(t, text, "✅ 1 device reachable again")
+	assert.Contains(t, text, "🔴 Site A offline: 1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "✅ Site B offline: 1 device reachable again")
 	assert.NotContains(t, text, "All devices reachable")
 }
 
@@ -225,8 +225,8 @@ func TestRenderSlackKeepsSameNamedUserRulesSeparateByRuleUID(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, blocks, 3, "the shared name and rule group must not merge distinct rule UIDs")
 	text := allSectionText(t, msg)
-	assert.Contains(t, text, "1 device unreachable for at least five minutes")
-	assert.Contains(t, text, "1 device with sensor temperatures above 95°C for at least ten minutes")
+	assert.Contains(t, text, "Watch miners: 1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "Watch miners: 1 device with sensor temperatures above 95°C for at least ten minutes")
 }
 
 func TestRenderSlackOmitsLinkWhenNoPublicURL(t *testing.T) {
