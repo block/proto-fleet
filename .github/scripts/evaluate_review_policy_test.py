@@ -285,16 +285,8 @@ class ReviewPolicyTest(unittest.TestCase):
 
         poster = find_step(workflow, "post-review", "post_review")
         post_script = poster["with"]["script"]
-        self.assertIn("actions.getWorkflowRun", post_script)
-        self.assertIn("actions.listWorkflowRuns", post_script)
-        self.assertIn("run.id > Number(context.runId)", post_script)
-        self.assertIn("run.head_sha === reviewedHeadSha", post_script)
-        self.assertIn("Number(pullRequest.number) === prNumber", post_script)
+        self.assertNotIn("const supersedingRun", post_script)
         self.assertIn("existingRunId > Number(context.runId)", post_script)
-        self.assertLess(
-            post_script.index("const supersedingRun"),
-            post_script.index("await postOrUpdateComment(prNumber, pr.user.login)"),
-        )
 
         uploads = [
             step
@@ -340,8 +332,8 @@ class ReviewPolicyTest(unittest.TestCase):
                     ],
                 },
                 0,
+                "create",
                 None,
-                "Skipping superseded",
             ),
             (
                 "same-head-other-pr",
@@ -380,7 +372,7 @@ class ReviewPolicyTest(unittest.TestCase):
             ),
             (
                 "api-failure",
-                {**base, "fail_action": "actions.getWorkflowRun"},
+                {**base, "fail_action": "issues.createComment"},
                 1,
                 None,
                 None,

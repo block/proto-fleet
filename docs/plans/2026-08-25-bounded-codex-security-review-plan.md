@@ -226,10 +226,11 @@ fail-closed finalizer can roll out independently of model tuning.
   `.github/scripts/evaluate_review_policy.py`; require `automation_completed`,
   force incomplete artifacts onto the human-review path, and require successful
   `Post Codex Security Review` completion before approval-free policy.
-- Serialize post-review jobs without cancelling the running poster, preserve the
-  head-SHA check, and reject newer runs for the same pull request so stale or
-  concurrency-cancelled results never update the PR comment. Treat API and
-  posting failures as hard failures rather than warning-only success.
+- Serialize post-review jobs without cancelling the running poster and preserve
+  the head-SHA check. Allow an older valid result to post while a newer run is
+  incomplete, but use the trusted run marker so it can never replace a comment
+  already written by a newer run. Treat API and posting failures as hard failures
+  rather than warning-only success.
 - Select same-named policy checks by workflow invocation order before job start
   time so a superseded finalizer that starts late cannot replace newer policy
   input.
