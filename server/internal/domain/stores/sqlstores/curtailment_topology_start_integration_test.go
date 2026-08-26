@@ -284,7 +284,7 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 		Name:  "Topology departure branches",
 	})
 	require.NoError(t, err)
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	devices := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
 	require.NoError(t, err)
 
@@ -301,16 +301,19 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
 		curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
 		curtailmentStoreTestTarget(devices[1], models.TargetStatePending, models.DesiredStateCurtailed),
+		curtailmentStoreTestTarget(devices[2], models.TargetStatePending, models.DesiredStateCurtailed),
 	})
 	require.NoError(t, err)
 	_, err = database.ExecContext(ctx, `
 		UPDATE curtailment_target
-		SET retry_count = 1,
-		    last_dispatched_at = CURRENT_TIMESTAMP,
-		    curtail_dispatched_at = CURRENT_TIMESTAMP
+		SET state = CASE WHEN device_identifier = $2 THEN 'dispatching' ELSE state END,
+		    curtail_state = CASE WHEN device_identifier = $2 THEN 'dispatching' ELSE curtail_state END,
+		    retry_count = CASE WHEN device_identifier = $3 THEN 1 ELSE retry_count END,
+		    last_dispatched_at = CASE WHEN device_identifier = $3 THEN CURRENT_TIMESTAMP ELSE last_dispatched_at END,
+		    curtail_dispatched_at = CASE WHEN device_identifier = $3 THEN CURRENT_TIMESTAMP ELSE curtail_dispatched_at END
 		WHERE curtailment_event_id = $1
-		  AND device_identifier = $2
-	`, inserted.ID, devices[1])
+		  AND device_identifier IN ($2, $3)
+	`, inserted.ID, devices[1], devices[2])
 	require.NoError(t, err)
 
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, devices)
@@ -319,7 +322,7 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	require.NoError(t, err)
 	transitioned, err := store.BeginCurtailmentTopologyTargetRestore(ctx, persisted, devices)
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), transitioned)
+	assert.Equal(t, int64(3), transitioned)
 
 	targets, err := store.ListTargetsByEvent(ctx, orgID, eventUUID)
 	require.NoError(t, err)
@@ -333,7 +336,13 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	assert.Equal(t, models.DesiredStateCurtailed, unsent.DesiredState)
 	assert.Nil(t, unsent.RestorePhase)
 
-	attempted := byDevice[devices[1]]
+	unsentDispatching := byDevice[devices[1]]
+	require.NotNil(t, unsentDispatching)
+	assert.Equal(t, models.TargetStateReleased, unsentDispatching.State)
+	assert.Equal(t, models.DesiredStateCurtailed, unsentDispatching.DesiredState)
+	assert.Nil(t, unsentDispatching.RestorePhase)
+
+	attempted := byDevice[devices[2]]
 	require.NotNil(t, attempted)
 	assert.Equal(t, models.TargetStatePending, attempted.State)
 	assert.Equal(t, models.DesiredStateActive, attempted.DesiredState)

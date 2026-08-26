@@ -184,13 +184,27 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	f.claimTargetsCalls++
 	f.claimedTargetParams = append([]models.InsertTargetParams(nil), targets...)
-	existing := map[string]struct{}{}
+	existing := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {
-		existing[t.DeviceIdentifier] = struct{}{}
+		existing[t.DeviceIdentifier] = t
 	}
 	var claimed []*models.Target
 	for _, target := range targets {
-		if _, ok := existing[target.DeviceIdentifier]; ok {
+		if row, ok := existing[target.DeviceIdentifier]; ok {
+			if !isReopenableTargetState(row.State) {
+				continue
+			}
+			row.State = models.TargetStateDispatching
+			row.DesiredState = target.DesiredState
+			row.BaselinePowerW = target.BaselinePowerW
+			row.LastError = target.LastError
+			row.ReleasedAt = nil
+			row.CurtailPhase = models.TargetPhaseSummary{
+				Phase: models.TargetPhaseCurtail,
+				State: models.TargetStateDispatching,
+			}
+			row.RestorePhase = nil
+			claimed = append(claimed, row)
 			continue
 		}
 		row := &models.Target{
@@ -203,7 +217,7 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 		}
 		f.targetsByEventID[eventID] = append(f.targetsByEventID[eventID], row)
 		claimed = append(claimed, row)
-		existing[target.DeviceIdentifier] = struct{}{}
+		existing[target.DeviceIdentifier] = row
 	}
 	return claimed, nil
 }
@@ -231,7 +245,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 			state = models.TargetStatePending
 		}
 		if row, ok := existing[target.DeviceIdentifier]; ok {
-			if row.State != models.TargetStateReleased {
+			if !isReopenableTargetState(row.State) {
 				continue
 			}
 			row.State = state
@@ -1530,6 +1544,59 @@ func TestReconciler_ActiveClosedLoopFullFleetAdmitsAndDispatchesNewTarget(t *tes
 	assert.Equal(t, 1, disp.curtailCalls)
 	assert.ElementsMatch(t, []string{"miner-new"}, disp.curtailLastIDs)
 	assert.Equal(t, models.TargetStateDispatched, target.State)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetReadmitsReturnedTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	effectiveBatchSize := int32(10)
+	store.events = []*models.Event{{
+		ID:                 eventID,
+		EventUUID:          uuid.New(),
+		OrgID:              1,
+		State:              models.EventStateActive,
+		Mode:               models.ModeFullFleet,
+		LoopType:           models.LoopTypeClosed,
+		ScopeType:          models.ScopeTypeWholeOrg,
+		CurtailBatchSize:   &effectiveBatchSize,
+		EffectiveBatchSize: &effectiveBatchSize,
+		CreatedByUserID:    99,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-released", State: models.TargetStateReleased},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-resolved", State: models.TargetStateResolved},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for _, identifier := range []string{"miner-released", "miner-resolved"} {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: identifier,
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	require.Len(t, store.claimedTargetParams, 2)
+	assert.ElementsMatch(t, []string{"miner-released", "miner-resolved"}, []string{
+		store.claimedTargetParams[0].DeviceIdentifier,
+		store.claimedTargetParams[1].DeviceIdentifier,
+	})
+	dispatched := make([]string, 0, 2)
+	for _, batch := range disp.curtailCallIDs {
+		dispatched = append(dispatched, batch...)
+	}
+	assert.ElementsMatch(t, []string{"miner-released", "miner-resolved"}, dispatched)
 }
 
 func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionIntervalBlocked(t *testing.T) {

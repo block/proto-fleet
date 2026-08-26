@@ -1676,7 +1676,7 @@ WITH locked_event AS MATERIALIZED (
 )
 UPDATE curtailment_target target
 SET desired_state = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1685,7 +1685,7 @@ SET desired_state = CASE
         ELSE 'active'
     END,
     state = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1698,7 +1698,7 @@ SET desired_state = CASE
     last_batch_uuid = NULL,
     confirmed_at = NULL,
     last_error = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1707,7 +1707,7 @@ SET desired_state = CASE
         ELSE NULL
     END,
     curtail_state = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1716,7 +1716,7 @@ SET desired_state = CASE
         ELSE target.curtail_state
     END,
     curtail_completed_at = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1725,7 +1725,7 @@ SET desired_state = CASE
         ELSE target.curtail_completed_at
     END,
     restore_state = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0
@@ -1734,7 +1734,7 @@ SET desired_state = CASE
         ELSE 'pending'
     END,
     restore_started_at = CASE
-        WHEN target.state IN ('pending', 'unavailable')
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
          AND target.retry_count = 0

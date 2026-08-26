@@ -1311,7 +1311,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
-	targets = excludeExistingTargetParams(targets, existingTargets)
+	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: list active devices (full_fleet admission) failed",
@@ -1391,24 +1391,6 @@ func postEventCooldownSecForEvent(ev *models.Event) int32 {
 	return snapshot.PostEventCooldownSec
 }
 
-func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
-	if len(targets) == 0 || len(existingTargets) == 0 {
-		return targets
-	}
-	existing := make(map[string]struct{}, len(existingTargets))
-	for _, target := range existingTargets {
-		existing[target.DeviceIdentifier] = struct{}{}
-	}
-	filtered := targets[:0]
-	for _, target := range targets {
-		if _, ok := existing[target.DeviceIdentifier]; ok {
-			continue
-		}
-		filtered = append(filtered, target)
-	}
-	return filtered
-}
-
 func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
 	if len(targets) == 0 || len(existingTargets) == 0 {
 		return targets
@@ -1420,12 +1402,18 @@ func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParam
 	filtered := targets[:0]
 	for _, target := range targets {
 		state, ok := existing[target.DeviceIdentifier]
-		if ok && state != models.TargetStateReleased {
+		if ok && !isReopenableTargetState(state) {
 			continue
 		}
 		filtered = append(filtered, target)
 	}
 	return filtered
+}
+
+func isReopenableTargetState(state models.TargetState) bool {
+	return state == models.TargetStateResolved ||
+		state == models.TargetStateRestoreFailed ||
+		state == models.TargetStateReleased
 }
 
 func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
