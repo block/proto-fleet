@@ -481,6 +481,49 @@ func (f *fakeStore) WithCurtailmentTopologyDispatchFence(
 	return f.topologyFenceAfterCommandErr
 }
 
+func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
+	ctx context.Context,
+	event *models.Event,
+	dispatchDeviceIdentifiers []string,
+	command func(interfaces.CurtailmentTopologyDispatchFenceSnapshot) error,
+) error {
+	if f.topologyFenceErr != nil {
+		return f.topologyFenceErr
+	}
+	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if err != nil {
+		return err
+	}
+	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	latestCopy := *latest
+	latest = &latestCopy
+	if f.topologyFenceHook != nil {
+		f.topologyFenceHook(latest)
+	}
+	if latest.State != event.State || latest.State.IsTerminal() {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	topology, err := f.ResolveCurtailmentTopologyDispatch(
+		ctx,
+		interfaces.ListCandidatesParams{OrgID: event.OrgID},
+		dispatchDeviceIdentifiers,
+	)
+	if err != nil {
+		return err
+	}
+	f.topologyFenceActive = true
+	defer func() { f.topologyFenceActive = false }()
+	if err := command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
+		Event:    latest,
+		Topology: topology,
+	}); err != nil {
+		return err
+	}
+	return f.topologyFenceAfterCommandErr
+}
+
 func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by reconciler tests")
 }
@@ -641,6 +684,9 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 				}
 			}
 			if params.ExpectedDesiredState != nil && t.DesiredState != "" && t.DesiredState != *params.ExpectedDesiredState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
+			if params.ExpectedState != nil && t.State != *params.ExpectedState {
 				return interfaces.ErrCurtailmentEventStateRaceLoss
 			}
 			t.State = params.State
@@ -1306,6 +1352,41 @@ func TestReconciler_TopologyDispatchHoldsFenceThroughCommand(t *testing.T) {
 	assert.True(t, dispatched)
 	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.False(t, store.topologyFenceActive)
+}
+
+func TestReconciler_TopologyRestoreHoldsFenceThroughCommand(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	target.DesiredState = models.DesiredStateActive
+	store.candidates = nil
+	dispatcher := &fakeDispatcher{}
+	dispatcher.uncurtailHook = func(_ []string) {
+		assert.True(t, store.topologyFenceActive)
+	}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.False(t, store.topologyFenceActive)
+}
+
+func TestReconciler_TopologyRestoreSuppressesReturnedMemberAtCommandBoundary(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	target.DesiredState = models.DesiredStateActive
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Zero(t, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateRestoreFailed, target.State)
+	require.NotNil(t, target.LastError)
+	assert.Contains(t, *target.LastError, "returned to topology scope")
 }
 
 func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *testing.T) {

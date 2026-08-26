@@ -62,6 +62,7 @@ func mapOrgConfigError(err error, orgID int64) error {
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentTopologyScopeStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentTopologyDispatchFenceStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentTopologyRestoreDispatchFenceStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
@@ -2261,6 +2262,54 @@ func (s *SQLCurtailmentStore) WithCurtailmentTopologyDispatchFence(
 	})
 }
 
+func (s *SQLCurtailmentStore) WithCurtailmentTopologyRestoreDispatchFence(
+	ctx context.Context,
+	event *models.Event,
+	dispatchDeviceIdentifiers []string,
+	command func(interfaces.CurtailmentTopologyDispatchFenceSnapshot) error,
+) error {
+	if event == nil || command == nil {
+		return fleeterror.NewInvalidArgumentError("topology restore dispatch fence requires an event and command")
+	}
+	identifiers := uniqueSortedStrings(dispatchDeviceIdentifiers)
+	if len(identifiers) == 0 {
+		return nil
+	}
+	return db.WithTransactionNoRetryNoResult(ctx, s.conn.DB, func(q sqlc.Querier) error {
+		locked, err := q.LockCurtailmentEventByUUIDForWrite(ctx, sqlc.LockCurtailmentEventByUUIDForWriteParams{
+			EventUuid: event.EventUUID,
+			OrgID:     event.OrgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to lock curtailment event for topology restore dispatch: %v", err)
+		}
+		if locked.ID != event.ID || models.EventState(locked.State) != event.State || models.EventState(locked.State).IsTerminal() {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		latest := convertEventRow(locked)
+		scope, hasScope, err := domainCurtailment.ScopeFromJSON(latest.ScopeJSON)
+		if err != nil || !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+			return fleeterror.NewFailedPreconditionError("persisted topology scope is no longer valid")
+		}
+		params, err := domainCurtailment.ListCandidatesParamsForScope(scope)
+		if err != nil {
+			return err
+		}
+		params.OrgID = latest.OrgID
+		topology, err := lockCurtailmentTopologyRestoreDispatch(ctx, q, params, identifiers)
+		if err != nil {
+			return err
+		}
+		return command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
+			Event:    latest,
+			Topology: topology,
+		})
+	})
+}
+
 func topologySelector(params interfaces.ListCandidatesParams) ([]int64, string, error) {
 	selectedTypeCount := 0
 	for _, ids := range [][]int64{params.BuildingIDs, params.RackIDs, params.GroupIDs} {
@@ -3435,6 +3484,43 @@ func excludeEarlierCurtailmentReservations(
 	return available, nil
 }
 
+func lockCurtailmentTopologyRestoreDispatch(
+	ctx context.Context,
+	q sqlc.Querier,
+	scope interfaces.ListCandidatesParams,
+	deviceIdentifiers []string,
+) (interfaces.CurtailmentTopologyDispatchSnapshot, error) {
+	if err := lockTopologySelectorResourcesForWrite(ctx, q, scope); err != nil {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, err
+	}
+	memberIdentifiers, err := q.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(
+		ctx,
+		sqlc.ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams{
+			OrgID:       scope.OrgID,
+			BuildingIds: scope.BuildingIDs,
+			RackIds:     scope.RackIDs,
+			GroupIds:    scope.GroupIDs,
+		},
+	)
+	if err != nil {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, fleeterror.NewInternalErrorf(
+			"failed to list topology restore members: %v",
+			err,
+		)
+	}
+	if len(memberIdentifiers) > interfaces.CurtailmentResolvedMinerMax {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, fleeterror.NewResourceExhaustedErrorf(
+			"scope resolves to more than %d miners",
+			interfaces.CurtailmentResolvedMinerMax,
+		)
+	}
+	lockIdentifiers := append(append([]string(nil), memberIdentifiers...), deviceIdentifiers...)
+	if _, _, err := lockDeviceScopeCoverage(ctx, q, scope.OrgID, lockIdentifiers, nil); err != nil {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, err
+	}
+	return resolveCurtailmentTopologyDispatch(ctx, q, scope, deviceIdentifiers)
+}
+
 func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(
 	ctx context.Context,
 	event *models.Event,
@@ -3472,32 +3558,7 @@ func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(
 			return 0, err
 		}
 		scope.OrgID = lockedEvent.OrgID
-		if err := lockTopologySelectorResourcesForWrite(ctx, q, scope); err != nil {
-			return 0, err
-		}
-		memberIdentifiers, err := q.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(
-			ctx,
-			sqlc.ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams{
-				OrgID:       scope.OrgID,
-				BuildingIds: scope.BuildingIDs,
-				RackIds:     scope.RackIDs,
-				GroupIds:    scope.GroupIDs,
-			},
-		)
-		if err != nil {
-			return 0, fleeterror.NewInternalErrorf("failed to list topology restore members: %v", err)
-		}
-		if len(memberIdentifiers) > interfaces.CurtailmentResolvedMinerMax {
-			return 0, fleeterror.NewResourceExhaustedErrorf(
-				"scope resolves to more than %d miners",
-				interfaces.CurtailmentResolvedMinerMax,
-			)
-		}
-		lockIdentifiers := append(append([]string(nil), memberIdentifiers...), identifiers...)
-		if _, _, err := lockDeviceScopeCoverage(ctx, q, event.OrgID, lockIdentifiers, nil); err != nil {
-			return 0, err
-		}
-		current, err := resolveCurtailmentTopologyDispatch(ctx, q, scope, identifiers)
+		current, err := lockCurtailmentTopologyRestoreDispatch(ctx, q, scope, identifiers)
 		if err != nil {
 			return 0, err
 		}

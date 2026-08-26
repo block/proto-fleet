@@ -866,9 +866,10 @@ func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *model
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:      state,
-		LastError:  &errMsg,
-		RetryCount: &newRetry,
+		State:                state,
+		LastError:            &errMsg,
+		RetryCount:           &newRetry,
+		ExpectedDesiredState: &t.DesiredState,
 	}
 	if guard != nil {
 		params.ExpectedState = &guard.expectedState
@@ -2280,9 +2281,11 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	desiredActive := models.DesiredStateActive
 	for _, t := range claim {
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
-			State: models.TargetStateDispatching,
+			State:                models.TargetStateDispatching,
+			ExpectedDesiredState: &desiredActive,
 		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
 			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -2303,24 +2306,63 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 
-	deviceIDs := make([]string, 0, len(dispatchSet))
-	for _, t := range dispatchSet {
-		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
-	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	selector := &pb.DeviceSelector{
-		SelectionType: &pb.DeviceSelector_IncludeDevices{
-			IncludeDevices: &commonpb.DeviceIdentifierList{
-				DeviceIdentifiers: deviceIDs,
+	var result *command.CommandResult
+	var dispatchErr error
+	runCommand := func(targets []*models.Target) {
+		deviceIDs := make([]string, 0, len(targets))
+		for _, target := range targets {
+			deviceIDs = append(deviceIDs, target.DeviceIdentifier)
+		}
+		selector := &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
 			},
-		},
+		}
+		result, dispatchErr = r.cmd.Uncurtail(cmdCtx, selector)
 	}
-	result, dispatchErr := r.cmd.Uncurtail(cmdCtx, selector)
+	commandTargets := dispatchSet
+	topologyHandled, fenceReached, fencedTargets, fenceErr := r.fenceTopologyRestoreDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		runCommand,
+	)
+	if topologyHandled {
+		if !fenceReached {
+			if errors.Is(fenceErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				return
+			}
+			errMsg := "topology restore dispatch fence failed"
+			if fenceErr != nil {
+				errMsg = fenceErr.Error()
+			}
+			slog.Error("curtailment reconciler: topology restore dispatch fence failed",
+				"event_id", ev.ID, "error", fenceErr)
+			for _, target := range dispatchSet {
+				r.recordDispatchFailure(ctx, ev, target, errMsg, models.TargetStatePending)
+			}
+			return
+		}
+		commandTargets = fencedTargets
+		r.parkReturnedTopologyRestoreTargets(ctx, ev, dispatchSet, commandTargets)
+		if fenceErr != nil {
+			slog.Error("curtailment reconciler: topology restore fence ended after command callback",
+				"event_id", ev.ID, "error", fenceErr)
+		}
+		if len(commandTargets) == 0 {
+			return
+		}
+	} else {
+		runCommand(commandTargets)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: restore batch dispatch failed",
-			"event_id", ev.ID, "batch_size", len(dispatchSet), "error", dispatchErr)
-		for _, t := range dispatchSet {
+			"event_id", ev.ID, "batch_size", len(commandTargets), "error", dispatchErr)
+		for _, t := range commandTargets {
 			r.recordDispatchFailure(ctx, ev, t, errMsg, models.TargetStatePending)
 		}
 		return
@@ -2330,8 +2372,8 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "uncurtail command produced no batch (no live devices to dispatch)"
 		slog.Warn("curtailment reconciler: restore batch produced empty result",
-			"event_id", ev.ID, "batch_size", len(dispatchSet))
-		for _, t := range dispatchSet {
+			"event_id", ev.ID, "batch_size", len(commandTargets))
+		for _, t := range commandTargets {
 			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
 		}
 		return
@@ -2348,7 +2390,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 
 	now := r.now()
 	batchID := result.BatchIdentifier
-	for _, t := range dispatchSet {
+	for _, t := range commandTargets {
 		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: restore device filter-skipped",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)
@@ -2384,6 +2426,41 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		t.LastDispatchedAt = &now
 		t.LastBatchUUID = &batchID
 		t.LastError = nil
+	}
+}
+
+func (r *Reconciler) parkReturnedTopologyRestoreTargets(
+	ctx context.Context,
+	ev *models.Event,
+	dispatchSet []*models.Target,
+	commandTargets []*models.Target,
+) {
+	commandDevices := make(map[string]struct{}, len(commandTargets))
+	for _, target := range commandTargets {
+		commandDevices[target.DeviceIdentifier] = struct{}{}
+	}
+	reason := "restore paused: device returned to topology scope"
+	expectedState := models.TargetStateDispatching
+	desiredActive := models.DesiredStateActive
+	for _, target := range dispatchSet {
+		if _, dispatched := commandDevices[target.DeviceIdentifier]; dispatched {
+			continue
+		}
+		params := interfaces.UpdateCurtailmentTargetStateParams{
+			State:                models.TargetStateRestoreFailed,
+			LastError:            &reason,
+			ExpectedDesiredState: &desiredActive,
+			ExpectedState:        &expectedState,
+		}
+		if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: failed to park returned topology restore target",
+					"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
+			}
+			continue
+		}
+		target.State = models.TargetStateRestoreFailed
+		target.LastError = &reason
 	}
 }
 

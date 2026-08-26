@@ -8,6 +8,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -159,6 +160,63 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 		}, err)
 	}
 	return true, true
+}
+
+func (r *Reconciler) fenceTopologyRestoreDispatch(
+	ctx context.Context,
+	ev *models.Event,
+	targets []*models.Target,
+	command func([]*models.Target),
+) (handled bool, fenceReached bool, commandTargets []*models.Target, err error) {
+	if ev.ScopeType != models.ScopeTypeMixed {
+		return false, false, targets, nil
+	}
+	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
+	if err != nil {
+		return true, false, nil, fleeterror.NewInternalErrorf("parse persisted mixed restore scope: %v", err)
+	}
+	if !hasScope {
+		return true, false, nil, fleeterror.NewInternalError("persisted mixed restore scope is missing")
+	}
+	if !curtailment.IsTopologyScope(scope) {
+		return false, false, targets, nil
+	}
+	fenceStore, ok := r.store.(interfaces.CurtailmentTopologyRestoreDispatchFenceStore)
+	if !ok {
+		return true, false, nil, fleeterror.NewInternalError("topology restore dispatch fence is not configured")
+	}
+	deviceIdentifiers := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target != nil {
+			deviceIdentifiers = append(deviceIdentifiers, target.DeviceIdentifier)
+		}
+	}
+	err = fenceStore.WithCurtailmentTopologyRestoreDispatchFence(
+		ctx,
+		ev,
+		deviceIdentifiers,
+		func(fenced interfaces.CurtailmentTopologyDispatchFenceSnapshot) error {
+			fenceReached = true
+			currentMembers := make(map[string]struct{}, len(fenced.Topology.DispatchMemberDeviceIdentifiers))
+			for _, deviceIdentifier := range fenced.Topology.DispatchMemberDeviceIdentifiers {
+				currentMembers[deviceIdentifier] = struct{}{}
+			}
+			commandTargets = make([]*models.Target, 0, len(targets))
+			for _, target := range targets {
+				if target == nil {
+					continue
+				}
+				if _, returned := currentMembers[target.DeviceIdentifier]; !returned {
+					commandTargets = append(commandTargets, target)
+				}
+			}
+			if len(commandTargets) > 0 {
+				command(commandTargets)
+			}
+			return nil
+		},
+	)
+	return true, fenceReached, commandTargets, err
 }
 
 var errTopologyDispatchRejected = errors.New("topology dispatch rejected")

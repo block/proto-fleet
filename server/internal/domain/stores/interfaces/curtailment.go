@@ -312,6 +312,19 @@ type CurtailmentTopologyDispatchFenceStore interface {
 	) error
 }
 
+// CurtailmentTopologyRestoreDispatchFenceStore holds the current event and
+// topology membership stable through a physical Uncurtail command. Unlike the
+// Curtail fence, restore candidates are expected to be outside the selector;
+// the callback receives any that returned so the reconciler can suppress them.
+type CurtailmentTopologyRestoreDispatchFenceStore interface {
+	WithCurtailmentTopologyRestoreDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event
