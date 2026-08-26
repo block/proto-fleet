@@ -173,6 +173,7 @@ export class OnboardingVisualHelper {
     const mobileSettingsSubmenu = navigationMenu.getByTestId("secondary-nav");
     if (await mobileSettingsSubmenu.count()) {
       await expect(mobileSettingsSubmenu).toHaveCSS("opacity", "1");
+      await expect(mobileSettingsSubmenu).toHaveCSS("transform", "none");
     }
     await snapshots.captureLocator(navigationMenu, VISUAL_SNAPSHOTS.navigationMenu);
   }
