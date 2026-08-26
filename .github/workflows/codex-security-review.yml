@@ -723,7 +723,10 @@ jobs:
               );
 
               if (existingComment) {
-                const existingRunMatch = existingComment.body.match(/<!-- codex-security-review-run:(\d+) -->/);
+                const trustedRunPrefix = new RegExp(
+                  `^${marker}\\n<!-- codex-security-review-run:(\\d+) -->\\n`
+                );
+                const existingRunMatch = existingComment.body.match(trustedRunPrefix);
                 const existingRunId = existingRunMatch ? Number(existingRunMatch[1]) : 0;
                 if (existingRunId > Number(context.runId)) {
                   core.notice(

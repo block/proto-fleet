@@ -551,13 +551,59 @@ jobs:
               core.setFailed(`Expected one benchmark job named ${process.env.AGENT_JOB_NAME}, found ${matches.length}.`);
               return;
             }
+            const job = matches[0];
+            const conclusion = job.conclusion || '';
+            let cancellationClassification = conclusion === 'success' ? 'completed' : 'automation-failure';
+            let cancellationDetail = '';
+            if (conclusion === 'cancelled') {
+              const requiredSteps = [
+                'Checkout fixed historical head',
+                'Fetch and validate fixed historical range',
+                'Write review packet and scope metrics',
+                'Require benchmark API key',
+              ];
+              const prerequisitesSucceeded = requiredSteps.every(name =>
+                job.steps?.some(step => step.name === name && step.conclusion === 'success')
+              );
+              const codexStep = job.steps?.find(step => step.name === 'Run bounded benchmark review');
+              const startedAt = Date.parse(job.started_at || '');
+              const completedAt = Date.parse(job.completed_at || '');
+              const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
+                ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
+                : null;
+              const codexReachedReviewPhase =
+                Boolean(codexStep?.started_at) &&
+                (
+                  codexStep?.conclusion === 'success' ||
+                  codexStep?.conclusion === 'cancelled' ||
+                  (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
+                );
+              const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+              const budgetEvidence =
+                prerequisitesSucceeded &&
+                codexReachedReviewPhase &&
+                elapsedSeconds !== null &&
+                elapsedSeconds >= budgetSeconds;
+              cancellationClassification = budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation';
+              cancellationDetail = JSON.stringify({
+                prerequisites_succeeded: prerequisitesSucceeded,
+                codex_started: Boolean(codexStep?.started_at),
+                codex_status: codexStep?.status || null,
+                codex_conclusion: codexStep?.conclusion || null,
+                observed_job_seconds: elapsedSeconds,
+                budget_seconds: budgetSeconds,
+              });
+            }
+
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: context.runId,
               per_page: 100,
             });
-            core.setOutput('conclusion', matches[0].conclusion || '');
+            core.setOutput('conclusion', conclusion);
+            core.setOutput('classification', cancellationClassification);
+            core.setOutput('classification_detail', cancellationDetail);
             core.setOutput(
               'result_artifact_exists',
               artifacts.some(artifact => artifact.name === process.env.RESULT_ARTIFACT_NAME && !artifact.expired) ? 'true' : 'false'
@@ -567,25 +613,27 @@ jobs:
         id: validate
         env:
           AGENT_CONCLUSION: ${{ steps.inspect.outputs.conclusion }}
+          AGENT_CLASSIFICATION: ${{ steps.inspect.outputs.classification }}
+          AGENT_CLASSIFICATION_DETAIL: ${{ steps.inspect.outputs.classification_detail }}
           RESULT_ARTIFACT_EXISTS: ${{ steps.inspect.outputs.result_artifact_exists }}
         run: |
-          case "$AGENT_CONCLUSION" in
-            success)
+          case "$AGENT_CONCLUSION:$AGENT_CLASSIFICATION" in
+            success:completed)
               if [ "$RESULT_ARTIFACT_EXISTS" != "true" ]; then
                 echo "Completed benchmark job did not upload $RESULT_ARTIFACT_NAME." >&2
                 exit 1
               fi
               ;;
-            cancelled) ;;
+            cancelled:budget-timeout) ;;
             *)
-              echo "Benchmark automation failed instead of exhausting its budget: $AGENT_CONCLUSION" >&2
+              echo "Benchmark automation failed instead of exhausting its budget: $AGENT_CONCLUSION/$AGENT_CLASSIFICATION ($AGENT_CLASSIFICATION_DETAIL)" >&2
               exit 1
               ;;
           esac
 
       - name: Write benchmark timeout artifacts
         id: write_timeout
-        if: ${{ steps.inspect.outputs.conclusion == 'cancelled' }}
+        if: ${{ steps.inspect.outputs.conclusion == 'cancelled' && steps.inspect.outputs.classification == 'budget-timeout' }}
         env:
           CASE_ID: ${{ matrix.case.id }}
           CASE_PR: ${{ matrix.case.pr }}

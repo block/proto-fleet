@@ -113,8 +113,9 @@ trusted default branch. It must:
   for each case and variant. Record cancellation elapsed time as unknown unless
   it was measured before cancellation.
 - Limit matrix parallelism to two jobs to bound API load and cost.
-- Cap each benchmark review at 12 minutes. A timeout is a benchmark result, not
-  a reason to extend the run.
+- Cap each benchmark review at 12 minutes. Record timeout only when trusted
+  prerequisite steps, Codex state, and observed job duration prove the budget was
+  exhausted; fail early or ambiguous cancellation instead of admitting it as data.
 
 Use this initial corpus:
 
@@ -285,6 +286,7 @@ of model efficiency.
 | Less diff context hides a causal relationship | Replay adjudicated findings; retain `unified=40` unless a candidate meets recall gates |
 | Model variance is mistaken for a context effect | Repeat only disagreeing or near-budget cases twice more |
 | Benchmark invokes expensive secret-backed jobs | Default-branch `repository_dispatch`, fixed corpus, `max-parallel: 2`, 12-minute cap |
+| Benchmark infrastructure cancellation pollutes timeout measurements | Require successful trusted prerequisites, Codex execution state, and observed budget duration before writing timeout artifacts |
 | Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests, and assert in `evaluate_review_policy_test.py` that the output schema, safety strategy, sandbox, model, and review-packet body are identical across both workflows |
 | Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |

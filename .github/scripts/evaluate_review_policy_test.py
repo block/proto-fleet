@@ -180,6 +180,10 @@ const github = {
         maybeFail('actions.listJobsForWorkflowRun');
         return {data: scenario.jobs || []};
       },
+      listWorkflowRunArtifacts: async () => {
+        maybeFail('actions.listWorkflowRunArtifacts');
+        return {data: scenario.artifacts || []};
+      },
     },
     issues: {
       listComments: async () => {
@@ -227,7 +231,9 @@ const github = {
         "CODEX_MODEL": "gpt-5.6-sol",
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
-        "CODEX_TIMEOUT_MINUTES": "9",
+        "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
+        "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
+        "RESULT_ARTIFACT_NAME": "benchmark-result-test",
     }
     completed = subprocess.run(
         ["node", str(script)],
@@ -361,7 +367,7 @@ class ReviewPolicyTest(unittest.TestCase):
                             "user": {"login": "github-actions[bot]", "type": "Bot"},
                             "body": (
                                 "<!-- codex-security-review -->\n"
-                                "<!-- codex-security-review-run:101 -->"
+                                "<!-- codex-security-review-run:101 -->\n"
                             ),
                         }
                     ],
@@ -369,6 +375,26 @@ class ReviewPolicyTest(unittest.TestCase):
                 0,
                 None,
                 "existing comment came from newer run",
+            ),
+            (
+                "legacy-comment-with-untrusted-marker",
+                {
+                    **base,
+                    "comments": [
+                        {
+                            "id": 1,
+                            "user": {"login": "github-actions[bot]", "type": "Bot"},
+                            "body": (
+                                "<!-- codex-security-review -->\n"
+                                "## Legacy review\n"
+                                "<!-- codex-security-review-run:999999 -->\n"
+                            ),
+                        }
+                    ],
+                },
+                0,
+                "update",
+                None,
             ),
             (
                 "api-failure",
@@ -881,26 +907,91 @@ class ReviewPolicyTest(unittest.TestCase):
             finalizer["strategy"]["matrix"], review_job["strategy"]["matrix"]
         )
         self.assertEqual(finalizer["strategy"]["max-parallel"], 2)
+
+        inspect_script = find_step(workflow, "benchmark-finalize", "inspect")["with"][
+            "script"
+        ]
+        successful_steps = [
+            {"name": name, "conclusion": "success"}
+            for name in (
+                "Checkout fixed historical head",
+                "Fetch and validate fixed historical range",
+                "Write review packet and scope metrics",
+                "Require benchmark API key",
+            )
+        ]
+        timeout_job = {
+            "name": "pr-957 / unified-40 / initial",
+            "conclusion": "cancelled",
+            "started_at": "2026-08-26T00:00:00Z",
+            "completed_at": "2026-08-26T00:17:00Z",
+            "steps": [
+                *successful_steps,
+                {
+                    "name": "Run bounded benchmark review",
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "started_at": "2026-08-26T00:00:30Z",
+                },
+            ],
+        }
+        inspect_cases = [
+            ("budget-timeout", timeout_job, "budget-timeout"),
+            (
+                "early-cancellation",
+                {**timeout_job, "completed_at": "2026-08-26T00:05:00Z"},
+                "unexpected-cancellation",
+            ),
+            (
+                "setup-cancellation",
+                {**timeout_job, "steps": successful_steps[:1]},
+                "unexpected-cancellation",
+            ),
+        ]
+        for name, job, expected_classification in inspect_cases:
+            with self.subTest(inspect=name), tempfile.TemporaryDirectory() as tmp:
+                completed, output = run_github_script(
+                    inspect_script,
+                    {
+                        "jobs": [job],
+                        "artifacts": [],
+                        "agent_job_name": timeout_job["name"],
+                        "timeout_minutes": "12",
+                    },
+                    tmp,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(
+                    output["outputs"]["classification"], expected_classification
+                )
+
         timeout_writer = find_step(workflow, "benchmark-finalize", "write_timeout")
         self.assertEqual(
             timeout_writer["if"],
-            "${{ steps.inspect.outputs.conclusion == 'cancelled' }}",
+            "${{ steps.inspect.outputs.conclusion == 'cancelled' && steps.inspect.outputs.classification == 'budget-timeout' }}",
         )
 
         gate = find_step(workflow, "benchmark-finalize", "validate")["run"]
         cases = [
-            ("success", "true", 0),
-            ("success", "false", 1),
-            ("cancelled", "false", 0),
-            ("failure", "false", 1),
+            ("success", "completed", "true", 0),
+            ("success", "completed", "false", 1),
+            ("cancelled", "budget-timeout", "false", 0),
+            ("cancelled", "unexpected-cancellation", "false", 1),
+            ("failure", "automation-failure", "false", 1),
         ]
-        for conclusion, artifact_exists, expected_code in cases:
-            with self.subTest(conclusion=conclusion, artifact_exists=artifact_exists):
+        for conclusion, classification, artifact_exists, expected_code in cases:
+            with self.subTest(
+                conclusion=conclusion,
+                classification=classification,
+                artifact_exists=artifact_exists,
+            ):
                 result = subprocess.run(
                     ["bash", "-c", gate],
                     env={
                         **os.environ,
                         "AGENT_CONCLUSION": conclusion,
+                        "AGENT_CLASSIFICATION": classification,
+                        "AGENT_CLASSIFICATION_DETAIL": "test detail",
                         "RESULT_ARTIFACT_EXISTS": artifact_exists,
                         "RESULT_ARTIFACT_NAME": "benchmark-result-pr-957-unified-40-initial-123-1",
                     },
