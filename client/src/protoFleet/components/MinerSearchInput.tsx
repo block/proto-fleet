@@ -13,6 +13,13 @@ const trimLeadingWhitespace = (value: string) => value.trimStart();
 interface MinerSearchInputProps {
   initialValue?: string;
   onQueryChange: (query: string) => void;
+  /** Fired synchronously on every keystroke, ahead of the debounce.
+   *
+   * Consumers that treat "a search is active" as a safety condition have to use
+   * this rather than `onQueryChange`: for the debounce interval the applied
+   * filter still reads as empty, so a selection gated on the applied filter
+   * stays armed while the field already shows a query. */
+  onQueryInput?: (query: string) => void;
   id?: string;
 }
 
@@ -25,15 +32,23 @@ interface MinerSearchInputProps {
  * ate the space in "rack 7" whenever the debounce fired between the two words.
  * Trimming belongs at the consumers, which already do it: the server trims
  * search_query, and the miner list trims when reading the URL param. */
-const MinerSearchInput = ({ initialValue = "", onQueryChange, id = "miner-search" }: MinerSearchInputProps) => {
+const MinerSearchInput = ({
+  initialValue = "",
+  onQueryChange,
+  onQueryInput,
+  id = "miner-search",
+}: MinerSearchInputProps) => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The pending timer must survive a new `onQueryChange` identity (the fleet
   // table rebuilds it on every navigation), so the callback is read from a ref
   // at fire time instead of being captured per keystroke.
   const onQueryChangeRef = useRef(onQueryChange);
   onQueryChangeRef.current = onQueryChange;
+  const onQueryInputRef = useRef(onQueryInput);
+  onQueryInputRef.current = onQueryInput;
 
   const handleChange = useCallback((value: string) => {
+    onQueryInputRef.current?.(value);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       onQueryChangeRef.current(value);
