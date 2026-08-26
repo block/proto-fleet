@@ -124,6 +124,7 @@ const ModelGroupSection = ({
           <Select
             id={`firmware-${group.model}`}
             label="Firmware"
+            testId={`lane-firmware-select-${group.model}`}
             options={options}
             value={stagedFileId}
             onChange={(value) => onStageFirmware(group.model, value)}
