@@ -253,3 +253,68 @@ describe("MdkV1Adapter commands", () => {
     expect(setPassword).toHaveBeenCalledWith({ password: "pw" }, { secure: false });
   });
 });
+
+describe("MdkV1Adapter firmware update commands", () => {
+  test("startFirmwareUpdate initiates the update and hides the raw response", async () => {
+    const postUpdateSystem = vi.fn().mockResolvedValue({ status: 202, ok: true });
+    const adapter = new MdkV1Adapter({ postUpdateSystem } as never);
+
+    await expect(adapter.startFirmwareUpdate({ secure: true })).resolves.toBeUndefined();
+    expect(postUpdateSystem).toHaveBeenCalledWith({ secure: true });
+  });
+
+  test("checkForFirmwareUpdate initiates the check and hides the raw response", async () => {
+    const updateCheck = vi.fn().mockResolvedValue({ status: 200, ok: true });
+    const adapter = new MdkV1Adapter({ updateCheck } as never);
+
+    await expect(adapter.checkForFirmwareUpdate({ secure: true })).resolves.toBeUndefined();
+    expect(updateCheck).toHaveBeenCalledWith({ secure: true });
+  });
+
+  test.each([
+    ["startFirmwareUpdate", "postUpdateSystem"],
+    ["checkForFirmwareUpdate", "updateCheck"],
+  ] as const)("%s treats a successful empty-body JSON parse error as success", async (adapterMethod, clientMethod) => {
+    const clientCall = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      error: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
+
+    await expect(adapter[adapterMethod]()).resolves.toBeUndefined();
+  });
+
+  test.each([
+    ["startFirmwareUpdate", "postUpdateSystem"],
+    ["checkForFirmwareUpdate", "updateCheck"],
+  ] as const)("%s treats a thrown empty-body JSON parse error as success", async (adapterMethod, clientMethod) => {
+    const clientCall = vi.fn().mockRejectedValue({
+      error: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
+
+    await expect(adapter[adapterMethod]()).resolves.toBeUndefined();
+  });
+
+  test.each([
+    ["startFirmwareUpdate", "postUpdateSystem"],
+    ["checkForFirmwareUpdate", "updateCheck"],
+  ] as const)("%s accepts the top-level parse error thrown by older clients", async (adapterMethod, clientMethod) => {
+    const clientCall = vi.fn().mockRejectedValue(new SyntaxError("Unexpected end of JSON input"));
+    const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
+
+    await expect(adapter[adapterMethod]()).resolves.toBeUndefined();
+  });
+
+  test.each([
+    ["startFirmwareUpdate", "postUpdateSystem"],
+    ["checkForFirmwareUpdate", "updateCheck"],
+  ] as const)("%s preserves unrelated failures", async (adapterMethod, clientMethod) => {
+    const failure = new Error("network unavailable");
+    const clientCall = vi.fn().mockRejectedValue(failure);
+    const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
+
+    await expect(adapter[adapterMethod]()).rejects.toBe(failure);
+  });
+});

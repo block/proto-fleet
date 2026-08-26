@@ -29,14 +29,6 @@ const AuthenticatedShell = ({ reloadSystemInfo }: AuthenticatedShellProps) => {
           reloadSystemInfo();
         })
         .catch((error) => {
-          // Empty-response bodies parse to "Unexpected end of JSON input";
-          // firmware routinely returns these, so swallow rather than log.
-          if (
-            error?.error?.message?.includes("Unexpected end of JSON input") ||
-            error?.message?.includes("Unexpected end of JSON input")
-          ) {
-            return;
-          }
           console.error("Error checking for firmware updates:", error);
         });
     };
