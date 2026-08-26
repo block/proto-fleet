@@ -946,6 +946,8 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrent
 	)
 	require.NoError(t, err)
 	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+	require.NoError(t, err)
 
 	policy := curtailmentStoreClosedLoopFullFleetEvent(
 		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "restore-reentry-policy",
@@ -955,6 +957,8 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrent
 	policyEvent, err := store.InsertEventWithTargets(ctx, policy, []models.InsertTargetParams{
 		curtailmentStoreTestTarget(device.ID, models.TargetStateRestoreFailed, models.DesiredStateActive),
 	})
+	require.NoError(t, err)
+	_, err = collectionStore.RemoveDevicesFromCollection(ctx, orgID, group.Id, []string{device.ID})
 	require.NoError(t, err)
 
 	tx, err := database.BeginTx(ctx, nil)
