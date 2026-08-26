@@ -410,6 +410,40 @@ describe("MinerSelectionList eligibility", () => {
     }
   });
 
+  it("withdraws select-all on the first keystroke, not when the debounce lands", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+      expect(screen.queryByText("Select all")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+
+      // The applied filter still reads as empty here. Gating select-all on it
+      // would leave a window where submitting all-mode targets the whole fleet
+      // while the field already shows a query.
+      expect(lastFleetFilter().searchQuery).toBe("");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops an existing all-selection as soon as the operator starts narrowing", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      fireEvent.click(screen.getByText("Select all"));
+      expect(screen.queryByText(/All \d+ miners selected/)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Search miners"), { target: { value: "worker-42" } });
+
+      expect(screen.queryByText(/All \d+ miners selected/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("applies eligibility server-side by default and drops it when 'Show assigned miners' is on", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
 

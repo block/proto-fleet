@@ -369,6 +369,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // `filter` below so applying a facet never drops those constraints.
     const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
     const [searchQuery, setSearchQuery] = useState(baseFilter.searchQuery);
+    // What the search field currently shows, updated per keystroke. `searchQuery`
+    // lags it by the input's debounce, and select-all is gated on both: the
+    // applied query so the offer matches the listed rows, and the pending query
+    // so all-mode is disarmed the moment the operator starts narrowing.
+    const [pendingSearchQuery, setPendingSearchQuery] = useState(baseFilter.searchQuery);
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -592,6 +597,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       !singleSelect &&
       !(eligibilityEnabled && showAssigned) &&
       filter.searchQuery.trim().length === 0 &&
+      pendingSearchQuery.trim().length === 0 &&
       (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
@@ -922,6 +928,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                   id="miner-selection-search"
                   initialValue={searchQuery}
                   onQueryChange={setSearchQuery}
+                  onQueryInput={setPendingSearchQuery}
                 />
                 {eligibilityEnabled ? (
                   <>

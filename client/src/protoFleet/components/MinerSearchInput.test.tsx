@@ -88,6 +88,38 @@ describe("MinerSearchInput", () => {
     expect(onQueryChange).toHaveBeenCalledExactlyOnceWith("rack");
   });
 
+  it("reports typing synchronously so safety gates do not wait for the debounce", () => {
+    vi.useFakeTimers();
+    const onQueryChange = vi.fn();
+    const onQueryInput = vi.fn();
+    render(<MinerSearchInput initialValue="" onQueryChange={onQueryChange} onQueryInput={onQueryInput} />);
+
+    fireEvent.change(searchBox(), { target: { value: "rack" } });
+
+    // Consumers gate destructive all-mode selections on "is a search active".
+    // If that only became true after the debounce, an all-mode action submitted
+    // inside the window would apply to the whole fleet while the field already
+    // showed a query.
+    expect(onQueryInput).toHaveBeenCalledExactlyOnceWith("rack");
+    expect(onQueryChange).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    expect(onQueryChange).toHaveBeenCalledExactlyOnceWith("rack");
+  });
+
+  it("reports every keystroke synchronously, not just the first", () => {
+    vi.useFakeTimers();
+    const onQueryInput = vi.fn();
+    render(<MinerSearchInput initialValue="" onQueryChange={vi.fn()} onQueryInput={onQueryInput} />);
+
+    fireEvent.change(searchBox(), { target: { value: "r" } });
+    fireEvent.change(searchBox(), { target: { value: "ra" } });
+    fireEvent.change(searchBox(), { target: { value: "" } });
+
+    // Clearing has to report too, or the gate would stay latched shut.
+    expect(onQueryInput.mock.calls.map(([q]) => q)).toEqual(["r", "ra", ""]);
+  });
+
   it("cancels a pending query when unmounted mid-debounce", () => {
     vi.useFakeTimers();
     const onQueryChange = vi.fn();
