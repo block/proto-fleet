@@ -29,9 +29,22 @@ var slackSeverityDots = []struct{ severity, dot string }{
 // renderSlack builds a Block Kit message that carries no alerting-engine internals. Alerts are rolled up per
 // rule, so a fleet-wide outage is a handful of sections with device counts rather than thousands of device lines.
 func renderSlack(publicURL string, alerts []Alert, _ map[string]DeviceIdentity) map[string]any {
+	return renderSlackWithHiddenFiring(publicURL, alerts, nil)
+}
+
+// renderSlackWithHiddenFiring keeps maintenance-muted firing alerts out of the message while retaining them
+// as resolution context. A hidden firing alert must prevent a false all-clear or "all devices" recovery claim.
+func renderSlackWithHiddenFiring(publicURL string, alerts, hiddenFiring []Alert) map[string]any {
 	firing, resolved := partitionAlerts(alerts)
 	firingGroups := groupAlerts(firing)
 	resolvedGroups := groupAlerts(resolved)
+	activeRuleIdentities := make(map[string]bool, len(firingGroups)+len(hiddenFiring))
+	for _, g := range firingGroups {
+		activeRuleIdentities[g.Identity] = true
+	}
+	for _, g := range groupAlerts(hiddenFiring) {
+		activeRuleIdentities[g.Identity] = true
+	}
 	plain, linked := instanceLabels(publicURL)
 
 	// Keep product and instance context in a neutral header. Severity belongs to each alert line so a
@@ -44,13 +57,13 @@ func renderSlack(publicURL string, alerts []Alert, _ map[string]DeviceIdentity) 
 			if remaining <= 0 {
 				return
 			}
-			line := groupLine(g, resolved)
+			line := groupLineWithActiveState(g, resolved, resolved && activeRuleIdentities[g.Identity])
 			blocks = append(blocks, mrkdwnSection(line))
 			fallbackLines = append(fallbackLines, line)
 			remaining--
 		}
 	}
-	if len(firingGroups) == 0 {
+	if len(firingGroups) == 0 && len(hiddenFiring) == 0 {
 		// When the batch has gone quiet, the individual resolution list adds noise without changing the action.
 		const line = "✅ All alerts resolved"
 		blocks = append(blocks, mrkdwnSection(line))
@@ -99,8 +112,12 @@ func severityDot(severity string) string {
 // groupLine renders one rule's rollup as natural language. It intentionally omits individual device
 // identifiers: one fleet-wide event can cover thousands of devices, and the linked app holds the drill-in.
 func groupLine(g alertGroup, resolved bool) string {
+	return groupLineWithActiveState(g, resolved, false)
+}
+
+func groupLineWithActiveState(g alertGroup, resolved, sameRuleStillFiring bool) string {
 	if resolved {
-		return "✅ " + escapeMrkdwn(resolvedGroupCopy(g))
+		return "✅ " + escapeMrkdwn(resolvedGroupCopy(g, sameRuleStillFiring))
 	}
 	dot := severityDot(g.Severity)
 	if g.DeviceCount > 0 {
@@ -145,12 +162,38 @@ func activeDeviceGroupCopy(g alertGroup) string {
 	return fmt.Sprintf("%s affecting %s", g.Name, count)
 }
 
-func resolvedGroupCopy(g alertGroup) string {
+func resolvedGroupCopy(g alertGroup, sameRuleStillFiring bool) string {
+	if sameRuleStillFiring {
+		count := fmt.Sprintf("%d device%s", g.DeviceCount, plural(g.DeviceCount))
+		switch RuleTemplate(g.Template) {
+		case RuleTemplateOffline:
+			return count + " reachable again"
+		case RuleTemplateHashrate:
+			return count + " hashing above alert threshold again"
+		case RuleTemplateTemperature:
+			return count + " below temperature threshold again"
+		case RuleTemplatePool,
+			RuleTemplateCommandFailure,
+			RuleTemplateTelemetryPoll,
+			RuleTemplateMQTTCurtailment,
+			RuleTemplateMQTTDisconnected,
+			RuleTemplateCurtailmentFanRestore,
+			RuleTemplateMetricIngest,
+			RuleTemplateHAReadiness:
+			// Use the generic rule wording below for templates without device recovery copy.
+		default:
+			// Unknown templates use the same generic rule wording.
+		}
+		if g.DeviceCount > 0 {
+			return fmt.Sprintf("%s resolved for %s", sentenceText(g.Name), count)
+		}
+		return fmt.Sprintf("%s resolved for %d instance%s", sentenceText(g.Name), g.InstanceCount, plural(g.InstanceCount))
+	}
 	switch RuleTemplate(g.Template) {
 	case RuleTemplateOffline:
 		return "All devices reachable"
 	case RuleTemplateHashrate:
-		return "All devices hashing at expected rate"
+		return "All devices hashing above alert threshold"
 	case RuleTemplateTemperature:
 		return "All devices below temperature threshold"
 	case RuleTemplateTelemetryPoll:
@@ -224,6 +267,7 @@ const groupSampleSummaries = 3
 
 // alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it.
 type alertGroup struct {
+	Identity  string
 	Name      string
 	RuleGroup string
 	Severity  string
@@ -241,20 +285,22 @@ type alertGroup struct {
 	summaries map[string]bool
 }
 
-// groupAlerts rolls a batch up per firing rule (identified by alertname + rule group, matching the API's
-// active rollup), widest blast radius first.
+// groupAlerts rolls a batch up per firing rule, widest blast radius first. RuleUID is authoritative;
+// copy-defining fields separate legacy alerts that predate rule identity propagation.
 func groupAlerts(alerts []Alert) []alertGroup {
-	type groupKey struct{ name, ruleGroup string }
+	type groupKey struct{ name, ruleGroup, identity string }
 	byKey := map[groupKey]*alertGroup{}
 	for _, a := range alerts {
 		name := a.Labels["alertname"]
 		if name == "" {
 			name = "Alert"
 		}
-		key := groupKey{name, a.Labels[ruleLabelRuleGroup]}
+		identity := alertGroupIdentity(a)
+		key := groupKey{name, a.Labels[ruleLabelRuleGroup], identity}
 		g := byKey[key]
 		if g == nil {
 			g = &alertGroup{
+				Identity:  identity,
 				Name:      name,
 				RuleGroup: a.Labels[ruleLabelRuleGroup],
 				Severity:  a.Labels["severity"],
@@ -290,9 +336,27 @@ func groupAlerts(alerts []Alert) []alertGroup {
 			cmp.Compare(b.DeviceCount, a.DeviceCount),
 			strings.Compare(a.Name, b.Name),
 			strings.Compare(a.RuleGroup, b.RuleGroup),
+			strings.Compare(a.Identity, b.Identity),
 		)
 	})
 	return out
+}
+
+// alertGroupIdentity keeps distinct rules separate even when user-selected names collide. Current alerts carry
+// RuleUID; legacy/unattributed alerts fall back to stable rule-level fields. Summary is intentionally excluded:
+// some rules interpolate the alert instance there and still need all of their instances rolled up together.
+func alertGroupIdentity(a Alert) string {
+	if uid := strings.TrimSpace(a.RuleUID); uid != "" {
+		return "uid:" + uid
+	}
+	if uid := strings.TrimSpace(a.Labels[ruleLabelRuleUID]); uid != "" {
+		return "uid:" + uid
+	}
+	return strings.Join([]string{
+		"legacy",
+		a.Labels[ruleLabelTemplate],
+		a.Labels["severity"],
+	}, "\x00")
 }
 
 // webhookAlert is the clean, Grafana-free shape delivered to generic webhook channels.

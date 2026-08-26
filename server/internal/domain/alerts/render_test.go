@@ -146,6 +146,70 @@ func TestRenderSlackUsesAlertSpecificResolvedCopyInMixedBatch(t *testing.T) {
 	}, "\n"), renderSlack("https://fleet.example.com", []Alert{firing, resolved}, nil)["text"])
 }
 
+func TestRenderSlackCountsPartialRecoveryWhileSameRuleStillFires(t *testing.T) {
+	alert := func(status, deviceID string) Alert {
+		return Alert{
+			Status:  status,
+			RuleUID: "offline-rule",
+			Labels: map[string]string{
+				"alertname": "Device Offline", "severity": "critical", "device_id": deviceID,
+				"rule_group": "proto-fleet-defaults", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		}
+	}
+	alerts := make([]Alert, 0, 100)
+	for i := range 95 {
+		alerts = append(alerts, alert("firing", fmt.Sprintf("firing-%d", i)))
+	}
+	for i := range 5 {
+		alerts = append(alerts, alert("resolved", fmt.Sprintf("resolved-%d", i)))
+	}
+
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	assert.Contains(t, text, "🔴 95 devices unreachable for at least five minutes")
+	assert.Contains(t, text, "✅ 5 devices reachable again")
+	assert.NotContains(t, text, "All devices reachable")
+}
+
+func TestRenderSlackUsesThresholdNeutralHashrateRecoveryCopy(t *testing.T) {
+	assert.Equal(t, "✅ All devices hashing above alert threshold", groupLine(alertGroup{
+		Template: string(RuleTemplateHashrate), DeviceCount: 3,
+	}, true))
+	assert.Equal(t, "✅ 3 devices hashing above alert threshold again", groupLineWithActiveState(alertGroup{
+		Template: string(RuleTemplateHashrate), DeviceCount: 3,
+	}, true, true))
+}
+
+func TestRenderSlackKeepsSameNamedUserRulesSeparateByRuleUID(t *testing.T) {
+	alerts := []Alert{
+		{
+			Status: "firing", RuleUID: "user-offline",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "critical", "device_id": "dev-a",
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		},
+		{
+			Status: "firing", RuleUID: "user-temperature",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-b",
+				"rule_group": "proto-fleet-user-7", "template": "temperature",
+			},
+			Annotations: map[string]string{"summary": "Max sensor temperature for device is above 95°C for at least ten minutes."},
+		},
+	}
+
+	msg := renderSlack("", alerts, nil)
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	assert.Len(t, blocks, 3, "the shared name and rule group must not merge distinct rule UIDs")
+	text := allSectionText(t, msg)
+	assert.Contains(t, text, "1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "1 device with sensor temperatures above 95°C for at least ten minutes")
+}
+
 func TestRenderSlackOmitsLinkWhenNoPublicURL(t *testing.T) {
 	msg := renderSlack("", sampleAlerts(), nil)
 	blocks, ok := msg["blocks"].([]map[string]any)
