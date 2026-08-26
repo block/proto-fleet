@@ -88,8 +88,26 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.applyLaneFirmwareChanges(laneA);
     });
 
+    await test.step("Lane and page header signal the ongoing rollout", async () => {
+      await settingsFirmwarePage.validateLaneRolloutPill(laneA);
+      await settingsFirmwarePage.validatePageRolloutPill();
+    });
+
+    await test.step("Collapsed model group still shows overall rollout progress", async () => {
+      await settingsFirmwarePage.toggleModelGroup(laneA, "Rig");
+      await settingsFirmwarePage.validateModelGroupCollapsed(laneA, "Rig");
+      await settingsFirmwarePage.validateLaneRolloutInProgress(laneA, firmwareVersion);
+      await settingsFirmwarePage.toggleModelGroup(laneA, "Rig");
+    });
+
     await test.step("Rollout completes and both miners report the assigned version", async () => {
       await settingsFirmwarePage.waitForLaneRolloutCompleted(laneA, firmwareVersion, testConfig.testTimeout * 4);
+    });
+
+    await test.step("Collapsing the lane hides its model groups", async () => {
+      await settingsFirmwarePage.toggleLane(laneA);
+      await settingsFirmwarePage.validateLaneCollapsed(laneA, "Rig");
+      await settingsFirmwarePage.toggleLane(laneA);
     });
 
     await test.step("Moving a miner to a second lane removes it from the first", async () => {

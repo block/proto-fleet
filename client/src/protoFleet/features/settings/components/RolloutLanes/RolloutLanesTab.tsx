@@ -13,7 +13,7 @@ import { useRolloutLanes } from "@/protoFleet/api/useRolloutLanes";
 import MinerSelectionModal from "@/protoFleet/components/TargetSelectionModal/MinerSelectionModal";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -58,6 +58,21 @@ const deviceStateTone = (state: RolloutDeviceState): "neutral" | "progress" | "s
   return "neutral";
 };
 
+// Attention pill with a pulsing dot, shown wherever a rollout is ongoing.
+const RolloutActivePill = ({ count, testId }: { count: number; testId?: string }) => (
+  <span
+    data-testid={testId}
+    className="inline-flex items-center gap-1.5 rounded-full bg-intent-warning-10 px-2 py-0.5 text-200 font-normal whitespace-nowrap text-text-primary"
+  >
+    <span className="size-2 shrink-0 animate-pulse rounded-full bg-intent-warning-fill" />
+    {count === 1 ? "Rollout in progress" : `${count} rollouts in progress`}
+  </span>
+);
+
+const CollapseChevron = ({ expanded }: { expanded: boolean }) => (
+  <ChevronDown width="w-3.5" className={clsx("shrink-0 transition-transform", !expanded && "-rotate-90")} />
+);
+
 const RolloutProgress = ({ rollout }: { rollout: Rollout }) => {
   const total = rollout.devices.length;
   const updated = rollout.devices.filter((d) => d.state === RolloutDeviceState.UPDATED).length;
@@ -92,6 +107,7 @@ const ModelGroupSection = ({
   stagedFileId,
   onStageFirmware,
 }: ModelGroupSectionProps) => {
+  const [expanded, setExpanded] = useState(true);
   const options = useMemo(() => {
     const matching = firmwareFiles.filter((f) => f.target_model.toLowerCase() === group.model.toLowerCase());
     return [
@@ -112,30 +128,44 @@ const ModelGroupSection = ({
   }, [activeRollout]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-core-primary-5 p-4">
+    <div className="flex flex-col gap-3 rounded-lg bg-core-primary-5 p-4" data-testid={`model-group-${group.model}`}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          data-testid={`model-group-toggle-${group.model}`}
+          className="flex cursor-pointer items-center gap-3 text-left"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <CollapseChevron expanded={expanded} />
           <span className="text-heading-100 text-text-primary">{group.model || "Unknown model"}</span>
           <span className="text-200 text-text-primary-50">
             {group.miners.length === 1 ? "1 miner" : `${group.miners.length} miners`}
           </span>
-        </div>
-        <div className="w-72 phone:w-full">
-          <Select
-            id={`firmware-${group.model}`}
-            label="Firmware"
-            testId={`lane-firmware-select-${group.model}`}
-            options={options}
-            value={stagedFileId}
-            onChange={(value) => onStageFirmware(group.model, value)}
-            emptyMessage="No uploaded firmware targets this model"
-          />
-        </div>
+        </button>
+        {expanded ? (
+          <div className="w-72 phone:w-full">
+            <Select
+              id={`firmware-${group.model}`}
+              label="Firmware"
+              testId={`lane-firmware-select-${group.model}`}
+              options={options}
+              value={stagedFileId}
+              onChange={(value) => onStageFirmware(group.model, value)}
+              emptyMessage="No uploaded firmware targets this model"
+            />
+          </div>
+        ) : (
+          <span className="text-200 text-text-primary-50">
+            {group.firmwareVersion ? `Assigned ${group.firmwareVersion}` : "No firmware assigned"}
+          </span>
+        )}
       </div>
 
+      {/* Overall progress stays visible while the group is collapsed. */}
       {activeRollout ? <RolloutProgress rollout={activeRollout} /> : null}
 
-      {group.miners.length > 0 ? (
+      {!expanded ? null : group.miners.length > 0 ? (
         <table className="w-full text-left text-200">
           <thead>
             <tr className="text-text-primary-50">
@@ -191,10 +221,12 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
   // Staged (unapplied) firmware choices per model; absent key = server value.
   const [staged, setStaged] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
   const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
   const activeByModel = new Map(laneRollouts.filter((r) => r.status === RolloutStatus.ACTIVE).map((r) => [r.model, r]));
+  const activeCount = activeByModel.size;
   const history = laneRollouts.filter((r) => r.status !== RolloutStatus.ACTIVE).slice(0, 5);
 
   const stagedValue = (group: RolloutLaneModelGroup): string =>
@@ -220,15 +252,24 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
   return (
     <Card
       title={
-        <div className="flex items-baseline gap-3">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          data-testid="lane-toggle"
+          className="flex cursor-pointer items-center gap-3 text-left"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <CollapseChevron expanded={expanded} />
           <span>{lane.name}</span>
           <span className="text-200 font-normal text-text-primary-50">
             {memberCount === 1 ? "1 miner" : `${memberCount} miners`}
           </span>
-        </div>
+          {activeCount > 0 ? <RolloutActivePill count={activeCount} testId="lane-rollout-pill" /> : null}
+        </button>
       }
       type={cardType.default}
       testId={`rollout-lane-${lane.name}`}
+      className={clsx(activeCount > 0 && "ring-1 ring-intent-warning-50")}
       headerAction={
         <div className="flex gap-2">
           <Button
@@ -240,7 +281,7 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
           <Button variant={variants.danger} size={sizes.compact} text="Delete" onClick={() => onDelete(lane)} />
         </div>
       }
-      bodyClassName="flex flex-col gap-4 p-6 pt-4"
+      bodyClassName={clsx("flex flex-col gap-4 p-6 pt-4", !expanded && "hidden")}
     >
       {lane.modelGroups.length === 0 ? (
         <span className="text-300 text-text-primary-50">
@@ -380,10 +421,19 @@ const RolloutLanesTab = () => {
       .finally(() => setIsSavingMembers(false));
   };
 
+  const activeRolloutCount = rollouts.filter((r) => r.status === RolloutStatus.ACTIVE).length;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Rollout lanes" description={ROLLOUT_LANES_DESCRIPTION} />
+        <div className="flex items-start gap-3">
+          <SettingsPageHeader title="Rollout lanes" description={ROLLOUT_LANES_DESCRIPTION} />
+          {activeRolloutCount > 0 ? (
+            <span className="mt-1">
+              <RolloutActivePill count={activeRolloutCount} testId="page-rollout-pill" />
+            </span>
+          ) : null}
+        </div>
         <Button
           variant={variants.primary}
           size={sizes.compact}

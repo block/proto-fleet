@@ -109,6 +109,34 @@ export class SettingsFirmwarePage extends BasePage {
     });
   }
 
+  async toggleLane(laneName: string) {
+    await this.laneCard(laneName).getByTestId("lane-toggle").click();
+  }
+
+  async toggleModelGroup(laneName: string, model: string) {
+    await this.laneCard(laneName).getByTestId(`model-group-toggle-${model}`).click();
+  }
+
+  async validateLaneRolloutPill(laneName: string) {
+    await expect(this.laneCard(laneName).getByTestId("lane-rollout-pill")).toBeVisible();
+  }
+
+  async validatePageRolloutPill() {
+    await expect(this.page.getByTestId("page-rollout-pill")).toBeVisible();
+  }
+
+  // Collapsed model group: firmware select hidden, header still visible.
+  async validateModelGroupCollapsed(laneName: string, model: string) {
+    await expect(this.laneCard(laneName).getByTestId(`lane-firmware-select-${model}`)).toBeHidden();
+    await expect(this.laneCard(laneName).getByTestId(`model-group-toggle-${model}`)).toBeVisible();
+  }
+
+  // Collapsed lane: model groups hidden, header (and its pill) still visible.
+  async validateLaneCollapsed(laneName: string, model: string) {
+    await expect(this.laneCard(laneName).getByTestId(`model-group-${model}`)).toBeHidden();
+    await expect(this.laneCard(laneName).getByTestId("lane-toggle")).toBeVisible();
+  }
+
   // The rollout is done when every miner in the lane reports the target
   // version and the rollout shows up as completed in the history list.
   async waitForLaneRolloutCompleted(laneName: string, version: string, timeoutMs: number) {
