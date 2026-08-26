@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -16,6 +17,7 @@ import (
 // immediately before a topology-scoped Curtail command is sent.
 type DispatchPermissionResolver interface {
 	LoadEffective(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
+	LoadRoleName(ctx context.Context, userID, organizationID int64) (string, error)
 }
 
 func WithDispatchPermissionResolver(resolver DispatchPermissionResolver) Option {
@@ -142,6 +144,13 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 			if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
 				return rejectFence("event creator no longer has required permissions", nil)
 			}
+			adminAllowed, err := r.eventCreatorCanUseRequiredAdminControls(ctx, latest)
+			if err != nil {
+				return rejectFence("evaluate event admin requirements", err)
+			}
+			if !adminAllowed {
+				return rejectFence("event creator no longer has the admin role required by this event", nil)
+			}
 			commandAttempted = true
 			command()
 			return nil
@@ -230,6 +239,26 @@ func (r *Reconciler) fenceTopologyRestoreDispatch(
 	return true, fenceReached, commandTargets, err
 }
 
+func (r *Reconciler) eventCreatorCanUseRequiredAdminControls(ctx context.Context, ev *models.Event) (bool, error) {
+	var orgConfig *models.OrgConfig
+	var err error
+	if ev != nil && ev.MaxDurationSeconds != nil {
+		orgConfig, err = r.store.GetOrgConfig(ctx, ev.OrgID)
+		if err != nil {
+			return false, err
+		}
+	}
+	required, err := curtailment.EventRequiresAdminControls(ev, orgConfig)
+	if err != nil || !required {
+		return !required, err
+	}
+	roleName, err := r.permissions.LoadRoleName(ctx, ev.CreatedByUserID, ev.OrgID)
+	if err != nil {
+		return false, err
+	}
+	return roleName == domainAuth.AdminRoleName || roleName == domainAuth.SuperAdminRoleName, nil
+}
+
 var errTopologyDispatchRejected = errors.New("topology dispatch rejected")
 
 type topologyDispatchRejection struct {
@@ -269,6 +298,9 @@ func authorizationEnvelopeAllowsDispatch(
 	envelope models.AuthorizationEnvelope,
 	coverage interfaces.CurtailmentTopologyScopeCoverage,
 ) bool {
+	if effective == nil {
+		return false
+	}
 	requireOrgWideManage := envelope.MinerScopeUnbounded || envelope.FacilityFanScopeUnbounded || coverage.RequireOrgWide
 	if requireOrgWideManage && !effective.HasOrgWide(authz.PermCurtailmentManage) {
 		return false

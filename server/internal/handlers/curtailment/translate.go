@@ -398,10 +398,10 @@ func toTerminalScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
 
 // startResponseState mirrors the persisted state for the synchronous Start response.
 func startResponseState(req *pb.StartCurtailmentRequest, selected, unavailable int) pb.CurtailmentEventState {
-	// Mirrors buildInsertParams: an all-paired start whose every paired
-	// miner is currently unavailable persists as PENDING (no started_at)
-	// so the max-duration clock does not run before anything dispatches.
-	if req.GetForceIncludeAllPairedMiners() && selected > 0 && unavailable == selected {
+	// Mirrors buildInsertParams: an all-paired start with no owned miner, or
+	// whose every owned miner is unavailable, persists as PENDING (no
+	// started_at) so the max-duration clock does not run before a dispatch.
+	if req.GetForceIncludeAllPairedMiners() && (selected == 0 || unavailable == selected) {
 		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
 	}
 	if isClosedLoopFullFleetStartResponse(req) {
@@ -422,7 +422,8 @@ func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 		if err != nil {
 			return false
 		}
-		return scope.Type == models.ScopeTypeWholeOrg || curtailment.IsSiteOnlyScope(scope)
+		return scope.Type == models.ScopeTypeWholeOrg || curtailment.IsSiteOnlyScope(scope) ||
+			curtailment.IsTopologyScope(scope)
 	}
 	switch req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg, *pb.StartCurtailmentRequest_Site:

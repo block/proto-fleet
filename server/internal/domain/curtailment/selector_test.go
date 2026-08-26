@@ -318,6 +318,30 @@ func TestAllPairedPolicyTargetState_PoolLessRequiresPositivePowerSample(t *testi
 	assert.Empty(t, reason)
 }
 
+func TestAllPairedPolicyRestoreTargetState_WakesOwnedInactiveMinerAfterRepair(t *testing.T) {
+	t.Parallel()
+
+	candidate := miner("restore-owned", "INACTIVE", "UNPAIRED", 0, 0)
+	state, reason := AllPairedPolicyRestoreTargetState(candidate)
+	assert.Equal(t, models.TargetStateUnavailable, state)
+	assert.Equal(t, "unpaired", reason)
+
+	candidate.PairingStatus = "PAIRED"
+	state, reason = AllPairedPolicyRestoreTargetState(candidate)
+	assert.Equal(t, models.TargetStatePending, state)
+	assert.Empty(t, reason)
+}
+
+func TestAllPairedPolicyRestoreTargetState_WakesOwnedPoolLessMinerAtZeroPower(t *testing.T) {
+	t.Parallel()
+
+	candidate := miner("restore-owned", "NEEDS_MINING_POOL", "PAIRED", 0, 0)
+	state, reason := AllPairedPolicyRestoreTargetState(candidate)
+
+	assert.Equal(t, models.TargetStatePending, state)
+	assert.Empty(t, reason)
+}
+
 // Device status is authoritative over a stale-positive hash sample: a
 // pool-less miner cannot be mining, so selection accounting and the baseline
 // min-power floor must treat it as non-hashing even when the latest hash

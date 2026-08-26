@@ -2237,7 +2237,7 @@ type PreviewCurtailmentPlanRequest struct {
 	CandidateMinPowerWOverride *uint32 `protobuf:"varint,26,opt,name=candidate_min_power_w_override,json=candidateMinPowerWOverride,proto3,oneof" json:"candidate_min_power_w_override,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,28,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	// Admin-only FULL_FLEET override (whole-org or site scopes only). When
+	// Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
 	// set, the event targets all paired-like miners in scope and holds
 	// unavailable miners until they become commandable.
 	//
@@ -2680,7 +2680,7 @@ type StartCurtailmentRequest struct {
 	AllowUnbounded bool `protobuf:"varint,27,opt,name=allow_unbounded,json=allowUnbounded,proto3" json:"allow_unbounded,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,29,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	// Admin-only FULL_FLEET override (whole-org or site scopes only). When
+	// Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
 	// set, the event targets all paired-like miners in scope and holds
 	// unavailable miners until they become commandable.
 	//
