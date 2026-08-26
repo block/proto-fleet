@@ -527,6 +527,7 @@ jobs:
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       CODEX_TIMEOUT_MINUTES: "12"
+      CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', matrix.case.base, matrix.case.head) }}
@@ -579,11 +580,12 @@ jobs:
                   (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
                 );
               const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+              const cleanupSeconds = Number(process.env.CODEX_CANCELLATION_CLEANUP_SECONDS);
               const budgetEvidence =
                 prerequisitesSucceeded &&
                 codexReachedReviewPhase &&
                 elapsedSeconds !== null &&
-                elapsedSeconds >= budgetSeconds;
+                elapsedSeconds >= budgetSeconds + cleanupSeconds;
               cancellationClassification = budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation';
               cancellationDetail = JSON.stringify({
                 prerequisites_succeeded: prerequisitesSucceeded,
@@ -592,6 +594,7 @@ jobs:
                 codex_conclusion: codexStep?.conclusion || null,
                 observed_job_seconds: elapsedSeconds,
                 budget_seconds: budgetSeconds,
+                expected_cleanup_seconds: cleanupSeconds,
               });
             }
 

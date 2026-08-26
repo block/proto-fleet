@@ -208,8 +208,9 @@ fail-closed finalizer can roll out independently of model tuning.
 - Run trusted fallback creation and production artifact uploads in a separate
   five-minute `security-review` finalizer that uses `always()` after the review
   agent. Accept cancellation as a timeout only when Actions job/step state and
-  timing show trusted setup completed, Codex started, and the outer budget was
-  reached; early, manual, superseded, or ambiguous cancellation remains a hard
+  timing show trusted setup completed, Codex started, and observed duration
+  reached the outer budget plus the empirically observed five-minute cleanup
+  window; early, manual, superseded, or ambiguous cancellation remains a hard
   failure.
 - Pass completed output through a uniquely named internal artifact so the
   finalizer can validate it without executing code from the PR checkout.
@@ -286,12 +287,12 @@ of model efficiency.
 | Less diff context hides a causal relationship | Replay adjudicated findings; retain `unified=40` unless a candidate meets recall gates |
 | Model variance is mistaken for a context effect | Repeat only disagreeing or near-budget cases twice more |
 | Benchmark invokes expensive secret-backed jobs | Default-branch `repository_dispatch`, fixed corpus, `max-parallel: 2`, 12-minute cap |
-| Benchmark infrastructure cancellation pollutes timeout measurements | Require successful trusted prerequisites, Codex execution state, and observed budget duration before writing timeout artifacts |
+| Benchmark infrastructure cancellation pollutes timeout measurements | Require successful trusted prerequisites, Codex execution state, and observed duration covering both the configured budget and five-minute cancellation cleanup before writing timeout artifacts |
 | Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests, and assert in `evaluate_review_policy_test.py` that the output schema, safety strategy, sandbox, model, and review-packet body are identical across both workflows |
 | Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |
 | `continue-on-error` makes broken review automation look green | The review agent's trusted handoff rejects action failures before the budget; the final `security-review` job also rejects every agent result except `success` and verified budget cancellation |
-| Setup, manual, or supersession cancellation is mistaken for model timeout | Inspect the trusted prerequisite steps, Codex step state, same-PR newer runs, and observed job duration; fail hard unless all timeout evidence agrees |
+| Setup, manual, or supersession cancellation is mistaken for model timeout | Inspect trusted prerequisite steps, Codex state, same-PR newer runs, and duration covering both the budget and empirical cleanup window; fail hard unless all timeout evidence agrees |
 | Composite-action step timeout prevents fallback steps from running | PR #965 run `32828674887` proved the caller step remained in progress until the job was cancelled and cleanup finished five minutes later. Production uses a nine-minute outer job and the benchmark uses a 12-minute outer matrix job; separate `always()` finalizers create uniquely named timeout artifacts after cleanup |
 | Sharding misses cross-subsystem bugs | Defer sharding; if needed, partition by architecture with shared contract context |
 | Prompt injection reaches the secret-backed reviewer | Preserve same-repo restriction, pinned SHAs, trusted workflow prompt, dropped sudo, and read-only sandbox |

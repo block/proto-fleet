@@ -232,6 +232,7 @@ const github = {
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
+        "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
         "RESULT_ARTIFACT_NAME": "benchmark-result-test",
     }
@@ -528,6 +529,19 @@ class ReviewPolicyTest(unittest.TestCase):
                 "unexpected-cancellation",
             ),
             (
+                "manual-cancellation-plus-cleanup",
+                {
+                    **base,
+                    "jobs": [
+                        {
+                            **timeout_job,
+                            "completed_at": "2026-08-26T00:12:00Z",
+                        }
+                    ],
+                },
+                "unexpected-cancellation",
+            ),
+            (
                 "superseded",
                 {
                     **base,
@@ -785,8 +799,20 @@ class ReviewPolicyTest(unittest.TestCase):
             production_job["env"]["CODEX_TIMEOUT_MINUTES"],
         )
         self.assertEqual(
+            production_finalizer["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
+            production_job["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
+        )
+        self.assertEqual(
+            production_finalizer["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
+            "300",
+        )
+        self.assertEqual(
             benchmark_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
             benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"],
+        )
+        self.assertEqual(
+            benchmark_finalizer["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
+            "300",
         )
         self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
@@ -940,6 +966,11 @@ class ReviewPolicyTest(unittest.TestCase):
             (
                 "early-cancellation",
                 {**timeout_job, "completed_at": "2026-08-26T00:05:00Z"},
+                "unexpected-cancellation",
+            ),
+            (
+                "cancellation-plus-cleanup",
+                {**timeout_job, "completed_at": "2026-08-26T00:12:00Z"},
                 "unexpected-cancellation",
             ),
             (

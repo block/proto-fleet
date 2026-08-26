@@ -23,6 +23,7 @@ jobs:
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: xhigh
       CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -316,6 +317,7 @@ jobs:
       actions: read
     env:
       CODEX_TIMEOUT_MINUTES: "9"
+      CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -333,6 +335,7 @@ jobs:
           REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
           REVIEW_PR_NUMBER: ${{ env.REVIEW_PR_NUMBER }}
           CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
+          CODEX_CANCELLATION_CLEANUP_SECONDS: ${{ env.CODEX_CANCELLATION_CLEANUP_SECONDS }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -348,6 +351,7 @@ jobs:
 
             const prNumber = Number(process.env.REVIEW_PR_NUMBER);
             const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+            const cleanupSeconds = Number(process.env.CODEX_CANCELLATION_CLEANUP_SECONDS);
             const { data: currentRun } = await github.rest.actions.getWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -414,7 +418,7 @@ jobs:
               prerequisitesSucceeded &&
               codexReachedReviewPhase &&
               elapsedSeconds !== null &&
-              elapsedSeconds >= budgetSeconds;
+              elapsedSeconds >= budgetSeconds + cleanupSeconds;
 
             core.setOutput('classification', budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation');
             core.setOutput(
@@ -427,6 +431,7 @@ jobs:
                 codex_conclusion: codexStep?.conclusion || null,
                 observed_job_seconds: elapsedSeconds,
                 budget_seconds: budgetSeconds,
+                expected_cleanup_seconds: cleanupSeconds,
               })
             );
 
