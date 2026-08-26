@@ -204,7 +204,7 @@ export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
     identity: {
       deviceId: asDeviceId(`device:${deviceIdentity}`),
       deviceType,
-      mdkVersion: "v1",
+      adapterId: "mdk-v1",
       productName: wire.product_name,
       model: wire.model,
       manufacturer: wire.manufacturer,

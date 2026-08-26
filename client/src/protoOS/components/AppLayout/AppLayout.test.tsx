@@ -14,7 +14,7 @@ describe("AppLayout", () => {
       identity: {
         deviceId: asDeviceId("device:test"),
         deviceType: "rig",
-        mdkVersion: "v1",
+        adapterId: "mdk-v1",
         productName: "Proto Rig",
         macAddresses: [],
       },

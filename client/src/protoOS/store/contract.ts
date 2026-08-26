@@ -17,7 +17,8 @@ export type EntityKey = Brand<string, "EntityKey">;
 export type ResourceKey = Brand<string, "ResourceKey">;
 
 export type DeviceType = "rig" | "container";
-export type MdkVersion = "v1" | "v2";
+/** Stable application-owned identifier for the API adapter selected for a miner. */
+export type MinerAdapterId = "mdk-v1" | "mdk-v2";
 export type ModuleModel = "r2" | "ct1" | "unknown";
 export type CapabilitySupport = "supported" | "unsupported" | "unknown";
 
@@ -362,7 +363,7 @@ export interface TelemetryState {
 export interface DeviceIdentity {
   deviceId: DeviceId;
   deviceType: DeviceType;
-  mdkVersion: MdkVersion;
+  adapterId: MinerAdapterId;
   productName?: string;
   model?: string;
   manufacturer?: string;

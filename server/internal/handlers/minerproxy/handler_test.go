@@ -119,12 +119,40 @@ func TestProxyPathFor(t *testing.T) {
 	canonical := []string{"system/tag", "pools/1", "system/logs", "mining/target", "system/update"}
 	for _, rest := range canonical {
 		t.Run("accepts "+rest, func(t *testing.T) {
-			got, ok := proxyPathFor(rest)
+			got, ok := proxyPathFor("v1", http.MethodGet, rest)
 			if !ok {
-				t.Fatalf("proxyPathFor(%q) ok=false, want true", rest)
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=false, want true", "v1", http.MethodGet, rest)
 			}
 			if want := "/api/v1/" + rest; got != want {
-				t.Fatalf("proxyPathFor(%q) = %q, want %q", rest, got, want)
+				t.Fatalf("proxyPathFor(%q, %q, %q) = %q, want %q", "v1", http.MethodGet, rest, got, want)
+			}
+		})
+	}
+
+	t.Run("accepts the MDK v2 system info probe", func(t *testing.T) {
+		got, ok := proxyPathFor("v2", http.MethodGet, "system/info")
+		if !ok {
+			t.Fatal("proxyPathFor(v2 system info) ok=false, want true")
+		}
+		if want := "/api/v2/system/info"; got != want {
+			t.Fatalf("proxyPathFor(v2 system info) = %q, want %q", got, want)
+		}
+	})
+
+	unsupported := []struct {
+		name       string
+		apiVersion string
+		method     string
+		rest       string
+	}{
+		{name: "unknown API version", apiVersion: "v3", method: http.MethodGet, rest: "system/info"},
+		{name: "unregistered v2 endpoint", apiVersion: "v2", method: http.MethodGet, rest: "pools"},
+		{name: "v2 probe mutation", apiVersion: "v2", method: http.MethodPost, rest: "system/info"},
+	}
+	for _, tt := range unsupported {
+		t.Run("rejects "+tt.name, func(t *testing.T) {
+			if _, ok := proxyPathFor(tt.apiVersion, tt.method, tt.rest); ok {
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=true, want false", tt.apiVersion, tt.method, tt.rest)
 			}
 		})
 	}
@@ -146,10 +174,19 @@ func TestProxyPathFor(t *testing.T) {
 	}
 	for _, rest := range nonCanonical {
 		t.Run("rejects "+rest, func(t *testing.T) {
-			if _, ok := proxyPathFor(rest); ok {
-				t.Fatalf("proxyPathFor(%q) ok=true, want false (non-canonical path)", rest)
+			if _, ok := proxyPathFor("v1", http.MethodGet, rest); ok {
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=true, want false (non-canonical path)", "v1", http.MethodGet, rest)
 			}
 		})
+	}
+}
+
+func TestRequiresMinerAuthentication(t *testing.T) {
+	if requiresMinerAuthentication("/api/v2/system/info") {
+		t.Fatal("MDK v2 system info probe must not invoke the MDK v1 login flow")
+	}
+	if !requiresMinerAuthentication("/api/v1/system") {
+		t.Fatal("MDK v1 endpoints must retain miner authentication")
 	}
 }
 

@@ -9,7 +9,7 @@ const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => (
   identity: {
     deviceId: asDeviceId(`device:${model || "unknown"}`),
     deviceType,
-    mdkVersion: "v1" as const,
+    adapterId: "mdk-v1" as const,
     model,
     productName: deviceType === "container" ? "Proto CU1" : "Proto Rig",
     macAddresses: [],

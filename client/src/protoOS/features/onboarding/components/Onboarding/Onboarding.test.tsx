@@ -1,9 +1,11 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import Onboarding from "./Onboarding";
-import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { MinerHostingProvider, useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+
+const AdapterState = () => <span data-testid="adapter-state">{useMinerHosting().resolution.status}</span>;
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
@@ -41,15 +43,29 @@ describe("Onboarding", () => {
   let getByTestId: typeof component.getByTestId;
   let queryByTestId: typeof component.queryByTestId;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) =>
+        Promise.resolve(
+          String(input).endsWith("/api/v1/system")
+            ? new Response(JSON.stringify({ "system-info": {} }), { status: 200 })
+            : new Response(null, { status: 404 }),
+        ),
+      ),
+    );
     component = render(
       <MinerHostingProvider>
+        <AdapterState />
         <Onboarding />
       </MinerHostingProvider>,
     );
     getByTestId = component.getByTestId;
     queryByTestId = component.queryByTestId;
+    await waitFor(() => expect(getByTestId("adapter-state")).toHaveTextContent("ready"));
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   test("Renders onboarding with empty state showing Add pool button", () => {
     expect(getByTestId(addPoolButton)).toBeInTheDocument();
