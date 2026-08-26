@@ -3205,9 +3205,10 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 	eventID int64,
 	orgID int64,
 	cooldownSec int32,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) ([]*models.Target, error) {
-	if len(targets) == 0 {
+	if len(targets) == 0 || maxTargets <= 0 {
 		return nil, nil
 	}
 	rows, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) ([]sqlc.CurtailmentTarget, error) {
@@ -3235,6 +3236,9 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 		available, err = filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, available)
 		if err != nil || len(available) == 0 {
 			return nil, err
+		}
+		if len(available) > maxTargets {
+			available = available[:maxTargets]
 		}
 		payload, err := buildBulkTargetPayload(available)
 		if err != nil {
@@ -3558,7 +3562,11 @@ func lockCurtailmentTopologyRestoreDispatch(
 	if _, _, err := lockDeviceScopeCoverage(ctx, q, scope.OrgID, lockIdentifiers, nil); err != nil {
 		return interfaces.CurtailmentTopologyDispatchSnapshot{}, err
 	}
-	return resolveCurtailmentTopologyDispatch(ctx, q, scope, deviceIdentifiers)
+	topology, err := resolveCurtailmentTopologyDispatch(ctx, q, scope, deviceIdentifiers)
+	if fleeterror.IsNotFoundError(err) {
+		return interfaces.CurtailmentTopologyDispatchSnapshot{}, nil
+	}
+	return topology, err
 }
 
 func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(

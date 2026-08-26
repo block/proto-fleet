@@ -1342,10 +1342,15 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if len(targets) == 0 {
 		return nil
 	}
-	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); len(targets) > int(batchSize) {
-		targets = targets[:batchSize]
-	}
-	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(ctx, ev.ID, ev.OrgID, cooldownSec, targets)
+	batchSize := curtailBatchSizeForEvent(ev, len(targets))
+	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(
+		ctx,
+		ev.ID,
+		ev.OrgID,
+		cooldownSec,
+		int(batchSize),
+		targets,
+	)
 	if err != nil {
 		slog.Error("curtailment reconciler: claim full_fleet targets failed",
 			"event_id", ev.ID, "candidate_count", len(targets), "error", err)

@@ -629,6 +629,7 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 		watcherEvents["group"].ID,
 		orgID,
 		0,
+		1,
 		[]models.InsertTargetParams{curtailmentStoreTestTarget(
 			devices[0],
 			models.TargetStatePending,
@@ -686,8 +687,14 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 		"",
 	)
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
-	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+	reservedDevice := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	eligibleDevice := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = collectionStore.AddDevicesToCollection(
+		ctx,
+		orgID,
+		group.Id,
+		[]string{reservedDevice.ID, eligibleDevice.ID},
+	)
 	require.NoError(t, err)
 
 	older := curtailmentStoreClosedLoopFullFleetEvent(
@@ -710,11 +717,11 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 	_, err = q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{ID: building.ID, OrgID: orgID})
 	require.NoError(t, err)
 	_, err = q.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
-		OrgID: orgID, DeviceIdentifiers: []string{device.ID},
+		OrgID: orgID, DeviceIdentifiers: []string{reservedDevice.ID},
 	})
 	require.NoError(t, err)
 	_, err = q.AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
-		OrgID: orgID, TargetBuildingID: sql.NullInt64{Int64: building.ID, Valid: true}, DeviceIdentifiers: []string{device.ID},
+		OrgID: orgID, TargetBuildingID: sql.NullInt64{Int64: building.ID, Valid: true}, DeviceIdentifiers: []string{reservedDevice.ID},
 	})
 	require.NoError(t, err)
 
@@ -728,8 +735,10 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 			youngerEvent.ID,
 			orgID,
 			0,
+			1,
 			[]models.InsertTargetParams{
-				curtailmentStoreTestTarget(device.ID, models.TargetStatePending, models.DesiredStateCurtailed),
+				curtailmentStoreTestTarget(reservedDevice.ID, models.TargetStatePending, models.DesiredStateCurtailed),
+				curtailmentStoreTestTarget(eligibleDevice.ID, models.TargetStatePending, models.DesiredStateCurtailed),
 			},
 		)
 		claimDone <- struct {
@@ -746,7 +755,9 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 	require.NoError(t, tx.Commit())
 	result := <-claimDone
 	require.NoError(t, result.err)
-	assert.Empty(t, result.targets, "the committed move must make the older targetless watcher authoritative")
+	require.Len(t, result.targets, 1)
+	assert.Equal(t, eligibleDevice.ID, result.targets[0].DeviceIdentifier,
+		"the eligible candidate after the reserved prefix must refill the bounded batch")
 }
 
 func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *testing.T) {
@@ -803,6 +814,7 @@ func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *te
 			event.ID,
 			orgID,
 			0,
+			1,
 			[]models.InsertTargetParams{
 				curtailmentStoreTestTarget(device.ID, models.TargetStatePending, models.DesiredStateCurtailed),
 			},

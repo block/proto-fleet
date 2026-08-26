@@ -182,9 +182,13 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	eventID int64,
 	_ int64,
 	_ int32,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	f.claimTargetsCalls++
+	if len(targets) > maxTargets {
+		targets = targets[:maxTargets]
+	}
 	f.claimedTargetParams = append([]models.InsertTargetParams(nil), targets...)
 	existing := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {

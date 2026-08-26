@@ -506,13 +506,15 @@ type CurtailmentStore interface {
 
 	// ClaimClosedLoopFullFleetTargets inserts missing closed-loop FULL_FLEET
 	// targets as DISPATCHING while the parent event is still pending/active.
-	// Existing same-event rows and cross-event conflicts are skipped so
-	// reconciliation can retry later.
+	// Existing same-event rows and cross-event conflicts are skipped before at
+	// most maxTargets are selected, so a reserved prefix cannot underfill the
+	// bounded admission batch.
 	ClaimClosedLoopFullFleetTargets(
 		ctx context.Context,
 		eventID int64,
 		orgID int64,
 		cooldownSec int32,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) ([]*models.Target, error)
 
