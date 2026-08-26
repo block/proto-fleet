@@ -111,6 +111,7 @@ assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
 [[ -f "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" ]] || fail "systemd unit was not installed"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "ExecStart=/opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "Restart=on-failure"
+assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK"
 if grep -Eq '(^| )enable( |$)|(^| )start( |$)' "$SYSTEMCTL_LOG"; then
   fail "fresh install enabled or started the service"
 fi
