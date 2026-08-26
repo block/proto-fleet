@@ -20,22 +20,26 @@ const MinerSearchInput = ({
   id = "miner-search",
 }: MinerSearchInputProps) => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The pending timer must survive a new `onQueryChange` identity (the fleet
+  // table rebuilds it on every navigation), so the callback is read from a ref
+  // at fire time instead of being captured per keystroke.
+  const onQueryChangeRef = useRef(onQueryChange);
+  onQueryChangeRef.current = onQueryChange;
 
-  const handleChange = useCallback(
-    (value: string) => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => {
-        onQueryChange(value.trim());
-      }, SEARCH_DEBOUNCE_MS);
-    },
-    [onQueryChange],
-  );
+  const handleChange = useCallback((value: string) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      onQueryChangeRef.current(value.trim());
+    }, SEARCH_DEBOUNCE_MS);
+  }, []);
 
+  // Unmount-only: keying this on `onQueryChange` would cancel a pending search
+  // whenever an unrelated navigation changed the callback's identity.
   useEffect(
     () => () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     },
-    [onQueryChange],
+    [],
   );
 
   return <Search id={id} label="Search miners" compact={compact} initValue={initialValue} onChange={handleChange} />;

@@ -526,9 +526,11 @@ func setDeviceIP(t *testing.T, db *sql.DB, deviceDatabaseID int64, ip string) {
 func updateDeviceSearchFields(t *testing.T, db *sql.DB, deviceDatabaseID int64, customName, serial, mac, worker string) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(),
+		// mac_address is NOT NULL, so an empty argument keeps the existing value
+		// rather than clearing the column like the nullable fields do.
 		`UPDATE device
          SET custom_name = NULLIF($1, ''), serial_number = NULLIF($2, ''),
-             mac_address = NULLIF($3, ''), worker_name = NULLIF($4, '')
+             mac_address = COALESCE(NULLIF($3, ''), mac_address), worker_name = NULLIF($4, '')
          WHERE id = $5`,
 		customName, serial, mac, worker, deviceDatabaseID)
 	require.NoError(t, err)

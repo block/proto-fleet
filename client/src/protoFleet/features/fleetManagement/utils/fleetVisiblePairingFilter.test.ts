@@ -101,6 +101,16 @@ describe("applyFleetSelectablePairingStatuses", () => {
     expect(result.ipCidrs).toEqual(["192.168.2.0/24"]);
     expect(result.ipRanges).toEqual([create(IpRangeSchema, { startIp: "10.0.0.10", endIp: "10.0.0.20" })]);
   });
+
+  // A dropped field here silently widens an all-mode bulk action from the
+  // operator's filtered set to the whole fleet, so every filter dimension has
+  // to survive the round-trip.
+  it("carries the search query through so bulk actions stay scoped to the search", () => {
+    const filter: MinerListFilter = create(MinerListFilterSchema, { searchQuery: "rack-7" });
+
+    expect(applyFleetSelectablePairingStatuses(filter).searchQuery).toBe("rack-7");
+    expect(applyFleetVisiblePairingStatuses(filter).searchQuery).toBe("rack-7");
+  });
 });
 
 describe("isFleetSelectablePairingStatus", () => {
