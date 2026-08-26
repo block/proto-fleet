@@ -3,7 +3,7 @@ title: "Bounded Codex security review"
 date: 2026-08-25
 status: implementing
 type: plan
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/965
 ---
 
 # Bounded Codex security review
@@ -217,8 +217,8 @@ fail-closed finalizer can roll out independently of model tuning.
   workflow failure.
 - Preserve the existing artifact names and schema consumed by
   `.github/scripts/evaluate_review_policy.py`.
-- Preserve the post-review head-SHA check so stale results never update the PR
-  comment.
+- Preserve the post-review head-SHA check and reject superseded workflow runs so
+  stale or concurrency-cancelled results never update the PR comment.
 - Reduce the post-review job timeout only after its observed runtime confirms a
   safe bound.
 

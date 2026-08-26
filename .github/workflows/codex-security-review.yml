@@ -483,6 +483,7 @@ jobs:
           path: .
 
       - name: Post Codex security review
+        id: post_review
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_MARKDOWN_FILE: codex-security-review.md
@@ -542,6 +543,15 @@ jobs:
               );
 
               if (existingComment) {
+                const existingRunMatch = existingComment.body.match(/\/actions\/runs\/(\d+)/);
+                const existingRunId = existingRunMatch ? Number(existingRunMatch[1]) : 0;
+                if (existingRunId > Number(context.runId)) {
+                  core.notice(
+                    `Skipping Codex review comment from run ${context.runId}; ` +
+                    `the existing comment came from newer run ${existingRunId}.`
+                  );
+                  return;
+                }
                 await github.rest.issues.updateComment({
                   owner,
                   repo,
@@ -579,6 +589,29 @@ jobs:
                 core.notice(
                   `Skipping stale Codex security review comment for ${reviewedHeadSha}; ` +
                   `pull request #${prNumber} now points at ${pr.head.sha}.`
+                );
+                return;
+              }
+
+              const { data: currentRun } = await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+              });
+              const workflowRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: currentRun.workflow_id,
+                event: 'pull_request',
+                per_page: 100,
+              });
+              const supersedingRun = workflowRuns.find(run =>
+                run.id > Number(context.runId) && run.head_sha === reviewedHeadSha
+              );
+              if (supersedingRun) {
+                core.notice(
+                  `Skipping superseded Codex security review comment from run ${context.runId}; ` +
+                  `newer run ${supersedingRun.id} reviews the same head ${reviewedHeadSha}.`
                 );
                 return;
               }

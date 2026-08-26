@@ -143,6 +143,18 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertIn("Human review is required", writer["run"])
 
+        poster = find_step(workflow, "post-review", "post_review")
+        post_script = poster["with"]["script"]
+        self.assertIn("actions.getWorkflowRun", post_script)
+        self.assertIn("actions.listWorkflowRuns", post_script)
+        self.assertIn("run.id > Number(context.runId)", post_script)
+        self.assertIn("run.head_sha === reviewedHeadSha", post_script)
+        self.assertIn("existingRunId > Number(context.runId)", post_script)
+        self.assertLess(
+            post_script.index("const supersedingRun"),
+            post_script.index("await postOrUpdateComment(prNumber, pr.user.login)"),
+        )
+
         uploads = [
             step
             for step in finalizer["steps"]
