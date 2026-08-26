@@ -13,7 +13,6 @@ const trimLeadingWhitespace = (value: string) => value.trimStart();
 interface MinerSearchInputProps {
   initialValue?: string;
   onQueryChange: (query: string) => void;
-  compact?: boolean;
   id?: string;
 }
 
@@ -26,12 +25,7 @@ interface MinerSearchInputProps {
  * ate the space in "rack 7" whenever the debounce fired between the two words.
  * Trimming belongs at the consumers, which already do it: the server trims
  * search_query, and the miner list trims when reading the URL param. */
-const MinerSearchInput = ({
-  initialValue = "",
-  onQueryChange,
-  compact = true,
-  id = "miner-search",
-}: MinerSearchInputProps) => {
+const MinerSearchInput = ({ initialValue = "", onQueryChange, id = "miner-search" }: MinerSearchInputProps) => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The pending timer must survive a new `onQueryChange` identity (the fleet
   // table rebuilds it on every navigation), so the callback is read from a ref
@@ -59,7 +53,7 @@ const MinerSearchInput = ({
     <Search
       id={id}
       label="Search miners"
-      compact={compact}
+      variant="toolbar"
       initValue={initialValue}
       onChange={handleChange}
       sanitize={trimLeadingWhitespace}
