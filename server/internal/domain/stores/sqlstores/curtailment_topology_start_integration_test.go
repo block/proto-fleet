@@ -660,6 +660,81 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 	assert.Empty(t, result.targets, "the committed move must make the older targetless watcher authoritative")
 }
 
+func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	collectionStore := sqlstores.NewSQLCollectionStore(database)
+	orgID := user.OrganizationID
+
+	group, err := collectionStore.CreateCollection(
+		ctx,
+		orgID,
+		collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+		"Current admission group",
+		"",
+	)
+	require.NoError(t, err)
+	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+	require.NoError(t, err)
+
+	eventParams := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "current-group-admission",
+	)
+	eventParams.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"group_ids":[%d]}`, group.Id))
+	event, err := store.InsertEventWithTargets(ctx, eventParams, nil)
+	require.NoError(t, err)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	q := sqlc.New(tx)
+	removed, err := q.RemoveDevicesFromDeviceSet(ctx, sqlc.RemoveDevicesFromDeviceSetParams{
+		DeviceSetID:       group.Id,
+		OrgID:             orgID,
+		DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{device.ID}, removed)
+
+	claimDone := make(chan struct {
+		targets []*models.Target
+		err     error
+	}, 1)
+	go func() {
+		targets, claimErr := store.ClaimClosedLoopFullFleetTargets(
+			ctx,
+			event.ID,
+			orgID,
+			0,
+			[]models.InsertTargetParams{
+				curtailmentStoreTestTarget(device.ID, models.TargetStatePending, models.DesiredStateCurtailed),
+			},
+		)
+		claimDone <- struct {
+			targets []*models.Target
+			err     error
+		}{targets: targets, err: claimErr}
+	}()
+	select {
+	case result := <-claimDone:
+		require.NoError(t, result.err)
+		t.Fatal("claim completed before the in-flight membership removal committed")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+	result := <-claimDone
+	require.NoError(t, result.err)
+	assert.Empty(t, result.targets, "a miner removed from the current selector must not be admitted")
+}
+
 func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

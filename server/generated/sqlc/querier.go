@@ -1185,6 +1185,9 @@ type Querier interface {
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
 	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
+	// Keep the current event and its immutable selector in the same transaction
+	// as dynamic membership fencing and target admission.
+	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's

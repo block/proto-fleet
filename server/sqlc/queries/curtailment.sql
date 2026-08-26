@@ -987,6 +987,17 @@ SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || org_id::TE
 FROM curtailment_event
 WHERE id = sqlc.arg('curtailment_event_id');
 
+-- name: LockCurtailmentAdmissionEventForWrite :one
+-- Keep the current event and its immutable selector in the same transaction
+-- as dynamic membership fencing and target admission.
+SELECT org_id, scope_jsonb
+FROM curtailment_event
+WHERE id = sqlc.arg('curtailment_event_id')
+  AND state IN ('pending', 'active')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
+FOR UPDATE;
+
 -- name: CountCurtailmentScopeConflicts :one
 -- Serializes logical FULL_FLEET scope ownership. Whole-org conflicts with every
 -- hierarchy watcher; site selectors conflict on overlap; topology selectors

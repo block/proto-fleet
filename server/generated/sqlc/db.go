@@ -1164,6 +1164,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockCommandBatchStmt, err = db.PrepareContext(ctx, lockCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCommandBatch: %w", err)
 	}
+	if q.lockCurtailmentAdmissionEventForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentAdmissionEventForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAdmissionEventForWrite: %w", err)
+	}
 	if q.lockCurtailmentEventByUUIDForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentEventByUUIDForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentEventByUUIDForWrite: %w", err)
 	}
@@ -3603,6 +3606,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockCommandBatchStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentAdmissionEventForWriteStmt != nil {
+		if cerr := q.lockCurtailmentAdmissionEventForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAdmissionEventForWriteStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentEventByUUIDForWriteStmt != nil {
 		if cerr := q.lockCurtailmentEventByUUIDForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentEventByUUIDForWriteStmt: %w", cerr)
@@ -4912,6 +4920,7 @@ type Queries struct {
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
+	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
 	lockCurtailmentEventByUUIDForWriteStmt                       *sql.Stmt
 	lockCurtailmentEventForFanCommandStmt                        *sql.Stmt
 	lockCurtailmentEventScopeForWriteStmt                        *sql.Stmt
@@ -5476,6 +5485,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
+		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
 		lockCurtailmentEventByUUIDForWriteStmt:                       q.lockCurtailmentEventByUUIDForWriteStmt,
 		lockCurtailmentEventForFanCommandStmt:                        q.lockCurtailmentEventForFanCommandStmt,
 		lockCurtailmentEventScopeForWriteStmt:                        q.lockCurtailmentEventScopeForWriteStmt,

@@ -147,6 +147,66 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 	assert.Zero(t, deferredCount)
 }
 
+func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_FillsBatchPastEarlierReservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(
+			user.OrganizationID,
+			user.DatabaseID,
+			uuid.New(),
+			models.EventStateActive,
+			"all-paired-earlier-owner",
+		),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(deviceIDs[0], models.TargetStateConfirmed, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+	policy, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreAllPairedEvent(
+			user.OrganizationID,
+			user.DatabaseID,
+			uuid.New(),
+			"all-paired-reserved-prefix",
+		),
+		nil,
+	)
+	require.NoError(t, err)
+
+	claimed, err := store.ClaimAllPairedPolicyTargets(
+		ctx,
+		policy.ID,
+		user.OrganizationID,
+		2,
+		[]models.InsertTargetParams{
+			curtailmentStoreAllPairedTarget(deviceIDs[0], models.TargetStatePending, ""),
+			curtailmentStoreAllPairedTarget(deviceIDs[1], models.TargetStatePending, ""),
+			curtailmentStoreAllPairedTarget(deviceIDs[2], models.TargetStatePending, ""),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), claimed)
+
+	targets, err := store.ListTargetsByEvent(ctx, user.OrganizationID, policy.EventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 2)
+	assert.ElementsMatch(t, []string{deviceIDs[1], deviceIDs[2]}, []string{
+		targets[0].DeviceIdentifier,
+		targets[1].DeviceIdentifier,
+	})
+}
+
 // Pins the ownership-suppression semantics of ListActiveCurtailedDevices for
 // all-paired events: the scope watcher keeps devices locked before their
 // policy row exists (miners that became paired-like between admission ticks

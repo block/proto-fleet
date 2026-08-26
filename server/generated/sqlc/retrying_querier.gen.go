@@ -4404,6 +4404,18 @@ func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (Ba
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error) {
+	var result LockCurtailmentAdmissionEventForWriteRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentAdmissionEventForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentAdmissionEventForWrite(ctx, curtailmentEventID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventByUUIDForWrite", func() error {

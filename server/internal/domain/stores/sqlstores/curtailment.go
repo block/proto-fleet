@@ -3128,17 +3128,25 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 		if err := q.LockCurtailmentEventScopeForWrite(ctx, eventID); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to lock curtailment admission scope: %v", err)
 		}
+		currentScope, active, err := lockCurtailmentAdmissionEvent(ctx, q, eventID, orgID)
+		if err != nil || !active {
+			return nil, err
+		}
 		if err := lockEarlierCurtailmentReservationBoundary(
 			ctx,
 			q,
 			eventID,
 			orgID,
 			insertTargetDeviceIdentifiers(targets),
-			interfaces.ListCandidatesParams{},
+			currentScope,
 		); err != nil {
 			return nil, err
 		}
 		available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, targets)
+		if err != nil || len(available) == 0 {
+			return nil, err
+		}
+		available, err = filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, available)
 		if err != nil || len(available) == 0 {
 			return nil, err
 		}
@@ -3186,31 +3194,49 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 	if len(targets) == 0 || maxTargets <= 0 {
 		return 0, nil
 	}
-	available, err := excludeEarlierCurtailmentReservations(ctx, s.GetQueries(ctx), eventID, targets)
-	if err != nil {
-		return 0, err
-	}
-	if len(available) > maxTargets {
-		available = available[:maxTargets]
-	}
-	if len(available) == 0 {
-		return 0, nil
-	}
 	claimed, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
 		if err := q.LockCurtailmentEventScopeForWrite(ctx, eventID); err != nil {
 			return 0, fleeterror.NewInternalErrorf("failed to lock all-paired admission scope: %v", err)
+		}
+		currentScope, active, err := lockCurtailmentAdmissionEvent(ctx, q, eventID, orgID)
+		if err != nil || !active {
+			return 0, err
 		}
 		if err := lockEarlierCurtailmentReservationBoundary(
 			ctx,
 			q,
 			eventID,
 			orgID,
+			nil,
+			currentScope,
+		); err != nil {
+			return 0, err
+		}
+		available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, targets)
+		if err != nil || len(available) == 0 {
+			return 0, err
+		}
+		available, err = filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, available)
+		if err != nil || len(available) == 0 {
+			return 0, err
+		}
+		if len(available) > maxTargets {
+			available = available[:maxTargets]
+		}
+		if _, _, err := lockDeviceScopeCoverage(
+			ctx,
+			q,
+			orgID,
 			insertTargetDeviceIdentifiers(available),
-			interfaces.ListCandidatesParams{},
+			nil,
 		); err != nil {
 			return 0, err
 		}
 		available, err = excludeEarlierCurtailmentReservations(ctx, q, eventID, available)
+		if err != nil || len(available) == 0 {
+			return 0, err
+		}
+		available, err = filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, available)
 		if err != nil || len(available) == 0 {
 			return 0, err
 		}
@@ -3229,11 +3255,83 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 	return claimed, nil
 }
 
+func lockCurtailmentAdmissionEvent(
+	ctx context.Context,
+	q sqlc.Querier,
+	eventID int64,
+	orgID int64,
+) (interfaces.ListCandidatesParams, bool, error) {
+	row, err := q.LockCurtailmentAdmissionEventForWrite(ctx, eventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return interfaces.ListCandidatesParams{}, false, nil
+	}
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, false, fleeterror.NewInternalErrorf(
+			"failed to lock curtailment admission event: %v",
+			err,
+		)
+	}
+	if row.OrgID != orgID {
+		return interfaces.ListCandidatesParams{}, false, fleeterror.NewInvalidArgumentError(
+			"curtailment admission event does not belong to the organization",
+		)
+	}
+	scope, hasScope, err := domainCurtailment.ScopeFromJSON(row.ScopeJsonb)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, false, fleeterror.NewInternalErrorf(
+			"invalid persisted curtailment admission scope: %v",
+			err,
+		)
+	}
+	if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+		return interfaces.ListCandidatesParams{OrgID: orgID}, true, nil
+	}
+	params, err := domainCurtailment.ListCandidatesParamsForScope(scope)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, false, fleeterror.NewInternalErrorf(
+			"invalid persisted curtailment topology scope: %v",
+			err,
+		)
+	}
+	params.OrgID = orgID
+	return params, true, nil
+}
+
+func filterCurrentCurtailmentTopologyTargets(
+	ctx context.Context,
+	q sqlc.Querier,
+	currentScope interfaces.ListCandidatesParams,
+	targets []models.InsertTargetParams,
+) ([]models.InsertTargetParams, error) {
+	if len(currentScope.BuildingIDs) == 0 && len(currentScope.RackIDs) == 0 && len(currentScope.GroupIDs) == 0 {
+		return targets, nil
+	}
+	snapshot, err := resolveCurtailmentTopologyDispatch(
+		ctx,
+		q,
+		currentScope,
+		insertTargetDeviceIdentifiers(targets),
+	)
+	if err != nil {
+		return nil, err
+	}
+	members := make(map[string]struct{}, len(snapshot.DispatchMemberDeviceIdentifiers))
+	for _, identifier := range snapshot.DispatchMemberDeviceIdentifiers {
+		members[identifier] = struct{}{}
+	}
+	filtered := make([]models.InsertTargetParams, 0, len(members))
+	for _, target := range targets {
+		if _, ok := members[target.DeviceIdentifier]; ok {
+			filtered = append(filtered, target)
+		}
+	}
+	return filtered, nil
+}
+
 // lockEarlierCurtailmentReservationBoundary fences every topology selector
-// that can dynamically reserve one of deviceIdentifiers, then locks those
-// device rows. Callers must re-read ListEarlierCurtailmentReservationDevices
-// after this returns and keep all subsequent target writes in the same
-// transaction. currentScope is included for Start, which has no event ID yet.
+// that can affect admission, then optionally locks candidate device rows.
+// Callers must re-read ListEarlierCurtailmentReservationDevices after this
+// returns and keep all subsequent target writes in the same transaction.
 func lockEarlierCurtailmentReservationBoundary(
 	ctx context.Context,
 	q sqlc.Querier,
@@ -3272,6 +3370,9 @@ func lockEarlierCurtailmentReservationBoundary(
 	}
 	if err := lockTopologySelectorResourcesForReservation(ctx, q, selectors, currentScope); err != nil {
 		return err
+	}
+	if len(deviceIdentifiers) == 0 {
+		return nil
 	}
 	_, _, err = lockDeviceScopeCoverage(ctx, q, orgID, deviceIdentifiers, nil)
 	return err

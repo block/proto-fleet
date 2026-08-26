@@ -3686,6 +3686,30 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Contex
 	return items, nil
 }
 
+const lockCurtailmentAdmissionEventForWrite = `-- name: LockCurtailmentAdmissionEventForWrite :one
+SELECT org_id, scope_jsonb
+FROM curtailment_event
+WHERE id = $1
+  AND state IN ('pending', 'active')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
+FOR UPDATE
+`
+
+type LockCurtailmentAdmissionEventForWriteRow struct {
+	OrgID      int64
+	ScopeJsonb json.RawMessage
+}
+
+// Keep the current event and its immutable selector in the same transaction
+// as dynamic membership fencing and target admission.
+func (q *Queries) LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error) {
+	row := q.queryRow(ctx, q.lockCurtailmentAdmissionEventForWriteStmt, lockCurtailmentAdmissionEventForWrite, curtailmentEventID)
+	var i LockCurtailmentAdmissionEventForWriteRow
+	err := row.Scan(&i.OrgID, &i.ScopeJsonb)
+	return i, err
+}
+
 const lockCurtailmentEventByUUIDForWrite = `-- name: LockCurtailmentEventByUUIDForWrite :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at, authorization_envelope_jsonb
 FROM curtailment_event
