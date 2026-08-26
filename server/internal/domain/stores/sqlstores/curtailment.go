@@ -3310,9 +3310,6 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 		if err != nil || len(available) == 0 {
 			return 0, err
 		}
-		if len(available) > maxTargets {
-			available = available[:maxTargets]
-		}
 		if _, _, err := lockDeviceScopeCoverage(
 			ctx,
 			q,
@@ -3329,6 +3326,9 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 		available, err = filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, available)
 		if err != nil || len(available) == 0 {
 			return 0, err
+		}
+		if len(available) > maxTargets {
+			available = available[:maxTargets]
 		}
 		payload, err := buildBulkTargetPayload(available)
 		if err != nil {

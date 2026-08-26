@@ -836,6 +836,90 @@ func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *te
 	assert.Empty(t, result.targets, "a miner removed from the current selector must not be admitted")
 }
 
+func TestSQLCurtailmentStore_AllPairedClaimRefillsAfterFinalTopologyRecheck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	buildingStore := sqlstores.NewSQLBuildingStore(database)
+	orgID := user.OrganizationID
+
+	building, err := buildingStore.CreateBuilding(ctx, buildingsmodels.CreateParams{
+		OrgID: orgID,
+		Name:  "All-paired admission building",
+	})
+	require.NoError(t, err)
+	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
+	require.NoError(t, err)
+
+	eventParams := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "all-paired-final-membership-recheck",
+	)
+	eventParams.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+	eventParams.ForceIncludeAllPairedMiners = true
+	event, err := store.InsertEventWithTargets(ctx, eventParams, nil)
+	require.NoError(t, err)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	q := sqlc.New(tx)
+	_, err = q.LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID: orgID, DeviceIdentifiers: devices[:1],
+	})
+	require.NoError(t, err)
+	_, err = q.AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
+		OrgID: orgID, TargetBuildingID: sql.NullInt64{}, DeviceIdentifiers: devices[:1],
+	})
+	require.NoError(t, err)
+
+	claimDone := make(chan struct {
+		claimed int64
+		err     error
+	}, 1)
+	go func() {
+		claimed, claimErr := store.ClaimAllPairedPolicyTargets(
+			ctx,
+			event.ID,
+			orgID,
+			1,
+			[]models.InsertTargetParams{
+				curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+				curtailmentStoreTestTarget(devices[1], models.TargetStatePending, models.DesiredStateCurtailed),
+			},
+		)
+		claimDone <- struct {
+			claimed int64
+			err     error
+		}{claimed: claimed, err: claimErr}
+	}()
+	select {
+	case result := <-claimDone:
+		require.NoError(t, result.err)
+		t.Fatal("claim completed before the in-flight topology move committed")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+	result := <-claimDone
+	require.NoError(t, result.err)
+	assert.Equal(t, int64(1), result.claimed)
+
+	var claimedDevice string
+	require.NoError(t, database.QueryRowContext(ctx, `
+		SELECT device_identifier
+		FROM curtailment_target
+		WHERE curtailment_event_id = $1
+	`, event.ID).Scan(&claimedDevice))
+	assert.Equal(t, devices[1], claimedDevice,
+		"an eligible overflow candidate must refill the batch after the final membership recheck")
+}
+
 func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
