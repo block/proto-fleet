@@ -331,12 +331,13 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	require.NotNil(t, unsent)
 	assert.Equal(t, models.TargetStateReleased, unsent.State)
 	assert.Equal(t, models.DesiredStateCurtailed, unsent.DesiredState)
-	assert.Nil(t, unsent.RestorePhase.StartedAt)
+	assert.Nil(t, unsent.RestorePhase)
 
 	attempted := byDevice[devices[1]]
 	require.NotNil(t, attempted)
 	assert.Equal(t, models.TargetStatePending, attempted.State)
 	assert.Equal(t, models.DesiredStateActive, attempted.DesiredState)
+	require.NotNil(t, attempted.RestorePhase)
 	assert.Equal(t, models.TargetStatePending, attempted.RestorePhase.State)
 	require.NotNil(t, attempted.RestorePhase.StartedAt)
 }
