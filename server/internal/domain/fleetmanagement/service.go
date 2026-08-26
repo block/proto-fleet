@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/singleflight"
 
@@ -1083,7 +1084,9 @@ func parseFilter(
 	}
 
 	filter.SearchQuery = strings.TrimSpace(pbFilter.SearchQuery)
-	if len(filter.SearchQuery) > maxMinerSearchQueryLength {
+	// Rune count, not len(): the proto's string.max_len is a code-point bound, so
+	// a byte check would reject multibyte queries the contract accepts.
+	if utf8.RuneCountInString(filter.SearchQuery) > maxMinerSearchQueryLength {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
 			"search_query exceeds maximum of %d characters", maxMinerSearchQueryLength)
 	}
