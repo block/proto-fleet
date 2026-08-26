@@ -145,10 +145,15 @@ const UpdateMinerPasswordModal = ({
       ) : null}
 
       <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
+        {/* initValue re-seeds the inputs from retained state when the modal
+            remounts after the weak-password warning; without it the fields
+            render empty while the state (and the enabled Continue button)
+            still hold the previously typed values. */}
         <Input
           id="currentPassword"
           label="Current miner password"
           type="password"
+          initValue={currentPassword}
           onChange={(value) => setCurrentPassword(value)}
           autoFocus={!refocusNewPassword}
         />
@@ -158,6 +163,7 @@ const UpdateMinerPasswordModal = ({
             id="newPassword"
             label="New miner password"
             type="password"
+            initValue={newPassword}
             onChange={(value) => setNewPassword(value)}
             autoFocus={refocusNewPassword}
           />
@@ -173,6 +179,7 @@ const UpdateMinerPasswordModal = ({
           id="confirmPassword"
           label="Confirm new miner password"
           type="password"
+          initValue={confirmPassword}
           onChange={(value) => setConfirmPassword(value)}
         />
       </div>

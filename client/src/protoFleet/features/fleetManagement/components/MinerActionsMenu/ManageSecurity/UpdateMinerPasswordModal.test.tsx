@@ -50,12 +50,21 @@ vi.mock("@/shared/components/Modal/Modal", () => ({
   }),
 }));
 
-// Mock Input component
+// Mock Input component. Like the real Input, it seeds its value from
+// initValue on mount (the real one keeps internal state; defaultValue is the
+// uncontrolled equivalent).
 vi.mock("@/shared/components/Input", () => ({
-  default: vi.fn(({ id, label, type, onChange, autoFocus }) => (
+  default: vi.fn(({ id, label, type, onChange, autoFocus, initValue }) => (
     <div>
       <label htmlFor={id}>{label}</label>
-      <input id={id} type={type} onChange={(e) => onChange(e.target.value)} autoFocus={autoFocus} data-testid={id} />
+      <input
+        id={id}
+        type={type}
+        defaultValue={initValue}
+        onChange={(e) => onChange(e.target.value)}
+        autoFocus={autoFocus}
+        data-testid={id}
+      />
     </div>
   )),
 }));
@@ -372,6 +381,35 @@ describe("UpdateMinerPasswordModal", () => {
       await waitFor(() => {
         expect(screen.getByTestId("newPassword")).toHaveFocus();
       });
+    });
+
+    test("preserves entered values when user clicks 'Create a stronger password'", async () => {
+      render(
+        <UpdateMinerPasswordModal
+          open={true}
+          hasThirdPartyMiners={false}
+          onConfirm={mockOnConfirm}
+          onDismiss={mockOnDismiss}
+        />,
+      );
+
+      fireEvent.change(screen.getByTestId("currentPassword"), { target: { value: "CurrentPassword123" } });
+      fireEvent.change(screen.getByTestId("newPassword"), { target: { value: "weakpass" } });
+      fireEvent.change(screen.getByTestId("confirmPassword"), { target: { value: "weakpass" } });
+      fireEvent.click(screen.getByTestId("modal-button-0"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("weak-password-warning")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Create a stronger password"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("update-password-modal")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("currentPassword")).toHaveValue("CurrentPassword123");
+      expect(screen.getByTestId("newPassword")).toHaveValue("weakpass");
+      expect(screen.getByTestId("confirmPassword")).toHaveValue("weakpass");
     });
   });
 
