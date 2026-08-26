@@ -713,37 +713,51 @@ def latest_check_runs(
     runs = github_paginate_key(
         f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs", token, "check_runs"
     )
-    latest_by_name: dict[str, dict[str, Any]] = {}
+    runs_by_name: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
         name = run.get("name")
-        if not name:
-            continue
-        current = latest_by_name.get(name)
+        if name:
+            runs_by_name.setdefault(name, []).append(run)
+
+    workflow_runs: dict[str, dict[str, Any]] = {}
+
+    def recency_key(run: dict[str, Any]) -> tuple[str, int, int, str, int]:
         workflow_run_id = extract_run_id(run.get("details_url") or run.get("html_url"))
-        current_workflow_run_id = (
-            extract_run_id(current.get("details_url") or current.get("html_url"))
-            if current
-            else None
-        )
-        # A cancelled job can spend minutes cleaning up before its finalizer starts.
-        # Prefer the newer workflow invocation over check start time so a superseded
-        # run's late HIGH fallback cannot replace the current run's policy input.
-        run_key = (
-            int(workflow_run_id or 0),
-            str(run.get("started_at") or ""),
+        workflow_started_at = ""
+        workflow_attempt = 0
+        numeric_workflow_run_id = int(workflow_run_id or 0)
+        if workflow_run_id:
+            if workflow_run_id not in workflow_runs:
+                workflow_runs[workflow_run_id] = github_request(
+                    "GET",
+                    f"/repos/{owner}/{repo}/actions/runs/{workflow_run_id}",
+                    token,
+                )
+            workflow_run = workflow_runs[workflow_run_id]
+            workflow_started_at = str(
+                workflow_run.get("run_started_at")
+                or workflow_run.get("created_at")
+                or ""
+            )
+            workflow_attempt = int(workflow_run.get("run_attempt", 0) or 0)
+
+        check_started_at = str(run.get("started_at") or "")
+        # Workflow start/attempt captures true invocation order: a delayed finalizer
+        # from an older run cannot win, while a manual rerun of that older numeric ID
+        # can supersede a later failed invocation.
+        return (
+            workflow_started_at or check_started_at,
+            workflow_attempt,
+            numeric_workflow_run_id,
+            check_started_at,
             int(run.get("id", 0) or 0),
         )
-        current_key = (
-            (
-                int(current_workflow_run_id or 0),
-                str(current.get("started_at") or ""),
-                int(current.get("id", 0) or 0),
-            )
-            if current
-            else (0, "", 0)
+
+    latest_by_name: dict[str, dict[str, Any]] = {}
+    for name, named_runs in runs_by_name.items():
+        latest_by_name[name] = (
+            named_runs[0] if len(named_runs) == 1 else max(named_runs, key=recency_key)
         )
-        if current is None or run_key > current_key:
-            latest_by_name[name] = run
     return latest_by_name
 
 

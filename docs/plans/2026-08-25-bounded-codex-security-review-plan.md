@@ -233,9 +233,9 @@ fail-closed finalizer can roll out independently of model tuning.
   incomplete, but use the trusted run marker so it can never replace a comment
   already written by a newer run. Treat API and posting failures as hard failures
   rather than warning-only success.
-- Select same-named policy checks by workflow invocation order before job start
-  time so a superseded finalizer that starts late cannot replace newer policy
-  input.
+- Select same-named policy checks by workflow `run_started_at` and attempt before
+  job start time so a superseded finalizer that starts late cannot replace newer
+  policy input, while a manual rerun can supersede a later failed run ID.
 - Reduce the post-review job timeout only after its observed runtime confirms a
   safe bound.
 

@@ -2137,6 +2137,7 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_latest_check_runs_prefers_newer_workflow_over_later_finalizer(self):
         original = policy.github_paginate_key
+        original_request = policy.github_request
         try:
             policy.github_paginate_key = lambda path, token, key: [
                 {
@@ -2154,11 +2155,55 @@ class ReviewPolicyTest(unittest.TestCase):
                     "conclusion": "success",
                 },
             ]
+            policy.github_request = lambda method, path, token, body=None: {
+                "run_started_at": (
+                    "2026-01-01T00:00:00Z"
+                    if path.endswith("/100")
+                    else "2026-01-01T00:05:00Z"
+                ),
+                "run_attempt": 1,
+            }
             latest = policy.latest_check_runs("block", "proto-fleet", "abc123", "token")
         finally:
             policy.github_paginate_key = original
+            policy.github_request = original_request
 
         self.assertEqual(latest["security-review"]["id"], 11)
+
+    def test_latest_check_runs_allows_new_attempt_of_older_run_id(self):
+        original = policy.github_paginate_key
+        original_request = policy.github_request
+        try:
+            policy.github_paginate_key = lambda path, token, key: [
+                {
+                    "name": "security-review",
+                    "started_at": "2026-01-01T00:20:00Z",
+                    "id": 12,
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/100/job/12",
+                    "conclusion": "success",
+                },
+                {
+                    "name": "security-review",
+                    "started_at": "2026-01-01T00:05:00Z",
+                    "id": 11,
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/101/job/11",
+                    "conclusion": "failure",
+                },
+            ]
+            policy.github_request = lambda method, path, token, body=None: {
+                "run_started_at": (
+                    "2026-01-01T00:20:00Z"
+                    if path.endswith("/100")
+                    else "2026-01-01T00:05:00Z"
+                ),
+                "run_attempt": 2 if path.endswith("/100") else 1,
+            }
+            latest = policy.latest_check_runs("block", "proto-fleet", "abc123", "token")
+        finally:
+            policy.github_paginate_key = original
+            policy.github_request = original_request
+
+        self.assertEqual(latest["security-review"]["id"], 12)
 
     def test_check_statuses_requires_successful_completed_runs(self):
         original = policy.latest_check_runs
