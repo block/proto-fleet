@@ -104,6 +104,11 @@ export const primaryNavItems: NavItem[] = [
     scopable: true,
   },
   {
+    path: "/visual-probe",
+    label: "Visual probe",
+    icon: Activity,
+  },
+  {
     path: "/settings",
     label: "Settings",
     icon: Settings,
