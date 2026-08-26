@@ -3306,6 +3306,31 @@ func TestReconcileClosedLoopTopologyDeparturesRestoresUnpairedOwnedMiner(t *test
 	assert.Equal(t, models.TargetStatePending, target.State)
 }
 
+func TestReconcileClosedLoopTopologyDeparturesRestoresUnpairedOwnedMinerWithoutAllPairedPolicy(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "unpaired-miner",
+		State:              models.TargetStateConfirmed,
+		DesiredState:       models.DesiredStateCurtailed,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	reconciler := newReconcilerForTest(store, &fakeDispatcher{})
+
+	departures, ok := reconciler.reconcileClosedLoopTopologyDepartures(
+		t.Context(),
+		event,
+		store.targetsByEventID[event.ID],
+		[]*models.Candidate{{DeviceIdentifier: target.DeviceIdentifier, PairingStatus: "UNPAIRED"}},
+	)
+
+	assert.True(t, ok)
+	assert.True(t, departures)
+	assert.Equal(t, []string{target.DeviceIdentifier}, store.topologyRestoreDevices)
+	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
+	assert.Equal(t, models.TargetStatePending, target.State)
+}
+
 func TestDriveTopologyRestoresCompletesWhileEventIsPending(t *testing.T) {
 	store := newFakeStore()
 	event := &models.Event{

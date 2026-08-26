@@ -1608,7 +1608,11 @@ func (r *Reconciler) reconcileClosedLoopTopologyDepartures(
 		if candidate == nil || candidate.DeviceIdentifier == "" {
 			continue
 		}
-		if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(candidate.PairingStatus) {
+		if isAllPairedPolicyEvent(ev) {
+			if !curtailment.IsAllPairedPolicyPairingStatus(candidate.PairingStatus) {
+				continue
+			}
+		} else if candidate.PairingStatus != "PAIRED" {
 			continue
 		}
 		members[candidate.DeviceIdentifier] = struct{}{}
