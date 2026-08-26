@@ -59,7 +59,7 @@ func TestRenderSlackLinksTheInstanceHeaderAndUsesPerAlertCopy(t *testing.T) {
 		"Proto Fleet (fleet.example.com)",
 		"🟡 1 device hashing below 75% of expected for at least ten minutes",
 		"🟡 1 device with sensor temperatures above 90°C for at least ten minutes",
-		"✅ All devices reachable",
+		"✅ 1 device reachable again",
 	}, "\n"), msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
@@ -142,7 +142,7 @@ func TestRenderSlackUsesAlertSpecificResolvedCopyInMixedBatch(t *testing.T) {
 	assert.Equal(t, strings.Join([]string{
 		"Proto Fleet (fleet.example.com)",
 		"🟡 1 device hashing below 75% of expected for at least ten minutes",
-		"✅ All devices reachable",
+		"✅ 1 device reachable again",
 	}, "\n"), renderSlack("https://fleet.example.com", []Alert{firing, resolved}, nil)["text"])
 }
 
@@ -173,12 +173,31 @@ func TestRenderSlackCountsPartialRecoveryWhileSameRuleStillFires(t *testing.T) {
 }
 
 func TestRenderSlackUsesThresholdNeutralHashrateRecoveryCopy(t *testing.T) {
-	assert.Equal(t, "✅ All devices hashing above alert threshold", groupLine(alertGroup{
+	assert.Equal(t, "✅ 3 devices hashing above alert threshold again", groupLine(alertGroup{
 		Template: string(RuleTemplateHashrate), DeviceCount: 3,
 	}, true))
-	assert.Equal(t, "✅ 3 devices hashing above alert threshold again", groupLineWithActiveState(alertGroup{
-		Template: string(RuleTemplateHashrate), DeviceCount: 3,
-	}, true, true))
+}
+
+func TestRenderSlackRecoveryStaysScopedAcrossRules(t *testing.T) {
+	alert := func(status, ruleUID, deviceID string) Alert {
+		return Alert{
+			Status: status, RuleUID: ruleUID,
+			Labels: map[string]string{
+				"alertname": "Device Offline", "severity": "critical", "device_id": deviceID,
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		}
+	}
+	alerts := []Alert{
+		alert("firing", "offline-site-a", "dev-a"),
+		alert("resolved", "offline-site-b", "dev-b"),
+	}
+
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	assert.Contains(t, text, "🔴 1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "✅ 1 device reachable again")
+	assert.NotContains(t, text, "All devices reachable")
 }
 
 func TestRenderSlackKeepsSameNamedUserRulesSeparateByRuleUID(t *testing.T) {
@@ -247,16 +266,20 @@ func TestRenderSlackDotMatchesEachAlertSeverity(t *testing.T) {
 	}
 }
 
-func TestRenderSlackAllResolvedCollapsesToOneLine(t *testing.T) {
-	resolvedOnly := []Alert{{Status: "resolved", Labels: map[string]string{"alertname": "Device Offline"}}}
-	assert.Equal(t, "Proto Fleet\n✅ All alerts resolved", renderSlack("", resolvedOnly, nil)["text"])
-	// A quiet channel shared by several fleets still has to say whose alerts cleared.
+func TestRenderSlackResolutionOnlyBatchKeepsConditionSpecificCopy(t *testing.T) {
+	resolvedOnly := []Alert{{
+		Status: "resolved", RuleUID: "protofleet-ha-readiness",
+		Labels: map[string]string{
+			"alertname": "HA Failover Readiness Degraded", "template": "ha-readiness",
+		},
+	}}
 	msg := renderSlack("https://fleet.example.com", resolvedOnly, nil)
-	assert.Equal(t, "Proto Fleet (fleet.example.com)\n✅ All alerts resolved", msg["text"])
+	assert.Equal(t, "Proto Fleet (fleet.example.com)\n✅ HA ready to fail over", msg["text"])
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
 	require.Len(t, blocks, 2)
-	assert.Equal(t, "✅ All alerts resolved", sectionText(t, blocks[1]))
+	assert.Equal(t, "✅ HA ready to fail over", sectionText(t, blocks[1]))
+	assert.NotContains(t, allSectionText(t, msg), "All alerts resolved")
 }
 
 func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
@@ -372,18 +395,31 @@ func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
 	assert.NotContains(t, text, "_(critical)_")
 }
 
-func TestRenderSlackResolvedDevicelessAlertsCollapseWhenNothingIsActive(t *testing.T) {
+func TestRenderSlackResolvedCurtailmentSourceNamesRecoveredCondition(t *testing.T) {
 	source := func(kind string) Alert {
 		return Alert{
-			Status:      "resolved",
-			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Status: "resolved", RuleUID: "protofleet-mqtt-source-disconnected",
+			Labels: map[string]string{
+				"alertname": "Curtailment Source Unreachable", "severity": "critical", "template": "mqtt-disconnected",
+			},
 			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
 		}
 	}
-	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
+	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a")}, nil))
 
-	assert.Contains(t, text, "✅ All alerts resolved")
+	assert.Contains(t, text, "✅ Curtailment source maestro-a reachable again")
+	assert.NotContains(t, text, "All alerts resolved")
 	assert.NotContains(t, text, "unreachable")
+}
+
+func TestRenderSlackUsesConditionSpecificCurtailmentRecoveryCopy(t *testing.T) {
+	assert.Equal(t, "✅ Curtailment by maestro-a ended", groupLine(alertGroup{
+		Name: "Curtailment Active", Template: string(RuleTemplateMQTTCurtailment), InstanceCount: 1,
+		Summaries: []string{"Miners are curtailed by maestro-a"}, SummaryCount: 1,
+	}, true))
+	assert.Equal(t, "✅ Fan control restored for 2 curtailment events", groupLine(alertGroup{
+		Name: "Curtailment Fan Restore Failed", Template: string(RuleTemplateCurtailmentFanRestore), InstanceCount: 2,
+	}, true))
 }
 
 func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {

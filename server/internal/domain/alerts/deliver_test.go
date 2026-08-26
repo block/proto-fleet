@@ -424,7 +424,7 @@ func TestDeliverAllScopeWindowPreservesResolutions(t *testing.T) {
 	body := string((*got)[0].body)
 	assert.NotContains(t, body, "Firing Rule")
 	assert.Contains(t, body, "Resolved Rule resolved", "resolutions still close alerts delivered before the window")
-	assert.NotContains(t, body, "All alerts resolved", "a maintenance-hidden firing alert prevents a false all-clear")
+	assert.NotContains(t, body, "All alerts resolved", "resolution-only notifications stay condition-specific")
 }
 
 func TestDeliverWindowMutesOnlyListedChannels(t *testing.T) {

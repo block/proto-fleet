@@ -184,11 +184,11 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 					alerts = append(alerts, orgAlerts[i])
 				}
 			}
-			alerts, hiddenFiring := dropMutedAlerts(alerts, muted, muteAll)
+			alerts = dropMutedAlerts(alerts, muted, muteAll)
 			if len(alerts) == 0 {
 				return
 			}
-			d.deliverChannel(ctx, orgID, rec, alerts, hiddenFiring, identities)
+			d.deliverChannel(ctx, orgID, rec, alerts, identities)
 		}(rec, idxs, muted, muteAll)
 	}
 	wg.Wait()
@@ -232,15 +232,14 @@ func channelMutedRules(windows []MaintenanceWindowRecord, channelID int64) (mute
 	return muted, false
 }
 
-// dropMutedAlerts returns the channel's visible batch and the firing alerts hidden by maintenance.
-// Resolutions always stay so a destination that saw a firing notification can close it. The hidden
-// firing set gives Slack enough context to avoid declaring an all-clear while an alert is merely
-// muted. Unattributed firing alerts stay under a rule-scoped window because no rule can claim them.
-// The input slice is shared across channel goroutines and never mutated; it is returned as-is (no
+// dropMutedAlerts returns the channel's batch minus firing alerts covered by a maintenance
+// window. Resolutions always stay so a destination that saw a firing notification can close it.
+// Unattributed firing alerts stay under a rule-scoped window because no rule can claim them. The
+// input slice is shared across channel goroutines and never mutated; it is returned as-is (no
 // copy) until an alert actually drops.
-func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) (visible, hiddenFiring []Alert) {
+func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Alert {
 	if !muteAll && len(muted) == 0 {
-		return alerts, nil
+		return alerts
 	}
 	isMuted := func(a Alert) bool {
 		if a.Status == alertStatusResolved {
@@ -250,19 +249,16 @@ func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) (visib
 	}
 	first := slices.IndexFunc(alerts, isMuted)
 	if first < 0 {
-		return alerts, nil
+		return alerts
 	}
-	visible = make([]Alert, 0, len(alerts)-1)
-	visible = append(visible, alerts[:first]...)
-	hiddenFiring = append(hiddenFiring, alerts[first])
+	out := make([]Alert, 0, len(alerts)-1)
+	out = append(out, alerts[:first]...)
 	for _, a := range alerts[first+1:] {
-		if isMuted(a) {
-			hiddenFiring = append(hiddenFiring, a)
-		} else {
-			visible = append(visible, a)
+		if !isMuted(a) {
+			out = append(out, a)
 		}
 	}
-	return visible, hiddenFiring
+	return out
 }
 
 // routeAlerts splits the org batch per its route policies: no policy or no rule UID → every channel (fail open),
@@ -344,13 +340,13 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 	return defaultAlerts, extraIdx, routedUnique
 }
 
-func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts, hiddenFiring []Alert, identities map[string]DeviceIdentity) {
+func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts []Alert, identities map[string]DeviceIdentity) {
 	cfg, err := decodeChannelConfig(d.crypto, rec.EncryptedConfig)
 	if err != nil {
 		slog.Error("alerts.deliver_decode_failed", "org", orgID, "channel", rec.ID, "err", err)
 		return
 	}
-	body, err := d.render(rec.Kind, orgID, orgAlerts, hiddenFiring, identities)
+	body, err := d.render(rec.Kind, orgID, orgAlerts, identities)
 	if err != nil {
 		slog.Error("alerts.deliver_render_failed", "org", orgID, "channel", rec.ID, "err", err)
 		return
@@ -381,11 +377,11 @@ func (d *Deliverer) resolveDevices(ctx context.Context, orgID int64, alerts []Al
 	return m
 }
 
-func (d *Deliverer) render(kind ChannelKind, orgID int64, alerts, hiddenFiring []Alert, identities map[string]DeviceIdentity) ([]byte, error) {
+func (d *Deliverer) render(kind ChannelKind, orgID int64, alerts []Alert, identities map[string]DeviceIdentity) ([]byte, error) {
 	var payload any
 	switch kind {
 	case ChannelKindSlack:
-		payload = renderSlackWithHiddenFiring(d.publicURL, alerts, hiddenFiring)
+		payload = renderSlack(d.publicURL, alerts, identities)
 	case ChannelKindWebhook:
 		payload = renderWebhook(orgID, alerts, identities)
 	default:
@@ -422,7 +418,7 @@ func (d *Deliverer) SendTest(ctx context.Context, kind ChannelKind, url, bearer 
 		Labels:      map[string]string{"alertname": "Proto Fleet test alert", "severity": "info"},
 		Annotations: map[string]string{"summary": "This is a test notification from Proto Fleet."},
 	}}
-	body, err := d.render(kind, 0, sample, nil, nil)
+	body, err := d.render(kind, 0, sample, nil)
 	if err != nil {
 		return false, "", err
 	}
