@@ -391,6 +391,11 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, laneN
 	for _, t := range targets {
 		state := DeviceStatePending
 		switch {
+		// A rollout completes only once every target matched, so report it
+		// that way: comparing against live versions would misreport history
+		// after a later rollout moves the same miners elsewhere.
+		case r.Status == StatusCompleted:
+			state = DeviceStateUpdated
 		case t.FirmwareVersion == r.FirmwareVersion:
 			state = DeviceStateUpdated
 		case t.UpdateSentAt.Valid:

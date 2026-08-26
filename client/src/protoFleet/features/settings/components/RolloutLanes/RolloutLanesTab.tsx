@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
+import LaneHistoryModal from "./LaneHistoryModal";
+import { deviceStateLabels, deviceStateTone } from "./rolloutStatus";
+import StatusChip from "./StatusChip";
 import {
   Rollout,
   RolloutDeviceState,
@@ -23,40 +26,6 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const ROLLOUT_LANES_DESCRIPTION =
   "Group miners into lanes and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
-
-const deviceStateLabels: Record<RolloutDeviceState, string> = {
-  [RolloutDeviceState.UNSPECIFIED]: "",
-  [RolloutDeviceState.PENDING]: "Pending",
-  [RolloutDeviceState.UPDATING]: "Updating",
-  [RolloutDeviceState.UPDATED]: "Updated",
-};
-
-const rolloutStatusLabels: Record<RolloutStatus, string> = {
-  [RolloutStatus.UNSPECIFIED]: "Unknown",
-  [RolloutStatus.ACTIVE]: "In progress",
-  [RolloutStatus.COMPLETED]: "Completed",
-  [RolloutStatus.CANCELED]: "Canceled",
-};
-
-const StatusChip = ({ label, tone }: { label: string; tone: "neutral" | "progress" | "success" | "critical" }) => (
-  <span
-    className={clsx(
-      "inline-flex items-center rounded-full px-2 py-0.5 text-200 whitespace-nowrap",
-      tone === "success" && "bg-intent-success-10 text-text-primary",
-      tone === "progress" && "bg-intent-warning-10 text-text-primary",
-      tone === "critical" && "bg-intent-critical-10 text-text-critical",
-      tone === "neutral" && "bg-core-primary-5 text-text-primary-70",
-    )}
-  >
-    {label}
-  </span>
-);
-
-const deviceStateTone = (state: RolloutDeviceState): "neutral" | "progress" | "success" => {
-  if (state === RolloutDeviceState.UPDATED) return "success";
-  if (state === RolloutDeviceState.UPDATING) return "progress";
-  return "neutral";
-};
 
 // Attention pill with a pulsing dot, shown wherever a rollout is ongoing.
 const RolloutActivePill = ({ count, testId }: { count: number; testId?: string }) => (
@@ -213,11 +182,21 @@ interface LaneCardProps {
   firmwareFiles: FirmwareFileInfo[];
   minerNames: Record<string, string>;
   onManageMiners: (lane: RolloutLane) => void;
+  onShowHistory: (lane: RolloutLane) => void;
   onDelete: (lane: RolloutLane) => void;
   onApply: (laneId: bigint, assignments: { model: string; firmwareFileId: string }[]) => Promise<void>;
 }
 
-const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, onDelete, onApply }: LaneCardProps) => {
+const LaneCard = ({
+  lane,
+  rollouts,
+  firmwareFiles,
+  minerNames,
+  onManageMiners,
+  onShowHistory,
+  onDelete,
+  onApply,
+}: LaneCardProps) => {
   // Staged (unapplied) firmware choices per model; absent key = server value.
   const [staged, setStaged] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
@@ -227,7 +206,6 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
   const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
   const activeByModel = new Map(laneRollouts.filter((r) => r.status === RolloutStatus.ACTIVE).map((r) => [r.model, r]));
   const activeCount = activeByModel.size;
-  const history = laneRollouts.filter((r) => r.status !== RolloutStatus.ACTIVE).slice(0, 5);
 
   const stagedValue = (group: RolloutLaneModelGroup): string =>
     staged[group.model] !== undefined ? staged[group.model] : group.firmwareFileId;
@@ -272,6 +250,12 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
       className={clsx(activeCount > 0 && "ring-1 ring-intent-warning-50")}
       headerAction={
         <div className="flex gap-2">
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="History"
+            onClick={() => onShowHistory(lane)}
+          />
           <Button
             variant={variants.secondary}
             size={sizes.compact}
@@ -327,21 +311,6 @@ const LaneCard = ({ lane, rollouts, firmwareFiles, minerNames, onManageMiners, o
           </div>
         </div>
       ) : null}
-
-      {history.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <span className="text-200 text-text-primary-50">Recent rollouts</span>
-          {history.map((rollout) => (
-            <div key={rollout.id.toString()} className="flex items-center gap-3 text-200 text-text-primary-70">
-              <StatusChip
-                label={rolloutStatusLabels[rollout.status]}
-                tone={rollout.status === RolloutStatus.COMPLETED ? "success" : "neutral"}
-              />
-              <span>{`${rollout.model} → ${rollout.firmwareVersion}`}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </Card>
   );
 };
@@ -358,6 +327,7 @@ const RolloutLanesTab = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [laneToManage, setLaneToManage] = useState<RolloutLane | null>(null);
   const [isSavingMembers, setIsSavingMembers] = useState(false);
+  const [laneForHistory, setLaneForHistory] = useState<RolloutLane | null>(null);
 
   useEffect(() => {
     listFirmwareFiles()
@@ -450,6 +420,7 @@ const RolloutLanesTab = () => {
             firmwareFiles={firmwareFiles}
             minerNames={minerNames}
             onManageMiners={setLaneToManage}
+            onShowHistory={setLaneForHistory}
             onDelete={setLaneToDelete}
             onApply={applyFirmware}
           />
@@ -525,6 +496,14 @@ const RolloutLanesTab = () => {
             if (!isSavingMembers) setLaneToManage(null);
           }}
           onSave={(selection) => handleSaveMembers(selection.selectedMinerIds)}
+        />
+      ) : null}
+
+      {laneForHistory ? (
+        <LaneHistoryModal
+          lane={laneForHistory}
+          rollouts={rollouts.filter((rollout) => rollout.laneId === laneForHistory.id)}
+          onClose={() => setLaneForHistory(null)}
         />
       ) : null}
     </div>

@@ -151,15 +151,36 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   // The rollout is done when every miner in the lane reports the target
-  // version and the rollout shows up as completed in the history list.
+  // version, the progress bar clears, and the rollout shows up as
+  // completed in the lane's history modal.
   async waitForLaneRolloutCompleted(laneName: string, version: string, timeoutMs: number) {
     const card = this.laneCard(laneName);
-    await expect(card.getByText("Completed", { exact: true }).first()).toBeVisible({ timeout: timeoutMs });
     const minerRows = card.locator('[data-testid^="lane-miner-"]');
     const rowCount = await minerRows.count();
     for (let i = 0; i < rowCount; i++) {
-      await expect(minerRows.nth(i)).toContainText(version);
+      await expect(minerRows.nth(i)).toContainText(version, { timeout: timeoutMs });
     }
+    // Status flips on the next enforcement tick after the miners report in.
+    await expect(card.getByText(`Rolling out ${version}`)).toBeHidden({ timeout: timeoutMs });
+    await this.openLaneHistory(laneName);
+    await expect(
+      this.historyModal().locator("tr").filter({ hasText: "Completed" }).filter({ hasText: version }).first(),
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await this.closeLaneHistory();
+  }
+
+  historyModal(): Locator {
+    return this.page.getByTestId("modal");
+  }
+
+  async openLaneHistory(laneName: string) {
+    await this.laneCard(laneName).getByRole("button", { name: "History", exact: true }).click();
+    await this.validateTitleInModal("Rollout history");
+  }
+
+  async closeLaneHistory() {
+    await this.historyModal().getByRole("button", { name: "Done", exact: true }).click();
+    await expect(this.historyModal()).toBeHidden();
   }
 
   async deleteLane(laneName: string) {
@@ -221,7 +242,7 @@ export class SettingsFirmwarePage extends BasePage {
     if (await directDeleteButton.isVisible().catch(() => false)) {
       await directDeleteButton.click();
     } else {
-      await row.getByTestId("overflow-menu-trigger").click();
+      await row.getByRole("button", { name: "Row actions" }).click();
       await this.page.getByRole("button", { name: "Delete", exact: true }).click();
     }
 
