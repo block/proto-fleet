@@ -2,9 +2,9 @@ import { ReactNode, useMemo } from "react";
 
 import Pools from "./Pools";
 import ContentHeader from "@/shared/components/ContentHeader";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
 import { isValidPool } from "@/shared/components/MiningPools/utility";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { PoolInfo } from "@/shared/types/pool";
 
 interface PoolChangeOptions {
   isDelete?: boolean;

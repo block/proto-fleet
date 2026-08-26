@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolInfo } from "@/shared/types/pool";
 
 export interface TestConnectionProps {
   onError?: () => void;

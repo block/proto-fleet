@@ -14,7 +14,7 @@ import type {
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
-import type { PoolInfo as PoolFormInput } from "@/shared/components/MiningPools/types";
+import type { PoolInfo as PoolFormInput } from "@/shared/types/pool";
 
 export interface AdapterRequestOptions {
   secure?: boolean;

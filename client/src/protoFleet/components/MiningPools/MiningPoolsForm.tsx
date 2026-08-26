@@ -13,9 +13,9 @@ import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import { BackupPoolIndex, PoolIndex, PoolInfo as SharedPoolInfo } from "@/shared/components/MiningPools/types";
 import { getEmptyPoolsInfo, isValidPool } from "@/shared/components/MiningPools/utility";
 import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
+import { BackupPoolIndex, PoolIndex, PoolInfo as SharedPoolInfo } from "@/shared/types/pool";
 
 type PoolInfo = SharedPoolInfo & {
   poolId?: bigint;
@@ -47,8 +47,7 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
         ...pool,
         name: pool.poolName,
         password: "",
-        // TODO: fix priority assignment
-        priority: pool.poolId,
+        priority: Number(pool.poolId),
       }));
     const maxExistingPriority = Math.max(
       // TODO: fix priority assignment

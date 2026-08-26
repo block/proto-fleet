@@ -25,7 +25,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 import { isValidPool } from "@/shared/components/MiningPools/utility";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
@@ -33,6 +32,7 @@ import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 import { debounce, deepClone } from "@/shared/utils/utility";
 
 interface PoolChangeOptions {

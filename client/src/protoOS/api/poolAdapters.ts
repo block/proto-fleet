@@ -1,6 +1,6 @@
 import { Pool, PoolConfigInner, TestConnection } from "./generatedApi";
 import { isStratumV2URL } from "@/shared/components/MiningPools/PoolForm/constants";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolInfo } from "@/shared/types/pool";
 
 const authorityKeyForPool = (pool: PoolInfo) => (isStratumV2URL(pool.url) ? (pool.v2_authority_pubkey ?? "") : "");
 

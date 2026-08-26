@@ -34,7 +34,7 @@ import {
   PerformanceMode as V1PerformanceMode,
 } from "@/protoOS/api/generatedApi";
 import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
-import type { PoolInfo } from "@/shared/components/MiningPools/types";
+import type { PoolInfo } from "@/shared/types/pool";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 

@@ -2,10 +2,10 @@ import { useMemo } from "react";
 
 import ContentHeader from "@/shared/components/ContentHeader";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 import { isValidPool } from "@/shared/components/MiningPools/utility";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 
 interface ReadOnlyMiningPoolsProps {
   pools: PoolInfo[];

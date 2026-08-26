@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PoolModal from "./PoolModal";
-import { PoolIndex } from "./types";
+import { PoolIndex } from "@/shared/types/pool";
 
 describe("PoolModal", () => {
   const mockOnChangePools = vi.fn();
