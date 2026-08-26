@@ -249,6 +249,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     env:
+      CGO_ENABLED: 0
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
@@ -268,6 +269,17 @@ jobs:
           go build -o server/antminer-plugin ./plugin/antminer
           go build -o server/virtual-plugin ./plugin/virtual
           cp plugin/virtual/config.json server/virtual-plugin.json
+
+          for binary in fleetnode proto-plugin antminer-plugin virtual-plugin; do
+            if ! readelf -h "server/$binary" >/dev/null; then
+              echo "::error::Unable to inspect Fleet Node binary $binary"
+              exit 1
+            fi
+            if readelf -l "server/$binary" | grep INTERP >/dev/null || readelf -d "server/$binary" | grep NEEDED >/dev/null; then
+              echo "::error::Fleet Node binary $binary must be statically linked"
+              exit 1
+            fi
+          done
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0

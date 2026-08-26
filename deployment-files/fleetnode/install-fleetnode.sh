@@ -89,6 +89,10 @@ fi
 for command in curl sha256sum tar install "$SYSTEMCTL"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
+if ! command -v nmap >/dev/null 2>&1; then
+  echo "required command not found: nmap; install nmap and ensure it is on PATH" >&2
+  exit 1
+fi
 if [[ "$TEST_MODE" != "1" ]]; then
   for command in getent useradd nologin; do
     command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
@@ -241,7 +245,11 @@ install -m 0644 "$PROGRAM_DIR/fleetnode.service" "$UNIT_PATH"
 unit_replaced=1
 "$SYSTEMCTL" daemon-reload
 
-if [[ "$was_active" == "1" ]]; then
+if [[ "$fresh_install" == "1" ]]; then
+  if "$SYSTEMCTL" is-enabled --quiet fleetnode.service; then
+    "$SYSTEMCTL" disable fleetnode.service
+  fi
+elif [[ "$was_active" == "1" ]]; then
   "$SYSTEMCTL" start fleetnode.service
 fi
 
