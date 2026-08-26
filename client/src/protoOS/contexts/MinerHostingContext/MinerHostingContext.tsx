@@ -2,6 +2,7 @@ import { createContext, ReactNode, useEffect, useMemo, useState } from "react";
 import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
 import { createMdkV1Definition } from "@/protoOS/api/adapters/mdkV1/definition";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
+// TODO: Make this a factory when MDK v2 has an adapter that needs the active transport.
 import { mdkV2Definition } from "@/protoOS/api/adapters/mdkV2/definition";
 import { resolveMinerAdapter } from "@/protoOS/api/adapters/resolveMinerAdapter";
 import type { AdapterResolution, MinerAdapter } from "@/protoOS/api/adapters/types";
