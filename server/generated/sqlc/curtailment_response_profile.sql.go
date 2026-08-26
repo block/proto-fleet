@@ -403,7 +403,7 @@ WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND deleted_at IS NULL
 ORDER BY id
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type LockCurtailmentResponseProfileDeviceSitesByOrgParams struct {
@@ -416,6 +416,8 @@ type LockCurtailmentResponseProfileDeviceSitesByOrgRow struct {
 	SiteID           sql.NullInt64
 }
 
+// Topology and site writes still conflict with this lock, while command queue
+// inserts can take the foreign-key KEY SHARE lock without self-deadlocking.
 func (q *Queries) LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error) {
 	rows, err := q.query(ctx, q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt, lockCurtailmentResponseProfileDeviceSitesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {

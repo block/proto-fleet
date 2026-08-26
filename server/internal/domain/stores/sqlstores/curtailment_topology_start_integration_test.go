@@ -1033,8 +1033,9 @@ func TestSQLCurtailmentStore_TopologyRestoreDispatchAllowsDeletedSelector(t *tes
 			testContext := testutil.InitializeDBServiceInfrastructure(t)
 			user := testContext.DatabaseService.CreateSuperAdminUser()
 			ctx := t.Context()
-			store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-			collectionStore := sqlstores.NewSQLCollectionStore(testContext.DatabaseService.DB)
+			database := testContext.DatabaseService.DB
+			store := sqlstores.NewSQLCurtailmentStore(database)
+			collectionStore := sqlstores.NewSQLCollectionStore(database)
 			orgID := user.OrganizationID
 
 			group, err := collectionStore.CreateCollection(
@@ -1068,6 +1069,28 @@ func TestSQLCurtailmentStore_TopologyRestoreDispatchAllowsDeletedSelector(t *tes
 				persisted,
 				[]string{device.ID},
 				func(snapshot interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error {
+					batchUUID := uuid.NewString()
+					if err := dbinfra.WithTransactionNoResult(ctx, database, func(q sqlc.Querier) error {
+						if _, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+							Uuid:           batchUUID,
+							Type:           "UNCURTAIL",
+							CreatedBy:      user.DatabaseID,
+							CreatedAt:      time.Now(),
+							Status:         sqlc.BatchStatusEnumPENDING,
+							DevicesCount:   1,
+							OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+						}); err != nil {
+							return err
+						}
+						return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+							CommandBatchLogUuid: batchUUID,
+							CommandType:         "UNCURTAIL",
+							DeviceID:            device.DatabaseID,
+							Status:              sqlc.QueueStatusEnumPENDING,
+						})
+					}); err != nil {
+						return err
+					}
 					assert.Equal(t, eventState, snapshot.Event.State)
 					assert.Empty(t, snapshot.Topology.DispatchMemberDeviceIdentifiers)
 					if eventState == models.EventStateActive {

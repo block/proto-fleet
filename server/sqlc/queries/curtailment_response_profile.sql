@@ -33,13 +33,15 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY device_identifier;
 
 -- name: LockCurtailmentResponseProfileDeviceSitesByOrg :many
+-- Topology and site writes still conflict with this lock, while command queue
+-- inserts can take the foreign-key KEY SHARE lock without self-deadlocking.
 SELECT device_identifier, site_id
 FROM device
 WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
 ORDER BY id
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- name: ListResponseProfileInfrastructureDevicesByOrg :many
 SELECT id, site_id, enabled
