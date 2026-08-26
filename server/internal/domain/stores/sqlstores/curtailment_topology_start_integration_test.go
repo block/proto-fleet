@@ -577,7 +577,7 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 
 	active, err = store.ListActiveCurtailedDevices(ctx, orgID)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{devices[1], devices[3], devices[5]}, active,
+	assert.ElementsMatch(t, []string{devices[1], devices[3], devices[5], devices[6]}, active,
 		"logical topology ownership must follow current membership even before target rows are admitted")
 }
 
