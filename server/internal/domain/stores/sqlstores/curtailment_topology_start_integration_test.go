@@ -846,6 +846,89 @@ func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(
 	assert.Equal(t, models.TargetStateRestoreFailed, targets[0].State)
 }
 
+func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrentTopology(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	collectionStore := sqlstores.NewSQLCollectionStore(database)
+	orgID := user.OrganizationID
+
+	group, err := collectionStore.CreateCollection(
+		ctx,
+		orgID,
+		collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+		"Restore reentry group",
+		"",
+	)
+	require.NoError(t, err)
+	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+
+	policy := curtailmentStoreClosedLoopFullFleetEvent(
+		orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "restore-reentry-policy",
+	)
+	policy.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"group_ids":[%d]}`, group.Id))
+	policy.ForceIncludeAllPairedMiners = true
+	policyEvent, err := store.InsertEventWithTargets(ctx, policy, []models.InsertTargetParams{
+		curtailmentStoreTestTarget(device.ID, models.TargetStateRestoreFailed, models.DesiredStateActive),
+	})
+	require.NoError(t, err)
+
+	tx, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	q := sqlc.New(tx)
+	added, err := q.AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
+		OrgID:             orgID,
+		DeviceSetID:       group.Id,
+		DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{device.ID}, added)
+
+	refreshDone := make(chan struct {
+		applied []string
+		err     error
+	}, 1)
+	go func() {
+		applied, refreshErr := store.BulkRefreshAllPairedTargetReadiness(
+			ctx,
+			policyEvent.ID,
+			orgID,
+			models.EventStateActive,
+			[]interfaces.AllPairedReadinessUpdate{{
+				DeviceIdentifier:     device.ID,
+				ExpectedState:        models.TargetStateRestoreFailed,
+				ExpectedDesiredState: models.DesiredStateActive,
+				State:                models.TargetStatePending,
+			}},
+		)
+		refreshDone <- struct {
+			applied []string
+			err     error
+		}{applied: applied, err: refreshErr}
+	}()
+	select {
+	case result := <-refreshDone:
+		require.NoError(t, result.err)
+		t.Fatal("readiness refresh completed before the in-flight group addition committed")
+	case <-time.After(150 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit())
+	result := <-refreshDone
+	require.NoError(t, result.err)
+	assert.Empty(t, result.applied)
+	targets, err := store.ListTargetsByEvent(ctx, orgID, policy.EventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, models.TargetStateRestoreFailed, targets[0].State)
+}
+
 func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElsewhere(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

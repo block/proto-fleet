@@ -3330,6 +3330,32 @@ func filterCurrentCurtailmentTopologyTargets(
 	return filtered, nil
 }
 
+func filterDepartedCurtailmentTopologyTargets(
+	ctx context.Context,
+	q sqlc.Querier,
+	currentScope interfaces.ListCandidatesParams,
+	targets []models.InsertTargetParams,
+) ([]models.InsertTargetParams, error) {
+	if len(currentScope.BuildingIDs) == 0 && len(currentScope.RackIDs) == 0 && len(currentScope.GroupIDs) == 0 {
+		return targets, nil
+	}
+	current, err := filterCurrentCurtailmentTopologyTargets(ctx, q, currentScope, targets)
+	if err != nil || len(current) == 0 {
+		return targets, err
+	}
+	currentSet := make(map[string]struct{}, len(current))
+	for _, target := range current {
+		currentSet[target.DeviceIdentifier] = struct{}{}
+	}
+	departed := make([]models.InsertTargetParams, 0, len(targets)-len(currentSet))
+	for _, target := range targets {
+		if _, ok := currentSet[target.DeviceIdentifier]; !ok {
+			departed = append(departed, target)
+		}
+	}
+	return departed, nil
+}
+
 // lockEarlierCurtailmentReservationBoundary fences every topology selector
 // that can affect admission, then optionally locks candidate device rows.
 // Callers must re-read ListEarlierCurtailmentReservationDevices after this
@@ -3542,17 +3568,25 @@ func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 			}
 		}
 		if len(restoreFailedTargets) > 0 {
+			currentScope, active, err := lockCurtailmentAdmissionEvent(ctx, q, eventID, orgID)
+			if err != nil || !active {
+				return nil, err
+			}
 			if err := lockEarlierCurtailmentReservationBoundary(
 				ctx,
 				q,
 				eventID,
 				orgID,
 				insertTargetDeviceIdentifiers(restoreFailedTargets),
-				interfaces.ListCandidatesParams{},
+				currentScope,
 			); err != nil {
 				return nil, err
 			}
 			available, err := excludeEarlierCurtailmentReservations(ctx, q, eventID, restoreFailedTargets)
+			if err != nil {
+				return nil, err
+			}
+			available, err = filterDepartedCurtailmentTopologyTargets(ctx, q, currentScope, available)
 			if err != nil {
 				return nil, err
 			}
