@@ -495,6 +495,8 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 	active, err = store.ListActiveCurtailedDevices(ctx, orgID)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{devices[0], devices[2], devices[4]}, active)
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, devices[6:7])
+	require.NoError(t, err)
 
 	claimedAllPaired, err := store.ClaimAllPairedPolicyTargets(
 		ctx,
