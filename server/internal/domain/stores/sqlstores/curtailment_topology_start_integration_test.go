@@ -1011,6 +1011,73 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrent
 	assert.Equal(t, models.TargetStateRestoreFailed, targets[0].State)
 }
 
+func TestSQLCurtailmentStore_TopologyRestoreDispatchAllowsDeletedSelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	for _, eventState := range []models.EventState{models.EventStateActive, models.EventStateRestoring} {
+		t.Run(string(eventState), func(t *testing.T) {
+			testContext := testutil.InitializeDBServiceInfrastructure(t)
+			user := testContext.DatabaseService.CreateSuperAdminUser()
+			ctx := t.Context()
+			store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+			collectionStore := sqlstores.NewSQLCollectionStore(testContext.DatabaseService.DB)
+			orgID := user.OrganizationID
+
+			group, err := collectionStore.CreateCollection(
+				ctx,
+				orgID,
+				collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+				"Deleted restore selector group",
+				"",
+			)
+			require.NoError(t, err)
+			device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+			_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
+			require.NoError(t, err)
+
+			event := curtailmentStoreClosedLoopFullFleetEvent(
+				orgID, user.DatabaseID, uuid.New(), models.ScopeTypeMixed, 0, "deleted-restore-selector",
+			)
+			event.State = eventState
+			event.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"group_ids":[%d]}`, group.Id))
+			inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+				curtailmentStoreTestTarget(device.ID, models.TargetStateDispatching, models.DesiredStateActive),
+			})
+			require.NoError(t, err)
+			_, err = collectionStore.SoftDeleteCollection(ctx, orgID, group.Id)
+			require.NoError(t, err)
+
+			persisted, err := store.GetEventByUUID(ctx, orgID, inserted.EventUUID)
+			require.NoError(t, err)
+			err = store.WithCurtailmentTopologyRestoreDispatchFence(
+				ctx,
+				persisted,
+				[]string{device.ID},
+				func(snapshot interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error {
+					assert.Equal(t, eventState, snapshot.Event.State)
+					assert.Empty(t, snapshot.Topology.DispatchMemberDeviceIdentifiers)
+					if eventState == models.EventStateActive {
+						return snapshot.ParkReturnedTargets([]string{device.ID})
+					}
+					return nil
+				},
+			)
+			require.NoError(t, err)
+
+			targets, err := store.ListTargetsByEvent(ctx, orgID, inserted.EventUUID)
+			require.NoError(t, err)
+			require.Len(t, targets, 1)
+			if eventState == models.EventStateActive {
+				assert.Equal(t, models.TargetStateRestoreFailed, targets[0].State)
+			} else {
+				assert.Equal(t, models.TargetStateDispatching, targets[0].State)
+			}
+		})
+	}
+}
+
 func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElsewhere(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

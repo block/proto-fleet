@@ -2290,18 +2290,25 @@ func (s *SQLCurtailmentStore) WithCurtailmentTopologyRestoreDispatchFence(
 			return interfaces.ErrCurtailmentEventStateRaceLoss
 		}
 		latest := convertEventRow(locked)
-		scope, hasScope, err := domainCurtailment.ScopeFromJSON(latest.ScopeJSON)
-		if err != nil || !hasScope || !domainCurtailment.IsTopologyScope(scope) {
-			return fleeterror.NewFailedPreconditionError("persisted topology scope is no longer valid")
-		}
-		params, err := domainCurtailment.ListCandidatesParamsForScope(scope)
-		if err != nil {
-			return err
-		}
-		params.OrgID = latest.OrgID
-		topology, err := lockCurtailmentTopologyRestoreDispatch(ctx, q, params, identifiers)
-		if err != nil {
-			return err
+		topology := interfaces.CurtailmentTopologyDispatchSnapshot{}
+		if latest.State == models.EventStateRestoring {
+			if _, _, err := lockDeviceScopeCoverage(ctx, q, latest.OrgID, identifiers, nil); err != nil {
+				return err
+			}
+		} else {
+			scope, hasScope, err := domainCurtailment.ScopeFromJSON(latest.ScopeJSON)
+			if err != nil || !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+				return fleeterror.NewFailedPreconditionError("persisted topology scope is no longer valid")
+			}
+			params, err := domainCurtailment.ListCandidatesParamsForScope(scope)
+			if err != nil {
+				return err
+			}
+			params.OrgID = latest.OrgID
+			topology, err = lockCurtailmentTopologyRestoreDispatch(ctx, q, params, identifiers)
+			if err != nil {
+				return err
+			}
 		}
 		parkReturnedTargets := func(returnedDeviceIdentifiers []string) error {
 			reason := "restore paused: device returned to topology scope"
@@ -3518,7 +3525,12 @@ func lockCurtailmentTopologyRestoreDispatch(
 	scope interfaces.ListCandidatesParams,
 	deviceIdentifiers []string,
 ) (interfaces.CurtailmentTopologyDispatchSnapshot, error) {
-	if err := lockTopologySelectorResourcesForWrite(ctx, q, scope); err != nil {
+	if err := lockTopologySelectorResourcesForReservation(
+		ctx,
+		q,
+		scope,
+		interfaces.ListCandidatesParams{},
+	); err != nil {
 		return interfaces.CurtailmentTopologyDispatchSnapshot{}, err
 	}
 	memberIdentifiers, err := q.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(
