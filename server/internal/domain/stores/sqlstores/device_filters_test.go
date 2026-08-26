@@ -1266,3 +1266,66 @@ func TestAppendFilterSQL_NumericAndCIDRWithExistingFilters_ArgContinuity(t *test
 	assert.Len(t, resultArgs, 5) // initial + model + 2 numeric + cidrs
 	assert.Equal(t, 6, resultArgNum)
 }
+
+// TestRequiresDynamicQuery_EveryInexpressibleDimension pins the routing
+// predicate to one case per dimension the static sqlc queries cannot express.
+// Callers pair a count with a row set off this single predicate, so a dimension
+// that reaches appendFilterSQL without reaching requiresDynamicQuery would
+// return a count describing a wider set than the rows beside it.
+func TestRequiresDynamicQuery_EveryInexpressibleDimension(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter *stores.MinerFilter
+	}{
+		{"search query", &stores.MinerFilter{SearchQuery: "rack-7"}},
+		{"numeric range", &stores.MinerFilter{NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: ptr(90.0)},
+		}}},
+		{"ip cidr", &stores.MinerFilter{IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}}},
+		{"ip range", &stores.MinerFilter{IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("10.0.0.1"), End: netip.MustParseAddr("10.0.0.9")},
+		}}},
+		{"site ids", &stores.MinerFilter{SiteIDs: []int64{7}}},
+		{"include unassigned", &stores.MinerFilter{IncludeUnassigned: true}},
+		{"building ids", &stores.MinerFilter{BuildingIDs: []int64{3}}},
+		{"include no building", &stores.MinerFilter{IncludeNoBuilding: true}},
+		{"zone keys", &stores.MinerFilter{ZoneKeys: []stores.ZoneKey{{Zone: "Austin"}}}},
+		{"include no rack", &stores.MinerFilter{IncludeNoRack: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.True(t, buildMinerFilterParams(tt.filter).requiresDynamicQuery(),
+				"%s must route to the dynamic builder", tt.name)
+		})
+	}
+}
+
+// TestRequiresDynamicQuery_StaticExpressibleFilters keeps the predicate from
+// widening into an always-true check, which would silently retire the static
+// query path for every caller.
+func TestRequiresDynamicQuery_StaticExpressibleFilters(t *testing.T) {
+	assert.False(t, buildMinerFilterParams(nil).requiresDynamicQuery(),
+		"a nil filter must stay on the static query")
+
+	staticOnly := &stores.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
+		ModelNames:         []string{"S21 XP"},
+		FirmwareVersions:   []string{"v3.5.1"},
+		RackIDs:            []int64{4},
+		GroupIDs:           []int64{9},
+		DeviceIdentifiers:  []string{"device-1"},
+	}
+	assert.False(t, buildMinerFilterParams(staticOnly).requiresDynamicQuery(),
+		"filters the static query can express must not force the dynamic builder")
+}
+
+// TestRequiresDynamicQuery_BlankSearchStaysStatic guards the trimmed-empty
+// case: a cleared search box must not permanently divert every query to the
+// dynamic builder.
+func TestRequiresDynamicQuery_BlankSearchStaysStatic(t *testing.T) {
+	for _, q := range []string{"", "   ", "\t\n"} {
+		assert.False(t, buildMinerFilterParams(&stores.MinerFilter{SearchQuery: q}).requiresDynamicQuery(),
+			"blank search %q must stay on the static query", q)
+	}
+}
