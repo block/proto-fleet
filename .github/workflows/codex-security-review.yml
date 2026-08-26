@@ -21,7 +21,7 @@ jobs:
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
-      CODEX_REASONING_EFFORT: medium
+      CODEX_REASONING_EFFORT: xhigh
       CODEX_TIMEOUT_MINUTES: "9"
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -64,7 +64,7 @@ jobs:
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
           test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
           test "$CODEX_MODEL" = "gpt-5.6-sol"
-          test "$CODEX_REASONING_EFFORT" = "medium"
+          test "$CODEX_REASONING_EFFORT" = "xhigh"
           if git config --local --get-regexp '^http\..*\.extraheader$'; then
             echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
             exit 1
@@ -223,9 +223,6 @@ jobs:
             - Be specific: cite file paths and line numbers from the diff
             - Prioritize high-impact issues; avoid stylistic or low-risk nits
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
-            - Prioritize material findings; avoid tests, lint, and type checks covered by other CI
-            - Inspect tests only to validate a suspected finding; do not reread the complete diff
-            - Return no more than five material findings
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
 

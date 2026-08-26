@@ -188,11 +188,10 @@ class ReviewPolicyTest(unittest.TestCase):
         production_codex = find_step(production, "review-agent", "run_codex")
         production_prompt = production_codex["with"]["prompt"]
         benchmark_prompt = codex["with"]["prompt"]
-        common_prompt = production_prompt.split("- Prioritize material findings", 1)[
-            0
-        ].rstrip()
-        self.assertTrue(benchmark_prompt.startswith(common_prompt))
-        self.assertIn("Return no more than five material findings", production_prompt)
+        self.assertTrue(benchmark_prompt.startswith(production_prompt.rstrip()))
+        self.assertNotIn(
+            "Return no more than five material findings", production_prompt
+        )
         self.assertIn("return no more than five material findings", benchmark_prompt)
         uploads = [
             step
@@ -298,7 +297,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 f"{key} drifted between the production and benchmark reviews",
             )
         self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
-        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "medium")
+        self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "xhigh")
         self.assertEqual(benchmark_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
 
         # The benchmark checks out historical commits, so the review-packet body cannot

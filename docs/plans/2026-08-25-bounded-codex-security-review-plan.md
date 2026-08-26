@@ -187,17 +187,16 @@ changed at a time:
   while retaining repository-side semantic validation.
 
 Do not depend on the prompt's tool-call budget as an enforcement mechanism; the
-current action and CLI expose no hard maximum-turn setting. Accept `high` effort
+current action and CLI expose no hard maximum-turn setting. Accept a lower effort
 or the bounded prompt only if the same finding-recall criteria pass.
 
 ### 4. Bound production execution and fail closed
 
 Update `.github/workflows/codex-security-review.yml` with the selected context,
-effort, and prompt configuration. PR #965 uses `medium` plus the bounded prompt
-as the production candidate after repeated `xhigh` runs exhausted the enforced
-job budget and `high` completed only one of two equivalent large-diff runs. Both
-changes remain acceptance-gated on the adjudicated benchmark corpus before
-rollout.
+effort, and prompt configuration. PR #965 retains `xhigh` plus the baseline
+prompt until the adjudicated benchmark corpus shows that a lower effort or the
+bounded prompt preserves finding recall. The enforced outer job budget and
+fail-closed finalizer can roll out independently of model tuning.
 
 - Keep a nine-minute timeout on both the Codex step and its outer `review-agent`
   job. The job boundary is the enforceable control because the pinned composite
