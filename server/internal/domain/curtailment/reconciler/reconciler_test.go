@@ -360,9 +360,6 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		if update.State != models.TargetStatePending && update.State != models.TargetStateUnavailable {
 			continue
 		}
-		if t.State != update.ExpectedState {
-			continue
-		}
 		t.State = update.State
 		if update.Reason == "" {
 			t.LastError = nil
@@ -1440,6 +1437,30 @@ func TestReconciler_TopologyDispatchHoldsFenceThroughCommand(t *testing.T) {
 	assert.True(t, dispatched)
 	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.False(t, store.topologyFenceActive)
+}
+
+func TestReconciler_TopologyDispatchReleasesRejectedPreclaimedTarget(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	target.State = models.TargetStateDispatching
+	store.candidates = nil
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(
+		Config{TickInterval: time.Hour},
+		store,
+		dispatcher,
+		WithDispatchPermissionResolver(staticDispatchPermissionResolver{
+			effective: topologyDispatchManagePermission(),
+		}),
+	)
+
+	reconciler.dispatchClaimedCurtailTargets(t.Context(), event, []*models.Target{target})
+
+	assert.Zero(t, dispatcher.curtailCalls)
+	assert.Equal(t, models.EventStateRestoring, event.State)
+	assert.Equal(t, models.TargetStateReleased, target.State)
+	assert.Equal(t, models.DesiredStateCurtailed, target.DesiredState)
 }
 
 func TestReconciler_TopologyRestoreHoldsFenceThroughCommand(t *testing.T) {
@@ -4308,6 +4329,36 @@ func TestReconciler_CurtailPreWriteFailureBurnsRetryBudget(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount,
 		"pre-write failure must bump retry_count so the event can't stall indefinitely")
 	require.NotNil(t, final.LastError, "pre-write failure must record last_error")
+}
+
+func TestRecordDispatchFailureUsesEventDirectionWhenLoadedTargetDirectionIsEmpty(t *testing.T) {
+	store := newFakeStore()
+	event := &models.Event{
+		ID:        10,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStatePending,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-1",
+		State:              models.TargetStateDispatching,
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	reconciler := newReconcilerForTest(store, &fakeDispatcher{})
+
+	reconciler.recordDispatchFailure(
+		t.Context(),
+		event,
+		target,
+		"queue unavailable",
+		models.TargetStatePending,
+	)
+
+	params := store.updateTargetParams[target.DeviceIdentifier]
+	require.NotNil(t, params.ExpectedDesiredState)
+	assert.Equal(t, models.DesiredStateCurtailed, *params.ExpectedDesiredState)
 }
 
 // If Stop moves the parent event out of the active phase after the liveness

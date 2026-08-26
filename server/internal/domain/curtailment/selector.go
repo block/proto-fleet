@@ -441,7 +441,7 @@ func AllPairedPolicyRestoreTargetState(c *models.Candidate) (models.TargetState,
 	if c.DriverName == nil || *c.DriverName == "" {
 		return models.TargetStateUnavailable, allPairedUnavailableNoDriver
 	}
-	if c.DeviceStatus == deviceStatusInactive {
+	if c.DeviceStatus == deviceStatusInactive || c.DeviceStatus == deviceStatusNeedsMiningPool {
 		return models.TargetStatePending, ""
 	}
 	return AllPairedPolicyTargetState(c, true)

@@ -684,6 +684,24 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 // dispatchCurtailBatch issues one Curtail command for every device in claim and
 // records per-target dispatched/skipped/failed outcomes.
 func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, recordPendingDispatch bool) bool {
+	return r.dispatchCurtailBatchWithKnownUnsent(
+		ctx,
+		ev,
+		claim,
+		nonTerminalFailureState,
+		recordPendingDispatch,
+		nil,
+	)
+}
+
+func (r *Reconciler) dispatchCurtailBatchWithKnownUnsent(
+	ctx context.Context,
+	ev *models.Event,
+	claim []*models.Target,
+	nonTerminalFailureState models.TargetState,
+	recordPendingDispatch bool,
+	preclaimedUnsentDeviceIdentifiers []string,
+) bool {
 	if len(claim) == 0 {
 		return true
 	}
@@ -698,7 +716,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	// last_dispatched_at is *not* stamped here — only successful enqueues
 	// advance it (used by the restore-batch interval gate).
 	dispatchSet := make([]*models.Target, 0, len(claim))
-	knownUnsentDeviceIdentifiers := make([]string, 0, len(claim))
+	knownUnsentDeviceIdentifiers := append([]string(nil), preclaimedUnsentDeviceIdentifiers...)
 	for _, t := range claim {
 		if t.State == models.TargetStatePending {
 			knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, t.DeviceIdentifier)
@@ -880,10 +898,9 @@ func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *model
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:                state,
-		LastError:            &errMsg,
-		RetryCount:           &newRetry,
-		ExpectedDesiredState: &t.DesiredState,
+		State:      state,
+		LastError:  &errMsg,
+		RetryCount: &newRetry,
 	}
 	if t.DesiredState != "" {
 		expectedDesiredState := t.DesiredState
@@ -1805,7 +1822,18 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 	if len(dispatchable) == 0 {
 		return
 	}
-	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching, recordPendingDispatchClock)
+	knownUnsentDeviceIdentifiers := make([]string, 0, len(dispatchable))
+	for _, target := range dispatchable {
+		knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, target.DeviceIdentifier)
+	}
+	_ = r.dispatchCurtailBatchWithKnownUnsent(
+		ctx,
+		ev,
+		dispatchable,
+		models.TargetStateDispatching,
+		recordPendingDispatchClock,
+		knownUnsentDeviceIdentifiers,
+	)
 }
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
