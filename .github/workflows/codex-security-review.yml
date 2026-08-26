@@ -463,9 +463,11 @@ jobs:
     if: ${{ always() && needs.security-review.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Serialize posters without cancellation. A stale poster must reach the
+    # newer-run guard instead of cancelling the poster for the current run.
     concurrency:
       group: codex-security-review-post-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       actions: read
       issues: write

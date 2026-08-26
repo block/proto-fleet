@@ -133,6 +133,11 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(post_review["needs"], "security-review")
         self.assertIn("always()", post_review["if"])
         self.assertIn("needs.security-review.result == 'success'", post_review["if"])
+        self.assertFalse(post_review["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            post_review["concurrency"]["group"],
+            "codex-security-review-post-${{ github.event.pull_request.number }}",
+        )
         self.assertEqual(codex["timeout-minutes"], 9)
         self.assertTrue(codex["continue-on-error"])
         self.assertIn('"additionalProperties": false', codex["with"]["output-schema"])
