@@ -47,8 +47,7 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
         ...pool,
         name: pool.poolName,
         password: "",
-        // TODO: fix priority assignment
-        priority: pool.poolId,
+        priority: Number(pool.poolId),
       }));
     const maxExistingPriority = Math.max(
       // TODO: fix priority assignment

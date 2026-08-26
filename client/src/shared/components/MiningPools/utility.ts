@@ -6,7 +6,7 @@ export const isValidPool = (pool?: PoolInfo) => {
   return !!pool?.url;
 };
 
-export const getEmptyPoolsInfo = (startingPriority: number = 0) => {
+export const getEmptyPoolsInfo = (startingPriority: number = 0): PoolInfo[] => {
   return [...Array(3)].map((_, index) => {
     const poolInfo = deepClone(emptyPoolInfo);
     poolInfo[poolInfoAttributes.priority] = startingPriority + index;
