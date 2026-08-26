@@ -50,7 +50,11 @@ export type MinerAdapterDefinition<Match extends AdapterProbeMatch = AdapterProb
 export type AdapterResolution =
   | { status: "probing"; adapterId: undefined; adapter: undefined }
   | { status: "ready"; adapterId: MinerAdapterId; adapter: MinerAdapter }
-  | { status: "unsupported"; adapterId: MinerAdapterId | undefined; adapter: undefined };
+  | { status: "unsupported"; adapterId: MinerAdapterId | undefined; adapter: undefined }
+  // A probe errored or the miner was unreachable, so identification is
+  // inconclusive rather than a confirmed "unsupported miner". Recoverable: the
+  // caller can re-probe. Distinct from "unsupported", which is terminal.
+  | { status: "unreachable"; adapterId: undefined; adapter: undefined };
 
 /** Access/refresh token pair returned by the miner auth endpoints. */
 export interface AuthTokens {

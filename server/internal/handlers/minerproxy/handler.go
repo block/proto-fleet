@@ -530,7 +530,16 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 // endpoint. Reject those bytes too — a real query string arrives via the
 // request's own RawQuery, never through the path wildcard.
 func proxyPathFor(apiVersion string, method string, rest string) (string, bool) {
-	if apiVersion != "v1" && !(apiVersion == "v2" && method == http.MethodGet && rest == "system/info") {
+	switch apiVersion {
+	case "v1":
+		// MDK v1 retains the existing generic proxy surface (any method/rest).
+	case "v2":
+		// MDK v2 is probe-only, so only its explicitly allowlisted endpoints
+		// (keyed by method + rest) are accepted.
+		if _, ok := lookupV2Endpoint(method, rest); !ok {
+			return "", false
+		}
+	default:
 		return "", false
 	}
 
@@ -547,12 +556,54 @@ func proxyPathFor(apiVersion string, method string, rest string) (string, bool) 
 	return proxyPath, path.Clean(proxyPath) == proxyPath
 }
 
+// v2Endpoint describes one allowlisted MDK v2 endpoint. While v2 is probe-only,
+// the proxy accepts a fixed, explicitly enumerated set of v2 endpoints; each
+// entry records the {method, rest} that identify it and whether the miner
+// requires bearer authentication for it.
+type v2Endpoint struct {
+	method       string
+	rest         string
+	requiresAuth bool
+}
+
+// proxyPath returns the canonical upstream path this endpoint forwards to.
+func (e v2Endpoint) proxyPath() string {
+	return "/api/v2/" + e.rest
+}
+
+// v2AllowlistedEndpoints is the single source of truth for which MDK v2
+// endpoints the proxy accepts and whether each needs miner authentication. Both
+// the allowlist decision (proxyPathFor) and the auth decision
+// (requiresMinerAuthentication) derive from this one table so they cannot drift
+// apart. While v2 is probe-only, the sole entry is the documented, read-only,
+// unauthenticated system/info identification endpoint.
+var v2AllowlistedEndpoints = []v2Endpoint{
+	{method: http.MethodGet, rest: "system/info", requiresAuth: false},
+}
+
+// lookupV2Endpoint returns the allowlisted v2 endpoint for a {method, rest}, if
+// any.
+func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
+	for _, e := range v2AllowlistedEndpoints {
+		if e.method == method && e.rest == rest {
+			return e, true
+		}
+	}
+	return v2Endpoint{}, false
+}
+
 // requiresMinerAuthentication keeps the existing MDK v1 bearer-token behavior
-// while leaving the documented MDK v2 identification endpoint unauthenticated.
-// This prevents a v2 probe from attempting the v1 login endpoint with Fleet's
-// stored miner password.
+// while honoring the per-endpoint auth flag for allowlisted MDK v2 endpoints.
+// The documented v2 identification endpoint is unauthenticated, which prevents a
+// v2 probe from attempting the v1 login endpoint with Fleet's stored miner
+// password.
 func requiresMinerAuthentication(proxyPath string) bool {
-	return proxyPath != "/api/v2/system/info"
+	for _, e := range v2AllowlistedEndpoints {
+		if e.proxyPath() == proxyPath {
+			return e.requiresAuth
+		}
+	}
+	return true
 }
 
 // isUnproxyableEndpoint rejects endpoints that must not be reverse-proxied

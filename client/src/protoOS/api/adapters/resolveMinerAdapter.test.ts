@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createMdkV1Definition } from "./mdkV1/definition";
 import { mdkV2Definition } from "./mdkV2/definition";
 import { resolveMinerAdapter } from "./resolveMinerAdapter";
-import type { MinerAdapter } from "./types";
+import type { MinerAdapter, MinerAdapterDefinition } from "./types";
 
 const v1Adapter = {} as MinerAdapter;
 
@@ -82,5 +82,66 @@ describe("resolveMinerAdapter", () => {
 
     expect(request).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ status: "unsupported", adapterId: undefined });
+  });
+
+  test("returns unreachable when a probe rejects with a non-abort error and nothing matches", async () => {
+    const request = vi.fn().mockRejectedValue(new Error("network unreachable"));
+
+    const result = await resolveMinerAdapter(
+      [mdkV2Definition, createMdkV1Definition(() => v1Adapter)],
+      request,
+      new AbortController().signal,
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ status: "unreachable", adapterId: undefined, adapter: undefined });
+  });
+
+  test("treats a parseResponse throw as a probe error, resolving to unreachable", async () => {
+    const request = vi.fn().mockResolvedValue({ any: "body" });
+    const throwingDefinition: MinerAdapterDefinition = {
+      id: "mdk-v1",
+      displayName: "MDK v1",
+      support: "supported",
+      probe: {
+        path: "/api/v1/system",
+        parseResponse: () => {
+          throw new Error("parse failure");
+        },
+      },
+      create: () => v1Adapter,
+    };
+
+    const result = await resolveMinerAdapter([throwingDefinition], request, new AbortController().signal);
+
+    expect(result).toEqual({ status: "unreachable", adapterId: undefined, adapter: undefined });
+  });
+
+  test("treats a create throw as a probe error, resolving to unreachable", async () => {
+    const request = vi.fn().mockResolvedValue({ "system-info": { product_name: "Proto Rig" } });
+
+    const result = await resolveMinerAdapter(
+      [
+        createMdkV1Definition(() => {
+          throw new Error("construct failure");
+        }),
+      ],
+      request,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({ status: "unreachable", adapterId: undefined, adapter: undefined });
+  });
+
+  test("rethrows and does not swallow an aborted probe", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(async () => {
+      controller.abort();
+      throw new DOMException("Aborted", "AbortError");
+    });
+
+    await expect(
+      resolveMinerAdapter([createMdkV1Definition(() => v1Adapter)], request, controller.signal),
+    ).rejects.toThrow("Aborted");
   });
 });

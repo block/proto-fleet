@@ -1,10 +1,5 @@
+import { isRecord, optionalString } from "../probeParsing";
 import type { AdapterProbeMatch, MinerAdapter, MinerAdapterDefinition } from "../types";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const optionalString = (value: unknown): string | undefined =>
-  typeof value === "string" && value.length > 0 ? value : undefined;
 
 const parseMdkV1ProbeResponse = (body: unknown): AdapterProbeMatch | undefined => {
   if (!isRecord(body) || !isRecord(body["system-info"])) return undefined;

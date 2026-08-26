@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
 import { createMdkV1Definition } from "@/protoOS/api/adapters/mdkV1/definition";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
@@ -73,6 +73,18 @@ const PROBING_RESOLUTION: AdapterResolution = {
   adapter: undefined,
 };
 
+const UNREACHABLE_RESOLUTION: AdapterResolution = {
+  status: "unreachable",
+  adapterId: undefined,
+  adapter: undefined,
+};
+
+// Bound each probe request so a hung/never-responding miner can't wedge adapter
+// resolution forever. A timed-out attempt aborts only that request (not the
+// effect's parent signal), so resolveMinerAdapter treats it as a normal probe
+// error and resolves to "unreachable" — a retryable state, not a permanent hang.
+const PROBE_TIMEOUT_MS = 5000;
+
 const MinerHostingContext = createContext<MinerHostingContextType>({
   api: null,
   adapter: null,
@@ -107,20 +119,50 @@ export const MinerHostingProvider = ({
     instance,
     resolution: PROBING_RESOLUTION,
   }));
+  // Bumped to force a re-probe (e.g. the retry button on the unreachable state).
+  const [retryToken, setRetryToken] = useState(0);
+  // Only surface a resolution that belongs to the *current* api instance. When
+  // baseUrl/mode change, `instance` is recreated before the new probe settles;
+  // discarding the previous instance's still-pending resolution here keeps us in
+  // `probing` instead of flashing the prior miner's adapter (a stale-adapter
+  // flash) during the switch.
   const resolution = resolved.instance === instance ? resolved.resolution : PROBING_RESOLUTION;
   const adapter = resolution.status === "ready" ? resolution.adapter : null;
+
+  const retry = useCallback(() => {
+    // Show probing immediately, then re-run the effect via the deps bump.
+    setResolved({ instance, resolution: PROBING_RESOLUTION });
+    setRetryToken((token) => token + 1);
+  }, [instance]);
 
   useEffect(() => {
     const controller = new AbortController();
     const probe = async (path: string, signal: AbortSignal) => {
-      const response = await instance.request<unknown, unknown>({
-        path,
-        method: "GET",
-        format: "json",
-        secure: false,
-        signal,
-      });
-      return response.data;
+      // Race the request against a per-attempt timeout: a child controller
+      // aborts on timeout OR when the effect's parent signal aborts. The parent
+      // signal itself is left untouched by the timeout, so a timeout reads as a
+      // normal probe error (→ unreachable) while a genuine abort still rethrows.
+      const attempt = new AbortController();
+      const forwardAbort = () => attempt.abort();
+      if (signal.aborted) {
+        attempt.abort();
+      } else {
+        signal.addEventListener("abort", forwardAbort, { once: true });
+      }
+      const timeout = setTimeout(forwardAbort, PROBE_TIMEOUT_MS);
+      try {
+        const response = await instance.request<unknown, unknown>({
+          path,
+          method: "GET",
+          format: "json",
+          secure: false,
+          signal: attempt.signal,
+        });
+        return response.data;
+      } finally {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", forwardAbort);
+      }
     };
 
     void resolveMinerAdapter(definitions, probe, controller.signal)
@@ -130,14 +172,11 @@ export const MinerHostingProvider = ({
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         console.error("Miner adapter resolution failed", error);
-        setResolved({
-          instance,
-          resolution: { status: "unsupported", adapterId: undefined, adapter: undefined },
-        });
+        setResolved({ instance, resolution: UNREACHABLE_RESOLUTION });
       });
 
     return () => controller.abort();
-  }, [definitions, instance]);
+  }, [definitions, instance, retryToken]);
 
   // baseUrl is per-miner in fleet mode, so this clears the singleton device
   // store when switching miners (no-op in direct mode, where baseUrl is fixed).
@@ -147,6 +186,8 @@ export const MinerHostingProvider = ({
     <MinerHostingContext.Provider value={{ api, adapter, resolution, minerRoot, closeButton, mode, metadata }}>
       {resolution.status === "unsupported" ? (
         <UnsupportedMiner adapterId={resolution.adapterId} closeButton={closeButton} />
+      ) : resolution.status === "unreachable" ? (
+        <UnsupportedMiner closeButton={closeButton} onRetry={retry} />
       ) : (
         children
       )}

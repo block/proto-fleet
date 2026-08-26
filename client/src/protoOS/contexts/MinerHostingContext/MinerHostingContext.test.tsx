@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { MinerHostingProvider } from "./MinerHostingContext";
@@ -15,6 +15,7 @@ const ContextState = () => {
 describe("MinerHostingProvider adapter resolution", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   test("probes MDK v2 before MDK v1 and exposes the resolved v1 adapter", async () => {
@@ -104,5 +105,92 @@ describe("MinerHostingProvider adapter resolution", () => {
     await screen.findByRole("heading", { name: "This miner isn't supported yet" });
     expect(screen.getByText("MDK v2 was detected, but ProtoOS support is still being built.")).toBeInTheDocument();
     expect(firstProbeSignal?.aborted).toBe(true);
+  });
+
+  test("renders a retryable state when the miner is unreachable and re-probes on retry", async () => {
+    let attempt = 0;
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      attempt += 1;
+      // First probe pass (v2 then v1) fails with a non-abort network error.
+      if (attempt <= 2) return Promise.reject(new TypeError("Failed to fetch"));
+      // Retry pass: v2 misses, v1 identifies the miner.
+      if (url.endsWith("/api/v2/system/info")) return Promise.resolve(jsonResponse({}, 404));
+      return Promise.resolve(jsonResponse({ "system-info": { product_name: "Proto Rig" } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MinerHostingProvider>
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Couldn't reach this miner" });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v1"));
+  });
+
+  test("resolves to the retryable unreachable state when a probe never settles (per-attempt timeout)", async () => {
+    vi.useFakeTimers();
+    // A probe that never resolves on its own, only rejecting when its request
+    // signal is aborted (mirrors fetch's abort behavior). The per-attempt
+    // timeout must abort it so resolution doesn't hang forever.
+    const fetchMock = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MinerHostingProvider>
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+
+    // Advance past both probes' timeouts (they run sequentially).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11000);
+    });
+
+    expect(screen.getByRole("heading", { name: "Couldn't reach this miner" })).toBeInTheDocument();
+  });
+
+  test("returns to probing immediately after a baseUrl change, before the new probe settles", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/miner-one")) {
+        return Promise.resolve(
+          url.endsWith("/api/v2/system/info")
+            ? jsonResponse({}, 404)
+            : jsonResponse({ "system-info": { product_name: "Proto Rig" } }),
+        );
+      }
+      // miner-two: never settle (except on abort) so the new probe stays pending.
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <MinerHostingProvider baseUrl="/miner-one">
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v1"));
+
+    rerender(
+      <MinerHostingProvider baseUrl="/miner-two">
+        <ContextState />
+      </MinerHostingProvider>,
+    );
+
+    // The prior miner's resolved adapter must not flash through during the
+    // switch: the new instance has no settled resolution yet, so we show probing.
+    expect(screen.getByTestId("resolution")).toHaveTextContent("probing:none");
   });
 });
