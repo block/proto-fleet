@@ -154,6 +154,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("actions.listWorkflowRuns", post_script)
         self.assertIn("run.id > Number(context.runId)", post_script)
         self.assertIn("run.head_sha === reviewedHeadSha", post_script)
+        self.assertIn("Number(pullRequest.number) === prNumber", post_script)
         self.assertIn("existingRunId > Number(context.runId)", post_script)
         self.assertLess(
             post_script.index("const supersedingRun"),
@@ -1409,6 +1410,31 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.github_paginate_key = original
 
         self.assertEqual(latest["Gate"]["id"], 2)
+
+    def test_latest_check_runs_prefers_newer_workflow_over_later_finalizer(self):
+        original = policy.github_paginate_key
+        try:
+            policy.github_paginate_key = lambda path, token, key: [
+                {
+                    "name": "security-review",
+                    "started_at": "2026-01-01T00:10:00Z",
+                    "id": 10,
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/100/job/10",
+                    "conclusion": "success",
+                },
+                {
+                    "name": "security-review",
+                    "started_at": "2026-01-01T00:05:00Z",
+                    "id": 11,
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/101/job/11",
+                    "conclusion": "success",
+                },
+            ]
+            latest = policy.latest_check_runs("block", "proto-fleet", "abc123", "token")
+        finally:
+            policy.github_paginate_key = original
+
+        self.assertEqual(latest["security-review"]["id"], 11)
 
     def test_check_statuses_requires_successful_completed_runs(self):
         original = policy.latest_check_runs

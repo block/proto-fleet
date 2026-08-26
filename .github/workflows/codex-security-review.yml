@@ -608,7 +608,9 @@ jobs:
                 per_page: 100,
               });
               const supersedingRun = workflowRuns.find(run =>
-                run.id > Number(context.runId) && run.head_sha === reviewedHeadSha
+                run.id > Number(context.runId) &&
+                run.head_sha === reviewedHeadSha &&
+                run.pull_requests?.some(pullRequest => Number(pullRequest.number) === prNumber)
               );
               if (supersedingRun) {
                 core.notice(

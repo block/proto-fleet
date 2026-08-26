@@ -218,8 +218,11 @@ fail-closed finalizer can roll out independently of model tuning.
 - Preserve the existing artifact names and schema consumed by
   `.github/scripts/evaluate_review_policy.py`.
 - Serialize post-review jobs without cancelling the running poster, preserve the
-  head-SHA check, and reject superseded workflow runs so stale or
+  head-SHA check, and reject newer runs for the same pull request so stale or
   concurrency-cancelled results never update the PR comment.
+- Select same-named policy checks by workflow invocation order before job start
+  time so a superseded finalizer that starts late cannot replace newer policy
+  input.
 - Reduce the post-review job timeout only after its observed runtime confirms a
   safe bound.
 
