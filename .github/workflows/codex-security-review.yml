@@ -402,11 +402,16 @@ jobs:
             const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
               ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
               : null;
+            const codexWasActiveAtCancellation =
+              Boolean(codexStep?.started_at) &&
+              (
+                codexStep?.conclusion === 'cancelled' ||
+                (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
+              );
             const budgetEvidence =
               job.conclusion === 'cancelled' &&
               prerequisitesSucceeded &&
-              codexStep?.started_at &&
-              codexStep?.conclusion === 'cancelled' &&
+              codexWasActiveAtCancellation &&
               elapsedSeconds !== null &&
               elapsedSeconds >= budgetSeconds;
 
@@ -417,6 +422,7 @@ jobs:
                 job_conclusion: job.conclusion,
                 prerequisites_succeeded: prerequisitesSucceeded,
                 codex_started: Boolean(codexStep?.started_at),
+                codex_status: codexStep?.status || null,
                 codex_conclusion: codexStep?.conclusion || null,
                 observed_job_seconds: elapsedSeconds,
                 budget_seconds: budgetSeconds,

@@ -431,7 +431,8 @@ class ReviewPolicyTest(unittest.TestCase):
                 *successful_steps,
                 {
                     "name": "Run Codex Security Review",
-                    "conclusion": "cancelled",
+                    "status": "in_progress",
+                    "conclusion": None,
                     "started_at": "2026-08-26T00:00:30Z",
                 },
             ],
