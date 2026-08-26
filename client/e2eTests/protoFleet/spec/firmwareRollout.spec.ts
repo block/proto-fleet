@@ -88,9 +88,15 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.applyLaneFirmwareChanges(laneA);
     });
 
-    await test.step("Lane and page header signal the ongoing rollout", async () => {
+    await test.step("Lane and app header signal the ongoing rollout", async () => {
       await settingsFirmwarePage.validateLaneRolloutPill(laneA);
-      await settingsFirmwarePage.validatePageRolloutPill();
+      await settingsFirmwarePage.validateAppRolloutPill();
+    });
+
+    await test.step("Header pill deep-links to the rollout lanes view", async () => {
+      await settingsFirmwarePage.openFilesTab();
+      await settingsFirmwarePage.followAppRolloutPillToLanes();
+      await settingsFirmwarePage.validateLaneRolloutPill(laneA);
     });
 
     await test.step("Collapsed model group still shows overall rollout progress", async () => {

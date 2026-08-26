@@ -421,19 +421,10 @@ const RolloutLanesTab = () => {
       .finally(() => setIsSavingMembers(false));
   };
 
-  const activeRolloutCount = rollouts.filter((r) => r.status === RolloutStatus.ACTIVE).length;
-
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <div className="flex items-start gap-3">
-          <SettingsPageHeader title="Rollout lanes" description={ROLLOUT_LANES_DESCRIPTION} />
-          {activeRolloutCount > 0 ? (
-            <span className="mt-1">
-              <RolloutActivePill count={activeRolloutCount} testId="page-rollout-pill" />
-            </span>
-          ) : null}
-        </div>
+        <SettingsPageHeader title="Rollout lanes" description={ROLLOUT_LANES_DESCRIPTION} />
         <Button
           variant={variants.primary}
           size={sizes.compact}

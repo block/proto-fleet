@@ -121,8 +121,21 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.laneCard(laneName).getByTestId("lane-rollout-pill")).toBeVisible();
   }
 
-  async validatePageRolloutPill() {
-    await expect(this.page.getByTestId("page-rollout-pill")).toBeVisible();
+  appRolloutPill(): Locator {
+    return this.page.getByRole("button", { name: "View ongoing firmware rollouts" });
+  }
+
+  async validateAppRolloutPill() {
+    await expect(this.appRolloutPill()).toBeVisible();
+  }
+
+  // Opens the app-header rollout pill popover and follows its link to the
+  // rollout lanes view.
+  async followAppRolloutPillToLanes() {
+    await this.appRolloutPill().click();
+    await this.page.getByRole("link", { name: "View rollout lanes", exact: true }).click();
+    await this.validateTitle("Rollout lanes");
+    await expect(this.page.getByText("Loading rollout lanes...", { exact: true })).toBeHidden();
   }
 
   // Collapsed model group: firmware select hidden, header still visible.

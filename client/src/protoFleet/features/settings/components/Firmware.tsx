@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
@@ -355,22 +356,31 @@ const FirmwareFilesSection = () => {
 
 const TAB_FILES = "files";
 const TAB_ROLLOUT_LANES = "rolloutLanes";
+const ROLLOUT_LANES_TAB_PARAM = "rollout-lanes";
 
 const firmwareTabs = [
   { key: TAB_FILES, title: "Files" },
   { key: TAB_ROLLOUT_LANES, title: "Rollout lanes" },
 ];
 
+// The active tab lives in the `tab` search param so surfaces like the
+// header rollout pill can deep-link straight to the rollout lanes view.
 const Firmware = () => {
-  const [activeTab, setActiveTab] = useState(TAB_FILES);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === ROLLOUT_LANES_TAB_PARAM ? TAB_ROLLOUT_LANES : TAB_FILES;
 
   return (
     <div className="flex flex-col gap-6">
       <SegmentedControl
+        // SegmentedControl is uncontrolled; remount it when navigation
+        // (rather than a click) changes the URL-derived tab.
+        key={activeTab}
         className="self-start"
         segments={firmwareTabs}
         initialSegmentKey={activeTab}
-        onSelect={setActiveTab}
+        onSelect={(key) =>
+          setSearchParams(key === TAB_ROLLOUT_LANES ? { tab: ROLLOUT_LANES_TAB_PARAM } : {}, { replace: true })
+        }
       />
       {activeTab === TAB_ROLLOUT_LANES ? <RolloutLanesTab /> : <FirmwareFilesSection />}
     </div>
