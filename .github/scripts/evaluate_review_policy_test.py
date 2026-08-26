@@ -452,6 +452,33 @@ class ReviewPolicyTest(unittest.TestCase):
         scenarios = [
             ("verified-timeout", base, "budget-timeout"),
             (
+                "post-codex-budget-timeout",
+                {
+                    **base,
+                    "jobs": [
+                        {
+                            **timeout_job,
+                            "steps": [
+                                *successful_steps,
+                                {
+                                    "name": "Run Codex Security Review",
+                                    "status": "completed",
+                                    "conclusion": "success",
+                                    "started_at": "2026-08-26T00:00:30Z",
+                                },
+                                {
+                                    "name": "Write trusted raw review handoff",
+                                    "status": "in_progress",
+                                    "conclusion": None,
+                                    "started_at": "2026-08-26T00:08:59Z",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "budget-timeout",
+            ),
+            (
                 "setup-cancellation",
                 {
                     **base,
@@ -522,7 +549,12 @@ class ReviewPolicyTest(unittest.TestCase):
         codex = find_step(workflow, "benchmark-review", "run_codex")
         benchmark_writer = find_step(workflow, "benchmark-review", "write_artifacts")
 
-        self.assertEqual(set(workflow_triggers(workflow)), {"workflow_dispatch"})
+        self.assertEqual(
+            workflow_triggers(workflow),
+            {"repository_dispatch": {"types": ["codex-security-review-benchmark"]}},
+        )
+        self.assertNotIn("workflow_dispatch:", workflow_text)
+        self.assertNotIn("${{ inputs", workflow_text)
         self.assertEqual(
             workflow["permissions"], {"actions": "read", "contents": "read"}
         )
@@ -585,7 +617,12 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertEqual(
             workflow["jobs"]["select-cases"]["outputs"],
-            {"matrix": "${{ steps.select.outputs.matrix }}"},
+            {
+                "matrix": "${{ steps.select.outputs.matrix }}",
+                "reasoning_effort": "${{ steps.select.outputs.reasoning_effort }}",
+                "prompt_profile": "${{ steps.select.outputs.prompt_profile }}",
+                "repeat": "${{ steps.select.outputs.repeat }}",
+            },
         )
 
     def test_codex_benchmark_selection_filters_the_requested_corpus_and_variant(self):
@@ -613,6 +650,9 @@ class ReviewPolicyTest(unittest.TestCase):
                     {
                         "CORPUS": corpus_name,
                         "CONTEXT_VARIANT": variant_name,
+                        "REASONING_EFFORT": "xhigh",
+                        "PROMPT_PROFILE": "baseline",
+                        "REPEAT": "initial",
                         "GITHUB_OUTPUT": str(output),
                     },
                     tmp,
@@ -621,7 +661,11 @@ class ReviewPolicyTest(unittest.TestCase):
 
         result, emitted = select("adjudicated", "all")
         self.assertEqual(result.returncode, 0, result.stderr)
-        include = json.loads(emitted.split("matrix=", 1)[1])["include"]
+        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
+        include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual(outputs["reasoning_effort"], "xhigh")
+        self.assertEqual(outputs["prompt_profile"], "baseline")
+        self.assertEqual(outputs["repeat"], "initial")
         self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
         self.assertEqual({entry["case"]["id"] for entry in include}, set(adjudicated))
         self.assertEqual(
@@ -631,7 +675,8 @@ class ReviewPolicyTest(unittest.TestCase):
 
         result, emitted = select("large-pr", "compact")
         self.assertEqual(result.returncode, 0, result.stderr)
-        include = json.loads(emitted.split("matrix=", 1)[1])["include"]
+        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
+        include = json.loads(outputs["matrix"])["include"]
         self.assertEqual(
             [(entry["case"]["id"], entry["variant"]["id"]) for entry in include],
             [(case_id, "compact") for case_id in large_pr],
@@ -925,7 +970,13 @@ class ReviewPolicyTest(unittest.TestCase):
         group = workflow["concurrency"]["group"]
         self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
         self.assertTrue(group.startswith("codex-security-review-benchmark-"))
-        for name in workflow_triggers(workflow)["workflow_dispatch"]["inputs"]:
+        for name in (
+            "corpus",
+            "context-variant",
+            "reasoning-effort",
+            "prompt-profile",
+            "repeat",
+        ):
             self.assertIn(name, group)
 
     def test_incomplete_codex_review_cannot_take_approval_free_path(self):

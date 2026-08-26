@@ -95,11 +95,13 @@ flowchart TD
 
 ### 1. Add a non-blocking replay benchmark
 
-Add `.github/workflows/codex-security-review-benchmark.yml` with
-`workflow_dispatch` only. It must:
+Add `.github/workflows/codex-security-review-benchmark.yml` with a typed
+`repository_dispatch` trigger so GitHub always loads the workflow from the
+trusted default branch. It must:
 
-- Run only when manually dispatched by an actor accepted by
-  `openai/codex-action`'s write-access check.
+- Run only when manually dispatched through the repository dispatch API by an
+  actor accepted by `openai/codex-action`'s write-access check; never accept a
+  feature-branch workflow ref for the secret-backed run.
 - Use hardcoded, reviewed base/head SHA pairs rather than arbitrary user input.
 - Fetch and check out the same-repository historical commits with credentials
   disabled after fetch.
@@ -281,7 +283,7 @@ of model efficiency.
 | --- | --- |
 | Less diff context hides a causal relationship | Replay adjudicated findings; retain `unified=40` unless a candidate meets recall gates |
 | Model variance is mistaken for a context effect | Repeat only disagreeing or near-budget cases twice more |
-| Benchmark invokes expensive secret-backed jobs | Manual dispatch, fixed corpus, `max-parallel: 2`, 12-minute cap |
+| Benchmark invokes expensive secret-backed jobs | Default-branch `repository_dispatch`, fixed corpus, `max-parallel: 2`, 12-minute cap |
 | Benchmark workflow drifts from production | Hold prompt/model/sandbox constant during context tests, and assert in `evaluate_review_policy_test.py` that the output schema, safety strategy, sandbox, model, and review-packet body are identical across both workflows |
 | Review-packet logic diverges between the two workflows | The benchmark checks out historical commits, so a local composite action would resolve to a tree that predates it; the two copies are instead asserted byte-identical |
 | A timeout fallback makes an incomplete review look successful | Emit `HIGH`, state that review is incomplete, and test that policy requires human review |

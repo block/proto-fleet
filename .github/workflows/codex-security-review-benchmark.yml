@@ -1,52 +1,11 @@
 name: Codex Security Review Benchmark
 
+# repository_dispatch always loads the workflow from the default branch. Unlike
+# workflow_dispatch --ref, a contributor cannot execute a modified feature-branch
+# workflow while receiving the repository's benchmark API key.
 on:
-  workflow_dispatch:
-    inputs:
-      corpus:
-        description: Fixed corpus to replay
-        required: true
-        default: adjudicated
-        type: choice
-        options:
-          - adjudicated
-          - large-pr
-      context-variant:
-        description: Fixed diff-context variant (all runs all three)
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - unified-40
-          - unified-10
-          - compact
-      reasoning-effort:
-        description: Keep xhigh for context tests; compare high only after selecting context
-        required: true
-        default: xhigh
-        type: choice
-        options:
-          - xhigh
-          - high
-          - medium
-      prompt-profile:
-        description: Keep baseline for context/effort tests; compare bounded separately
-        required: true
-        default: baseline
-        type: choice
-        options:
-          - baseline
-          - bounded
-      repeat:
-        description: Replay ordinal for variance checks
-        required: true
-        default: initial
-        type: choice
-        options:
-          - initial
-          - repeat-1
-          - repeat-2
+  repository_dispatch:
+    types: [codex-security-review-benchmark]
 
 permissions:
   actions: read
@@ -55,7 +14,18 @@ permissions:
 concurrency:
   # Each benchmark configuration serializes with itself so a double dispatch queues
   # instead of paying twice, while distinct repeats and corpora still run in parallel.
-  group: codex-security-review-benchmark-${{ inputs.corpus }}-${{ inputs['context-variant'] }}-${{ inputs['reasoning-effort'] }}-${{ inputs['prompt-profile'] }}-${{ inputs.repeat }}
+  group: >-
+    codex-security-review-benchmark-${{
+      github.event.client_payload.corpus || 'adjudicated'
+    }}-${{
+      github.event.client_payload['context-variant'] || 'all'
+    }}-${{
+      github.event.client_payload['reasoning-effort'] || 'xhigh'
+    }}-${{
+      github.event.client_payload['prompt-profile'] || 'baseline'
+    }}-${{
+      github.event.client_payload.repeat || 'initial'
+    }}
   cancel-in-progress: false
 
 jobs:
@@ -65,6 +35,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
+      reasoning_effort: ${{ steps.select.outputs.reasoning_effort }}
+      prompt_profile: ${{ steps.select.outputs.prompt_profile }}
+      repeat: ${{ steps.select.outputs.repeat }}
     steps:
       - name: Check out the benchmark corpus
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,8 +50,11 @@ jobs:
       - name: Select benchmark cases and context variants
         id: select
         env:
-          CORPUS: ${{ inputs.corpus }}
-          CONTEXT_VARIANT: ${{ inputs['context-variant'] }}
+          CORPUS: ${{ github.event.client_payload.corpus || 'adjudicated' }}
+          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || 'all' }}
+          REASONING_EFFORT: ${{ github.event.client_payload['reasoning-effort'] || 'xhigh' }}
+          PROMPT_PROFILE: ${{ github.event.client_payload['prompt-profile'] || 'baseline' }}
+          REPEAT: ${{ github.event.client_payload.repeat || 'initial' }}
         run: |
           python3 - <<'PY'
           import json
@@ -87,6 +63,20 @@ jobs:
 
           corpus_name = os.environ["CORPUS"]
           variant_name = os.environ["CONTEXT_VARIANT"]
+          reasoning_effort = os.environ["REASONING_EFFORT"]
+          prompt_profile = os.environ["PROMPT_PROFILE"]
+          repeat = os.environ["REPEAT"]
+          allowed = {
+              "corpus": ({"adjudicated", "large-pr"}, corpus_name),
+              "context-variant": ({"all", "unified-40", "unified-10", "compact"}, variant_name),
+              "reasoning-effort": ({"xhigh", "high", "medium"}, reasoning_effort),
+              "prompt-profile": ({"baseline", "bounded"}, prompt_profile),
+              "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
+          }
+          for name, (choices, value) in allowed.items():
+              if value not in choices:
+                  raise SystemExit(f"Invalid benchmark {name} {value!r}; expected one of {sorted(choices)}")
+
           corpus = json.loads(
               Path(".github/codex-benchmark-corpus.json").read_text(encoding="utf-8")
           )
@@ -110,12 +100,15 @@ jobs:
           }
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+              handle.write(f"reasoning_effort={reasoning_effort}\n")
+              handle.write(f"prompt_profile={prompt_profile}\n")
+              handle.write(f"repeat={repeat}\n")
           for entry in matrix["include"]:
               print(f"selected {entry['case']['id']} / {entry['variant']['id']}")
           PY
 
   benchmark-review:
-    name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ inputs.repeat }}
+    name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
     runs-on: ubuntu-latest
     # The composite action ignored its caller step timeout in production, so the
@@ -130,7 +123,7 @@ jobs:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_TIMEOUT_MINUTES: "12"
-      CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
+      CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', matrix.case.base, matrix.case.head) }}
@@ -316,7 +309,7 @@ jobs:
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
-            ${{ inputs['prompt-profile'] == 'bounded' && 'Budget guidance: prioritize material findings; avoid tests, lint, and type checks covered by other CI; inspect tests only to validate a suspected finding; do not reread the complete diff; and return no more than five material findings.' || '' }}
+            ${{ needs.select-cases.outputs.prompt_profile == 'bounded' && 'Budget guidance: prioritize material findings; avoid tests, lint, and type checks covered by other CI; inspect tests only to validate a suspected finding; do not reread the complete diff; and return no more than five material findings.' || '' }}
 
       - name: Write benchmark artifacts
         id: write_artifacts
@@ -342,8 +335,8 @@ jobs:
           VARIANT_ID: ${{ matrix.variant.id }}
           UNIFIED: ${{ matrix.variant.unified }}
           INTER_HUNK: ${{ matrix.variant['inter-hunk'] }}
-          REPEAT: ${{ inputs.repeat }}
-          PROMPT_PROFILE: ${{ inputs['prompt-profile'] }}
+          REPEAT: ${{ needs.select-cases.outputs.repeat }}
+          PROMPT_PROFILE: ${{ needs.select-cases.outputs.prompt_profile }}
         run: |
           python3 - <<'PY'
           import json
@@ -507,7 +500,7 @@ jobs:
         if: ${{ always() && steps.write_artifacts.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             benchmark-review.json
             benchmark-review.md
@@ -516,7 +509,7 @@ jobs:
           if-no-files-found: error
 
   benchmark-finalize:
-    name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ inputs.repeat }}
+    name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: [select-cases, benchmark-review]
     if: ${{ always() && needs.select-cases.result == 'success' }}
     runs-on: ubuntu-latest
@@ -528,11 +521,11 @@ jobs:
     permissions:
       actions: read
     env:
-      AGENT_JOB_NAME: ${{ format('{0} / {1} / {2}', matrix.case.id, matrix.variant.id, inputs.repeat) }}
-      RESULT_ARTIFACT_NAME: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
-      TIMEOUT_ARTIFACT_NAME: benchmark-timeout-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
+      AGENT_JOB_NAME: ${{ format('{0} / {1} / {2}', matrix.case.id, matrix.variant.id, needs.select-cases.outputs.repeat) }}
+      RESULT_ARTIFACT_NAME: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
+      TIMEOUT_ARTIFACT_NAME: benchmark-timeout-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
       CODEX_MODEL: gpt-5.6-sol
-      CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
+      CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       CODEX_TIMEOUT_MINUTES: "12"
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
@@ -603,8 +596,8 @@ jobs:
           VARIANT_ID: ${{ matrix.variant.id }}
           UNIFIED: ${{ matrix.variant.unified }}
           INTER_HUNK: ${{ matrix.variant['inter-hunk'] }}
-          REPEAT: ${{ inputs.repeat }}
-          PROMPT_PROFILE: ${{ inputs['prompt-profile'] }}
+          REPEAT: ${{ needs.select-cases.outputs.repeat }}
+          PROMPT_PROFILE: ${{ needs.select-cases.outputs.prompt_profile }}
         run: |
           python3 - <<'PY'
           import json

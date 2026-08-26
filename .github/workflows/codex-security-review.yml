@@ -402,16 +402,17 @@ jobs:
             const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
               ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
               : null;
-            const codexWasActiveAtCancellation =
+            const codexReachedReviewPhase =
               Boolean(codexStep?.started_at) &&
               (
+                codexStep?.conclusion === 'success' ||
                 codexStep?.conclusion === 'cancelled' ||
                 (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
               );
             const budgetEvidence =
               job.conclusion === 'cancelled' &&
               prerequisitesSucceeded &&
-              codexWasActiveAtCancellation &&
+              codexReachedReviewPhase &&
               elapsedSeconds !== null &&
               elapsedSeconds >= budgetSeconds;
 
