@@ -2,18 +2,19 @@ import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
-import { type Rollout, RolloutDeviceState } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  rolloutDeviceCounts,
+  rolloutProgressColorMap,
+  rolloutProgressSegments,
+  rolloutProgressSummary,
+} from "@/protoFleet/features/settings/components/RolloutLanes/rolloutStatus";
+import CompositionBar from "@/shared/components/CompositionBar";
 
 export const ROLLOUT_LANES_PATH = "/settings/firmware?tab=rollout-lanes";
 
 interface RolloutPillProps {
   rollouts: Rollout[];
-}
-
-function rolloutProgress(rollout: Rollout): { updated: number; total: number; percent: number } {
-  const total = rollout.devices.length;
-  const updated = rollout.devices.filter((device) => device.state === RolloutDeviceState.UPDATED).length;
-  return { updated, total, percent: total === 0 ? 0 : Math.round((updated / total) * 100) };
 }
 
 function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
@@ -28,19 +29,19 @@ function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-3">
             {rollouts.map((rollout) => {
-              const { updated, total, percent } = rolloutProgress(rollout);
+              const counts = rolloutDeviceCounts(rollout);
               return (
                 <div key={rollout.id.toString()} className="min-w-0 space-y-1.5">
                   <div className="truncate text-heading-100 text-text-primary">{rollout.laneName}</div>
                   <div className="text-200 leading-snug text-text-primary-70">
-                    {`${rollout.model} → ${rollout.firmwareVersion} — ${updated}/${total} updated`}
+                    {`${rollout.model} → ${rollout.firmwareVersion}`}
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-core-primary-5">
-                    <div
-                      className="h-full rounded-full bg-intent-success-fill transition-all"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
+                  <div className="text-200 leading-snug text-text-primary-70">{rolloutProgressSummary(counts)}</div>
+                  <CompositionBar
+                    segments={rolloutProgressSegments(counts)}
+                    height={6}
+                    colorMap={rolloutProgressColorMap}
+                  />
                 </div>
               );
             })}

@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import LaneHistoryModal from "./LaneHistoryModal";
-import { deviceStateLabels, deviceStateTone } from "./rolloutStatus";
+import ModelRolloutStatus from "./ModelRolloutStatus";
+import {
+  deviceStateLabels,
+  deviceStateTone,
+  rolloutDeviceCounts,
+  rolloutProgressColorMap,
+  rolloutProgressSegments,
+  rolloutProgressSummary,
+} from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import {
   Rollout,
@@ -19,7 +28,9 @@ import SettingsPageHeader from "@/protoFleet/features/settings/components/Settin
 import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
+import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
+import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -42,19 +53,18 @@ const CollapseChevron = ({ expanded }: { expanded: boolean }) => (
   <ChevronDown width="w-3.5" className={clsx("shrink-0 transition-transform", !expanded && "-rotate-90")} />
 );
 
-const RolloutProgress = ({ rollout }: { rollout: Rollout }) => {
-  const total = rollout.devices.length;
-  const updated = rollout.devices.filter((d) => d.state === RolloutDeviceState.UPDATED).length;
-  const percent = total === 0 ? 0 : Math.round((updated / total) * 100);
+// Compact in-group progress row. The full live view for the rollout sits in
+// the "Active rollouts" section at the top of the tab; this row keeps
+// progress visible in context, including while the group is collapsed.
+const ModelGroupRolloutProgress = ({ rollout }: { rollout: Rollout }) => {
+  const counts = rolloutDeviceCounts(rollout);
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between text-200 text-text-primary-70">
+    <div className="flex flex-col gap-1.5" data-testid={`model-group-rollout-progress-${rollout.model}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-200 text-text-primary-70">
         <span>{`Rolling out ${rollout.firmwareVersion}`}</span>
-        <span>{`${updated}/${total} updated`}</span>
+        <span>{rolloutProgressSummary(counts)}</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-core-primary-5">
-        <div className="h-full rounded-full bg-intent-success-fill transition-all" style={{ width: `${percent}%` }} />
-      </div>
+      <CompositionBar segments={rolloutProgressSegments(counts)} height={6} colorMap={rolloutProgressColorMap} />
     </div>
   );
 };
@@ -131,16 +141,16 @@ const ModelGroupSection = ({
         )}
       </div>
 
-      {/* Overall progress stays visible while the group is collapsed. */}
-      {activeRollout ? <RolloutProgress rollout={activeRollout} /> : null}
+      {/* Rollout progress stays visible while the group is collapsed. */}
+      {activeRollout ? <ModelGroupRolloutProgress rollout={activeRollout} /> : null}
 
       {!expanded ? null : group.miners.length > 0 ? (
         <table className="w-full text-left text-200">
           <thead>
             <tr className="text-text-primary-50">
-              <th className="py-1 pr-4 font-normal">Miner</th>
-              <th className="py-1 pr-4 font-normal">Current firmware</th>
-              <th className="py-1 font-normal">Status</th>
+              <th className="py-1.5 pr-4 font-normal">Miner</th>
+              <th className="py-1.5 pr-4 font-normal">Current firmware</th>
+              <th className="py-1.5 font-normal">Status</th>
             </tr>
           </thead>
           <tbody className="text-text-primary">
@@ -148,10 +158,14 @@ const ModelGroupSection = ({
               const state = deviceStates[miner.deviceIdentifier];
               const onTarget = group.firmwareVersion !== "" && miner.firmwareVersion === group.firmwareVersion;
               return (
-                <tr key={miner.deviceIdentifier} data-testid={`lane-miner-${miner.deviceIdentifier}`}>
-                  <td className="py-1 pr-4">{minerNames[miner.deviceIdentifier] || miner.deviceIdentifier}</td>
-                  <td className="py-1 pr-4">{miner.firmwareVersion || "Unknown"}</td>
-                  <td className="py-1">
+                <tr
+                  key={miner.deviceIdentifier}
+                  className="border-t border-border-5"
+                  data-testid={`lane-miner-${miner.deviceIdentifier}`}
+                >
+                  <td className="py-2 pr-4">{minerNames[miner.deviceIdentifier] || miner.deviceIdentifier}</td>
+                  <td className="py-2 pr-4">{miner.firmwareVersion || "Unknown"}</td>
+                  <td className="py-2">
                     {state !== undefined && state !== RolloutDeviceState.UNSPECIFIED ? (
                       <StatusChip label={deviceStateLabels[state]} tone={deviceStateTone(state)} />
                     ) : onTarget ? (
@@ -304,8 +318,8 @@ const LaneCard = ({
             <Button
               variant={variants.primary}
               size={sizes.compact}
-              text={isApplying ? "Applying..." : "Apply changes"}
-              disabled={isApplying}
+              text="Apply changes"
+              loading={isApplying}
               onClick={handleApply}
             />
           </div>
@@ -336,6 +350,15 @@ const RolloutLanesTab = () => {
         pushToast({ message: error?.message || "Failed to load firmware files", status: STATUSES.error });
       });
   }, [listFirmwareFiles]);
+
+  // Live views for ongoing rollouts, most recently started first.
+  const activeRollouts = useMemo(
+    () =>
+      rollouts
+        .filter((rollout) => rollout.status === RolloutStatus.ACTIVE)
+        .sort((a, b) => (b.createdAt ? timestampMs(b.createdAt) : 0) - (a.createdAt ? timestampMs(a.createdAt) : 0)),
+    [rollouts],
+  );
 
   const handleCreate = () => {
     setIsCreating(true);
@@ -404,6 +427,18 @@ const RolloutLanesTab = () => {
         />
       </div>
 
+      {activeRollouts.length > 0 ? (
+        <section className="grid gap-3" data-testid="active-rollouts-section">
+          <Header
+            title={activeRollouts.length === 1 ? "Active rollout" : "Active rollouts"}
+            titleSize="text-heading-200"
+          />
+          {activeRollouts.map((rollout) => (
+            <ModelRolloutStatus key={rollout.id.toString()} rollout={rollout} />
+          ))}
+        </section>
+      ) : null}
+
       {isLoading ? (
         <div className="text-center text-text-primary-50">Loading rollout lanes...</div>
       ) : lanes.length === 0 ? (
@@ -443,10 +478,11 @@ const RolloutLanesTab = () => {
             disabled: isCreating,
           },
           {
-            text: isCreating ? "Creating..." : "Create lane",
+            text: "Create lane",
             variant: variants.primary,
             onClick: handleCreate,
-            disabled: isCreating || newLaneName.trim() === "",
+            loading: isCreating,
+            disabled: newLaneName.trim() === "",
           },
         ]}
       >
@@ -480,10 +516,10 @@ const RolloutLanesTab = () => {
             disabled: isDeleting,
           },
           {
-            text: isDeleting ? "Deleting..." : "Delete lane",
+            text: "Delete lane",
             variant: variants.danger,
             onClick: handleDelete,
-            disabled: isDeleting,
+            loading: isDeleting,
           },
         ]}
       />

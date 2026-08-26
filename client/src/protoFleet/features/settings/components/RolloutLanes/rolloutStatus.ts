@@ -1,6 +1,53 @@
-import { RolloutDeviceState, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { type Rollout, RolloutDeviceState, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { Segment } from "@/shared/components/CompositionBar";
 
 export type StatusTone = "neutral" | "progress" | "success" | "critical";
+
+export interface RolloutDeviceCounts {
+  updated: number;
+  updating: number;
+  pending: number;
+  total: number;
+  percent: number;
+}
+
+export function rolloutDeviceCounts(rollout: Rollout): RolloutDeviceCounts {
+  let updated = 0;
+  let updating = 0;
+  let pending = 0;
+  for (const device of rollout.devices) {
+    if (device.state === RolloutDeviceState.UPDATED) updated += 1;
+    else if (device.state === RolloutDeviceState.UPDATING) updating += 1;
+    else pending += 1;
+  }
+  const total = rollout.devices.length;
+  return { updated, updating, pending, total, percent: total === 0 ? 0 : Math.round((updated / total) * 100) };
+}
+
+// Rollout progress colors follow the active curtailment card: done is
+// primary, in-flight is accent, queued is muted, failures are critical.
+export const rolloutProgressColorMap: Record<Segment["status"], string> = {
+  OK: "bg-core-primary-fill",
+  WARNING: "bg-core-accent-fill",
+  CRITICAL: "bg-intent-critical-fill",
+  NA: "bg-core-primary-10",
+};
+
+export function rolloutProgressSegments(counts: RolloutDeviceCounts): Segment[] {
+  return [
+    { name: "Updated", status: "OK", count: counts.updated },
+    { name: "Updating", status: "WARNING", count: counts.updating },
+    { name: "Pending", status: "NA", count: counts.pending },
+  ];
+}
+
+export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
+  const minerNoun = counts.total === 1 ? "miner" : "miners";
+  if (counts.percent >= 100) {
+    return `${counts.updated.toLocaleString()} ${minerNoun} updated (100%)`;
+  }
+  return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)`;
+}
 
 export const deviceStateLabels: Record<RolloutDeviceState, string> = {
   [RolloutDeviceState.UNSPECIFIED]: "",

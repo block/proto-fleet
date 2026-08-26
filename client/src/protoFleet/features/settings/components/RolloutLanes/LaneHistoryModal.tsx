@@ -1,13 +1,8 @@
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
-import { rolloutStatusLabels, rolloutStatusTone } from "./rolloutStatus";
+import { rolloutDeviceCounts, rolloutStatusLabels, rolloutStatusTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
-import {
-  type Rollout,
-  RolloutDeviceState,
-  type RolloutLane,
-  RolloutStatus,
-} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { type Rollout, type RolloutLane, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { variants } from "@/shared/components/Button";
 import Modal, { sizes } from "@/shared/components/Modal";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
@@ -47,11 +42,11 @@ const LaneHistoryModal = ({ lane, rollouts, onClose }: LaneHistoryModalProps) =>
         </thead>
         <tbody className="text-text-primary">
           {rollouts.map((rollout) => {
-            const total = rollout.devices.length;
-            const updated = rollout.devices.filter((device) => device.state === RolloutDeviceState.UPDATED).length;
+            const counts = rolloutDeviceCounts(rollout);
             // Progress for a canceled rollout is unknowable after the fact:
             // its targets have been re-counted against live lane membership.
-            const progress = rollout.status === RolloutStatus.CANCELED ? "—" : `${updated}/${total} updated`;
+            const progress =
+              rollout.status === RolloutStatus.CANCELED ? "—" : `${counts.updated} of ${counts.total} updated`;
             return (
               <tr key={rollout.id.toString()} className="border-t border-border-5">
                 <td className="py-2 pr-4">
