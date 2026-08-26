@@ -49,6 +49,10 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
     await test.step("Capture the empty-state screens", async () => {
       await visuals.captureEmptyStateScreens();
     });
+
+    await test.step("Capture the navigation menu", async () => {
+      await visuals.captureNavigationMenu();
+    });
   });
 
   test("Capture find-miners and complete-setup visuals", async ({
