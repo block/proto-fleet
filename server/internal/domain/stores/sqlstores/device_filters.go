@@ -220,6 +220,28 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	return fp
 }
 
+// requiresDynamicQuery reports whether any active filter dimension is
+// inexpressible in the static sqlc queries, forcing the dynamic builder.
+//
+// Every caller that pairs a count with a row set must consult this same
+// predicate: routing the rows dynamically while counting statically silently
+// drops the inexpressible dimensions from the count, so a total or a state
+// breakdown would describe a wider set than the rows beside it. Adding a filter
+// dimension to appendFilterSQL without adding it here reintroduces exactly that
+// divergence.
+func (fp minerFilterParams) requiresDynamicQuery() bool {
+	return fp.searchQueryFilter.Valid ||
+		len(fp.numericRanges) > 0 ||
+		fp.ipCIDRsFilter.Valid ||
+		len(fp.ipRangeStarts) > 0 ||
+		fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned ||
+		fp.buildingIDsFilter.Valid ||
+		fp.includeNoBuilding ||
+		fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack
+}
+
 // numericFieldColumn returns the SQL expression that yields a value in the
 // same display units the corresponding Measurement is emitted in by other
 // telemetry APIs. The column→display conversions mirror

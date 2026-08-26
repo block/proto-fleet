@@ -600,3 +600,64 @@ func TestZoneFilter_ExcludesSoftDeletedRack(t *testing.T) {
 	assert.Empty(t, rows, "soft-deleted rack must not surface in zone filter results")
 	assert.Equal(t, int64(0), total, "total count must agree with the empty page (P1 invariant)")
 }
+
+// TestSearchFilter_CountsAndModelGroupsMatchList proves the search filter routes
+// consistently across all three surfaces that pair a count with the miner list:
+// the list total, the dashboard state breakdown, and the bulk-action modal's
+// model groups. A search that reaches the rows but not one of the counts would
+// show the operator a count for the whole fleet beside the searched rows.
+func TestSearchFilter_CountsAndModelGroupsMatchList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devHashing := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devBroken := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devUnmatched := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devHashing.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devBroken.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devUnmatched.ID)
+
+	// Only the first two carry the marker the search will look for.
+	updateDeviceSearchFields(t, db, devHashing.DatabaseID, "", "", "", "marked-worker-a")
+	updateDeviceSearchFields(t, db, devBroken.DatabaseID, "", "", "", "marked-worker-b")
+	updateDeviceSearchFields(t, db, devUnmatched.DatabaseID, "", "", "", "other-worker")
+
+	setDeviceStatus(t, db, devHashing.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+	setDeviceStatus(t, db, devBroken.DatabaseID, sqlc.DeviceStatusEnumERROR)
+	setDeviceStatus(t, db, devUnmatched.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devHashing.ID, now, 95e12)
+	insertMetric(t, db, devBroken.ID, now, 95e12)
+	insertMetric(t, db, devUnmatched.ID, now, 95e12)
+
+	filter := &stores.MinerFilter{SearchQuery: "marked-worker"}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{devHashing.ID, devBroken.ID}, identifiers(rows))
+	assert.Equal(t, int64(2), total, "list total must exclude the unmatched miner")
+
+	counts, err := deviceStore.GetMinerStateCounts(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), counts.HashingCount)
+	assert.Equal(t, int32(1), counts.BrokenCount)
+	assert.Equal(t, total, int64(counts.HashingCount+counts.BrokenCount+counts.OfflineCount+counts.SleepingCount),
+		"state breakdown must sum to the list total")
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	var grouped int32
+	for _, g := range groups {
+		grouped += g.Count
+	}
+	assert.Equal(t, total, int64(grouped), "model group counts must sum to the list total")
+}

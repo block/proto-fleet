@@ -459,12 +459,9 @@ func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceId
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
-	// Use the dynamic builder when filters the static sqlc query can't
-	// express are active (search, numeric ranges, CIDRs, site filters); otherwise
-	// the dashboard counts would diverge from the filtered list.
-	if fp.searchQueryFilter.Valid || len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
-		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
-		fp.includeNoRack {
+	// The dashboard counts would diverge from the filtered list if this routed
+	// differently than the list query.
+	if fp.requiresDynamicQuery() {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
 	}
 
@@ -526,10 +523,9 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
-	// Static sqlc query can't express search, numeric ranges, CIDR membership,
-	// or site filters; use the dynamic builder when any are active so the
-	// bulk-action modal counts match the filtered list.
-	if filter != nil && (strings.TrimSpace(filter.SearchQuery) != "" || len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
+	// The bulk-action modal shows these counts beside the filtered list, so both
+	// must route the same way.
+	if buildMinerFilterParams(filter).requiresDynamicQuery() {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -1022,13 +1018,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		})
 	}
 
-	// Total count must use the dynamic builder when filters the static
-	// sqlc query can't express (search, numeric ranges, CIDRs, site filters)
-	// are active; otherwise the total diverges from the listed rows.
+	// The total must route the same way as the rows above it, or it describes a
+	// wider set than what was listed.
 	var total int64
-	if fp.searchQueryFilter.Valid || len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
-		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
-		fp.includeNoRack {
+	if fp.requiresDynamicQuery() {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
 		if err != nil {
 			return nil, "", 0, err
