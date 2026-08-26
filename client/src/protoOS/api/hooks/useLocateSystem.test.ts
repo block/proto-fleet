@@ -20,7 +20,7 @@ describe("useLocateSystem", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         locateSystem: mockLocateSystem,
       },
     });
@@ -64,7 +64,7 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({ ledOnTime: 60 });
 
     await waitFor(() => {
-      expect(mockLocateSystem).toHaveBeenCalledWith({ led_on_time: 60 }, mockAuthHeader);
+      expect(mockLocateSystem).toHaveBeenCalledWith({ ledOnTime: 60 }, mockAuthHeader);
     });
   });
 
@@ -160,9 +160,9 @@ describe("useLocateSystem", () => {
     });
   });
 
-  test("does not call API if api is not available", () => {
+  test("does not call API if adapter is not available", () => {
     (useMinerHosting as Mock).mockReturnValue({
-      api: null,
+      adapter: null,
     });
 
     const { result } = renderHook(() => useLocateSystem());

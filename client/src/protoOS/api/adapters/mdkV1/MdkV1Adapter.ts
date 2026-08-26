@@ -1,9 +1,20 @@
-import type { AdapterRequestOptions, MinerAdapter, TelemetryLevel, TimeSeriesQuery } from "../types";
+import { poolInfoToPoolConfig, poolInfoToTestConnection } from "../../poolAdapters";
+import type {
+  AdapterRequestOptions,
+  HashboardStatus,
+  MinerAdapter,
+  SystemLogs,
+  SystemLogSource,
+  TelemetryLevel,
+  TimeSeriesQuery,
+} from "../types";
 import {
   toCanonicalCoolingStatus,
   toCanonicalErrors,
   toCanonicalHardware,
   toCanonicalHardwareTelemetry,
+  toCanonicalHashboards,
+  toCanonicalHashboardStatus,
   toCanonicalMiningStatus,
   toCanonicalMiningTarget,
   toCanonicalNetworkInfo,
@@ -16,11 +27,14 @@ import {
 } from "./normalize";
 import {
   type Api,
+  type ChangePasswordRequest,
   type GetCurrentTelemetryParams,
+  type LocateSystemParams,
   type TimeSeriesRequest,
   PerformanceMode as V1PerformanceMode,
 } from "@/protoOS/api/generatedApi";
 import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
+import type { PoolInfo } from "@/shared/components/MiningPools/types";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 
@@ -98,6 +112,38 @@ export class MdkV1Adapter implements MinerAdapter {
     return { hardware: toCanonicalHardware(wire, context), telemetry: toCanonicalHardwareTelemetry(wire) };
   }
 
+  async getHashboards(params: AdapterRequestOptions = {}) {
+    const response = await this.client.getAllHashboards(params);
+    return toCanonicalHashboards(response.data["hashboards-info"] ?? []);
+  }
+
+  async getHashboardStatus(serials: string[], params: AdapterRequestOptions = {}): Promise<HashboardStatus[]> {
+    return Promise.all(
+      serials.map(async (serial) => {
+        const response = await this.client.getHashboardStatus({ hbSn: serial }, params);
+        return toCanonicalHashboardStatus(serial, response.data["hashboard-stats"] ?? {});
+      }),
+    );
+  }
+
+  async login(password: string, params: AdapterRequestOptions = {}) {
+    const response = await this.client.login({ password }, params);
+    return { accessToken: response.data.access_token, refreshToken: response.data.refresh_token };
+  }
+
+  async refreshAccessToken(refreshToken: string, params: AdapterRequestOptions = {}) {
+    const response = await this.client.refreshToken({ refresh_token: refreshToken }, params);
+    return { accessToken: response.data.access_token };
+  }
+
+  async getSystemLogs(
+    query: { lines: number; source?: SystemLogSource },
+    params: AdapterRequestOptions = {},
+  ): Promise<SystemLogs | undefined> {
+    const response = await this.client.getSystemLogs(query, params);
+    return response.data["logs"];
+  }
+
   async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
     // The MDK firmware expects `level` as a single comma-joined value
     // (`level=miner,hashboard`), i.e. OpenAPI explode:false. Sending the array
@@ -140,5 +186,44 @@ export class MdkV1Adapter implements MinerAdapter {
 
   async setCoolingMode(mode: CoolingMode, params: AdapterRequestOptions = {}) {
     await this.client.setCoolingMode({ mode: toV1CoolingMode(mode) }, params);
+  }
+
+  async startMining(params: AdapterRequestOptions = {}) {
+    await this.client.startMining(params);
+  }
+
+  async stopMining(params: AdapterRequestOptions = {}) {
+    await this.client.stopMining(params);
+  }
+
+  async rebootSystem(params: AdapterRequestOptions = {}) {
+    await this.client.rebootSystem(params);
+  }
+
+  async locateSystem(options: { enable?: boolean; ledOnTime?: number }, params: AdapterRequestOptions = {}) {
+    const query: LocateSystemParams = {};
+    if (options.enable !== undefined) query.enable = options.enable;
+    if (options.ledOnTime !== undefined) query.led_on_time = options.ledOnTime;
+    await this.client.locateSystem(query, params);
+  }
+
+  async createPools(pools: PoolInfo[], params: AdapterRequestOptions = {}) {
+    await this.client.createPools(pools.map(poolInfoToPoolConfig), params);
+  }
+
+  async editPool(poolId: number, pool: PoolInfo, params: AdapterRequestOptions = {}) {
+    await this.client.editPool({ id: poolId }, poolInfoToPoolConfig(pool), params);
+  }
+
+  async testPoolConnection(pool: PoolInfo, params: AdapterRequestOptions = {}) {
+    await this.client.testPoolConnection(poolInfoToTestConnection(pool), params);
+  }
+
+  async setPassword(password: string, params: AdapterRequestOptions = {}) {
+    await this.client.setPassword({ password }, params);
+  }
+
+  async changePassword(request: ChangePasswordRequest, params: AdapterRequestOptions = {}) {
+    await this.client.changePassword(request, params);
   }
 }

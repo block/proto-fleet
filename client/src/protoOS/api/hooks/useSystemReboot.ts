@@ -11,17 +11,17 @@ interface RebootSystemProps {
 }
 
 const useSystemReboot = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
   const authRetry = useAuthRetry();
 
   const rebootSystem = useCallback(
     ({ onError, onSuccess }: RebootSystemProps = {}) => {
-      if (!api) return;
+      if (!adapter) return;
 
       setPending(true);
       authRetry({
-        request: (header) => api.rebootSystem(header),
+        request: (header) => adapter.rebootSystem(header),
         onSuccess,
         onError: (error) => {
           setPending(false);
@@ -29,7 +29,7 @@ const useSystemReboot = () => {
         },
       });
     },
-    [api, authRetry],
+    [adapter, authRetry],
   );
 
   return useMemo(() => ({ pending, rebootSystem }), [pending, rebootSystem]);

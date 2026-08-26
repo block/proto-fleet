@@ -13,29 +13,27 @@ interface LoginProps {
 }
 
 const useLogin = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const setAuthTokens = useSetAuthTokens();
 
   const login = useCallback(
     async ({ password, onSuccess, onError, onFinally }: LoginProps) => {
-      if (!api) return;
+      if (!adapter) return;
 
-      await api
-        .login({ password }, { secure: false })
-        .then((res) => {
-          const accessTokenValue = res?.data["access_token"];
-          const refreshTokenValue = res?.data["refresh_token"];
+      await adapter
+        .login(password, { secure: false })
+        .then(({ accessToken, refreshToken }) => {
           setAuthTokens({
             accessToken: {
-              value: accessTokenValue,
+              value: accessToken,
               expiry: accessTokenExpiryTime(),
             },
             refreshToken: {
-              value: refreshTokenValue,
+              value: refreshToken,
               expiry: refreshTokenExpiryTime(),
             },
           });
-          onSuccess?.(accessTokenValue, refreshTokenValue);
+          onSuccess?.(accessToken, refreshToken);
         })
         .catch((err) => {
           onError?.(err?.error?.message ?? "An error occurred");
@@ -44,7 +42,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setAuthTokens, api],
+    [setAuthTokens, adapter],
   );
 
   return login;
