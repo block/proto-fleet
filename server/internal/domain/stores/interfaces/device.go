@@ -55,6 +55,9 @@ type ZoneKey struct {
 }
 
 type MinerFilter struct {
+	// SearchQuery is a case-insensitive substring matched against miner
+	// identifying fields (name, device identifier, serial, MAC, IP, worker).
+	SearchQuery         string
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")

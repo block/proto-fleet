@@ -376,12 +376,38 @@ describe("MinerSelectionList eligibility", () => {
     expect(titles).not.toContain("Building");
   });
 
-  it("renders the assignable-only toggle only when eligibility is provided", () => {
+  it("renders miner search for every list and the assignable-only toggle only with eligibility", () => {
     const { rerender } = render(<MinerSelectionList />);
-    expect(lastListProps()?.headerControls).toBeFalsy();
+    expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.queryByLabelText("Show assigned miners")).not.toBeInTheDocument();
 
     rerender(<MinerSelectionList eligibility={{ rackId: 1n }} />);
     expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.getByLabelText("Show assigned miners")).toBeInTheDocument();
+  });
+
+  it("debounces the search query before fetching", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(249);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("worker-42");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("applies eligibility server-side by default and drops it when 'Show assigned miners' is on", () => {

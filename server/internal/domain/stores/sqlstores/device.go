@@ -460,9 +460,9 @@ func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceId
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
 	// Use the dynamic builder when filters the static sqlc query can't
-	// express are active (numeric ranges, CIDRs, site filters); otherwise
+	// express are active (search, numeric ranges, CIDRs, site filters); otherwise
 	// the dashboard counts would diverge from the filtered list.
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+	if fp.searchQueryFilter.Valid || len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
 		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
 		fp.includeNoRack {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
@@ -526,10 +526,10 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
-	// Static sqlc query can't express numeric ranges, CIDR membership, or
-	// site filters; use the dynamic builder when any are active so the
+	// Static sqlc query can't express search, numeric ranges, CIDR membership,
+	// or site filters; use the dynamic builder when any are active so the
 	// bulk-action modal counts match the filtered list.
-	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
+	if filter != nil && (strings.TrimSpace(filter.SearchQuery) != "" || len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -1023,10 +1023,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	}
 
 	// Total count must use the dynamic builder when filters the static
-	// sqlc query can't express (numeric ranges, CIDRs, site filters) are
-	// active; otherwise the total diverges from the listed rows.
+	// sqlc query can't express (search, numeric ranges, CIDRs, site filters)
+	// are active; otherwise the total diverges from the listed rows.
 	var total int64
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+	if fp.searchQueryFilter.Valid || len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
 		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
 		fp.includeNoRack {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
@@ -1375,7 +1375,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 }
 
 // GetDeviceIdentifiersByOrgWithFilter returns device identifiers filtered by optional
-// pairing status, device status, model, and error component types. Uses appendFilterSQL
+// pairing status, device status, model, search, and error component types. Uses appendFilterSQL
 // (the same dynamic filter logic as the list view) to ensure semantic parity — particularly
 // for the "needs attention" status filter that includes devices with open actionable errors.
 // If no pairing status filter is specified, defaults to PAIRED for backward compatibility.

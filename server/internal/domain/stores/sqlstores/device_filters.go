@@ -14,6 +14,7 @@ import (
 
 // minerFilterParams holds the parsed filter parameters for miner queries.
 type minerFilterParams struct {
+	searchQueryFilter         sql.NullString
 	statusFilter              sql.NullString
 	statusValues              []string
 	modelFilter               sql.NullString
@@ -80,6 +81,10 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 
 	if filter == nil {
 		return fp
+	}
+
+	if searchQuery := strings.TrimSpace(filter.SearchQuery); searchQuery != "" {
+		fp.searchQueryFilter = sql.NullString{String: minerSearchPattern(searchQuery), Valid: true}
 	}
 
 	// Status filter
@@ -239,8 +244,29 @@ func numericFieldColumn(f stores.NumericFilterField) string {
 	return ""
 }
 
+// minerSearchPattern turns a user-entered substring into a literal ILIKE
+// pattern. Escaping wildcards prevents a search for "%" or "_" from
+// unexpectedly matching every miner.
+func minerSearchPattern(query string) string {
+	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	return "%" + query + "%"
+}
+
 // appendFilterSQL appends filter conditions to the query builder and returns updated args.
 func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, fp minerFilterParams) ([]any, int) {
+	if fp.searchQueryFilter.Valid {
+		fmt.Fprintf(sb, ` AND (
+			TRIM(COALESCE(NULLIF(device.custom_name, ''), COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))) ILIKE $%d ESCAPE '\'
+			OR discovered_device.device_identifier ILIKE $%d ESCAPE '\'
+			OR device.serial_number ILIKE $%d ESCAPE '\'
+			OR device.mac_address ILIKE $%d ESCAPE '\'
+			OR discovered_device.ip_address ILIKE $%d ESCAPE '\'
+			OR device.worker_name ILIKE $%d ESCAPE '\'
+		)`, argNum, argNum, argNum, argNum, argNum, argNum)
+		args = append(args, fp.searchQueryFilter.String)
+		argNum++
+	}
+
 	if fp.pairingStatusFilter.Valid {
 		fmt.Fprintf(sb, " AND (%s = ANY($%d::text[]))", pairingStatusExpr, argNum)
 		args = append(args, pq.Array(fp.pairingStatusValues))
