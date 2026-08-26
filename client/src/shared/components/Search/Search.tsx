@@ -11,6 +11,10 @@ interface SearchProps {
   shouldFocus?: boolean;
   id?: string;
   label?: string;
+  /** Forwarded to the underlying Input. Normalization that should reach the
+   * displayed text has to run there, before the internal update and `onChange`,
+   * so the visible text and the emitted value cannot disagree. */
+  sanitize?: (value: string) => string;
 }
 
 const defaultId = "search";
@@ -23,6 +27,7 @@ const Search = ({
   shouldFocus,
   id = defaultId,
   label = "Search",
+  sanitize,
 }: SearchProps) => {
   const [value, setValue] = useState(initValue);
   const [prevInitValue, setPrevInitValue] = useState(initValue);
@@ -83,6 +88,7 @@ const Search = ({
         initValue={value}
         onKeyDown={clearValueOnEscape}
         compact={compact}
+        sanitize={sanitize}
       />
     </div>
   );
