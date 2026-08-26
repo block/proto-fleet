@@ -117,6 +117,7 @@ func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by AdminTerminate handler tests")
@@ -124,12 +125,15 @@ func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *adminTerminateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,

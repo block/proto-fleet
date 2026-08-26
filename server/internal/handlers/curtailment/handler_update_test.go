@@ -148,6 +148,7 @@ func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
@@ -155,12 +156,15 @@ func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *updateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
 }
 func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,

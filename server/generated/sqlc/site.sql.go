@@ -824,6 +824,7 @@ SELECT id FROM device
 WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND deleted_at IS NULL
+ORDER BY id
 FOR UPDATE
 `
 

@@ -74,6 +74,7 @@ type fakeStore struct {
 	cooldownDevices        []string
 	cooldownCalls          int
 	lastCooldownOrgID      int64
+	lastCooldownExcludeID  int64
 	lastCooldownSec        int32
 	lastCooldownFilter     []string
 	lastCooldownSiteIDs    []int64
@@ -141,6 +142,7 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
 ) ([]string, error) {
 	f.cooldownCalls++
 	f.lastCooldownOrgID = params.OrgID
+	f.lastCooldownExcludeID = params.ExcludeEventID
 	f.lastCooldownSec = params.CooldownSec
 	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.lastCooldownSiteIDs = append([]int64(nil), params.SiteIDs...)
@@ -180,17 +182,35 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	eventID int64,
 	_ int64,
 	_ int32,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	f.claimTargetsCalls++
+	if len(targets) > maxTargets {
+		targets = targets[:maxTargets]
+	}
 	f.claimedTargetParams = append([]models.InsertTargetParams(nil), targets...)
-	existing := map[string]struct{}{}
+	existing := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {
-		existing[t.DeviceIdentifier] = struct{}{}
+		existing[t.DeviceIdentifier] = t
 	}
 	var claimed []*models.Target
 	for _, target := range targets {
-		if _, ok := existing[target.DeviceIdentifier]; ok {
+		if row, ok := existing[target.DeviceIdentifier]; ok {
+			if !isReopenableTargetState(row.State) {
+				continue
+			}
+			row.State = models.TargetStateDispatching
+			row.DesiredState = target.DesiredState
+			row.BaselinePowerW = target.BaselinePowerW
+			row.LastError = target.LastError
+			row.ReleasedAt = nil
+			row.CurtailPhase = models.TargetPhaseSummary{
+				Phase: models.TargetPhaseCurtail,
+				State: models.TargetStateDispatching,
+			}
+			row.RestorePhase = nil
+			claimed = append(claimed, row)
 			continue
 		}
 		row := &models.Target{
@@ -203,16 +223,21 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 		}
 		f.targetsByEventID[eventID] = append(f.targetsByEventID[eventID], row)
 		claimed = append(claimed, row)
-		existing[target.DeviceIdentifier] = struct{}{}
+		existing[target.DeviceIdentifier] = row
 	}
 	return claimed, nil
 }
 func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	_ context.Context,
 	eventID int64,
+	_ int64,
+	maxTargets int,
 	targets []models.InsertTargetParams,
 ) (int64, error) {
 	f.claimAllPairedCalls++
+	if len(targets) > maxTargets {
+		targets = targets[:maxTargets]
+	}
 	f.claimedAllPairedParams = append([]models.InsertTargetParams(nil), targets...)
 	existing := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {
@@ -226,7 +251,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 			state = models.TargetStatePending
 		}
 		if row, ok := existing[target.DeviceIdentifier]; ok {
-			if row.State != models.TargetStateReleased {
+			if !isReopenableTargetState(row.State) {
 				continue
 			}
 			row.State = state
@@ -263,6 +288,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	_ context.Context,
 	eventID int64,
+	_ int64,
 	expectedEventState models.EventState,
 	updates []interfaces.AllPairedReadinessUpdate,
 ) ([]string, error) {
@@ -289,10 +315,14 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		if !ok {
 			continue
 		}
-		if t.DesiredState != "" && t.DesiredState != models.DesiredStateCurtailed {
+		if t.DesiredState != update.ExpectedDesiredState {
 			continue
 		}
-		if t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable {
+		if t.State != update.ExpectedState {
+			continue
+		}
+		if (t.DesiredState == models.DesiredStateCurtailed && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable) ||
+			(t.DesiredState == models.DesiredStateActive && t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable && t.State != models.TargetStateRestoreFailed) {
 			continue
 		}
 		if update.State != models.TargetStatePending && update.State != models.TargetStateUnavailable {
@@ -449,6 +479,67 @@ func (f *fakeStore) WithCurtailmentTopologyDispatchFence(
 	if err := command(interfaces.CurtailmentTopologyDispatchFenceSnapshot{
 		Event:    latest,
 		Topology: topology,
+	}); err != nil {
+		return err
+	}
+	return f.topologyFenceAfterCommandErr
+}
+
+func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
+	ctx context.Context,
+	event *models.Event,
+	dispatchDeviceIdentifiers []string,
+	command func(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
+) error {
+	if f.topologyFenceErr != nil {
+		return f.topologyFenceErr
+	}
+	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if err != nil {
+		return err
+	}
+	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	latestCopy := *latest
+	latest = &latestCopy
+	if f.topologyFenceHook != nil {
+		f.topologyFenceHook(latest)
+	}
+	if latest.State != event.State || latest.State.IsTerminal() {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	topology, err := f.ResolveCurtailmentTopologyDispatch(
+		ctx,
+		interfaces.ListCandidatesParams{OrgID: event.OrgID},
+		dispatchDeviceIdentifiers,
+	)
+	if err != nil {
+		return err
+	}
+	f.topologyFenceActive = true
+	defer func() { f.topologyFenceActive = false }()
+	parkReturnedTargets := func(returnedDeviceIdentifiers []string) error {
+		reason := "restore paused: device returned to topology scope"
+		expectedState := models.TargetStateDispatching
+		desiredActive := models.DesiredStateActive
+		for _, deviceIdentifier := range returnedDeviceIdentifiers {
+			if err := f.UpdateTargetState(ctx, latest.ID, deviceIdentifier, interfaces.UpdateCurtailmentTargetStateParams{
+				State:                models.TargetStateRestoreFailed,
+				LastError:            &reason,
+				ExpectedEventState:   &latest.State,
+				ExpectedDesiredState: &desiredActive,
+				ExpectedState:        &expectedState,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := command(interfaces.CurtailmentTopologyRestoreDispatchFenceSnapshot{
+		Event:               latest,
+		Topology:            topology,
+		ParkReturnedTargets: parkReturnedTargets,
 	}); err != nil {
 		return err
 	}
@@ -615,6 +706,9 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 				}
 			}
 			if params.ExpectedDesiredState != nil && t.DesiredState != "" && t.DesiredState != *params.ExpectedDesiredState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
+			if params.ExpectedState != nil && t.State != *params.ExpectedState {
 				return interfaces.ErrCurtailmentEventStateRaceLoss
 			}
 			t.State = params.State
@@ -1282,6 +1376,64 @@ func TestReconciler_TopologyDispatchHoldsFenceThroughCommand(t *testing.T) {
 	assert.False(t, store.topologyFenceActive)
 }
 
+func TestReconciler_TopologyRestoreHoldsFenceThroughCommand(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	target.DesiredState = models.DesiredStateActive
+	store.candidates = nil
+	dispatcher := &fakeDispatcher{}
+	dispatcher.uncurtailHook = func(_ []string) {
+		assert.True(t, store.topologyFenceActive)
+	}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.False(t, store.topologyFenceActive)
+}
+
+func TestReconciler_TopologyRestoreSuppressesReturnedMemberAtCommandBoundary(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	target.DesiredState = models.DesiredStateActive
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if params.State == models.TargetStateRestoreFailed {
+			assert.True(t, store.topologyFenceActive,
+				"returned target must be parked before topology locks are released")
+		}
+		return nil
+	}
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Zero(t, dispatcher.uncurtailCalls)
+	assert.Equal(t, models.TargetStateRestoreFailed, target.State)
+	require.NotNil(t, target.LastError)
+	assert.Contains(t, *target.LastError, "returned to topology scope")
+}
+
+func TestReconciler_TopologyRestoreDispatchesCurrentMemberWhenEventIsRestoring(t *testing.T) {
+	t.Parallel()
+
+	store, event, target := topologyDispatchFixture()
+	event.State = models.EventStateRestoring
+	target.DesiredState = models.DesiredStateActive
+	dispatcher := &fakeDispatcher{}
+	reconciler := New(Config{TickInterval: time.Hour}, store, dispatcher)
+
+	reconciler.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+	assert.Equal(t, []string{target.DeviceIdentifier}, dispatcher.uncurtailLastIDs)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+}
+
 func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -1522,6 +1674,62 @@ func TestReconciler_ActiveClosedLoopFullFleetAdmitsAndDispatchesNewTarget(t *tes
 	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
+func TestReconciler_ActiveClosedLoopFullFleetReadmitsReturnedTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	effectiveBatchSize := int32(10)
+	store.events = []*models.Event{{
+		ID:                   eventID,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		Mode:                 models.ModeFullFleet,
+		LoopType:             models.LoopTypeClosed,
+		ScopeType:            models.ScopeTypeWholeOrg,
+		CurtailBatchSize:     &effectiveBatchSize,
+		EffectiveBatchSize:   &effectiveBatchSize,
+		DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
+		CreatedByUserID:      99,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-released", State: models.TargetStateReleased},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-resolved", State: models.TargetStateResolved},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for _, identifier := range []string{"miner-released", "miner-resolved"} {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: identifier,
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, eventID, store.lastCooldownExcludeID)
+	require.Len(t, store.claimedTargetParams, 2)
+	assert.ElementsMatch(t, []string{"miner-released", "miner-resolved"}, []string{
+		store.claimedTargetParams[0].DeviceIdentifier,
+		store.claimedTargetParams[1].DeviceIdentifier,
+	})
+	dispatched := make([]string, 0, 2)
+	for _, batch := range disp.curtailCallIDs {
+		dispatched = append(dispatched, batch...)
+	}
+	assert.ElementsMatch(t, []string{"miner-released", "miner-resolved"}, dispatched)
+}
+
 func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionIntervalBlocked(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1675,6 +1883,42 @@ func TestReconciler_ActiveAllPairedPolicyClaimsDispatchableAndUnavailableTargets
 	assert.Equal(t, models.TargetStateUnavailable, store.targetsByEventID[eventID][2].State)
 	require.NotNil(t, store.targetsByEventID[eventID][2].LastError)
 	assert.Equal(t, "authentication_needed", *store.targetsByEventID[eventID][2].LastError)
+}
+
+func TestReconciler_ActiveAllPairedPolicyBoundsAdmissionToCurtailBatchSize(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	batchSize := int32(2)
+	store.events = []*models.Event{{
+		ID:                          eventID,
+		EventUUID:                   uuid.New(),
+		OrgID:                       1,
+		State:                       models.EventStateActive,
+		Mode:                        models.ModeFullFleet,
+		LoopType:                    models.LoopTypeClosed,
+		ScopeType:                   models.ScopeTypeWholeOrg,
+		ForceIncludeAllPairedMiners: true,
+		CurtailBatchSize:            &batchSize,
+		CreatedByUserID:             99,
+	}}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "first", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "second", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "deferred", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimAllPairedCalls)
+	require.Len(t, store.claimedAllPairedParams, 2)
+	assert.Equal(t, []string{"first", "second"}, []string{
+		store.claimedAllPairedParams[0].DeviceIdentifier,
+		store.claimedAllPairedParams[1].DeviceIdentifier,
+	})
 }
 
 func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(t *testing.T) {
@@ -1931,6 +2175,7 @@ func TestReconciler_AllPairedPolicyStablePendingTargetBackfillsMissingBaseline(t
 
 	require.Len(t, store.lastBulkRefreshUpdates, 1,
 		"a stable pending row with a missing baseline must still get a backfill update")
+	assert.Equal(t, models.TargetStatePending, store.lastBulkRefreshUpdates[0].ExpectedState)
 	require.NotNil(t, store.lastBulkRefreshUpdates[0].BaselinePowerW)
 	final := store.targetsByEventID[eventID][0]
 	require.NotNil(t, final.BaselinePowerW,
@@ -2391,6 +2636,13 @@ func TestReconciler_AllPairedPolicyReadinessRefreshBatchesFlipsIntoOneCall(t *te
 
 	assert.Equal(t, 1, store.bulkRefreshCalls, "one bulk statement per tick, not one write per device")
 	require.Len(t, store.lastBulkRefreshUpdates, 3)
+	for _, update := range store.lastBulkRefreshUpdates {
+		if update.DeviceIdentifier == "sleeps" {
+			assert.Equal(t, models.TargetStatePending, update.ExpectedState)
+		} else {
+			assert.Equal(t, models.TargetStateUnavailable, update.ExpectedState)
+		}
+	}
 	byDevice := map[string]*models.Target{}
 	for _, target := range store.targetsByEventID[eventID] {
 		byDevice[target.DeviceIdentifier] = target

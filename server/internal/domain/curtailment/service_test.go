@@ -981,6 +981,7 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised")
@@ -989,6 +990,8 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised")
@@ -996,6 +999,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,

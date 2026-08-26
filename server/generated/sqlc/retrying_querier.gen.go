@@ -174,6 +174,18 @@ func (q *retryingQuerier) BeginCurtailmentRestoration(ctx context.Context, id in
 	return result, err
 }
 
+func (q *retryingQuerier) BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "BeginCurtailmentTopologyTargetRestore", func() error {
+		callResult, callErr := q.next.BeginCurtailmentTopologyTargetRestore(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BindEnrollmentToFleetNode", func() error {
@@ -402,8 +414,8 @@ func (q *retryingQuerier) ClaimAllPairedPolicyTargets(ctx context.Context, arg C
 	return result, err
 }
 
-func (q *retryingQuerier) ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error) {
-	var result []CurtailmentTarget
+func (q *retryingQuerier) ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]ClaimClosedLoopFullFleetTargetsRow, error) {
+	var result []ClaimClosedLoopFullFleetTargetsRow
 	err := q.retrier.RetryQuery(ctx, "ClaimClosedLoopFullFleetTargets", func() error {
 		callResult, callErr := q.next.ClaimClosedLoopFullFleetTargets(ctx, arg)
 		if callErr == nil {
@@ -3798,6 +3810,18 @@ func (q *retryingQuerier) ListCurtailmentTargetsByEventPage(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx context.Context, arg ListCurtailmentTopologyMemberDeviceIdentifiersByOrgParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentTopologyMemberDeviceIdentifiersByOrg", func() error {
+		callResult, callErr := q.next.ListCurtailmentTopologyMemberDeviceIdentifiersByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
 	var result []Role
 	err := q.retrier.RetryQuery(ctx, "ListCustomRolesForOrg", func() error {
@@ -3850,6 +3874,30 @@ func (q *retryingQuerier) ListDeviceSetMembersPaginatedFilteredAfter(ctx context
 	var result []ListDeviceSetMembersPaginatedFilteredAfterRow
 	err := q.retrier.RetryQuery(ctx, "ListDeviceSetMembersPaginatedFilteredAfter", func() error {
 		callResult, callErr := q.next.ListDeviceSetMembersPaginatedFilteredAfter(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListEarlierCurtailmentReservationDevices(ctx context.Context, arg ListEarlierCurtailmentReservationDevicesParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListEarlierCurtailmentReservationDevices", func() error {
+		callResult, callErr := q.next.ListEarlierCurtailmentReservationDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListEarlierCurtailmentTopologyReservationScopes(ctx context.Context, arg ListEarlierCurtailmentTopologyReservationScopesParams) ([]json.RawMessage, error) {
+	var result []json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "ListEarlierCurtailmentTopologyReservationScopes", func() error {
+		callResult, callErr := q.next.ListEarlierCurtailmentTopologyReservationScopes(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4368,6 +4416,18 @@ func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (Ba
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error) {
+	var result LockCurtailmentAdmissionEventForWriteRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentAdmissionEventForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentAdmissionEventForWrite(ctx, curtailmentEventID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventByUUIDForWrite", func() error {
@@ -4390,6 +4450,12 @@ func (q *retryingQuerier) LockCurtailmentEventForFanCommand(ctx context.Context,
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentEventScopeForWrite(ctx context.Context, curtailmentEventID int64) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentEventScopeForWrite", func() error {
+		return q.next.LockCurtailmentEventScopeForWrite(ctx, curtailmentEventID)
+	})
 }
 
 func (q *retryingQuerier) LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error {
@@ -4444,6 +4510,18 @@ func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgI
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentScopeForWrite", func() error {
 		return q.next.LockCurtailmentScopeForWrite(ctx, orgID)
 	})
+}
+
+func (q *retryingQuerier) LockCurtailmentTargetPairingStatusesForWrite(ctx context.Context, arg LockCurtailmentTargetPairingStatusesForWriteParams) ([]LockCurtailmentTargetPairingStatusesForWriteRow, error) {
+	var result []LockCurtailmentTargetPairingStatusesForWriteRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentTargetPairingStatusesForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentTargetPairingStatusesForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {

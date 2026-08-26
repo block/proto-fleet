@@ -866,9 +866,10 @@ func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *model
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:      state,
-		LastError:  &errMsg,
-		RetryCount: &newRetry,
+		State:                state,
+		LastError:            &errMsg,
+		RetryCount:           &newRetry,
+		ExpectedDesiredState: &t.DesiredState,
 	}
 	if guard != nil {
 		params.ExpectedState = &guard.expectedState
@@ -1311,7 +1312,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
-	targets = excludeExistingTargetParams(targets, existingTargets)
+	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: list active devices (full_fleet admission) failed",
@@ -1325,6 +1326,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 			ctx,
 			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
 				OrgID:             ev.OrgID,
+				ExcludeEventID:    ev.ID,
 				CooldownSec:       cooldownSec,
 				DeviceIdentifiers: params.DeviceIdentifiers,
 				SiteIDs:           params.SiteIDs,
@@ -1340,10 +1342,15 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if len(targets) == 0 {
 		return nil
 	}
-	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); len(targets) > int(batchSize) {
-		targets = targets[:batchSize]
-	}
-	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(ctx, ev.ID, ev.OrgID, cooldownSec, targets)
+	batchSize := curtailBatchSizeForEvent(ev, len(targets))
+	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(
+		ctx,
+		ev.ID,
+		ev.OrgID,
+		cooldownSec,
+		int(batchSize),
+		targets,
+	)
 	if err != nil {
 		slog.Error("curtailment reconciler: claim full_fleet targets failed",
 			"event_id", ev.ID, "candidate_count", len(targets), "error", err)
@@ -1391,24 +1398,6 @@ func postEventCooldownSecForEvent(ev *models.Event) int32 {
 	return snapshot.PostEventCooldownSec
 }
 
-func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
-	if len(targets) == 0 || len(existingTargets) == 0 {
-		return targets
-	}
-	existing := make(map[string]struct{}, len(existingTargets))
-	for _, target := range existingTargets {
-		existing[target.DeviceIdentifier] = struct{}{}
-	}
-	filtered := targets[:0]
-	for _, target := range targets {
-		if _, ok := existing[target.DeviceIdentifier]; ok {
-			continue
-		}
-		filtered = append(filtered, target)
-	}
-	return filtered
-}
-
 func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
 	if len(targets) == 0 || len(existingTargets) == 0 {
 		return targets
@@ -1420,12 +1409,18 @@ func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParam
 	filtered := targets[:0]
 	for _, target := range targets {
 		state, ok := existing[target.DeviceIdentifier]
-		if ok && state != models.TargetStateReleased {
+		if ok && !isReopenableTargetState(state) {
 			continue
 		}
 		filtered = append(filtered, target)
 	}
 	return filtered
+}
+
+func isReopenableTargetState(state models.TargetState) bool {
+	return state == models.TargetStateResolved ||
+		state == models.TargetStateRestoreFailed ||
+		state == models.TargetStateReleased
 }
 
 func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
@@ -2291,9 +2286,11 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	desiredActive := models.DesiredStateActive
 	for _, t := range claim {
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
-			State: models.TargetStateDispatching,
+			State:                models.TargetStateDispatching,
+			ExpectedDesiredState: &desiredActive,
 		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
 			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -2314,24 +2311,62 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 
-	deviceIDs := make([]string, 0, len(dispatchSet))
-	for _, t := range dispatchSet {
-		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
-	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	selector := &pb.DeviceSelector{
-		SelectionType: &pb.DeviceSelector_IncludeDevices{
-			IncludeDevices: &commonpb.DeviceIdentifierList{
-				DeviceIdentifiers: deviceIDs,
+	var result *command.CommandResult
+	var dispatchErr error
+	runCommand := func(targets []*models.Target) {
+		deviceIDs := make([]string, 0, len(targets))
+		for _, target := range targets {
+			deviceIDs = append(deviceIDs, target.DeviceIdentifier)
+		}
+		selector := &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
 			},
-		},
+		}
+		result, dispatchErr = r.cmd.Uncurtail(cmdCtx, selector)
 	}
-	result, dispatchErr := r.cmd.Uncurtail(cmdCtx, selector)
+	commandTargets := dispatchSet
+	topologyHandled, fenceReached, fencedTargets, fenceErr := r.fenceTopologyRestoreDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		runCommand,
+	)
+	if topologyHandled {
+		if !fenceReached {
+			if errors.Is(fenceErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				return
+			}
+			errMsg := "topology restore dispatch fence failed"
+			if fenceErr != nil {
+				errMsg = fenceErr.Error()
+			}
+			slog.Error("curtailment reconciler: topology restore dispatch fence failed",
+				"event_id", ev.ID, "error", fenceErr)
+			for _, target := range dispatchSet {
+				r.recordDispatchFailure(ctx, ev, target, errMsg, models.TargetStatePending)
+			}
+			return
+		}
+		commandTargets = fencedTargets
+		if fenceErr != nil {
+			slog.Error("curtailment reconciler: topology restore fence ended after command callback",
+				"event_id", ev.ID, "error", fenceErr)
+		}
+		if len(commandTargets) == 0 {
+			return
+		}
+	} else {
+		runCommand(commandTargets)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: restore batch dispatch failed",
-			"event_id", ev.ID, "batch_size", len(dispatchSet), "error", dispatchErr)
-		for _, t := range dispatchSet {
+			"event_id", ev.ID, "batch_size", len(commandTargets), "error", dispatchErr)
+		for _, t := range commandTargets {
 			r.recordDispatchFailure(ctx, ev, t, errMsg, models.TargetStatePending)
 		}
 		return
@@ -2341,8 +2376,8 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "uncurtail command produced no batch (no live devices to dispatch)"
 		slog.Warn("curtailment reconciler: restore batch produced empty result",
-			"event_id", ev.ID, "batch_size", len(dispatchSet))
-		for _, t := range dispatchSet {
+			"event_id", ev.ID, "batch_size", len(commandTargets))
+		for _, t := range commandTargets {
 			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
 		}
 		return
@@ -2359,7 +2394,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 
 	now := r.now()
 	batchID := result.BatchIdentifier
-	for _, t := range dispatchSet {
+	for _, t := range commandTargets {
 		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: restore device filter-skipped",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)

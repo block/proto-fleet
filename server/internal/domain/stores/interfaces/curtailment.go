@@ -67,16 +67,20 @@ type UpdateCurtailmentTargetStateParams struct {
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
-// bulk all-paired refresh. Reason is the unavailable reason; empty clears
-// last_error (the pending-promotion sentinel, matching the per-row query).
-// BaselinePowerW, when set on a promotion, backfills a NULL baseline from
-// current telemetry (targets inserted while unavailable have none); the SQL
-// never overwrites an existing baseline.
+// bulk all-paired refresh. Restore-failed topology obligations may first park
+// as unavailable so a later commandability transition can requeue them.
+// ExpectedState and ExpectedDesiredState prevent a decision made from a stale
+// target snapshot from overwriting a concurrent state or phase transition.
+// Reason is the unavailable reason; empty clears last_error. BaselinePowerW,
+// when set on a curtail promotion, backfills a NULL baseline from current
+// telemetry; the SQL never overwrites an existing baseline.
 type AllPairedReadinessUpdate struct {
-	DeviceIdentifier string
-	State            models.TargetState
-	Reason           string
-	BaselinePowerW   *float64
+	DeviceIdentifier     string
+	ExpectedState        models.TargetState
+	ExpectedDesiredState string
+	State                models.TargetState
+	Reason               string
+	BaselinePowerW       *float64
 }
 
 // ConfirmationBatchSize bounds both one fast-path eligibility page and each
@@ -228,6 +232,7 @@ type ListCandidatesParams struct {
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
 	OrgID             int64
+	ExcludeEventID    int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
@@ -253,6 +258,17 @@ type CurtailmentTopologyScopeStore interface {
 		ctx context.Context,
 		params ListCandidatesParams,
 	) (CurtailmentTopologyScopeCoverage, error)
+}
+
+// CurtailmentTopologyTargetRestoreStore moves targets that left a live
+// topology selector into the existing per-target restore state machine while
+// leaving the parent watcher active.
+type CurtailmentTopologyTargetRestoreStore interface {
+	BeginCurtailmentTopologyTargetRestore(
+		ctx context.Context,
+		event *models.Event,
+		deviceIdentifiers []string,
+	) (int64, error)
 }
 
 // CurtailmentTopologyDispatchSnapshot is one database snapshot of both the
@@ -293,6 +309,27 @@ type CurtailmentTopologyDispatchFenceStore interface {
 		params ListCandidatesParams,
 		dispatchDeviceIdentifiers []string,
 		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
+}
+
+// CurtailmentTopologyRestoreDispatchFenceSnapshot is the event and topology
+// state protected by a restore dispatch fence. ParkReturnedTargets persists
+// returned active-watcher targets before the fence releases its locks.
+type CurtailmentTopologyRestoreDispatchFenceSnapshot struct {
+	Event               *models.Event
+	Topology            CurtailmentTopologyDispatchSnapshot
+	ParkReturnedTargets func([]string) error
+}
+
+// CurtailmentTopologyRestoreDispatchFenceStore holds the current event and
+// topology membership stable through returned-target parking and a physical
+// Uncurtail command.
+type CurtailmentTopologyRestoreDispatchFenceStore interface {
+	WithCurtailmentTopologyRestoreDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
 	) error
 }
 
@@ -469,35 +506,41 @@ type CurtailmentStore interface {
 
 	// ClaimClosedLoopFullFleetTargets inserts missing closed-loop FULL_FLEET
 	// targets as DISPATCHING while the parent event is still pending/active.
-	// Existing same-event rows and cross-event conflicts are skipped so
-	// reconciliation can retry later.
+	// Existing same-event rows and cross-event conflicts are skipped before at
+	// most maxTargets are selected, so a reserved prefix cannot underfill the
+	// bounded admission batch.
 	ClaimClosedLoopFullFleetTargets(
 		ctx context.Context,
 		eventID int64,
 		orgID int64,
 		cooldownSec int32,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) ([]*models.Target, error)
 
 	// ClaimAllPairedPolicyTargets inserts or reopens durable all-paired
 	// FULL_FLEET policy targets in their computed state. Unlike closed-loop
-	// dispatch claims, this does not pre-claim rows as DISPATCHING.
+	// dispatch claims, this does not pre-claim rows as DISPATCHING. It skips
+	// earlier reservations before selecting at most maxTargets, so a reserved
+	// prefix cannot starve the bounded admission batch.
 	ClaimAllPairedPolicyTargets(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) (int64, error)
 
-	// BulkRefreshAllPairedTargetReadiness applies pending/unavailable
-	// readiness flips for all-paired policy rows in one statement. Rows
-	// whose state or desired_state advanced concurrently — and every row
-	// when the parent event left expectedEventState — are skipped, not
-	// clobbered; the reconciler re-reads them next tick. Returns the
-	// device identifiers of the rows actually updated so callers mirror
-	// only applied flips.
+	// BulkRefreshAllPairedTargetReadiness applies batched readiness flips to
+	// all-paired curtail rows and topology restore obligations. Rows whose
+	// state or desired_state advanced concurrently — and every row when the
+	// parent event left expectedEventState — are skipped, not clobbered; the
+	// reconciler re-reads them next tick. Returns the device identifiers of
+	// the rows actually updated so callers mirror only applied flips.
 	BulkRefreshAllPairedTargetReadiness(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
 		expectedEventState models.EventState,
 		updates []AllPairedReadinessUpdate,
 	) ([]string, error)
