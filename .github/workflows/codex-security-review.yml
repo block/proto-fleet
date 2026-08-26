@@ -321,14 +321,118 @@ jobs:
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
       REVIEW_RUN_ID: ${{ github.run_id }}
       REVIEW_AGENT_RESULT: ${{ needs.review-agent.result }}
+      REVIEW_AGENT_JOB_NAME: Run bounded Codex reviewer
+      REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
+      - name: Classify review-agent result
+        id: classify_agent
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_AGENT_RESULT: ${{ env.REVIEW_AGENT_RESULT }}
+          REVIEW_AGENT_JOB_NAME: ${{ env.REVIEW_AGENT_JOB_NAME }}
+          REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
+          REVIEW_PR_NUMBER: ${{ env.REVIEW_PR_NUMBER }}
+          CODEX_TIMEOUT_MINUTES: ${{ env.CODEX_TIMEOUT_MINUTES }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const agentResult = process.env.REVIEW_AGENT_RESULT;
+            if (agentResult === 'success') {
+              core.setOutput('classification', 'completed');
+              return;
+            }
+            if (agentResult !== 'cancelled') {
+              core.setOutput('classification', 'automation-failure');
+              return;
+            }
+
+            const prNumber = Number(process.env.REVIEW_PR_NUMBER);
+            const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+            const { data: currentRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const workflowRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: currentRun.workflow_id,
+              event: 'pull_request',
+              head_sha: process.env.REVIEW_HEAD_SHA,
+              per_page: 100,
+            });
+            const supersedingRun = workflowRuns.find(run =>
+              run.id > Number(context.runId) &&
+              run.head_sha === process.env.REVIEW_HEAD_SHA &&
+              run.pull_requests?.some(pullRequest => Number(pullRequest.number) === prNumber)
+            );
+            if (supersedingRun) {
+              core.setOutput('classification', 'superseded');
+              core.setOutput('detail', `newer workflow run ${supersedingRun.id} reviews this pull request head`);
+              return;
+            }
+
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              filter: 'latest',
+              per_page: 100,
+            });
+            const matches = jobs.filter(job => job.name === process.env.REVIEW_AGENT_JOB_NAME);
+            if (matches.length !== 1) {
+              core.setFailed(`Expected one review-agent job, found ${matches.length}.`);
+              return;
+            }
+
+            const job = matches[0];
+            const requiredSteps = [
+              'Checkout PR head commit',
+              'Fetch exact PR base and head commits',
+              'Validate exact review scope and trusted configuration',
+              'Write review diff',
+              'Require review API key',
+            ];
+            const prerequisitesSucceeded = requiredSteps.every(name =>
+              job.steps?.some(step => step.name === name && step.conclusion === 'success')
+            );
+            const codexStep = job.steps?.find(step => step.name === 'Run Codex Security Review');
+            const startedAt = Date.parse(job.started_at || '');
+            const completedAt = Date.parse(job.completed_at || '');
+            const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
+              ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
+              : null;
+            const budgetEvidence =
+              job.conclusion === 'cancelled' &&
+              prerequisitesSucceeded &&
+              codexStep?.started_at &&
+              codexStep?.conclusion === 'cancelled' &&
+              elapsedSeconds !== null &&
+              elapsedSeconds >= budgetSeconds;
+
+            core.setOutput('classification', budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation');
+            core.setOutput(
+              'detail',
+              JSON.stringify({
+                job_conclusion: job.conclusion,
+                prerequisites_succeeded: prerequisitesSucceeded,
+                codex_started: Boolean(codexStep?.started_at),
+                codex_conclusion: codexStep?.conclusion || null,
+                observed_job_seconds: elapsedSeconds,
+                budget_seconds: budgetSeconds,
+              })
+            );
+
       - name: Require completed or budget-cancelled review agent
         id: validate_agent
+        env:
+          AGENT_CLASSIFICATION: ${{ steps.classify_agent.outputs.classification }}
+          AGENT_CLASSIFICATION_DETAIL: ${{ steps.classify_agent.outputs.detail }}
         run: |
-          case "$REVIEW_AGENT_RESULT" in
-            success|cancelled) ;;
+          case "$REVIEW_AGENT_RESULT:$AGENT_CLASSIFICATION" in
+            success:completed|cancelled:budget-timeout) ;;
             *)
-              echo "Review automation failed before producing a trustworthy handoff: $REVIEW_AGENT_RESULT" >&2
+              echo "Review automation did not produce a completed review or verified budget timeout: $REVIEW_AGENT_RESULT/$AGENT_CLASSIFICATION ($AGENT_CLASSIFICATION_DETAIL)" >&2
               exit 1
               ;;
           esac
@@ -352,6 +456,66 @@ jobs:
           from pathlib import Path
 
           allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"}
+          severity_rank = {
+              "NONE": 0,
+              "LOW": 1,
+              "MEDIUM": 2,
+              "HIGH": 3,
+              "CRITICAL": 4,
+          }
+
+          def validate_review_markdown(markdown, risk):
+              section_names = ("## Review Summary", "### Findings", "### Notes")
+              section_positions = []
+              for section in section_names:
+                  matches = list(re.finditer(rf"(?m)^{re.escape(section)}[ \t]*$", markdown))
+                  if len(matches) != 1:
+                      raise ValueError(f"review Markdown must contain exactly one {section} section")
+                  section_positions.append(matches[0].start())
+              if section_positions != sorted(section_positions):
+                  raise ValueError("review Markdown sections are out of order")
+
+              summary_risks = re.findall(
+                  r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
+                  markdown,
+              )
+              if summary_risks != [risk]:
+                  raise ValueError("model output risk disagrees with review summary")
+
+              exact_findings = list(re.finditer(
+                  r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+$",
+                  markdown,
+              ))
+              finding_like = list(re.finditer(
+                  r"(?mi)^[ \t]{0,3}#{1,6}[^\n]*\b(CRITICAL|HIGH|MEDIUM|LOW|NONE)\b[^\n]*$",
+                  markdown,
+              ))
+              if len(finding_like) != len(exact_findings) or any(
+                  broad.start() != exact.start()
+                  for broad, exact in zip(finding_like, exact_findings, strict=True)
+              ):
+                  raise ValueError("review Markdown contains an unparseable severity heading")
+              if risk == "NONE" and exact_findings:
+                  raise ValueError("NONE review Markdown must not contain findings")
+              if risk != "NONE" and not exact_findings:
+                  raise ValueError("non-NONE review Markdown must contain a finding")
+
+              notes_start = section_positions[2]
+              required_fields = (
+                  r"(?m)^- \*\*Category\*\*: \S.*$",
+                  r"(?m)^- \*\*Location\*\*: \[[^\]]+\]\([^\)]+\)[ \t]*$",
+                  r"(?m)^- \*\*Description\*\*: \S.*$",
+                  r"(?m)^- \*\*Impact\*\*: \S.*$",
+                  r"(?m)^- \*\*Recommendation\*\*: \S.*$",
+              )
+              for index, finding in enumerate(exact_findings):
+                  end = exact_findings[index + 1].start() if index + 1 < len(exact_findings) else notes_start
+                  block = markdown[finding.start():end]
+                  if not all(re.search(pattern, block) for pattern in required_fields):
+                      raise ValueError("review Markdown finding is missing required fields")
+                  if severity_rank[finding.group(1).upper()] > severity_rank[risk]:
+                      raise ValueError("model output risk is lower than a reported finding")
+
           base_sha = os.environ["REVIEW_BASE_SHA"]
           head_sha = os.environ["REVIEW_HEAD_SHA"]
           commit_range = os.environ["REVIEW_COMMIT_RANGE"]
@@ -397,25 +561,7 @@ jobs:
                       raise ValueError("model output has an invalid overall_risk")
                   if not isinstance(review_markdown, str) or not review_markdown.strip():
                       raise ValueError("model output review_markdown must be non-empty")
-                  summary_risks = re.findall(
-                      r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
-                      review_markdown,
-                  )
-                  if summary_risks != [risk]:
-                      raise ValueError("model output risk disagrees with review summary")
-                  severity_rank = {
-                      "NONE": 0,
-                      "LOW": 1,
-                      "MEDIUM": 2,
-                      "HIGH": 3,
-                      "CRITICAL": 4,
-                  }
-                  finding_risks = re.findall(
-                      r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\]",
-                      review_markdown,
-                  )
-                  if any(severity_rank[finding] > severity_rank[risk] for finding in finding_risks):
-                      raise ValueError("model output risk is lower than a reported finding")
+                  validate_review_markdown(review_markdown, risk)
               except (json.JSONDecodeError, TypeError, ValueError):
                   incomplete_reason = "invalid-model-output"
 

@@ -91,6 +91,29 @@ def extract_python_heredoc(run_block):
     return body.split("\nPY\n", 1)[0] + "\n"
 
 
+def valid_review_markdown(risk="LOW"):
+    findings = "No material findings."
+    if risk != "NONE":
+        findings = "\n".join(
+            [
+                f"#### [{risk}] Material finding",
+                "- **Category**: Reliability",
+                "- **Location**: [`path/file.go:1`](https://example.invalid/path/file.go#L1)",
+                "- **Description**: Concrete changed behavior.",
+                "- **Impact**: Material impact.",
+                "- **Recommendation**: Apply the mitigation.",
+            ]
+        )
+    return (
+        "## Review Summary\n\n"
+        f"**Overall Risk**: {risk}\n\n"
+        "### Findings\n\n"
+        f"{findings}\n\n"
+        "### Notes\n\n"
+        "No additional notes.\n"
+    )
+
+
 def run_python_heredoc(body, env, cwd):
     script = Path(cwd) / "heredoc.py"
     script.write_text(body, encoding="utf-8")
@@ -116,6 +139,7 @@ const scenario = JSON.parse(process.env.SCENARIO_JSON);
 const calls = [];
 const notices = [];
 const failures = [];
+const outputs = {};
 const maybeFail = (name) => {
   if (scenario.fail_action === name) throw new Error(`forced ${name} failure`);
 };
@@ -129,6 +153,7 @@ const core = {
   notice: message => notices.push(message),
   warning: message => calls.push({type: 'warning', message}),
   setFailed: message => failures.push(message),
+  setOutput: (name, value) => { outputs[name] = String(value); },
 };
 const github = {
   paginate: async (method, args) => {
@@ -150,6 +175,10 @@ const github = {
       listWorkflowRuns: async () => {
         maybeFail('actions.listWorkflowRuns');
         return {data: scenario.workflow_runs || []};
+      },
+      listJobsForWorkflowRun: async () => {
+        maybeFail('actions.listJobsForWorkflowRun');
+        return {data: scenario.jobs || []};
       },
     },
     issues: {
@@ -175,7 +204,7 @@ const github = {
         + rendered
         + """
 })().then(() => {
-  console.log(JSON.stringify({calls, notices, failures}));
+  console.log(JSON.stringify({calls, notices, failures, outputs}));
   if (failures.length) process.exitCode = 1;
 }).catch(error => {
   console.error(error.stack || String(error));
@@ -196,6 +225,9 @@ const github = {
         "REVIEW_PR_NUMBER": "965",
         "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
         "CODEX_MODEL": "gpt-5.6-sol",
+        "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
+        "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
+        "CODEX_TIMEOUT_MINUTES": "9",
     }
     completed = subprocess.run(
         ["node", str(script)],
@@ -374,6 +406,110 @@ class ReviewPolicyTest(unittest.TestCase):
                 if expected_code:
                     self.assertTrue(output.get("failures"))
 
+    def test_review_agent_cancellation_classifier_requires_budget_evidence(self):
+        workflow = load_workflow("codex-security-review.yml")
+        script = find_step(workflow, "security-review", "classify_agent")["with"][
+            "script"
+        ]
+        head_sha = "b" * 40
+        successful_steps = [
+            {"name": name, "conclusion": "success"}
+            for name in (
+                "Checkout PR head commit",
+                "Fetch exact PR base and head commits",
+                "Validate exact review scope and trusted configuration",
+                "Write review diff",
+                "Require review API key",
+            )
+        ]
+        timeout_job = {
+            "name": "Run bounded Codex reviewer",
+            "conclusion": "cancelled",
+            "started_at": "2026-08-26T00:00:00Z",
+            "completed_at": "2026-08-26T00:14:00Z",
+            "steps": [
+                *successful_steps,
+                {
+                    "name": "Run Codex Security Review",
+                    "conclusion": "cancelled",
+                    "started_at": "2026-08-26T00:00:30Z",
+                },
+            ],
+        }
+        base = {
+            "run_id": 100,
+            "head_sha": head_sha,
+            "pull_request": {
+                "state": "open",
+                "head": {"sha": head_sha},
+                "user": {"login": "author"},
+            },
+            "agent_result": "cancelled",
+            "workflow_runs": [],
+            "jobs": [timeout_job],
+        }
+        scenarios = [
+            ("verified-timeout", base, "budget-timeout"),
+            (
+                "setup-cancellation",
+                {
+                    **base,
+                    "jobs": [
+                        {
+                            **timeout_job,
+                            "steps": [
+                                {
+                                    "name": "Checkout PR head commit",
+                                    "conclusion": "cancelled",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "unexpected-cancellation",
+            ),
+            (
+                "early-manual-cancellation",
+                {
+                    **base,
+                    "jobs": [
+                        {
+                            **timeout_job,
+                            "completed_at": "2026-08-26T00:05:00Z",
+                        }
+                    ],
+                },
+                "unexpected-cancellation",
+            ),
+            (
+                "superseded",
+                {
+                    **base,
+                    "workflow_runs": [
+                        {
+                            "id": 101,
+                            "head_sha": head_sha,
+                            "pull_requests": [{"number": 965}],
+                        }
+                    ],
+                },
+                "superseded",
+            ),
+            ("completed", {**base, "agent_result": "success"}, "completed"),
+            (
+                "automation-failure",
+                {**base, "agent_result": "failure"},
+                "automation-failure",
+            ),
+        ]
+        for name, scenario, expected_classification in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                completed, output = run_github_script(script, scenario, tmp)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(
+                    output["outputs"]["classification"], expected_classification
+                )
+
     def test_codex_benchmark_uses_fixed_bounded_non_production_matrix(self):
         workflow_text = read_workflow("codex-security-review-benchmark.yml")
         workflow = load_workflow("codex-security-review-benchmark.yml")
@@ -544,6 +680,20 @@ class ReviewPolicyTest(unittest.TestCase):
             benchmark_job["env"]["CODEX_REASONING_EFFORT"],
         )
 
+        production_writer = extract_python_heredoc(
+            find_step(production, "security-review", "write_review_result")["run"]
+        )
+        benchmark_writer = extract_python_heredoc(
+            find_step(benchmark, "benchmark-review", "write_artifacts")["run"]
+        )
+        production_validator = production_writer.split(
+            "def validate_review_markdown", 1
+        )[1].split("\nbase_sha =", 1)[0]
+        benchmark_validator = benchmark_writer.split("def validate_review_markdown", 1)[
+            1
+        ].split("\nraw =", 1)[0]
+        self.assertEqual(production_validator, benchmark_validator)
+
         # The benchmark checks out historical commits, so the review-packet body cannot
         # live in a local composite action; keeping the two copies byte-identical is what
         # makes a benchmark measurement describe the production packet.
@@ -595,7 +745,7 @@ class ReviewPolicyTest(unittest.TestCase):
         valid_output = json.dumps(
             {
                 "overall_risk": "MEDIUM",
-                "review_markdown": "## Review Summary\n\n**Overall Risk**: MEDIUM\n",
+                "review_markdown": valid_review_markdown("MEDIUM"),
             }
         )
         cases = [
@@ -788,6 +938,22 @@ class ReviewPolicyTest(unittest.TestCase):
         }
         self.assertEqual(allowed, {"LOW", "NONE"})
         self.assertNotIn("HIGH", allowed)
+        post_requirements = [
+            requirement
+            for requirement in config["low_risk"]["required_checks"]
+            if requirement["name"] == "Post Codex Security Review"
+        ]
+        self.assertEqual(
+            post_requirements,
+            [
+                {
+                    "name": "Post Codex Security Review",
+                    "type": "github_actions",
+                    "workflow_path": ".github/workflows/codex-security-review.yml",
+                    "event": "pull_request",
+                }
+            ],
+        )
 
     def _run_review_result_writer(
         self,
@@ -888,6 +1054,43 @@ class ReviewPolicyTest(unittest.TestCase):
                 ),
                 None,
             ),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": "## Review Summary\n\n**Overall Risk**: LOW\n",
+                    }
+                ),
+                None,
+            ),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": valid_review_markdown("LOW").replace(
+                            "#### [LOW]", "#### **[LOW]**"
+                        ),
+                    }
+                ),
+                None,
+            ),
+            (
+                "invalid-model-output",
+                "success",
+                json.dumps(
+                    {
+                        "overall_risk": "LOW",
+                        "review_markdown": valid_review_markdown("LOW").replace(
+                            "- **Recommendation**: Apply the mitigation.\n", ""
+                        ),
+                    }
+                ),
+                None,
+            ),
         ]
         for expected_reason, agent_result, output, handoff_reason in cases:
             with self.subTest(reason=expected_reason):
@@ -919,7 +1122,7 @@ class ReviewPolicyTest(unittest.TestCase):
             review_output=json.dumps(
                 {
                     "overall_risk": "LOW",
-                    "review_markdown": "## Review Summary\n\n**Overall Risk**: LOW\n",
+                    "review_markdown": valid_review_markdown("LOW"),
                 }
             ),
         )
@@ -935,7 +1138,7 @@ class ReviewPolicyTest(unittest.TestCase):
         valid_output = json.dumps(
             {
                 "overall_risk": "LOW",
-                "review_markdown": "## Review Summary\n\n**Overall Risk**: LOW\n",
+                "review_markdown": valid_review_markdown("LOW"),
             }
         )
         metadata_cases = {
@@ -984,11 +1187,23 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(finalizer["needs"], "review-agent")
         self.assertIn("always()", finalizer["if"])
 
-        for result, expected_code in (("success", 0), ("cancelled", 0), ("failure", 1)):
-            with self.subTest(result=result):
+        cases = [
+            ("success", "completed", 0),
+            ("cancelled", "budget-timeout", 0),
+            ("cancelled", "unexpected-cancellation", 1),
+            ("cancelled", "superseded", 1),
+            ("failure", "automation-failure", 1),
+        ]
+        for result, classification, expected_code in cases:
+            with self.subTest(result=result, classification=classification):
                 completed = subprocess.run(
                     ["bash", "-c", gate],
-                    env={**os.environ, "REVIEW_AGENT_RESULT": result},
+                    env={
+                        **os.environ,
+                        "REVIEW_AGENT_RESULT": result,
+                        "AGENT_CLASSIFICATION": classification,
+                        "AGENT_CLASSIFICATION_DETAIL": "test detail",
+                    },
                     check=False,
                     capture_output=True,
                     text=True,
@@ -1792,6 +2007,12 @@ class ReviewPolicyTest(unittest.TestCase):
                     "app": {"slug": "github-actions"},
                     "details_url": "https://github.com/block/proto-fleet/actions/runs/124/job/456",
                 },
+                "Post Codex Security Review": {
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "app": {"slug": "github-actions"},
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/124/job/789",
+                },
             }
             policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
@@ -1824,6 +2045,12 @@ class ReviewPolicyTest(unittest.TestCase):
                         "workflow_path": ".github/workflows/codex-security-review.yml",
                         "event": "pull_request",
                     },
+                    {
+                        "name": "Post Codex Security Review",
+                        "type": "github_actions",
+                        "workflow_path": ".github/workflows/codex-security-review.yml",
+                        "event": "pull_request",
+                    },
                     {"name": "missing", "type": "check_run", "app_slug": "trusted-app"},
                 ],
                 "token",
@@ -1836,6 +2063,10 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("required check 'security-review' is completed/failure", blockers)
+        self.assertIn(
+            "required check 'Post Codex Security Review' is completed/failure",
+            blockers,
+        )
         self.assertIn("required check 'missing' is missing", blockers)
 
     def test_check_statuses_accepts_typed_commit_statuses(self):

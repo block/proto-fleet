@@ -352,6 +352,66 @@ jobs:
           import time
           from pathlib import Path
 
+          severity_rank = {
+              "NONE": 0,
+              "LOW": 1,
+              "MEDIUM": 2,
+              "HIGH": 3,
+              "CRITICAL": 4,
+          }
+
+          def validate_review_markdown(markdown, risk):
+              section_names = ("## Review Summary", "### Findings", "### Notes")
+              section_positions = []
+              for section in section_names:
+                  matches = list(re.finditer(rf"(?m)^{re.escape(section)}[ \t]*$", markdown))
+                  if len(matches) != 1:
+                      raise ValueError(f"review Markdown must contain exactly one {section} section")
+                  section_positions.append(matches[0].start())
+              if section_positions != sorted(section_positions):
+                  raise ValueError("review Markdown sections are out of order")
+
+              summary_risks = re.findall(
+                  r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
+                  markdown,
+              )
+              if summary_risks != [risk]:
+                  raise ValueError("model output risk disagrees with review summary")
+
+              exact_findings = list(re.finditer(
+                  r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+$",
+                  markdown,
+              ))
+              finding_like = list(re.finditer(
+                  r"(?mi)^[ \t]{0,3}#{1,6}[^\n]*\b(CRITICAL|HIGH|MEDIUM|LOW|NONE)\b[^\n]*$",
+                  markdown,
+              ))
+              if len(finding_like) != len(exact_findings) or any(
+                  broad.start() != exact.start()
+                  for broad, exact in zip(finding_like, exact_findings, strict=True)
+              ):
+                  raise ValueError("review Markdown contains an unparseable severity heading")
+              if risk == "NONE" and exact_findings:
+                  raise ValueError("NONE review Markdown must not contain findings")
+              if risk != "NONE" and not exact_findings:
+                  raise ValueError("non-NONE review Markdown must contain a finding")
+
+              notes_start = section_positions[2]
+              required_fields = (
+                  r"(?m)^- \*\*Category\*\*: \S.*$",
+                  r"(?m)^- \*\*Location\*\*: \[[^\]]+\]\([^\)]+\)[ \t]*$",
+                  r"(?m)^- \*\*Description\*\*: \S.*$",
+                  r"(?m)^- \*\*Impact\*\*: \S.*$",
+                  r"(?m)^- \*\*Recommendation\*\*: \S.*$",
+              )
+              for index, finding in enumerate(exact_findings):
+                  end = exact_findings[index + 1].start() if index + 1 < len(exact_findings) else notes_start
+                  block = markdown[finding.start():end]
+                  if not all(re.search(pattern, block) for pattern in required_fields):
+                      raise ValueError("review Markdown finding is missing required fields")
+                  if severity_rank[finding.group(1).upper()] > severity_rank[risk]:
+                      raise ValueError("model output risk is lower than a reported finding")
+
           raw = os.environ.get("REVIEW_OUTPUT", "").strip()
           outcome = os.environ.get("CODEX_OUTCOME", "")
           timeout_seconds = int(os.environ["CODEX_TIMEOUT_MINUTES"]) * 60
@@ -379,27 +439,10 @@ jobs:
                   ):
                       risk = candidate["overall_risk"]
                       markdown = candidate["review_markdown"]
-                      summary_risks = re.findall(
-                          r"(?m)^\*\*Overall Risk\*\*: (CRITICAL|HIGH|MEDIUM|LOW|NONE)[ \t]*$",
-                          markdown,
-                      )
-                      severity_rank = {
-                          "NONE": 0,
-                          "LOW": 1,
-                          "MEDIUM": 2,
-                          "HIGH": 3,
-                          "CRITICAL": 4,
-                      }
-                      finding_risks = re.findall(
-                          r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\]",
-                          markdown,
-                      )
-                      if summary_risks == [risk] and not any(
-                          severity_rank[finding] > severity_rank[risk]
-                          for finding in finding_risks
-                      ):
+                      try:
+                          validate_review_markdown(markdown, risk)
                           review = candidate
-                      else:
+                      except ValueError:
                           incomplete_reason = "invalid-model-output"
                   else:
                       incomplete_reason = "invalid-model-output"

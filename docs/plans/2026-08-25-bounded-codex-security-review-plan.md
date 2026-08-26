@@ -204,12 +204,15 @@ fail-closed finalizer can roll out independently of model tuning.
   action did not stop at its caller step timeout in production.
 - Run trusted fallback creation and production artifact uploads in a separate
   five-minute `security-review` finalizer that uses `always()` after the review
-  agent. A cancelled agent becomes a timeout fallback; an agent failure remains
-  a hard failure.
+  agent. Accept cancellation as a timeout only when Actions job/step state and
+  timing show trusted setup completed, Codex started, and the outer budget was
+  reached; early, manual, superseded, or ambiguous cancellation remains a hard
+  failure.
 - Pass completed output through a uniquely named internal artifact so the
   finalizer can validate it without executing code from the PR checkout.
-- For timeout, empty output, model-output parse failure, or disagreement between
-  the structured risk and review Markdown, write:
+- For timeout, empty output, model-output parse failure, missing required review
+  sections/fields, unparseable severity headings, or disagreement between the
+  structured risk and review Markdown, write:
   - `overall_risk: HIGH`
   - the exact base/head range and run ID
   - Markdown stating that automated review did not complete within its budget
@@ -218,8 +221,9 @@ fail-closed finalizer can roll out independently of model tuning.
   configuration, stale SHA metadata, or artifact upload problem as a hard
   workflow failure.
 - Preserve the existing production artifact names and schema consumed by
-  `.github/scripts/evaluate_review_policy.py`; require `automation_completed`
-  and force incomplete artifacts onto the human-review path.
+  `.github/scripts/evaluate_review_policy.py`; require `automation_completed`,
+  force incomplete artifacts onto the human-review path, and require successful
+  `Post Codex Security Review` completion before approval-free policy.
 - Serialize post-review jobs without cancelling the running poster, preserve the
   head-SHA check, and reject newer runs for the same pull request so stale or
   concurrency-cancelled results never update the PR comment. Treat API and
