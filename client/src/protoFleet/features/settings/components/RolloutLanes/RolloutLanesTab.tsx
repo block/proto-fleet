@@ -2,20 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
+import FirmwarePickerButton from "./FirmwarePickerButton";
 import LaneHistoryModal from "./LaneHistoryModal";
+import ModelMinersModal from "./ModelMinersModal";
 import ModelRolloutStatus from "./ModelRolloutStatus";
 import {
-  deviceStateLabels,
-  deviceStateTone,
   rolloutDeviceCounts,
   rolloutProgressColorMap,
   rolloutProgressSegments,
   rolloutProgressSummary,
 } from "./rolloutStatus";
-import StatusChip from "./StatusChip";
 import {
   Rollout,
-  RolloutDeviceState,
   RolloutLane,
   RolloutLaneModelGroup,
   RolloutStatus,
@@ -32,7 +30,6 @@ import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const ROLLOUT_LANES_DESCRIPTION =
@@ -73,119 +70,70 @@ interface ModelGroupSectionProps {
   group: RolloutLaneModelGroup;
   activeRollout: Rollout | undefined;
   firmwareFiles: FirmwareFileInfo[];
-  minerNames: Record<string, string>;
   stagedFileId: string;
   onStageFirmware: (model: string, fileId: string) => void;
+  onViewMiners: () => void;
 }
 
+// Compact per-model row: identity on the left, actions on the right, and
+// live rollout progress below. The miner table lives in a modal behind
+// "View miners" so lanes with many miners stay scannable.
 const ModelGroupSection = ({
   group,
   activeRollout,
   firmwareFiles,
-  minerNames,
   stagedFileId,
   onStageFirmware,
+  onViewMiners,
 }: ModelGroupSectionProps) => {
-  const [expanded, setExpanded] = useState(true);
   const options = useMemo(() => {
     const matching = firmwareFiles.filter((f) => f.target_model.toLowerCase() === group.model.toLowerCase());
     return [
       { value: "", label: "No firmware" },
       ...matching.map((f) => ({
         value: f.id,
-        label: f.firmware_version ? `${f.firmware_version} (${f.filename})` : f.filename,
+        label: f.firmware_version || f.filename,
+        description: f.filename,
       })),
     ];
   }, [firmwareFiles, group.model]);
 
-  const deviceStates = useMemo(() => {
-    const states: Record<string, RolloutDeviceState> = {};
-    for (const device of activeRollout?.devices ?? []) {
-      states[device.deviceIdentifier] = device.state;
-    }
-    return states;
-  }, [activeRollout]);
-
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-core-primary-5 p-4" data-testid={`model-group-${group.model}`}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          data-testid={`model-group-toggle-${group.model}`}
-          className="flex cursor-pointer items-center gap-3 text-left"
-          onClick={() => setExpanded((current) => !current)}
-        >
-          <CollapseChevron expanded={expanded} />
+        <div className="flex items-center gap-3">
           <span className="text-heading-100 text-text-primary">{group.model || "Unknown model"}</span>
           <span className="text-200 text-text-primary-50">
             {group.miners.length === 1 ? "1 miner" : `${group.miners.length} miners`}
           </span>
-        </button>
-        {expanded ? (
-          <div className="w-72 phone:w-full">
-            <Select
-              id={`firmware-${group.model}`}
-              label="Firmware"
-              testId={`lane-firmware-select-${group.model}`}
-              options={options}
-              value={stagedFileId}
-              onChange={(value) => onStageFirmware(group.model, value)}
-              emptyMessage="No uploaded firmware targets this model"
+        </div>
+        <div className="flex items-center gap-3 phone:flex-col phone:items-stretch">
+          {group.miners.length > 0 ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="View miners"
+              onClick={onViewMiners}
+              testId={`view-miners-${group.model}`}
             />
-          </div>
-        ) : (
-          <span className="text-200 text-text-primary-50">
-            {group.firmwareVersion ? `Assigned ${group.firmwareVersion}` : "No firmware assigned"}
-          </span>
-        )}
+          ) : null}
+          <FirmwarePickerButton
+            label={`Firmware for ${group.model || "unknown model"}`}
+            options={options}
+            value={stagedFileId}
+            onChange={(value) => onStageFirmware(group.model, value)}
+            testId={`lane-firmware-select-${group.model}`}
+          />
+        </div>
       </div>
 
-      {/* Rollout progress stays visible while the group is collapsed. */}
       {activeRollout ? <ModelGroupRolloutProgress rollout={activeRollout} /> : null}
 
-      {!expanded ? null : group.miners.length > 0 ? (
-        <table className="w-full text-left text-200">
-          <thead>
-            <tr className="text-text-primary-50">
-              <th className="py-1.5 pr-4 font-normal">Miner</th>
-              <th className="py-1.5 pr-4 font-normal">Current firmware</th>
-              <th className="py-1.5 font-normal">Status</th>
-            </tr>
-          </thead>
-          <tbody className="text-text-primary">
-            {group.miners.map((miner) => {
-              const state = deviceStates[miner.deviceIdentifier];
-              const onTarget = group.firmwareVersion !== "" && miner.firmwareVersion === group.firmwareVersion;
-              return (
-                <tr
-                  key={miner.deviceIdentifier}
-                  className="border-t border-border-5"
-                  data-testid={`lane-miner-${miner.deviceIdentifier}`}
-                >
-                  <td className="py-2 pr-4">{minerNames[miner.deviceIdentifier] || miner.deviceIdentifier}</td>
-                  <td className="py-2 pr-4">{miner.firmwareVersion || "Unknown"}</td>
-                  <td className="py-2">
-                    {state !== undefined && state !== RolloutDeviceState.UNSPECIFIED ? (
-                      <StatusChip label={deviceStateLabels[state]} tone={deviceStateTone(state)} />
-                    ) : onTarget ? (
-                      <StatusChip label="On assigned version" tone="success" />
-                    ) : group.firmwareVersion !== "" ? (
-                      <StatusChip label="Not on assigned version" tone="neutral" />
-                    ) : (
-                      <span className="text-text-primary-50">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      ) : (
+      {group.miners.length === 0 ? (
         <span className="text-200 text-text-primary-50">
           No miners of this model in the lane. The assignment applies as soon as one is added.
         </span>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -215,11 +163,16 @@ const LaneCard = ({
   const [staged, setStaged] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  // Model whose miner table is open in the "View miners" modal.
+  const [minersModel, setMinersModel] = useState<string | null>(null);
 
   const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
   const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
   const activeByModel = new Map(laneRollouts.filter((r) => r.status === RolloutStatus.ACTIVE).map((r) => [r.model, r]));
   const activeCount = activeByModel.size;
+  // Derived from the polled lane on every render so the open modal tracks
+  // live firmware versions and rollout states; closes if the group empties.
+  const minersGroup = minersModel !== null ? lane.modelGroups.find((group) => group.model === minersModel) : undefined;
 
   const stagedValue = (group: RolloutLaneModelGroup): string =>
     staged[group.model] !== undefined ? staged[group.model] : group.firmwareFileId;
@@ -292,12 +245,22 @@ const LaneCard = ({
             group={group}
             activeRollout={activeByModel.get(group.model)}
             firmwareFiles={firmwareFiles}
-            minerNames={minerNames}
             stagedFileId={stagedValue(group)}
             onStageFirmware={(model, fileId) => setStaged((prev) => ({ ...prev, [model]: fileId }))}
+            onViewMiners={() => setMinersModel(group.model)}
           />
         ))
       )}
+
+      {minersGroup ? (
+        <ModelMinersModal
+          laneName={lane.name}
+          group={minersGroup}
+          activeRollout={activeByModel.get(minersGroup.model)}
+          minerNames={minerNames}
+          onClose={() => setMinersModel(null)}
+        />
+      ) : null}
 
       {dirtyAssignments.length > 0 ? (
         <div className="flex items-center justify-between gap-4 rounded-lg bg-intent-warning-10 px-4 py-3">

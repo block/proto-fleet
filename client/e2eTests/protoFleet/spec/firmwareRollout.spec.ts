@@ -105,15 +105,13 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.validateLaneRolloutPill(laneA);
     });
 
-    await test.step("Collapsed model group still shows overall rollout progress", async () => {
-      await settingsFirmwarePage.toggleModelGroup(laneA, "Rig");
-      await settingsFirmwarePage.validateModelGroupCollapsed(laneA, "Rig");
+    await test.step("View miners modal lists the model's miners; progress stays in the card", async () => {
+      await settingsFirmwarePage.validateModelMinersCount(laneA, "Rig", 2);
       await settingsFirmwarePage.validateLaneRolloutInProgress(laneA, firmwareVersion);
-      await settingsFirmwarePage.toggleModelGroup(laneA, "Rig");
     });
 
     await test.step("Rollout completes and both miners report the assigned version", async () => {
-      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneA, firmwareVersion, testConfig.testTimeout * 4);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneA, "Rig", firmwareVersion, testConfig.testTimeout * 4);
     });
 
     await test.step("Collapsing the lane hides its model groups", async () => {
@@ -123,7 +121,7 @@ test.describe("Firmware rollout lanes", () => {
     });
 
     await test.step("Moving a miner to a second lane removes it from the first", async () => {
-      const [minerToMove] = await settingsFirmwarePage.getLaneMinerNames(laneA);
+      const [minerToMove] = await settingsFirmwarePage.getLaneMinerNames(laneA, "Rig");
       await settingsFirmwarePage.createLane(laneB);
       await settingsFirmwarePage.openManageLaneMiners(laneB);
       await settingsFirmwarePage.selectLaneMinerByName(minerToMove);
@@ -175,20 +173,35 @@ test.describe("Firmware rollout lanes", () => {
     await test.step("Roll out the first version", async () => {
       await settingsFirmwarePage.selectLaneFirmware(laneC, "Rig", new RegExp(rollbackVersionV1));
       await settingsFirmwarePage.applyLaneFirmwareChanges(laneC);
-      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV1, testConfig.testTimeout * 4);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(
+        laneC,
+        "Rig",
+        rollbackVersionV1,
+        testConfig.testTimeout * 4,
+      );
     });
 
     await test.step("Roll out the second version; the first's history entry offers rollback", async () => {
       await settingsFirmwarePage.selectLaneFirmware(laneC, "Rig", new RegExp(rollbackVersionV2));
       await settingsFirmwarePage.applyLaneFirmwareChanges(laneC);
       await settingsFirmwarePage.validateHistoryRollbackAvailable(laneC, rollbackVersionV1);
-      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV2, testConfig.testTimeout * 4);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(
+        laneC,
+        "Rig",
+        rollbackVersionV2,
+        testConfig.testTimeout * 4,
+      );
     });
 
     await test.step("Roll back from history and wait for the rollback rollout to complete", async () => {
       await settingsFirmwarePage.rollbackLaneFirmware(laneC, rollbackVersionV1);
       await settingsFirmwarePage.validateLaneRolloutInProgress(laneC, rollbackVersionV1);
-      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV1, testConfig.testTimeout * 4);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(
+        laneC,
+        "Rig",
+        rollbackVersionV1,
+        testConfig.testTimeout * 4,
+      );
     });
 
     await test.step("The replaced version's history entry becomes the rollback target (roll forward)", async () => {

@@ -77,15 +77,39 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
-  // Display names of the lane's members, in render order.
-  async getLaneMinerNames(laneName: string): Promise<string[]> {
-    const rows = this.laneCard(laneName).locator('[data-testid^="lane-miner-"]');
+  minersModal(): Locator {
+    return this.page.getByTestId("modal");
+  }
+
+  // Opens the model group's miner table via its "View miners" button.
+  async openModelMiners(laneName: string, model: string) {
+    await this.laneCard(laneName).getByTestId(`view-miners-${model}`).click();
+    await this.validateTitleInModal(`${model} miners`);
+  }
+
+  async closeModelMiners() {
+    await this.minersModal().getByRole("button", { name: "Done", exact: true }).click();
+    await expect(this.minersModal()).toBeHidden();
+  }
+
+  // Display names of the model group's miners, in render order.
+  async getLaneMinerNames(laneName: string, model: string): Promise<string[]> {
+    await this.openModelMiners(laneName, model);
+    const rows = this.minersModal().locator('[data-testid^="lane-miner-"]');
     const count = await rows.count();
     const names: string[] = [];
     for (let i = 0; i < count; i++) {
       names.push((await rows.nth(i).locator("td").first().innerText()).trim());
     }
+    await this.closeModelMiners();
     return names;
+  }
+
+  // The miners modal lists exactly the model group's miners.
+  async validateModelMinersCount(laneName: string, model: string, count: number) {
+    await this.openModelMiners(laneName, model);
+    await expect(this.minersModal().locator('[data-testid^="lane-miner-"]')).toHaveCount(count);
+    await this.closeModelMiners();
   }
 
   async validateLaneMinerCount(laneName: string, count: number) {
@@ -142,10 +166,6 @@ export class SettingsFirmwarePage extends BasePage {
     await this.laneCard(laneName).getByTestId("lane-toggle").click();
   }
 
-  async toggleModelGroup(laneName: string, model: string) {
-    await this.laneCard(laneName).getByTestId(`model-group-toggle-${model}`).click();
-  }
-
   async validateLaneRolloutPill(laneName: string) {
     await expect(this.laneCard(laneName).getByTestId("lane-rollout-pill")).toBeVisible();
   }
@@ -167,28 +187,24 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByText("Loading rollout lanes...", { exact: true })).toBeHidden();
   }
 
-  // Collapsed model group: firmware select hidden, header still visible.
-  async validateModelGroupCollapsed(laneName: string, model: string) {
-    await expect(this.laneCard(laneName).getByTestId(`lane-firmware-select-${model}`)).toBeHidden();
-    await expect(this.laneCard(laneName).getByTestId(`model-group-toggle-${model}`)).toBeVisible();
-  }
-
   // Collapsed lane: model groups hidden, header (and its pill) still visible.
   async validateLaneCollapsed(laneName: string, model: string) {
     await expect(this.laneCard(laneName).getByTestId(`model-group-${model}`)).toBeHidden();
     await expect(this.laneCard(laneName).getByTestId("lane-toggle")).toBeVisible();
   }
 
-  // The rollout is done when every miner in the lane reports the target
-  // version, the progress bar clears, and the rollout shows up as
-  // completed in the lane's history modal.
-  async waitForLaneRolloutCompleted(laneName: string, version: string, timeoutMs: number) {
+  // The rollout is done when every miner in the model group reports the
+  // target version (checked in the live "View miners" modal), the progress
+  // bar clears, and the rollout shows up as completed in the lane's history.
+  async waitForLaneRolloutCompleted(laneName: string, model: string, version: string, timeoutMs: number) {
     const card = this.laneCard(laneName);
-    const minerRows = card.locator('[data-testid^="lane-miner-"]');
+    await this.openModelMiners(laneName, model);
+    const minerRows = this.minersModal().locator('[data-testid^="lane-miner-"]');
     const rowCount = await minerRows.count();
     for (let i = 0; i < rowCount; i++) {
       await expect(minerRows.nth(i)).toContainText(version, { timeout: timeoutMs });
     }
+    await this.closeModelMiners();
     // Status flips on the next enforcement tick after the miners report in.
     await expect(card.getByText(`Rolling out ${version}`)).toBeHidden({ timeout: timeoutMs });
     await this.openLaneHistory(laneName);
