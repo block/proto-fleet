@@ -68,8 +68,8 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 					(SELECT count(*) FROM curtailment_event)
 			`).Scan(&profiles, &rules, &events))
 			assert.Equal(t, 1, profiles)
-			assert.Equal(t, 2, rules)
-			assert.Equal(t, 11, events)
+			assert.Equal(t, 3, rules)
+			assert.Equal(t, 12, events)
 			assertLegacyResponseProfileRevisionBinding(t, conn)
 		})
 	}
@@ -327,8 +327,7 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		INSERT INTO curtailment_response_profile (
 			org_id, profile_name, mode, target_kw, site_id, scope_json
 		) VALUES (
-			$1, 'Legacy profile', 'FIXED_KW', 100, $2,
-			jsonb_build_object('site_ids', jsonb_build_array($2::BIGINT))
+			$1, 'Legacy profile', 'FIXED_KW', 100, $2, '{}'::JSONB
 		)
 		RETURNING id
 	`, orgID, siteID).Scan(&profileID))
@@ -436,6 +435,50 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 	`, orgID, mismatchedRuleReference, userID, siteID, profileID)
 	assert.NoError(t, err)
 
+	var mismatchedScopeRuleID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO curtailment_automation_rule (
+			org_id, rule_name, mqtt_source_id, response_profile_id
+		) VALUES ($1, 'Mismatched scope legacy rule', $2, $3)
+		RETURNING id
+	`, orgID, sourceID, profileID).Scan(&mismatchedScopeRuleID))
+	mismatchedScopeRuleReference := strconv.FormatInt(mismatchedScopeRuleID, 10)
+	_, err = conn.ExecContext(t.Context(), `
+		INSERT INTO curtailment_event (
+			event_uuid, org_id, state, mode, strategy, level, priority,
+			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+			curtail_batch_size, curtail_batch_interval_sec,
+			restore_batch_size, restore_batch_interval_sec,
+			include_maintenance, force_include_maintenance,
+			force_include_all_paired_miners,
+			facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec,
+			decision_snapshot_jsonb, source_actor_type, source_actor_id,
+			external_source, external_reference, idempotency_key,
+			reason, created_by_user_id
+		)
+		SELECT
+			'00000000-0000-0000-0000-000000000012', $1, 'active',
+			profile.mode, profile.strategy, profile.level, profile.priority,
+			'open', 'site', jsonb_build_object('site_id', $4::BIGINT + 1),
+			jsonb_build_object(
+				'target_kw', profile.target_kw,
+				'tolerance_kw', COALESCE(profile.tolerance_kw, 0)
+			),
+			profile.curtail_batch_size, profile.curtail_batch_interval_sec,
+			profile.restore_batch_size, profile.restore_batch_interval_sec,
+			profile.include_maintenance, profile.force_include_maintenance,
+			profile.force_include_all_paired_miners,
+			profile.facility_fan_device_ids, profile.fan_off_delay_sec,
+			profile.fan_restore_delay_sec,
+			'{"selected_count":1}'::jsonb,
+			'automation', $2, 'curtailment_automation', $2,
+			'curtailment_automation_rule:' || $2,
+			'Mismatched scope legacy automation event', $3
+		FROM curtailment_response_profile AS profile
+		WHERE profile.id = $5
+	`, orgID, mismatchedScopeRuleReference, userID, siteID, profileID)
+	assert.NoError(t, err)
+
 	for i := 1; i <= 9; i++ {
 		_, err = conn.ExecContext(t.Context(), `
 			INSERT INTO curtailment_event (
@@ -504,6 +547,15 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 		WHERE event_uuid = '00000000-0000-0000-0000-000000000011'
 	`).Scan(&mismatchedEventStamped))
 	assert.False(t, mismatchedEventStamped)
+
+	var mismatchedScopeEventStamped bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT decision_snapshot_jsonb ? 'response_profile_id'
+		    OR decision_snapshot_jsonb ? 'response_profile_revision'
+		FROM curtailment_event
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000012'
+	`).Scan(&mismatchedScopeEventStamped))
+	assert.False(t, mismatchedScopeEventStamped)
 }
 
 func assertLegacyCurtailmentEnvelope(

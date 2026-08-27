@@ -4,6 +4,10 @@
 -- use the current explicit selector contract.
 UPDATE curtailment_response_profile
 SET scope_json = CASE
+    WHEN scope_json = '{}'::JSONB AND site_id IS NOT NULL THEN jsonb_build_object(
+        'site_ids', jsonb_build_array(site_id),
+        'scope_schema_version', 1
+    )
     WHEN scope_json = '{}'::JSONB THEN jsonb_build_object(
         'whole_org', TRUE,
         'scope_schema_version', 1
@@ -59,6 +63,21 @@ WHERE event.org_id = rule.org_id
   AND event.facility_fan_device_ids = profile.facility_fan_device_ids
   AND event.fan_off_delay_sec = profile.fan_off_delay_sec
   AND event.fan_restore_delay_sec = profile.fan_restore_delay_sec
+  AND event.scope_type = CASE
+      WHEN profile.scope_json @> '{"whole_org": true}'::JSONB THEN 'whole_org'
+      WHEN profile.scope_json ? 'site_id' THEN 'site'
+      WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array'
+          AND jsonb_array_length(profile.scope_json->'site_ids') = 1 THEN 'site'
+      WHEN profile.scope_json ? 'device_identifiers' THEN 'device_list'
+      ELSE 'mixed'
+  END
+  AND event.scope_jsonb - 'scope_schema_version' = CASE
+      WHEN profile.scope_json @> '{"whole_org": true}'::JSONB THEN '{}'::JSONB
+      WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array'
+          AND jsonb_array_length(profile.scope_json->'site_ids') = 1
+          THEN jsonb_build_object('site_id', profile.scope_json->'site_ids'->0)
+      ELSE profile.scope_json - 'scope_schema_version'
+  END
   AND (
       (profile.mode = 'FULL_FLEET' AND event.mode_params_jsonb = '{}'::JSONB)
       OR
