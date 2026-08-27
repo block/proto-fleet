@@ -614,22 +614,24 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 			return true
 		default:
 		}
-		probe, probeErr := database.BeginTx(ctx, &sql.TxOptions{})
-		if probeErr != nil {
-			return false
-		}
-		defer func() { _ = probe.Rollback() }()
-		var acquired bool
-		if probeErr := probe.QueryRowContext(
+		var waitingOnFanRow bool
+		if probeErr := database.QueryRowContext(
 			ctx,
-			`SELECT pg_try_advisory_xact_lock(hashtextextended('curtailment-fan:' || $1::text, 0))`,
-			fanID,
-		).Scan(&acquired); probeErr != nil {
+			`SELECT EXISTS (
+				SELECT 1
+				FROM pg_stat_activity
+				WHERE datname = current_database()
+				  AND pid <> pg_backend_pid()
+				  AND wait_event_type = 'Lock'
+				  AND query LIKE '%FROM infrastructure_device%'
+				  AND query LIKE '%FOR UPDATE%'
+			)`,
+		).Scan(&waitingOnFanRow); probeErr != nil {
 			return false
 		}
-		return !acquired
-	}, 10*time.Second, 25*time.Millisecond, "execution did not reach the fan claim lock")
-	require.False(t, executionCompleted, "execution completed before reaching the fan claim lock: %v", earlyExecutionErr)
+		return waitingOnFanRow
+	}, 10*time.Second, 25*time.Millisecond, "execution did not wait on the fan row lock")
+	require.False(t, executionCompleted, "execution completed before waiting on the fan row lock: %v", earlyExecutionErr)
 
 	require.NoError(t, profileBlocker.Commit())
 	require.NoError(t, <-updateResult)
