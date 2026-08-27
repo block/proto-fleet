@@ -24,6 +24,7 @@ assert_file_contains() {
 
 create_release() {
   local version="$1"
+  local extra_entry="${2:-}"
   local release_dir="$ASSETS_DIR/$version"
   local archive_root="fleetnode-${version}-linux-amd64"
   mkdir -p "$release_dir/$archive_root/plugins"
@@ -40,6 +41,10 @@ create_release() {
   done
   printf '{}\n' > "$release_dir/$archive_root/plugins/virtual-plugin.json"
   printf 'plugin: {}\nminers: {}\n' > "$release_dir/$archive_root/plugins/asicrs-config.yaml"
+  if [[ -n "$extra_entry" ]]; then
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$release_dir/$archive_root/$extra_entry"
+    chmod 4755 "$release_dir/$archive_root/$extra_entry"
+  fi
 
   (
     cd "$release_dir"
@@ -86,8 +91,18 @@ if PATH="$NO_NMAP_BIN" \
 fi
 assert_file_contains "$TEST_DIR/missing-nmap.err" "required command not found: nmap"
 
+if FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
+    /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
+  fail "installer accepted a systemctl override outside test mode"
+fi
+assert_file_contains "$TEST_DIR/systemctl-override.err" "installer overrides are restricted to automated tests"
+
 create_release v1.0.0
 create_release v1.1.0
+create_release v1.2.0 unexpected-setuid
+
+mkdir -p "$TEST_DIR/curl-home"
+printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 
 run_installer() {
   local version="$1"
@@ -104,7 +119,7 @@ run_installer() {
 }
 
 : > "$SYSTEMCTL_LOG"
-FAKE_FLEETNODE_ACTIVE=0 FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
+CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ACTIVE=0 FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
 
 [[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "Fleet Node binary was not installed"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
@@ -130,6 +145,12 @@ assert_file_contains "$ROOT_PREFIX/etc/fleetnode/config.yaml" "operator config"
 assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity material"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleetnode.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleetnode.service"
+
+if run_installer v1.2.0; then
+  fail "installer accepted an archive entry outside the Fleet Node manifest"
+fi
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode/unexpected-setuid" ]] || fail "installer persisted an unexpected archive entry"
 
 cp -R "$ASSETS_DIR/v1.1.0" "$ASSETS_DIR/bad-checksum"
 printf 'tampered\n' >> "$ASSETS_DIR/bad-checksum/fleetnode-v1.1.0-linux-amd64.tar.gz"
