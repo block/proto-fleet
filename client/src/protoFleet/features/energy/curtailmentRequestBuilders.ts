@@ -197,19 +197,6 @@ export function supportsAllPairedTargeting(
   return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
 }
 
-function supportsAllPairedExecution(
-  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
-): boolean {
-  if (!supportsAllPairedTargeting(values)) {
-    return false;
-  }
-
-  const scopes = buildCurtailmentScopes(values);
-  return (
-    scopes !== undefined && scopes.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site")
-  );
-}
-
 // Targeting all paired miners also opts in miners flagged for maintenance:
 // parking them as unavailable would contradict the operator's explicit
 // "all paired" choice, and both flags sit behind the same server-side admin
@@ -224,9 +211,7 @@ function supportsAllPairedExecution(
 export function buildForceInclusionFields(
   values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
-  // Topology profiles may persist this policy now, but Preview and Start must
-  // omit it until the server's topology lifecycle can honor it.
-  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedExecution(values);
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
     includeMaintenance: forceIncludeAllPairedMiners,

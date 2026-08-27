@@ -223,7 +223,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     cachedFormValues,
     siteNameById,
   );
-  const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
+  const fixedKwParams = profile.modeParams.case === "fixedKw" ? profile.modeParams.value : undefined;
+  const fixedKw = fixedKwParams?.targetKw;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
   const targetKw = numberToInputValue(fixedKw);
@@ -242,6 +243,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         ...scopeFormValues,
         scopeType: scopeFormValues.scopeType,
         targetKw,
+        toleranceKw: numberToNonNegativeInputValue(fixedKwParams?.toleranceKw),
+        priority: profile.priority === CurtailmentPriority.EMERGENCY ? "emergency" : "normal",
         selectionStrategy: "leastEfficientFirst",
         restoreBehavior,
         minDurationSec: "",
@@ -364,6 +367,7 @@ function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResp
     case: "fixedKw",
     value: create(FixedKwParamsSchema, {
       targetKw: Number(values.targetKw),
+      toleranceKw: Number(values.toleranceKw || "0"),
     }),
   };
 }
@@ -437,7 +441,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
-    priority: CurtailmentPriority.NORMAL,
+    priority: values.priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL,
     modeParams: getModeParams(values),
     curtailBatchSize: getOptionalPositiveNumber(values.curtailBatchSize),
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),

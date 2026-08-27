@@ -1,12 +1,7 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import {
-  type CurtailmentTerminalScopeType,
-  getCurtailmentTerminalScope,
-  isCurtailmentTopologyScopeType,
-  parseCurtailmentTargetId,
-} from "@/protoFleet/api/curtailmentScopes";
+import { type CurtailmentTerminalScopeType, parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
@@ -1462,13 +1457,8 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
-  const terminalScope = getCurtailmentTerminalScope(effectiveValues);
-  const isTopologyFullFleetExecutionUnavailable =
-    effectiveValues.curtailmentMode === "fullFleet" && isCurtailmentTopologyScopeType(terminalScope?.type);
-  const isPrimarySubmitDisabled =
-    isSubmitDisabled || (!isResponseProfileVariant && isTopologyFullFleetExecutionUnavailable);
-  const isRunCurtailmentDisabled =
-    isBusy || hasBlockingRunPreviewState || hasExternalFormError || isTopologyFullFleetExecutionUnavailable;
+  const isPrimarySubmitDisabled = isSubmitDisabled;
+  const isRunCurtailmentDisabled = isBusy || hasBlockingRunPreviewState || hasExternalFormError;
   const selectedMinerIds = getSelectedMinerIds(effectiveValues);
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const targetPathSiteValues = {
@@ -2140,11 +2130,7 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 facilityFanSelectionDisabledReason ??
-                (isTopologyFullFleetExecutionUnavailable
-                  ? isResponseProfileVariant
-                    ? "This full-fleet topology target can be previewed and saved. Running it will be available when topology-following execution is enabled."
-                    : "This full-fleet topology target can be previewed, but it cannot be run until topology-following execution is enabled."
-                  : "Choose a site-to-miner path and any infrastructure included in this curtailment.")
+                "Choose a site-to-miner path and any infrastructure included in this curtailment."
               }
             >
               <div className="grid">

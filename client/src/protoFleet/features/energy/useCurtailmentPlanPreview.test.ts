@@ -271,6 +271,8 @@ describe("useCurtailmentPlanPreview", () => {
 
     const topologyScopedRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
       curtailmentMode: "fullFleet",
       targetKw: "",
       scopeType: "building",
@@ -278,9 +280,30 @@ describe("useCurtailmentPlanPreview", () => {
       includeMaintenance: false,
       forceIncludeAllPairedMiners: true,
     });
-    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
-    expect(topologyScopedRequest?.includeMaintenance).toBe(false);
-    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(false);
+    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(true);
+    expect(topologyScopedRequest?.includeMaintenance).toBe(true);
+    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(true);
+  });
+
+  it.each([
+    { scopeType: "building" as const, field: "buildingTargetIds" as const },
+    { scopeType: "rack" as const, field: "rackTargetIds" as const },
+    { scopeType: "group" as const, field: "groupTargetIds" as const },
+  ])("previews all-paired execution for $scopeType profiles", ({ scopeType, field }) => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType,
+      [field]: ["7"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request?.forceIncludeAllPairedMiners).toBe(true);
+    expect(request?.includeMaintenance).toBe(true);
+    expect(request?.forceIncludeMaintenance).toBe(true);
   });
 
   it("does not build a request until target and scope are valid", () => {

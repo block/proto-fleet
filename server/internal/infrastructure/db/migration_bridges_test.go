@@ -15,13 +15,12 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-const responseProfileRevisionRolloutError = "response profile revision rollout requires zero pre-contract profiles, automation rules, and events"
-
-func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRowsBeforeRevisionRollout(t *testing.T) {
+func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
@@ -46,30 +45,31 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRowsBeforeRevision
 				assert.NoError(t, err)
 			}
 
-			assertResponseProfileRevisionRolloutBlocked(t,
-				runMigrationsWithCompatibilityBridges(conn, config))
+			assert.NoError(t, runMigrationsWithCompatibilityBridges(conn, config))
 
 			var version int
 			var dirty bool
 			assert.NoError(t, conn.QueryRowContext(t.Context(),
 				"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
 			assert.Equal(t, 144, version)
-			assert.True(t, dirty)
+			assert.False(t, dirty)
 
 			assertLegacyCurtailmentEnvelope(t, conn,
 				"curtailment_response_profile", true)
 			assertLegacyCurtailmentEnvelope(t, conn,
 				"curtailment_event", true)
 
-			var profiles, events int
+			var profiles, rules, events int
 			assert.NoError(t, conn.QueryRowContext(t.Context(), `
 				SELECT
 					(SELECT count(*) FROM curtailment_response_profile),
+					(SELECT count(*) FROM curtailment_automation_rule),
 					(SELECT count(*) FROM curtailment_event)
-			`).Scan(&profiles, &events))
+			`).Scan(&profiles, &rules, &events))
 			assert.Equal(t, 1, profiles)
+			assert.Equal(t, 1, rules)
 			assert.Equal(t, 9, events)
-
+			assertLegacyResponseProfileRevisionBinding(t, conn)
 		})
 	}
 }
@@ -108,16 +108,16 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 	`)
 	assert.NoError(t, err)
 	insertLegacyCurtailmentRows(t, searchPathConn)
-	assertResponseProfileRevisionRolloutBlocked(t,
-		runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
+	assert.NoError(t, runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
 
 	var version int
 	var dirty bool
 	assert.NoError(t, searchPathConn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
 	assert.Equal(t, 144, version)
-	assert.True(t, dirty)
+	assert.False(t, dirty)
 	assertLegacyCurtailmentEnvelope(t, searchPathConn, "curtailment_response_profile", true)
+	assertLegacyResponseProfileRevisionBinding(t, searchPathConn)
 }
 
 func TestMigrationsThroughVersionNeverDowngrade(t *testing.T) {
@@ -198,7 +198,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 
 	select {
 	case err := <-done:
-		assertResponseProfileRevisionRolloutBlocked(t, err)
+		assert.NoError(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("migration bridge did not complete after advisory lock was released")
 	}
@@ -208,7 +208,8 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
 	assert.Equal(t, 144, version)
-	assert.True(t, dirty)
+	assert.False(t, dirty)
+	assertLegacyResponseProfileRevisionBinding(t, conn)
 }
 
 func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T) {
@@ -282,12 +283,6 @@ func newMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config) {
 	return conn, &config
 }
 
-func assertResponseProfileRevisionRolloutBlocked(t *testing.T, err error) {
-	t.Helper()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), responseProfileRevisionRolloutError)
-}
-
 func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version uint) {
 	t.Helper()
 
@@ -319,11 +314,33 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		RETURNING id
 	`).Scan(&userID))
 
-	_, err := conn.ExecContext(t.Context(), `
+	var profileID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_response_profile (
 			org_id, profile_name, mode, target_kw, scope_json
 		) VALUES ($1, 'Legacy profile', 'FIXED_KW', 100, '{}'::jsonb)
-	`, orgID)
+		RETURNING id
+	`, orgID).Scan(&profileID))
+
+	var sourceID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO curtailment_mqtt_source_config (
+			organization_id, service_user_id, source_name, topic,
+			broker_primary_host, broker_secondary_host,
+			mqtt_username, mqtt_password_enc
+		) VALUES (
+			$1, $2, 'Bridge source', 'bridge/target',
+			'primary.example', 'secondary.example',
+			'bridge-user', 'encrypted-password'
+		)
+		RETURNING id
+	`, orgID, userID).Scan(&sourceID))
+
+	_, err := conn.ExecContext(t.Context(), `
+		INSERT INTO curtailment_automation_rule (
+			org_id, rule_name, mqtt_source_id, response_profile_id
+		) VALUES ($1, 'Legacy rule', $2, $3)
+	`, orgID, sourceID, profileID)
 	assert.NoError(t, err)
 
 	for i := 1; i <= 9; i++ {
@@ -342,6 +359,21 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		`, fmt.Sprintf("00000000-0000-0000-0000-%012d", i), orgID, userID)
 		assert.NoError(t, err)
 	}
+}
+
+func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	var profileRevision, ruleRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT profile.revision, rule.response_profile_revision
+		FROM curtailment_response_profile AS profile
+		JOIN curtailment_automation_rule AS rule
+		  ON rule.response_profile_id = profile.id
+		 AND rule.org_id = profile.org_id
+	`).Scan(&profileRevision, &ruleRevision))
+	assert.NotEqual(t, uuid.Nil, profileRevision)
+	assert.Equal(t, profileRevision, ruleRevision)
 }
 
 func assertLegacyCurtailmentEnvelope(

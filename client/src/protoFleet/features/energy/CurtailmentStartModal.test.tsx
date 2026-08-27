@@ -210,6 +210,8 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       deviceSetIds: [],
       deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       targetKw: "50",
+      toleranceKw: "5",
+      priority: "emergency",
       curtailBatchSize: "20",
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
@@ -586,6 +588,8 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
+        toleranceKw: "5",
+        priority: "emergency",
       }),
     );
   });
@@ -668,7 +672,8 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("keeps topology-following full-fleet execution disabled", () => {
+  it("runs topology-following full-fleet curtailment", async () => {
+    const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: {
         ...configuredValues,
@@ -680,13 +685,17 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(
-      screen.getByText(
-        "This full-fleet topology target can be previewed, but it cannot be run until topology-following execution is enabled.",
-      ),
+      screen.getByText("Choose a site-to-miner path and any infrastructure included in this curtailment."),
     ).toBeInTheDocument();
-    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+    );
   });
 
   it("preserves site scope from response profiles in live curtailment create mode", async () => {

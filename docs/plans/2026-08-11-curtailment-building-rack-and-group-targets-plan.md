@@ -336,10 +336,11 @@ admin requirement, topology, and quotas before claiming targets.
 1. Ship server parsing, schema versions, profile revisions, automation bindings,
    rejection of unknown nonempty scope keys, and a durable topology-scope
    feature gate without emitting topology scopes.
-2. Require every replica at that minimum version and verify there are zero
-   pre-contract profile, rule, or event rows. Any unexpected row blocks rollout;
-   do not backfill or support it. New records missing a required scope, envelope,
-   revision, or binding fail closed.
+2. Require every replica at that minimum version. The migration assigns an
+   initial revision to existing profiles and binds each existing automation rule
+   to its profile's revision; existing events keep their durable recovery data.
+   After migration, records missing a required scope, envelope, revision, or
+   binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org
    scope, raise the minimum accepted schema version, then open the feature gate.
    Rollback below the minimum requires closing the gate, blocking profile Test/

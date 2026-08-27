@@ -573,6 +573,8 @@ describe("CurtailmentManagementPanel", () => {
             name: "Standard shed",
             actionType: "fixedKwReduction",
             targetKw: "50",
+            toleranceKw: "5",
+            priority: "emergency",
             deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
             siteId: "101",
             siteName: "Austin, TX",
@@ -601,6 +603,8 @@ describe("CurtailmentManagementPanel", () => {
             actionType: "fixedKwReduction",
             scopeType: "building",
             targetKw: "100",
+            toleranceKw: "10",
+            priority: "normal",
             buildingTargetIds: ["7", "8"],
             rackTargetIds: [],
             groupTargetIds: [],
@@ -647,6 +651,8 @@ describe("CurtailmentManagementPanel", () => {
       '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
     );
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"toleranceKw":"5"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"priority":"emergency"');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeType":"building"');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"buildingTargetIds":["7","8"]');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeId":"2 buildings"');
@@ -668,6 +674,8 @@ describe("CurtailmentManagementPanel", () => {
             name: "Targeted shed",
             actionType: "fixedKwReduction",
             targetKw: "50",
+            toleranceKw: "",
+            priority: "normal",
             deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
             siteId: "",
             siteName: "",

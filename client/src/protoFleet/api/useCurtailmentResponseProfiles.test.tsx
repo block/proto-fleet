@@ -61,6 +61,8 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   name: "Partial reduction",
   actionType: "fixedKwReduction",
   targetKw: "2000",
+  toleranceKw: "",
+  priority: "normal",
   scopeType: "wholeOrg",
   buildingTargetIds: [],
   rackTargetIds: [],
@@ -163,6 +165,30 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  it("hydrates profile execution priority and fixed-kW tolerance", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [
+        apiProfile({
+          priority: CurtailmentPriority.EMERGENCY,
+          modeParams: {
+            case: "fixedKw",
+            value: create(FixedKwParamsSchema, { targetKw: 2000, toleranceKw: 25 }),
+          },
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]?.formValues).toMatchObject({
+      toleranceKw: "25",
+      priority: "emergency",
+    });
+  });
+
   it("creates and updates profiles using the generated CRUD payload shape", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: wholeOrgApiProfile() });
     mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
@@ -174,6 +200,8 @@ describe("useCurtailmentResponseProfiles", () => {
     await act(async () => {
       await result.current.createResponseProfile({
         ...fixedKwFormValues,
+        toleranceKw: "25",
+        priority: "emergency",
         facilityFanDeviceIds: ["31", "32"],
         fanOffDelaySec: "45",
         fanRestoreDelaySec: "90",
@@ -187,8 +215,9 @@ describe("useCurtailmentResponseProfiles", () => {
         mode: CurtailmentMode.FIXED_KW,
         modeParams: expect.objectContaining({
           case: "fixedKw",
-          value: expect.objectContaining({ targetKw: 2000 }),
+          value: expect.objectContaining({ targetKw: 2000, toleranceKw: 25 }),
         }),
+        priority: CurtailmentPriority.EMERGENCY,
         curtailBatchSize: 50,
         curtailBatchIntervalSec: 30,
         restoreBatchSize: 0,
@@ -201,7 +230,12 @@ describe("useCurtailmentResponseProfiles", () => {
     expectWholeOrgScope(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
 
     await act(async () => {
-      await result.current.updateResponseProfile("7", { ...fixedKwFormValues, name: "Updated" });
+      await result.current.updateResponseProfile("7", {
+        ...fixedKwFormValues,
+        name: "Updated",
+        toleranceKw: "25",
+        priority: "emergency",
+      });
     });
 
     expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
@@ -209,6 +243,11 @@ describe("useCurtailmentResponseProfiles", () => {
         profileId: 7n,
         expectedRevision: responseProfileRevision,
         profileName: "Updated",
+        priority: CurtailmentPriority.EMERGENCY,
+        modeParams: expect.objectContaining({
+          case: "fixedKw",
+          value: expect.objectContaining({ toleranceKw: 25 }),
+        }),
         replaceFacilityFanSettings: true,
       }),
     );

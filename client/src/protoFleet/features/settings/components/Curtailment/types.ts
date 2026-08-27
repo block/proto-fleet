@@ -52,6 +52,8 @@ export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
+  toleranceKw: string;
+  priority: "normal" | "emergency";
   scopeType: ResponseProfileScopeType;
   buildingTargetIds: string[];
   rackTargetIds: string[];
