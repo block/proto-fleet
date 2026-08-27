@@ -193,7 +193,6 @@ export {
   useSetAuthTokens,
   useSetAuthLoading,
   useLogout,
-  useAuthHeader,
   useAuthErrors,
   useAccessToken,
 } from "./hooks/useAuth";

@@ -310,6 +310,20 @@ describe("MdkV1Adapter firmware update commands", () => {
   test.each([
     ["startFirmwareUpdate", "postUpdateSystem"],
     ["checkForFirmwareUpdate", "updateCheck"],
+  ] as const)(
+    "%s propagates a non-2xx empty-body failure instead of swallowing it",
+    async (adapterMethod, clientMethod) => {
+      const failure = { ok: false, status: 503, error: new SyntaxError("Unexpected end of JSON input") };
+      const clientCall = vi.fn().mockRejectedValue(failure);
+      const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
+
+      await expect(adapter[adapterMethod]()).rejects.toBe(failure);
+    },
+  );
+
+  test.each([
+    ["startFirmwareUpdate", "postUpdateSystem"],
+    ["checkForFirmwareUpdate", "updateCheck"],
   ] as const)("%s preserves unrelated failures", async (adapterMethod, clientMethod) => {
     const failure = new Error("network unavailable");
     const clientCall = vi.fn().mockRejectedValue(failure);
