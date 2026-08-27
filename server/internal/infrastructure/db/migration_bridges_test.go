@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 			`).Scan(&profiles, &rules, &events))
 			assert.Equal(t, 1, profiles)
 			assert.Equal(t, 1, rules)
-			assert.Equal(t, 9, events)
+			assert.Equal(t, 10, events)
 			assertLegacyResponseProfileRevisionBinding(t, conn)
 		})
 	}
@@ -336,11 +337,33 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		RETURNING id
 	`, orgID, userID).Scan(&sourceID))
 
-	_, err := conn.ExecContext(t.Context(), `
+	var ruleID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_automation_rule (
 			org_id, rule_name, mqtt_source_id, response_profile_id
 		) VALUES ($1, 'Legacy rule', $2, $3)
-	`, orgID, sourceID, profileID)
+		RETURNING id
+	`, orgID, sourceID, profileID).Scan(&ruleID))
+
+	ruleReference := strconv.FormatInt(ruleID, 10)
+	_, err := conn.ExecContext(t.Context(), `
+		INSERT INTO curtailment_event (
+			event_uuid, org_id, state, mode, strategy, level, priority,
+			loop_type, scope_type, scope_jsonb,
+			restore_batch_size, restore_batch_interval_sec,
+			decision_snapshot_jsonb, source_actor_type, source_actor_id,
+			external_source, external_reference, idempotency_key,
+			reason, created_by_user_id
+		) VALUES (
+			'00000000-0000-0000-0000-000000000010', $1,
+			'active', 'FIXED_KW', 'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL',
+			'open', 'whole_org', '{}'::jsonb,
+			50, 5, '{"selected_count":1}'::jsonb,
+			'automation', $2, 'curtailment_automation', $2,
+			'curtailment_automation_rule:' || $2,
+			'Legacy automation event', $3
+		)
+	`, orgID, ruleReference, userID)
 	assert.NoError(t, err)
 
 	for i := 1; i <= 9; i++ {
@@ -374,6 +397,23 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 	`).Scan(&profileRevision, &ruleRevision))
 	assert.NotEqual(t, uuid.Nil, profileRevision)
 	assert.Equal(t, profileRevision, ruleRevision)
+
+	var snapshotProfileID, ruleProfileID int64
+	var snapshotRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT
+			(event.decision_snapshot_jsonb->>'response_profile_id')::BIGINT,
+			(event.decision_snapshot_jsonb->>'response_profile_revision')::UUID,
+			rule.response_profile_id
+		FROM curtailment_event AS event
+		JOIN curtailment_automation_rule AS rule
+		  ON event.org_id = rule.org_id
+		 AND event.external_reference = rule.id::TEXT
+		WHERE event.source_actor_type = 'automation'
+		  AND event.external_source = 'curtailment_automation'
+	`).Scan(&snapshotProfileID, &snapshotRevision, &ruleProfileID))
+	assert.Equal(t, ruleProfileID, snapshotProfileID)
+	assert.Equal(t, ruleRevision, snapshotRevision)
 }
 
 func assertLegacyCurtailmentEnvelope(

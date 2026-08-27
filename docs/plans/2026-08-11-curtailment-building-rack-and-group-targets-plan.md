@@ -337,8 +337,10 @@ admin requirement, topology, and quotas before claiming targets.
    rejection of unknown nonempty scope keys, and a durable topology-scope
    feature gate without emitting topology scopes.
 2. Require every replica at that minimum version. The migration assigns an
-   initial revision to existing profiles and binds each existing automation rule
-   to its profile's revision; existing events keep their durable recovery data.
+   initial revision to existing profiles, binds each existing automation rule
+   to its profile's revision, and stamps that binding into live automation event
+   snapshots that can be recovered through idempotency replay. Other existing
+   events keep their durable recovery data.
    After migration, records missing a required scope, envelope, revision, or
    binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org
