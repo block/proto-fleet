@@ -48,6 +48,7 @@ const baseValues: CurtailmentFormValues = {
   targetKw: "40",
   toleranceKw: "",
   priority: "normal",
+  postEventCooldownSec: "",
   minDurationSec: "300",
   maxDurationSec: "1800",
   curtailBatchSize: "2",
@@ -202,10 +203,12 @@ describe("useCurtailmentPlanPreview", () => {
       ...baseValues,
       responseProfileId: "27",
       responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      postEventCooldownSec: "900",
     });
 
     expect(request?.responseProfileId).toBe(27n);
     expect(request?.expectedResponseProfileRevision).toBe("33333333-3333-4333-8333-333333333333");
+    expect(request?.postEventCooldownSec).toBe(900);
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, responseProfileId: "27" })).toBeUndefined();
   });
 

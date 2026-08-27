@@ -51,6 +51,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "targetKw"
   | "toleranceKw"
   | "priority"
+  | "postEventCooldownSec"
   | "includeMaintenance"
   | "forceIncludeAllPairedMiners"
 >;
@@ -150,6 +151,10 @@ export function buildPreviewCurtailmentPlanRequest(
   if (scopes === undefined || responseProfileExecutionFields === undefined) {
     return undefined;
   }
+  const postEventCooldownSec = parseNonNegativeInteger(values.postEventCooldownSec ?? "");
+  if (postEventCooldownSec !== undefined && postEventCooldownSec > curtailmentNumericFieldLimits.postEventCooldownSec) {
+    return undefined;
+  }
   if (values.curtailmentMode === "fullFleet") {
     // Mirror the Start request builder so preview counts match what a
     // subsequent Start will actually target.
@@ -159,6 +164,7 @@ export function buildPreviewCurtailmentPlanRequest(
       ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
+      postEventCooldownSec,
       ...buildForceInclusionFields(values),
     });
   }
@@ -175,6 +181,7 @@ export function buildPreviewCurtailmentPlanRequest(
     ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
+    postEventCooldownSec,
     modeParams: {
       case: "fixedKw",
       value: create(FixedKwParamsSchema, {
@@ -436,6 +443,7 @@ export function useCurtailmentPlanPreview({
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
       priority: values.priority,
+      postEventCooldownSec: values.postEventCooldownSec,
       includeMaintenance: values.includeMaintenance,
       forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
@@ -451,6 +459,7 @@ export function useCurtailmentPlanPreview({
       values.includeMaintenance,
       values.forceIncludeAllPairedMiners,
       values.priority,
+      values.postEventCooldownSec,
       values.rackTargetIds,
       values.scopeId,
       values.siteSelection,

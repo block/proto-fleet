@@ -63,6 +63,7 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   targetKw: "2000",
   toleranceKw: "",
   priority: "normal",
+  postEventCooldownSec: "0",
   scopeType: "wholeOrg",
   buildingTargetIds: [],
   rackTargetIds: [],
@@ -165,11 +166,12 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.isLoading).toBe(false);
   });
 
-  it("hydrates profile execution priority and fixed-kW tolerance", async () => {
+  it("hydrates profile execution priority, fixed-kW tolerance, and cooldown", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
       profiles: [
         apiProfile({
           priority: CurtailmentPriority.EMERGENCY,
+          postEventCooldownSec: 900,
           modeParams: {
             case: "fixedKw",
             value: create(FixedKwParamsSchema, { targetKw: 2000, toleranceKw: 25 }),
@@ -186,6 +188,7 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.responseProfiles[0]?.formValues).toMatchObject({
       toleranceKw: "25",
       priority: "emergency",
+      postEventCooldownSec: "900",
     });
   });
 
@@ -202,6 +205,7 @@ describe("useCurtailmentResponseProfiles", () => {
         ...fixedKwFormValues,
         toleranceKw: "25",
         priority: "emergency",
+        postEventCooldownSec: "900",
         facilityFanDeviceIds: ["31", "32"],
         fanOffDelaySec: "45",
         fanRestoreDelaySec: "90",
@@ -218,6 +222,7 @@ describe("useCurtailmentResponseProfiles", () => {
           value: expect.objectContaining({ targetKw: 2000, toleranceKw: 25 }),
         }),
         priority: CurtailmentPriority.EMERGENCY,
+        postEventCooldownSec: 900,
         curtailBatchSize: 50,
         curtailBatchIntervalSec: 30,
         restoreBatchSize: 0,
@@ -235,6 +240,7 @@ describe("useCurtailmentResponseProfiles", () => {
         name: "Updated",
         toleranceKw: "25",
         priority: "emergency",
+        postEventCooldownSec: "900",
       });
     });
 
@@ -244,6 +250,7 @@ describe("useCurtailmentResponseProfiles", () => {
         expectedRevision: responseProfileRevision,
         profileName: "Updated",
         priority: CurtailmentPriority.EMERGENCY,
+        postEventCooldownSec: 900,
         modeParams: expect.objectContaining({
           case: "fixedKw",
           value: expect.objectContaining({ toleranceKw: 25 }),

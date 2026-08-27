@@ -42,6 +42,7 @@ type CurtailmentRequestFields = Pick<
   | "includeMaintenance"
   | "forceIncludeMaintenance"
   | "forceIncludeAllPairedMiners"
+  | "postEventCooldownSec"
 >;
 
 type ResponseProfileExecutionFields = Pick<
@@ -80,6 +81,10 @@ const fanOffDelayOptions: OptionalUint32FieldOptions = {
 const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
   label: "fan restore delay",
   max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const postEventCooldownOptions: OptionalUint32FieldOptions = {
+  label: "post-event cooldown",
+  max: curtailmentNumericFieldLimits.postEventCooldownSec,
 };
 
 function parseOptionalNumber(value: string): number | undefined {
@@ -247,6 +252,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
+    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
     ...buildForceInclusionFields(values),
   };
 }

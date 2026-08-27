@@ -22,6 +22,7 @@ const baseValues: CurtailmentSubmitValues = {
   targetKw: "40",
   toleranceKw: "",
   priority: "normal",
+  postEventCooldownSec: "",
   minDurationSec: "",
   maxDurationSec: "",
   curtailBatchSize: "",
@@ -66,10 +67,12 @@ describe("curtailmentRequestBuilders", () => {
       ...baseValues,
       responseProfileId: "27",
       responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      postEventCooldownSec: "900",
     });
 
     expect(request.responseProfileId).toBe(27n);
     expect(request.expectedResponseProfileRevision).toBe("33333333-3333-4333-8333-333333333333");
+    expect(request.postEventCooldownSec).toBe(900);
   });
 
   it("rejects a saved response profile without a revision", () => {

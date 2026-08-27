@@ -212,6 +212,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       targetKw: "50",
       toleranceKw: "5",
       priority: "emergency",
+      postEventCooldownSec: "900",
       curtailBatchSize: "20",
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
@@ -590,6 +591,7 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: [],
         toleranceKw: "5",
         priority: "emergency",
+        postEventCooldownSec: "900",
       }),
     );
   });

@@ -245,6 +245,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         targetKw,
         toleranceKw: numberToNonNegativeInputValue(fixedKwParams?.toleranceKw),
         priority: profile.priority === CurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+        postEventCooldownSec: numberToNonNegativeInputValue(profile.postEventCooldownSec),
         selectionStrategy: "leastEfficientFirst",
         restoreBehavior,
         minDurationSec: "",
@@ -453,6 +454,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     includeMaintenance,
     forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,
+    postEventCooldownSec: getOptionalNonNegativeNumber(values.postEventCooldownSec),
   };
 }
 

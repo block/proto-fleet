@@ -575,6 +575,7 @@ describe("CurtailmentManagementPanel", () => {
             targetKw: "50",
             toleranceKw: "5",
             priority: "emergency",
+            postEventCooldownSec: "900",
             deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
             siteId: "101",
             siteName: "Austin, TX",
@@ -653,6 +654,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"toleranceKw":"5"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"priority":"emergency"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"postEventCooldownSec":"900"');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeType":"building"');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"buildingTargetIds":["7","8"]');
     expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeId":"2 buildings"');

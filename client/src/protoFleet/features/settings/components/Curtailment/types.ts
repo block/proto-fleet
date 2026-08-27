@@ -54,6 +54,7 @@ export type ResponseProfileFormValues = {
   targetKw: string;
   toleranceKw: string;
   priority: "normal" | "emergency";
+  postEventCooldownSec: string;
   scopeType: ResponseProfileScopeType;
   buildingTargetIds: string[];
   rackTargetIds: string[];

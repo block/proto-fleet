@@ -78,6 +78,7 @@ export interface CurtailmentFormValues {
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
+  postEventCooldownSec?: string;
   minDurationSec: string;
   maxDurationSec: string;
   curtailBatchSize: string;
