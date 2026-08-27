@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -211,6 +212,152 @@ func (h *Handler) getResponseProfileWithPersistedPermission(ctx context.Context,
 		return nil, err
 	}
 	return profile, nil
+}
+
+func parseResponseProfileExecutionRevision(profileID int64, rawRevision string) (uuid.UUID, error) {
+	if profileID == 0 && rawRevision == "" {
+		return uuid.Nil, nil
+	}
+	if profileID <= 0 || rawRevision == "" {
+		return uuid.Nil, fleeterror.NewInvalidArgumentError(
+			"response_profile_id and expected_response_profile_revision must be set together",
+		)
+	}
+	revision, err := uuid.Parse(rawRevision)
+	if err != nil {
+		return uuid.Nil, fleeterror.NewInvalidArgumentError(
+			"expected_response_profile_revision must be a UUID",
+		)
+	}
+	return revision, nil
+}
+
+func (h *Handler) currentResponseProfileForExecution(
+	ctx context.Context,
+	orgID int64,
+	profileID int64,
+	expectedRevision uuid.UUID,
+) (*models.ResponseProfile, error) {
+	if profileID == 0 {
+		return nil, nil
+	}
+	if h.responseProfiles == nil {
+		return nil, errCurtailmentNotImplemented("response profile execution")
+	}
+	profile, err := h.getResponseProfileWithPersistedPermission(ctx, orgID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if profile.Revision != expectedRevision {
+		return nil, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile changed before execution; reload and retry",
+		)
+	}
+	return profile, nil
+}
+
+func validateResponseProfilePreviewExecution(
+	profile *models.ResponseProfile,
+	req domainCurtailment.PreviewRequest,
+) error {
+	if profile == nil {
+		return nil
+	}
+	profileScope, err := domainCurtailment.ResponseProfileScope(*profile)
+	if err != nil {
+		return fleeterror.NewFailedPreconditionError(
+			"curtailment response profile scope is no longer executable; update the profile and retry",
+		)
+	}
+	if !sameResponseProfileScope(profileScope, req.Scope) ||
+		profile.Mode != req.Mode ||
+		profile.Strategy != req.Strategy ||
+		profile.Level != req.Level ||
+		profile.Priority != req.Priority ||
+		float64Value(profile.TargetKW) != req.TargetKW ||
+		float64Value(profile.ToleranceKW) != req.ToleranceKW ||
+		profile.IncludeMaintenance != req.IncludeMaintenance ||
+		profile.ForceIncludeMaintenance != req.ForceIncludeMaintenance ||
+		profile.ForceIncludeAllPairedMiners != req.ForceIncludeAllPairedMiners ||
+		profile.PostEventCooldownSec != req.PostEventCooldownSec ||
+		req.CandidateMinPowerWOverride != nil {
+		return responseProfileExecutionMismatchError()
+	}
+	return nil
+}
+
+func validateResponseProfileStartExecution(profile *models.ResponseProfile, req domainCurtailment.StartRequest) error {
+	if err := validateResponseProfilePreviewExecution(profile, req.PreviewRequest); err != nil || profile == nil {
+		return err
+	}
+	if !sameInt32Ptr(profile.CurtailBatchSize, req.CurtailBatchSize) ||
+		profile.CurtailBatchIntervalSec != req.CurtailBatchIntervalSec ||
+		profile.RestoreBatchSize != req.RestoreBatchSize ||
+		profile.RestoreBatchIntervalSec != req.RestoreBatchIntervalSec ||
+		!sameSet(profile.FacilityFanDeviceIDs, req.FacilityFanDeviceIDs) ||
+		profile.FanOffDelaySec != req.FanOffDelaySec ||
+		profile.FanRestoreDelaySec != req.FanRestoreDelaySec {
+		return responseProfileExecutionMismatchError()
+	}
+	return nil
+}
+
+func responseProfileExecutionMismatchError() error {
+	return fleeterror.NewFailedPreconditionError(
+		"curtailment response profile values do not match the expected revision; reload and retry",
+	)
+}
+
+func sameResponseProfileScope(left, right domainCurtailment.Scope) bool {
+	leftSiteIDs := append([]int64(nil), left.SiteIDs...)
+	if left.SiteID > 0 {
+		leftSiteIDs = append(leftSiteIDs, left.SiteID)
+	}
+	rightSiteIDs := append([]int64(nil), right.SiteIDs...)
+	if right.SiteID > 0 {
+		rightSiteIDs = append(rightSiteIDs, right.SiteID)
+	}
+	return left.SchemaVersion == right.SchemaVersion &&
+		left.Type == right.Type &&
+		sameSet(leftSiteIDs, rightSiteIDs) &&
+		sameSet(left.BuildingIDs, right.BuildingIDs) &&
+		sameSet(left.RackIDs, right.RackIDs) &&
+		sameSet(left.GroupIDs, right.GroupIDs) &&
+		sameSet(left.DeviceIdentifiers, right.DeviceIdentifiers)
+}
+
+func sameSet[T comparable](left, right []T) bool {
+	leftSet := make(map[T]struct{}, len(left))
+	for _, value := range left {
+		leftSet[value] = struct{}{}
+	}
+	rightSet := make(map[T]struct{}, len(right))
+	for _, value := range right {
+		rightSet[value] = struct{}{}
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for value := range leftSet {
+		if _, ok := rightSet[value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func sameInt32Ptr(left, right *int32) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func float64Value(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func (h *Handler) responseProfileResourceContexts(
@@ -497,7 +644,11 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 }
 
 func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {
-	return responseProfileFromPayload(
+	revision, err := uuid.Parse(msg.GetExpectedRevision())
+	if err != nil {
+		return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("expected_revision must be a UUID")
+	}
+	profile, err := responseProfileFromPayload(
 		orgID,
 		msg.GetProfileId(),
 		msg.GetProfileName(),
@@ -522,6 +673,11 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetFanOffDelaySec(),
 		msg.GetFanRestoreDelaySec(),
 	)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
+	profile.Revision = revision
+	return profile, nil
 }
 
 func responseProfileFromPayload(
@@ -688,6 +844,9 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		FanRestoreDelaySec:          uint32Saturating(profile.FanRestoreDelaySec),
 		CreatedAt:                   profileTimeProto(profile.CreatedAt),
 		UpdatedAt:                   profileTimeProto(profile.UpdatedAt),
+	}
+	if profile.Revision != uuid.Nil {
+		out.Revision = profile.Revision.String()
 	}
 	if profile.SiteID != nil {
 		out.Site = &pb.ScopeSite{SiteId: *profile.SiteID}

@@ -4428,6 +4428,24 @@ func (q *retryingQuerier) LockCurtailmentAdmissionEventForWrite(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentAutomationRuleForExecution(ctx context.Context, arg LockCurtailmentAutomationRuleForExecutionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentAutomationRuleForExecution", func() error {
+		callResult, callErr := q.next.LockCurtailmentAutomationRuleForExecution(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentAutomationRuleMutation", func() error {
+		return q.next.LockCurtailmentAutomationRuleMutation(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventByUUIDForWrite", func() error {
@@ -4498,6 +4516,18 @@ func (q *retryingQuerier) LockCurtailmentResponseProfileDeviceSitesByOrg(ctx con
 	var result []LockCurtailmentResponseProfileDeviceSitesByOrgRow
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileDeviceSitesByOrg", func() error {
 		callResult, callErr := q.next.LockCurtailmentResponseProfileDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentResponseProfileRevisionForExecution(ctx context.Context, arg LockCurtailmentResponseProfileRevisionForExecutionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileRevisionForExecution", func() error {
+		callResult, callErr := q.next.LockCurtailmentResponseProfileRevisionForExecution(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

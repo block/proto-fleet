@@ -50,6 +50,8 @@ describe("curtailmentRequestBuilders", () => {
   it("builds fixed-kW start requests with fixed-kW mode params", () => {
     const request = buildStartCurtailmentRequest(baseValues);
 
+    expect(request.responseProfileId).toBe(0n);
+    expect(request.expectedResponseProfileRevision).toBe("");
     expect(request.mode).toBe(CurtailmentMode.FIXED_KW);
     expect(request.scopeSchemaVersion).toBe(1);
     expect(request.modeParams.case).toBe("fixedKw");
@@ -57,6 +59,23 @@ describe("curtailmentRequestBuilders", () => {
       throw new Error("Expected fixedKw mode params");
     }
     expect(request.modeParams.value.targetKw).toBe(40);
+  });
+
+  it("binds saved response profiles to their loaded revision", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+    });
+
+    expect(request.responseProfileId).toBe(27n);
+    expect(request.expectedResponseProfileRevision).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  it("rejects a saved response profile without a revision", () => {
+    expect(() => buildStartCurtailmentRequest({ ...baseValues, responseProfileId: "27" })).toThrow(
+      "Reload the response profile before starting curtailment.",
+    );
   });
 
   it("builds full-fleet start requests without fixed-kW mode params", () => {

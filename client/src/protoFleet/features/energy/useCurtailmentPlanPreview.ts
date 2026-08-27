@@ -17,7 +17,10 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { buildForceInclusionFields } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildForceInclusionFields,
+  getResponseProfileExecutionFields,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -42,6 +45,8 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "minerSelectionMode"
+  | "responseProfileId"
+  | "responseProfileRevision"
   | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
@@ -140,8 +145,9 @@ export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
   const scopes = buildCurtailmentScopes(values);
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
 
-  if (scopes === undefined) {
+  if (scopes === undefined || responseProfileExecutionFields === undefined) {
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
@@ -150,6 +156,7 @@ export function buildPreviewCurtailmentPlanRequest(
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
       scopeSchemaVersion: curtailmentScopeSchemaVersion,
+      ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
       ...buildForceInclusionFields(values),
@@ -165,6 +172,7 @@ export function buildPreviewCurtailmentPlanRequest(
   return create(PreviewCurtailmentPlanRequestSchema, {
     scopes,
     scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
     modeParams: {
@@ -422,6 +430,8 @@ export function useCurtailmentPlanPreview({
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       minerSelectionMode: values.minerSelectionMode,
+      responseProfileId: values.responseProfileId,
+      responseProfileRevision: values.responseProfileRevision,
       curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
@@ -435,6 +445,8 @@ export function useCurtailmentPlanPreview({
       values.deviceIdentifiers,
       values.groupTargetIds,
       values.minerSelectionMode,
+      values.responseProfileId,
+      values.responseProfileRevision,
       values.curtailmentMode,
       values.includeMaintenance,
       values.forceIncludeAllPairedMiners,

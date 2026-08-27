@@ -857,7 +857,7 @@
       "group": "curtailment",
       "subgroup": "profiles",
       "command": "update",
-      "required_fields": ["profile_id", "profile_name", "mode"],
+      "required_fields": ["profile_id", "profile_name", "mode", "expected_revision"],
       "set_bool_when_fields_set": {
         "replace_facility_fan_settings": [
           "facility_fan_device_ids",
@@ -894,14 +894,25 @@
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "create",
-      "required_fields": ["rule_name", "mqtt_source_id", "response_profile_id"]
+      "required_fields": [
+        "rule_name",
+        "mqtt_source_id",
+        "response_profile_id",
+        "expected_response_profile_revision"
+      ]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "update",
-      "required_fields": ["rule_id", "rule_name", "mqtt_source_id", "response_profile_id"]
+      "required_fields": [
+        "rule_id",
+        "rule_name",
+        "mqtt_source_id",
+        "response_profile_id",
+        "expected_response_profile_revision"
+      ]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",

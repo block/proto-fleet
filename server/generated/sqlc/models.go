@@ -472,15 +472,16 @@ type ConnectedPostgresIdentity struct {
 }
 
 type CurtailmentAutomationRule struct {
-	ID                int64
-	OrgID             int64
-	RuleName          string
-	TriggerType       string
-	MqttSourceID      int64
-	ResponseProfileID int64
-	Enabled           bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                      int64
+	OrgID                   int64
+	RuleName                string
+	TriggerType             string
+	MqttSourceID            int64
+	ResponseProfileID       int64
+	Enabled                 bool
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	ResponseProfileRevision uuid.UUID
 }
 
 type CurtailmentAutomationRuleState struct {
@@ -626,6 +627,7 @@ type CurtailmentResponseProfile struct {
 	FanOffDelaySec              int32
 	FanRestoreDelaySec          int32
 	AuthorizationEnvelopeJsonb  json.RawMessage
+	Revision                    uuid.UUID
 }
 
 type CurtailmentRigConfigReconciliation struct {

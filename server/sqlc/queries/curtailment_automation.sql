@@ -50,6 +50,29 @@ LEFT JOIN curtailment_automation_rule_state st
 WHERE r.id = sqlc.arg('id')
   AND r.org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentAutomationRuleMutation :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_automation_rule:'
+            || sqlc.arg('org_id')::bigint::text
+            || ':'
+            || sqlc.arg('rule_id')::bigint::text,
+        0
+    )
+);
+
+-- name: LockCurtailmentAutomationRuleForExecution :one
+SELECT id
+FROM curtailment_automation_rule
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND enabled = TRUE
+  AND trigger_type = 'MQTT'
+  AND mqtt_source_id = sqlc.arg('mqtt_source_id')
+  AND response_profile_id = sqlc.arg('response_profile_id')
+  AND response_profile_revision = sqlc.arg('response_profile_revision')
+FOR UPDATE;
+
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT
     r.*,
@@ -120,6 +143,7 @@ INSERT INTO curtailment_automation_rule (
     trigger_type,
     mqtt_source_id,
     response_profile_id,
+    response_profile_revision,
     enabled
 ) VALUES (
     sqlc.arg('org_id'),
@@ -127,6 +151,7 @@ INSERT INTO curtailment_automation_rule (
     sqlc.arg('trigger_type'),
     sqlc.arg('mqtt_source_id'),
     sqlc.arg('response_profile_id'),
+    sqlc.arg('response_profile_revision'),
     sqlc.arg('enabled')
 )
 RETURNING *;
@@ -136,7 +161,8 @@ UPDATE curtailment_automation_rule
 SET
     rule_name = sqlc.arg('rule_name'),
     mqtt_source_id = sqlc.arg('mqtt_source_id'),
-    response_profile_id = sqlc.arg('response_profile_id')
+    response_profile_id = sqlc.arg('response_profile_id'),
+    response_profile_revision = sqlc.arg('response_profile_revision')
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
   AND NOT EXISTS (
@@ -164,14 +190,20 @@ RETURNING *;
 
 -- name: SetCurtailmentAutomationRuleEnabled :one
 UPDATE curtailment_automation_rule
-SET enabled = sqlc.arg('enabled')
+SET
+    enabled = sqlc.arg('enabled'),
+    response_profile_revision = CASE
+        WHEN sqlc.arg('enabled') THEN sqlc.arg('response_profile_revision')
+        ELSE response_profile_revision
+    END
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
   AND (
-      sqlc.arg('enabled') = TRUE
-      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
-      -- external reference, so the nil-pointer window cannot slip a disable.
-      OR NOT EXISTS (
+      sqlc.arg('enabled') = FALSE
+      OR response_profile_id = sqlc.arg('expected_response_profile_id')
+  )
+  AND (
+      NOT EXISTS (
           SELECT 1
           FROM curtailment_event e
           WHERE e.state IN ('pending', 'active', 'restoring')
@@ -188,6 +220,11 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
                     AND e.external_reference = curtailment_automation_rule.id::text
                 )
             )
+      )
+      OR (
+          sqlc.arg('enabled') = TRUE
+          AND curtailment_automation_rule.enabled = TRUE
+          AND response_profile_revision = sqlc.arg('response_profile_revision')
       )
   )
 RETURNING *;

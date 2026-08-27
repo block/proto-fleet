@@ -125,7 +125,11 @@ type CurtailmentAutomationsContentProps = {
   loadResponseProfilesError?: string | null;
   onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
   onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
-  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (
+    rule: AutomationRule,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
@@ -152,10 +156,12 @@ function getDefaultAutomationFormValues(
   sources: CurtailmentSource[],
   responseProfiles: ResponseProfile[],
 ): AutomationRuleFormValues {
+  const responseProfile = responseProfiles[0];
   return {
     name: "",
     sourceId: sources[0]?.id ?? "",
-    responseProfileId: responseProfiles[0]?.id ?? "",
+    responseProfileId: responseProfile?.id ?? "",
+    responseProfileRevision: responseProfile?.revision ?? "",
   };
 }
 
@@ -168,12 +174,12 @@ function getAutomationFormValuesFromRule(
     return getDefaultAutomationFormValues(sources, responseProfiles);
   }
 
+  const responseProfile = responseProfiles.find((profile) => profile.id === rule.responseProfileId);
   return {
     name: rule.name,
     sourceId: rule.sourceId ?? sources[0]?.id ?? "",
-    responseProfileId: responseProfiles.some((profile) => profile.id === rule.responseProfileId)
-      ? rule.responseProfileId
-      : "",
+    responseProfileId: responseProfile?.id ?? "",
+    responseProfileRevision: responseProfile?.revision ?? "",
   };
 }
 
@@ -195,6 +201,8 @@ function validateAutomationFormValues(values: AutomationRuleFormValues): Automat
   }
   if (values.responseProfileId === "") {
     errors.responseProfileId = "Select a response profile.";
+  } else if (values.responseProfileRevision === "") {
+    errors.responseProfileId = "Reload response profiles before saving.";
   }
 
   return errors;
@@ -320,11 +328,19 @@ function AutomationModal({
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency options can load after the modal opens
-    setValues((currentValues) => ({
-      ...currentValues,
-      sourceId: currentValues.sourceId || sources[0]?.id || "",
-      responseProfileId: currentValues.responseProfileId || responseProfiles[0]?.id || "",
-    }));
+    setValues((currentValues) => {
+      const responseProfileId = currentValues.responseProfileId || responseProfiles[0]?.id || "";
+      const responseProfile = responseProfiles.find((profile) => profile.id === responseProfileId);
+      return {
+        ...currentValues,
+        sourceId: currentValues.sourceId || sources[0]?.id || "",
+        responseProfileId,
+        responseProfileRevision:
+          currentValues.responseProfileId === responseProfileId && currentValues.responseProfileRevision
+            ? currentValues.responseProfileRevision
+            : (responseProfile?.revision ?? ""),
+      };
+    });
   }, [responseProfiles, sources]);
 
   const handleNameChange = useCallback((value: string) => {
@@ -469,7 +485,15 @@ function AutomationModal({
               label="Response profile"
               options={responseProfileOptions}
               value={values.responseProfileId}
-              onChange={(responseProfileId) => setValues((currentValues) => ({ ...currentValues, responseProfileId }))}
+              onChange={(responseProfileId) => {
+                const responseProfileRevision =
+                  responseProfiles.find((profile) => profile.id === responseProfileId)?.revision ?? "";
+                setValues((currentValues) => ({
+                  ...currentValues,
+                  responseProfileId,
+                  responseProfileRevision,
+                }));
+              }}
               disabled={isLoadingResponseProfiles || responseProfileOptions.length === 0}
               error={visibleValidationErrors.responseProfileId}
               testId="automation-response-profile-select"
@@ -577,7 +601,7 @@ export function CurtailmentAutomationsContent({
   const [editingAutomationRule, setEditingAutomationRule] = useState<AutomationRule | null>(null);
   const automationRules = controlledAutomationRules ?? localAutomationRules;
   const automationReadyResponseProfiles = useMemo(
-    () => responseProfiles.filter((profile) => profile.isAutomationReady),
+    () => responseProfiles.filter((profile) => profile.isAutomationReady && profile.revision),
     [responseProfiles],
   );
   const automationReadyResponseProfileIds = useMemo(
@@ -623,7 +647,10 @@ export function CurtailmentAutomationsContent({
 
       const nextEnabled = !rule.enabled;
       if (onToggleAutomation) {
-        void onToggleAutomation(rule, nextEnabled).catch(() => {});
+        const expectedResponseProfileRevision = nextEnabled
+          ? automationReadyResponseProfiles.find((profile) => profile.id === rule.responseProfileId)?.revision
+          : undefined;
+        void onToggleAutomation(rule, nextEnabled, expectedResponseProfileRevision).catch(() => {});
         return;
       }
 
@@ -633,7 +660,13 @@ export function CurtailmentAutomationsContent({
         ),
       );
     },
-    [automationReadyResponseProfileIds, automationRules, onToggleAutomation, updatingRuleIds],
+    [
+      automationReadyResponseProfileIds,
+      automationReadyResponseProfiles,
+      automationRules,
+      onToggleAutomation,
+      updatingRuleIds,
+    ],
   );
 
   const automationColConfig = useMemo(

@@ -200,7 +200,7 @@ type AutomationStore interface {
 	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
 	CreateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
@@ -596,5 +596,7 @@ type CurtailmentStore interface {
 		ctx context.Context,
 		orgID int64,
 		eventUUID uuid.UUID,
+		responseProfileID int64,
+		responseProfileRevision uuid.UUID,
 	) (*models.Event, error)
 }

@@ -28,7 +28,11 @@ export type UseCurtailmentAutomationRulesResult = {
   listAutomationRules: (signal?: AbortSignal) => Promise<AutomationRule[]>;
   createAutomationRule: (values: AutomationRuleFormValues) => Promise<AutomationRule>;
   updateAutomationRule: (ruleId: string, values: AutomationRuleFormValues) => Promise<AutomationRule>;
-  setAutomationRuleEnabled: (ruleId: string, enabled: boolean) => Promise<AutomationRule>;
+  setAutomationRuleEnabled: (
+    ruleId: string,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule>;
   deleteAutomationRule: (ruleId: string) => Promise<void>;
 };
 
@@ -63,12 +67,21 @@ function parsePositiveBigIntId(value: string, label: string): bigint {
   return BigInt(trimmedValue);
 }
 
+function requireResponseProfileRevision(value: string | undefined): string {
+  const revision = value?.trim();
+  if (!revision) {
+    throw new Error("Reload response profiles before saving the automation rule.");
+  }
+  return revision;
+}
+
 function buildAutomationRulePayload(values: AutomationRuleFormValues) {
   return {
     ruleName: values.name.trim(),
     triggerType: CurtailmentAutomationTriggerType.MQTT,
     mqttSourceId: parsePositiveBigIntId(values.sourceId, "source"),
     responseProfileId: parsePositiveBigIntId(values.responseProfileId, "response profile"),
+    expectedResponseProfileRevision: requireResponseProfileRevision(values.responseProfileRevision),
   };
 }
 
@@ -214,7 +227,7 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
   );
 
   const setAutomationRuleEnabled = useCallback(
-    async (ruleId: string, enabled: boolean): Promise<AutomationRule> => {
+    async (ruleId: string, enabled: boolean, expectedResponseProfileRevision?: string): Promise<AutomationRule> => {
       setUpdatingRuleIds((currentIds) => new Set(currentIds).add(ruleId));
 
       try {
@@ -222,6 +235,9 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
           create(SetCurtailmentAutomationRuleEnabledRequestSchema, {
             ruleId: parsePositiveBigIntId(ruleId, "automation rule"),
             enabled,
+            expectedResponseProfileRevision: enabled
+              ? requireResponseProfileRevision(expectedResponseProfileRevision)
+              : "",
           }),
         );
         if (!response.rule) {

@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,6 +39,64 @@ func testOrgAssignment(perms ...string) authz.Assignment {
 		ScopeType:    authz.ScopeOrg,
 		Permissions:  perms,
 	}
+}
+
+func TestHandler_PreviewCurtailmentPlanRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{{
+		ID:               201,
+		OrgID:            1,
+		Revision:         uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName:      "Standard shed",
+		Mode:             models.ModeFixedKw,
+		RestoreBatchSize: 50,
+	}}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
+
+	_, err := h.PreviewCurtailmentPlan(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "stale-profile-preview"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "changed before execution")
+}
+
+func TestHandler_PreviewCurtailmentPlanRejectsValuesOutsideResponseProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 50)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+	req.ModeParams = &pb.PreviewCurtailmentPlanRequest_FixedKw{
+		FixedKw: &pb.FixedKwParams{TargetKw: 75},
+	}
+
+	_, err := h.PreviewCurtailmentPlan(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "mismatched-profile-preview"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "values do not match")
 }
 
 func TestScopeResourceContextRequirementsTopologyRequiresOrgWide(t *testing.T) {
@@ -1208,6 +1267,21 @@ func validStartCurtailmentRequest(priority pb.CurtailmentPriority) *pb.StartCurt
 			FixedKw: &pb.FixedKwParams{TargetKw: 50},
 		},
 		Reason: "operator validation test",
+	}
+}
+
+func fixedKWWholeOrgExecutionProfile(orgID, profileID int64, targetKW float64) *models.ResponseProfile {
+	return &models.ResponseProfile{
+		ID:          profileID,
+		OrgID:       orgID,
+		Revision:    uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName: "Standard shed",
+		ScopeJSON:   []byte("{}"),
+		Mode:        models.ModeFixedKw,
+		Strategy:    models.StrategyLeastEfficientFirst,
+		Level:       models.LevelFull,
+		Priority:    models.PriorityNormal,
+		TargetKW:    &targetKW,
 	}
 }
 

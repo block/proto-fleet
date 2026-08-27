@@ -28,7 +28,10 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { supportsAllPairedTargeting } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  customResponseProfileId,
+  supportsAllPairedTargeting,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import FacilityFanSelectionModal, {
   type FacilityFanDeviceOption,
   type FacilityFanSelectionValue,
@@ -74,6 +77,7 @@ export interface CurtailmentFormValues {
   deviceIdentifiers: string[];
   minerSelectionMode?: CurtailmentMinerSelectionMode;
   responseProfileId: ResponseProfileId;
+  responseProfileRevision?: string;
   curtailmentMode: CurtailmentMode;
   minerSelectionStrategy: MinerSelectionStrategy;
   targetKw: string;
@@ -98,7 +102,8 @@ export type CurtailmentSubmitValues = CurtailmentFormValues;
 export interface CurtailmentResponseProfileOption {
   id: ResponseProfileId;
   label: string;
-  values: Partial<Omit<CurtailmentFormValues, "responseProfileId">>;
+  revision?: string;
+  values: Partial<Omit<CurtailmentFormValues, "responseProfileId" | "responseProfileRevision">>;
 }
 
 export interface CurtailmentSiteOption {
@@ -220,7 +225,6 @@ interface SiteScopeOptionProps {
   testId: string;
 }
 
-export const customResponseProfileId = "customPlan";
 const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
 const fieldHelp = {
   curtailmentMode: "How power reduction is measured: fixed kW target or full shutdown.",
@@ -1356,6 +1360,7 @@ function CurtailmentStartModalContent({
     return {
       ...nextValues,
       responseProfileId: customResponseProfileId,
+      responseProfileRevision: undefined,
     };
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
@@ -1628,6 +1633,7 @@ function CurtailmentStartModalContent({
       setValues((current) => ({
         ...current,
         responseProfileId: customResponseProfileId,
+        responseProfileRevision: undefined,
       }));
       return;
     }
@@ -1640,6 +1646,7 @@ function CurtailmentStartModalContent({
     const selectedValues = {
       ...withSelectedResponseProfileValues(values, responseProfile.values),
       responseProfileId: responseProfile.id,
+      responseProfileRevision: responseProfile.revision,
     };
     setEditedFields(new Set());
     setConfirmedForceInclusionKey("");

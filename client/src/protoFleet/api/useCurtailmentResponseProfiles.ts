@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
@@ -24,7 +25,7 @@ import {
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, createErrorWithCause, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 import {
   curtailmentNumericFieldLimits,
@@ -40,6 +41,7 @@ import {
 import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "15";
+const responseProfileUpdateConflictMessage = "curtailment response profile changed before update; retry";
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
 const restoreBatchSizeOptions = {
   label: "restore batch size",
@@ -102,6 +104,14 @@ function getUnknownResponseProfileScopeValues(): ResponseProfileScopeValues {
 
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
+}
+
+function isResponseProfileUpdateConflict(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.rawMessage === responseProfileUpdateConflictMessage
+  );
 }
 
 function numberToNonNegativeInputValue(value: number | undefined): string {
@@ -252,12 +262,10 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     formValues && cachedFormValues && !readOnlyScopeSummary
       ? {
           ...formValues,
-          ...cachedFormValues,
-          name: profile.profileName,
+          minDurationSec: cachedFormValues.minDurationSec,
+          maxDurationSec: cachedFormValues.maxDurationSec,
+          responseDeadlineMinutes: cachedFormValues.responseDeadlineMinutes,
           ...scopeFormValues,
-          facilityFanDeviceIds: formValues.facilityFanDeviceIds,
-          fanOffDelaySec: formValues.fanOffDelaySec,
-          fanRestoreDelaySec: formValues.fanRestoreDelaySec,
         }
       : formValues;
   let scope: string;
@@ -271,6 +279,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
 
   return {
     id: profile.profileId.toString(),
+    revision: profile.revision,
     name: profile.profileName,
     targetSummary,
     scope,
@@ -567,9 +576,14 @@ export default function useCurtailmentResponseProfiles(
       setUpdatingProfileIds((currentIds) => new Set(currentIds).add(profileId));
 
       try {
+        const currentProfile = apiProfiles.find((profile) => profile.profileId.toString() === profileId);
+        if (!currentProfile?.revision) {
+          throw new Error("Reload the response profile before updating it.");
+        }
         const response = await curtailmentClient.updateCurtailmentResponseProfile(
           create(UpdateCurtailmentResponseProfileRequestSchema, {
             profileId: BigInt(profileId),
+            expectedRevision: currentProfile.revision,
             ...buildResponseProfilePayload(values),
             replaceFacilityFanSettings: true,
           }),
@@ -590,7 +604,18 @@ export default function useCurtailmentResponseProfiles(
         );
         return mapProfile(updatedProfile);
       } catch (error) {
-        throw handleFailure(error, "Failed to update response profile.");
+        if (!isResponseProfileUpdateConflict(error)) {
+          throw handleFailure(error, "Failed to update response profile.");
+        }
+        let conflictMessage =
+          "This response profile changed in another session. The latest values have been loaded; review them before trying again.";
+        try {
+          sessionFormValuesByProfileId.delete(profileId);
+          await listResponseProfiles();
+        } catch {
+          conflictMessage = "This response profile changed in another session. Reload the page before trying again.";
+        }
+        throw createErrorWithCause(conflictMessage, error);
       } finally {
         setUpdatingProfileIds((currentIds) => {
           const nextIds = new Set(currentIds);
@@ -599,7 +624,7 @@ export default function useCurtailmentResponseProfiles(
         });
       }
     },
-    [handleFailure, mapProfile],
+    [apiProfiles, handleFailure, listResponseProfiles, mapProfile],
   );
 
   const deleteResponseProfile = useCallback(

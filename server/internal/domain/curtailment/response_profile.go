@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/google/uuid"
 )
 
 const (
@@ -139,6 +140,9 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	}
 	if req.Profile.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
+	}
+	if req.Profile.Revision == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_revision must be set")
 	}
 	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req, true)
 	if err != nil {

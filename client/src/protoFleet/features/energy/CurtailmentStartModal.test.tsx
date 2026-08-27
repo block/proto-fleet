@@ -201,6 +201,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "standard-shed",
     label: "Standard shed",
+    revision: "33333333-3333-4333-8333-333333333333",
     values: {
       curtailmentMode: "fixedKwReduction",
       scopeType: "explicitMiners",
@@ -219,6 +220,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "emergency-shed",
     label: "Emergency shed",
+    revision: "44444444-4444-4444-8444-444444444444",
     values: {
       curtailmentMode: "fullFleet",
       targetKw: "",
@@ -235,6 +237,7 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "standard-shed",
     label: "Standard shed",
+    revision: responseProfiles[0].revision,
     values: {
       ...responseProfiles[0].values,
       scopeType: "wholeOrg",
@@ -251,6 +254,7 @@ const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "austin-shed",
     label: "Austin site shed",
+    revision: "55555555-5555-4555-8555-555555555555",
     values: {
       ...responseProfiles[0].values,
       scopeType: "site",
@@ -508,6 +512,7 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "customPlan",
+        responseProfileRevision: undefined,
         curtailBatchSize: "20",
         curtailBatchIntervalSec: "60",
       }),
@@ -575,6 +580,7 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "standard-shed",
+        responseProfileRevision: responseProfiles[0].revision,
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",

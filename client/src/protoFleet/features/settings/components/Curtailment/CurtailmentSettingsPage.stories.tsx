@@ -277,6 +277,13 @@ export const AddResponseProfileDialog: Story = {
     initialSources: storySources,
     initialAutomationRules: storyAutomationRules,
     initialResponseProfileModalOpen: true,
+    onCreateResponseProfile: async (values) => ({
+      ...storyResponseProfiles[0],
+      id: "new-response-profile",
+      revision: "33333333-3333-4333-8333-333333333333",
+      name: values.name,
+      formValues: values,
+    }),
     onTestResponseProfileCurtailment: async () => undefined,
   },
 };

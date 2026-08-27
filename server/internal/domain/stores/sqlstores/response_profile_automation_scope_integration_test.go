@@ -42,7 +42,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	topologyProfile, err := store.GetResponseProfile(ctx, orgID, topologyProfileID)
 	require.NoError(t, err)
 	topologyProfile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
-	_, err = store.UpdateResponseProfile(
+	topologyProfile, err = store.UpdateResponseProfile(
 		ctx,
 		*topologyProfile,
 		nil,
@@ -54,12 +54,13 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = store.CreateAutomationRule(ctx, models.AutomationRule{
-		OrgID:             orgID,
-		RuleName:          "topology-create",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: topologyProfileID,
-		Enabled:           true,
+		OrgID:                   orgID,
+		RuleName:                "topology-create",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       topologyProfileID,
+		ResponseProfileRevision: topologyProfile.Revision,
+		Enabled:                 true,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -67,17 +68,18 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	cleanProfileID := seedResponseProfile(t, database, orgID, "clean-profile")
 	ruleID := seedAutomationRule(t, database, orgID, sourceID, cleanProfileID, "clean-rule", false)
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                ruleID,
-		OrgID:             orgID,
-		RuleName:          "topology-update",
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: topologyProfileID,
+		ID:                      ruleID,
+		OrgID:                   orgID,
+		RuleName:                "topology-update",
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       topologyProfileID,
+		ResponseProfileRevision: topologyProfile.Revision,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	topologyRuleID := seedAutomationRule(t, database, orgID, sourceID, topologyProfileID, "topology-enable", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, topologyRuleID, true, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, topologyRuleID, true, topologyProfile.Revision, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 

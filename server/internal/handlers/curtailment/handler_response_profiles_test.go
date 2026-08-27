@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +17,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+const (
+	handlerResponseProfileTestRevision       = "22222222-2222-4222-8222-222222222222"
+	handlerResponseProfileCreatedRevision    = "33333333-3333-4333-8333-333333333333"
+	handlerResponseProfileNextUpdateRevision = "44444444-4444-4444-8444-444444444444"
 )
 
 func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
@@ -52,6 +59,7 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	profile := resp.Msg.GetProfile()
 	require.NotNil(t, profile)
 	assert.Equal(t, int64(201), profile.GetProfileId())
+	assert.Equal(t, handlerResponseProfileCreatedRevision, profile.GetRevision())
 	assert.Equal(t, "Standard shed", profile.GetProfileName())
 	assert.Equal(t, int64(7), profile.GetSite().GetSiteId())
 	assert.Equal(t, float64(2500), profile.GetFixedKw().GetTargetKw())
@@ -566,10 +574,11 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	resp, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated",
-			Site:        &pb.ScopeSite{SiteId: siteID},
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated",
+			Site:             &pb.ScopeSite{SiteId: siteID},
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000, ToleranceKw: ptrFloat64(10)},
 			},
@@ -583,12 +592,14 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	profile := resp.Msg.GetProfile()
 	require.NotNil(t, profile)
 	assert.Equal(t, int64(201), profile.GetProfileId())
+	assert.Equal(t, handlerResponseProfileNextUpdateRevision, profile.GetRevision())
 	assert.Equal(t, "Updated", profile.GetProfileName())
 	assert.Equal(t, float64(3000), profile.GetFixedKw().GetTargetKw())
 	assert.Equal(t, uint32(40), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(0), profile.GetRestoreBatchIntervalSec())
 	assert.Equal(t, uint32(900), profile.GetPostEventCooldownSec())
 	require.NotNil(t, store.updated)
+	assert.Equal(t, uuid.MustParse(handlerResponseProfileTestRevision), store.updated.Revision)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
 	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
 	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
@@ -635,6 +646,7 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresAccessToPreservedFacili
 			testSiteAssignment(8, authz.PermSiteRead),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ExpectedRevision:        handlerResponseProfileTestRevision,
 			ProfileId:               201,
 			ProfileName:             "Updated",
 			Site:                    &pb.ScopeSite{SiteId: profileSiteID},
@@ -665,6 +677,7 @@ func TestHandler_UpdateCurtailmentResponseProfileClearsFacilityFanSettingsWhenRe
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ExpectedRevision:           handlerResponseProfileTestRevision,
 			ProfileId:                  201,
 			ProfileName:                "Updated",
 			Site:                       &pb.ScopeSite{SiteId: siteID},
@@ -708,8 +721,9 @@ func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *t
 			testSiteAssignment(siteB, authz.PermCurtailmentManage),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated composite",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated composite",
 			Scopes: []*pb.CurtailmentScope{
 				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteA}}},
 				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteB}}},
@@ -752,9 +766,10 @@ func TestHandler_UpdateCurtailmentResponseProfileRejectsOmittedScope(t *testing.
 			testSiteAssignment(siteB, authz.PermCurtailmentManage),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated composite",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated composite",
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
 			},
@@ -779,8 +794,9 @@ func TestHandler_UpdateCurtailmentResponseProfileAllowsExplicitSiteClear(t *test
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated whole org",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated whole org",
 			Scopes: []*pb.CurtailmentScope{{
 				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			}},
@@ -822,8 +838,9 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *t
 			testSiteAssignment(narrowedSite),
 		),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Updated whole org",
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Updated whole org",
 			Scopes: []*pb.CurtailmentScope{{
 				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			}},
@@ -859,10 +876,11 @@ func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T
 			SessionID:      "sess-response-profile-update",
 		}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(siteID)),
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
-			ProfileId:   201,
-			ProfileName: "Still hidden",
-			Site:        &pb.ScopeSite{SiteId: siteID},
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExpectedRevision: handlerResponseProfileTestRevision,
+			ProfileId:        201,
+			ProfileName:      "Still hidden",
+			Site:             &pb.ScopeSite{SiteId: siteID},
+			Mode:             pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
 			},
@@ -1157,6 +1175,7 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 
 func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
+	profile.Revision = uuid.MustParse(handlerResponseProfileCreatedRevision)
 	s.created = &profile
 	s.createdDeviceSites = expectedDeviceSites
 	s.createdInfrastructureDevices = expectedInfrastructureDevices
@@ -1164,7 +1183,8 @@ func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, p
 }
 
 func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[string]*int64, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
-	s.updated = &profile
+	requested := profile
+	s.updated = &requested
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
 	s.updateExpectedFanSettings = models.ResponseProfileFanSettings{
@@ -1172,6 +1192,7 @@ func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, p
 		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
 		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
 	}
+	profile.Revision = uuid.MustParse(handlerResponseProfileNextUpdateRevision)
 	return &profile, nil
 }
 

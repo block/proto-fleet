@@ -80,12 +80,34 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
+	expectedProfileRevision, err := parseResponseProfileExecutionRevision(
+		req.Msg.GetResponseProfileId(),
+		req.Msg.GetExpectedResponseProfileRevision(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	previewReq, err := toPreviewRequest(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
 	requirements, err := h.previewResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err
 	}
-	info, err = requireScopeResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements, info)
+	profile, err := h.currentResponseProfileForExecution(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetResponseProfileId(),
+		expectedProfileRevision,
+	)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateResponseProfilePreviewExecution(profile, previewReq); err != nil {
+		return nil, err
+	}
+	if _, err := requireScopeResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements, info); err != nil {
 		return nil, err
 	}
 	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.GetForceIncludeAllPairedMiners() {
@@ -95,11 +117,6 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("PreviewCurtailmentPlan")
-	}
-
-	previewReq, err := toPreviewRequest(req.Msg, info.OrganizationID)
-	if err != nil {
-		return nil, err
 	}
 
 	plan, err := h.service.Preview(ctx, previewReq)
@@ -119,10 +136,19 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	expectedProfileRevision, err := parseResponseProfileExecutionRevision(
+		req.Msg.GetResponseProfileId(),
+		req.Msg.GetExpectedResponseProfileRevision(),
+	)
+	if err != nil {
+		return nil, err
+	}
 	startReq, err := toStartRequest(req.Msg, info)
 	if err != nil {
 		return nil, err
 	}
+	startReq.ResponseProfileID = req.Msg.GetResponseProfileId()
+	startReq.ResponseProfileRevision = expectedProfileRevision
 	if h.service != nil {
 		replayEvent, err := h.service.LookupStartReplay(ctx, startReq)
 		if err != nil {
@@ -140,6 +166,21 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 				Event: toEventProtoWithTargets(plan.ReplayEvent, plan.ReplayTargets),
 			}), nil
 		}
+	}
+	profile, err := h.currentResponseProfileForExecution(
+		ctx,
+		info.OrganizationID,
+		startReq.ResponseProfileID,
+		startReq.ResponseProfileRevision,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateResponseProfileStartExecution(profile, startReq); err != nil {
+		return nil, err
+	}
+	if profile != nil {
+		startReq.UseProfileCurtailSettings = true
 	}
 	requirements, err := h.startResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {

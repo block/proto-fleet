@@ -1193,6 +1193,8 @@ type Querier interface {
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)
+	LockCurtailmentAutomationRuleForExecution(ctx context.Context, arg LockCurtailmentAutomationRuleForExecutionParams) (int64, error)
+	LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
@@ -1220,6 +1222,7 @@ type Querier interface {
 	// Topology and site writes still conflict with this lock, while command queue
 	// inserts can take the foreign-key KEY SHARE lock without self-deadlocking.
 	LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error)
+	LockCurtailmentResponseProfileRevisionForExecution(ctx context.Context, arg LockCurtailmentResponseProfileRevisionForExecutionParams) (int64, error)
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error

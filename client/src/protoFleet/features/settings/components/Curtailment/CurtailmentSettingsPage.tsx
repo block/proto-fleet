@@ -1324,11 +1324,8 @@ type CurtailmentSettingsContentProps = {
   infrastructureDevicesError?: string | null;
   onRetryInfrastructureDevices?: () => void;
   onResponseProfileModalOpen?: () => void;
-  onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile | void>;
-  onUpdateResponseProfile?: (
-    profile: ResponseProfile,
-    values: ResponseProfileFormValues,
-  ) => Promise<ResponseProfile | void>;
+  onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile>;
+  onUpdateResponseProfile?: (profile: ResponseProfile, values: ResponseProfileFormValues) => Promise<ResponseProfile>;
   onTestResponseProfileCurtailment?: (
     values: ResponseProfileFormValues,
     curtailmentValues: CurtailmentSubmitValues,
@@ -1344,7 +1341,11 @@ type CurtailmentSettingsContentProps = {
   onDeleteSource?: (source: CurtailmentSource) => Promise<void>;
   onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
   onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
-  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (
+    rule: AutomationRule,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
@@ -1421,13 +1422,20 @@ export function CurtailmentSettingsContent({
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
   const knownAutomationRules = controlledAutomationRules ?? initialAutomationRules;
+  const latestEditingResponseProfile = editingResponseProfile
+    ? (responseProfiles.find((profile) => profile.id === editingResponseProfile.id) ?? editingResponseProfile)
+    : null;
+  const canTestResponseProfileCurtailment = Boolean(
+    onTestResponseProfileCurtailment &&
+    (latestEditingResponseProfile ? onUpdateResponseProfile : onCreateResponseProfile),
+  );
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
   const responseProfileModalInitialValues = useMemo(
     () =>
-      editingResponseProfile
-        ? createResponseProfileFormValuesFromProfile(editingResponseProfile)
+      latestEditingResponseProfile
+        ? createResponseProfileFormValuesFromProfile(latestEditingResponseProfile)
         : emptyResponseProfileFormValues,
-    [editingResponseProfile],
+    [latestEditingResponseProfile],
   );
   const responseProfileCurtailmentInitialValues = useMemo(
     () => createCurtailmentFormValuesFromResponseProfile(responseProfileModalInitialValues),
@@ -1438,15 +1446,15 @@ export function CurtailmentSettingsContent({
     () => (editingSource ? createSourceFormValuesFromSource(editingSource) : emptySourceFormValues),
     [editingSource],
   );
-  const isEditingResponseProfile = editingResponseProfile
-    ? updatingResponseProfileIds.has(editingResponseProfile.id)
+  const isEditingResponseProfile = latestEditingResponseProfile
+    ? updatingResponseProfileIds.has(latestEditingResponseProfile.id)
     : false;
-  const facilityFanSelectionDisabledReason = editingResponseProfile
+  const facilityFanSelectionDisabledReason = latestEditingResponseProfile
     ? isLoadingAutomationRules
       ? "Checking whether an automation uses this profile. You can change infrastructure fans when this check is complete."
       : loadAutomationRulesError
         ? "We couldn't check whether an automation uses this profile. Reload the page before changing infrastructure fans."
-        : knownAutomationRules.some((rule) => rule.responseProfileId === editingResponseProfile.id)
+        : knownAutomationRules.some((rule) => rule.responseProfileId === latestEditingResponseProfile.id)
           ? "An automation uses this profile. Update or delete the automation before changing infrastructure fans."
           : undefined
     : undefined;
@@ -1492,27 +1500,29 @@ export function CurtailmentSettingsContent({
 
   const handleCreateResponseProfile = useCallback(
     async (values: ResponseProfileFormValues) => {
-      const createdProfile = await onCreateResponseProfile?.(values);
+      const profile = onCreateResponseProfile
+        ? await onCreateResponseProfile(values)
+        : createResponseProfileFromFormValues(values, responseProfiles);
       if (!controlledResponseProfiles) {
-        setLocalResponseProfiles((currentProfiles) => {
-          const profile = createdProfile ?? createResponseProfileFromFormValues(values, currentProfiles);
-          return [...currentProfiles.filter((currentProfile) => currentProfile.id !== profile.id), profile];
-        });
+        setLocalResponseProfiles((currentProfiles) => [
+          ...currentProfiles.filter((currentProfile) => currentProfile.id !== profile.id),
+          profile,
+        ]);
       }
+      return profile;
     },
-    [controlledResponseProfiles, onCreateResponseProfile],
+    [controlledResponseProfiles, onCreateResponseProfile, responseProfiles],
   );
 
   const handleSaveResponseProfile = useCallback(
     async (values: ResponseProfileFormValues) => {
-      if (!editingResponseProfile) {
-        await handleCreateResponseProfile(values);
-        return;
+      if (!latestEditingResponseProfile) {
+        return handleCreateResponseProfile(values);
       }
 
-      const updatedProfile =
-        (await onUpdateResponseProfile?.(editingResponseProfile, values)) ??
-        createResponseProfileFromFormValues(values, responseProfiles, editingResponseProfile);
+      const updatedProfile = onUpdateResponseProfile
+        ? await onUpdateResponseProfile(latestEditingResponseProfile, values)
+        : createResponseProfileFromFormValues(values, responseProfiles, latestEditingResponseProfile);
       if (!controlledResponseProfiles) {
         setLocalResponseProfiles((currentProfiles) =>
           currentProfiles.map((currentProfile) =>
@@ -1520,10 +1530,11 @@ export function CurtailmentSettingsContent({
           ),
         );
       }
+      return updatedProfile;
     },
     [
       controlledResponseProfiles,
-      editingResponseProfile,
+      latestEditingResponseProfile,
       handleCreateResponseProfile,
       onUpdateResponseProfile,
       responseProfiles,
@@ -1542,25 +1553,33 @@ export function CurtailmentSettingsContent({
     async (values: CurtailmentSubmitValues) => {
       const responseProfileValues = createResponseProfileFormValuesFromCurtailmentValues(values);
 
-      await handleSaveResponseProfile(responseProfileValues);
-      await onTestResponseProfileCurtailment?.(responseProfileValues, values);
+      const savedProfile = await handleSaveResponseProfile(responseProfileValues);
+      if (!savedProfile.revision || !savedProfile.formValues) {
+        throw new Error("Reload the response profile before running curtailment.");
+      }
+      await onTestResponseProfileCurtailment?.(savedProfile.formValues, {
+        ...values,
+        ...createCurtailmentFormValuesFromResponseProfile(savedProfile.formValues),
+        responseProfileId: savedProfile.id,
+        responseProfileRevision: savedProfile.revision,
+      });
       closeResponseProfileModal();
     },
     [closeResponseProfileModal, handleSaveResponseProfile, onTestResponseProfileCurtailment],
   );
 
   const handleDeleteResponseProfile = useCallback(async () => {
-    if (!editingResponseProfile) {
+    if (!latestEditingResponseProfile) {
       return;
     }
 
-    await onDeleteResponseProfile?.(editingResponseProfile);
+    await onDeleteResponseProfile?.(latestEditingResponseProfile);
     if (!controlledResponseProfiles) {
       setLocalResponseProfiles((currentProfiles) =>
-        currentProfiles.filter((currentProfile) => currentProfile.id !== editingResponseProfile.id),
+        currentProfiles.filter((currentProfile) => currentProfile.id !== latestEditingResponseProfile.id),
       );
     }
-  }, [controlledResponseProfiles, editingResponseProfile, onDeleteResponseProfile]);
+  }, [controlledResponseProfiles, latestEditingResponseProfile, onDeleteResponseProfile]);
 
   const handleDeleteResponseProfileFromCurtailment = useCallback(async () => {
     await handleDeleteResponseProfile();
@@ -1751,7 +1770,7 @@ export function CurtailmentSettingsContent({
       <CurtailmentStartModal
         key={
           isResponseProfileModalOpen
-            ? `response-profile-${responseProfileModalMode}-${editingResponseProfile?.id ?? "new"}`
+            ? `response-profile-${responseProfileModalMode}-${latestEditingResponseProfile?.id ?? "new"}-${latestEditingResponseProfile?.revision ?? "local"}`
             : "response-profile-modal-closed"
         }
         open={isResponseProfileModalOpen}
@@ -1773,11 +1792,11 @@ export function CurtailmentSettingsContent({
         actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
         onSubmit={handleResponseProfileModalSubmit}
-        onTestCurtailment={onTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
-        onDeleteResponseProfile={editingResponseProfile ? handleResponseProfileModalDelete : undefined}
-        isSubmitting={editingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
+        onTestCurtailment={canTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
+        onDeleteResponseProfile={latestEditingResponseProfile ? handleResponseProfileModalDelete : undefined}
+        isSubmitting={latestEditingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
         isTestingCurtailment={isTestingResponseProfileCurtailment}
-        isDeleting={editingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
+        isDeleting={latestEditingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
       />
 
       <SourceModal
@@ -2090,9 +2109,9 @@ function CurtailmentSettingsPage(): ReactElement {
   );
 
   const handleToggleAutomation = useCallback(
-    async (rule: AutomationRule, enabled: boolean) => {
+    async (rule: AutomationRule, enabled: boolean, expectedResponseProfileRevision?: string) => {
       try {
-        return await setAutomationRuleEnabled(rule.id, enabled);
+        return await setAutomationRuleEnabled(rule.id, enabled, expectedResponseProfileRevision);
       } catch (error) {
         pushToast({
           message: getErrorMessage(error, "Failed to update automation."),

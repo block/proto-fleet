@@ -10,6 +10,14 @@ FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentResponseProfileRevisionForExecution :one
+SELECT id
+FROM curtailment_response_profile
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+FOR SHARE;
+
 -- name: LockCurtailmentResponseProfileAutomationMutation :exec
 -- Serializes profile changes with automation create/update/enable. Both sides
 -- re-read their compatibility conditions after acquiring this lock so a
@@ -104,6 +112,30 @@ RETURNING *;
 -- name: UpdateCurtailmentResponseProfile :one
 UPDATE curtailment_response_profile
 SET
+    revision = CASE
+        WHEN site_id IS DISTINCT FROM sqlc.narg('site_id')
+          OR scope_json IS DISTINCT FROM sqlc.arg('scope_json')::jsonb
+          OR authorization_envelope_jsonb IS DISTINCT FROM sqlc.arg('authorization_envelope_jsonb')::jsonb
+          OR mode IS DISTINCT FROM sqlc.arg('mode')
+          OR strategy IS DISTINCT FROM sqlc.arg('strategy')
+          OR level IS DISTINCT FROM sqlc.arg('level')
+          OR priority IS DISTINCT FROM sqlc.arg('priority')
+          OR target_kw IS DISTINCT FROM sqlc.narg('target_kw')
+          OR tolerance_kw IS DISTINCT FROM sqlc.narg('tolerance_kw')
+          OR curtail_batch_size IS DISTINCT FROM sqlc.narg('curtail_batch_size')
+          OR curtail_batch_interval_sec IS DISTINCT FROM sqlc.arg('curtail_batch_interval_sec')
+          OR restore_batch_size IS DISTINCT FROM sqlc.arg('restore_batch_size')
+          OR restore_batch_interval_sec IS DISTINCT FROM sqlc.arg('restore_batch_interval_sec')
+          OR include_maintenance IS DISTINCT FROM sqlc.arg('include_maintenance')
+          OR force_include_maintenance IS DISTINCT FROM sqlc.arg('force_include_maintenance')
+          OR post_event_cooldown_sec IS DISTINCT FROM sqlc.arg('post_event_cooldown_sec')
+          OR force_include_all_paired_miners IS DISTINCT FROM sqlc.arg('force_include_all_paired_miners')
+          OR facility_fan_device_ids IS DISTINCT FROM sqlc.arg('facility_fan_device_ids')::bigint[]
+          OR fan_off_delay_sec IS DISTINCT FROM sqlc.arg('fan_off_delay_sec')
+          OR fan_restore_delay_sec IS DISTINCT FROM sqlc.arg('fan_restore_delay_sec')
+        THEN gen_random_uuid()
+        ELSE revision
+    END,
     profile_name = sqlc.arg('profile_name'),
     site_id = sqlc.narg('site_id'),
     scope_json = sqlc.arg('scope_json'),
@@ -127,6 +159,7 @@ SET
     fan_restore_delay_sec = sqlc.arg('fan_restore_delay_sec')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
   AND scope_json = sqlc.arg('expected_scope_json')::jsonb
   AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]

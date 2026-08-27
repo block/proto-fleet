@@ -185,6 +185,7 @@ const apiSources: CurtailmentSource[] = [
 const testResponseProfiles: ResponseProfile[] = [
   {
     id: "emergency-full-shed",
+    revision: "11111111-1111-4111-8111-111111111111",
     name: "Emergency full shed",
     targetSummary: "100% reduction",
     scope: "Whole fleet",
@@ -217,6 +218,7 @@ const testResponseProfiles: ResponseProfile[] = [
   },
   {
     id: "site-alpha-500-kw",
+    revision: "22222222-2222-4222-8222-222222222222",
     name: "Site Alpha 500 kW",
     targetSummary: "500 kW target",
     scope: "Whole fleet",
@@ -991,7 +993,20 @@ describe("CurtailmentSettingsPage", () => {
 
   it("saves a response profile, runs a curtailment, and redirects to energy", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
-    createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
+    createResponseProfileMock.mockResolvedValue({
+      ...testResponseProfiles[0],
+      id: "27",
+      revision: "33333333-3333-4333-8333-333333333333",
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        minerSelectionMode: "all",
+        siteSelection: "allSites",
+        curtailBatchSize: "25",
+        curtailBatchIntervalSec: "60",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+      },
+    });
 
     render(
       <MemoryRouter>
@@ -1038,6 +1053,8 @@ describe("CurtailmentSettingsPage", () => {
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
           includeMaintenance: false,
+          responseProfileId: "27",
+          responseProfileRevision: "33333333-3333-4333-8333-333333333333",
         }),
       ),
     );
@@ -1207,8 +1224,19 @@ describe("CurtailmentSettingsPage", () => {
     mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
     updateResponseProfileMock.mockResolvedValue({
       ...testResponseProfiles[1],
+      id: "28",
+      revision: "44444444-4444-4444-8444-444444444444",
       name: "Site Alpha 750 kW",
       targetSummary: "750 kW target",
+      formValues: {
+        ...testResponseProfiles[1].formValues!,
+        name: "Site Alpha 750 kW",
+        targetKw: "750.123",
+        curtailBatchSize: "75",
+        curtailBatchIntervalSec: "45",
+        restoreBatchSize: "50",
+        restoreIntervalSec: "120",
+      },
     });
 
     render(
@@ -1222,7 +1250,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
-    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750.1234" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
@@ -1241,7 +1269,7 @@ describe("CurtailmentSettingsPage", () => {
         "site-alpha-500-kw",
         expect.objectContaining({
           name: "Site Alpha 750 kW",
-          targetKw: "750",
+          targetKw: "750.1234",
           curtailBatchSize: "75",
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
@@ -1254,7 +1282,7 @@ describe("CurtailmentSettingsPage", () => {
       expect(startCurtailmentMock).toHaveBeenCalledWith(
         expect.objectContaining({
           reason: "Site Alpha 750 kW",
-          targetKw: "750",
+          targetKw: "750.123",
           curtailmentMode: "fixedKwReduction",
           scopeType: "wholeOrg",
           siteId: "",
@@ -1262,6 +1290,8 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
+          responseProfileId: "28",
+          responseProfileRevision: "44444444-4444-4444-8444-444444444444",
         }),
       ),
     );
@@ -1463,6 +1493,43 @@ describe("CurtailmentSettingsPage", () => {
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
     expect(screen.queryByText("Site Alpha 750 kW")).not.toBeInTheDocument();
+  });
+
+  it("hides the test action when the response profile cannot be persisted", () => {
+    render(
+      <CurtailmentSettingsContent
+        initialResponseProfileModalOpen
+        onTestResponseProfileCurtailment={async () => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Run curtailment" })).not.toBeInTheDocument();
+  });
+
+  it("reloads an open response profile editor when its revision changes", () => {
+    const originalProfile: ResponseProfile = {
+      ...testResponseProfiles[1],
+      revision: "33333333-3333-4333-8333-333333333333",
+    };
+    const refreshedProfile: ResponseProfile = {
+      ...originalProfile,
+      revision: "44444444-4444-4444-8444-444444444444",
+      name: "Changed elsewhere",
+      formValues: {
+        ...originalProfile.formValues!,
+        name: "Changed elsewhere",
+        targetKw: "900",
+      },
+    };
+    const { rerender } = render(<CurtailmentSettingsContent responseProfiles={[originalProfile]} />);
+
+    fireEvent.click(within(getResponseProfileCard(originalProfile.name)).getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved local edit" } });
+
+    rerender(<CurtailmentSettingsContent responseProfiles={[refreshedProfile]} />);
+
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Changed elsewhere");
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("900");
   });
 
   it("opens the source dialog and closes it from Save without API props", async () => {
@@ -1886,6 +1953,7 @@ describe("CurtailmentSettingsPage", () => {
         name: "Site Alpha automation",
         sourceId: "11",
         responseProfileId: "21",
+        responseProfileRevision: apiResponseProfiles[0].revision,
       }),
     );
     await waitFor(() =>

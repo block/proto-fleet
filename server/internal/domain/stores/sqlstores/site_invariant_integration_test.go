@@ -300,6 +300,7 @@ func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProf
 			trigger_type,
 			mqtt_source_id,
 			response_profile_id,
+			response_profile_revision,
 			enabled
 		) VALUES (
 			$1,
@@ -307,6 +308,7 @@ func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProf
 			'MQTT',
 			$2,
 			$3,
+			(SELECT revision FROM curtailment_response_profile WHERE id = $3 AND org_id = $1),
 			TRUE
 		)
 	`, orgID, sourceID, profileID)

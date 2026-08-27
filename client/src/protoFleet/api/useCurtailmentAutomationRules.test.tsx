@@ -47,6 +47,7 @@ const formValues: AutomationRuleFormValues = {
   name: "ERCOT ERS obligation",
   sourceId: "11",
   responseProfileId: "21",
+  responseProfileRevision: "11111111-1111-4111-8111-111111111111",
 };
 
 function apiRule(overrides: Partial<CurtailmentAutomationRule> = {}): CurtailmentAutomationRule {
@@ -114,6 +115,7 @@ describe("useCurtailmentAutomationRules", () => {
         triggerType: CurtailmentAutomationTriggerType.MQTT,
         mqttSourceId: 11n,
         responseProfileId: 21n,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
         enabled: true,
       }),
     );
@@ -129,6 +131,7 @@ describe("useCurtailmentAutomationRules", () => {
         triggerType: CurtailmentAutomationTriggerType.MQTT,
         mqttSourceId: 11n,
         responseProfileId: 21n,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
       }),
     );
   });
@@ -147,6 +150,21 @@ describe("useCurtailmentAutomationRules", () => {
       expect.objectContaining({
         ruleId: 7n,
         enabled: false,
+        expectedResponseProfileRevision: "",
+      }),
+    );
+
+    mockSetCurtailmentAutomationRuleEnabled.mockResolvedValueOnce({ rule: apiRule({ enabled: true }) });
+
+    await act(async () => {
+      await result.current.setAutomationRuleEnabled("7", true, formValues.responseProfileRevision);
+    });
+
+    expect(mockSetCurtailmentAutomationRuleEnabled).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ruleId: 7n,
+        enabled: true,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
       }),
     );
 

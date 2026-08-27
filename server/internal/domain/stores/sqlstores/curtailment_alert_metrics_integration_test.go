@@ -50,8 +50,10 @@ func seedAutomationRule(t *testing.T, db *sql.DB, orgID, sourceID, profileID int
 	var id int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_automation_rule
-			(org_id, rule_name, mqtt_source_id, response_profile_id, enabled)
-		VALUES ($1, $2, $3, $4, $5)
+			(org_id, rule_name, mqtt_source_id, response_profile_id, response_profile_revision, enabled)
+		SELECT $1, $2, $3, $4, revision, $5
+		FROM curtailment_response_profile
+		WHERE id = $4 AND org_id = $1
 		RETURNING id`,
 		orgID, name, sourceID, profileID, enabled).Scan(&id))
 	return id
@@ -118,15 +120,16 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, ruleID, sourceA, eventUUID, time.Now()))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                ruleID,
-		OrgID:             orgID,
-		RuleName:          "guard-rule",
-		MQTTSourceID:      sourceB,
-		ResponseProfileID: profileID,
+		ID:                      ruleID,
+		OrgID:                   orgID,
+		RuleName:                "guard-rule",
+		MQTTSourceID:            sourceB,
+		ResponseProfileID:       profileID,
+		ResponseProfileRevision: mustResponseProfileRevision(t, store, orgID, profileID),
 	}, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
 
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, uuid.Nil, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
 
 	err = store.DeleteAutomationRule(ctx, orgID, ruleID)

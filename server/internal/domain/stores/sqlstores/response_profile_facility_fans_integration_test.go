@@ -238,54 +238,59 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 		)
 		RETURNING id`, orgID, fanID, fanSiteID).Scan(&fanProfileID))
 	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{fanID}}
+	fanProfileRevision := mustResponseProfileRevision(t, store, orgID, fanProfileID)
 
 	_, err := store.CreateAutomationRule(ctx, models.AutomationRule{
-		OrgID:             orgID,
-		RuleName:          "create-fan-rule",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
-		Enabled:           true,
+		OrgID:                   orgID,
+		RuleName:                "create-fan-rule",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
+		Enabled:                 true,
 	}, fanProfileSettings)
 	require.NoError(t, err)
 
 	cleanRuleID := seedAutomationRule(t, db, orgID, sourceID, cleanProfileID, "update-to-fan-rule", false)
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                cleanRuleID,
-		OrgID:             orgID,
-		RuleName:          "update-to-fan-rule",
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
+		ID:                      cleanRuleID,
+		OrgID:                   orgID,
+		RuleName:                "update-to-fan-rule",
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
 	}, fanProfileSettings)
 	require.NoError(t, err)
 
 	disabledFanRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileSettings)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileRevision, fanProfileSettings)
 	require.NoError(t, err)
 
 	_, err = store.CreateAutomationRule(ctx, models.AutomationRule{
-		OrgID:             orgID,
-		RuleName:          "stale-create-fan-rule",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
-		Enabled:           true,
+		OrgID:                   orgID,
+		RuleName:                "stale-create-fan-rule",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
+		Enabled:                 true,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                cleanRuleID,
-		OrgID:             orgID,
-		RuleName:          "stale-update-to-fan-rule",
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
+		ID:                      cleanRuleID,
+		OrgID:                   orgID,
+		RuleName:                "stale-update-to-fan-rule",
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	staleEnableRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "stale-enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, fanProfileRevision, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 

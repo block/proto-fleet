@@ -112,6 +112,8 @@ describe("useCurtailmentPlanPreview", () => {
 
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
+    expect(wholeFleetRequest?.responseProfileId).toBe(0n);
+    expect(wholeFleetRequest?.expectedResponseProfileRevision).toBe("");
     expect(wholeFleetRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(wholeFleetRequest?.scopeSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);
@@ -193,6 +195,18 @@ describe("useCurtailmentPlanPreview", () => {
     });
 
     expect(buildingRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["building", "building"]);
+  });
+
+  it("binds saved response-profile previews to their loaded revision", () => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+    });
+
+    expect(request?.responseProfileId).toBe(27n);
+    expect(request?.expectedResponseProfileRevision).toBe("33333333-3333-4333-8333-333333333333");
+    expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, responseProfileId: "27" })).toBeUndefined();
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {

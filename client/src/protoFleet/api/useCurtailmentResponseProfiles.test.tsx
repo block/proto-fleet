@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   CurtailmentLevel,
@@ -22,7 +23,10 @@ import {
 import useCurtailmentResponseProfiles, {
   clearCurtailmentResponseProfileSessionCacheForTest,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
-import type { ResponseProfileFormValues } from "@/protoFleet/features/settings/components/Curtailment/types";
+import type {
+  ResponseProfile,
+  ResponseProfileFormValues,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const {
   mockCreateCurtailmentResponseProfile,
@@ -77,9 +81,12 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   forceIncludeAllPairedMiners: false,
 };
 
+const responseProfileRevision = "33333333-3333-4333-8333-333333333333";
+
 function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): CurtailmentResponseProfile {
   const profile = create(CurtailmentResponseProfileSchema, {
     profileId: 7n,
+    revision: responseProfileRevision,
     profileName: "Partial reduction",
     site: create(ScopeSiteSchema, { siteId: 101n }),
     mode: CurtailmentMode.FIXED_KW,
@@ -200,11 +207,102 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         profileId: 7n,
+        expectedRevision: responseProfileRevision,
         profileName: "Updated",
         replaceFacilityFanSettings: true,
       }),
     );
     expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
+  });
+
+  it("fails closed when an update has no loaded profile revision", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValue({
+      profiles: [wholeOrgApiProfile({ revision: "" })],
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.updateResponseProfile("7", fixedKwFormValues);
+      }),
+    ).rejects.toThrow("Reload the response profile before updating it.");
+    expect(mockUpdateCurtailmentResponseProfile).not.toHaveBeenCalled();
+  });
+
+  it("reloads a profile after a stale revision conflict before allowing another update", async () => {
+    const ownUpdateRevision = "44444444-4444-4444-8444-444444444444";
+    const latestRevision = "55555555-5555-4555-8555-555555555555";
+    const latestProfile = wholeOrgApiProfile({
+      profileName: "Changed elsewhere",
+      revision: latestRevision,
+      curtailBatchSize: 99,
+      modeParams: {
+        case: "fixedKw",
+        value: create(FixedKwParamsSchema, { targetKw: 9000 }),
+      },
+    });
+    mockListCurtailmentResponseProfiles
+      .mockResolvedValueOnce({ profiles: [wholeOrgApiProfile()] })
+      .mockResolvedValueOnce({ profiles: [latestProfile] });
+    mockUpdateCurtailmentResponseProfile
+      .mockResolvedValueOnce({ profile: wholeOrgApiProfile({ revision: ownUpdateRevision }) })
+      .mockRejectedValueOnce(
+        new ConnectError("curtailment response profile changed before update; retry", Code.FailedPrecondition),
+      );
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await act(async () => {
+      await result.current.updateResponseProfile("7", {
+        ...fixedKwFormValues,
+        targetKw: "2100",
+        curtailBatchSize: "25",
+      });
+    });
+    await act(async () => {
+      await expect(result.current.updateResponseProfile("7", fixedKwFormValues)).rejects.toThrow("latest values");
+    });
+
+    expect(mockListCurtailmentResponseProfiles).toHaveBeenCalledTimes(2);
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: wholeOrgApiProfile({ revision: latestRevision }),
+    });
+    await waitFor(() => {
+      expect(result.current.responseProfiles[0]?.revision).toBe(latestRevision);
+      expect(result.current.responseProfiles[0]?.formValues?.targetKw).toBe("9000");
+      expect(result.current.responseProfiles[0]?.formValues?.curtailBatchSize).toBe("99");
+    });
+    await act(async () => {
+      await result.current.updateResponseProfile("7", fixedKwFormValues);
+    });
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ expectedRevision: latestRevision }),
+    );
+  });
+
+  it("does not treat other failed preconditions as revision conflicts", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [wholeOrgApiProfile()] });
+    mockUpdateCurtailmentResponseProfile.mockRejectedValueOnce(
+      new ConnectError("infrastructure devices changed before response profile save; retry", Code.FailedPrecondition),
+    );
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await expect(
+      act(async () => {
+        await result.current.updateResponseProfile("7", fixedKwFormValues);
+      }),
+    ).rejects.toThrow("infrastructure devices changed before response profile save");
+
+    expect(mockListCurtailmentResponseProfiles).toHaveBeenCalledTimes(1);
   });
 
   it("sends all-paired targeting only for full-fleet response profiles", async () => {
@@ -358,6 +456,7 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         profileId: 7n,
+        expectedRevision: responseProfileRevision,
         mode: CurtailmentMode.FULL_FLEET,
         forceIncludeAllPairedMiners: true,
         includeMaintenance: true,
@@ -383,10 +482,15 @@ describe("useCurtailmentResponseProfiles", () => {
   });
 
   it("drops stale maintenance inclusion when all-paired targeting is unchecked", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValue({ profiles: [wholeOrgApiProfile()] });
     mockUpdateCurtailmentResponseProfile.mockResolvedValue({
       profile: wholeOrgApiProfile({ profileName: "Formerly all-paired" }),
     });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
 
     // A profile previously saved with all-paired enabled hydrates
     // includeMaintenance: true into the edit form. Unchecking "Target all
@@ -404,6 +508,7 @@ describe("useCurtailmentResponseProfiles", () => {
 
     expect(mockUpdateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        expectedRevision: responseProfileRevision,
         mode: CurtailmentMode.FULL_FLEET,
         forceIncludeAllPairedMiners: false,
         includeMaintenance: false,
@@ -461,7 +566,13 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     const updateRequest = mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0];
-    expect(updateRequest).toEqual(expect.objectContaining({ profileId: 7n, profileName: "Updated" }));
+    expect(updateRequest).toEqual(
+      expect.objectContaining({
+        profileId: 7n,
+        expectedRevision: responseProfileRevision,
+        profileName: "Updated",
+      }),
+    );
     expect(updateRequest?.scopes).toHaveLength(1);
     expect(updateRequest?.scopes[0]?.scope.case).toBe("site");
     if (updateRequest?.scopes?.[0]?.scope.case !== "site") {
@@ -879,6 +990,39 @@ describe("useCurtailmentResponseProfiles", () => {
         fanRestoreDelaySec: "120",
       }),
     );
+  });
+
+  it("pairs a saved revision with server-canonical persisted values", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: wholeOrgApiProfile({
+        modeParams: {
+          case: "fixedKw",
+          value: create(FixedKwParamsSchema, { targetKw: 1234.568 }),
+        },
+      }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    let savedProfile: ResponseProfile | undefined;
+    await act(async () => {
+      savedProfile = await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        targetKw: "1234.5678",
+        minDurationSec: "60",
+        maxDurationSec: "600",
+        responseDeadlineMinutes: "10",
+      });
+    });
+
+    expect(savedProfile).toMatchObject({
+      revision: responseProfileRevision,
+      formValues: expect.objectContaining({
+        targetKw: "1234.568",
+        minDurationSec: "60",
+        maxDurationSec: "600",
+        responseDeadlineMinutes: "10",
+      }),
+    });
   });
 
   it("deletes response profiles by id", async () => {

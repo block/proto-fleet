@@ -308,6 +308,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   return {
     id: profile.id,
     label: profile.name,
+    revision: profile.revision,
     values: {
       scopeType,
       scopeId,

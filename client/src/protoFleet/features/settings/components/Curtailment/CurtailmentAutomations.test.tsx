@@ -46,6 +46,7 @@ const testSources: CurtailmentSource[] = [
 const testResponseProfiles: ResponseProfile[] = [
   {
     id: "standard-shed",
+    revision: "11111111-1111-4111-8111-111111111111",
     name: "Standard shed",
     targetSummary: "50% reduction",
     scope: "Whole fleet",
@@ -56,6 +57,7 @@ const testResponseProfiles: ResponseProfile[] = [
   },
   {
     id: "partial-reduction",
+    revision: "22222222-2222-4222-8222-222222222222",
     name: "Partial reduction",
     targetSummary: "2,000 kW target",
     scope: "Whole fleet",
@@ -233,7 +235,25 @@ describe("CurtailmentAutomationsContent", () => {
     expect(toggle).not.toBeDisabled();
     fireEvent.click(toggle as HTMLInputElement);
 
-    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false);
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false, undefined);
+  });
+
+  it("sends the selected profile revision when enabling an automation", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    const disabledRule = { ...testAutomationRules[0], enabled: false };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[disabledRule]}
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(disabledRule, true, testResponseProfiles[0].revision);
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
@@ -270,7 +290,7 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
-    expect(screen.queryByText("ERCOT ERS updated")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("ERCOT ERS updated")).not.toBeInTheDocument());
     expect(screen.getByText("No automations configured")).toBeVisible();
   });
 

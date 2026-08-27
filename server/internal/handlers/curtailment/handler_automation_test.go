@@ -232,7 +232,7 @@ func (*handlerAutomationStore) UpdateAutomationRule(context.Context, models.Auto
 	panic("not used")
 }
 
-func (*handlerAutomationStore) SetAutomationRuleEnabled(context.Context, int64, int64, bool, models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
+func (*handlerAutomationStore) SetAutomationRuleEnabled(context.Context, int64, int64, bool, uuid.UUID, models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	panic("not used")
 }
 

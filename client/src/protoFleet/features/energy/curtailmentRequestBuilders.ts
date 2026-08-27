@@ -28,6 +28,8 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
+export const customResponseProfileId = "customPlan";
+
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   | "scopes"
@@ -40,6 +42,11 @@ type CurtailmentRequestFields = Pick<
   | "includeMaintenance"
   | "forceIncludeMaintenance"
   | "forceIncludeAllPairedMiners"
+>;
+
+type ResponseProfileExecutionFields = Pick<
+  StartCurtailmentRequest,
+  "responseProfileId" | "expectedResponseProfileRevision"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -162,6 +169,22 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
+export function getResponseProfileExecutionFields(
+  values: Pick<CurtailmentSubmitValues, "responseProfileId" | "responseProfileRevision">,
+): ResponseProfileExecutionFields | undefined {
+  if (values.responseProfileId === customResponseProfileId) {
+    return { responseProfileId: 0n, expectedResponseProfileRevision: "" };
+  }
+
+  const responseProfileId = parseCurtailmentTargetId(values.responseProfileId);
+  const expectedResponseProfileRevision = values.responseProfileRevision?.trim();
+  if (responseProfileId === undefined || !expectedResponseProfileRevision) {
+    return undefined;
+  }
+
+  return { responseProfileId, expectedResponseProfileRevision };
+}
+
 // Logical placement scopes can back the durable all-paired policy. Explicit
 // miner lists remain snapshots until their closed-loop lifecycle is supported.
 export function supportsAllPairedTargeting(
@@ -244,6 +267,10 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
+  if (responseProfileExecutionFields === undefined) {
+    throw new Error("Reload the response profile before starting curtailment.");
+  }
   const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
   const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
     values.curtailBatchIntervalSec,
@@ -267,6 +294,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
 
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
+    ...responseProfileExecutionFields,
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
     curtailBatchSize,
     curtailBatchIntervalSec,
