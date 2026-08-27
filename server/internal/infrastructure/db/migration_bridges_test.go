@@ -328,7 +328,7 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 			org_id, profile_name, mode, target_kw, site_id, scope_json
 		) VALUES (
 			$1, 'Legacy profile', 'FIXED_KW', 100, $2,
-			jsonb_build_object('site_ids', jsonb_build_array($2))
+			jsonb_build_object('site_ids', jsonb_build_array($2::BIGINT))
 		)
 		RETURNING id
 	`, orgID, siteID).Scan(&profileID))
