@@ -231,6 +231,22 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.forceIncludeAllPairedMiners).toBe(false);
   });
 
+  it("preserves independent maintenance inclusion when previewing a saved full-fleet profile", () => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: false,
+    });
+
+    expect(request?.forceIncludeAllPairedMiners).toBe(false);
+    expect(request?.includeMaintenance).toBe(true);
+    expect(request?.forceIncludeMaintenance).toBe(true);
+  });
+
   it("sends all-paired targeting only for full-fleet preview requests", () => {
     const fixedKwRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,

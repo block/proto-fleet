@@ -205,22 +205,24 @@ export function supportsAllPairedTargeting(
 // Targeting all paired miners also opts in miners flagged for maintenance:
 // parking them as unavailable would contradict the operator's explicit
 // "all paired" choice, and both flags sit behind the same server-side admin
-// gate as the all-paired control itself.
-//
-// The maintenance pair derives SOLELY from the all-paired flag: the UI no
-// longer exposes an independent maintenance toggle, so a stale
-// values.includeMaintenance (hydrated from a profile or past event saved when
-// the pair was coupled) must not survive unchecking "Target all paired
-// miners" — it would silently keep the admin-gated maintenance inclusion with
-// nothing in the UI showing it.
+// gate as the all-paired control itself. Saved profiles may independently opt
+// into maintenance miners, so executions must preserve that stored setting.
+// Custom plans still derive maintenance inclusion solely from the visible
+// all-paired control.
 export function buildForceInclusionFields(
-  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
+  values: CurtailmentScopeSelection &
+    Pick<
+      CurtailmentSubmitValues,
+      "responseProfileId" | "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners"
+    >,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
   const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  const includeMaintenance =
+    forceIncludeAllPairedMiners || (values.responseProfileId !== customResponseProfileId && values.includeMaintenance);
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
-    includeMaintenance: forceIncludeAllPairedMiners,
-    forceIncludeMaintenance: forceIncludeAllPairedMiners,
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,
   };
 }

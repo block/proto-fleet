@@ -167,10 +167,9 @@ describe("curtailmentRequestBuilders", () => {
   });
 
   it("drops stale maintenance inclusion when all-paired targeting is unchecked", () => {
-    // A profile or past event saved while all-paired was enabled hydrates
-    // includeMaintenance: true into the form. With the maintenance toggle
-    // gone from the UI, unchecking all-paired must drop the admin-gated
-    // maintenance pair too — it must not ride along invisibly.
+    // A custom plan can retain includeMaintenance from previously selected
+    // profile values. With no independent maintenance control in the custom
+    // form, that stale value must not ride along invisibly.
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       curtailmentMode: "fullFleet",
@@ -182,6 +181,22 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.forceIncludeAllPairedMiners).toBe(false);
     expect(request.includeMaintenance).toBe(false);
     expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
+  it("preserves independent maintenance inclusion when executing a saved full-fleet profile", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: false,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(true);
+    expect(request.forceIncludeMaintenance).toBe(true);
   });
 
   it("builds optional uint32-backed settings from valid whole-number inputs", () => {
