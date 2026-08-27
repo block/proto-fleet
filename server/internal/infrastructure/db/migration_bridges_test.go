@@ -19,7 +19,9 @@ import (
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T) {
+const responseProfileRevisionRolloutError = "response profile revision rollout requires zero pre-contract profiles, automation rules, and events"
+
+func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRowsBeforeRevisionRollout(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
@@ -44,14 +46,15 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 				assert.NoError(t, err)
 			}
 
-			assert.NoError(t, runMigrationsWithCompatibilityBridges(conn, config))
+			assertResponseProfileRevisionRolloutBlocked(t,
+				runMigrationsWithCompatibilityBridges(conn, config))
 
 			var version int
 			var dirty bool
 			assert.NoError(t, conn.QueryRowContext(t.Context(),
 				"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-			assert.Equal(t, 143, version)
-			assert.False(t, dirty)
+			assert.Equal(t, 144, version)
+			assert.True(t, dirty)
 
 			assertLegacyCurtailmentEnvelope(t, conn,
 				"curtailment_response_profile", true)
@@ -105,14 +108,15 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 	`)
 	assert.NoError(t, err)
 	insertLegacyCurtailmentRows(t, searchPathConn)
-	assert.NoError(t, runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
+	assertResponseProfileRevisionRolloutBlocked(t,
+		runMigrationsWithCompatibilityBridges(searchPathConn, &searchPathConfig))
 
 	var version int
 	var dirty bool
 	assert.NoError(t, searchPathConn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
-	assert.False(t, dirty)
+	assert.Equal(t, 144, version)
+	assert.True(t, dirty)
 	assertLegacyCurtailmentEnvelope(t, searchPathConn, "curtailment_response_profile", true)
 }
 
@@ -122,8 +126,6 @@ func TestMigrationsThroughVersionNeverDowngrade(t *testing.T) {
 	}
 
 	conn, config := newMigrationBridgeTestDB(t)
-	migrateTestDBTo(t, conn, config.Name, 142)
-	insertLegacyCurtailmentRows(t, conn)
 	assert.NoError(t, runMigrationsWithCompatibilityBridges(conn, config))
 
 	_, driver, err := newMigrator(conn, config)
@@ -136,10 +138,8 @@ func TestMigrationsThroughVersionNeverDowngrade(t *testing.T) {
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, 144, version)
 	assert.False(t, dirty)
-	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_response_profile", true)
-	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_event", true)
 }
 
 func TestCurtailmentAuthorizationEnvelopeBridgeAllowsFreshBootstrap(t *testing.T) {
@@ -154,7 +154,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeAllowsFreshBootstrap(t *testing.T
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, 144, version)
 	assert.False(t, dirty)
 }
 
@@ -198,7 +198,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 
 	select {
 	case err := <-done:
-		assert.NoError(t, err)
+		assertResponseProfileRevisionRolloutBlocked(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("migration bridge did not complete after advisory lock was released")
 	}
@@ -207,8 +207,8 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
-	assert.False(t, dirty)
+	assert.Equal(t, 144, version)
+	assert.True(t, dirty)
 }
 
 func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T) {
@@ -228,7 +228,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T)
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, 144, version)
 	assert.False(t, dirty)
 }
 
@@ -280,6 +280,12 @@ func newMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config) {
 	assert.NoError(t, conn.PingContext(t.Context()))
 	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
 	return conn, &config
+}
+
+func assertResponseProfileRevisionRolloutBlocked(t *testing.T, err error) {
+	t.Helper()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), responseProfileRevisionRolloutError)
 }
 
 func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version uint) {
