@@ -9,6 +9,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 ASSETS_DIR="$TEST_DIR/assets"
 ROOT_PREFIX="$TEST_DIR/root"
 SYSTEMCTL_LOG="$TEST_DIR/systemctl.log"
+LINUX_SERVICE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 mkdir -p "$ASSETS_DIR" "$ROOT_PREFIX" "$TEST_DIR/bin"
 
 fail() {
@@ -90,6 +91,8 @@ if PATH="$NO_NMAP_BIN" \
   fail "installer accepted a host without nmap on PATH"
 fi
 assert_file_contains "$TEST_DIR/missing-nmap.err" "required command not found: nmap"
+assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
+assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'PATH="$LINUX_SERVICE_PATH"'
 
 if FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
     /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
@@ -124,7 +127,8 @@ CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ACTIVE=0 FAKE_FLEETNODE_ENABLED=1
 [[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "Fleet Node binary was not installed"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
 [[ -f "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" ]] || fail "systemd unit was not installed"
-assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "ExecStart=/opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run"
+assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "Environment=PATH=$LINUX_SERVICE_PATH"
+assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "ExecStart=/usr/bin/env PATH=$LINUX_SERVICE_PATH /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "Restart=on-failure"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK"
 if grep -Eq '(^| )enable( |$)|(^| )start( |$)' "$SYSTEMCTL_LOG"; then

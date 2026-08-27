@@ -8,8 +8,9 @@ After=network-online.target
 Type=simple
 User=fleetnode
 Group=fleetnode
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=-/etc/fleetnode/fleetnode.env
-ExecStart=/opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run
+ExecStart=/usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=90s

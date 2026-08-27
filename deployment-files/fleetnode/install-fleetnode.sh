@@ -5,6 +5,12 @@ VERSION=""
 DOWNLOAD_BASE_URL="${FLEETNODE_DOWNLOAD_BASE_URL:-}"
 TEST_MODE="${FLEETNODE_TEST_MODE:-0}"
 ROOT_PREFIX="${FLEETNODE_ROOT_PREFIX:-}"
+LINUX_SERVICE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+if [[ "$TEST_MODE" != "1" ]]; then
+  PATH="$LINUX_SERVICE_PATH"
+  export PATH
+fi
 
 usage() {
   cat <<'EOF'
@@ -85,8 +91,12 @@ fi
 for command in curl sha256sum tar install "$SYSTEMCTL"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
+if [[ "$TEST_MODE" != "1" && ! -x /usr/bin/env ]]; then
+  echo "required command not found: /usr/bin/env" >&2
+  exit 1
+fi
 if ! command -v nmap >/dev/null 2>&1; then
-  echo "required command not found: nmap; install nmap and ensure it is on PATH" >&2
+  echo "required command not found: nmap; install nmap in the Fleet Node service PATH ($LINUX_SERVICE_PATH)" >&2
   exit 1
 fi
 if [[ "$TEST_MODE" != "1" ]]; then
