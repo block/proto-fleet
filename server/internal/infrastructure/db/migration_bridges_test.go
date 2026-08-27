@@ -360,21 +360,36 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		INSERT INTO curtailment_event (
 			event_uuid, org_id, state, mode, strategy, level, priority,
 			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+			curtail_batch_size, curtail_batch_interval_sec,
 			restore_batch_size, restore_batch_interval_sec,
+			include_maintenance, force_include_maintenance,
+			force_include_all_paired_miners,
+			facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec,
 			decision_snapshot_jsonb, source_actor_type, source_actor_id,
 			external_source, external_reference, idempotency_key,
 			reason, created_by_user_id
-		) VALUES (
-			'00000000-0000-0000-0000-000000000010', $1,
-			'active', 'FIXED_KW', 'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL',
+		)
+		SELECT
+			'00000000-0000-0000-0000-000000000010', $1, 'active',
+			profile.mode, profile.strategy, profile.level, profile.priority,
 			'open', 'site', jsonb_build_object('site_id', $4::BIGINT),
-			jsonb_build_object('target_kw', 100, 'tolerance_kw', 0),
-			50, 5, '{"selected_count":1}'::jsonb,
+			jsonb_build_object(
+				'target_kw', profile.target_kw,
+				'tolerance_kw', COALESCE(profile.tolerance_kw, 0)
+			),
+			profile.curtail_batch_size, profile.curtail_batch_interval_sec,
+			profile.restore_batch_size, profile.restore_batch_interval_sec,
+			profile.include_maintenance, profile.force_include_maintenance,
+			profile.force_include_all_paired_miners,
+			profile.facility_fan_device_ids, profile.fan_off_delay_sec,
+			profile.fan_restore_delay_sec,
+			'{"selected_count":1}'::jsonb,
 			'automation', $2, 'curtailment_automation', $2,
 			'curtailment_automation_rule:' || $2,
 			'Legacy automation event', $3
-		)
-	`, orgID, ruleReference, userID, siteID)
+		FROM curtailment_response_profile AS profile
+		WHERE profile.id = $5
+	`, orgID, ruleReference, userID, siteID, profileID)
 	assert.NoError(t, err)
 
 	var mismatchedRuleID int64
@@ -389,21 +404,36 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		INSERT INTO curtailment_event (
 			event_uuid, org_id, state, mode, strategy, level, priority,
 			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+			curtail_batch_size, curtail_batch_interval_sec,
 			restore_batch_size, restore_batch_interval_sec,
+			include_maintenance, force_include_maintenance,
+			force_include_all_paired_miners,
+			facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec,
 			decision_snapshot_jsonb, source_actor_type, source_actor_id,
 			external_source, external_reference, idempotency_key,
 			reason, created_by_user_id
-		) VALUES (
-			'00000000-0000-0000-0000-000000000011', $1,
-			'active', 'FIXED_KW', 'LEAST_EFFICIENT_FIRST', 'FULL', 'EMERGENCY',
+		)
+		SELECT
+			'00000000-0000-0000-0000-000000000011', $1, 'active',
+			profile.mode, profile.strategy, profile.level, 'EMERGENCY',
 			'open', 'site', jsonb_build_object('site_id', $4::BIGINT),
-			jsonb_build_object('target_kw', 100, 'tolerance_kw', 0),
-			50, 5, '{"selected_count":1}'::jsonb,
+			jsonb_build_object(
+				'target_kw', profile.target_kw,
+				'tolerance_kw', COALESCE(profile.tolerance_kw, 0)
+			),
+			profile.curtail_batch_size, profile.curtail_batch_interval_sec,
+			profile.restore_batch_size, profile.restore_batch_interval_sec,
+			profile.include_maintenance, profile.force_include_maintenance,
+			profile.force_include_all_paired_miners,
+			profile.facility_fan_device_ids, profile.fan_off_delay_sec,
+			profile.fan_restore_delay_sec,
+			'{"selected_count":1}'::jsonb,
 			'automation', $2, 'curtailment_automation', $2,
 			'curtailment_automation_rule:' || $2,
 			'Mismatched legacy automation event', $3
-		)
-	`, orgID, mismatchedRuleReference, userID, siteID)
+		FROM curtailment_response_profile AS profile
+		WHERE profile.id = $5
+	`, orgID, mismatchedRuleReference, userID, siteID, profileID)
 	assert.NoError(t, err)
 
 	for i := 1; i <= 9; i++ {
