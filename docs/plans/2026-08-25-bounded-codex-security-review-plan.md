@@ -280,6 +280,24 @@ regresses. Keep the bounded timeout and explicit fallback unless they prevent
 artifact creation; those controls address the operational failure independently
 of model efficiency.
 
+## Benchmark outcome
+
+The trusted `main` workflow replayed 30 adjudicated matrix cases across context,
+effort, and prompt experiments. Eight completed and 22 reached the verified
+outer budget; every finalizer produced a distinct result or timeout artifact.
+No candidate met the recall gates: compact context and the bounded prompt each
+downgraded an adjudicated `HIGH`, while `high` effort did not improve the 2/6
+completion profile and missed the adjudicated `MEDIUM` in its completed
+finding-bearing case.
+
+Production therefore remains on `unified=40`, `xhigh`, and the baseline prompt.
+The large-PR corpus is deferred because step 5 requires a selected candidate;
+`medium` effort is not tested after `high` failed. Full evidence and human
+adjudication are in the
+[benchmark report](../codex-security-review-benchmark-report.md). Further
+runtime work moves to the separate
+[sharded-review TDD](./2026-08-27-sharded-codex-security-review-tdd.md).
+
 ## Risks and mitigations
 
 | Risk | Mitigation |
@@ -314,9 +332,11 @@ of model efficiency.
   merge, by executing the artifact writer against every failure mode and by
   driving `evaluate_policy` with a `HIGH` review for an otherwise-eligible
   trusted-author pull request.
-- A benchmark dispatch against `corpus: large-pr` records a timeout result and
-  uploads its artifacts through an enforceable boundary outside the composite
-  action; caller step timeout alone is not accepted as evidence.
+- If the adjudicated corpus selects a candidate, a dispatch against
+  `corpus: large-pr` records a timeout result and uploads its artifacts through
+  an enforceable boundary outside the composite action; when no candidate
+  passes, the benchmark report explicitly records why this gated run was
+  deferred. Caller step timeout alone is not accepted as evidence.
 - Broken review automation, as opposed to an exhausted outer job budget, makes
   the final `security-review` check fail without classifying the result as an
   expected timeout.
