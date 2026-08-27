@@ -109,6 +109,35 @@ export class SettingsFirmwarePage extends BasePage {
     });
   }
 
+  // The rollback action of the first history entry carrying this version.
+  private historyRollbackButton(version: string): Locator {
+    return this.historyModal()
+      .locator("tr")
+      .filter({ hasText: version })
+      .getByRole("button", { name: "Roll back", exact: true })
+      .first();
+  }
+
+  // A rollout history entry for this version offers a rollback action.
+  async validateHistoryRollbackAvailable(laneName: string, version: string) {
+    await this.openLaneHistory(laneName);
+    await expect(this.historyRollbackButton(version)).toBeVisible();
+    await this.closeLaneHistory();
+  }
+
+  // Restores a past version from the lane's rollout history via its entry's
+  // rollback action and the confirmation dialog.
+  async rollbackLaneFirmware(laneName: string, version: string) {
+    await this.openLaneHistory(laneName);
+    await this.historyRollbackButton(version).click();
+    const dialog = this.page.getByTestId("rollback-firmware-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Roll back", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await this.validateTextInToast("Rolling back");
+    await this.closeLaneHistory();
+  }
+
   async toggleLane(laneName: string) {
     await this.laneCard(laneName).getByTestId("lane-toggle").click();
   }

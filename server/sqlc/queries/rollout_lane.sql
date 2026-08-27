@@ -81,6 +81,10 @@ INSERT INTO firmware_rollout (org_id, lane_id, model, firmware_file_id, firmware
 VALUES (sqlc.arg('org_id'), sqlc.arg('lane_id'), sqlc.arg('model'), sqlc.arg('firmware_file_id'), sqlc.arg('firmware_version'), sqlc.arg('created_by'))
 RETURNING *;
 
+-- name: GetFirmwareRollout :one
+SELECT * FROM firmware_rollout
+WHERE id = sqlc.arg('rollout_id') AND org_id = sqlc.arg('org_id');
+
 -- name: CancelActiveFirmwareRollout :exec
 UPDATE firmware_rollout
 SET status = 'canceled', finished_at = now()

@@ -330,8 +330,17 @@ const LaneCard = ({
 };
 
 const RolloutLanesTab = () => {
-  const { lanes, rollouts, minerNames, isLoading, createLane, deleteLane, updateMembers, applyFirmware } =
-    useRolloutLanes();
+  const {
+    lanes,
+    rollouts,
+    minerNames,
+    isLoading,
+    createLane,
+    deleteLane,
+    updateMembers,
+    applyFirmware,
+    rollbackFirmware,
+  } = useRolloutLanes();
   const { listFirmwareFiles } = useFirmwareApi();
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -342,6 +351,9 @@ const RolloutLanesTab = () => {
   const [laneToManage, setLaneToManage] = useState<RolloutLane | null>(null);
   const [isSavingMembers, setIsSavingMembers] = useState(false);
   const [laneForHistory, setLaneForHistory] = useState<RolloutLane | null>(null);
+  // History entry whose firmware is about to be restored.
+  const [rollbackTarget, setRollbackTarget] = useState<Rollout | null>(null);
+  const [isRollingBack, setIsRollingBack] = useState(false);
 
   useEffect(() => {
     listFirmwareFiles()
@@ -371,6 +383,24 @@ const RolloutLanesTab = () => {
         pushToast({ message: error?.message || "Couldn't create lane", status: STATUSES.error });
       })
       .finally(() => setIsCreating(false));
+  };
+
+  const handleRollback = () => {
+    if (!rollbackTarget) return;
+    const rollout = rollbackTarget;
+    setIsRollingBack(true);
+    rollbackFirmware(rollout.id)
+      .then(() => {
+        setRollbackTarget(null);
+        pushToast({
+          message: `Rolling back ${rollout.model} in ${rollout.laneName} to ${rollout.firmwareVersion}`,
+          status: STATUSES.success,
+        });
+      })
+      .catch((error) => {
+        pushToast({ message: error?.message || "Couldn't roll back firmware", status: STATUSES.error });
+      })
+      .finally(() => setIsRollingBack(false));
   };
 
   const handleDelete = () => {
@@ -524,6 +554,34 @@ const RolloutLanesTab = () => {
         ]}
       />
 
+      <Dialog
+        open={rollbackTarget !== null}
+        title="Roll back firmware?"
+        subtitle={
+          rollbackTarget
+            ? `${rollbackTarget.model} in ${rollbackTarget.laneName} goes back to ${rollbackTarget.firmwareVersion}. Any in-progress rollout for this model is canceled and a new rollout restores this version.`
+            : ""
+        }
+        testId="rollback-firmware-dialog"
+        onDismiss={() => {
+          if (!isRollingBack) setRollbackTarget(null);
+        }}
+        buttons={[
+          {
+            text: "Cancel",
+            variant: variants.secondary,
+            onClick: () => setRollbackTarget(null),
+            disabled: isRollingBack,
+          },
+          {
+            text: "Roll back",
+            variant: variants.primary,
+            onClick: handleRollback,
+            loading: isRollingBack,
+          },
+        ]}
+      />
+
       {laneToManage ? (
         <MinerSelectionModal
           open
@@ -537,8 +595,11 @@ const RolloutLanesTab = () => {
 
       {laneForHistory ? (
         <LaneHistoryModal
-          lane={laneForHistory}
+          // Resolve the lane fresh on every poll so rollback eligibility in
+          // the history rows tracks the current assignments.
+          lane={lanes.find((lane) => lane.id === laneForHistory.id) ?? laneForHistory}
           rollouts={rollouts.filter((rollout) => rollout.laneId === laneForHistory.id)}
+          onRollback={setRollbackTarget}
           onClose={() => setLaneForHistory(null)}
         />
       ) : null}

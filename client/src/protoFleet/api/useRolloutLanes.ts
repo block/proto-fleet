@@ -16,6 +16,7 @@ export interface RolloutLanesApi {
   deleteLane: (laneId: bigint) => Promise<void>;
   updateMembers: (laneId: bigint, add: string[], remove: string[]) => Promise<void>;
   applyFirmware: (laneId: bigint, assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[]) => Promise<void>;
+  rollbackFirmware: (rolloutId: bigint) => Promise<void>;
 }
 
 // Fetches rollout lanes and rollouts, polling while mounted so firmware
@@ -92,5 +93,24 @@ export function useRolloutLanes(): RolloutLanesApi {
     [refresh],
   );
 
-  return { lanes, rollouts, minerNames, isLoading, refresh, createLane, deleteLane, updateMembers, applyFirmware };
+  const rollbackFirmware = useCallback(
+    async (rolloutId: bigint) => {
+      await rolloutClient.rollbackRolloutLaneFirmware({ rolloutId });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  return {
+    lanes,
+    rollouts,
+    minerNames,
+    isLoading,
+    refresh,
+    createLane,
+    deleteLane,
+    updateMembers,
+    applyFirmware,
+    rollbackFirmware,
+  };
 }

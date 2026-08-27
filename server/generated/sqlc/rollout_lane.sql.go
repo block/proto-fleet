@@ -161,6 +161,34 @@ func (q *Queries) DeleteRolloutLaneFirmware(ctx context.Context, arg DeleteRollo
 	return err
 }
 
+const getFirmwareRollout = `-- name: GetFirmwareRollout :one
+SELECT id, org_id, lane_id, model, firmware_file_id, firmware_version, status, created_by, created_at, finished_at FROM firmware_rollout
+WHERE id = $1 AND org_id = $2
+`
+
+type GetFirmwareRolloutParams struct {
+	RolloutID int64
+	OrgID     int64
+}
+
+func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRolloutParams) (FirmwareRollout, error) {
+	row := q.queryRow(ctx, q.getFirmwareRolloutStmt, getFirmwareRollout, arg.RolloutID, arg.OrgID)
+	var i FirmwareRollout
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.LaneID,
+		&i.Model,
+		&i.FirmwareFileID,
+		&i.FirmwareVersion,
+		&i.Status,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const getRolloutLane = `-- name: GetRolloutLane :one
 SELECT id, org_id, name, created_at FROM rollout_lane
 WHERE id = $1 AND org_id = $2

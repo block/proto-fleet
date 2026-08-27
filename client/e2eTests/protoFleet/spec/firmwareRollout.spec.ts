@@ -9,11 +9,16 @@ test.describe("Firmware rollout lanes", () => {
   const runId = Date.now();
   const laneA = `Lane A ${runId}`;
   const laneB = `Lane B ${runId}`;
+  const laneC = `Lane C ${runId}`;
   // Unique per run: the fake rigs keep their firmware across runs, and a
   // version the miners already report would make the assignment a no-op
   // (no rollout is created when every member is already compliant).
   const firmwareVersion = `3.1.${runId}`;
   const firmwareFileName = `rollout-${firmwareVersion}.swu`;
+  const rollbackVersionV1 = `3.2.${runId}`;
+  const rollbackFileNameV1 = `rollback-${rollbackVersionV1}.swu`;
+  const rollbackVersionV2 = `3.3.${runId}`;
+  const rollbackFileNameV2 = `rollback-${rollbackVersionV2}.swu`;
 
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(testConfig.target === "real", "Rollout lane E2E is only supported against the fake proto rig setup.");
@@ -45,6 +50,7 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.openRolloutLanesTab();
       await settingsFirmwarePage.deleteLaneIfPresent(laneA);
       await settingsFirmwarePage.deleteLaneIfPresent(laneB);
+      await settingsFirmwarePage.deleteLaneIfPresent(laneC);
       await settingsFirmwarePage.openFilesTab();
       await settingsFirmwarePage.deleteAllFirmwareFilesIfAny();
     } finally {
@@ -129,6 +135,68 @@ test.describe("Firmware rollout lanes", () => {
     await test.step("Delete both lanes", async () => {
       await settingsFirmwarePage.deleteLane(laneB);
       await settingsFirmwarePage.deleteLane(laneA);
+    });
+  });
+
+  test("Roll back a model's firmware to the previously assigned version", async ({ settingsFirmwarePage }) => {
+    // Three sequential rollouts have to complete: v1, v2, and the rollback
+    // to v1 again.
+    test.setTimeout(testConfig.testTimeout * 12);
+
+    await test.step("Upload two Proto Rig firmware versions", async () => {
+      await settingsFirmwarePage.navigateToFirmwareSettings();
+      await settingsFirmwarePage.validateFirmwarePageOpened();
+      await settingsFirmwarePage.deleteAllFirmwareFilesIfAny();
+      await settingsFirmwarePage.clickUploadFirmware();
+      await settingsFirmwarePage.uploadFirmwareFile(rollbackFileNameV1, `rollback payload v1 ${runId}`, {
+        manufacturer: "Proto",
+        model: "Rig",
+        firmwareVersion: rollbackVersionV1,
+      });
+      await settingsFirmwarePage.validateFirmwareFileVisible(rollbackFileNameV1);
+      await settingsFirmwarePage.clickUploadFirmware();
+      await settingsFirmwarePage.uploadFirmwareFile(rollbackFileNameV2, `rollback payload v2 ${runId}`, {
+        manufacturer: "Proto",
+        model: "Rig",
+        firmwareVersion: rollbackVersionV2,
+      });
+      await settingsFirmwarePage.validateFirmwareFileVisible(rollbackFileNameV2);
+    });
+
+    await test.step("Create a lane with one Rig miner", async () => {
+      await settingsFirmwarePage.openRolloutLanesTab();
+      await settingsFirmwarePage.createLane(laneC);
+      await settingsFirmwarePage.openManageLaneMiners(laneC);
+      await settingsFirmwarePage.selectLaneMinersByModel("Rig", 1);
+      await settingsFirmwarePage.confirmLaneMinerSelection();
+      await settingsFirmwarePage.validateLaneMinerCount(laneC, 1);
+    });
+
+    await test.step("Roll out the first version", async () => {
+      await settingsFirmwarePage.selectLaneFirmware(laneC, "Rig", new RegExp(rollbackVersionV1));
+      await settingsFirmwarePage.applyLaneFirmwareChanges(laneC);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV1, testConfig.testTimeout * 4);
+    });
+
+    await test.step("Roll out the second version; the first's history entry offers rollback", async () => {
+      await settingsFirmwarePage.selectLaneFirmware(laneC, "Rig", new RegExp(rollbackVersionV2));
+      await settingsFirmwarePage.applyLaneFirmwareChanges(laneC);
+      await settingsFirmwarePage.validateHistoryRollbackAvailable(laneC, rollbackVersionV1);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV2, testConfig.testTimeout * 4);
+    });
+
+    await test.step("Roll back from history and wait for the rollback rollout to complete", async () => {
+      await settingsFirmwarePage.rollbackLaneFirmware(laneC, rollbackVersionV1);
+      await settingsFirmwarePage.validateLaneRolloutInProgress(laneC, rollbackVersionV1);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneC, rollbackVersionV1, testConfig.testTimeout * 4);
+    });
+
+    await test.step("The replaced version's history entry becomes the rollback target (roll forward)", async () => {
+      await settingsFirmwarePage.validateHistoryRollbackAvailable(laneC, rollbackVersionV2);
+    });
+
+    await test.step("Delete the lane", async () => {
+      await settingsFirmwarePage.deleteLane(laneC);
     });
   });
 });

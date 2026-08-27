@@ -253,6 +253,28 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64
 	return started, nil
 }
 
+// RollbackFirmware re-applies the firmware of a past rollout to its lane's
+// model group, rolling the group's miners back to that version. It delegates
+// to ApplyFirmware so a rollback follows the exact same path as a manual
+// assign: the rollout's file is re-validated, any active rollout for the
+// (lane, model) pair is canceled, and a new rollout enforces the restored
+// version. Returns the rollout's lane id and the started rollouts.
+func (s *Service) RollbackFirmware(ctx context.Context, orgID, userID, rolloutID int64) (int64, []Rollout, error) {
+	row, err := s.store.Queries(ctx).GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{
+		RolloutID: rolloutID, OrgID: orgID,
+	})
+	if err != nil {
+		return 0, nil, fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+	}
+	started, err := s.ApplyFirmware(ctx, orgID, userID, row.LaneID, []Assignment{
+		{Model: row.Model, FirmwareFileID: row.FirmwareFileID},
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return row.LaneID, started, nil
+}
+
 // ListLanes returns all lanes of an org with members grouped by model.
 func (s *Service) ListLanes(ctx context.Context, orgID int64) ([]Lane, error) {
 	q := s.store.Queries(ctx)

@@ -282,12 +282,13 @@ var ProcedurePermissions = map[string]string{
 	// RolloutService — rollout lanes exist solely to drive firmware
 	// updates, so every procedure (including reads) sits on the same
 	// miner:firmware_update gate as the manual firmware-update RPC.
-	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:         authz.PermMinerFirmwareUpdate,
-	rolloutv1connect.RolloutServiceCreateRolloutLaneProcedure:        authz.PermMinerFirmwareUpdate,
-	rolloutv1connect.RolloutServiceDeleteRolloutLaneProcedure:        authz.PermMinerFirmwareUpdate,
-	rolloutv1connect.RolloutServiceUpdateRolloutLaneMembersProcedure: authz.PermMinerFirmwareUpdate,
-	rolloutv1connect.RolloutServiceApplyRolloutLaneFirmwareProcedure: authz.PermMinerFirmwareUpdate,
-	rolloutv1connect.RolloutServiceListRolloutsProcedure:             authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:            authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCreateRolloutLaneProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceDeleteRolloutLaneProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceUpdateRolloutLaneMembersProcedure:    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceApplyRolloutLaneFirmwareProcedure:    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceRollbackRolloutLaneFirmwareProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutsProcedure:                authz.PermMinerFirmwareUpdate,
 
 	// NetworkInfoService — GetNetworkInfo returns the device's own
 	// IP/gateway/subnet (shown on Settings → General to every user with

@@ -33,6 +33,12 @@ service RolloutService {
     // rollout for every model whose assignment changed.
     rpc ApplyRolloutLaneFirmware(ApplyRolloutLaneFirmwareRequest) returns (ApplyRolloutLaneFirmwareResponse);
 
+    // Re-applies the firmware of a past rollout to its lane's model group,
+    // rolling the group's miners back to that version. Any active rollout
+    // for the (lane, model) pair is canceled and a new rollout enforces the
+    // restored version.
+    rpc RollbackRolloutLaneFirmware(RollbackRolloutLaneFirmwareRequest) returns (RollbackRolloutLaneFirmwareResponse);
+
     // Lists rollouts (newest first) with live per-device progress.
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
 }
@@ -163,6 +169,17 @@ message ApplyRolloutLaneFirmwareRequest {
 message ApplyRolloutLaneFirmwareResponse {
     RolloutLane lane = 1;
     // Rollouts started by this call, one per changed model with members.
+    repeated Rollout started_rollouts = 2;
+}
+
+message RollbackRolloutLaneFirmwareRequest {
+    // Rollout whose firmware is restored for its lane and model.
+    int64 rollout_id = 1;
+}
+
+message RollbackRolloutLaneFirmwareResponse {
+    RolloutLane lane = 1;
+    // Rollouts started by this call (at most one, for the rolled-back model).
     repeated Rollout started_rollouts = 2;
 }
 

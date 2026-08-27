@@ -2412,6 +2412,18 @@ func (q *retryingQuerier) GetFilteredDeviceIds(ctx context.Context, arg GetFilte
 	return result, err
 }
 
+func (q *retryingQuerier) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRolloutParams) (FirmwareRollout, error) {
+	var result FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "GetFirmwareRollout", func() error {
+		callResult, callErr := q.next.GetFirmwareRollout(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error) {
 	var result GetFleetMetricRollupCoverageRow
 	err := q.retrier.RetryQuery(ctx, "GetFleetMetricRollupCoverage", func() error {

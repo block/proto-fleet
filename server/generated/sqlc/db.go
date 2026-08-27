@@ -663,6 +663,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
 	}
+	if q.getFirmwareRolloutStmt, err = db.PrepareContext(ctx, getFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRollout: %w", err)
+	}
 	if q.getFleetMetricRollupCoverageStmt, err = db.PrepareContext(ctx, getFleetMetricRollupCoverage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetMetricRollupCoverage: %w", err)
 	}
@@ -2807,6 +2810,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
 		}
 	}
+	if q.getFirmwareRolloutStmt != nil {
+		if cerr := q.getFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutStmt: %w", cerr)
+		}
+	}
 	if q.getFleetMetricRollupCoverageStmt != nil {
 		if cerr := q.getFleetMetricRollupCoverageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetMetricRollupCoverageStmt: %w", cerr)
@@ -4849,6 +4857,7 @@ type Queries struct {
 	getErrorByIDStmt                                             *sql.Stmt
 	getFilteredDeviceIdentifiersStmt                             *sql.Stmt
 	getFilteredDeviceIdsStmt                                     *sql.Stmt
+	getFirmwareRolloutStmt                                       *sql.Stmt
 	getFleetMetricRollupCoverageStmt                             *sql.Stmt
 	getFleetNodeByIDStmt                                         *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                                 *sql.Stmt
@@ -5426,6 +5435,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByIDStmt:                                             q.getErrorByIDStmt,
 		getFilteredDeviceIdentifiersStmt:                             q.getFilteredDeviceIdentifiersStmt,
 		getFilteredDeviceIdsStmt:                                     q.getFilteredDeviceIdsStmt,
+		getFirmwareRolloutStmt:                                       q.getFirmwareRolloutStmt,
 		getFleetMetricRollupCoverageStmt:                             q.getFleetMetricRollupCoverageStmt,
 		getFleetNodeByIDStmt:                                         q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                                 q.getFleetNodeByIDUnscopedStmt,

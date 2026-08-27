@@ -115,6 +115,31 @@ func (h *Handler) ApplyRolloutLaneFirmware(ctx context.Context, r *connect.Reque
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) RollbackRolloutLaneFirmware(ctx context.Context, r *connect.Request[pb.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[pb.RollbackRolloutLaneFirmwareResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	laneID, started, err := h.svc.RollbackFirmware(ctx, info.OrganizationID, info.UserID, r.Msg.RolloutId)
+	if err != nil {
+		return nil, err
+	}
+	lanes, err := h.svc.ListLanes(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.RollbackRolloutLaneFirmwareResponse{}
+	for i := range lanes {
+		if lanes[i].ID == laneID {
+			resp.Lane = laneToProto(&lanes[i])
+		}
+	}
+	for i := range started {
+		resp.StartedRollouts = append(resp.StartedRollouts, rolloutToProto(&started[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) ListRollouts(ctx context.Context, r *connect.Request[pb.ListRolloutsRequest]) (*connect.Response[pb.ListRolloutsResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {

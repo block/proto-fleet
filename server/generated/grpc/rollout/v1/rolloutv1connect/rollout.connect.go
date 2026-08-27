@@ -49,6 +49,9 @@ const (
 	// RolloutServiceApplyRolloutLaneFirmwareProcedure is the fully-qualified name of the
 	// RolloutService's ApplyRolloutLaneFirmware RPC.
 	RolloutServiceApplyRolloutLaneFirmwareProcedure = "/rollout.v1.RolloutService/ApplyRolloutLaneFirmware"
+	// RolloutServiceRollbackRolloutLaneFirmwareProcedure is the fully-qualified name of the
+	// RolloutService's RollbackRolloutLaneFirmware RPC.
+	RolloutServiceRollbackRolloutLaneFirmwareProcedure = "/rollout.v1.RolloutService/RollbackRolloutLaneFirmware"
 	// RolloutServiceListRolloutsProcedure is the fully-qualified name of the RolloutService's
 	// ListRollouts RPC.
 	RolloutServiceListRolloutsProcedure = "/rollout.v1.RolloutService/ListRollouts"
@@ -69,6 +72,11 @@ type RolloutServiceClient interface {
 	// Replaces the per-model firmware assignments of a lane and starts a
 	// rollout for every model whose assignment changed.
 	ApplyRolloutLaneFirmware(context.Context, *connect.Request[v1.ApplyRolloutLaneFirmwareRequest]) (*connect.Response[v1.ApplyRolloutLaneFirmwareResponse], error)
+	// Re-applies the firmware of a past rollout to its lane's model group,
+	// rolling the group's miners back to that version. Any active rollout
+	// for the (lane, model) pair is canceled and a new rollout enforces the
+	// restored version.
+	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
 }
@@ -108,6 +116,11 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+RolloutServiceApplyRolloutLaneFirmwareProcedure,
 			opts...,
 		),
+		rollbackRolloutLaneFirmware: connect.NewClient[v1.RollbackRolloutLaneFirmwareRequest, v1.RollbackRolloutLaneFirmwareResponse](
+			httpClient,
+			baseURL+RolloutServiceRollbackRolloutLaneFirmwareProcedure,
+			opts...,
+		),
 		listRollouts: connect.NewClient[v1.ListRolloutsRequest, v1.ListRolloutsResponse](
 			httpClient,
 			baseURL+RolloutServiceListRolloutsProcedure,
@@ -118,12 +131,13 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // rolloutServiceClient implements RolloutServiceClient.
 type rolloutServiceClient struct {
-	listRolloutLanes         *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
-	createRolloutLane        *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
-	deleteRolloutLane        *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
-	updateRolloutLaneMembers *connect.Client[v1.UpdateRolloutLaneMembersRequest, v1.UpdateRolloutLaneMembersResponse]
-	applyRolloutLaneFirmware *connect.Client[v1.ApplyRolloutLaneFirmwareRequest, v1.ApplyRolloutLaneFirmwareResponse]
-	listRollouts             *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
+	listRolloutLanes            *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
+	createRolloutLane           *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
+	deleteRolloutLane           *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
+	updateRolloutLaneMembers    *connect.Client[v1.UpdateRolloutLaneMembersRequest, v1.UpdateRolloutLaneMembersResponse]
+	applyRolloutLaneFirmware    *connect.Client[v1.ApplyRolloutLaneFirmwareRequest, v1.ApplyRolloutLaneFirmwareResponse]
+	rollbackRolloutLaneFirmware *connect.Client[v1.RollbackRolloutLaneFirmwareRequest, v1.RollbackRolloutLaneFirmwareResponse]
+	listRollouts                *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
 }
 
 // ListRolloutLanes calls rollout.v1.RolloutService.ListRolloutLanes.
@@ -151,6 +165,11 @@ func (c *rolloutServiceClient) ApplyRolloutLaneFirmware(ctx context.Context, req
 	return c.applyRolloutLaneFirmware.CallUnary(ctx, req)
 }
 
+// RollbackRolloutLaneFirmware calls rollout.v1.RolloutService.RollbackRolloutLaneFirmware.
+func (c *rolloutServiceClient) RollbackRolloutLaneFirmware(ctx context.Context, req *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error) {
+	return c.rollbackRolloutLaneFirmware.CallUnary(ctx, req)
+}
+
 // ListRollouts calls rollout.v1.RolloutService.ListRollouts.
 func (c *rolloutServiceClient) ListRollouts(ctx context.Context, req *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error) {
 	return c.listRollouts.CallUnary(ctx, req)
@@ -171,6 +190,11 @@ type RolloutServiceHandler interface {
 	// Replaces the per-model firmware assignments of a lane and starts a
 	// rollout for every model whose assignment changed.
 	ApplyRolloutLaneFirmware(context.Context, *connect.Request[v1.ApplyRolloutLaneFirmwareRequest]) (*connect.Response[v1.ApplyRolloutLaneFirmwareResponse], error)
+	// Re-applies the firmware of a past rollout to its lane's model group,
+	// rolling the group's miners back to that version. Any active rollout
+	// for the (lane, model) pair is canceled and a new rollout enforces the
+	// restored version.
+	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
 }
@@ -206,6 +230,11 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		svc.ApplyRolloutLaneFirmware,
 		opts...,
 	)
+	rolloutServiceRollbackRolloutLaneFirmwareHandler := connect.NewUnaryHandler(
+		RolloutServiceRollbackRolloutLaneFirmwareProcedure,
+		svc.RollbackRolloutLaneFirmware,
+		opts...,
+	)
 	rolloutServiceListRolloutsHandler := connect.NewUnaryHandler(
 		RolloutServiceListRolloutsProcedure,
 		svc.ListRollouts,
@@ -223,6 +252,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceUpdateRolloutLaneMembersHandler.ServeHTTP(w, r)
 		case RolloutServiceApplyRolloutLaneFirmwareProcedure:
 			rolloutServiceApplyRolloutLaneFirmwareHandler.ServeHTTP(w, r)
+		case RolloutServiceRollbackRolloutLaneFirmwareProcedure:
+			rolloutServiceRollbackRolloutLaneFirmwareHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutsProcedure:
 			rolloutServiceListRolloutsHandler.ServeHTTP(w, r)
 		default:
@@ -252,6 +283,10 @@ func (UnimplementedRolloutServiceHandler) UpdateRolloutLaneMembers(context.Conte
 
 func (UnimplementedRolloutServiceHandler) ApplyRolloutLaneFirmware(context.Context, *connect.Request[v1.ApplyRolloutLaneFirmwareRequest]) (*connect.Response[v1.ApplyRolloutLaneFirmwareResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ApplyRolloutLaneFirmware is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.RollbackRolloutLaneFirmware is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error) {
