@@ -68,8 +68,8 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 					(SELECT count(*) FROM curtailment_event)
 			`).Scan(&profiles, &rules, &events))
 			assert.Equal(t, 1, profiles)
-			assert.Equal(t, 1, rules)
-			assert.Equal(t, 10, events)
+			assert.Equal(t, 2, rules)
+			assert.Equal(t, 11, events)
 			assertLegacyResponseProfileRevisionBinding(t, conn)
 		})
 	}
@@ -359,7 +359,7 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 	_, err := conn.ExecContext(t.Context(), `
 		INSERT INTO curtailment_event (
 			event_uuid, org_id, state, mode, strategy, level, priority,
-			loop_type, scope_type, scope_jsonb,
+			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
 			restore_batch_size, restore_batch_interval_sec,
 			decision_snapshot_jsonb, source_actor_type, source_actor_id,
 			external_source, external_reference, idempotency_key,
@@ -367,13 +367,43 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		) VALUES (
 			'00000000-0000-0000-0000-000000000010', $1,
 			'active', 'FIXED_KW', 'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL',
-			'open', 'whole_org', '{}'::jsonb,
+			'open', 'site', jsonb_build_object('site_id', $4::BIGINT),
+			jsonb_build_object('target_kw', 100, 'tolerance_kw', 0),
 			50, 5, '{"selected_count":1}'::jsonb,
 			'automation', $2, 'curtailment_automation', $2,
 			'curtailment_automation_rule:' || $2,
 			'Legacy automation event', $3
 		)
-	`, orgID, ruleReference, userID)
+	`, orgID, ruleReference, userID, siteID)
+	assert.NoError(t, err)
+
+	var mismatchedRuleID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO curtailment_automation_rule (
+			org_id, rule_name, mqtt_source_id, response_profile_id
+		) VALUES ($1, 'Mismatched legacy rule', $2, $3)
+		RETURNING id
+	`, orgID, sourceID, profileID).Scan(&mismatchedRuleID))
+	mismatchedRuleReference := strconv.FormatInt(mismatchedRuleID, 10)
+	_, err = conn.ExecContext(t.Context(), `
+		INSERT INTO curtailment_event (
+			event_uuid, org_id, state, mode, strategy, level, priority,
+			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+			restore_batch_size, restore_batch_interval_sec,
+			decision_snapshot_jsonb, source_actor_type, source_actor_id,
+			external_source, external_reference, idempotency_key,
+			reason, created_by_user_id
+		) VALUES (
+			'00000000-0000-0000-0000-000000000011', $1,
+			'active', 'FIXED_KW', 'LEAST_EFFICIENT_FIRST', 'FULL', 'EMERGENCY',
+			'open', 'site', jsonb_build_object('site_id', $4::BIGINT),
+			jsonb_build_object('target_kw', 100, 'tolerance_kw', 0),
+			50, 5, '{"selected_count":1}'::jsonb,
+			'automation', $2, 'curtailment_automation', $2,
+			'curtailment_automation_rule:' || $2,
+			'Mismatched legacy automation event', $3
+		)
+	`, orgID, mismatchedRuleReference, userID, siteID)
 	assert.NoError(t, err)
 
 	for i := 1; i <= 9; i++ {
@@ -411,6 +441,7 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 		JOIN curtailment_automation_rule AS rule
 		  ON rule.response_profile_id = profile.id
 		 AND rule.org_id = profile.org_id
+		WHERE rule.rule_name = 'Legacy rule'
 	`).Scan(&profileRevision, &ruleRevision, &profileSiteID, &scopeSiteID, &scopeSchemaVersion))
 	assert.NotEqual(t, uuid.Nil, profileRevision)
 	assert.Equal(t, profileRevision, ruleRevision)
@@ -430,9 +461,19 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 		 AND event.external_reference = rule.id::TEXT
 		WHERE event.source_actor_type = 'automation'
 		  AND event.external_source = 'curtailment_automation'
+		  AND event.event_uuid = '00000000-0000-0000-0000-000000000010'
 	`).Scan(&snapshotProfileID, &snapshotRevision, &ruleProfileID))
 	assert.Equal(t, ruleProfileID, snapshotProfileID)
 	assert.Equal(t, ruleRevision, snapshotRevision)
+
+	var mismatchedEventStamped bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT decision_snapshot_jsonb ? 'response_profile_id'
+		    OR decision_snapshot_jsonb ? 'response_profile_revision'
+		FROM curtailment_event
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000011'
+	`).Scan(&mismatchedEventStamped))
+	assert.False(t, mismatchedEventStamped)
 }
 
 func assertLegacyCurtailmentEnvelope(

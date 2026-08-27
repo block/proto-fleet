@@ -261,6 +261,59 @@ describe("useCurtailmentResponseProfiles", () => {
     expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
   });
 
+  it("keeps an unset fixed-kW tolerance absent when updating a profile", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [wholeOrgApiProfile()] });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: wholeOrgApiProfile() });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await act(async () => {
+      await result.current.updateResponseProfile("7", fixedKwFormValues);
+    });
+
+    const request = mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(request?.modeParams.case).toBe("fixedKw");
+    if (request?.modeParams.case !== "fixedKw") {
+      throw new Error("Expected fixed-kW mode params");
+    }
+    expect(request.modeParams.value.toleranceKw).toBeUndefined();
+  });
+
+  it("preserves independent maintenance inclusion when updating a saved profile", async () => {
+    const profile = wholeOrgApiProfile({
+      mode: CurtailmentMode.FULL_FLEET,
+      modeParams: { case: undefined },
+      includeMaintenance: true,
+      forceIncludeMaintenance: true,
+      forceIncludeAllPairedMiners: false,
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [profile] });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({ profile });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await act(async () => {
+      await result.current.updateResponseProfile("7", {
+        ...fixedKwFormValues,
+        actionType: "fullFleet",
+        targetKw: "",
+        includeMaintenance: true,
+      });
+    });
+
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+        forceIncludeAllPairedMiners: false,
+      }),
+    );
+  });
+
   it("fails closed when an update has no loaded profile revision", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValue({
       profiles: [wholeOrgApiProfile({ revision: "" })],

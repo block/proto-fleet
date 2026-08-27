@@ -368,7 +368,7 @@ function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResp
     case: "fixedKw",
     value: create(FixedKwParamsSchema, {
       targetKw: Number(values.targetKw),
-      toleranceKw: Number(values.toleranceKw || "0"),
+      toleranceKw: values.toleranceKw.trim() === "" ? undefined : Number(values.toleranceKw),
     }),
   };
 }
@@ -415,7 +415,7 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function buildResponseProfilePayload(values: ResponseProfileFormValues) {
+function buildResponseProfilePayload(values: ResponseProfileFormValues, preserveIndependentMaintenance = false) {
   const scopes = buildCurtailmentScopes(values);
   if (scopes === undefined) {
     throw new Error("Select a curtailment target scope.");
@@ -425,16 +425,17 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   // mirroring the Start request builders. The
   // proto validator requires include_maintenance == force_include_maintenance.
   //
-  // The maintenance pair derives SOLELY from the all-paired flag: the form
-  // hydrates includeMaintenance from previously saved profiles (where the
-  // coupling wrote it as true), and with the maintenance toggle gone from the
-  // UI, unchecking "Target all paired miners" must also drop the admin-gated
-  // maintenance inclusion instead of silently carrying it forward.
+  // New profiles and profiles that coupled maintenance to all-paired derive
+  // the maintenance pair solely from the visible all-paired control. An
+  // existing profile created through another client may store maintenance
+  // inclusion independently; preserve that setting on edits because this form
+  // has no independent control for changing it.
   const forceIncludeAllPairedMiners =
     values.actionType === "fullFleet" &&
     Boolean(values.forceIncludeAllPairedMiners) &&
     scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
-  const includeMaintenance = forceIncludeAllPairedMiners;
+  const includeMaintenance =
+    forceIncludeAllPairedMiners || (preserveIndependentMaintenance && values.includeMaintenance);
   return {
     profileName: values.name.trim(),
     scopes,
@@ -590,7 +591,10 @@ export default function useCurtailmentResponseProfiles(
           create(UpdateCurtailmentResponseProfileRequestSchema, {
             profileId: BigInt(profileId),
             expectedRevision: currentProfile.revision,
-            ...buildResponseProfilePayload(values),
+            ...buildResponseProfilePayload(
+              values,
+              currentProfile.includeMaintenance && !currentProfile.forceIncludeAllPairedMiners,
+            ),
             replaceFacilityFanSettings: true,
           }),
         );
