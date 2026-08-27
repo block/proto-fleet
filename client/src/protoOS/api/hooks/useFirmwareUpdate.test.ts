@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 
 import { useFirmwareUpdate } from "./useFirmwareUpdate";
@@ -23,21 +23,24 @@ vi.mock("@/protoOS/store", async () => {
   return {
     AUTH_ACTIONS: actions,
     useAccessToken: vi.fn(() => ({ checkAccess: mockCheckAccess, hasAccess: mockState.hasAccess })),
-    useAuthHeader: vi.fn(() => ({ Authorization: "Bearer test" })),
     usePausedAuthAction: vi.fn(() => mockState.pausedAuthAction),
     useSetPausedAuthAction: vi.fn(() => mockSetPausedAuthAction),
   };
 });
 
 describe("useFirmwareUpdate", () => {
-  const mockPostUpdateSystem = vi.fn();
+  const mockStartFirmwareUpdate = vi.fn();
+  const mockCheckForFirmwareUpdate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     (useMinerHosting as Mock).mockReturnValue({
-      api: { postUpdateSystem: mockPostUpdateSystem },
+      adapter: {
+        startFirmwareUpdate: mockStartFirmwareUpdate,
+        checkForFirmwareUpdate: mockCheckForFirmwareUpdate,
+      },
       mode: "direct",
       isFleetHosted: false,
     });
@@ -52,16 +55,19 @@ describe("useFirmwareUpdate", () => {
 
     expect(mockSetPausedAuthAction).toHaveBeenCalledWith(AUTH_ACTIONS.update);
     expect(mockCheckAccess).toHaveBeenCalledTimes(1);
-    expect(mockPostUpdateSystem).not.toHaveBeenCalled();
+    expect(mockStartFirmwareUpdate).not.toHaveBeenCalled();
   });
 
-  test("fleet-hosted mode posts the update directly without the auth gate", async () => {
+  test("fleet-hosted mode starts the update directly without the auth gate", async () => {
     (useMinerHosting as Mock).mockReturnValue({
-      api: { postUpdateSystem: mockPostUpdateSystem },
+      adapter: {
+        startFirmwareUpdate: mockStartFirmwareUpdate,
+        checkForFirmwareUpdate: mockCheckForFirmwareUpdate,
+      },
       mode: "fleet",
       isFleetHosted: true,
     });
-    mockPostUpdateSystem.mockResolvedValue({ status: 200, ok: true });
+    mockStartFirmwareUpdate.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useFirmwareUpdate());
 
@@ -69,8 +75,31 @@ describe("useFirmwareUpdate", () => {
       await result.current.updateFirmware();
     });
 
-    expect(mockPostUpdateSystem).toHaveBeenCalledWith({ Authorization: "Bearer test" });
+    expect(mockStartFirmwareUpdate).toHaveBeenCalledTimes(1);
     expect(mockSetPausedAuthAction).not.toHaveBeenCalledWith(AUTH_ACTIONS.update);
     expect(mockCheckAccess).not.toHaveBeenCalled();
+  });
+
+  test("direct mode resumes the update after the auth gate grants access", async () => {
+    mockStartFirmwareUpdate.mockResolvedValue(undefined);
+    const { rerender } = renderHook(() => useFirmwareUpdate());
+
+    mockState.hasAccess = true;
+    mockState.pausedAuthAction = AUTH_ACTIONS.update;
+    rerender();
+
+    await waitFor(() => expect(mockStartFirmwareUpdate).toHaveBeenCalledTimes(1));
+    expect(mockSetPausedAuthAction).toHaveBeenCalledWith(null);
+  });
+
+  test("checks for firmware updates through the adapter", async () => {
+    mockCheckForFirmwareUpdate.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useFirmwareUpdate());
+
+    await act(async () => {
+      await result.current.checkFirmwareUpdate();
+    });
+
+    expect(mockCheckForFirmwareUpdate).toHaveBeenCalledTimes(1);
   });
 });

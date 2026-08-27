@@ -32,24 +32,6 @@ export const useLogout = () => useMinerStore((state) => state.auth.logout);
 // Auth Utilities
 // =============================================================================
 
-/**
- * Hook that returns the authorization header for API requests
- * Uses the access token from the store
- * @returns Request params with Authorization header
- */
-export const useAuthHeader = () => {
-  const authTokens = useAuthTokens();
-
-  return useMemo(
-    () => ({
-      headers: {
-        Authorization: `Bearer ${authTokens.accessToken?.value || ""}`,
-      },
-    }),
-    [authTokens.accessToken?.value],
-  );
-};
-
 // =============================================================================
 // Auth Error Handling
 // =============================================================================

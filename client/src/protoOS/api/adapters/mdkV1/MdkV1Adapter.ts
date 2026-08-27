@@ -38,6 +38,46 @@ import type { PoolInfo } from "@/shared/types/pool";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 
+const EMPTY_BODY_JSON_ERROR = "Unexpected end of JSON input";
+
+const hasEmptyBodyJsonError = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as { message?: unknown; error?: unknown };
+  if (typeof candidate.message === "string" && candidate.message.includes(EMPTY_BODY_JSON_ERROR)) return true;
+
+  const nested = candidate.error;
+  return (
+    typeof nested === "object" &&
+    nested !== null &&
+    typeof (nested as { message?: unknown }).message === "string" &&
+    (nested as { message: string }).message.includes(EMPTY_BODY_JSON_ERROR)
+  );
+};
+
+// The generated client throws the raw HttpResponse on non-2xx and attaches the
+// empty-body SyntaxError to `error`. A genuine failure (e.g. 503) with an empty
+// body must NOT be mistaken for the legitimate 2xx-empty-body success case, so
+// only treat the parse error as success when the response is not a failed one.
+const isFailedResponse = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as { ok?: unknown; status?: unknown };
+  if (candidate.ok === false) return true;
+  return typeof candidate.status === "number" && candidate.status >= 400;
+};
+
+const runEmptyBodyCommand = async (request: () => Promise<unknown>): Promise<void> => {
+  try {
+    const response = await request();
+    if (hasEmptyBodyJsonError(response)) return;
+  } catch (error: unknown) {
+    if (isFailedResponse(error)) throw error;
+    if (hasEmptyBodyJsonError(error)) return;
+    throw error;
+  }
+};
+
 export class MdkV1Adapter implements MinerAdapter {
   constructor(private readonly client: MdkV1Client) {}
 
@@ -198,6 +238,14 @@ export class MdkV1Adapter implements MinerAdapter {
 
   async rebootSystem(params: AdapterRequestOptions = {}) {
     await this.client.rebootSystem(params);
+  }
+
+  async startFirmwareUpdate(params: AdapterRequestOptions = {}) {
+    await runEmptyBodyCommand(() => this.client.postUpdateSystem(params));
+  }
+
+  async checkForFirmwareUpdate(params: AdapterRequestOptions = {}) {
+    await runEmptyBodyCommand(() => this.client.updateCheck(params));
   }
 
   async locateSystem(options: { enable?: boolean; ledOnTime?: number }, params: AdapterRequestOptions = {}) {
