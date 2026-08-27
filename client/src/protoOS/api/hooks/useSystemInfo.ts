@@ -72,6 +72,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
     fetchData: reload,
     poll,
     pollIntervalMs,
+    enabled: !!adapter,
   });
 
   return useMemo(() => ({ pending, error, data, reload }), [pending, error, data, reload]);

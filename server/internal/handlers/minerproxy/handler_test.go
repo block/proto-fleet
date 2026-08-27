@@ -1,17 +1,45 @@
 package minerproxy
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 )
+
+// testServiceMasterKey is a valid 32-byte (base64) AES key for encrypt.Service
+// in tests; it matches the throwaway key used across the server test suite.
+const testServiceMasterKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+// newForwardTestHandler builds a Handler with only the fields forward/tokenFor/
+// login touch: real HTTP clients, a real encrypt.Service, and a token cache. It
+// deliberately omits the auth/query stack, so tests drive forward() directly
+// against an httptest.Server URL (forward has no SSRF guard — that lives in
+// resolveTarget).
+func newForwardTestHandler(t *testing.T) *Handler {
+	t.Helper()
+	enc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+	if err != nil {
+		t.Fatalf("encrypt.NewService: %v", err)
+	}
+	return &Handler{
+		encryptService: enc,
+		httpClient:     newProxyHTTPClient(false),
+		httpsClient:    newProxyHTTPClient(true),
+		tokens:         make(map[string]cachedToken),
+	}
+}
 
 func TestPermissionsFor(t *testing.T) {
 	tests := []struct {
@@ -119,12 +147,40 @@ func TestProxyPathFor(t *testing.T) {
 	canonical := []string{"system/tag", "pools/1", "system/logs", "mining/target", "system/update"}
 	for _, rest := range canonical {
 		t.Run("accepts "+rest, func(t *testing.T) {
-			got, ok := proxyPathFor(rest)
+			got, ok := proxyPathFor("v1", http.MethodGet, rest)
 			if !ok {
-				t.Fatalf("proxyPathFor(%q) ok=false, want true", rest)
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=false, want true", "v1", http.MethodGet, rest)
 			}
 			if want := "/api/v1/" + rest; got != want {
-				t.Fatalf("proxyPathFor(%q) = %q, want %q", rest, got, want)
+				t.Fatalf("proxyPathFor(%q, %q, %q) = %q, want %q", "v1", http.MethodGet, rest, got, want)
+			}
+		})
+	}
+
+	t.Run("accepts the MDK v2 system info probe", func(t *testing.T) {
+		got, ok := proxyPathFor("v2", http.MethodGet, "system/info")
+		if !ok {
+			t.Fatal("proxyPathFor(v2 system info) ok=false, want true")
+		}
+		if want := "/api/v2/system/info"; got != want {
+			t.Fatalf("proxyPathFor(v2 system info) = %q, want %q", got, want)
+		}
+	})
+
+	unsupported := []struct {
+		name       string
+		apiVersion string
+		method     string
+		rest       string
+	}{
+		{name: "unknown API version", apiVersion: "v3", method: http.MethodGet, rest: "system/info"},
+		{name: "unregistered v2 endpoint", apiVersion: "v2", method: http.MethodGet, rest: "pools"},
+		{name: "v2 probe mutation", apiVersion: "v2", method: http.MethodPost, rest: "system/info"},
+	}
+	for _, tt := range unsupported {
+		t.Run("rejects "+tt.name, func(t *testing.T) {
+			if _, ok := proxyPathFor(tt.apiVersion, tt.method, tt.rest); ok {
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=true, want false", tt.apiVersion, tt.method, tt.rest)
 			}
 		})
 	}
@@ -146,10 +202,180 @@ func TestProxyPathFor(t *testing.T) {
 	}
 	for _, rest := range nonCanonical {
 		t.Run("rejects "+rest, func(t *testing.T) {
-			if _, ok := proxyPathFor(rest); ok {
-				t.Fatalf("proxyPathFor(%q) ok=true, want false (non-canonical path)", rest)
+			if _, ok := proxyPathFor("v1", http.MethodGet, rest); ok {
+				t.Fatalf("proxyPathFor(%q, %q, %q) ok=true, want false (non-canonical path)", "v1", http.MethodGet, rest)
 			}
 		})
+	}
+}
+
+func TestRequiresMinerAuthentication(t *testing.T) {
+	if requiresMinerAuthentication("/api/v2/system/info") {
+		t.Fatal("MDK v2 system info probe must not invoke the MDK v1 login flow")
+	}
+	if !requiresMinerAuthentication("/api/v1/system") {
+		t.Fatal("MDK v1 endpoints must retain miner authentication")
+	}
+}
+
+// TestV2AllowlistDrivesProxyAndAuth pins both the allowlist decision
+// (proxyPathFor) and the auth decision (requiresMinerAuthentication) to the
+// single v2AllowlistedEndpoints table, so the two can't drift apart: every
+// allowlisted entry must be accepted by proxyPathFor and its auth requirement
+// must match requiresMinerAuthentication.
+func TestV2AllowlistDrivesProxyAndAuth(t *testing.T) {
+	for _, e := range v2AllowlistedEndpoints {
+		t.Run(e.method+" "+e.rest, func(t *testing.T) {
+			got, ok := proxyPathFor("v2", e.method, e.rest)
+			if !ok {
+				t.Fatalf("proxyPathFor(v2, %q, %q) ok=false, want true", e.method, e.rest)
+			}
+			if got != e.proxyPath() {
+				t.Fatalf("proxyPathFor(v2, %q, %q) = %q, want %q", e.method, e.rest, got, e.proxyPath())
+			}
+			if requiresMinerAuthentication(got) != e.requiresAuth {
+				t.Fatalf("requiresMinerAuthentication(%q) = %v, want %v",
+					got, requiresMinerAuthentication(got), e.requiresAuth)
+			}
+		})
+	}
+}
+
+// TestForwardV2ProbeSkipsMinerLoginOn401 asserts a v2 system/info probe acquires
+// no miner token: it performs no login, forwards no Authorization header, caches
+// no token, and (because the endpoint is unauthenticated) is never eligible for
+// ServeHTTP's 401 -> clearToken -> forceLogin retry — a 401 passes straight
+// through. The upstream is mocked to return 401 for the probe.
+func TestForwardV2ProbeSkipsMinerLoginOn401(t *testing.T) {
+	var loginHits int32
+	var sawAuthHeader int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			atomic.AddInt32(&loginHits, 1)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(loginResponse{AccessToken: "tok"})
+		case "/api/v2/system/info":
+			if r.Header.Get("Authorization") != "" {
+				atomic.AddInt32(&sawAuthHeader, 1)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	h := newForwardTestHandler(t)
+	// Credentials ARE present, to prove the probe skips login by policy, not for
+	// lack of a password.
+	pwEnc, err := h.encryptService.Encrypt([]byte("miner-pw"))
+	if err != nil {
+		t.Fatalf("encrypt password: %v", err)
+	}
+	target := proxyTarget{
+		deviceIdentifier: "dev-1",
+		baseURL:          srv.URL,
+		passwordEnc:      sql.NullString{String: pwEnc, Valid: true},
+	}
+	src := httptest.NewRequest(http.MethodGet, "/miners/dev-1/api/v2/system/info", nil)
+
+	resp, err := h.forward(context.Background(), src, target, "/api/v2/system/info", nil, false)
+	if err != nil {
+		t.Fatalf("forward: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 passed through untouched", resp.StatusCode)
+	}
+	if n := atomic.LoadInt32(&loginHits); n != 0 {
+		t.Fatalf("v2 probe attempted %d miner logins, want 0", n)
+	}
+	if n := atomic.LoadInt32(&sawAuthHeader); n != 0 {
+		t.Fatal("v2 probe forwarded an Authorization header, want none")
+	}
+	if _, cached := h.lookupToken(target.cacheKey()); cached {
+		t.Fatal("v2 probe cached a miner token, want none acquired")
+	}
+	// The auth gate that guards ServeHTTP's 401 retry must reject this endpoint.
+	if requiresMinerAuthentication("/api/v2/system/info") {
+		t.Fatal("v2 system/info must not require miner auth (so no 401 retry runs)")
+	}
+}
+
+// TestForwardV1RunsForceLoginRetryOn401 exercises the building blocks of
+// ServeHTTP's v1 401 retry against a mocked upstream that rejects the first
+// (stale-token) request and accepts the forced-login retry: an initial forward
+// logs in and is 401'd, then clearToken + forward(forceLogin=true) mints a fresh
+// token and succeeds. Two logins must occur, and the retry must present the new
+// token.
+func TestForwardV1RunsForceLoginRetryOn401(t *testing.T) {
+	var loginHits int32
+	var systemHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			n := atomic.AddInt32(&loginHits, 1)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(loginResponse{AccessToken: fmt.Sprintf("tok-%d", n)})
+		case "/api/v1/system":
+			n := atomic.AddInt32(&systemHits, 1)
+			if n == 1 {
+				if got := r.Header.Get("Authorization"); got != "Bearer tok-1" {
+					t.Errorf("first call Authorization = %q, want Bearer tok-1", got)
+				}
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer tok-2" {
+				t.Errorf("retry Authorization = %q, want Bearer tok-2", got)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	h := newForwardTestHandler(t)
+	pwEnc, err := h.encryptService.Encrypt([]byte("miner-pw"))
+	if err != nil {
+		t.Fatalf("encrypt password: %v", err)
+	}
+	target := proxyTarget{
+		deviceIdentifier: "dev-1",
+		baseURL:          srv.URL,
+		passwordEnc:      sql.NullString{String: pwEnc, Valid: true},
+	}
+	src := httptest.NewRequest(http.MethodGet, "/miners/dev-1/api/v1/system", nil)
+
+	if !requiresMinerAuthentication("/api/v1/system") {
+		t.Fatal("v1 endpoints must require miner auth")
+	}
+
+	// Initial forward: logs in (tok-1), miner returns 401.
+	resp, err := h.forward(context.Background(), src, target, "/api/v1/system", nil, false)
+	if err != nil {
+		t.Fatalf("initial forward: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("initial forward status = %d, want 401", resp.StatusCode)
+	}
+
+	// Mirror ServeHTTP's retry: drop the cached token and force a fresh login.
+	h.clearToken(target.cacheKey())
+	resp, err = h.forward(context.Background(), src, target, "/api/v1/system", nil, true)
+	if err != nil {
+		t.Fatalf("retry forward: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("retry forward status = %d, want 200", resp.StatusCode)
+	}
+	if n := atomic.LoadInt32(&loginHits); n != 2 {
+		t.Fatalf("miner login count = %d, want 2 (initial + forced retry)", n)
 	}
 }
 

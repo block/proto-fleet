@@ -4,6 +4,7 @@ import type {
   FanTelemetry,
   HardwareState,
   Measurement,
+  MinerAdapterId,
   MinerError,
   MiningTarget,
   MiningTargetUpdate,
@@ -21,6 +22,39 @@ export interface AdapterRequestOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal | null;
 }
+
+export interface AdapterProbeMatch {
+  deviceId?: string;
+  product?: string;
+  reportedVersion?: string;
+}
+
+interface MinerAdapterDefinitionBase<Match extends AdapterProbeMatch = AdapterProbeMatch> {
+  id: MinerAdapterId;
+  displayName: string;
+  probe: {
+    path: string;
+    parseResponse(body: unknown): Match | undefined;
+  };
+}
+
+export type MinerAdapterDefinition<Match extends AdapterProbeMatch = AdapterProbeMatch> =
+  | (MinerAdapterDefinitionBase<Match> & {
+      support: "supported";
+      create(match: Match): MinerAdapter;
+    })
+  | (MinerAdapterDefinitionBase<Match> & {
+      support: "probe-only";
+    });
+
+export type AdapterResolution =
+  | { status: "probing"; adapterId: undefined; adapter: undefined }
+  | { status: "ready"; adapterId: MinerAdapterId; adapter: MinerAdapter }
+  | { status: "unsupported"; adapterId: MinerAdapterId | undefined; adapter: undefined }
+  // A probe errored or the miner was unreachable, so identification is
+  // inconclusive rather than a confirmed "unsupported miner". Recoverable: the
+  // caller can re-probe. Distinct from "unsupported", which is terminal.
+  | { status: "unreachable"; adapterId: undefined; adapter: undefined };
 
 /** Access/refresh token pair returned by the miner auth endpoints. */
 export interface AuthTokens {

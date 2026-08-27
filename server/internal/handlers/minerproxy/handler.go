@@ -158,8 +158,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceIdentifier := r.PathValue("deviceIdentifier")
+	apiVersion := r.PathValue("apiVersion")
 	rest := r.PathValue("rest")
-	if deviceIdentifier == "" || rest == "" {
+	if deviceIdentifier == "" || apiVersion == "" || rest == "" {
 		writeError(w, http.StatusNotFound, "miner API route not found")
 		return
 	}
@@ -182,19 +183,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
-	if err != nil {
-		writeError(w, httpStatusForError(err), clientMessageForError(err))
-		return
-	}
-
-	proxyPath, ok := proxyPathFor(rest)
+	proxyPath, ok := proxyPathFor(apiVersion, r.Method, rest)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid miner API path")
 		return
 	}
 	if isUnproxyableEndpoint(r.Method, proxyPath) {
 		writeError(w, http.StatusForbidden, "this miner endpoint is managed by Fleet and cannot be changed from the embedded view")
+		return
+	}
+
+	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
+	if err != nil {
+		writeError(w, httpStatusForError(err), clientMessageForError(err))
 		return
 	}
 
@@ -218,7 +219,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() {
+	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		h.clearToken(target.cacheKey())
 		resp.Body.Close()
@@ -337,9 +338,13 @@ func (h *Handler) forward(
 	body []byte,
 	forceLogin bool,
 ) (*http.Response, error) {
-	token, err := h.tokenFor(ctx, target, forceLogin)
-	if err != nil {
-		return nil, err
+	var token string
+	if requiresMinerAuthentication(proxyPath) {
+		var err error
+		token, err = h.tokenFor(ctx, target, forceLogin)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	targetURL := target.baseURL + proxyPath
@@ -505,8 +510,12 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// proxyPathFor builds the upstream miner path from the {rest...} wildcard and
-// reports whether it is canonical. The wildcard preserves percent-decoded
+// proxyPathFor builds an allowlisted upstream miner path from the
+// {apiVersion} and {rest...} wildcards and reports whether it is canonical.
+// MDK v1 retains the existing generic proxy surface. MDK v2 is probe-only for
+// now, so only its documented read-only system info endpoint is accepted.
+//
+// The rest wildcard preserves percent-decoded
 // dot-segments and slashes (Go's ServeMux collapses only *unencoded* ".."), and
 // the handler both authorizes on and forwards this exact string — so a
 // non-canonical path (".." traversal, encoded "%2f"/"%2e%2e", empty segments, a
@@ -520,8 +529,21 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 // authorized as a non-blocked path while the miner routes it to the password
 // endpoint. Reject those bytes too — a real query string arrives via the
 // request's own RawQuery, never through the path wildcard.
-func proxyPathFor(rest string) (string, bool) {
-	proxyPath := "/api/v1/" + rest
+func proxyPathFor(apiVersion string, method string, rest string) (string, bool) {
+	switch apiVersion {
+	case "v1":
+		// MDK v1 retains the existing generic proxy surface (any method/rest).
+	case "v2":
+		// MDK v2 is probe-only, so only its explicitly allowlisted endpoints
+		// (keyed by method + rest) are accepted.
+		if _, ok := lookupV2Endpoint(method, rest); !ok {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+
+	proxyPath := "/api/" + apiVersion + "/" + rest
 	// Reject query/fragment delimiters and any residual percent-encoding. The
 	// mux already decoded the wildcard once, so a leftover "%" means a
 	// double-encoded delimiter (e.g. "%252F" -> "%2F") that path.Clean won't
@@ -532,6 +554,56 @@ func proxyPathFor(rest string) (string, bool) {
 		return proxyPath, false
 	}
 	return proxyPath, path.Clean(proxyPath) == proxyPath
+}
+
+// v2Endpoint describes one allowlisted MDK v2 endpoint. While v2 is probe-only,
+// the proxy accepts a fixed, explicitly enumerated set of v2 endpoints; each
+// entry records the {method, rest} that identify it and whether the miner
+// requires bearer authentication for it.
+type v2Endpoint struct {
+	method       string
+	rest         string
+	requiresAuth bool
+}
+
+// proxyPath returns the canonical upstream path this endpoint forwards to.
+func (e v2Endpoint) proxyPath() string {
+	return "/api/v2/" + e.rest
+}
+
+// v2AllowlistedEndpoints is the single source of truth for which MDK v2
+// endpoints the proxy accepts and whether each needs miner authentication. Both
+// the allowlist decision (proxyPathFor) and the auth decision
+// (requiresMinerAuthentication) derive from this one table so they cannot drift
+// apart. While v2 is probe-only, the sole entry is the documented, read-only,
+// unauthenticated system/info identification endpoint.
+var v2AllowlistedEndpoints = []v2Endpoint{
+	{method: http.MethodGet, rest: "system/info", requiresAuth: false},
+}
+
+// lookupV2Endpoint returns the allowlisted v2 endpoint for a {method, rest}, if
+// any.
+func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
+	for _, e := range v2AllowlistedEndpoints {
+		if e.method == method && e.rest == rest {
+			return e, true
+		}
+	}
+	return v2Endpoint{}, false
+}
+
+// requiresMinerAuthentication keeps the existing MDK v1 bearer-token behavior
+// while honoring the per-endpoint auth flag for allowlisted MDK v2 endpoints.
+// The documented v2 identification endpoint is unauthenticated, which prevents a
+// v2 probe from attempting the v1 login endpoint with Fleet's stored miner
+// password.
+func requiresMinerAuthentication(proxyPath string) bool {
+	for _, e := range v2AllowlistedEndpoints {
+		if e.proxyPath() == proxyPath {
+			return e.requiresAuth
+		}
+	}
+	return true
 }
 
 // isUnproxyableEndpoint rejects endpoints that must not be reverse-proxied

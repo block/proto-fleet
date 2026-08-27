@@ -55,7 +55,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       identity: {
         deviceId: asDeviceId("device:CU1-CB-0001"),
         deviceType: "container",
-        mdkVersion: "v1",
+        adapterId: "mdk-v1",
         manufacturer: "Proto",
         model: "CU1",
         productName: "Proto CU1",

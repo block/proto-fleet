@@ -2,7 +2,6 @@ import { useEffect } from "react";
 
 import { useErrors } from "@/protoOS/api/hooks/useErrors";
 import { useFirmwareUpdate } from "@/protoOS/api/hooks/useFirmwareUpdate";
-import { useHardware } from "@/protoOS/api/hooks/useHardware";
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
 import { useNetworkInfo } from "@/protoOS/api/hooks/useNetworkInfo";
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
@@ -13,7 +12,6 @@ interface AuthenticatedShellProps {
 }
 
 const AuthenticatedShell = ({ reloadSystemInfo }: AuthenticatedShellProps) => {
-  useHardware();
   useNetworkInfo({ poll: false });
   useErrors({ poll: true, pollIntervalMs: 15 * 1000 });
   usePoolsInfo({ poll: true, pollIntervalMs: 15 * 1000 });

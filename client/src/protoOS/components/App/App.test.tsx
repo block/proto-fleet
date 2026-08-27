@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   useMinerHosting: vi.fn(),
   AuthenticatedShell: vi.fn(),
   LoginModal: vi.fn(),
+  useHardware: vi.fn(),
   useMiningStart: vi.fn(),
   useMiningStatus: vi.fn(),
   useSystemInfo: vi.fn(),
@@ -69,6 +70,10 @@ vi.mock("./WarmingUpCallout", () => ({
 
 vi.mock("@/protoOS/api/hooks/useMiningStart", () => ({
   useMiningStart: () => mocks.useMiningStart(),
+}));
+
+vi.mock("@/protoOS/api/hooks/useHardware", () => ({
+  useHardware: () => mocks.useHardware(),
 }));
 
 vi.mock("@/protoOS/api/hooks/useMiningStatus", () => ({
@@ -276,6 +281,18 @@ describe("App auth gating", () => {
     render(<App title="App">{children}</App>);
 
     expect(screen.getByTestId("route-children")).toBeInTheDocument();
+  });
+
+  it("fetches public hardware during onboarding before access is available", () => {
+    mocks.useLocation.mockReturnValue({ pathname: "/onboarding/welcome", state: null });
+    mocks.useAccessToken.mockReturnValue({ hasAccess: false });
+    mocks.useOnboarded.mockReturnValue(false);
+    mocks.usePasswordSet.mockReturnValue(false);
+
+    render(<App title="App" />);
+
+    expect(mocks.useHardware).toHaveBeenCalled();
+    expect(mocks.AuthenticatedShell).not.toHaveBeenCalled();
   });
 
   it.each(["/", "/hashrate", "/settings/general", "/settings/hardware", "/settings/mining-pools"])(
