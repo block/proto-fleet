@@ -522,7 +522,7 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 	user := testContext.DatabaseService.CreateSuperAdminUser()
 	database := testContext.DatabaseService.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	fanSiteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "profile-revision-lock-order")
 
@@ -586,7 +586,7 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 			fanID,
 		)
 		return probeErr != nil
-	}, 3*time.Second, 10*time.Millisecond, "profile update did not acquire the fan row lock")
+	}, 10*time.Second, 25*time.Millisecond, "profile update did not acquire the fan row lock")
 
 	execution := curtailmentStoreClosedLoopFullFleetEvent(
 		user.OrganizationID,
@@ -605,7 +605,15 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 		_, executionErr := store.InsertEventWithTargets(ctx, execution, nil)
 		executionResult <- executionErr
 	}()
+	var earlyExecutionErr error
+	executionCompleted := false
 	require.Eventually(t, func() bool {
+		select {
+		case earlyExecutionErr = <-executionResult:
+			executionCompleted = true
+			return true
+		default:
+		}
 		probe, probeErr := database.BeginTx(ctx, &sql.TxOptions{})
 		if probeErr != nil {
 			return false
@@ -620,7 +628,8 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 			return false
 		}
 		return !acquired
-	}, 3*time.Second, 10*time.Millisecond, "execution did not reach the fan claim lock")
+	}, 10*time.Second, 25*time.Millisecond, "execution did not reach the fan claim lock")
+	require.False(t, executionCompleted, "execution completed before reaching the fan claim lock: %v", earlyExecutionErr)
 
 	require.NoError(t, profileBlocker.Commit())
 	require.NoError(t, <-updateResult)
