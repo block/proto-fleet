@@ -501,6 +501,38 @@ func TestRenderWebhookIncludesGroupRollup(t *testing.T) {
 	assert.Equal(t, "Device is offline for at least five minutes.", resolvedGroups[0].Summary)
 }
 
+func TestRenderWebhookKeepsSameNamedRulesAttributableByRuleUID(t *testing.T) {
+	alerts := []Alert{
+		{
+			Status: "firing", RuleUID: "user-offline",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-a",
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		},
+		{
+			Status: "firing", RuleUID: "user-temperature",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-b",
+				"rule_group": "proto-fleet-user-7", "template": "temperature",
+			},
+			Annotations: map[string]string{"summary": "Max sensor temperature for device is above 95°C for at least ten minutes."},
+		},
+	}
+
+	out := renderWebhook(7, alerts, nil)
+	groups, ok := out["firing_groups"].([]webhookAlertGroup)
+	require.True(t, ok)
+	require.Len(t, groups, 2)
+	assert.ElementsMatch(t, []string{"user-offline", "user-temperature"}, []string{groups[0].RuleUID, groups[1].RuleUID})
+
+	firing, ok := out["firing"].([]webhookAlert)
+	require.True(t, ok)
+	require.Len(t, firing, 2)
+	assert.ElementsMatch(t, []string{"user-offline", "user-temperature"}, []string{firing[0].RuleUID, firing[1].RuleUID})
+}
+
 func TestRenderSlackEscapesUserControlledText(t *testing.T) {
 	alerts := []Alert{
 		{

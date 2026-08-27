@@ -261,6 +261,7 @@ const groupSampleSummaries = 3
 // alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it.
 type alertGroup struct {
 	Identity  string
+	RuleUID   string
 	Name      string
 	RuleGroup string
 	Severity  string
@@ -294,6 +295,7 @@ func groupAlerts(alerts []Alert) []alertGroup {
 		if g == nil {
 			g = &alertGroup{
 				Identity:  identity,
+				RuleUID:   alertRuleUID(a),
 				Name:      name,
 				RuleGroup: a.Labels[ruleLabelRuleGroup],
 				Severity:  a.Labels["severity"],
@@ -339,10 +341,7 @@ func groupAlerts(alerts []Alert) []alertGroup {
 // RuleUID; legacy/unattributed alerts fall back to stable rule-level fields. Summary is intentionally excluded:
 // some rules interpolate the alert instance there and still need all of their instances rolled up together.
 func alertGroupIdentity(a Alert) string {
-	if uid := strings.TrimSpace(a.RuleUID); uid != "" {
-		return "uid:" + uid
-	}
-	if uid := strings.TrimSpace(a.Labels[ruleLabelRuleUID]); uid != "" {
+	if uid := alertRuleUID(a); uid != "" {
 		return "uid:" + uid
 	}
 	return strings.Join([]string{
@@ -352,9 +351,17 @@ func alertGroupIdentity(a Alert) string {
 	}, "\x00")
 }
 
+func alertRuleUID(a Alert) string {
+	if uid := strings.TrimSpace(a.RuleUID); uid != "" {
+		return uid
+	}
+	return strings.TrimSpace(a.Labels[ruleLabelRuleUID])
+}
+
 // webhookAlert is the clean, Grafana-free shape delivered to generic webhook channels.
 type webhookAlert struct {
 	Status     string `json:"status"`
+	RuleUID    string `json:"rule_uid,omitempty"`
 	AlertName  string `json:"alert_name"`
 	Severity   string `json:"severity,omitempty"`
 	Summary    string `json:"summary,omitempty"`
@@ -367,6 +374,7 @@ type webhookAlert struct {
 // a consumer that only wants "what is firing and how bad" reads the groups and ignores the instance arrays.
 type webhookAlertGroup struct {
 	AlertName string `json:"alert_name"`
+	RuleUID   string `json:"rule_uid,omitempty"`
 	Severity  string `json:"severity,omitempty"`
 	RuleGroup string `json:"rule_group,omitempty"`
 	// One of the group's distinct summaries; the per-instance arrays carry every instance's own.
@@ -384,6 +392,7 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 			ident := identities[id]
 			out = append(out, webhookAlert{
 				Status:     a.Status,
+				RuleUID:    alertRuleUID(a),
 				AlertName:  a.Labels["alertname"],
 				Severity:   a.Labels["severity"],
 				Summary:    a.Annotations["summary"],
@@ -404,6 +413,7 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 			}
 			out = append(out, webhookAlertGroup{
 				AlertName:   g.Name,
+				RuleUID:     g.RuleUID,
 				Severity:    g.Severity,
 				RuleGroup:   g.RuleGroup,
 				Summary:     summary,
