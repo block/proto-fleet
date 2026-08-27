@@ -12,10 +12,12 @@ tracker:
 
 The [bounded-review benchmark](../codex-security-review-benchmark-report.md)
 showed that diff context, reasoning effort, and prompt guidance do not make the
-current single-agent review complete reliably. Only 8 of 30 adjudicated matrix
-cases completed; the other 22 exhausted the 12-minute outer budget. Reduced
-context and the bounded prompt also downgraded a known `HIGH` finding, so
-production remains on `unified=40`, `xhigh`, and the baseline prompt.
+current single-agent review complete reliably. Only 22 of 72 adjudicated matrix
+cases completed; the other 50 exhausted the 12-minute outer budget. Compact
+context downgraded a known `HIGH` in two of three trials, `medium` effort
+recalled only one of five known `MEDIUM` findings, and the bounded prompt also
+downgraded the known `HIGH`. Production therefore remains on `unified=40`,
+`xhigh`, and the baseline prompt.
 
 The existing reviewer has one model process inspect the full exact diff and any
 unchanged files it chooses. Large cross-component changes can therefore consume
@@ -55,8 +57,8 @@ stable architecture domains:
 | --- | --- |
 | Contracts and persistence | `proto/`, migrations, sqlc queries, generated API boundaries |
 | Server | `server/` excluding shared contract inputs |
-| ProtoFleet and shared client | ProtoFleet plus allowed `client/shared/` dependencies |
-| ProtoOS and shared client | ProtoOS plus allowed `client/shared/` dependencies |
+| ProtoFleet and shared client | `client/src/protoFleet/` plus allowed `client/src/shared/` dependencies |
+| ProtoOS and shared client | `client/src/protoOS/` plus allowed `client/src/shared/` dependencies |
 | Go/Python plugins | `plugin/` except `plugin/asicrs/`, generator packages |
 | ASIC-RS | `plugin/asicrs/` |
 | Delivery and infrastructure | `.github/`, Docker, deployment, monitoring, scripts, root tooling |
@@ -67,9 +69,10 @@ file, its owning shard, and shared-contract membership. Unknown paths go to a
 conservative cross-cutting shard rather than being dropped.
 
 Create a shard only when its primary domain has changed. Cap the first
-experiment at four concurrent shards. If more than four domains change, combine
-adjacent domains according to a checked-in deterministic merge order; never
-split a domain merely to equalize bytes.
+experiment at two shards so both model jobs can run in one bounded parallel
+wave. If more than two domains change, combine adjacent domains according to a
+checked-in deterministic merge order; never split a domain merely to equalize
+bytes.
 
 ### Shared review context
 
@@ -141,11 +144,12 @@ revalidating that the PR head is current.
 
 - **More single-agent prompt tuning:** Rejected because the bounded prompt had
   the same 2/6 completion profile and downgraded an adjudicated `HIGH`.
-- **Lower reasoning effort:** Rejected because `high` had the same 2/6
-  completion profile and missed the known `MEDIUM`; `medium` was therefore not
-  tested.
-- **Smaller global diff context:** Rejected because compact context downgraded a
-  known `HIGH`, while `unified-10` completed no finding-bearing case.
+- **Lower reasoning effort:** Rejected because `high` completed 2/6 cases;
+  `medium` completed 5/6 but recalled only one of five known `MEDIUM` findings
+  and one of two known `HIGH` findings.
+- **Smaller global diff context:** Rejected after three trials per variant. Every
+  variant missed all 15 expected `MEDIUM` observations, and compact context
+  downgraded a known `HIGH` in two trials.
 - **Arbitrary equal-size shards:** Rejected because they can hide transaction,
   API, and lifecycle relationships that cross files.
 - **Model-based aggregation:** Rejected because it adds another unbounded pass

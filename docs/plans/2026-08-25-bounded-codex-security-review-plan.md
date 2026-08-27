@@ -282,18 +282,18 @@ of model efficiency.
 
 ## Benchmark outcome
 
-The trusted `main` workflow replayed 30 adjudicated matrix cases across context,
-effort, and prompt experiments. Eight completed and 22 reached the verified
-outer budget; every finalizer produced a distinct result or timeout artifact.
-No candidate met the recall gates: compact context and the bounded prompt each
-downgraded an adjudicated `HIGH`, while `high` effort did not improve the 2/6
-completion profile and missed the adjudicated `MEDIUM` in its completed
-finding-bearing case.
+The trusted `main` workflow replayed 72 adjudicated matrix cases across the
+initial context run, two context repeats, all three effort levels, and the prompt
+experiment. Twenty-two completed and 50 reached the verified outer budget;
+every finalizer produced a distinct result or timeout artifact. No candidate met
+the recall gates. Compact context downgraded an adjudicated `HIGH` in two of
+three completed trials. `medium` effort improved completion to 5/6 but recalled
+only one of five adjudicated `MEDIUM` findings and timed out on a case containing
+the other adjudicated `HIGH`. The bounded prompt also downgraded that `HIGH`.
 
 Production therefore remains on `unified=40`, `xhigh`, and the baseline prompt.
-The large-PR corpus is deferred because step 5 requires a selected candidate;
-`medium` effort is not tested after `high` failed. Full evidence and human
-adjudication are in the
+The large-PR corpus is deferred because step 5 requires a selected candidate.
+Full evidence and human adjudication are in the
 [benchmark report](../codex-security-review-benchmark-report.md). Further
 runtime work moves to the separate
 [sharded-review TDD](./2026-08-27-sharded-codex-security-review-tdd.md).
