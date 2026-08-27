@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -395,7 +396,23 @@ func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
 	assert.NotContains(t, text, "_(critical)_")
 }
 
-func TestRenderSlackResolvedCurtailmentSourceNamesRecoveredCondition(t *testing.T) {
+func TestRenderSlackCountsRepeatedDevicelessSummaries(t *testing.T) {
+	alert := func(eventID string) Alert {
+		return Alert{
+			Status: "firing", RuleUID: "protofleet-curtailment-fan-restore-fail",
+			Labels: map[string]string{
+				"alertname": "Curtailment Fan Restore Failed", "severity": "critical",
+				"template": "curtailment-fan-restore", "kind": eventID,
+			},
+			Annotations: map[string]string{"summary": "Facility fan restore failed before miners resumed."},
+		}
+	}
+	text := allSectionText(t, renderSlack("", []Alert{alert("event-a"), alert("event-b")}, nil))
+
+	assert.Contains(t, text, "🔴 Facility fan restore failed before miners resumed (2 curtailment events affected)")
+}
+
+func TestRenderSlackResolvedCurtailmentSourcesNameEveryRecoveredCondition(t *testing.T) {
 	source := func(kind string) Alert {
 		return Alert{
 			Status: "resolved", RuleUID: "protofleet-mqtt-source-disconnected",
@@ -405,9 +422,16 @@ func TestRenderSlackResolvedCurtailmentSourceNamesRecoveredCondition(t *testing.
 			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
 		}
 	}
-	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a")}, nil))
+	text := allSectionText(t, renderSlack("", []Alert{
+		source("maestro-a"), source("maestro-b"), source("maestro-c"), source("maestro-d"), source("maestro-e"),
+	}, nil))
 
 	assert.Contains(t, text, "✅ Curtailment source maestro-a reachable again")
+	assert.Contains(t, text, "✅ Curtailment source maestro-b reachable again")
+	assert.Contains(t, text, "✅ Curtailment source maestro-c reachable again")
+	assert.Contains(t, text, "✅ …and 2 more curtailment sources reachable again")
+	assert.NotContains(t, text, "maestro-d")
+	assert.NotContains(t, text, "maestro-e")
 	assert.NotContains(t, text, "All alerts resolved")
 	assert.NotContains(t, text, "unreachable")
 }
@@ -561,6 +585,24 @@ func TestRenderSlackCapsBlocksForLargeBatch(t *testing.T) {
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(blocks), 50, "must stay under Slack's 50-block-per-message limit")
 	assert.Contains(t, mustJSON(t, msg), "more — open Proto Fleet")
+}
+
+func TestRenderSlackCapsFallbackTextIndependently(t *testing.T) {
+	alerts := []Alert{{
+		Status:      "firing",
+		Labels:      map[string]string{"alertname": "Long summary", "severity": "warning"},
+		Annotations: map[string]string{"summary": strings.Repeat("温", slackFallbackMaxRunes+100)},
+	}}
+	msg := renderSlack("", alerts, nil)
+
+	fallback, ok := msg["text"].(string)
+	require.True(t, ok)
+	assert.Equal(t, slackFallbackMaxRunes, utf8.RuneCountInString(fallback))
+
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 2)
+	assert.Equal(t, slackSectionMaxRunes, utf8.RuneCountInString(sectionText(t, blocks[1])))
 }
 
 func allSectionText(t *testing.T, msg map[string]any) string {

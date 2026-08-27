@@ -9,9 +9,10 @@ import (
 	"unicode/utf8"
 )
 
-// Slack limits: section text ≤3000, ≤50 blocks per message.
+// Slack limits: section text ≤3000, top-level fallback text should stay ≤4000, ≤50 blocks per message.
 const (
-	slackSectionMaxRunes = 2900
+	slackSectionMaxRunes  = 2900
+	slackFallbackMaxRunes = 4000
 	// Cap alert sections so the title and overflow line stay under Slack's 50-block limit.
 	slackMaxAlertSections = 40
 	// Keep the instance name from crowding the alert counts out of the truncated title.
@@ -62,7 +63,8 @@ func renderSlack(publicURL string, alerts []Alert, _ map[string]DeviceIdentity) 
 
 	// The top-level text is the notification/preview fallback for clients that don't render blocks. Include
 	// every rendered line rather than reducing the preview to generic alert state.
-	return map[string]any{"text": strings.Join(fallbackLines, "\n"), "blocks": blocks}
+	fallback := truncate(strings.Join(fallbackLines, "\n"), slackFallbackMaxRunes)
+	return map[string]any{"text": fallback, "blocks": blocks}
 }
 
 // instanceLabels names the sending fleet: several instances can post to one channel, and nothing else in the
@@ -182,14 +184,7 @@ func resolvedGroupCopy(g alertGroup) string {
 		}
 		return sentenceText(g.Name) + " resolved"
 	case RuleTemplateMQTTDisconnected:
-		if summary := firstSummary(g); summary != "" {
-			if source, ok := strings.CutPrefix(summary, "Curtailment source "); ok {
-				if source, ok = strings.CutSuffix(source, " is unreachable; cannot curtail"); ok && source != "" {
-					return "Curtailment source " + source + " reachable again"
-				}
-			}
-		}
-		return fmt.Sprintf("%d curtailment source%s reachable again", g.InstanceCount, plural(g.InstanceCount))
+		return resolvedMQTTDisconnectedCopy(g)
 	case RuleTemplateCurtailmentFanRestore:
 		return fmt.Sprintf("Fan control restored for %d curtailment event%s", g.InstanceCount, plural(g.InstanceCount))
 	case RuleTemplateMetricIngest:
@@ -208,12 +203,42 @@ func resolvedGroupCopy(g alertGroup) string {
 	return sentenceText(g.Name) + " resolved"
 }
 
+func resolvedMQTTDisconnectedCopy(g alertGroup) string {
+	fallback := fmt.Sprintf("%d curtailment source%s reachable again", g.InstanceCount, plural(g.InstanceCount))
+	if len(g.Summaries) == 0 {
+		return fallback
+	}
+	lines := make([]string, 0, len(g.Summaries)+1)
+	for _, summary := range g.Summaries {
+		source, ok := strings.CutPrefix(sentenceText(summary), "Curtailment source ")
+		if !ok {
+			return fallback
+		}
+		source, ok = strings.CutSuffix(source, " is unreachable; cannot curtail")
+		if !ok || source == "" {
+			return fallback
+		}
+		lines = append(lines, "Curtailment source "+source+" reachable again")
+	}
+	if more := g.SummaryCount - len(g.Summaries); more > 0 {
+		lines = append(lines, fmt.Sprintf("…and %d more curtailment source%s reachable again", more, plural(more)))
+	}
+	return strings.Join(lines, "\n✅ ")
+}
+
 func devicelessGroupLine(dot string, g alertGroup) string {
 	if len(g.Summaries) == 0 {
 		if g.InstanceCount > 1 {
 			return fmt.Sprintf("%s %d instances affected by %s", dot, g.InstanceCount, escapeMrkdwn(g.Name))
 		}
 		return dot + " " + escapeMrkdwn(sentenceText(g.Name))
+	}
+	if len(g.Summaries) == 1 && g.InstanceCount > 1 {
+		affected := fmt.Sprintf("%d instance%s", g.InstanceCount, plural(g.InstanceCount))
+		if RuleTemplate(g.Template) == RuleTemplateCurtailmentFanRestore {
+			affected = fmt.Sprintf("%d curtailment event%s", g.InstanceCount, plural(g.InstanceCount))
+		}
+		return fmt.Sprintf("%s %s (%s affected)", dot, escapeMrkdwn(sentenceText(g.Summaries[0])), affected)
 	}
 	lines := make([]string, 0, len(g.Summaries)+1)
 	for _, summary := range g.Summaries {
