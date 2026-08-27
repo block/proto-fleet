@@ -159,6 +159,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		ipScanner:                 noopLifecycle{},
 		commandExecution:          commandExecution,
 		scheduleProcessor:         producer,
+		rolloutEnforcement:        noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		curtailmentRigConfig:      noopLifecycle{},

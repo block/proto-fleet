@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +21,35 @@ import (
 
 	"github.com/block/proto-fleet/server/migrations"
 )
+
+// latestMigrationVersion returns the highest migration version in the
+// embedded source. Full migration runs land here, so assertions stay valid
+// as new migrations are added.
+func latestMigrationVersion(t *testing.T) int {
+	t.Helper()
+	entries, err := fs.ReadDir(migrations.Migrations, ".")
+	assert.NoError(t, err)
+	latest := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		idx := strings.IndexByte(name, '_')
+		if idx <= 0 {
+			continue
+		}
+		version, err := strconv.Atoi(name[:idx])
+		if err != nil {
+			continue
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	assert.True(t, latest > 0)
+	return latest
+}
 
 func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
@@ -50,7 +82,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 			var dirty bool
 			assert.NoError(t, conn.QueryRowContext(t.Context(),
 				"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-			assert.Equal(t, 143, version)
+			assert.Equal(t, latestMigrationVersion(t), version)
 			assert.False(t, dirty)
 
 			assertLegacyCurtailmentEnvelope(t, conn,
@@ -111,7 +143,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 	var dirty bool
 	assert.NoError(t, searchPathConn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, latestMigrationVersion(t), version)
 	assert.False(t, dirty)
 	assertLegacyCurtailmentEnvelope(t, searchPathConn, "curtailment_response_profile", true)
 }
@@ -136,7 +168,7 @@ func TestMigrationsThroughVersionNeverDowngrade(t *testing.T) {
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, latestMigrationVersion(t), version)
 	assert.False(t, dirty)
 	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_response_profile", true)
 	assertLegacyCurtailmentEnvelope(t, conn, "curtailment_event", true)
@@ -154,7 +186,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeAllowsFreshBootstrap(t *testing.T
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, latestMigrationVersion(t), version)
 	assert.False(t, dirty)
 }
 
@@ -207,7 +239,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, latestMigrationVersion(t), version)
 	assert.False(t, dirty)
 }
 
@@ -228,7 +260,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T)
 	var dirty bool
 	assert.NoError(t, conn.QueryRowContext(t.Context(),
 		"SELECT version, dirty FROM schema_migrations").Scan(&version, &dirty))
-	assert.Equal(t, 143, version)
+	assert.Equal(t, latestMigrationVersion(t), version)
 	assert.False(t, dirty)
 }
 
