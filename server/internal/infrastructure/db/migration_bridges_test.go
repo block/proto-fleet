@@ -315,13 +315,23 @@ func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 		RETURNING id
 	`).Scan(&userID))
 
+	var siteID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO site (org_id, name, slug)
+		VALUES ($1, 'Bridge site', 'bridge-site')
+		RETURNING id
+	`, orgID).Scan(&siteID))
+
 	var profileID int64
 	assert.NoError(t, conn.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_response_profile (
-			org_id, profile_name, mode, target_kw, scope_json
-		) VALUES ($1, 'Legacy profile', 'FIXED_KW', 100, '{}'::jsonb)
+			org_id, profile_name, mode, target_kw, site_id, scope_json
+		) VALUES (
+			$1, 'Legacy profile', 'FIXED_KW', 100, $2,
+			jsonb_build_object('site_ids', jsonb_build_array($2))
+		)
 		RETURNING id
-	`, orgID).Scan(&profileID))
+	`, orgID, siteID).Scan(&profileID))
 
 	var sourceID int64
 	assert.NoError(t, conn.QueryRowContext(t.Context(), `
@@ -388,15 +398,24 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	var profileRevision, ruleRevision uuid.UUID
+	var profileSiteID, scopeSiteID int64
+	var scopeSchemaVersion int
 	assert.NoError(t, conn.QueryRowContext(t.Context(), `
-		SELECT profile.revision, rule.response_profile_revision
+		SELECT
+			profile.revision,
+			rule.response_profile_revision,
+			profile.site_id,
+			(profile.scope_json->'site_ids'->>0)::BIGINT,
+			(profile.scope_json->>'scope_schema_version')::INT
 		FROM curtailment_response_profile AS profile
 		JOIN curtailment_automation_rule AS rule
 		  ON rule.response_profile_id = profile.id
 		 AND rule.org_id = profile.org_id
-	`).Scan(&profileRevision, &ruleRevision))
+	`).Scan(&profileRevision, &ruleRevision, &profileSiteID, &scopeSiteID, &scopeSchemaVersion))
 	assert.NotEqual(t, uuid.Nil, profileRevision)
 	assert.Equal(t, profileRevision, ruleRevision)
+	assert.Equal(t, profileSiteID, scopeSiteID)
+	assert.Equal(t, 1, scopeSchemaVersion)
 
 	var snapshotProfileID, ruleProfileID int64
 	var snapshotRevision uuid.UUID

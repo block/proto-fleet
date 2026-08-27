@@ -1,3 +1,17 @@
+-- Canonicalize API-created profiles before execution starts comparing the
+-- persisted selector schema with the request schema. Version-zero scopes were
+-- valid before topology selectors existed; after this migration all profiles
+-- use the current explicit selector contract.
+UPDATE curtailment_response_profile
+SET scope_json = CASE
+    WHEN scope_json = '{}'::JSONB THEN jsonb_build_object(
+        'whole_org', TRUE,
+        'scope_schema_version', 1
+    )
+    ELSE jsonb_set(scope_json, '{scope_schema_version}', '1'::JSONB, TRUE)
+END
+WHERE NOT (scope_json ? 'scope_schema_version');
+
 ALTER TABLE curtailment_response_profile
     ADD COLUMN revision UUID NOT NULL DEFAULT gen_random_uuid();
 
