@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MetricUnit, PerformanceMode } from "./generated/generatedApi";
 import {
   toCanonicalCoolingStatus,
   toCanonicalErrors,
@@ -15,7 +16,6 @@ import {
   toCanonicalTimeSeries,
   toV1CoolingMode,
 } from "./normalize";
-import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
 import { getAsicId, getPsuId } from "@/protoOS/store";
 import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 

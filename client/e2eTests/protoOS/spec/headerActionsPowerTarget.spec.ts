@@ -1,7 +1,7 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test } from "../fixtures/pageFixtures";
 import { getAuthAccessToken } from "../helpers/apiAuthHelper";
-import type { MiningTarget, MiningTargetResponse } from "@/protoOS/api/generatedApi";
+import type { MiningTarget, MiningTargetResponse } from "@/protoOS/api/adapters/mdkV1";
 
 function chooseCustomPowerTargetWatts({
   currentTargetWatts,

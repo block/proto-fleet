@@ -1,4 +1,4 @@
-import { Pool, PoolConfigInner, TestConnection } from "./generatedApi";
+import { Pool, PoolConfigInner, TestConnection } from "./adapters/mdkV1";
 import { isStratumV2URL } from "@/shared/components/MiningPools/PoolForm/constants";
 import { PoolInfo } from "@/shared/types/pool";
 

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
+import { RefreshRequest } from "@/protoOS/api/adapters/mdkV1";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { RefreshRequest } from "@/protoOS/api/generatedApi";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore, useSetAuthTokens } from "@/protoOS/store";

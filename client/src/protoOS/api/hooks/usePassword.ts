@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { ChangePasswordRequest, PasswordRequest } from "@/protoOS/api/generatedApi";
+import { ChangePasswordRequest, PasswordRequest } from "@/protoOS/api/adapters/mdkV1";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry, useSetDefaultPasswordActive, useSetPasswordSet } from "@/protoOS/store";
 

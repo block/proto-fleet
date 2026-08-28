@@ -9,7 +9,7 @@ import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } fro
 import { useChartDataForMetric, useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
 import { useFansTelemetry, useMinerTelemetry } from "./useTelemetry";
-import { MetricUnit } from "@/protoOS/api/generatedApi";
+import { MetricUnit } from "@/protoOS/api/adapters/mdkV1";
 
 describe("useMiner", () => {
   beforeEach(() => {

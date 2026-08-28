@@ -1,4 +1,4 @@
-import type { ChangePasswordRequest } from "@/protoOS/api/generatedApi";
+import type { ChangePasswordRequest } from "./mdkV1";
 import type {
   CoolingMode,
   FanTelemetry,

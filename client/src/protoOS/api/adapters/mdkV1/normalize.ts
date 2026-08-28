@@ -15,7 +15,7 @@ import type {
   TimeSeriesMetricData,
   TimeSeriesResponse,
   MetricUnit as V1MetricUnit,
-} from "@/protoOS/api/generatedApi";
+} from "./generated/generatedApi";
 import {
   asAsicId,
   asComponentId,
