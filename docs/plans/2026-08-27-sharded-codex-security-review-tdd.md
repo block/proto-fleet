@@ -1,9 +1,9 @@
 ---
 title: "Sharded Codex security review"
 date: 2026-08-27
-status: draft
+status: accepted
 type: tdd
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/975
 ---
 
 # Sharded Codex security review
@@ -17,9 +17,8 @@ cases completed; the other 50 exhausted the 12-minute outer budget. Compact
 context downgraded a known `HIGH` in two of three trials, `medium` effort
 recalled only one of four expected `MEDIUM` findings in completed reviews and
 produced an invalid new `HIGH`, and the bounded prompt also downgraded the known
-`HIGH`. Production
-therefore remains on `unified=40`,
-`xhigh`, and the baseline prompt.
+`HIGH`. Production therefore remains on `unified=40`, `xhigh`, and the baseline
+prompt.
 
 The existing reviewer has one model process inspect the full exact diff and any
 unchanged files it chooses. Large cross-component changes can therefore consume
@@ -82,11 +81,13 @@ replicated context. Domains do not receive separate packet allowances. Each of
 the two review-wide packets has both of these hard limits:
 
 - 500,000 bytes per complete packet.
-- 8,000 lines per complete packet.
+- 12,500 lines per complete packet.
 
-These initial limits are benchmark hypotheses. They split the known 812,319-byte,
-13,926-line PR #956 control into two possible packets while keeping the entire
-review in one parallel wave. If one semantic unit exceeds either limit, shared
+These initial limits are benchmark hypotheses. A planner dry run showed that PR
+#956 contains one indivisible 12,173-line lockfile unit. The line limit admits
+that unit, while the 500,000-byte limit still splits the known 812,319-byte,
+13,926-line control into two packets and keeps the entire review in one parallel
+wave. If one semantic unit exceeds either limit, shared
 context makes a packet exceed a limit, or the review-wide pool requires more
 than two bounded packets, the planner does not launch an unbounded model job. It
 emits a validated `oversized-review` incomplete result that requires human

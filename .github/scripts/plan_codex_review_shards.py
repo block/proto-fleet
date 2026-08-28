@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""Plan at most two architecture-aware Codex review shards for an exact diff."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+MAX_PACKET_BYTES = 500_000
+MAX_PACKET_LINES = 12_500
+SHARD_IDS = ("shard-1", "shard-2")
+
+
+@dataclass(frozen=True)
+class FileDiff:
+    path: str
+    domain: str
+    unit: str
+    shared: bool
+    patch: bytes
+
+    @property
+    def bytes(self) -> int:
+        return len(self.patch)
+
+    @property
+    def lines(self) -> int:
+        return len(self.patch.splitlines())
+
+
+@dataclass(frozen=True)
+class Unit:
+    key: str
+    files: tuple[FileDiff, ...]
+
+    @property
+    def bytes(self) -> int:
+        return sum(file.bytes for file in self.files)
+
+    @property
+    def lines(self) -> int:
+        return sum(file.lines for file in self.files)
+
+
+def is_generated(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return (
+        "/generated/" in f"/{path}"
+        or name.endswith((".pb.go", ".pb.ts", ".pb.py"))
+        or path == "client/src/protoOS/api/generatedApi.ts"
+    )
+
+
+def is_delivery_path(path: str) -> bool:
+    pure = PurePosixPath(path)
+    name = pure.name.lower()
+    return (
+        path.startswith(
+            (".github/", "deployment-files/", "docs/", "scripts/", "server/monitoring/")
+        )
+        or name.startswith(("dockerfile", "docker-compose", "compose."))
+        or "/" not in path
+    )
+
+
+def classify_path(path: str) -> str:
+    if is_delivery_path(path):
+        return "delivery"
+    if path.startswith(
+        ("proto/", "server/migrations/", "server/sqlc/", "server/generated/sqlc/")
+    ) or is_generated(path):
+        return "contracts"
+    if path.startswith("client/src/protoFleet/"):
+        return "protofleet"
+    if path.startswith("client/src/protoOS/"):
+        return "protoos"
+    if path.startswith("client/"):
+        return "client-shared"
+    if path.startswith("plugin/asicrs/"):
+        return "asicrs"
+    if path.startswith(("plugin/", "packages/proto-python-gen/")):
+        return "plugins"
+    if path.startswith("server/"):
+        return "server"
+    return "cross-cutting"
+
+
+def is_shared_contract(path: str, domain: str) -> bool:
+    if path.startswith("proto/") and not is_generated(path):
+        return True
+    if path.startswith(("server/migrations/", "server/sqlc/queries/")):
+        return True
+    if domain == "client-shared" and path.startswith("client/src/shared/"):
+        return True
+    return path in {
+        "go.work",
+        "go.work.sum",
+        "package.json",
+        "package-lock.json",
+        "justfile",
+    }
+
+
+def semantic_unit(path: str, domain: str, shared: bool) -> str:
+    parts = PurePosixPath(path).parts
+    prefix = "shared" if shared else "primary"
+    if domain in {"protofleet", "protoos"} and "features" in parts:
+        index = parts.index("features")
+        root = parts[: min(len(parts), index + 2)]
+    elif domain in {"plugins", "asicrs"}:
+        root = parts[: min(len(parts), 2)]
+    elif domain == "delivery":
+        if path.startswith("server/monitoring/"):
+            root = parts[: min(len(parts), 3)]
+        elif parts and parts[0] in {".github", "deployment-files", "docs", "scripts"}:
+            root = parts[: min(len(parts), 2)]
+        else:
+            root = parts[:1]
+    else:
+        root = parts[:-1] or parts
+    return f"{prefix}:{domain}:{'/'.join(root)}"
+
+
+def group_units(files: list[FileDiff]) -> list[Unit]:
+    grouped: dict[str, list[FileDiff]] = {}
+    for file in files:
+        grouped.setdefault(file.unit, []).append(file)
+    return [
+        Unit(key, tuple(sorted(group, key=lambda item: item.path)))
+        for key, group in sorted(grouped.items())
+    ]
+
+
+def _fits(current_bytes: int, current_lines: int, unit: Unit) -> bool:
+    return (
+        current_bytes + unit.bytes <= MAX_PACKET_BYTES
+        and current_lines + unit.lines <= MAX_PACKET_LINES
+    )
+
+
+def _assign_without_limits(units: list[Unit]) -> list[list[Unit]]:
+    bins: list[list[Unit]] = [[], []]
+    loads = [[0, 0], [0, 0]]
+    for unit in sorted(units, key=lambda item: (-item.bytes, -item.lines, item.key)):
+        index = min(
+            range(2),
+            key=lambda candidate: (loads[candidate][0], loads[candidate][1], candidate),
+        )
+        bins[index].append(unit)
+        loads[index][0] += unit.bytes
+        loads[index][1] += unit.lines
+    return bins
+
+
+def plan_files(files: list[FileDiff]) -> dict[str, Any]:
+    shared_files = sorted(
+        (file for file in files if file.shared), key=lambda item: item.path
+    )
+    primary_units = [unit for unit in group_units(files) if not unit.files[0].shared]
+    shared_bytes = sum(file.bytes for file in shared_files)
+    shared_lines = sum(file.lines for file in shared_files)
+    reasons: list[str] = []
+
+    if shared_bytes > MAX_PACKET_BYTES or shared_lines > MAX_PACKET_LINES:
+        reasons.append("replicated shared context exceeds a packet limit")
+
+    bins: list[list[Unit]] = [[], []]
+    loads = [[shared_bytes, shared_lines], [shared_bytes, shared_lines]]
+    for unit in sorted(
+        primary_units, key=lambda item: (-item.bytes, -item.lines, item.key)
+    ):
+        candidates = [
+            index for index in range(2) if _fits(loads[index][0], loads[index][1], unit)
+        ]
+        if not candidates:
+            reasons.append(
+                f"semantic unit {unit.key} does not fit in either bounded packet"
+            )
+            break
+        index = min(
+            candidates,
+            key=lambda candidate: (loads[candidate][0], loads[candidate][1], candidate),
+        )
+        bins[index].append(unit)
+        loads[index][0] += unit.bytes
+        loads[index][1] += unit.lines
+
+    status = "planned" if not reasons else "oversized"
+    if status == "oversized":
+        bins = _assign_without_limits(primary_units)
+
+    # Shared files have one primary owner. They are context in shard 2 only when
+    # the second review-wide packet has primary work.
+    primary_by_shard: list[list[FileDiff]] = [list(shared_files), []]
+    for index, units in enumerate(bins):
+        for unit in units:
+            primary_by_shard[index].extend(unit.files)
+    active = [bool(primary_by_shard[0]), bool(primary_by_shard[1])]
+    context_by_shard = [[], list(shared_files) if active[1] else []]
+
+    owners: dict[str, str] = {}
+    for index, owned in enumerate(primary_by_shard):
+        for file in owned:
+            if file.path in owners:
+                raise ValueError(
+                    f"changed file has multiple primary owners: {file.path}"
+                )
+            owners[file.path] = SHARD_IDS[index]
+    missing = sorted({file.path for file in files} - set(owners))
+    if missing:
+        raise ValueError(f"changed files have no primary owner: {missing}")
+
+    shard_records = []
+    for index, shard_id in enumerate(SHARD_IDS):
+        primary = sorted(primary_by_shard[index], key=lambda item: item.path)
+        context = sorted(context_by_shard[index], key=lambda item: item.path)
+        packet_files = sorted(
+            {file.path: file for file in primary + context}.values(),
+            key=lambda item: item.path,
+        )
+        shard_records.append(
+            {
+                "id": shard_id,
+                "active": active[index],
+                "primary_files": [file.path for file in primary],
+                "shared_files": [file.path for file in context],
+                "packet_bytes": sum(file.bytes for file in packet_files),
+                "packet_lines": sum(file.lines for file in packet_files),
+                "packet_files": len(packet_files),
+            }
+        )
+
+    file_records = [
+        {
+            "path": file.path,
+            "domain": file.domain,
+            "semantic_unit": file.unit,
+            "shared_contract": file.shared,
+            "primary_shard": owners[file.path],
+            "diff_bytes": file.bytes,
+            "diff_lines": file.lines,
+        }
+        for file in sorted(files, key=lambda item: item.path)
+    ]
+    return {
+        "status": status,
+        "oversized_reasons": reasons,
+        "limits": {
+            "max_packets": 2,
+            "max_packet_bytes": MAX_PACKET_BYTES,
+            "max_packet_lines": MAX_PACKET_LINES,
+        },
+        "files": file_records,
+        "shards": shard_records,
+    }
+
+
+def git(*args: str) -> bytes:
+    return subprocess.check_output(("git", *args))
+
+
+def changed_paths(commit_range: str) -> list[str]:
+    raw = git("diff", "--name-only", "-z", "--find-renames", commit_range)
+    return sorted(
+        path.decode("utf-8", "surrogateescape") for path in raw.split(b"\0") if path
+    )
+
+
+def file_patch(commit_range: str, path: str, unified: int, inter_hunk: int) -> bytes:
+    args = ["diff", "--find-renames", "--submodule=diff", f"--unified={unified}"]
+    if inter_hunk:
+        args.append(f"--inter-hunk-context={inter_hunk}")
+    args.extend((commit_range, "--", path))
+    return git(*args)
+
+
+def write_output(name: str, value: str) -> None:
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}={value}\n")
+
+
+def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, bytes]]:
+    files = []
+    patches: dict[str, bytes] = {}
+    for path in changed_paths(args.commit_range):
+        domain = classify_path(path)
+        shared = is_shared_contract(path, domain)
+        patch = file_patch(args.commit_range, path, args.unified, args.inter_hunk)
+        patches[path] = patch
+        files.append(
+            FileDiff(path, domain, semantic_unit(path, domain, shared), shared, patch)
+        )
+
+    plan = plan_files(files)
+    manifest = {
+        "schema_version": 1,
+        "case": args.case,
+        "variant": args.variant,
+        "repeat": args.repeat,
+        "base_sha": args.base_sha,
+        "head_sha": args.head_sha,
+        "commit_range": args.commit_range,
+        "unified": args.unified,
+        "inter_hunk_context": args.inter_hunk,
+        "case_metadata": json.loads(args.case_metadata_json),
+        "variant_metadata": json.loads(args.variant_metadata_json),
+        **plan,
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest["manifest_digest"] = hashlib.sha256(canonical).hexdigest()
+    return manifest, patches
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--case", required=True)
+    parser.add_argument("--variant", required=True)
+    parser.add_argument("--repeat", required=True)
+    parser.add_argument("--base-sha", required=True)
+    parser.add_argument("--head-sha", required=True)
+    parser.add_argument("--commit-range", required=True)
+    parser.add_argument("--shard", choices=SHARD_IDS, required=True)
+    parser.add_argument("--unified", type=int, required=True)
+    parser.add_argument("--inter-hunk", type=int, default=0)
+    parser.add_argument("--case-metadata-json", required=True)
+    parser.add_argument("--variant-metadata-json", required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args()
+
+    if args.commit_range != f"{args.base_sha}...{args.head_sha}":
+        raise SystemExit("commit range does not match the exact base/head SHAs")
+    if git("rev-parse", "HEAD").decode().strip() != args.head_sha:
+        raise SystemExit("historical checkout is not pinned to the requested head SHA")
+
+    manifest, patches = build_plan(args)
+    shard = next(item for item in manifest["shards"] if item["id"] == args.shard)
+    packet_paths = sorted(set(shard["primary_files"] + shard["shared_files"]))
+    packet = (
+        b"".join(patches[path] for path in packet_paths)
+        if manifest["status"] == "planned"
+        else b""
+    )
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = args.output_dir / "codex-shard-manifest.json"
+    packet_path = args.output_dir / "codex-review.diff"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    packet_path.write_bytes(packet)
+
+    write_output("planner_status", manifest["status"])
+    write_output("manifest_digest", manifest["manifest_digest"])
+    write_output(
+        "active",
+        "true" if manifest["status"] == "planned" and shard["active"] else "false",
+    )
+    write_output("bytes", str(shard["packet_bytes"]))
+    write_output("lines", str(shard["packet_lines"]))
+    write_output("files", str(shard["packet_files"]))
+    write_output(
+        "hunks", str(sum(1 for line in packet.splitlines() if line.startswith(b"@@")))
+    )
+    write_output(
+        "context_lines",
+        str(sum(1 for line in packet.splitlines() if line.startswith(b" "))),
+    )
+    write_output("started_at", str(int(__import__("time").time())))
+
+
+if __name__ == "__main__":
+    main()
