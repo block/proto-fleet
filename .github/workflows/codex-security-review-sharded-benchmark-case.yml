@@ -161,6 +161,7 @@ jobs:
             ${{ env.REVIEW_MANIFEST_FILE }}
             ${{ env.REVIEW_DIFF_FILE }}
             ${{ env.REVIEW_PLAN_DIR }}/shard-job-identity.json
+          include-hidden-files: true
           if-no-files-found: error
 
       - name: Require benchmark API key

@@ -97,7 +97,7 @@ def is_shared_contract(path: str, domain: str) -> bool:
         return True
     if path.startswith(("server/migrations/", "server/sqlc/queries/")):
         return True
-    if domain == "client-shared" and path.startswith("client/src/shared/"):
+    if domain == "client-shared":
         return True
     return path in {
         "go.work",
@@ -138,27 +138,46 @@ def group_units(files: list[FileDiff]) -> list[Unit]:
     ]
 
 
-def _fits(current_bytes: int, current_lines: int, unit: Unit) -> bool:
-    return (
-        current_bytes + unit.bytes <= MAX_PACKET_BYTES
-        and current_lines + unit.lines <= MAX_PACKET_LINES
-    )
-
-
 def _ordered_units(units: list[Unit]) -> list[Unit]:
     return sorted(units, key=lambda item: (-item.bytes, -item.lines, item.key))
 
 
+def _is_client_app_unit(unit: Unit) -> bool:
+    return any(file.domain in {"protofleet", "protoos"} for file in unit.files)
+
+
+def shared_context_for_units(
+    shared_files: list[FileDiff], units: list[Unit]
+) -> list[FileDiff]:
+    if not units:
+        return []
+    has_client_app = any(_is_client_app_unit(unit) for unit in units)
+    return [
+        file
+        for file in shared_files
+        if file.domain != "client-shared" or has_client_app
+    ]
+
+
 def find_bounded_assignment(
-    units: list[Unit], shared_bytes: int, shared_lines: int
+    units: list[Unit], shared_files: list[FileDiff]
 ) -> list[list[Unit]] | None:
     ordered = _ordered_units(units)
-    if sum(unit.bytes for unit in ordered) > 2 * (
-        MAX_PACKET_BYTES - shared_bytes
-    ) or sum(unit.lines for unit in ordered) > 2 * (MAX_PACKET_LINES - shared_lines):
+    shared_bytes = sum(file.bytes for file in shared_files)
+    shared_lines = sum(file.lines for file in shared_files)
+    if (
+        sum(unit.bytes for unit in ordered) + shared_bytes > 2 * MAX_PACKET_BYTES
+        or sum(unit.lines for unit in ordered) + shared_lines > 2 * MAX_PACKET_LINES
+    ):
         return None
 
-    failed: set[tuple[int, int, int, int, int]] = set()
+    global_context = [file for file in shared_files if file.domain != "client-shared"]
+    client_context = [file for file in shared_files if file.domain == "client-shared"]
+    global_bytes = sum(file.bytes for file in global_context)
+    global_lines = sum(file.lines for file in global_context)
+    client_bytes = sum(file.bytes for file in client_context)
+    client_lines = sum(file.lines for file in client_context)
+    failed: set[tuple[int, int, int, int, int, bool, bool]] = set()
 
     def search(
         position: int,
@@ -166,39 +185,63 @@ def find_bounded_assignment(
         lines_0: int,
         bytes_1: int,
         lines_1: int,
+        shard_1_active: bool,
+        shard_1_has_client_app: bool,
     ) -> tuple[int, ...] | None:
         if position == len(ordered):
             return ()
-        state = (position, bytes_0, lines_0, bytes_1, lines_1)
+        state = (
+            position,
+            bytes_0,
+            lines_0,
+            bytes_1,
+            lines_1,
+            shard_1_active,
+            shard_1_has_client_app,
+        )
         if state in failed:
             return None
         unit = ordered[position]
         loads = ((bytes_0, lines_0), (bytes_1, lines_1))
         candidates = sorted(range(2), key=lambda index: (*loads[index], index))
-        previous_load: tuple[int, int] | None = None
         for index in candidates:
             current_bytes, current_lines = loads[index]
-            if previous_load == (current_bytes, current_lines):
-                continue
-            previous_load = (current_bytes, current_lines)
-            if not _fits(current_bytes, current_lines, unit):
+            extra_bytes = unit.bytes
+            extra_lines = unit.lines
+            next_active = shard_1_active
+            next_has_client_app = shard_1_has_client_app
+            if index == 1:
+                if not shard_1_active:
+                    extra_bytes += global_bytes
+                    extra_lines += global_lines
+                    next_active = True
+                if _is_client_app_unit(unit) and not shard_1_has_client_app:
+                    extra_bytes += client_bytes
+                    extra_lines += client_lines
+                    next_has_client_app = True
+            if (
+                current_bytes + extra_bytes > MAX_PACKET_BYTES
+                or current_lines + extra_lines > MAX_PACKET_LINES
+            ):
                 continue
             next_loads = [list(loads[0]), list(loads[1])]
-            next_loads[index][0] += unit.bytes
-            next_loads[index][1] += unit.lines
+            next_loads[index][0] += extra_bytes
+            next_loads[index][1] += extra_lines
             suffix = search(
                 position + 1,
                 next_loads[0][0],
                 next_loads[0][1],
                 next_loads[1][0],
                 next_loads[1][1],
+                next_active,
+                next_has_client_app,
             )
             if suffix is not None:
                 return (index, *suffix)
         failed.add(state)
         return None
 
-    assignment = search(0, shared_bytes, shared_lines, shared_bytes, shared_lines)
+    assignment = search(0, shared_bytes, shared_lines, 0, 0, False, False)
     if assignment is None:
         return None
     bins: list[list[Unit]] = [[], []]
@@ -233,11 +276,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
     if shared_bytes > MAX_PACKET_BYTES or shared_lines > MAX_PACKET_LINES:
         reasons.append("replicated shared context exceeds a packet limit")
 
-    bins = (
-        find_bounded_assignment(primary_units, shared_bytes, shared_lines)
-        if not reasons
-        else None
-    )
+    bins = find_bounded_assignment(primary_units, shared_files) if not reasons else None
     if bins is None:
         reasons.append("semantic units do not fit in two bounded review-wide packets")
         bins = _assign_without_limits(primary_units)
@@ -251,7 +290,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
         for unit in units:
             primary_by_shard[index].extend(unit.files)
     active = [bool(primary_by_shard[0]), bool(primary_by_shard[1])]
-    context_by_shard = [[], list(shared_files) if active[1] else []]
+    context_by_shard = [[], shared_context_for_units(shared_files, bins[1])]
 
     owners: dict[str, str] = {}
     for index, owned in enumerate(primary_by_shard):

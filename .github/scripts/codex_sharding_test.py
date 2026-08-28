@@ -181,6 +181,22 @@ class PlannerTest(unittest.TestCase):
         }
         self.assertEqual({path: planner.classify_path(path) for path in cases}, cases)
 
+    def test_all_client_shared_contracts_are_replicated(self):
+        files = [
+            file_diff("client/package.json", 100, 1),
+            file_diff("client/src/protoFleet/page.tsx", 300_000, 10),
+            file_diff("client/src/protoOS/page.tsx", 300_000, 10),
+        ]
+        self.assertTrue(
+            planner.is_shared_contract(
+                "client/package.json", planner.classify_path("client/package.json")
+            )
+        )
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        self.assertIn("client/package.json", plan["shards"][0]["primary_files"])
+        self.assertIn("client/package.json", plan["shards"][1]["shared_files"])
+
     def test_review_wide_plan_has_exactly_one_owner_and_replicates_shared_context(self):
         files = [
             file_diff("proto/fleet/v1/service.proto", shared=True),
@@ -506,6 +522,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("sharded-benchmark-result-", called)
         self.assertIn("SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}", called)
         self.assertIn("String(job.id) === process.env.SHARD_JOB_ID", called)
+        self.assertIn("include-hidden-files: true", called)
         self.assertIn(
             "github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all'",
             parent,
