@@ -120,6 +120,37 @@ describe("MinerSearchInput", () => {
     expect(onQueryInput.mock.calls.map(([q]) => q)).toEqual(["r", "ra", ""]);
   });
 
+  it("cancels a pending query when an external value replaces it", () => {
+    vi.useFakeTimers();
+    const onQueryChange = vi.fn();
+    const onQueryInput = vi.fn();
+    const { rerender } = render(
+      <MinerSearchInput initialValue="" onQueryChange={onQueryChange} onQueryInput={onQueryInput} />,
+    );
+
+    fireEvent.change(searchBox(), { target: { value: "rack" } });
+    rerender(<MinerSearchInput initialValue="saved-view" onQueryChange={onQueryChange} onQueryInput={onQueryInput} />);
+    vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+
+    expect(searchBox()).toHaveValue("saved-view");
+    expect(onQueryChange).not.toHaveBeenCalled();
+    expect(onQueryInput).toHaveBeenLastCalledWith("saved-view");
+  });
+
+  it("caps search text at the API's 255 Unicode code-point limit", () => {
+    vi.useFakeTimers();
+    const onQueryChange = vi.fn();
+    render(<MinerSearchInput initialValue="" onQueryChange={onQueryChange} />);
+
+    const query = `${"a".repeat(254)}🐝extra`;
+    fireEvent.change(searchBox(), { target: { value: query } });
+    vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+
+    const expected = `${"a".repeat(254)}🐝`;
+    expect(searchBox()).toHaveValue(expected);
+    expect(onQueryChange).toHaveBeenCalledExactlyOnceWith(expected);
+  });
+
   it("cancels a pending query when unmounted mid-debounce", () => {
     vi.useFakeTimers();
     const onQueryChange = vi.fn();

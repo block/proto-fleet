@@ -2,9 +2,13 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class LogsPage extends BasePage {
+  private searchInput() {
+    return this.page.getByRole("textbox", { name: "Search" });
+  }
+
   async validateLogsPageOpened() {
     await expect(this.page).toHaveURL(/.*\/logs/);
-    await expect(this.page.getByLabel("Search")).toBeVisible();
+    await expect(this.searchInput()).toBeVisible();
     await expect(this.page.getByRole("button", { name: "Export" })).toBeVisible();
   }
 
@@ -21,12 +25,12 @@ export class LogsPage extends BasePage {
   }
 
   async searchLogs(query: string) {
-    const searchInput = this.page.getByLabel("Search");
+    const searchInput = this.searchInput();
     await searchInput.fill(query);
   }
 
   async clearSearch() {
-    const searchInput = this.page.getByLabel("Search");
+    const searchInput = this.searchInput();
     await searchInput.focus();
     await searchInput.press("Escape");
     await expect(searchInput).toHaveValue("");
