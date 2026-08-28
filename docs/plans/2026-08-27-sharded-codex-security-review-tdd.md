@@ -52,29 +52,42 @@ contracts or relying on a second unbounded model pass.
 ### Trusted shard planner
 
 A trusted workflow step reads the exact changed-file list and assigns files to
-stable architecture domains:
+stable architecture domains. The table is evaluated top to bottom and the first
+match wins, so ownership is deterministic and mutually exclusive:
 
-| Domain | Primary paths |
-| --- | --- |
-| Contracts and persistence | `proto/`, migrations, sqlc queries, generated API boundaries |
-| Server | `server/` excluding shared contract inputs |
-| Shared client contracts | `client/src/shared/`; replicated as context to every affected client-app shard |
-| ProtoFleet | `client/src/protoFleet/` |
-| ProtoOS | `client/src/protoOS/` |
-| Go/Python plugins | `plugin/` except `plugin/asicrs/`, generator packages |
-| ASIC-RS | `plugin/asicrs/` |
-| Delivery and infrastructure | `.github/`, Docker, deployment, monitoring, scripts, root tooling |
+| Precedence | Domain | Primary paths |
+| ---: | --- | --- |
+| 1 | Delivery and repository infrastructure | `.github/`, `deployment-files/`, `docs/`, `scripts/`, `server/monitoring/`, every `Dockerfile*` and Compose file, and root-level tooling/configuration |
+| 2 | Contracts and persistence | `proto/`, `server/migrations/`, `server/sqlc/`, `server/generated/sqlc/`, generated protobuf files, and generated API boundaries |
+| 3 | ProtoFleet | `client/src/protoFleet/` |
+| 4 | ProtoOS | `client/src/protoOS/` |
+| 5 | Shared client contracts | Remaining `client/`, including `client/src/shared/`; replicated as context to every affected client-app shard |
+| 6 | ASIC-RS | `plugin/asicrs/` |
+| 7 | Go/Python plugins | Remaining `plugin/` and plugin-generator packages |
+| 8 | Server | Remaining `server/` |
+| 9 | Cross-cutting | Every remaining path |
 
 The planner is path-based, versioned on the trusted default branch, and emits a
 machine-readable manifest containing the exact base/head SHAs, every changed
-file, its owning shard, and shared-contract membership. Unknown paths go to a
-conservative cross-cutting shard rather than being dropped.
+file, its owning shard, and shared-contract membership. The final cross-cutting
+rule ensures unknown paths are reviewed rather than dropped.
 
-Create a shard only when its primary domain has changed. Cap the first
-experiment at two shards so both model jobs can run in one bounded parallel
-wave. If more than two domains change, combine adjacent domains according to a
-checked-in deterministic merge order; never split a domain merely to equalize
-bytes.
+Within each domain, the planner forms indivisible semantic units: Go packages,
+client feature directories, protobuf packages, a migration with its sqlc
+contract, plugin modules, or one deployment surface. It never splits a file or
+hunk. It then assigns units deterministically to no more than two shard packets,
+including replicated context, with both of these hard limits:
+
+- 500,000 bytes per complete packet.
+- 8,000 lines per complete packet.
+
+These initial limits are benchmark hypotheses. They split the known 812,319-byte,
+13,926-line PR #956 control into two possible packets while keeping both model
+jobs in one parallel wave. If one semantic unit exceeds either limit, shared
+context makes a packet exceed a limit, or the units require more than two
+bounded packets, the planner does not launch an unbounded model job. It emits a
+validated `oversized-review` incomplete result that requires human review and
+records the limiting units and packet measurements.
 
 ### Shared review context
 
@@ -91,7 +104,8 @@ Each shard receives:
 The packet records primary and shared files separately so duplicated contract
 context cannot be mistaken for duplicate review ownership. Every changed file
 must appear as primary in exactly one shard. The finalizer rejects manifests
-with missing, multiply owned, stale-SHA, or out-of-range files.
+with missing, multiply owned, stale-SHA, or out-of-range files and remeasures
+each complete packet against both hard size limits.
 
 ### Bounded shard execution
 
@@ -104,8 +118,9 @@ upload inside the current 15-minute end-to-end target.
 Each shard emits the existing structured risk and Markdown contract plus trusted
 metadata identifying its shard, exact range, primary files, shared files, run
 ID, completion status, and elapsed time. Early, manual, superseded, setup, and
-ambiguous cancellation remain hard failures. A verified shard budget timeout is
-an incomplete review, not a successful empty result.
+ambiguous cancellation remain hard failures. A verified shard budget timeout or
+planner-produced `oversized-review` result is validated incomplete evidence,
+not a successful empty result.
 
 ### Deterministic aggregation
 
@@ -113,8 +128,13 @@ A trusted aggregation job runs after every shard finalizer and does not execute
 code from the reviewed checkout. It:
 
 - Verifies the manifest, exact SHAs, run identity, and one result per shard.
-- Fails closed to overall `HIGH` when any shard is incomplete, malformed, or
-  missing; the review states which domains require human review.
+- Produces overall `HIGH` only for validated incomplete evidence, such as a
+  verified shard budget timeout, finalizer-normalized unusable model output, or
+  planner-produced `oversized-review`; the review states which domains require
+  human review.
+- Hard-fails the workflow when a trusted artifact is missing, corrupt,
+  malformed, stale, or bound to another run. Artifact upload and finalizer
+  failures never become normal aggregate findings.
 - Computes overall risk as the maximum shard severity.
 - Concatenates findings in severity, shard, path, and line order.
 - Preserves potentially duplicate findings rather than using a model or fuzzy
@@ -165,10 +185,12 @@ revalidating that the PR head is current.
 | Risk | Mitigation |
 | --- | --- |
 | A cross-domain bug is hidden | Replicate changed shared contracts and include the complete changed-file manifest in every shard |
-| Replicated context increases cost | Create only affected shards, cap concurrency, and measure duplicated packet bytes |
+| Replicated context increases cost | Create only affected shards, cap concurrency, include shared bytes in the hard packet limits, and measure duplication |
 | Findings are duplicated | Preserve them by default; allow only exact deterministic fingerprint deduplication |
-| One shard timeout is masked | Any incomplete shard forces an aggregate `HIGH` human-review result |
-| Path rules silently omit files | Require exact one-to-one primary ownership and route unknown paths to a cross-cutting shard |
+| One shard timeout is masked | Any validated incomplete shard forces an aggregate `HIGH` human-review result |
+| Trusted handoff failure looks like model incompletion | Hard-fail missing, corrupt, stale, cross-run, or malformed artifacts; accept only validated incomplete evidence |
+| One semantic unit exceeds the packet bound | Skip the model and emit a measured `oversized-review` human-review result instead of running unbounded |
+| Path rules overlap or silently omit files | Apply first-match precedence, require exact one-to-one primary ownership, and route unmatched paths to a cross-cutting shard |
 | Matrix output is mixed across runs | Bind every shard artifact to run ID, shard ID, exact base/head SHAs, and manifest digest |
 | Aggregation executes untrusted code | Use inline trusted default-branch logic without a PR checkout |
 | Parallelism increases API spend | Start at `max-parallel: 2`, record per-shard tokens, and cap the number of shards |
@@ -176,12 +198,17 @@ revalidating that the PR head is current.
 
 ## Test plan
 
-- Unit-test path ownership, unknown-path fallback, deterministic domain merging,
-  shared-contract replication, and exact one-to-one changed-file coverage.
+- Unit-test first-match path ownership, unknown-path fallback, semantic-unit
+  grouping, deterministic packing, shared-contract replication, and exact
+  one-to-one changed-file coverage.
+- Test both packet limits at, below, and above the boundary, including a single
+  oversized unit, replicated context overflow, and a change requiring more than
+  two packets.
 - Assert byte-identical security boundary, schema, sandbox, model, and prompt
   between production and benchmark shard jobs.
-- Test aggregate severity, stable ordering, exact deduplication, and fail-closed
-  behavior for missing, malformed, stale, timed-out, and cross-run artifacts.
+- Test aggregate severity, stable ordering, exact deduplication, and validated
+  timeout/oversized `HIGH` behavior. Separately prove missing, corrupt,
+  malformed, stale, and cross-run artifacts hard-fail the workflow.
 - Mock Actions APIs to distinguish verified budget timeout from setup, manual,
   infrastructure, and supersession cancellation.
 - Run actionlint, Ruff, workflow-policy tests, and executable mocked posting
