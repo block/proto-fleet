@@ -21,7 +21,13 @@ const __dirname = path.dirname(__filename); // get the name of the directory
 export default [
   // global ignores
   {
-    ignores: ["**/dist/**", "scripts/**", "**/playwright-report/**", "**/test-results/**", "**/api/generated/**"],
+    ignores: [
+      "**/dist/**",
+      "scripts/**",
+      "**/playwright-report/**",
+      "**/test-results/**",
+      "**/api/adapters/*/generated/**",
+    ],
   },
   eslint.configs.recommended,
   {
@@ -187,6 +193,15 @@ export default [
             {
               group: ["@/protoFleet", "@/protoFleet/**"],
               message: "protoOS must not import from protoFleet. Move shared code into src/shared.",
+            },
+            {
+              // A generated MDK client is private to its adapter. Import through the
+              // adapter's public barrel (e.g. @/protoOS/api/adapters/mdkV1) instead.
+              // The owning adapter reaches its own client via relative paths
+              // (./generated/…), which these globs do not match.
+              group: ["@/protoOS/api/adapters/*/generated", "@/protoOS/api/adapters/*/generated/**"],
+              message:
+                "Generated MDK clients are private to their adapter. Import through the adapter barrel (e.g. @/protoOS/api/adapters/mdkV1), not its generated/ folder.",
             },
           ],
         },

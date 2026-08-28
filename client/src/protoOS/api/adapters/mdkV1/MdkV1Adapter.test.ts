@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { MetricUnit } from "./generated/generatedApi";
 import { MdkV1Adapter } from "./MdkV1Adapter";
-import { MetricUnit } from "@/protoOS/api/generatedApi";
 import { poolInfoToPoolConfig, poolInfoToTestConnection } from "@/protoOS/api/poolAdapters";
 import { getAsicId } from "@/protoOS/store";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";

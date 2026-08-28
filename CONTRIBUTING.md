@@ -185,7 +185,7 @@ All generated code must be committed to Git. Run `just gen` after:
 
 Never manually edit generated files in:
 
-- `client/src/protoOS/api/generatedApi.ts`
+- `client/src/protoOS/api/adapters/*/generated/`
 - `client/src/protoFleet/api/generated/`
 - `server/generated/`
 

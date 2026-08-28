@@ -15,5 +15,5 @@ pnpm-lock.yaml
 # Ignore CLAUDE.md documentation
 CLAUDE.md 
 
-# Generated API output
-src/protoOS/api/generatedApi.ts
+# Generated API output (each MDK client lives under its adapter's generated/ folder)
+src/protoOS/api/adapters/*/generated/

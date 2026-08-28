@@ -9,6 +9,14 @@ import type {
   TimeSeriesQuery,
 } from "../types";
 import {
+  type Api,
+  type ChangePasswordRequest,
+  type GetCurrentTelemetryParams,
+  type LocateSystemParams,
+  type TimeSeriesRequest,
+  PerformanceMode as V1PerformanceMode,
+} from "./generated/generatedApi";
+import {
   toCanonicalCoolingStatus,
   toCanonicalErrors,
   toCanonicalHardware,
@@ -25,14 +33,6 @@ import {
   toCanonicalTimeSeries,
   toV1CoolingMode,
 } from "./normalize";
-import {
-  type Api,
-  type ChangePasswordRequest,
-  type GetCurrentTelemetryParams,
-  type LocateSystemParams,
-  type TimeSeriesRequest,
-  PerformanceMode as V1PerformanceMode,
-} from "@/protoOS/api/generatedApi";
 import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
 import type { PoolInfo } from "@/shared/types/pool";
 

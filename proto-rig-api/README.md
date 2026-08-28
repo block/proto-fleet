@@ -29,7 +29,7 @@ Used by:
 cd client && npm run generate-api-types
 ```
 
-The generated code is placed in `client/src/protoOS/api/generatedApi.ts`.
+The generated code is placed in `client/src/protoOS/api/adapters/<dialect>/generated/generatedApi.ts` (e.g. `adapters/mdkV1/generated/`). Each generated client is private to its adapter; consumers import through the adapter barrel (e.g. `@/protoOS/api/adapters/mdkV1`), a boundary enforced by `no-restricted-imports` in `client/eslint.config.js`.
 
 The simulator (`server/fake-proto-rig/`) manually implements these endpoints - see its README for maintenance guidelines.
 

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { PasswordRequest } from "@/protoOS/api/generatedApi";
+import { PasswordRequest } from "@/protoOS/api/adapters/mdkV1";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetAuthTokens } from "@/protoOS/store";
 import { accessTokenExpiryTime, refreshTokenExpiryTime } from "@/shared/utils/utility";

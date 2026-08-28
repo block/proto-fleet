@@ -96,8 +96,7 @@ code does, not the decisions made getting there. Structure it as:
 
 1. `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).`
    The line count comes from the PR diff after excluding generated files
-   (`**/generated/**`, `*.pb.go`, `*.pb.ts`,
-   `client/src/protoOS/api/generatedApi.ts`), test files (`*_test.go`,
+   (`**/generated/**`, `*.pb.go`, `*.pb.ts`), test files (`*_test.go`,
    `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`, `test/**`), and story
    files (`*.stories.*`, `*.story.*`, `stories/**`). Put this line first, above
    Summary.
