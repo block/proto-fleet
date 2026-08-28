@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
@@ -17,6 +18,13 @@ import type {
   AutomationRuleFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
+
+const responseProfileRevisionConflictMessage =
+  "curtailment response profile changed before automation rule save; retry";
+
+type UseCurtailmentAutomationRulesOptions = {
+  refreshResponseProfiles?: () => Promise<unknown>;
+};
 
 export type UseCurtailmentAutomationRulesResult = {
   automationRules: AutomationRule[];
@@ -75,6 +83,14 @@ function requireResponseProfileRevision(value: string | undefined): string {
   return revision;
 }
 
+function isResponseProfileRevisionConflict(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.rawMessage === responseProfileRevisionConflictMessage
+  );
+}
+
 function buildAutomationRulePayload(values: AutomationRuleFormValues) {
   return {
     ruleName: values.name.trim(),
@@ -85,7 +101,10 @@ function buildAutomationRulePayload(values: AutomationRuleFormValues) {
   };
 }
 
-export default function useCurtailmentAutomationRules(enabled = true): UseCurtailmentAutomationRulesResult {
+export default function useCurtailmentAutomationRules(
+  enabled = true,
+  { refreshResponseProfiles }: UseCurtailmentAutomationRulesOptions = {},
+): UseCurtailmentAutomationRulesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [apiRules, setApiRules] = useState<ApiCurtailmentAutomationRule[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -251,6 +270,9 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
+        if (enabled && isResponseProfileRevisionConflict(error)) {
+          await refreshResponseProfiles?.().catch(() => {});
+        }
         throw handleFailure(error, "Failed to update automation rule.");
       } finally {
         setUpdatingRuleIds((currentIds) => {
@@ -260,7 +282,7 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         });
       }
     },
-    [automationRules, handleFailure],
+    [automationRules, handleFailure, refreshResponseProfiles],
   );
 
   const deleteAutomationRule = useCallback(

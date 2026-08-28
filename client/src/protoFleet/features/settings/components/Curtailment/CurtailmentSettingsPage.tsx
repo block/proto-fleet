@@ -1857,6 +1857,7 @@ function CurtailmentSettingsPage(): ReactElement {
     isCreating: isCreatingResponseProfile,
     updatingProfileIds,
     loadError: responseProfilesLoadError,
+    listResponseProfiles,
     createResponseProfile,
     updateResponseProfile,
     deleteResponseProfile,
@@ -1884,7 +1885,7 @@ function CurtailmentSettingsPage(): ReactElement {
     updateAutomationRule,
     setAutomationRuleEnabled,
     deleteAutomationRule,
-  } = useCurtailmentAutomationRules(canManageCurtailment);
+  } = useCurtailmentAutomationRules(canManageCurtailment, { refreshResponseProfiles: listResponseProfiles });
   const {
     devices: infrastructureDevices,
     isLoading: isLoadingInfrastructureDevices,

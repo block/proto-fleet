@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   type CurtailmentAutomationRule,
@@ -177,6 +178,29 @@ describe("useCurtailmentAutomationRules", () => {
         ruleId: 7n,
       }),
     );
+  });
+
+  it("refreshes response profiles after a stale revision prevents enabling a rule", async () => {
+    const refreshResponseProfiles = vi.fn().mockResolvedValue([]);
+    const conflict = new ConnectError(
+      "curtailment response profile changed before automation rule save; retry",
+      Code.FailedPrecondition,
+    );
+    mockSetCurtailmentAutomationRuleEnabled.mockRejectedValueOnce(conflict);
+
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false, { refreshResponseProfiles }));
+
+    let caughtError: unknown;
+    await act(async () => {
+      try {
+        await result.current.setAutomationRuleEnabled("7", true, formValues.responseProfileRevision);
+      } catch (error) {
+        caughtError = error;
+      }
+    });
+
+    expect(caughtError).toEqual(expect.objectContaining({ message: conflict.rawMessage }));
+    expect(refreshResponseProfiles).toHaveBeenCalledOnce();
   });
 
   it("rejects invalid source and response profile IDs before creating a CRUD request", async () => {

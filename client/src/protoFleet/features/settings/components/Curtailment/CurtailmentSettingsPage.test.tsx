@@ -571,7 +571,9 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
-    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true, {
+      refreshResponseProfiles: expect.any(Function),
+    });
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
     expect(
@@ -1988,7 +1990,9 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
-    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false, {
+      refreshResponseProfiles: expect.any(Function),
+    });
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
   });
 });
