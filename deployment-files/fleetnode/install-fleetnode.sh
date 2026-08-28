@@ -81,6 +81,8 @@ PROGRAM_DIR="${ROOT_PREFIX}/opt/fleetnode"
 CONFIG_DIR="${ROOT_PREFIX}/etc/fleetnode"
 STATE_DIR="${ROOT_PREFIX}/var/lib/fleetnode"
 UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleetnode.service"
+INSTALL_LOCK_DIR="${ROOT_PREFIX}/run/proto-fleet"
+INSTALL_LOCK_PATH="$INSTALL_LOCK_DIR/fleetnode-installer.lock"
 SYSTEMCTL="${FLEETNODE_SYSTEMCTL:-systemctl}"
 ARCHIVE_ROOT="fleetnode-${VERSION}-linux-${ARCH}"
 ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
@@ -88,7 +90,7 @@ if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
   DOWNLOAD_BASE_URL="https://github.com/block/proto-fleet/releases/download/${VERSION}"
 fi
 
-for command in curl sha256sum tar install "$SYSTEMCTL"; do
+for command in curl sha256sum tar install flock "$SYSTEMCTL"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
 if [[ "$TEST_MODE" != "1" && ! -x /usr/bin/env ]]; then
@@ -105,7 +107,7 @@ if [[ "$TEST_MODE" != "1" ]]; then
   done
 fi
 
-for path in "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH"; do
+for path in "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
   if [[ -L "$path" ]]; then
     echo "refusing to install through symlink: $path" >&2
     exit 1
@@ -113,6 +115,23 @@ for path in "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH"; do
 done
 if [[ -e "$PROGRAM_DIR" && ! -d "$PROGRAM_DIR" ]]; then
   echo "program path exists but is not a directory: $PROGRAM_DIR" >&2
+  exit 1
+fi
+
+if [[ "$TEST_MODE" == "1" ]]; then
+  install -d -m 0755 "$INSTALL_LOCK_DIR"
+else
+  install -d -o root -g root -m 0755 "$INSTALL_LOCK_DIR"
+fi
+(
+  umask 077
+  : >> "$INSTALL_LOCK_PATH"
+)
+chmod 0600 "$INSTALL_LOCK_PATH"
+INSTALL_LOCK_FD=9
+exec 9<>"$INSTALL_LOCK_PATH"
+if ! flock -n "$INSTALL_LOCK_FD"; then
+  echo "another Fleet Node installer is running" >&2
   exit 1
 fi
 

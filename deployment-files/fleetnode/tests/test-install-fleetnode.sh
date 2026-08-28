@@ -59,6 +59,12 @@ cat > "$TEST_DIR/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
+if [[ "${1:-}" == "is-active" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
+  : > "$FAKE_FLEETNODE_LOCK_READY"
+  while [[ -e "${FAKE_FLEETNODE_LOCK_BLOCK:-}" ]]; do
+    sleep 0.05
+  done
+fi
 if [[ "${1:-}" == "is-active" ]]; then
   [[ "${FAKE_FLEETNODE_ACTIVE:-0}" == "1" ]]
   exit
@@ -77,11 +83,22 @@ exit 0
 EOF
 chmod 0755 "$TEST_DIR/bin/nmap"
 
+cat > "$TEST_DIR/bin/flock" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${REAL_FLOCK:-}" ]]; then
+  exec "$REAL_FLOCK" "$@"
+fi
+exit 0
+EOF
+chmod 0755 "$TEST_DIR/bin/flock"
+
 NO_NMAP_BIN="$TEST_DIR/no-nmap-bin"
 mkdir -p "$NO_NMAP_BIN"
 for command in uname curl sha256sum tar install; do
   ln -s "$(command -v "$command")" "$NO_NMAP_BIN/$command"
 done
+ln -s "$TEST_DIR/bin/flock" "$NO_NMAP_BIN/flock"
 if PATH="$NO_NMAP_BIN" \
   FLEETNODE_TEST_MODE=1 \
   FLEETNODE_ROOT_PREFIX="$ROOT_PREFIX" \
@@ -93,6 +110,8 @@ fi
 assert_file_contains "$TEST_DIR/missing-nmap.err" "required command not found: nmap"
 assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
 assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'PATH="$LINUX_SERVICE_PATH"'
+assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'exec 9<>"$INSTALL_LOCK_PATH"'
+assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'if ! flock -n "$INSTALL_LOCK_FD"; then'
 
 if FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
     /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
@@ -111,6 +130,9 @@ run_installer() {
   local version="$1"
   FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-0}" \
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
+  FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
+  FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
+  REAL_FLOCK="${REAL_FLOCK:-}" \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
   PATH="$TEST_DIR/bin:$PATH" \
   FLEETNODE_TEST_MODE=1 \
@@ -150,6 +172,39 @@ assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity mater
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleetnode.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleetnode.service"
 
+if REAL_FLOCK_BINARY=$(command -v flock 2>/dev/null); then
+  LOCK_READY="$TEST_DIR/installer-lock.ready"
+  LOCK_BLOCK="$TEST_DIR/installer-lock.block"
+  : > "$LOCK_BLOCK"
+  REAL_FLOCK="$REAL_FLOCK_BINARY" \
+    FAKE_FLEETNODE_ACTIVE=0 \
+    FAKE_FLEETNODE_LOCK_READY="$LOCK_READY" \
+    FAKE_FLEETNODE_LOCK_BLOCK="$LOCK_BLOCK" \
+    run_installer v1.1.0 > "$TEST_DIR/first-installer.log" 2>&1 &
+  first_installer_pid=$!
+
+  for _ in {1..100}; do
+    [[ -e "$LOCK_READY" ]] && break
+    sleep 0.05
+  done
+  if [[ ! -e "$LOCK_READY" ]]; then
+    rm -f "$LOCK_BLOCK"
+    wait "$first_installer_pid" || true
+    fail "first installer did not reach the lock test barrier"
+  fi
+
+  if REAL_FLOCK="$REAL_FLOCK_BINARY" run_installer v1.1.0 > "$TEST_DIR/second-installer.log" 2>&1; then
+    rm -f "$LOCK_BLOCK"
+    wait "$first_installer_pid" || true
+    fail "installer accepted an overlapping invocation"
+  fi
+  assert_file_contains "$TEST_DIR/second-installer.log" "another Fleet Node installer is running"
+
+  rm -f "$LOCK_BLOCK"
+  wait "$first_installer_pid"
+  assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+fi
+
 if run_installer v1.2.0; then
   fail "installer accepted an archive entry outside the Fleet Node manifest"
 fi
@@ -163,9 +218,12 @@ if FLEETNODE_TEST_MODE=1 \
   FLEETNODE_ARCH=amd64 \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
   FLEETNODE_DOWNLOAD_BASE_URL="file://$ASSETS_DIR/bad-checksum" \
-    bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.1.0; then
+  SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
+  PATH="$TEST_DIR/bin:$PATH" \
+    bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.1.0 2> "$TEST_DIR/bad-checksum.err"; then
   fail "installer accepted a checksum mismatch"
 fi
+assert_file_contains "$TEST_DIR/bad-checksum.err" "checksum sidecar is not bound"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity material"
 
