@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
@@ -24,7 +25,7 @@ import {
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, createErrorWithCause, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 import {
   curtailmentNumericFieldLimits,
@@ -40,6 +41,7 @@ import {
 import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "15";
+const responseProfileUpdateConflictMessage = "curtailment response profile changed before update; retry";
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
 const restoreBatchSizeOptions = {
   label: "restore batch size",
@@ -102,6 +104,14 @@ function getUnknownResponseProfileScopeValues(): ResponseProfileScopeValues {
 
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
+}
+
+function isResponseProfileUpdateConflict(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.rawMessage === responseProfileUpdateConflictMessage
+  );
 }
 
 function numberToNonNegativeInputValue(value: number | undefined): string {
@@ -213,7 +223,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     cachedFormValues,
     siteNameById,
   );
-  const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
+  const fixedKwParams = profile.modeParams.case === "fixedKw" ? profile.modeParams.value : undefined;
+  const fixedKw = fixedKwParams?.targetKw;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
   const targetKw = numberToInputValue(fixedKw);
@@ -232,6 +243,9 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         ...scopeFormValues,
         scopeType: scopeFormValues.scopeType,
         targetKw,
+        toleranceKw: numberToNonNegativeInputValue(fixedKwParams?.toleranceKw),
+        priority: profile.priority === CurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+        postEventCooldownSec: numberToNonNegativeInputValue(profile.postEventCooldownSec),
         selectionStrategy: "leastEfficientFirst",
         restoreBehavior,
         minDurationSec: "",
@@ -252,12 +266,10 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     formValues && cachedFormValues && !readOnlyScopeSummary
       ? {
           ...formValues,
-          ...cachedFormValues,
-          name: profile.profileName,
+          minDurationSec: cachedFormValues.minDurationSec,
+          maxDurationSec: cachedFormValues.maxDurationSec,
+          responseDeadlineMinutes: cachedFormValues.responseDeadlineMinutes,
           ...scopeFormValues,
-          facilityFanDeviceIds: formValues.facilityFanDeviceIds,
-          fanOffDelaySec: formValues.fanOffDelaySec,
-          fanRestoreDelaySec: formValues.fanRestoreDelaySec,
         }
       : formValues;
   let scope: string;
@@ -271,6 +283,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
 
   return {
     id: profile.profileId.toString(),
+    revision: profile.revision,
     name: profile.profileName,
     targetSummary,
     scope,
@@ -355,6 +368,7 @@ function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResp
     case: "fixedKw",
     value: create(FixedKwParamsSchema, {
       targetKw: Number(values.targetKw),
+      toleranceKw: values.toleranceKw.trim() === "" ? undefined : Number(values.toleranceKw),
     }),
   };
 }
@@ -401,7 +415,7 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function buildResponseProfilePayload(values: ResponseProfileFormValues) {
+function buildResponseProfilePayload(values: ResponseProfileFormValues, preserveIndependentMaintenance = false) {
   const scopes = buildCurtailmentScopes(values);
   if (scopes === undefined) {
     throw new Error("Select a curtailment target scope.");
@@ -411,16 +425,17 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   // mirroring the Start request builders. The
   // proto validator requires include_maintenance == force_include_maintenance.
   //
-  // The maintenance pair derives SOLELY from the all-paired flag: the form
-  // hydrates includeMaintenance from previously saved profiles (where the
-  // coupling wrote it as true), and with the maintenance toggle gone from the
-  // UI, unchecking "Target all paired miners" must also drop the admin-gated
-  // maintenance inclusion instead of silently carrying it forward.
+  // New profiles and profiles that coupled maintenance to all-paired derive
+  // the maintenance pair solely from the visible all-paired control. An
+  // existing profile created through another client may store maintenance
+  // inclusion independently; preserve that setting on edits because this form
+  // has no independent control for changing it.
   const forceIncludeAllPairedMiners =
     values.actionType === "fullFleet" &&
     Boolean(values.forceIncludeAllPairedMiners) &&
     scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
-  const includeMaintenance = forceIncludeAllPairedMiners;
+  const includeMaintenance =
+    forceIncludeAllPairedMiners || (preserveIndependentMaintenance && values.includeMaintenance);
   return {
     profileName: values.name.trim(),
     scopes,
@@ -428,7 +443,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
-    priority: CurtailmentPriority.NORMAL,
+    priority: values.priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL,
     modeParams: getModeParams(values),
     curtailBatchSize: getOptionalPositiveNumber(values.curtailBatchSize),
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
@@ -440,6 +455,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     includeMaintenance,
     forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,
+    postEventCooldownSec: getOptionalNonNegativeNumber(values.postEventCooldownSec),
   };
 }
 
@@ -567,10 +583,18 @@ export default function useCurtailmentResponseProfiles(
       setUpdatingProfileIds((currentIds) => new Set(currentIds).add(profileId));
 
       try {
+        const currentProfile = apiProfiles.find((profile) => profile.profileId.toString() === profileId);
+        if (!currentProfile?.revision) {
+          throw new Error("Reload the response profile before updating it.");
+        }
         const response = await curtailmentClient.updateCurtailmentResponseProfile(
           create(UpdateCurtailmentResponseProfileRequestSchema, {
             profileId: BigInt(profileId),
-            ...buildResponseProfilePayload(values),
+            expectedRevision: currentProfile.revision,
+            ...buildResponseProfilePayload(
+              values,
+              currentProfile.includeMaintenance && !currentProfile.forceIncludeAllPairedMiners,
+            ),
             replaceFacilityFanSettings: true,
           }),
         );
@@ -590,7 +614,18 @@ export default function useCurtailmentResponseProfiles(
         );
         return mapProfile(updatedProfile);
       } catch (error) {
-        throw handleFailure(error, "Failed to update response profile.");
+        if (!isResponseProfileUpdateConflict(error)) {
+          throw handleFailure(error, "Failed to update response profile.");
+        }
+        let conflictMessage =
+          "This response profile changed in another session. The latest values have been loaded; review them before trying again.";
+        try {
+          sessionFormValuesByProfileId.delete(profileId);
+          await listResponseProfiles();
+        } catch {
+          conflictMessage = "This response profile changed in another session. Reload the page before trying again.";
+        }
+        throw createErrorWithCause(conflictMessage, error);
       } finally {
         setUpdatingProfileIds((currentIds) => {
           const nextIds = new Set(currentIds);
@@ -599,7 +634,7 @@ export default function useCurtailmentResponseProfiles(
         });
       }
     },
-    [handleFailure, mapProfile],
+    [apiProfiles, handleFailure, listResponseProfiles, mapProfile],
   );
 
   const deleteResponseProfile = useCallback(

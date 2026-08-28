@@ -52,6 +52,9 @@ export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
+  toleranceKw: string;
+  priority: "normal" | "emergency";
+  postEventCooldownSec: string;
   scopeType: ResponseProfileScopeType;
   buildingTargetIds: string[];
   rackTargetIds: string[];
@@ -81,6 +84,7 @@ export type ResponseProfileFormValues = {
 
 export type ResponseProfile = {
   id: string;
+  revision?: string;
   name: string;
   targetSummary: string;
   scope: string;
@@ -98,6 +102,7 @@ export type AutomationRuleFormValues = {
   name: string;
   sourceId: string;
   responseProfileId: string;
+  responseProfileRevision: string;
 };
 
 export type AutomationRule = {

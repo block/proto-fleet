@@ -220,7 +220,7 @@ func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurta
 func (s *startStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by handler Start tests")
 }
-func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by handler Start tests")
 }
 
@@ -248,8 +248,9 @@ func miner(id, status, pairing string, powerW float64, hashRateHS float64, effJH
 // the operational controls the service requires.
 func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 	return &pb.StartCurtailmentRequest{
-		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+		Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		// UNSPECIFIED maps to LEAST_EFFICIENT_FIRST in the translator; the
 		// proto-named constant passes through as `s.String()` and is rejected
 		// by the validator (existing pre-Start behavior preserved).
@@ -262,6 +263,89 @@ func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 		MaxDurationSeconds: 7200,
 		Reason:             "operator handler test",
 	}
+}
+
+func TestHandler_StartCurtailmentRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{{
+		ID:               201,
+		OrgID:            1,
+		Revision:         uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName:      "Standard shed",
+		Mode:             models.ModeFixedKw,
+		RestoreBatchSize: 50,
+	}}
+	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
+
+	_, err := h.StartCurtailment(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "stale-profile-start"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "changed before execution")
+}
+
+func TestHandler_StartCurtailmentRejectsValuesOutsideResponseProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	profile := fixedKWWholeOrgExecutionProfile(1, 201, 5)
+	profile.RestoreBatchSize = 50
+	store.profiles = []*models.ResponseProfile{profile}
+	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+	req.RestoreBatchSize = 25
+
+	_, err := h.StartCurtailment(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "mismatched-profile-start"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "values do not match")
+}
+
+func TestHandler_StartCurtailmentUsesSavedProfileCurtailBatching(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40)}
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 5)}
+	h := NewHandlerWithResponseProfiles(
+		curtailment.NewService(store),
+		curtailment.NewResponseProfileService(profileStore),
+	)
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+
+	_, err := h.StartCurtailment(
+		startSessionCtxWithPerms(t, 1, "OPERATOR", authz.PermCurtailmentManage),
+		connect.NewRequest(req),
+	)
+
+	require.NoError(t, err)
+	assert.Nil(t, store.lastEvent.CurtailBatchSize)
+	assert.Zero(t, store.lastEvent.CurtailBatchIntervalSec)
 }
 
 func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {

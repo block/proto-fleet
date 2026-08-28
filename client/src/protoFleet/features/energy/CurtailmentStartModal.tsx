@@ -1,12 +1,7 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import {
-  type CurtailmentTerminalScopeType,
-  getCurtailmentTerminalScope,
-  isCurtailmentTopologyScopeType,
-  parseCurtailmentTargetId,
-} from "@/protoFleet/api/curtailmentScopes";
+import { type CurtailmentTerminalScopeType, parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
@@ -28,7 +23,10 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { supportsAllPairedTargeting } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  customResponseProfileId,
+  supportsAllPairedTargeting,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import FacilityFanSelectionModal, {
   type FacilityFanDeviceOption,
   type FacilityFanSelectionValue,
@@ -74,11 +72,13 @@ export interface CurtailmentFormValues {
   deviceIdentifiers: string[];
   minerSelectionMode?: CurtailmentMinerSelectionMode;
   responseProfileId: ResponseProfileId;
+  responseProfileRevision?: string;
   curtailmentMode: CurtailmentMode;
   minerSelectionStrategy: MinerSelectionStrategy;
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
+  postEventCooldownSec?: string;
   minDurationSec: string;
   maxDurationSec: string;
   curtailBatchSize: string;
@@ -98,7 +98,8 @@ export type CurtailmentSubmitValues = CurtailmentFormValues;
 export interface CurtailmentResponseProfileOption {
   id: ResponseProfileId;
   label: string;
-  values: Partial<Omit<CurtailmentFormValues, "responseProfileId">>;
+  revision?: string;
+  values: Partial<Omit<CurtailmentFormValues, "responseProfileId" | "responseProfileRevision">>;
 }
 
 export interface CurtailmentSiteOption {
@@ -220,7 +221,6 @@ interface SiteScopeOptionProps {
   testId: string;
 }
 
-export const customResponseProfileId = "customPlan";
 const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
 const fieldHelp = {
   curtailmentMode: "How power reduction is measured: fixed kW target or full shutdown.",
@@ -1356,6 +1356,7 @@ function CurtailmentStartModalContent({
     return {
       ...nextValues,
       responseProfileId: customResponseProfileId,
+      responseProfileRevision: undefined,
     };
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
@@ -1457,13 +1458,8 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
-  const terminalScope = getCurtailmentTerminalScope(effectiveValues);
-  const isTopologyFullFleetExecutionUnavailable =
-    effectiveValues.curtailmentMode === "fullFleet" && isCurtailmentTopologyScopeType(terminalScope?.type);
-  const isPrimarySubmitDisabled =
-    isSubmitDisabled || (!isResponseProfileVariant && isTopologyFullFleetExecutionUnavailable);
-  const isRunCurtailmentDisabled =
-    isBusy || hasBlockingRunPreviewState || hasExternalFormError || isTopologyFullFleetExecutionUnavailable;
+  const isPrimarySubmitDisabled = isSubmitDisabled;
+  const isRunCurtailmentDisabled = isBusy || hasBlockingRunPreviewState || hasExternalFormError;
   const selectedMinerIds = getSelectedMinerIds(effectiveValues);
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const targetPathSiteValues = {
@@ -1628,6 +1624,7 @@ function CurtailmentStartModalContent({
       setValues((current) => ({
         ...current,
         responseProfileId: customResponseProfileId,
+        responseProfileRevision: undefined,
       }));
       return;
     }
@@ -1640,6 +1637,7 @@ function CurtailmentStartModalContent({
     const selectedValues = {
       ...withSelectedResponseProfileValues(values, responseProfile.values),
       responseProfileId: responseProfile.id,
+      responseProfileRevision: responseProfile.revision,
     };
     setEditedFields(new Set());
     setConfirmedForceInclusionKey("");
@@ -1922,10 +1920,14 @@ function CurtailmentStartModalContent({
   });
 
   const confirmForceInclusion = () => {
-    const nextValues = resetResponseProfileSelection({
+    const confirmedValues = {
       ...effectiveValues,
       ...pendingForceInclusionValues,
-    });
+    };
+    const nextValues =
+      pendingForceInclusionValues && Object.keys(pendingForceInclusionValues).length > 0
+        ? resetResponseProfileSelection(confirmedValues)
+        : confirmedValues;
 
     setConfirmedForceInclusionKey(getForceInclusionConfirmationKey(nextValues));
     setValues(nextValues);
@@ -2133,11 +2135,7 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 facilityFanSelectionDisabledReason ??
-                (isTopologyFullFleetExecutionUnavailable
-                  ? isResponseProfileVariant
-                    ? "This full-fleet topology target can be previewed and saved. Running it will be available when topology-following execution is enabled."
-                    : "This full-fleet topology target can be previewed, but it cannot be run until topology-following execution is enabled."
-                  : "Choose a site-to-miner path and any infrastructure included in this curtailment.")
+                "Choose a site-to-miner path and any infrastructure included in this curtailment."
               }
             >
               <div className="grid">

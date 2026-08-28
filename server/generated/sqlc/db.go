@@ -69,6 +69,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.beginCurtailmentTopologyTargetRestoreStmt, err = db.PrepareContext(ctx, beginCurtailmentTopologyTargetRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentTopologyTargetRestore: %w", err)
 	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt, err = db.PrepareContext(ctx, bindCurtailmentAutomationRuleResponseProfileRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query BindCurtailmentAutomationRuleResponseProfileRevision: %w", err)
+	}
 	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
 	}
@@ -1170,6 +1173,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockCurtailmentAdmissionEventForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentAdmissionEventForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentAdmissionEventForWrite: %w", err)
 	}
+	if q.lockCurtailmentAutomationRuleForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentAutomationRuleForExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAutomationRuleForExecution: %w", err)
+	}
+	if q.lockCurtailmentAutomationRuleMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentAutomationRuleMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentAutomationRuleMutation: %w", err)
+	}
 	if q.lockCurtailmentEventByUUIDForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentEventByUUIDForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentEventByUUIDForWrite: %w", err)
 	}
@@ -1193,6 +1202,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
+	}
+	if q.lockCurtailmentResponseProfileRevisionForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileRevisionForExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileRevisionForExecution: %w", err)
 	}
 	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
@@ -1782,6 +1794,11 @@ func (q *Queries) Close() error {
 	if q.beginCurtailmentTopologyTargetRestoreStmt != nil {
 		if cerr := q.beginCurtailmentTopologyTargetRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing beginCurtailmentTopologyTargetRestoreStmt: %w", cerr)
+		}
+	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt != nil {
+		if cerr := q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindCurtailmentAutomationRuleResponseProfileRevisionStmt: %w", cerr)
 		}
 	}
 	if q.bindEnrollmentToFleetNodeStmt != nil {
@@ -3619,6 +3636,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockCurtailmentAdmissionEventForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentAutomationRuleForExecutionStmt != nil {
+		if cerr := q.lockCurtailmentAutomationRuleForExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAutomationRuleForExecutionStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentAutomationRuleMutationStmt != nil {
+		if cerr := q.lockCurtailmentAutomationRuleMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentAutomationRuleMutationStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentEventByUUIDForWriteStmt != nil {
 		if cerr := q.lockCurtailmentEventByUUIDForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentEventByUUIDForWriteStmt: %w", cerr)
@@ -3657,6 +3684,11 @@ func (q *Queries) Close() error {
 	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
 		if cerr := q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentResponseProfileDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentResponseProfileRevisionForExecutionStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileRevisionForExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileRevisionForExecutionStmt: %w", cerr)
 		}
 	}
 	if q.lockCurtailmentScopeForWriteStmt != nil {
@@ -4563,6 +4595,7 @@ type Queries struct {
 	assignRoleStmt                                               *sql.Stmt
 	beginCurtailmentRestorationStmt                              *sql.Stmt
 	beginCurtailmentTopologyTargetRestoreStmt                    *sql.Stmt
+	bindCurtailmentAutomationRuleResponseProfileRevisionStmt     *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
 	buildingsByIDsStmt                                           *sql.Stmt
@@ -4930,6 +4963,8 @@ type Queries struct {
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
 	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
+	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
+	lockCurtailmentAutomationRuleMutationStmt                    *sql.Stmt
 	lockCurtailmentEventByUUIDForWriteStmt                       *sql.Stmt
 	lockCurtailmentEventForFanCommandStmt                        *sql.Stmt
 	lockCurtailmentEventScopeForWriteStmt                        *sql.Stmt
@@ -4938,6 +4973,7 @@ type Queries struct {
 	lockCurtailmentGroupsForWriteStmt                            *sql.Stmt
 	lockCurtailmentResponseProfileAutomationMutationStmt         *sql.Stmt
 	lockCurtailmentResponseProfileDeviceSitesByOrgStmt           *sql.Stmt
+	lockCurtailmentResponseProfileRevisionForExecutionStmt       *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
 	lockCurtailmentTargetPairingStatusesForWriteStmt             *sql.Stmt
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
@@ -5112,23 +5148,24 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                                           tx,
-		tx:                                                           tx,
-		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
-		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
-		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:                           q.adminTerminateCurtailmentEventStmt,
-		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
-		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
-		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
-		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
-		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
-		assignDevicesToSiteStmt:                                      q.assignDevicesToSiteStmt,
-		assignPermissionToRoleStmt:                                   q.assignPermissionToRoleStmt,
-		assignRoleStmt:                                               q.assignRoleStmt,
-		beginCurtailmentRestorationStmt:                              q.beginCurtailmentRestorationStmt,
-		beginCurtailmentTopologyTargetRestoreStmt:                    q.beginCurtailmentTopologyTargetRestoreStmt,
+		db:                                        tx,
+		tx:                                        tx,
+		acquireFleetRuntimeLeaseStmt:              q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                  q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                 q.addDevicesToDeviceSetStmt,
+		adminResetUserPasswordStmt:                q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:        q.adminTerminateCurtailmentEventStmt,
+		advanceFleetMetricRollupProgressStmt:      q.advanceFleetMetricRollupProgressStmt,
+		allDevicesBelongToOrgStmt:                 q.allDevicesBelongToOrgStmt,
+		assignBuildingToSiteStmt:                  q.assignBuildingToSiteStmt,
+		assignBuildingsToSiteBulkStmt:             q.assignBuildingsToSiteBulkStmt,
+		assignDevicesToBuildingStmt:               q.assignDevicesToBuildingStmt,
+		assignDevicesToSiteStmt:                   q.assignDevicesToSiteStmt,
+		assignPermissionToRoleStmt:                q.assignPermissionToRoleStmt,
+		assignRoleStmt:                            q.assignRoleStmt,
+		beginCurtailmentRestorationStmt:           q.beginCurtailmentRestorationStmt,
+		beginCurtailmentTopologyTargetRestoreStmt: q.beginCurtailmentTopologyTargetRestoreStmt,
+		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,
@@ -5496,6 +5533,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
 		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
+		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
+		lockCurtailmentAutomationRuleMutationStmt:                    q.lockCurtailmentAutomationRuleMutationStmt,
 		lockCurtailmentEventByUUIDForWriteStmt:                       q.lockCurtailmentEventByUUIDForWriteStmt,
 		lockCurtailmentEventForFanCommandStmt:                        q.lockCurtailmentEventForFanCommandStmt,
 		lockCurtailmentEventScopeForWriteStmt:                        q.lockCurtailmentEventScopeForWriteStmt,
@@ -5504,6 +5543,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentGroupsForWriteStmt:                            q.lockCurtailmentGroupsForWriteStmt,
 		lockCurtailmentResponseProfileAutomationMutationStmt:         q.lockCurtailmentResponseProfileAutomationMutationStmt,
 		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		lockCurtailmentResponseProfileRevisionForExecutionStmt:       q.lockCurtailmentResponseProfileRevisionForExecutionStmt,
 		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
 		lockCurtailmentTargetPairingStatusesForWriteStmt:             q.lockCurtailmentTargetPairingStatusesForWriteStmt,
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,

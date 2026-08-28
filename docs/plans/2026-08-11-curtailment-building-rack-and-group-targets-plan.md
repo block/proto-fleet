@@ -336,10 +336,18 @@ admin requirement, topology, and quotas before claiming targets.
 1. Ship server parsing, schema versions, profile revisions, automation bindings,
    rejection of unknown nonempty scope keys, and a durable topology-scope
    feature gate without emitting topology scopes.
-2. Require every replica at that minimum version and verify there are zero
-   pre-contract profile, rule, or event rows. Any unexpected row blocks rollout;
-   do not backfill or support it. New records missing a required scope, envelope,
-   revision, or binding fail closed.
+2. Require every replica at that minimum version. The migration assigns the
+   current scope schema version and an initial revision to existing profiles,
+   binds each existing automation rule to its profile's revision, and stamps
+   that binding into live automation event snapshots whose persisted execution
+   settings still match the profile and can be recovered through idempotency
+   replay. Mismatches remain unbound and fail closed; other existing events keep
+   their durable recovery data.
+   Revision and binding state lives in companion tables maintained by triggers,
+   leaving the response-profile and automation-rule base table shapes unchanged
+   while the previous active binary serves during a passive-first HA update.
+   After migration, records missing a required scope, envelope, revision, or
+   binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org
    scope, raise the minimum accepted schema version, then open the feature gate.
    Rollback below the minimum requires closing the gate, blocking profile Test/

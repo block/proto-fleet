@@ -232,6 +232,9 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     name: profile.name,
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
+    toleranceKw: "",
+    priority: "normal",
+    postEventCooldownSec: "",
     scopeType: "wholeOrg",
     buildingTargetIds: [],
     rackTargetIds: [],
@@ -308,6 +311,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   return {
     id: profile.id,
     label: profile.name,
+    revision: profile.revision,
     values: {
       scopeType,
       scopeId,
@@ -324,6 +328,9 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       curtailmentMode: values.actionType,
       minerSelectionStrategy: values.selectionStrategy,
       targetKw: values.targetKw,
+      toleranceKw: values.toleranceKw,
+      priority: values.priority,
+      postEventCooldownSec: values.postEventCooldownSec,
       curtailBatchSize: values.curtailBatchSize,
       curtailBatchIntervalSec: values.curtailBatchIntervalSec,
       restoreBatchSize,

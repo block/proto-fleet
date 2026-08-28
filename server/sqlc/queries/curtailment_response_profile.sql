@@ -1,14 +1,24 @@
 -- name: ListCurtailmentResponseProfilesByOrg :many
 SELECT *
-FROM curtailment_response_profile
+FROM curtailment_response_profile_with_revision
 WHERE org_id = sqlc.arg('org_id')
 ORDER BY profile_name, id;
 
 -- name: GetCurtailmentResponseProfileByOrg :one
 SELECT *
-FROM curtailment_response_profile
+FROM curtailment_response_profile_with_revision
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
+
+-- name: LockCurtailmentResponseProfileRevisionForExecution :one
+SELECT profile.id
+FROM curtailment_response_profile AS profile
+JOIN curtailment_response_profile_revision AS profile_revision
+  ON profile_revision.response_profile_id = profile.id
+WHERE profile.id = sqlc.arg('id')
+  AND profile.org_id = sqlc.arg('org_id')
+  AND profile_revision.revision = sqlc.arg('expected_revision')
+FOR SHARE OF profile, profile_revision;
 
 -- name: LockCurtailmentResponseProfileAutomationMutation :exec
 -- Serializes profile changes with automation create/update/enable. Both sides
@@ -127,6 +137,12 @@ SET
     fan_restore_delay_sec = sqlc.arg('fan_restore_delay_sec')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_response_profile_revision AS profile_revision
+      WHERE profile_revision.response_profile_id = curtailment_response_profile.id
+        AND profile_revision.revision = sqlc.arg('expected_revision')
+  )
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
   AND scope_json = sqlc.arg('expected_scope_json')::jsonb
   AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]

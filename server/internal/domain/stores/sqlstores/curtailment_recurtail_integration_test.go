@@ -66,7 +66,7 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 	)
 	require.NoError(t, err)
 
-	_, err = store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID)
+	_, err = store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID, 0, uuid.Nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "overlap must be retryable, got %v", err)
 
@@ -276,7 +276,7 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	`, source.ID, deviceID, uuid.New().String())
 	require.NoError(t, err)
 
-	got, err := store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID)
+	got, err := store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID, 0, uuid.Nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, models.EventStatePending, got.State)

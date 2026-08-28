@@ -84,11 +84,15 @@ type StartRequest struct {
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
 
-	FacilityFanDeviceIDs  []int64
-	AuthorizedDeviceSites map[string]*int64
-	AuthorizedFanSites    map[int64]int64
-	FanOffDelaySec        int32
-	FanRestoreDelaySec    int32
+	FacilityFanDeviceIDs    []int64
+	AuthorizedDeviceSites   map[string]*int64
+	AuthorizedFanSites      map[int64]int64
+	FanOffDelaySec          int32
+	FanRestoreDelaySec      int32
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -1397,6 +1401,28 @@ func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
 		return err
 	}
+	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
+		return fleeterror.NewInvalidArgumentError(
+			"response_profile_id and expected_response_profile_revision must be set together",
+		)
+	}
+	if req.ResponseProfileID < 0 {
+		return fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
+	}
+	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) {
+		return fleeterror.NewInvalidArgumentError(
+			"automation_rule_id and automation_mqtt_source_id must be set together",
+		)
+	}
+	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 {
+		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
+	}
+	if req.AutomationRuleID > 0 &&
+		(req.SourceActorType != models.SourceActorAutomation || req.ResponseProfileID == 0) {
+		return fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires an automation actor and response profile",
+		)
+	}
 	if strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
 	}
@@ -2120,6 +2146,8 @@ func buildInsertParams(
 		req.PostEventCooldownSec,
 		req.ForceIncludeAllPairedMiners,
 		requiresAdminControls,
+		req.ResponseProfileID,
+		req.ResponseProfileRevision,
 	)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
@@ -2165,6 +2193,10 @@ func buildInsertParams(
 		ExpectedFacilityFanSites:    cloneInt64Map(req.AuthorizedFanSites),
 		FanOffDelaySec:              req.FanOffDelaySec,
 		FanRestoreDelaySec:          req.FanRestoreDelaySec,
+		ResponseProfileID:           req.ResponseProfileID,
+		ResponseProfileRevision:     req.ResponseProfileRevision,
+		AutomationRuleID:            req.AutomationRuleID,
+		AutomationMQTTSourceID:      req.AutomationMQTTSourceID,
 		DecisionSnapshotJSON:        decisionJSON,
 		SourceActorType:             req.SourceActorType,
 		SourceActorID:               req.SourceActorID,
@@ -2436,8 +2468,10 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 
 // RecurtailRequest re-asserts curtailment on a restoring event.
 type RecurtailRequest struct {
-	OrgID     int64
-	EventUUID uuid.UUID
+	OrgID                   int64
+	EventUUID               uuid.UUID
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
 }
 
 // Recurtail flips a restoring event back to pending and reclaims restore
@@ -2450,7 +2484,21 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 	if req.EventUUID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
 	}
-	return s.store.BeginRecurtailTransition(ctx, req.OrgID, req.EventUUID)
+	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"response_profile_id and response_profile_revision must be set together",
+		)
+	}
+	if req.ResponseProfileID < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
+	}
+	return s.store.BeginRecurtailTransition(
+		ctx,
+		req.OrgID,
+		req.EventUUID,
+		req.ResponseProfileID,
+		req.ResponseProfileRevision,
+	)
 }
 
 func validateStopRequest(req StopRequest) error {
@@ -2567,6 +2615,8 @@ func marshalDecisionSnapshot(
 	postEventCooldownSec int32,
 	forceIncludeAllPairedMiners bool,
 	requiresAdminControls bool,
+	responseProfileID int64,
+	responseProfileRevision uuid.UUID,
 ) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
@@ -2586,6 +2636,10 @@ func marshalDecisionSnapshot(
 		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
 		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
+	}
+	if responseProfileID > 0 {
+		snapshot["response_profile_id"] = responseProfileID
+		snapshot["response_profile_revision"] = responseProfileRevision.String()
 	}
 	b, err := json.Marshal(snapshot)
 	if err != nil {

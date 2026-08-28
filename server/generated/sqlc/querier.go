@@ -82,6 +82,7 @@ type Querier interface {
 	// with no possible Curtail attempt release immediately; every other target
 	// enters the normal restore queue conservatively.
 	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
+	BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
@@ -523,7 +524,7 @@ type Querier interface {
 	// EnsureCurtailmentOrgConfig backfills post-migration tenants.
 	GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
-	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfile, error)
+	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
 	// partial, but the rollup must describe the whole event.
 	//
@@ -942,7 +943,7 @@ type Querier interface {
 	ListCurtailmentGroupScopeCoverage(ctx context.Context, arg ListCurtailmentGroupScopeCoverageParams) ([]ListCurtailmentGroupScopeCoverageRow, error)
 	ListCurtailmentRackScopeCoverage(ctx context.Context, arg ListCurtailmentRackScopeCoverageParams) ([]ListCurtailmentRackScopeCoverageRow, error)
 	ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg ListCurtailmentResponseProfileDeviceSitesByOrgParams) ([]ListCurtailmentResponseProfileDeviceSitesByOrgRow, error)
-	ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfile, error)
+	ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfileWithRevision, error)
 	// Coverage for explicit-device event authorization. target_count is every
 	// persisted target row; mapped_target_count includes only targets that still
 	// resolve to a live device with a site. Any mismatch fails closed in handlers.
@@ -1193,6 +1194,8 @@ type Querier interface {
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)
+	LockCurtailmentAutomationRuleForExecution(ctx context.Context, arg LockCurtailmentAutomationRuleForExecutionParams) (int64, error)
+	LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
@@ -1220,6 +1223,7 @@ type Querier interface {
 	// Topology and site writes still conflict with this lock, while command queue
 	// inserts can take the foreign-key KEY SHARE lock without self-deadlocking.
 	LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error)
+	LockCurtailmentResponseProfileRevisionForExecution(ctx context.Context, arg LockCurtailmentResponseProfileRevisionForExecutionParams) (int64, error)
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error

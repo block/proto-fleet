@@ -189,7 +189,7 @@ func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64,
 func (s *adminTerminateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *adminTerminateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {

@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,6 +39,101 @@ func testOrgAssignment(perms ...string) authz.Assignment {
 		ScopeType:    authz.ScopeOrg,
 		Permissions:  perms,
 	}
+}
+
+func TestHandler_PreviewCurtailmentPlanRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{{
+		ID:               201,
+		OrgID:            1,
+		Revision:         uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName:      "Standard shed",
+		Mode:             models.ModeFixedKw,
+		RestoreBatchSize: 50,
+	}}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
+
+	_, err := h.PreviewCurtailmentPlan(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "stale-profile-preview"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "changed before execution")
+}
+
+func TestHandler_CurtailmentExecutionRejectsPreVersionedClients(t *testing.T) {
+	t.Parallel()
+
+	ctx := testSessionCtxWithAssignments(
+		t,
+		&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "pre-versioned-execution"},
+		testOrgAssignment(authz.PermCurtailmentManage),
+	)
+	h := NewHandler(nil)
+
+	t.Run("preview", func(t *testing.T) {
+		t.Parallel()
+
+		req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.ExecutionSchemaVersion = 0
+
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(req))
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.ErrorContains(t, err, "execution_schema_version 1 is required")
+	})
+
+	t.Run("start", func(t *testing.T) {
+		t.Parallel()
+
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.ExecutionSchemaVersion = 0
+
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.ErrorContains(t, err, "execution_schema_version 1 is required")
+	})
+}
+
+func TestHandler_PreviewCurtailmentPlanRejectsValuesOutsideResponseProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 50)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+	req.ModeParams = &pb.PreviewCurtailmentPlanRequest_FixedKw{
+		FixedKw: &pb.FixedKwParams{TargetKw: 75},
+	}
+
+	_, err := h.PreviewCurtailmentPlan(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "mismatched-profile-preview"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "values do not match")
 }
 
 func TestScopeResourceContextRequirementsTopologyRequiresOrgWide(t *testing.T) {
@@ -591,8 +687,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 
 	previewWithOverride := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -602,8 +699,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 	startWithCandidateOverride := func(ctx context.Context) error {
 		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
-			Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.StartCurtailmentRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -614,8 +712,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 	startWithAllowUnbounded := func(ctx context.Context) error {
 		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
-			Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.StartCurtailmentRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -633,8 +732,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 	startWithForceIncludeMaintenance := func(ctx context.Context) error {
 		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
-			Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.StartCurtailmentRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -646,6 +746,7 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 	previewWithForceIncludeAllPaired := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			ExecutionSchemaVersion:      curtailmentExecutionSchemaVersionCurrent,
 			Scope:                       &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 			ForceIncludeAllPairedMiners: true,
@@ -654,6 +755,7 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 	startWithForceIncludeAllPaired := func(ctx context.Context) error {
 		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
+			ExecutionSchemaVersion:      curtailmentExecutionSchemaVersionCurrent,
 			Scope:                       &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
 			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 			Reason:                      "override role-gate test",
@@ -742,8 +844,9 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 			name: "PreviewCurtailmentPlan",
 			invoke: func(ctx context.Context) error {
 				_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-					Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-					Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+					ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+					Scope:                  &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+					Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 					ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 						FixedKw: &pb.FixedKwParams{TargetKw: 50},
 					},
@@ -809,8 +912,9 @@ func TestHandler_PreviewAndStartRequireScopedPermissionCapability(t *testing.T) 
 
 	previewForSite := func(ctx context.Context, siteID int64) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scope: &pb.PreviewCurtailmentPlanRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.PreviewCurtailmentPlanRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -873,8 +977,9 @@ func TestHandler_PreviewAndStartRequireCompositeSiteContexts(t *testing.T) {
 
 	previewForCompositeSites := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scopes: compositeSiteScope,
-			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scopes:                 compositeSiteScope,
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -935,8 +1040,9 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 
 	previewForDeviceScope := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scopes: deviceScope,
-			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scopes:                 deviceScope,
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -989,8 +1095,9 @@ func TestHandler_PreviewAndStartRequireOrgWideForWholeOrg(t *testing.T) {
 
 	previewWholeOrg := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+			Scope:                  &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
 			},
@@ -1182,6 +1289,7 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 
 func validPreviewCurtailmentPlanRequest(priority pb.CurtailmentPriority) *pb.PreviewCurtailmentPlanRequest {
 	return &pb.PreviewCurtailmentPlanRequest{
+		ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
 		Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{
 			WholeOrg: &pb.ScopeWholeOrg{},
 		},
@@ -1197,6 +1305,7 @@ func validPreviewCurtailmentPlanRequest(priority pb.CurtailmentPriority) *pb.Pre
 
 func validStartCurtailmentRequest(priority pb.CurtailmentPriority) *pb.StartCurtailmentRequest {
 	return &pb.StartCurtailmentRequest{
+		ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
 		Scope: &pb.StartCurtailmentRequest_WholeOrg{
 			WholeOrg: &pb.ScopeWholeOrg{},
 		},
@@ -1208,6 +1317,21 @@ func validStartCurtailmentRequest(priority pb.CurtailmentPriority) *pb.StartCurt
 			FixedKw: &pb.FixedKwParams{TargetKw: 50},
 		},
 		Reason: "operator validation test",
+	}
+}
+
+func fixedKWWholeOrgExecutionProfile(orgID, profileID int64, targetKW float64) *models.ResponseProfile {
+	return &models.ResponseProfile{
+		ID:          profileID,
+		OrgID:       orgID,
+		Revision:    uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName: "Standard shed",
+		ScopeJSON:   []byte("{}"),
+		Mode:        models.ModeFixedKw,
+		Strategy:    models.StrategyLeastEfficientFirst,
+		Level:       models.LevelFull,
+		Priority:    models.PriorityNormal,
+		TargetKW:    &targetKW,
 	}
 }
 

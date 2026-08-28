@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -54,8 +55,8 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 }
 
 const getCurtailmentResponseProfileByOrg = `-- name: GetCurtailmentResponseProfileByOrg :one
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec, authorization_envelope_jsonb
-FROM curtailment_response_profile
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec, authorization_envelope_jsonb, revision
+FROM curtailment_response_profile_with_revision
 WHERE id = $1
   AND org_id = $2
 `
@@ -65,9 +66,9 @@ type GetCurtailmentResponseProfileByOrgParams struct {
 	OrgID int64
 }
 
-func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfile, error) {
+func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error) {
 	row := q.queryRow(ctx, q.getCurtailmentResponseProfileByOrgStmt, getCurtailmentResponseProfileByOrg, arg.ID, arg.OrgID)
-	var i CurtailmentResponseProfile
+	var i CurtailmentResponseProfileWithRevision
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -94,6 +95,7 @@ func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg Ge
 		&i.FanOffDelaySec,
 		&i.FanRestoreDelaySec,
 		&i.AuthorizationEnvelopeJsonb,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -273,21 +275,21 @@ func (q *Queries) ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Con
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec, authorization_envelope_jsonb
-FROM curtailment_response_profile
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec, authorization_envelope_jsonb, revision
+FROM curtailment_response_profile_with_revision
 WHERE org_id = $1
 ORDER BY profile_name, id
 `
 
-func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfile, error) {
+func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfileWithRevision, error) {
 	rows, err := q.query(ctx, q.listCurtailmentResponseProfilesByOrgStmt, listCurtailmentResponseProfilesByOrg, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CurtailmentResponseProfile
+	var items []CurtailmentResponseProfileWithRevision
 	for rows.Next() {
-		var i CurtailmentResponseProfile
+		var i CurtailmentResponseProfileWithRevision
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -314,6 +316,7 @@ func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgI
 			&i.FanOffDelaySec,
 			&i.FanRestoreDelaySec,
 			&i.AuthorizationEnvelopeJsonb,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -441,6 +444,30 @@ func (q *Queries) LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Con
 	return items, nil
 }
 
+const lockCurtailmentResponseProfileRevisionForExecution = `-- name: LockCurtailmentResponseProfileRevisionForExecution :one
+SELECT profile.id
+FROM curtailment_response_profile AS profile
+JOIN curtailment_response_profile_revision AS profile_revision
+  ON profile_revision.response_profile_id = profile.id
+WHERE profile.id = $1
+  AND profile.org_id = $2
+  AND profile_revision.revision = $3
+FOR SHARE OF profile, profile_revision
+`
+
+type LockCurtailmentResponseProfileRevisionForExecutionParams struct {
+	ID               int64
+	OrgID            int64
+	ExpectedRevision uuid.UUID
+}
+
+func (q *Queries) LockCurtailmentResponseProfileRevisionForExecution(ctx context.Context, arg LockCurtailmentResponseProfileRevisionForExecutionParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockCurtailmentResponseProfileRevisionForExecutionStmt, lockCurtailmentResponseProfileRevisionForExecution, arg.ID, arg.OrgID, arg.ExpectedRevision)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const updateCurtailmentResponseProfile = `-- name: UpdateCurtailmentResponseProfile :one
 UPDATE curtailment_response_profile
 SET
@@ -467,11 +494,17 @@ SET
     fan_restore_delay_sec = $21
 WHERE id = $22
   AND org_id = $23
-  AND site_id IS NOT DISTINCT FROM $24
-  AND scope_json = $25::jsonb
-  AND facility_fan_device_ids = $26::bigint[]
-  AND fan_off_delay_sec = $27
-  AND fan_restore_delay_sec = $28
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_response_profile_revision AS profile_revision
+      WHERE profile_revision.response_profile_id = curtailment_response_profile.id
+        AND profile_revision.revision = $24
+  )
+  AND site_id IS NOT DISTINCT FROM $25
+  AND scope_json = $26::jsonb
+  AND facility_fan_device_ids = $27::bigint[]
+  AND fan_off_delay_sec = $28
+  AND fan_restore_delay_sec = $29
 RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec, authorization_envelope_jsonb
 `
 
@@ -499,6 +532,7 @@ type UpdateCurtailmentResponseProfileParams struct {
 	FanRestoreDelaySec           int32
 	ID                           int64
 	OrgID                        int64
+	ExpectedRevision             uuid.UUID
 	ExpectedSiteID               sql.NullInt64
 	ExpectedScopeJson            json.RawMessage
 	ExpectedFacilityFanDeviceIds []int64
@@ -531,6 +565,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.FanRestoreDelaySec,
 		arg.ID,
 		arg.OrgID,
+		arg.ExpectedRevision,
 		arg.ExpectedSiteID,
 		arg.ExpectedScopeJson,
 		pq.Array(arg.ExpectedFacilityFanDeviceIds),
