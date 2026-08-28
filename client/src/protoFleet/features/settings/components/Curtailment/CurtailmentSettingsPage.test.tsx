@@ -1376,7 +1376,7 @@ describe("CurtailmentSettingsPage", () => {
         siteIds: [],
       },
       isReadOnly: false,
-      isAutomationReady: false,
+      isAutomationReady: true,
     };
 
     render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);

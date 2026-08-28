@@ -204,7 +204,85 @@ func TestAutomationService_CreateRejectsStaleResponseProfileRevision(t *testing.
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
-func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testing.T) {
+func TestAutomationService_AllowsTopologyProfileAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantName string
+		run      func(*automationHarness) (*models.AutomationRule, error)
+	}{
+		{
+			name:     "create",
+			wantName: "Topology automation",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				return h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
+				})
+			},
+		},
+		{
+			name:     "update",
+			wantName: "Topology automation",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				return h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Topology automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls:             true,
+					ExpectedResponseProfileRevision: h.profile.Revision,
+				})
+			},
+		},
+		{
+			name:     "enable",
+			wantName: "MaestroOS curtailment",
+			run: func(h *automationHarness) (*models.AutomationRule, error) {
+				h.rule.Enabled = false
+				return h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					h.profile.Revision,
+					true,
+					models.ResponseProfileFanSettings{},
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.SiteID = nil
+			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+
+			updated, err := tt.run(h)
+
+			require.NoError(t, err)
+			require.NotNil(t, updated)
+			assert.Equal(t, tt.wantName, updated.RuleName)
+			assert.Equal(t, h.profile.ID, updated.ResponseProfileID)
+			assert.Equal(t, h.profile.Revision, updated.ResponseProfileRevision)
+		})
+	}
+}
+
+func TestAutomationService_RejectsUnavailableTopologyProfile(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -260,6 +338,15 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 				return err
 			},
 		},
+		{
+			name: "execute",
+			run: func(h *automationHarness) error {
+				return h.automation.HandleMQTTSignal(h.t.Context(), mqttingest.SignalEdge{
+					Source: h.source,
+					Target: mqttingest.TargetOff,
+				})
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -269,14 +356,16 @@ func TestAutomationService_RejectsTopologyProfileAcrossBindingMutations(t *testi
 			h := newAutomationHarness(t)
 			h.profile.SiteID = nil
 			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+			h.profiles.topologyCoverageErr = fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
 
 			err := tt.run(h)
 
 			require.Error(t, err)
-			assert.True(t, fleeterror.IsFailedPreconditionError(err))
-			assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
-			assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+			assert.True(t, fleeterror.IsNotFoundError(err))
 			assert.Equal(t, 0, h.rules.createCalls)
+			assert.Equal(t, 0, h.rules.updateCalls)
+			assert.Equal(t, 0, h.rules.setEnabledCalls)
+			assert.Equal(t, 0, h.curtailments.insertEventCalls)
 		})
 	}
 }
@@ -697,12 +786,12 @@ func TestAutomationService_HandleMQTTSignal_OffRejectsRestoringReplayAfterProfil
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffRejectsStaleTopologyProfileBinding(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffStartsTopologyProfile(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
 	h.profile.Mode = models.ModeFixedKw
-	targetKW := 5.0
+	targetKW := 2.0
 	h.profile.TargetKW = &targetKW
 	h.profile.SiteID = nil
 	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
@@ -720,11 +809,41 @@ func TestAutomationService_HandleMQTTSignal_OffRejectsStaleTopologyProfileBindin
 		Target: mqttingest.TargetOff,
 	})
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "topology-scoped Start is not available for automation")
-	assert.Equal(t, 0, h.curtailments.insertEventCalls)
-	assert.Equal(t, 0, h.rules.setActiveCalls)
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, models.ScopeTypeMixed, h.curtailments.lastInsertEvent.ScopeType)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
+}
+
+func TestAutomationService_HandleMQTTSignal_OffStartsClosedLoopTopologyProfile(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.SiteID = nil
+	h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
+	h.curtailments.orgConfigByOrg[h.orgID] = defaultOrgConfig(h.orgID)
+	h.curtailments.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{
+		SelectedResourceSiteIDs: []int64{7},
+		CurrentMemberSiteIDs:    []int64{7},
+	}
+	h.curtailments.candidatesByBuilding[h.orgID] = map[int64][]*models.Candidate{
+		7: {minerWithEff("miner-a", 3000, 100, 50)},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, h.curtailments.lastInsertEvent)
+	assert.Equal(t, models.LoopTypeClosed, h.curtailments.lastInsertEvent.LoopType)
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded)
+	assert.Equal(t, h.rule.ID, h.curtailments.lastInsertEvent.AutomationRuleID)
+	assert.Equal(t, h.profile.Revision, h.curtailments.lastInsertEvent.ResponseProfileRevision)
+	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
 }
 
 func TestAutomationService_HandleMQTTSignal_OffSnapshotsExplicitMinerSites(t *testing.T) {
@@ -1439,6 +1558,8 @@ type automationFakeStore struct {
 	rules                             []*models.AutomationRule
 	created                           *models.AutomationRule
 	createCalls                       int
+	updateCalls                       int
+	setEnabledCalls                   int
 	lastCreateExpectedFanSettings     models.ResponseProfileFanSettings
 	lastUpdateExpectedFanSettings     models.ResponseProfileFanSettings
 	lastSetEnabledExpectedFanSettings models.ResponseProfileFanSettings
@@ -1513,6 +1634,7 @@ func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule model
 func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.updateCalls++
 	f.lastUpdateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for i, existing := range f.rules {
 		if existing.OrgID == rule.OrgID && existing.ID == rule.ID {
@@ -1526,6 +1648,7 @@ func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule model
 func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.setEnabledCalls++
 	f.lastSetEnabledExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for _, rule := range f.rules {
 		if rule.OrgID == orgID && rule.ID == ruleID {

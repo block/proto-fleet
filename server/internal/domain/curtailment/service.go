@@ -201,11 +201,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
-	if hasTopologySelectors(req.Scope) && req.SourceActorType == models.SourceActorAutomation {
-		return nil, fleeterror.NewFailedPreconditionError(
-			"topology-scoped Start is not available for automation",
-		)
-	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits

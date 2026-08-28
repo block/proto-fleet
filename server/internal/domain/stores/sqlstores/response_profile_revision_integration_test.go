@@ -12,8 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -482,6 +485,159 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 	currentExecution.ResponseProfileRevision = profileB.Revision
 	_, err = store.InsertEventWithTargets(ctx, currentExecution, nil)
 	require.NoError(t, err)
+}
+
+func TestSQLCurtailmentStore_TopologyAutomationExecutionRevalidatesSourceUser(t *testing.T) {
+	tests := []struct {
+		name               string
+		demoteAssignments  bool
+		requiresAdminRole  bool
+		useDifferentActor  bool
+		wantForbidden      bool
+		wantErrorSubstring string
+	}{
+		{
+			name:               "revoked scope permission",
+			demoteAssignments:  true,
+			wantForbidden:      true,
+			wantErrorSubstring: "no longer has permission",
+		},
+		{
+			name:               "demoted admin role",
+			requiresAdminRole:  true,
+			wantForbidden:      true,
+			wantErrorSubstring: "no longer has the admin role",
+		},
+		{
+			name:               "changed MQTT source principal",
+			useDifferentActor:  true,
+			wantErrorSubstring: "automation rule changed before execution",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if testing.Short() {
+				t.Skip("skipping database integration test in short mode")
+			}
+
+			testContext := testutil.InitializeDBServiceInfrastructure(t)
+			user := testContext.DatabaseService.CreateSuperAdminUser()
+			database := testContext.DatabaseService.DB
+			store := sqlstores.NewSQLCurtailmentStore(database)
+			ctx := t.Context()
+			site, err := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
+				OrgID: user.OrganizationID,
+				Name:  "Automation authorization site",
+			})
+			require.NoError(t, err)
+			building, err := sqlstores.NewSQLBuildingStore(database).CreateBuilding(ctx, buildingsmodels.CreateParams{
+				OrgID:  user.OrganizationID,
+				SiteID: &site.ID,
+				Name:   "Automation authorization building",
+			})
+			require.NoError(t, err)
+			profileID := seedResponseProfile(t, database, user.OrganizationID, "automation-authorization-profile")
+			profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
+			require.NoError(t, err)
+			expectedSiteID := profile.SiteID
+			expectedScopeJSON := append([]byte(nil), profile.ScopeJSON...)
+			profile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+			profile.SiteID = nil
+			profile, err = store.UpdateResponseProfile(
+				ctx,
+				*profile,
+				nil,
+				nil,
+				expectedSiteID,
+				expectedScopeJSON,
+				models.ResponseProfileFanSettings{},
+			)
+			require.NoError(t, err)
+			sourceID := seedMQTTSourceConfig(
+				t,
+				database,
+				user.OrganizationID,
+				user.DatabaseID,
+				"automation-authorization-source",
+				true,
+			)
+			rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+				OrgID:                   user.OrganizationID,
+				RuleName:                "automation-authorization-rule",
+				TriggerType:             models.AutomationTriggerTypeMQTT,
+				MQTTSourceID:            sourceID,
+				ResponseProfileID:       profile.ID,
+				ResponseProfileRevision: profile.Revision,
+				Enabled:                 true,
+			}, models.ResponseProfileFanSettings{})
+			require.NoError(t, err)
+
+			queries := sqlc.New(database)
+			if tt.demoteAssignments || tt.requiresAdminRole {
+				fieldTech, roleErr := queries.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+					OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true},
+					BuiltinKey:     sql.NullString{String: string(authz.BuiltinKeyFieldTech), Valid: true},
+				})
+				require.NoError(t, roleErr)
+				require.NoError(t, queries.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
+					RoleID:         fieldTech.ID,
+					UserID:         user.DatabaseID,
+					OrganizationID: user.OrganizationID,
+				}))
+				if tt.demoteAssignments {
+					assignment, assignmentErr := queries.GetOrgScopeAssignmentForUser(ctx, sqlc.GetOrgScopeAssignmentForUserParams{
+						UserID:         user.DatabaseID,
+						OrganizationID: user.OrganizationID,
+					})
+					require.NoError(t, assignmentErr)
+					require.NoError(t, queries.UnassignRole(ctx, assignment.AssignmentID))
+					_, assignmentErr = queries.AssignRole(ctx, sqlc.AssignRoleParams{
+						UserID:         user.DatabaseID,
+						OrganizationID: user.OrganizationID,
+						RoleID:         fieldTech.ID,
+						ScopeType:      "org",
+						ScopeID:        sql.NullInt64{},
+					})
+					require.NoError(t, assignmentErr)
+				}
+			}
+			createdByUserID := user.DatabaseID
+			if tt.useDifferentActor {
+				createdByUserID = testContext.DatabaseService.CreateSuperAdminUser2().DatabaseID
+			}
+
+			execution := curtailmentStoreClosedLoopFullFleetEvent(
+				user.OrganizationID,
+				createdByUserID,
+				uuid.New(),
+				models.ScopeTypeMixed,
+				0,
+				fmt.Sprintf("%d", rule.ID),
+			)
+			execution.ScopeJSON = append([]byte(nil), profile.ScopeJSON...)
+			execution.SourceActorType = models.SourceActorAutomation
+			execution.ResponseProfileID = profile.ID
+			execution.ResponseProfileRevision = profile.Revision
+			execution.AutomationRuleID = rule.ID
+			execution.AutomationMQTTSourceID = sourceID
+			execution.ForceIncludeAllPairedMiners = tt.requiresAdminRole
+			execution.DecisionSnapshotJSON = []byte(fmt.Sprintf(
+				`{"requires_admin_controls":%t}`,
+				tt.requiresAdminRole,
+			))
+
+			_, err = store.InsertEventWithTargets(ctx, execution, nil)
+
+			require.Error(t, err)
+			if tt.wantForbidden {
+				assert.True(t, fleeterror.IsForbiddenError(err))
+			} else {
+				assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			}
+			assert.Contains(t, err.Error(), tt.wantErrorSubstring)
+		})
+	}
 }
 
 func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *testing.T) {

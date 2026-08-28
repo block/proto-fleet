@@ -3246,6 +3246,18 @@ func (q *retryingQuerier) GetUserRoleName(ctx context.Context, arg GetUserRoleNa
 	return result, err
 }
 
+func (q *retryingQuerier) GetUserRoleNameForUpdate(ctx context.Context, arg GetUserRoleNameForUpdateParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetUserRoleNameForUpdate", func() error {
+		callResult, callErr := q.next.GetUserRoleNameForUpdate(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error) {
 	var result []User
 	err := q.retrier.RetryQuery(ctx, "GetUsersForOrganization", func() error {

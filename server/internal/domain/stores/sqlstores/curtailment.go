@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sort"
@@ -17,6 +16,8 @@ import (
 	"github.com/sqlc-dev/pqtype"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -290,9 +291,6 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfileWithRevision, error) {
 		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
-			return sqlc.CurtailmentResponseProfileWithRevision{}, err
-		}
-		if err := rejectTopologyProfileWithAutomationRules(ctx, q, profile); err != nil {
 			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		if err := lockResponseProfileSitesForWrite(
@@ -1003,18 +1001,12 @@ func requireResponseProfileForAutomation(
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
 	}
+	if err := lockResponseProfileTopologyForAutomation(ctx, q, orgID, profile.ScopeJson); err != nil {
+		return err
+	}
 	if profile.Revision != expectedRevision {
 		return fleeterror.NewFailedPreconditionError(
 			"curtailment response profile changed before automation rule save; retry",
-		)
-	}
-	hasTopology, err := responseProfileScopeHasTopology(profile.ScopeJson)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("invalid response profile scope during automation mutation: %v", err)
-	}
-	if hasTopology {
-		return fleeterror.NewFailedPreconditionError(
-			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
 		)
 	}
 	if !responseProfileFanSettingsMatch(profile, expectedFanSettings) {
@@ -1023,49 +1015,29 @@ func requireResponseProfileForAutomation(
 	return nil
 }
 
-func rejectTopologyProfileWithAutomationRules(
+func lockResponseProfileTopologyForAutomation(
 	ctx context.Context,
 	q sqlc.Querier,
-	profile models.ResponseProfile,
+	orgID int64,
+	scopeJSON []byte,
 ) error {
-	hasTopology, err := responseProfileScopeHasTopology(profile.ScopeJSON)
+	scope, hasScope, err := domainCurtailment.ScopeFromJSON(scopeJSON)
 	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("invalid curtailment response profile scope_json: %v", err)
+		return fleeterror.NewInvalidArgumentErrorf("invalid response profile scope during automation mutation: %v", err)
 	}
-	if !hasTopology {
+	if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
 		return nil
 	}
-	count, err := q.CountCurtailmentAutomationRulesByResponseProfile(
-		ctx,
-		sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
-			OrgID:             profile.OrgID,
-			ResponseProfileID: profile.ID,
-		},
-	)
+	filter, err := domainCurtailment.ListCandidatesParamsForScope(scope)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to count automation rules for response profile: %v", err)
+		return err
 	}
-	if count == 0 {
-		return nil
+	filter.OrgID = orgID
+	if err := lockTopologySelectorResourcesForWrite(ctx, q, filter); err != nil {
+		return err
 	}
-	return fleeterror.NewFailedPreconditionError(
-		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
-	)
-}
-
-func responseProfileScopeHasTopology(scopeJSON []byte) (bool, error) {
-	if len(scopeJSON) == 0 {
-		return false, nil
-	}
-	var payload struct {
-		BuildingIDs []int64 `json:"building_ids"`
-		RackIDs     []int64 `json:"rack_ids"`
-		GroupIDs    []int64 `json:"group_ids"`
-	}
-	if err := json.Unmarshal(scopeJSON, &payload); err != nil {
-		return false, fmt.Errorf("decode response profile scope: %w", err)
-	}
-	return len(payload.BuildingIDs) > 0 || len(payload.RackIDs) > 0 || len(payload.GroupIDs) > 0, nil
+	_, err = resolveCurtailmentTopologyScope(ctx, q, filter)
+	return err
 }
 
 func responseProfileFanSettingsMatch(
@@ -1270,6 +1242,7 @@ func lockAutomationRuleForExecution(
 	mqttSourceID int64,
 	profileID int64,
 	profileRevision uuid.UUID,
+	serviceUserID int64,
 ) error {
 	if ruleID == 0 {
 		return nil
@@ -1283,6 +1256,7 @@ func lockAutomationRuleForExecution(
 			ID:                      ruleID,
 			OrgID:                   orgID,
 			MqttSourceID:            mqttSourceID,
+			ServiceUserID:           serviceUserID,
 			ResponseProfileID:       profileID,
 			ResponseProfileRevision: profileRevision,
 		},
@@ -1296,6 +1270,67 @@ func lockAutomationRuleForExecution(
 		return fleeterror.NewInternalErrorf(
 			"failed to lock curtailment automation rule for execution: %v",
 			err,
+		)
+	}
+	return nil
+}
+
+func authorizeTopologyAutomationExecution(
+	ctx context.Context,
+	q sqlc.Querier,
+	event models.InsertEventParams,
+) error {
+	if event.AutomationRuleID == 0 {
+		return nil
+	}
+	scope, hasScope, err := domainCurtailment.ScopeFromJSON(event.ScopeJSON)
+	if err != nil {
+		return err
+	}
+	if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+		return nil
+	}
+	effective, err := authz.LoadEffectiveForUpdate(ctx, q, event.CreatedByUserID, event.OrgID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to reload automation source user permissions: %v", err)
+	}
+	envelope, err := domainCurtailment.AuthorizationEnvelopeFromJSON(event.AuthorizationEnvelopeJSON)
+	if err != nil {
+		return err
+	}
+	if !domainCurtailment.AuthorizationEnvelopeAllows(effective, envelope, nil, nil, false) {
+		return fleeterror.NewForbiddenError(
+			"automation source user no longer has permission to manage the response profile scope",
+		)
+	}
+	requiresAdmin, err := domainCurtailment.EventRequiresAdminControls(&models.Event{
+		AllowUnbounded:              event.AllowUnbounded,
+		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		CurtailBatchIntervalSec:     event.CurtailBatchIntervalSec,
+		RestoreBatchIntervalSec:     event.RestoreBatchIntervalSec,
+		MaxDurationSeconds:          event.MaxDurationSeconds,
+		DecisionSnapshotJSON:        event.DecisionSnapshotJSON,
+	}, nil)
+	if err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid automation decision snapshot: %v", err)
+	}
+	if !requiresAdmin {
+		return nil
+	}
+	roleName, err := q.GetUserRoleNameForUpdate(ctx, sqlc.GetUserRoleNameForUpdateParams{
+		UserID:         event.CreatedByUserID,
+		OrganizationID: event.OrgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewForbiddenError("automation source user no longer has an active organization role")
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to reload automation source user role: %v", err)
+	}
+	if roleName != domainAuth.AdminRoleName && roleName != domainAuth.SuperAdminRoleName {
+		return fleeterror.NewForbiddenError(
+			"automation source user no longer has the admin role required by the response profile",
 		)
 	}
 	return nil
@@ -1475,7 +1510,11 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			event.AutomationMQTTSourceID,
 			event.ResponseProfileID,
 			event.ResponseProfileRevision,
+			event.CreatedByUserID,
 		); err != nil {
+			return nil, err
+		}
+		if err := authorizeTopologyAutomationExecution(ctx, q, event); err != nil {
 			return nil, err
 		}
 		// pq.Array encodes a nil slice as SQL NULL. Keep the empty fan list

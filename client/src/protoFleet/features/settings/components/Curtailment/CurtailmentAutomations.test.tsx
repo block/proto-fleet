@@ -211,12 +211,17 @@ describe("CurtailmentAutomationsContent", () => {
     expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
   });
 
-  it("excludes profiles whose target scope is not ready for automation", () => {
+  it("includes topology-scoped profiles whose target scope is ready for automation", () => {
     const topologyProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "building-shed",
       name: "Building shed",
-      isAutomationReady: false,
+      scope: "1 building",
+      formValues: {
+        scopeType: "building",
+        buildingTargetIds: ["7"],
+      } as NonNullable<ResponseProfile["formValues"]>,
+      isAutomationReady: true,
     };
     render(
       <CurtailmentAutomationsContent
@@ -228,27 +233,29 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
     const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
 
-    expect(responseProfileSelect).toHaveTextContent("Standard shed");
-    expect(responseProfileSelect).not.toHaveTextContent("Building shed");
+    expect(responseProfileSelect).toHaveTextContent("Building shed");
   });
 
   it("prevents enabling an automation whose response profile is not automation-ready", () => {
-    const topologyProfile: ResponseProfile = {
+    const unsupportedProfile: ResponseProfile = {
       ...testResponseProfiles[0],
-      id: "building-shed",
-      name: "Building shed",
+      id: "unsupported-profile",
+      name: "Unsupported profile",
+      scope: "Unknown scope",
+      formValues: undefined,
+      isReadOnly: true,
       isAutomationReady: false,
     };
-    const topologyRule: AutomationRule = {
+    const unsupportedRule: AutomationRule = {
       ...testAutomationRules[0],
-      responseProfileId: topologyProfile.id,
+      responseProfileId: unsupportedProfile.id,
       enabled: false,
     };
     render(
       <CurtailmentAutomationsContent
-        initialAutomationRules={[topologyRule]}
+        initialAutomationRules={[unsupportedRule]}
         sources={testSources}
-        responseProfiles={[topologyProfile]}
+        responseProfiles={[unsupportedProfile]}
       />,
     );
 

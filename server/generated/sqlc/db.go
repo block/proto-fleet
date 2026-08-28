@@ -864,6 +864,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUserRoleNameStmt, err = db.PrepareContext(ctx, getUserRoleName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserRoleName: %w", err)
 	}
+	if q.getUserRoleNameForUpdateStmt, err = db.PrepareContext(ctx, getUserRoleNameForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserRoleNameForUpdate: %w", err)
+	}
 	if q.getUsersForOrganizationStmt, err = db.PrepareContext(ctx, getUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsersForOrganization: %w", err)
 	}
@@ -3121,6 +3124,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUserRoleNameStmt: %w", cerr)
 		}
 	}
+	if q.getUserRoleNameForUpdateStmt != nil {
+		if cerr := q.getUserRoleNameForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserRoleNameForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getUsersForOrganizationStmt != nil {
 		if cerr := q.getUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUsersForOrganizationStmt: %w", cerr)
@@ -4860,6 +4868,7 @@ type Queries struct {
 	getUserByUsernameStmt                                        *sql.Stmt
 	getUserRoleInOrganizationStmt                                *sql.Stmt
 	getUserRoleNameStmt                                          *sql.Stmt
+	getUserRoleNameForUpdateStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
@@ -5430,6 +5439,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserByUsernameStmt:                                        q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:                                q.getUserRoleInOrganizationStmt,
 		getUserRoleNameStmt:                                          q.getUserRoleNameStmt,
+		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,

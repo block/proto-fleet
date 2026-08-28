@@ -367,7 +367,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
 	}
-	if err := validateBoundAutomationProfile(rule, profile); err != nil {
+	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
 		return err
 	}
 	plan, err := s.curtailment.Start(ctx, startReq)
@@ -536,7 +536,7 @@ func (s *AutomationService) validateAndNormalize(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -580,7 +580,7 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -605,6 +605,9 @@ func (s *AutomationService) currentBoundAutomationProfile(
 	if err := validateBoundAutomationProfile(rule, profile); err != nil {
 		return nil, err
 	}
+	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
+		return nil, err
+	}
 	return profile, nil
 }
 
@@ -622,18 +625,16 @@ func validateBoundAutomationProfile(rule *models.AutomationRule, profile *models
 	return nil
 }
 
-func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
+func (s *AutomationService) validateAutomationProfileBinding(
+	ctx context.Context,
+	profile *models.ResponseProfile,
+	canUseAdminControls bool,
+) error {
 	if profile == nil {
 		return nil
 	}
-	scope, err := ResponseProfileScope(*profile)
-	if err != nil {
+	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
 		return err
-	}
-	if hasTopologySelectors(scope) {
-		return fleeterror.NewFailedPreconditionError(
-			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
-		)
 	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil

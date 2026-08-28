@@ -769,6 +769,7 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserRoleInOrganization(ctx context.Context, arg GetUserRoleInOrganizationParams) (Role, error)
 	GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error)
+	GetUserRoleNameForUpdate(ctx context.Context, arg GetUserRoleNameForUpdateParams) (string, error)
 	GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	HasUser(ctx context.Context) (bool, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
