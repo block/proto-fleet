@@ -46,9 +46,9 @@ groups:
         # samples still return one row per live org through the LEFT JOIN.
         noDataState: OK
         execErrState: Error
-        # Notify on the first failed readiness sample. Fleet's 30s collector
-        # remains the debounce boundary, avoiding extra status-probe load.
-        for: 0s
+        # Require one minute of continuous degradation so transient failures
+        # from Fleet's 30s readiness sampler do not flap notifications.
+        for: 1m
         labels:
           proto_fleet_rule_uid: protofleet-ha-readiness
           proto_fleet_scope: shared
