@@ -1,14 +1,41 @@
 package timescaledb_test
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const haRuleFile = "../../../monitoring/grafana/ha/proto-fleet-ha-rules.yaml"
+
+func TestHAReadinessRuleRequiresMinuteOfDegradation(t *testing.T) {
+	raw, err := os.ReadFile(haRuleFile)
+	require.NoError(t, err)
+
+	var doc struct {
+		Groups []struct {
+			Rules []struct {
+				Title string `yaml:"title"`
+				For   string `yaml:"for"`
+			} `yaml:"rules"`
+		} `yaml:"groups"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+
+	for _, group := range doc.Groups {
+		for _, rule := range group.Rules {
+			if rule.Title == "HA Failover Readiness Degraded" {
+				require.Equal(t, "1m", rule.For)
+				return
+			}
+		}
+	}
+	t.Fatal("HA readiness rule not found")
+}
 
 func TestHAReadinessRuleUsesLatestValueAndFreshness(t *testing.T) {
 	if testing.Short() {
