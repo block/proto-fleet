@@ -301,8 +301,8 @@ describe("useCurtailmentPlanPreview", () => {
       forceIncludeAllPairedMiners: true,
     });
     expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(true);
-    expect(topologyScopedRequest?.includeMaintenance).toBe(true);
-    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(true);
+    expect(topologyScopedRequest?.includeMaintenance).toBe(false);
+    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(false);
   });
 
   it.each([

@@ -146,11 +146,27 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.forceIncludeMaintenance).toBe(false);
   });
 
+  it("preserves saved maintenance exclusion when all-paired targeting is enabled", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(true);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
   it.each([
     { scopeType: "building" as const, field: "buildingTargetIds" as const },
     { scopeType: "rack" as const, field: "rackTargetIds" as const },
     { scopeType: "group" as const, field: "groupTargetIds" as const },
-  ])("sends all-paired execution fields for $scopeType scopes", ({ scopeType, field }) => {
+  ])("preserves maintenance exclusion for all-paired $scopeType profiles", ({ scopeType, field }) => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       responseProfileId: "27",
@@ -163,8 +179,8 @@ describe("curtailmentRequestBuilders", () => {
     });
 
     expect(request.forceIncludeAllPairedMiners).toBe(true);
-    expect(request.includeMaintenance).toBe(true);
-    expect(request.forceIncludeMaintenance).toBe(true);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
   });
 
   it("drops stale maintenance inclusion when all-paired targeting is unchecked", () => {

@@ -220,7 +220,7 @@ export function buildForceInclusionFields(
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
   const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
   const includeMaintenance =
-    forceIncludeAllPairedMiners || (values.responseProfileId !== customResponseProfileId && values.includeMaintenance);
+    values.responseProfileId === customResponseProfileId ? forceIncludeAllPairedMiners : values.includeMaintenance;
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
     includeMaintenance,
