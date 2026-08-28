@@ -59,15 +59,11 @@ cat > "$TEST_DIR/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
-if [[ "${1:-}" == "is-active" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
+if [[ "${1:-}" == "stop" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
   : > "$FAKE_FLEETNODE_LOCK_READY"
   while [[ -e "${FAKE_FLEETNODE_LOCK_BLOCK:-}" ]]; do
     sleep 0.05
   done
-fi
-if [[ "${1:-}" == "is-active" ]]; then
-  [[ "${FAKE_FLEETNODE_ACTIVE:-0}" == "1" ]]
-  exit
 fi
 if [[ "${1:-}" == "is-enabled" ]]; then
   [[ "${FAKE_FLEETNODE_ENABLED:-0}" == "1" ]]
@@ -112,6 +108,9 @@ assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "LINUX_SERVICE_PATH=\
 assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'PATH="$LINUX_SERVICE_PATH"'
 assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'exec 9<>"$INSTALL_LOCK_PATH"'
 assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" 'if ! flock -n "$INSTALL_LOCK_FD"; then'
+if grep -Fq 'is-active' "$FLEETNODE_DIR/install-fleetnode.sh"; then
+  fail "installer checks active state before restarting"
+fi
 
 if FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
     /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
@@ -128,7 +127,6 @@ printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 
 run_installer() {
   local version="$1"
-  FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-0}" \
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
   FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
   FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
@@ -144,7 +142,7 @@ run_installer() {
 }
 
 : > "$SYSTEMCTL_LOG"
-CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ACTIVE=0 FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
+CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
 
 [[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "Fleet Node binary was not installed"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
@@ -163,7 +161,7 @@ printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
 printf 'stale program file\n' > "$ROOT_PREFIX/opt/fleetnode/stale.txt"
 
 : > "$SYSTEMCTL_LOG"
-FAKE_FLEETNODE_ACTIVE=1 run_installer v1.1.0
+run_installer v1.1.0
 
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode/stale.txt" ]] || fail "upgrade retained stale program files"
@@ -177,7 +175,6 @@ if REAL_FLOCK_BINARY=$(command -v flock 2>/dev/null); then
   LOCK_BLOCK="$TEST_DIR/installer-lock.block"
   : > "$LOCK_BLOCK"
   REAL_FLOCK="$REAL_FLOCK_BINARY" \
-    FAKE_FLEETNODE_ACTIVE=0 \
     FAKE_FLEETNODE_LOCK_READY="$LOCK_READY" \
     FAKE_FLEETNODE_LOCK_BLOCK="$LOCK_BLOCK" \
     run_installer v1.1.0 > "$TEST_DIR/first-installer.log" 2>&1 &

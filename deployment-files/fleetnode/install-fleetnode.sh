@@ -140,8 +140,8 @@ incoming="${PROGRAM_DIR%/*}/.fleetnode.install.$$"
 previous="${PROGRAM_DIR%/*}/.fleetnode.previous.$$"
 unit_backup="$work_dir/fleetnode.service.previous"
 fresh_install=1
-[[ -d "$PROGRAM_DIR" ]] && fresh_install=0
-was_active=0
+[[ -x "$PROGRAM_DIR/fleetnode" && -f "$UNIT_PATH" ]] && fresh_install=0
+service_stopped=0
 previous_saved=0
 program_replaced=0
 unit_replaced=0
@@ -164,7 +164,7 @@ cleanup() {
     if [[ "$previous_saved" == "1" && -d "$previous" ]]; then
       mv "$previous" "$PROGRAM_DIR"
     fi
-    if [[ "$was_active" == "1" ]]; then
+    if [[ "$service_stopped" == "1" ]]; then
       "$SYSTEMCTL" start fleetnode.service >/dev/null 2>&1 || true
     fi
   fi
@@ -242,9 +242,9 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
   exit 1
 fi
 
-if "$SYSTEMCTL" is-active --quiet fleetnode.service; then
-  was_active=1
+if [[ "$fresh_install" == "0" ]]; then
   "$SYSTEMCTL" stop fleetnode.service
+  service_stopped=1
 fi
 
 install -d -m 0755 "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}"
@@ -296,7 +296,7 @@ if [[ "$fresh_install" == "1" ]]; then
   if "$SYSTEMCTL" is-enabled --quiet fleetnode.service; then
     "$SYSTEMCTL" disable fleetnode.service
   fi
-elif [[ "$was_active" == "1" ]]; then
+else
   "$SYSTEMCTL" start fleetnode.service
 fi
 
@@ -306,10 +306,8 @@ echo "Configuration: $CONFIG_DIR"
 echo "Protected state: $STATE_DIR"
 if [[ "$fresh_install" == "1" ]]; then
   echo "The new service remains disabled until enrollment is complete."
-elif [[ "$was_active" == "1" ]]; then
-  echo "The previously running service was restarted; its enablement state was preserved."
 else
-  echo "The service was not started; its enablement state was preserved."
+  echo "The service was restarted; its enablement state was preserved."
 fi
 echo
 echo "Enroll:"
