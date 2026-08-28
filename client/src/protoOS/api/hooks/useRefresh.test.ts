@@ -52,7 +52,7 @@ describe("useRefresh", () => {
       refreshToken: "latest-refresh",
     });
 
-    expect(mockRefreshToken).toHaveBeenCalledWith("latest-refresh", { secure: false });
+    expect(mockRefreshToken).toHaveBeenCalledWith("latest-refresh");
     expect(mockSetAuthTokens).toHaveBeenCalledWith({
       accessToken: {
         value: "new-access-token",

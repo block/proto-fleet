@@ -43,7 +43,7 @@ const useSystemStatus = () => {
     isFetchingRef.current = true;
     const accept = beginStoreWrite("deviceLifecycle");
     return adapter
-      .getSystemStatus({ secure: false })
+      .getSystemStatus()
       .then((status) => {
         if (!accept()) return;
         setOnboarded(status.onboarded);

@@ -18,7 +18,6 @@ import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/ty
 import type { PoolInfo as PoolFormInput } from "@/shared/types/pool";
 
 export interface AdapterRequestOptions {
-  secure?: boolean;
   headers?: Record<string, string>;
   signal?: AbortSignal | null;
 }
@@ -126,6 +125,16 @@ export interface TimeSeriesQuery {
 }
 
 export interface MinerAdapter {
+  /**
+   * Merge this adapter's own request decoration (auth headers, actor
+   * attribution, …) into `params`. Each generation owns what its firmware
+   * needs: MDK v1 adds `Authorization: Bearer <token>`; the CT1 MDK v2 API is
+   * unauthenticated on-LAN and adds only an `X-Frigate-Actor` attribution
+   * header. Adapters apply this to their own requests, so callers pass plain
+   * options and never build auth headers themselves. Caller-supplied headers
+   * take precedence over the adapter's defaults.
+   */
+  decorate(params?: AdapterRequestOptions): AdapterRequestOptions;
   getSystemInfo(params?: AdapterRequestOptions): Promise<SystemInfoData>;
   getNetworkInfo(params?: AdapterRequestOptions): Promise<Pick<NetworkInfoState, "interfaces">>;
   getSystemStatus(params?: AdapterRequestOptions): Promise<{

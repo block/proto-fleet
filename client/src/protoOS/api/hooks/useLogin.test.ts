@@ -39,7 +39,7 @@ describe("useLogin", () => {
       password: "admin-password",
     });
 
-    expect(mockLogin).toHaveBeenCalledWith("admin-password", { secure: false });
+    expect(mockLogin).toHaveBeenCalledWith("admin-password");
     expect(mockSetAuthTokens).toHaveBeenCalledWith({
       accessToken: {
         value: "new-access-token",

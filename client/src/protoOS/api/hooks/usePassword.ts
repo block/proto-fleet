@@ -37,7 +37,7 @@ const usePassword = () => {
       if (!adapter) return;
 
       await authRetry({
-        request: () => adapter.setPassword(password, { secure: false }),
+        request: () => adapter.setPassword(password),
         onSuccess: () => {
           setPasswordSet(true);
           setDefaultPasswordActive(false);

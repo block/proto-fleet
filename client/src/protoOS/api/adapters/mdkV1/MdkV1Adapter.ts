@@ -79,49 +79,72 @@ const runEmptyBodyCommand = async (request: () => Promise<unknown>): Promise<voi
 };
 
 export class MdkV1Adapter implements MinerAdapter {
-  constructor(private readonly client: MdkV1Client) {}
+  /**
+   * @param client   The generated MDK v1 HTTP client.
+   * @param getAccessToken Supplies the current bearer token so the adapter can
+   *   decorate its own requests. Omitted (or returning "") when no client-side
+   *   credential applies — e.g. fleet mode, where the minerproxy owns auth, or
+   *   pre-login public calls. The provider carries the credential here.
+   */
+  constructor(
+    private readonly client: MdkV1Client,
+    private readonly getAccessToken?: () => string,
+  ) {}
+
+  // v1 gates nearly every endpoint on a bearer token exchanged from the miner
+  // password. Attach it to every request that has one. The public endpoints
+  // (system/status, pairing) are decorated too, but the firmware ignores the
+  // header there (verified: a bad bearer on /system/status still returns 200),
+  // so it's harmless. Only login/refresh — which establish the credential —
+  // must stay undecorated, to avoid sending a stale bearer. Caller-supplied
+  // headers win over ours.
+  decorate(params: AdapterRequestOptions = {}): AdapterRequestOptions {
+    const token = this.getAccessToken?.();
+    if (!token) return params;
+    return { ...params, headers: { Authorization: `Bearer ${token}`, ...params.headers } };
+  }
 
   async getSystemInfo(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getSystemInfo(params);
+    const response = await this.client.getSystemInfo(this.decorate(params));
     return toCanonicalSystemInfo(response.data["system-info"] ?? {});
   }
 
   async getNetworkInfo(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getNetwork(params);
+    const response = await this.client.getNetwork(this.decorate(params));
     return toCanonicalNetworkInfo(response.data["network-info"] ?? {});
   }
 
   async getSystemStatus(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getSystemStatus(params);
+    const response = await this.client.getSystemStatus(this.decorate(params));
     return { onboarded: response.data.onboarded, passwordSet: response.data.password_set };
   }
 
   async getSystemTag(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getSystemTag(params);
+    const response = await this.client.getSystemTag(this.decorate(params));
     return toCanonicalSystemTag(response.data);
   }
 
   async setSystemTag(value: string, params: AdapterRequestOptions = {}) {
-    await this.client.putSystemTag(value, params);
+    await this.client.putSystemTag(value, this.decorate(params));
   }
 
   async getMiningStatus(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getMiningStatus(params);
+    const response = await this.client.getMiningStatus(this.decorate(params));
     return toCanonicalMiningStatus(response.data["mining-status"] ?? {});
   }
 
   async getErrors(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getErrors(params);
+    const response = await this.client.getErrors(this.decorate(params));
     return toCanonicalErrors(response.data);
   }
 
   async getPools(params: AdapterRequestOptions = {}) {
-    const response = await this.client.listPools(params);
+    const response = await this.client.listPools(this.decorate(params));
     return toCanonicalPools(response.data.pools ?? []);
   }
 
   async getMiningTarget(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getMiningTarget(params);
+    const response = await this.client.getMiningTarget(this.decorate(params));
     return toCanonicalMiningTarget(response.data);
   }
 
@@ -138,7 +161,7 @@ export class MdkV1Adapter implements MinerAdapter {
         balance_bays: update.balanceBays,
         hash_on_disconnect: update.hashOnDisconnect,
       },
-      params,
+      this.decorate(params),
     );
     return toCanonicalMiningTarget(response.data);
   }
@@ -147,31 +170,34 @@ export class MdkV1Adapter implements MinerAdapter {
     context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
     params: AdapterRequestOptions = {},
   ) {
-    const response = await this.client.getHardware(params);
+    const response = await this.client.getHardware(this.decorate(params));
     const wire = response.data["hardware-info"] ?? {};
     return { hardware: toCanonicalHardware(wire, context), telemetry: toCanonicalHardwareTelemetry(wire) };
   }
 
   async getHashboards(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getAllHashboards(params);
+    const response = await this.client.getAllHashboards(this.decorate(params));
     return toCanonicalHashboards(response.data["hashboards-info"] ?? []);
   }
 
   async getHashboardStatus(serials: string[], params: AdapterRequestOptions = {}): Promise<HashboardStatus[]> {
+    const decorated = this.decorate(params);
     return Promise.all(
       serials.map(async (serial) => {
-        const response = await this.client.getHashboardStatus({ hbSn: serial }, params);
+        const response = await this.client.getHashboardStatus({ hbSn: serial }, decorated);
         return toCanonicalHashboardStatus(serial, response.data["hashboard-stats"] ?? {});
       }),
     );
   }
 
   async login(password: string, params: AdapterRequestOptions = {}) {
+    // Establishes the credential — must not carry a (possibly stale) bearer.
     const response = await this.client.login({ password }, params);
     return { accessToken: response.data.access_token, refreshToken: response.data.refresh_token };
   }
 
   async refreshAccessToken(refreshToken: string, params: AdapterRequestOptions = {}) {
+    // Renews the credential — undecorated for the same reason as login.
     const response = await this.client.refreshToken({ refresh_token: refreshToken }, params);
     return { accessToken: response.data.access_token };
   }
@@ -180,7 +206,7 @@ export class MdkV1Adapter implements MinerAdapter {
     query: { lines: number; source?: SystemLogSource },
     params: AdapterRequestOptions = {},
   ): Promise<SystemLogs | undefined> {
-    const response = await this.client.getSystemLogs(query, params);
+    const response = await this.client.getSystemLogs(query, this.decorate(params));
     return response.data["logs"];
   }
 
@@ -193,7 +219,7 @@ export class MdkV1Adapter implements MinerAdapter {
     // does not match the firmware's actual query contract. Verified against a
     // real rig: the comma form returns miner/hashboards/psus/asics.
     const level = levels.length ? (levels.join(",") as unknown as GetCurrentTelemetryParams["level"]) : undefined;
-    const response = await this.client.getCurrentTelemetry({ level }, params);
+    const response = await this.client.getCurrentTelemetry({ level }, this.decorate(params));
     return toCanonicalTelemetry(response.data);
   }
 
@@ -212,7 +238,7 @@ export class MdkV1Adapter implements MinerAdapter {
       levels: levels as TimeSeriesRequest["levels"],
       aggregation: request.aggregation,
     };
-    const response = await this.client.getTimeSeries(wireRequest, params);
+    const response = await this.client.getTimeSeries(wireRequest, this.decorate(params));
     return toCanonicalTimeSeries(response.data, {
       startTimeMs: Date.parse(request.startTime),
       interval: request.interval,
@@ -220,58 +246,58 @@ export class MdkV1Adapter implements MinerAdapter {
   }
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {
-    const response = await this.client.getCooling(params);
+    const response = await this.client.getCooling(this.decorate(params));
     return toCanonicalCoolingStatus(response.data["cooling-status"]);
   }
 
   async setCoolingMode(mode: CoolingMode, params: AdapterRequestOptions = {}) {
-    await this.client.setCoolingMode({ mode: toV1CoolingMode(mode) }, params);
+    await this.client.setCoolingMode({ mode: toV1CoolingMode(mode) }, this.decorate(params));
   }
 
   async startMining(params: AdapterRequestOptions = {}) {
-    await this.client.startMining(params);
+    await this.client.startMining(this.decorate(params));
   }
 
   async stopMining(params: AdapterRequestOptions = {}) {
-    await this.client.stopMining(params);
+    await this.client.stopMining(this.decorate(params));
   }
 
   async rebootSystem(params: AdapterRequestOptions = {}) {
-    await this.client.rebootSystem(params);
+    await this.client.rebootSystem(this.decorate(params));
   }
 
   async startFirmwareUpdate(params: AdapterRequestOptions = {}) {
-    await runEmptyBodyCommand(() => this.client.postUpdateSystem(params));
+    await runEmptyBodyCommand(() => this.client.postUpdateSystem(this.decorate(params)));
   }
 
   async checkForFirmwareUpdate(params: AdapterRequestOptions = {}) {
-    await runEmptyBodyCommand(() => this.client.updateCheck(params));
+    await runEmptyBodyCommand(() => this.client.updateCheck(this.decorate(params)));
   }
 
   async locateSystem(options: { enable?: boolean; ledOnTime?: number }, params: AdapterRequestOptions = {}) {
     const query: LocateSystemParams = {};
     if (options.enable !== undefined) query.enable = options.enable;
     if (options.ledOnTime !== undefined) query.led_on_time = options.ledOnTime;
-    await this.client.locateSystem(query, params);
+    await this.client.locateSystem(query, this.decorate(params));
   }
 
   async createPools(pools: PoolInfo[], params: AdapterRequestOptions = {}) {
-    await this.client.createPools(pools.map(poolInfoToPoolConfig), params);
+    await this.client.createPools(pools.map(poolInfoToPoolConfig), this.decorate(params));
   }
 
   async editPool(poolId: number, pool: PoolInfo, params: AdapterRequestOptions = {}) {
-    await this.client.editPool({ id: poolId }, poolInfoToPoolConfig(pool), params);
+    await this.client.editPool({ id: poolId }, poolInfoToPoolConfig(pool), this.decorate(params));
   }
 
   async testPoolConnection(pool: PoolInfo, params: AdapterRequestOptions = {}) {
-    await this.client.testPoolConnection(poolInfoToTestConnection(pool), params);
+    await this.client.testPoolConnection(poolInfoToTestConnection(pool), this.decorate(params));
   }
 
   async setPassword(password: string, params: AdapterRequestOptions = {}) {
-    await this.client.setPassword({ password }, params);
+    await this.client.setPassword({ password }, this.decorate(params));
   }
 
   async changePassword(request: ChangePasswordRequest, params: AdapterRequestOptions = {}) {
-    await this.client.changePassword(request, params);
+    await this.client.changePassword(request, this.decorate(params));
   }
 }

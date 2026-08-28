@@ -21,7 +21,7 @@ const useLogin = () => {
       if (!adapter) return;
 
       await adapter
-        .login(password, { secure: false })
+        .login(password)
         .then(({ accessToken, refreshToken }) => {
           setAuthTokens({
             accessToken: {

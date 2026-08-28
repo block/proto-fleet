@@ -81,7 +81,7 @@ describe("useSystemStatus", () => {
     renderHook(() => useSystemStatus());
 
     await waitFor(() => {
-      expect(mockGetSystemStatus).toHaveBeenCalledWith({ secure: false });
+      expect(mockGetSystemStatus).toHaveBeenCalledWith();
     });
 
     expect(mockSetOnboarded).toHaveBeenCalledWith(true);

@@ -20,29 +20,30 @@ export type MinerHostingMetadata = MinerMetadata;
 // (useMinerHosting) isn't busted by a fresh `{}` on every provider render.
 const EMPTY_METADATA: MinerHostingMetadata = {};
 
-// Read the access token at request time so every call picks up the latest
-// value from the store. Using setSecurityData from a useEffect races against
-// child useEffects (which fire first on initial mount), so the first fetch
-// would otherwise go out before the provider had a chance to inject auth.
-const securityWorker = (): RequestParams | void => {
-  const token = authTokensFromSlice(useMinerStore.getState().auth).accessToken.value;
+// The bearer the v1 adapter decorates its own requests with. Read at request
+// time so every call picks up the latest value from the store (login/refresh
+// write here). Only wired in direct mode — in fleet mode the minerproxy owns
+// auth, so the adapter gets no credential and decorates nothing.
+const directAccessToken = () => authTokensFromSlice(useMinerStore.getState().auth).accessToken.value;
+
+// Authenticates the raw client exposed on `window.api` below. The app itself
+// authenticates through the adapter's decorate(); this securityWorker exists
+// only so the standalone/E2E window handle — which calls generated methods
+// directly, with no adapter in front of it — still carries a bearer on its
+// @secure calls (e.g. deleteSystemTag). Wired in direct mode only, where the
+// window handle is exposed; in fleet mode the store holds no token and the
+// minerproxy owns auth, so it never fires.
+const directBearerSecurityWorker = (): RequestParams | void => {
+  const token = directAccessToken();
   if (!token) return;
-  return {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  };
+  return { headers: { Authorization: `Bearer ${token}` } };
 };
 
 const CreateApi = (baseUrl: string, mode: MinerHostingMode) => {
   const url = baseUrl.length ? (baseUrl.startsWith("/") ? baseUrl : `/${baseUrl}`) : "";
   const instance = new Api({
     baseUrl: url,
-    securityWorker: mode === "direct" ? securityWorker : undefined,
-    // Require auth on all requests by default; firmware now gates nearly every
-    // endpoint. Callers of truly public endpoints (system/status, pairing/info)
-    // must pass { secure: false } to opt out.
-    baseApiParams: { secure: true },
+    securityWorker: mode === "direct" ? directBearerSecurityWorker : undefined,
   });
 
   // The standalone protoOS app and its E2E suite read the miner client off the
@@ -114,7 +115,13 @@ export const MinerHostingProvider = ({
 }: MinerHostingProviderProps) => {
   const instance = useMemo(() => CreateApi(baseUrl, mode), [baseUrl, mode]);
   const api = instance.api;
-  const definitions = useMemo(() => [mdkV2Definition, createMdkV1Definition(() => new MdkV1Adapter(api))], [api]);
+  // The provider carries the credential to the adapter: direct mode hands v1 the
+  // store bearer to decorate with; fleet mode hands none (proxy owns auth).
+  const credential = mode === "direct" ? directAccessToken : undefined;
+  const definitions = useMemo(
+    () => [mdkV2Definition, createMdkV1Definition(() => new MdkV1Adapter(api, credential))],
+    [api, credential],
+  );
   const [resolved, setResolved] = useState<{ instance: typeof instance; resolution: AdapterResolution }>(() => ({
     instance,
     resolution: PROBING_RESOLUTION,
@@ -155,7 +162,6 @@ export const MinerHostingProvider = ({
           path,
           method: "GET",
           format: "json",
-          secure: false,
           signal: attempt.signal,
         });
         return response.data;

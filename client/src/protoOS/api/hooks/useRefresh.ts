@@ -23,7 +23,7 @@ const useRefresh = () => {
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
       if (!adapter) return;
       await adapter
-        .refreshAccessToken(refreshToken, { secure: false })
+        .refreshAccessToken(refreshToken)
         .then(({ accessToken: accessTokenValue }) => {
           const authTokens = authTokensFromSlice(useMinerStore.getState().auth);
           // Drop stale responses: if the store's refresh token changed while

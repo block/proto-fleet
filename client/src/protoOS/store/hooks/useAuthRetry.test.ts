@@ -4,19 +4,6 @@ import { useAuthRetry } from "./useAuthRetry";
 
 const mockHandleAuthErrors = vi.fn();
 const mockUseMinerHosting = vi.hoisted(() => vi.fn());
-const mockGetState = vi.fn();
-let currentAccessToken = "test-token";
-
-const authHeaderFor = (token: string) => ({
-  secure: false,
-  headers: { Authorization: `Bearer ${token}` },
-});
-
-vi.mock("../useMinerStore", () => ({
-  default: {
-    getState: () => mockGetState(),
-  },
-}));
 
 vi.mock("./useAuth", () => ({
   useAuthErrors: vi.fn(() => ({ handleAuthErrors: mockHandleAuthErrors })),
@@ -30,26 +17,16 @@ describe("useAuthRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
-    currentAccessToken = "test-token";
-    mockGetState.mockImplementation(() => ({
-      auth: {
-        session: {
-          mode: "bearer",
-          status: "authenticated",
-          accessToken: { value: currentAccessToken, expiresAtMs: 0 },
-        },
-      },
-    }));
   });
 
-  test("calls request with the latest auth header from the store", async () => {
+  test("calls request with plain params — the adapter owns request decoration", async () => {
     const request = vi.fn().mockResolvedValue("result");
     const { result } = renderHook(() => useAuthRetry());
-    currentAccessToken = "fresh-token";
 
     await result.current({ request });
 
-    expect(request).toHaveBeenCalledWith(authHeaderFor("fresh-token"));
+    // No Authorization header built here anymore; the adapter decorates.
+    expect(request).toHaveBeenCalledWith({});
   });
 
   test("calls onSuccess with the request result", async () => {
@@ -87,27 +64,29 @@ describe("useAuthRetry", () => {
 
     await result.current({ request, onError });
 
-    expect(request).toHaveBeenCalledWith({ secure: false });
+    expect(request).toHaveBeenCalledWith({});
     expect(onError).toHaveBeenCalledWith(error);
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
   });
 
-  test("retries with fresh token on successful refresh", async () => {
+  test("re-runs the request on successful refresh", async () => {
     const error = { status: 401, error: { message: "Unauthorized" } };
     const request = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("retry-result");
     const onSuccess = vi.fn();
 
     mockHandleAuthErrors.mockImplementation(({ onSuccess: authOnSuccess }) => {
-      return authOnSuccess?.("fresh-token");
+      return authOnSuccess?.();
     });
 
     const { result } = renderHook(() => useAuthRetry());
 
     await result.current({ request, onSuccess });
 
+    // Both calls pass plain params; the adapter re-decorates with the token the
+    // refresh wrote to the store, so no header is threaded through here.
     expect(request).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenNthCalledWith(1, authHeaderFor("test-token"));
-    expect(request).toHaveBeenNthCalledWith(2, authHeaderFor("fresh-token"));
+    expect(request).toHaveBeenNthCalledWith(1, {});
+    expect(request).toHaveBeenNthCalledWith(2, {});
     expect(onSuccess).toHaveBeenCalledWith("retry-result");
   });
 

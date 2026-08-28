@@ -132,16 +132,16 @@ describe("MdkV1Adapter auth + logs", () => {
     const login = vi.fn().mockResolvedValue({ data: { access_token: "a", refresh_token: "r" } });
     const adapter = new MdkV1Adapter({ login } as never);
 
-    expect(await adapter.login("pw", { secure: false })).toEqual({ accessToken: "a", refreshToken: "r" });
-    expect(login).toHaveBeenCalledWith({ password: "pw" }, { secure: false });
+    expect(await adapter.login("pw")).toEqual({ accessToken: "a", refreshToken: "r" });
+    expect(login).toHaveBeenCalledWith({ password: "pw" }, {});
   });
 
   test("refreshAccessToken returns the renewed access token", async () => {
     const refreshToken = vi.fn().mockResolvedValue({ data: { access_token: "a2" } });
     const adapter = new MdkV1Adapter({ refreshToken } as never);
 
-    expect(await adapter.refreshAccessToken("r", { secure: false })).toEqual({ accessToken: "a2" });
-    expect(refreshToken).toHaveBeenCalledWith({ refresh_token: "r" }, { secure: false });
+    expect(await adapter.refreshAccessToken("r")).toEqual({ accessToken: "a2" });
+    expect(refreshToken).toHaveBeenCalledWith({ refresh_token: "r" }, {});
   });
 
   test("getSystemLogs unwraps the logs envelope", async () => {
@@ -165,27 +165,27 @@ describe("MdkV1Adapter commands", () => {
     const startMining = vi.fn().mockResolvedValue({});
     const adapter = new MdkV1Adapter({ startMining } as never);
 
-    await adapter.startMining({ secure: true });
+    await adapter.startMining();
 
-    expect(startMining).toHaveBeenCalledWith({ secure: true });
+    expect(startMining).toHaveBeenCalledWith({});
   });
 
   test("stopMining forwards the auth params to the client", async () => {
     const stopMining = vi.fn().mockResolvedValue({});
     const adapter = new MdkV1Adapter({ stopMining } as never);
 
-    await adapter.stopMining({ secure: true });
+    await adapter.stopMining();
 
-    expect(stopMining).toHaveBeenCalledWith({ secure: true });
+    expect(stopMining).toHaveBeenCalledWith({});
   });
 
   test("rebootSystem forwards the auth params to the client", async () => {
     const rebootSystem = vi.fn().mockResolvedValue({});
     const adapter = new MdkV1Adapter({ rebootSystem } as never);
 
-    await adapter.rebootSystem({ secure: true });
+    await adapter.rebootSystem();
 
-    expect(rebootSystem).toHaveBeenCalledWith({ secure: true });
+    expect(rebootSystem).toHaveBeenCalledWith({});
   });
 
   test("changePassword forwards the v1 request body and auth params", async () => {
@@ -193,9 +193,9 @@ describe("MdkV1Adapter commands", () => {
     const adapter = new MdkV1Adapter({ changePassword } as never);
 
     const request = { current_password: "current123", new_password: "new456789" };
-    await adapter.changePassword(request, { secure: false });
+    await adapter.changePassword(request);
 
-    expect(changePassword).toHaveBeenCalledWith(request, { secure: false });
+    expect(changePassword).toHaveBeenCalledWith(request, {});
   });
 
   test("locateSystem maps canonical options to the v1 query, omitting undefined keys", async () => {
@@ -248,9 +248,9 @@ describe("MdkV1Adapter commands", () => {
     const setPassword = vi.fn().mockResolvedValue({});
     const adapter = new MdkV1Adapter({ setPassword } as never);
 
-    await adapter.setPassword("pw", { secure: false });
+    await adapter.setPassword("pw");
 
-    expect(setPassword).toHaveBeenCalledWith({ password: "pw" }, { secure: false });
+    expect(setPassword).toHaveBeenCalledWith({ password: "pw" }, {});
   });
 });
 
@@ -259,16 +259,16 @@ describe("MdkV1Adapter firmware update commands", () => {
     const postUpdateSystem = vi.fn().mockResolvedValue({ status: 202, ok: true });
     const adapter = new MdkV1Adapter({ postUpdateSystem } as never);
 
-    await expect(adapter.startFirmwareUpdate({ secure: true })).resolves.toBeUndefined();
-    expect(postUpdateSystem).toHaveBeenCalledWith({ secure: true });
+    await expect(adapter.startFirmwareUpdate()).resolves.toBeUndefined();
+    expect(postUpdateSystem).toHaveBeenCalledWith({});
   });
 
   test("checkForFirmwareUpdate initiates the check and hides the raw response", async () => {
     const updateCheck = vi.fn().mockResolvedValue({ status: 200, ok: true });
     const adapter = new MdkV1Adapter({ updateCheck } as never);
 
-    await expect(adapter.checkForFirmwareUpdate({ secure: true })).resolves.toBeUndefined();
-    expect(updateCheck).toHaveBeenCalledWith({ secure: true });
+    await expect(adapter.checkForFirmwareUpdate()).resolves.toBeUndefined();
+    expect(updateCheck).toHaveBeenCalledWith({});
   });
 
   test.each([
@@ -330,5 +330,119 @@ describe("MdkV1Adapter firmware update commands", () => {
     const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never);
 
     await expect(adapter[adapterMethod]()).rejects.toBe(failure);
+  });
+});
+
+describe("MdkV1Adapter request decoration", () => {
+  test("adds a bearer header to every decorated request when a token is available", async () => {
+    const getSystemInfo = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getSystemInfo } as never, () => "tok-123");
+
+    await adapter.getSystemInfo();
+
+    expect(getSystemInfo).toHaveBeenCalledWith({ headers: { Authorization: "Bearer tok-123" } });
+  });
+
+  test("merges the bearer header with caller-supplied params, caller headers winning", async () => {
+    const putSystemTag = vi.fn().mockResolvedValue({});
+    const adapter = new MdkV1Adapter({ putSystemTag } as never, () => "tok-123");
+
+    await adapter.setSystemTag("rig-a", { signal: null, headers: { Authorization: "Bearer override" } });
+
+    expect(putSystemTag).toHaveBeenCalledWith("rig-a", {
+      signal: null,
+      headers: { Authorization: "Bearer override" },
+    });
+  });
+
+  test("attaches no auth header when the credential accessor is absent (fleet / pre-login)", async () => {
+    const getSystemStatus = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getSystemStatus } as never);
+
+    await adapter.getSystemStatus();
+
+    expect(getSystemStatus).toHaveBeenCalledWith({});
+  });
+
+  test("attaches no auth header when the accessor yields an empty token", async () => {
+    const getSystemStatus = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getSystemStatus } as never, () => "");
+
+    await adapter.getSystemStatus();
+
+    expect(getSystemStatus).toHaveBeenCalledWith({});
+  });
+
+  test("does not decorate login or refresh — they establish the credential", async () => {
+    const login = vi.fn().mockResolvedValue({ data: { access_token: "a", refresh_token: "r" } });
+    const refreshToken = vi.fn().mockResolvedValue({ data: { access_token: "a2" } });
+    const adapter = new MdkV1Adapter({ login, refreshToken } as never, () => "stale-token");
+
+    await adapter.login("pw");
+    await adapter.refreshAccessToken("r");
+
+    expect(login).toHaveBeenCalledWith({ password: "pw" }, {});
+    expect(refreshToken).toHaveBeenCalledWith({ refresh_token: "r" }, {});
+  });
+});
+
+// Guard against the decorate() omission trap: auth is applied per-method via
+// this.decorate(params) rather than a single choke point, so a future method
+// that forgets it would silently send unauthenticated. This table asserts every
+// firmware-talking method carries the bearer; login/refreshAccessToken are the
+// only intentional exceptions (covered above). decorate() is always the last
+// argument to the client call, so we assert on the last arg regardless of
+// signature shape. Add a row here whenever a new adapter method is added.
+describe("MdkV1Adapter decorates every authenticated method", () => {
+  const TOKEN = "table-token";
+  const AUTH = { Authorization: `Bearer ${TOKEN}` };
+  // A valid pool so poolInfoToPoolConfig / poolInfoToTestConnection don't throw
+  // before the client call (they run on the arg prior to decorate()).
+  const POOL = { name: "p", url: "stratum+tcp://h:1", username: "u", password: "pw", priority: 0 };
+
+  const cases: Array<[string, (adapter: MdkV1Adapter) => Promise<unknown>]> = [
+    ["getSystemInfo", (a) => a.getSystemInfo()],
+    ["getNetwork", (a) => a.getNetworkInfo()],
+    ["getSystemStatus", (a) => a.getSystemStatus()],
+    ["getSystemTag", (a) => a.getSystemTag()],
+    ["putSystemTag", (a) => a.setSystemTag("rig")],
+    ["getMiningStatus", (a) => a.getMiningStatus()],
+    ["getErrors", (a) => a.getErrors()],
+    ["listPools", (a) => a.getPools()],
+    ["getMiningTarget", (a) => a.getMiningTarget()],
+    ["editMiningTarget", (a) => a.updateMiningTarget({ valueWatts: 1 } as never)],
+    ["getHardware", (a) => a.getHardware({ deviceId: "d", profile: "unknown" })],
+    ["getAllHashboards", (a) => a.getHashboards()],
+    ["getHashboardStatus", (a) => a.getHashboardStatus(["s1"])],
+    ["getSystemLogs", (a) => a.getSystemLogs({ lines: 1 })],
+    ["getCurrentTelemetry", (a) => a.getCurrentTelemetry()],
+    ["getTimeSeries", (a) => a.getTimeSeries({ startTime: "2020-01-01T00:00:00Z", levels: [] } as never)],
+    ["getCooling", (a) => a.getCoolingStatus()],
+    ["setCoolingMode", (a) => a.setCoolingMode("auto" as never)],
+    ["startMining", (a) => a.startMining()],
+    ["stopMining", (a) => a.stopMining()],
+    ["rebootSystem", (a) => a.rebootSystem()],
+    ["postUpdateSystem", (a) => a.startFirmwareUpdate()],
+    ["updateCheck", (a) => a.checkForFirmwareUpdate()],
+    ["locateSystem", (a) => a.locateSystem({ enable: true })],
+    ["createPools", (a) => a.createPools([])],
+    ["editPool", (a) => a.editPool(1, POOL as never)],
+    ["testPoolConnection", (a) => a.testPoolConnection(POOL as never)],
+    ["setPassword", (a) => a.setPassword("pw")],
+    ["changePassword", (a) => a.changePassword({} as never)],
+  ];
+
+  test.each(cases)("%s carries the bearer header", async (clientMethod, invoke) => {
+    const clientCall = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ [clientMethod]: clientCall } as never, () => TOKEN);
+
+    // Response-shape processing after the client call is irrelevant here; we
+    // only care that the client was invoked with a decorated argument.
+    await invoke(adapter).catch(() => {});
+
+    expect(clientCall).toHaveBeenCalled();
+    const lastCall = clientCall.mock.calls[clientCall.mock.calls.length - 1];
+    const lastArg = lastCall[lastCall.length - 1];
+    expect(lastArg).toMatchObject({ headers: AUTH });
   });
 });

@@ -28,6 +28,39 @@ async function validateInstallingWidget(
   }
 }
 
+// The fake rig only holds "downloaded" for firmwareStepDelay (~1s) before it
+// auto-advances to "installing" (progress 75%). A live page reload + widget
+// assertion doesn't fit in that window, so pin /api/v1/system to a "downloaded"
+// payload for the duration of the assertion — mirroring validateInstallingWidget
+// — instead of racing the rig's timer.
+async function validateDownloadedWidget(
+  page: Page,
+  firmwareHelper: FirmwareHelper,
+  generalPage: GeneralPage,
+  headerComponent: HeaderComponent,
+  startingVersion: string,
+  installedVersion: string,
+) {
+  const systemInfo = await firmwareHelper.getSystemInfo();
+  systemInfo["system-info"].sw_update_status.status = "downloaded";
+  systemInfo["system-info"].sw_update_status.new_version = installedVersion;
+  const fulfillDownloadedSystemInfo = (route: Route) => route.fulfill({ json: systemInfo });
+
+  await page.route(SYSTEM_INFO_ROUTE, fulfillDownloadedSystemInfo);
+  try {
+    await generalPage.reloadPage();
+    await generalPage.validateTitle("General");
+    await headerComponent.validateFirmwareStatusWidgetText(/Ready to install/);
+    await headerComponent.openFirmwareStatusModal();
+    await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
+    await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
+    await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
+    await headerComponent.clickFirmwareStatusModalInstallButton();
+  } finally {
+    await page.unroute(SYSTEM_INFO_ROUTE, fulfillDownloadedSystemInfo);
+  }
+}
+
 async function handleUploadedFirmwareState(
   uploadState: UploadState,
   page: Page,
@@ -42,18 +75,20 @@ async function handleUploadedFirmwareState(
     return;
   }
 
-  await generalPage.reloadPage();
-  await generalPage.validateTitle("General");
-
   if (uploadState === "downloaded") {
-    await headerComponent.validateFirmwareStatusWidgetText(/Ready to install/);
-    await headerComponent.openFirmwareStatusModal();
-    await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
-    await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
-    await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
-    await headerComponent.clickFirmwareStatusModalInstallButton();
+    await validateDownloadedWidget(
+      page,
+      firmwareHelper,
+      generalPage,
+      headerComponent,
+      startingVersion,
+      installedVersion,
+    );
     return;
   }
+
+  await generalPage.reloadPage();
+  await generalPage.validateTitle("General");
 
   await generalPage.validateInlineFirmwareStatus(/Reboot required/);
   await headerComponent.validateFirmwareStatusWidgetText(/Reboot required/);
@@ -68,7 +103,10 @@ async function getInstallingState(uploadState: UploadState, firmwareHelper: Firm
     return firmwareHelper.getState();
   }
 
-  return firmwareHelper.waitForStatus("installing");
+  // Coming from "downloaded": the rig auto-advances on its own timer, so by the
+  // time we get here it may already be "installed". Accept either so we don't
+  // race a window that has closed; validateInstallingState handles "installed".
+  return firmwareHelper.waitForAnyStatus(["installing", "installed"]);
 }
 
 async function validateInstallingState(
