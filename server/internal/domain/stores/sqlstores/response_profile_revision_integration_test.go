@@ -571,7 +571,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				profile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
 				profile.SiteID = nil
 			} else {
-				profile.ScopeJSON = nil
+				profile.ScopeJSON = []byte(`{}`)
 				profile.SiteID = &site.ID
 			}
 			profile, err = store.UpdateResponseProfile(
