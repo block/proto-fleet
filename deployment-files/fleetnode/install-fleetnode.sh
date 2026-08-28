@@ -19,8 +19,8 @@ Usage: install-fleetnode.sh --version VERSION
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
 
-The installer creates the service but leaves a fresh installation disabled.
-After installation, enroll the node and then explicitly enable the service.
+The installer starts the service but leaves a fresh installation disabled at
+boot. After installation, enroll the node and then enable the service.
 EOF
 }
 
@@ -296,24 +296,23 @@ if [[ "$fresh_install" == "1" ]]; then
   if "$SYSTEMCTL" is-enabled --quiet fleetnode.service; then
     "$SYSTEMCTL" disable fleetnode.service
   fi
-else
-  "$SYSTEMCTL" start fleetnode.service
 fi
+"$SYSTEMCTL" start fleetnode.service
 
 install_complete=1
 echo "Fleet Node $VERSION installed."
 echo "Configuration: $CONFIG_DIR"
 echo "Protected state: $STATE_DIR"
 if [[ "$fresh_install" == "1" ]]; then
-  echo "The new service remains disabled until enrollment is complete."
+  echo "The service was started and remains disabled at boot until enrollment is complete."
 else
   echo "The service was restarted; its enablement state was preserved."
 fi
 echo
 echo "Enroll:"
 echo "  sudo -u fleetnode $PROGRAM_DIR/fleetnode --state-dir $STATE_DIR enroll --server-url=https://YOUR-FLEET-SERVER"
-echo "Then enable and start:"
-echo "  sudo systemctl enable --now fleetnode.service"
+echo "Then enable at boot:"
+echo "  sudo systemctl enable fleetnode.service"
 echo "Inspect:"
 echo "  systemctl status fleetnode.service"
 echo "  journalctl -u fleetnode.service"

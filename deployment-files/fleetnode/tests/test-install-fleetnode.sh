@@ -151,10 +151,11 @@ assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "Enviro
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "ExecStart=/usr/bin/env PATH=$LINUX_SERVICE_PATH /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "Restart=on-failure"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK"
-if grep -Eq '(^| )enable( |$)|(^| )start( |$)' "$SYSTEMCTL_LOG"; then
-  fail "fresh install enabled or started the service"
+if grep -Eq '(^| )enable( |$)|(^| )stop( |$)' "$SYSTEMCTL_LOG"; then
+  fail "fresh install enabled or stopped the service"
 fi
 assert_file_contains "$SYSTEMCTL_LOG" "disable fleetnode.service"
+assert_file_contains "$SYSTEMCTL_LOG" "start fleetnode.service"
 
 printf 'operator config\n' > "$ROOT_PREFIX/etc/fleetnode/config.yaml"
 printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
