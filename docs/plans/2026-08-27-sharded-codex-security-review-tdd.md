@@ -3,7 +3,7 @@ title: "Sharded Codex security review"
 date: 2026-08-27
 status: accepted
 type: tdd
-tracker: https://github.com/block/proto-fleet/pull/975
+tracker: https://github.com/block/proto-fleet/pull/980
 ---
 
 # Sharded Codex security review
