@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,19 +14,19 @@ import (
 // sampleAlerts mirrors a real Grafana batch: two firing device alerts + one resolved, each
 // carrying the internal labels the old native message leaked.
 func sampleAlerts() []Alert {
-	labels := func(name, sev, dev string) map[string]string {
+	labels := func(name, sev, dev, template string) map[string]string {
 		return map[string]string{
 			"alertname": name, "severity": sev, "device_id": dev,
 			"organization_id": "1", "grafana_folder": "Proto Fleet",
-			"proto_fleet_scope": "shared", "rule_group": "proto-fleet-defaults", "template": "x",
+			"proto_fleet_scope": "shared", "rule_group": "proto-fleet-defaults", "template": template,
 		}
 	}
 	return []Alert{
-		{Status: "firing", Labels: labels("Device Hashrate Low", "warning", "dev-a"),
-			Annotations: map[string]string{"summary": "Device hashrate has fallen below expected."}},
-		{Status: "firing", Labels: labels("Device Temperature High", "warning", "dev-b"),
-			Annotations: map[string]string{"summary": "Max sensor temperature is above 90C."}},
-		{Status: "resolved", Labels: labels("Device Offline", "warning", "dev-a"),
+		{Status: "firing", Labels: labels("Device Hashrate Low", "warning", "dev-a", "hashrate"),
+			Annotations: map[string]string{"summary": "Device hashrate is below 75% of expected for at least ten minutes."}},
+		{Status: "firing", Labels: labels("Device Temperature High", "warning", "dev-b", "temperature"),
+			Annotations: map[string]string{"summary": "Max sensor temperature for device is above 90°C for at least ten minutes."}},
+		{Status: "resolved", Labels: labels("Device Offline", "warning", "dev-a", "offline"),
 			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."}},
 	}
 }
@@ -47,45 +48,197 @@ func TestRenderSlackHidesAlertingInternals(t *testing.T) {
 	}
 }
 
-func TestRenderSlackTitleLinksTheInstanceName(t *testing.T) {
+func TestRenderSlackLinksTheInstanceHeaderAndUsesPerAlertCopy(t *testing.T) {
 	ids := map[string]DeviceIdentity{
 		"dev-a": {Name: "miner-01", MAC: "aa:bb:cc:dd:ee:ff"},
 		"dev-b": {Name: "miner-02", MAC: "11:22:33:44:55:66"},
 	}
 	msg := renderSlack("https://fleet.example.com", sampleAlerts(), ids)
 
-	// The fallback preview is the same title without link markup, which a blockless client would show raw.
-	assert.Equal(t, "🟡 Proto Fleet (fleet.example.com) — 2 alerts firing on 2 miners", msg["text"])
+	// The fallback preview includes the same copy without link markup.
+	assert.Equal(t, strings.Join([]string{
+		"Proto Fleet (fleet.example.com)",
+		"🟡 1 device hashing below 75% of expected for at least ten minutes",
+		"🟡 1 device with sensor temperatures above 90°C for at least ten minutes",
+		"✅ 1 device reachable again",
+	}, "\n"), msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
 	require.NotEmpty(t, blocks)
-	// The instance name is itself the link, so the message carries no separate "open the app" line.
+	// The neutral instance header is itself the link; severity appears only on each alert line.
 	assert.Equal(t,
-		"*🟡 Proto Fleet (<https://fleet.example.com|fleet.example.com>) — 2 alerts firing on 2 miners*",
+		"*Proto Fleet (<https://fleet.example.com|fleet.example.com>)*",
 		sectionText(t, blocks[0]))
 
 	body := mustJSON(t, msg)
-	// Firing alerts need no heading — the title counts them — and resolved rows carry their status in the name.
-	assert.NotContains(t, body, "*Firing*")
-	assert.NotContains(t, body, "*Resolved*")
-	assert.Contains(t, body, "*Device Temperature High* _(warning)_ — miner-02 (`11:22:33:44:55:66`)")
-	assert.Contains(t, body, "Max sensor temperature is above 90C.")
-	resolvedText := sectionText(t, blocks[len(blocks)-1])
-	assert.Equal(t, "*Resolved: Device Offline* — miner-01 (`aa:bb:cc:dd:ee:ff`)", resolvedText)
-	assert.NotContains(t, resolvedText, "warning")
-	assert.NotContains(t, resolvedText, "Device is offline for at least five minutes.")
+	assert.NotContains(t, body, "firing")
+	assert.NotContains(t, body, "_(warning)_")
+	assert.NotContains(t, body, "miner-01")
+	assert.NotContains(t, body, "miner-02")
+	assert.NotContains(t, body, "dev-a")
+	assert.NotContains(t, body, "dev-b")
+}
+
+func TestRenderSlackUsesNaturalDeviceCopyWithThresholdContext(t *testing.T) {
+	tests := []struct {
+		name     string
+		template RuleTemplate
+		summary  string
+		count    int
+		want     string
+	}{
+		{
+			name:     "offline",
+			template: RuleTemplateOffline,
+			summary:  "Device is offline for at least five minutes.",
+			count:    12,
+			want:     "🔴 12 devices unreachable for at least five minutes",
+		},
+		{
+			name:     "hashrate percent",
+			template: RuleTemplateHashrate,
+			summary:  "Device hashrate is below 75% of expected for at least ten minutes.",
+			count:    84,
+			want:     "🟡 84 devices hashing below 75% of expected for at least ten minutes",
+		},
+		{
+			name:     "temperature",
+			template: RuleTemplateTemperature,
+			summary:  "Max sensor temperature for device is above 90°C for at least ten minutes.",
+			count:    8,
+			want:     "🟡 8 devices with sensor temperatures above 90°C for at least ten minutes",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			severity := "warning"
+			if tc.template == RuleTemplateOffline {
+				severity = "critical"
+			}
+			assert.Equal(t, tc.want, groupLine(alertGroup{
+				Severity: severity, Template: string(tc.template), DeviceCount: tc.count,
+				Summaries: []string{tc.summary}, SummaryCount: 1,
+			}, false))
+		})
+	}
+}
+
+func TestRenderSlackUsesAlertSpecificResolvedCopyInMixedBatch(t *testing.T) {
+	firing := Alert{
+		Status: "firing",
+		Labels: map[string]string{
+			"alertname": "Device Hashrate Low", "severity": "warning", "device_id": "dev-a", "template": "hashrate",
+		},
+		Annotations: map[string]string{"summary": "Device hashrate is below 75% of expected for at least ten minutes."},
+	}
+	resolved := Alert{
+		Status: "resolved",
+		Labels: map[string]string{
+			"alertname": "Device Offline", "severity": "warning", "device_id": "dev-b", "template": "offline",
+		},
+	}
+
+	assert.Equal(t, strings.Join([]string{
+		"Proto Fleet (fleet.example.com)",
+		"🟡 1 device hashing below 75% of expected for at least ten minutes",
+		"✅ 1 device reachable again",
+	}, "\n"), renderSlack("https://fleet.example.com", []Alert{firing, resolved}, nil)["text"])
+}
+
+func TestRenderSlackCountsPartialRecoveryWhileSameRuleStillFires(t *testing.T) {
+	alert := func(status, deviceID string) Alert {
+		return Alert{
+			Status:  status,
+			RuleUID: "offline-rule",
+			Labels: map[string]string{
+				"alertname": "Device Offline", "severity": "critical", "device_id": deviceID,
+				"rule_group": "proto-fleet-defaults", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		}
+	}
+	alerts := make([]Alert, 0, 100)
+	for i := range 95 {
+		alerts = append(alerts, alert("firing", fmt.Sprintf("firing-%d", i)))
+	}
+	for i := range 5 {
+		alerts = append(alerts, alert("resolved", fmt.Sprintf("resolved-%d", i)))
+	}
+
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	assert.Contains(t, text, "🔴 95 devices unreachable for at least five minutes")
+	assert.Contains(t, text, "✅ 5 devices reachable again")
+	assert.NotContains(t, text, "All devices reachable")
+}
+
+func TestRenderSlackUsesThresholdNeutralHashrateRecoveryCopy(t *testing.T) {
+	assert.Equal(t, "✅ 3 devices hashing above alert threshold again", groupLine(alertGroup{
+		Template: string(RuleTemplateHashrate), DeviceCount: 3,
+	}, true))
+}
+
+func TestRenderSlackRecoveryStaysScopedAcrossRules(t *testing.T) {
+	alert := func(status, ruleUID, name, deviceID string) Alert {
+		return Alert{
+			Status: status, RuleUID: ruleUID,
+			Labels: map[string]string{
+				"alertname": name, "severity": "critical", "device_id": deviceID,
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		}
+	}
+	alerts := []Alert{
+		alert("firing", "offline-site-a", "Site A offline", "dev-a"),
+		alert("resolved", "offline-site-b", "Site B offline", "dev-b"),
+	}
+
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	assert.Contains(t, text, "🔴 Site A offline: 1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "✅ Site B offline: 1 device reachable again")
+	assert.NotContains(t, text, "All devices reachable")
+}
+
+func TestRenderSlackKeepsSameNamedUserRulesSeparateByRuleUID(t *testing.T) {
+	alerts := []Alert{
+		{
+			Status: "firing", RuleUID: "user-offline",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "critical", "device_id": "dev-a",
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		},
+		{
+			Status: "firing", RuleUID: "user-temperature",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-b",
+				"rule_group": "proto-fleet-user-7", "template": "temperature",
+			},
+			Annotations: map[string]string{"summary": "Max sensor temperature for device is above 95°C for at least ten minutes."},
+		},
+	}
+
+	msg := renderSlack("", alerts, nil)
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	assert.Len(t, blocks, 3, "the shared name and rule group must not merge distinct rule UIDs")
+	text := allSectionText(t, msg)
+	assert.Contains(t, text, "Watch miners: 1 device unreachable for at least five minutes")
+	assert.Contains(t, text, "Watch miners: 1 device with sensor temperatures above 95°C for at least ten minutes")
 }
 
 func TestRenderSlackOmitsLinkWhenNoPublicURL(t *testing.T) {
 	msg := renderSlack("", sampleAlerts(), nil)
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
-	// With nothing to link to, the title is the plain product name rather than an empty link.
-	assert.Equal(t, "*🟡 Proto Fleet — 2 alerts firing on 2 miners*", sectionText(t, blocks[0]))
+	// With nothing to link to, the header is the plain product name rather than an empty link.
+	assert.Equal(t, "*Proto Fleet*", sectionText(t, blocks[0]))
 }
 
-func TestRenderSlackDotMatchesTheWorstFiringSeverity(t *testing.T) {
+func TestRenderSlackDotMatchesEachAlertSeverity(t *testing.T) {
 	alert := func(name, severity string) Alert {
 		return Alert{Status: "firing", Labels: map[string]string{"alertname": name, "severity": severity}}
 	}
@@ -96,7 +249,7 @@ func TestRenderSlackDotMatchesTheWorstFiringSeverity(t *testing.T) {
 	}{
 		{"info alone is blue", []Alert{alert("A", "info")}, "🔵"},
 		{"warning alone is yellow", []Alert{alert("A", "warning")}, "🟡"},
-		{"one critical reddens a batch of warnings", []Alert{alert("A", "warning"), alert("B", "critical")}, "🔴"},
+		{"critical alone is red", []Alert{alert("A", "critical")}, "🔴"},
 		{"case and padding are still the same severity", []Alert{alert("A", " Warning ")}, "🟡"},
 		// A rule can carry any severity label; a colour is a weak reason to signal one as less than it is.
 		{"an unrecognized severity is not downgraded", []Alert{alert("A", "page-me"), alert("B", "info")}, "🔴"},
@@ -105,37 +258,29 @@ func TestRenderSlackDotMatchesTheWorstFiringSeverity(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			title, ok := renderSlack("", tc.alerts, nil)["text"].(string)
+			blocks, ok := renderSlack("", tc.alerts, nil)["blocks"].([]map[string]any)
 			require.True(t, ok)
-			assert.True(t, strings.HasPrefix(title, tc.want), "want %s dot, got %q", tc.want, title)
+			require.GreaterOrEqual(t, len(blocks), 2)
+			assert.True(t, strings.HasPrefix(sectionText(t, blocks[1]), tc.want),
+				"want %s dot, got %q", tc.want, sectionText(t, blocks[1]))
 		})
 	}
 }
 
-func TestRenderSlackFallsBackToDeviceID(t *testing.T) {
-	body := renderSlackJSON(t, "", sampleAlerts(), nil)
-	assert.Contains(t, body, "— dev-b", "with no identity, the raw device id is shown")
-}
-
-func TestRenderSlackRendersMACsAsCode(t *testing.T) {
-	ids := map[string]DeviceIdentity{
-		// ":ab:" is a Slack shortcode (🆎) and "ab" is a valid octet, so a bare MAC interpolates mid-address.
-		"dev-a": {Name: "miner-01", MAC: "12:ab:34:cd:56:ef"},
-		// A backtick in any field of the section would close a MAC's span early, name and address alike.
-		"dev-b": {Name: "miner`02", MAC: "aa:`:bb"},
-	}
-	text := allSectionText(t, renderSlack("", sampleAlerts(), ids))
-
-	assert.Contains(t, text, "miner-01 (`12:ab:34:cd:56:ef`)")
-	assert.Contains(t, text, "miner02 (`aa::bb`)")
-}
-
-func TestRenderSlackAllResolvedTitle(t *testing.T) {
-	resolvedOnly := []Alert{{Status: "resolved", Labels: map[string]string{"alertname": "Device Offline"}}}
-	assert.Equal(t, "✅ Proto Fleet — alerts resolved", renderSlack("", resolvedOnly, nil)["text"])
-	// A quiet channel shared by several fleets still has to say whose alerts cleared.
+func TestRenderSlackResolutionOnlyBatchKeepsConditionSpecificCopy(t *testing.T) {
+	resolvedOnly := []Alert{{
+		Status: "resolved", RuleUID: "protofleet-ha-readiness",
+		Labels: map[string]string{
+			"alertname": "HA Failover Readiness Degraded", "template": "ha-readiness",
+		},
+	}}
 	msg := renderSlack("https://fleet.example.com", resolvedOnly, nil)
-	assert.Equal(t, "✅ Proto Fleet (fleet.example.com) — alerts resolved", msg["text"])
+	assert.Equal(t, "Proto Fleet (fleet.example.com)\n✅ HA ready to fail over", msg["text"])
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 2)
+	assert.Equal(t, "✅ HA ready to fail over", sectionText(t, blocks[1]))
+	assert.NotContains(t, allSectionText(t, msg), "All alerts resolved")
 }
 
 func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
@@ -147,23 +292,25 @@ func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
 		{
 			name:      "host only, so the scheme and path stay out of the title",
 			publicURL: "https://fleet.rockdale.example.com/miners?tab=all",
-			want:      "🟡 Proto Fleet (fleet.rockdale.example.com) — 2 alerts firing on 2 miners",
+			want:      "Proto Fleet (fleet.rockdale.example.com)",
 		},
 		{
 			name:      "port kept, since two local instances differ only by it",
 			publicURL: "http://localhost:8080",
-			want:      "🟡 Proto Fleet (localhost:8080) — 2 alerts firing on 2 miners",
+			want:      "Proto Fleet (localhost:8080)",
 		},
 		{
 			name:      "no host to name, so the title is left as it was",
 			publicURL: "fleet.navarro.example.com",
-			want:      "🟡 Proto Fleet — 2 alerts firing on 2 miners",
+			want:      "Proto Fleet",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, renderSlack(tc.publicURL, sampleAlerts(), nil)["text"])
+			text, ok := renderSlack(tc.publicURL, sampleAlerts(), nil)["text"].(string)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, strings.Split(text, "\n")[0])
 		})
 	}
 }
@@ -171,8 +318,10 @@ func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
 func TestRenderSlackTruncatesALongInstanceName(t *testing.T) {
 	msg := renderSlack("https://"+strings.Repeat("a", 200)+".example.com", sampleAlerts(), nil)
 
-	want := "🟡 Proto Fleet (" + strings.Repeat("a", slackInstanceMaxRunes) + ") — 2 alerts firing on 2 miners"
-	assert.Equal(t, want, msg["text"], "the counts survive a hostname that would fill the title")
+	want := "Proto Fleet (" + strings.Repeat("a", slackInstanceMaxRunes) + ")"
+	text, ok := msg["text"].(string)
+	require.True(t, ok)
+	assert.Equal(t, want, strings.Split(text, "\n")[0])
 }
 
 func TestRenderWebhookResolvesDeviceMetadata(t *testing.T) {
@@ -208,7 +357,7 @@ func outageAlerts(count int) []Alert {
 			Status: "firing",
 			Labels: map[string]string{
 				"alertname": "Device Offline", "severity": "critical",
-				"device_id": fmt.Sprintf("dev-%02d", i), "rule_group": "proto-fleet-defaults",
+				"device_id": fmt.Sprintf("dev-%02d", i), "rule_group": "proto-fleet-defaults", "template": "offline",
 			},
 			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
 		})
@@ -219,7 +368,7 @@ func outageAlerts(count int) []Alert {
 func TestRenderSlackRollsUpOneAlertAcrossManyMiners(t *testing.T) {
 	msg := renderSlack("https://fleet.example.com", outageAlerts(500), nil)
 
-	assert.Equal(t, "🔴 Proto Fleet (fleet.example.com) — 1 alert firing on 500 miners", msg["text"])
+	assert.Equal(t, "Proto Fleet (fleet.example.com)\n🔴 500 devices unreachable for at least five minutes", msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
@@ -227,10 +376,9 @@ func TestRenderSlackRollsUpOneAlertAcrossManyMiners(t *testing.T) {
 	assert.Len(t, blocks, 2)
 
 	text := allSectionText(t, msg)
-	assert.Contains(t, text, "*Device Offline* _(critical)_ — 500 miners")
-	assert.Contains(t, text, "dev-00, dev-01, dev-02 and 497 more")
-	// The rule's threshold text is the only thing that says what "offline" means; the rollup must keep it.
-	assert.Contains(t, text, "Device is offline for at least five minutes.")
+	assert.Contains(t, text, "🔴 500 devices unreachable for at least five minutes")
+	assert.NotContains(t, text, "dev-00")
+	assert.NotContains(t, text, "critical")
 }
 
 func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
@@ -242,26 +390,60 @@ func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
 		}
 	}
 	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
-	assert.Contains(t, text, "*Curtailment Source Unreachable* _(critical)_ — 2 instances")
-	// The rule interpolates the source into summary, so naming only one would leave the other unreported.
-	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
-	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
+	// The rule interpolates the source into summary, so each affected source remains a separate alert line.
+	assert.Contains(t, text, "🔴 Curtailment source maestro-a is unreachable; cannot curtail")
+	assert.Contains(t, text, "🔴 Curtailment source maestro-b is unreachable; cannot curtail")
+	assert.NotContains(t, text, "_(critical)_")
 }
 
-func TestRenderSlackResolvedDevicelessAlertsKeepIdentifyingSummaries(t *testing.T) {
+func TestRenderSlackCountsRepeatedDevicelessSummaries(t *testing.T) {
+	alert := func(eventID string) Alert {
+		return Alert{
+			Status: "firing", RuleUID: "protofleet-curtailment-fan-restore-fail",
+			Labels: map[string]string{
+				"alertname": "Curtailment Fan Restore Failed", "severity": "critical",
+				"template": "curtailment-fan-restore", "kind": eventID,
+			},
+			Annotations: map[string]string{"summary": "Facility fan restore failed before miners resumed."},
+		}
+	}
+	text := allSectionText(t, renderSlack("", []Alert{alert("event-a"), alert("event-b")}, nil))
+
+	assert.Contains(t, text, "🔴 Facility fan restore failed before miners resumed (2 curtailment events affected)")
+}
+
+func TestRenderSlackResolvedCurtailmentSourcesNameEveryRecoveredCondition(t *testing.T) {
 	source := func(kind string) Alert {
 		return Alert{
-			Status:      "resolved",
-			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Status: "resolved", RuleUID: "protofleet-mqtt-source-disconnected",
+			Labels: map[string]string{
+				"alertname": "Curtailment Source Unreachable", "severity": "critical", "template": "mqtt-disconnected",
+			},
 			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
 		}
 	}
-	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
+	text := allSectionText(t, renderSlack("", []Alert{
+		source("maestro-a"), source("maestro-b"), source("maestro-c"), source("maestro-d"), source("maestro-e"),
+	}, nil))
 
-	assert.Contains(t, text, "*Resolved: Curtailment Source Unreachable* — 2 instances")
-	assert.NotContains(t, text, "_(critical)_", "resolved alerts omit severity")
-	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
-	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
+	assert.Contains(t, text, "✅ Curtailment source maestro-a reachable again")
+	assert.Contains(t, text, "✅ Curtailment source maestro-b reachable again")
+	assert.Contains(t, text, "✅ Curtailment source maestro-c reachable again")
+	assert.Contains(t, text, "✅ …and 2 more curtailment sources reachable again")
+	assert.NotContains(t, text, "maestro-d")
+	assert.NotContains(t, text, "maestro-e")
+	assert.NotContains(t, text, "All alerts resolved")
+	assert.NotContains(t, text, "unreachable")
+}
+
+func TestRenderSlackUsesConditionSpecificCurtailmentRecoveryCopy(t *testing.T) {
+	assert.Equal(t, "✅ Curtailment by maestro-a ended", groupLine(alertGroup{
+		Name: "Curtailment Active", Template: string(RuleTemplateMQTTCurtailment), InstanceCount: 1,
+		Summaries: []string{"Miners are curtailed by maestro-a"}, SummaryCount: 1,
+	}, true))
+	assert.Equal(t, "✅ Fan control restored for 2 curtailment events", groupLine(alertGroup{
+		Name: "Curtailment Fan Restore Failed", Template: string(RuleTemplateCurtailmentFanRestore), InstanceCount: 2,
+	}, true))
 }
 
 func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {
@@ -275,7 +457,7 @@ func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {
 	alerts := []Alert{source("a"), source("b"), source("c"), source("d"), source("e")}
 	text := allSectionText(t, renderSlack("", alerts, nil))
 	// Past the cap the section says how many it left out rather than growing without bound.
-	assert.Contains(t, text, "Curtailment source c is unreachable; cannot curtail.")
+	assert.Contains(t, text, "Curtailment source c is unreachable; cannot curtail")
 	assert.NotContains(t, text, "Curtailment source d is unreachable")
 	assert.Contains(t, text, "…and 2 more")
 }
@@ -283,20 +465,20 @@ func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {
 // Every instance of a rule that renders summary from the rule carries the same text, so it stays one line.
 func TestRenderSlackKeepsOneSummaryForARuleTextGroup(t *testing.T) {
 	text := allSectionText(t, renderSlack("", outageAlerts(3), nil))
-	assert.Equal(t, 1, strings.Count(text, "Device is offline for at least five minutes."))
+	assert.Equal(t, 1, strings.Count(text, "3 devices unreachable for at least five minutes"))
 	assert.NotContains(t, text, "…and")
 }
 
-func TestRenderSlackCountsEachMinerOnceAcrossAlerts(t *testing.T) {
-	both := func(name string) Alert {
+func TestRenderSlackCountsEachDeviceOnceWithinAnAlert(t *testing.T) {
+	alert := func() Alert {
 		return Alert{
 			Status: "firing",
-			Labels: map[string]string{"alertname": name, "severity": "warning", "device_id": "dev-a"},
+			Labels: map[string]string{"alertname": "Device Offline", "severity": "warning", "device_id": "dev-a"},
 		}
 	}
-	msg := renderSlack("", []Alert{both("Device Offline"), both("Device Hashrate Low")}, nil)
-	// One miner with two alerts is one affected miner, not two.
-	assert.Equal(t, "🟡 Proto Fleet — 2 alerts firing on 1 miner", msg["text"])
+	msg := renderSlack("", []Alert{alert(), alert()}, nil)
+	assert.Contains(t, msg["text"], "🟡 Device Offline affecting 1 device")
+	assert.NotContains(t, msg["text"], "2 devices")
 }
 
 func TestRenderSlackOrdersGroupsByBlastRadius(t *testing.T) {
@@ -305,7 +487,7 @@ func TestRenderSlackOrdersGroupsByBlastRadius(t *testing.T) {
 		Labels: map[string]string{"alertname": "Device Temperature High", "severity": "warning", "device_id": "dev-x"},
 	})
 	text := allSectionText(t, renderSlack("", alerts, nil))
-	assert.Less(t, strings.Index(text, "Device Offline"), strings.Index(text, "Device Temperature High"))
+	assert.Less(t, strings.Index(text, "5 devices unreachable"), strings.Index(text, "Device Temperature High"))
 }
 
 func TestRenderSlackKeepsSummaryForFleetWideAlert(t *testing.T) {
@@ -316,8 +498,8 @@ func TestRenderSlackKeepsSummaryForFleetWideAlert(t *testing.T) {
 		Annotations: map[string]string{"summary": "No telemetry received in 5 minutes."},
 	}}
 	msg := renderSlack("", alerts, nil)
-	assert.Equal(t, "🔴 Proto Fleet — 1 alert firing", msg["text"], "no miners to count")
-	assert.Contains(t, allSectionText(t, msg), "No telemetry received in 5 minutes.")
+	assert.Equal(t, "Proto Fleet\n🔴 No telemetry received in 5 minutes", msg["text"])
+	assert.Contains(t, allSectionText(t, msg), "No telemetry received in 5 minutes")
 }
 
 func TestRenderWebhookIncludesGroupRollup(t *testing.T) {
@@ -343,19 +525,54 @@ func TestRenderWebhookIncludesGroupRollup(t *testing.T) {
 	assert.Equal(t, "Device is offline for at least five minutes.", resolvedGroups[0].Summary)
 }
 
+func TestRenderWebhookKeepsSameNamedRulesAttributableByRuleUID(t *testing.T) {
+	alerts := []Alert{
+		{
+			Status: "firing", RuleUID: "user-offline",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-a",
+				"rule_group": "proto-fleet-user-7", "template": "offline",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		},
+		{
+			Status: "firing", RuleUID: "user-temperature",
+			Labels: map[string]string{
+				"alertname": "Watch miners", "severity": "warning", "device_id": "dev-b",
+				"rule_group": "proto-fleet-user-7", "template": "temperature",
+			},
+			Annotations: map[string]string{"summary": "Max sensor temperature for device is above 95°C for at least ten minutes."},
+		},
+	}
+
+	out := renderWebhook(7, alerts, nil)
+	groups, ok := out["firing_groups"].([]webhookAlertGroup)
+	require.True(t, ok)
+	require.Len(t, groups, 2)
+	assert.ElementsMatch(t, []string{"user-offline", "user-temperature"}, []string{groups[0].RuleUID, groups[1].RuleUID})
+
+	firing, ok := out["firing"].([]webhookAlert)
+	require.True(t, ok)
+	require.Len(t, firing, 2)
+	assert.ElementsMatch(t, []string{"user-offline", "user-temperature"}, []string{firing[0].RuleUID, firing[1].RuleUID})
+}
+
 func TestRenderSlackEscapesUserControlledText(t *testing.T) {
-	ids := map[string]DeviceIdentity{"dev-a": {Name: "<https://evil.example|click>", MAC: "m"}}
-	alerts := []Alert{{
-		Status:      "firing",
-		Labels:      map[string]string{"alertname": "A & B", "severity": "warning", "device_id": "dev-a"},
-		Annotations: map[string]string{"summary": "x < y > z"},
-	}}
-	text := allSectionText(t, renderSlack("", alerts, ids))
-	// The reserved chars are escaped, so a device name can't inject a mrkdwn link.
-	assert.Contains(t, text, "&lt;https://evil.example|click&gt;")
+	alerts := []Alert{
+		{
+			Status: "firing",
+			Labels: map[string]string{"alertname": "A & B", "severity": "warning", "device_id": "dev-a"},
+		},
+		{
+			Status:      "firing",
+			Labels:      map[string]string{"alertname": "Summary", "severity": "warning"},
+			Annotations: map[string]string{"summary": "x < y > z"},
+		},
+	}
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	// Reserved chars are escaped so alert names and summaries can't inject mrkdwn links.
 	assert.Contains(t, text, "A &amp; B")
 	assert.Contains(t, text, "x &lt; y &gt; z")
-	assert.NotContains(t, text, "<https://evil.example|click>")
 }
 
 func TestRenderSlackCapsBlocksForLargeBatch(t *testing.T) {
@@ -368,6 +585,24 @@ func TestRenderSlackCapsBlocksForLargeBatch(t *testing.T) {
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(blocks), 50, "must stay under Slack's 50-block-per-message limit")
 	assert.Contains(t, mustJSON(t, msg), "more — open Proto Fleet")
+}
+
+func TestRenderSlackCapsFallbackTextIndependently(t *testing.T) {
+	alerts := []Alert{{
+		Status:      "firing",
+		Labels:      map[string]string{"alertname": "Long summary", "severity": "warning"},
+		Annotations: map[string]string{"summary": strings.Repeat("温", slackFallbackMaxRunes+100)},
+	}}
+	msg := renderSlack("", alerts, nil)
+
+	fallback, ok := msg["text"].(string)
+	require.True(t, ok)
+	assert.Equal(t, slackFallbackMaxRunes, utf8.RuneCountInString(fallback))
+
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 2)
+	assert.Equal(t, slackSectionMaxRunes, utf8.RuneCountInString(sectionText(t, blocks[1])))
 }
 
 func allSectionText(t *testing.T, msg map[string]any) string {

@@ -936,8 +936,8 @@ GROUP BY organization_id, device_id
 HAVING max(latest_temp) > %s`,
 			metricDeviceTemperatureMaxCelsius, org, scopeFilterSQL(org, cfg.Scope, "      "), userRuleEvalWindowMinute,
 			scopeSiteColumnSQL(org, "latest_per_kind.device_id", cfg.Scope, "    "), limit)
-		summary = fmt.Sprintf("Max sensor temperature for device is above %sC for at least %s.", limit, dur)
-		description = fmt.Sprintf("Maximum sensor temperature for device {{ $labels.device_id }}\nhas been above %sC for at least %s.", limit, dur)
+		summary = fmt.Sprintf("Max sensor temperature for device is above %s°C for at least %s.", limit, dur)
+		description = fmt.Sprintf("Maximum sensor temperature for device {{ $labels.device_id }}\nhas been above %s°C for at least %s.", limit, dur)
 	}
 	return sql, summary, description
 }

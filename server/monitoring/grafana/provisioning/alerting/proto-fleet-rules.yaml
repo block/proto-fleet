@@ -100,7 +100,7 @@ groups:
           rule_group: proto-fleet-defaults
           template: hashrate
         annotations:
-          summary: "Device hashrate has fallen below expected for at least ten minutes."
+          summary: "Device hashrate is below 75% of expected for at least ten minutes."
           description: |
             Device {{ $labels.device_id }} (org {{ $labels.organization_id }})
             has been hashing below its expected rate for at least ten minutes.
@@ -161,10 +161,10 @@ groups:
           rule_group: proto-fleet-defaults
           template: temperature
         annotations:
-          summary: "Max sensor temperature for device is above 90C for ten minutes."
+          summary: "Max sensor temperature for device is above 90°C for at least ten minutes."
           description: |
             Maximum sensor temperature for device {{ $labels.device_id }}
-            has been above 90C for at least ten minutes.
+            has been above 90°C for at least ten minutes.
 
       - uid: protofleet-telemetry-poll-failure-rate
         title: Telemetry Poll Failure Rate High

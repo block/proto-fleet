@@ -176,7 +176,7 @@ func TestCompileUserRule(t *testing.T) {
 			},
 			wantMetric:  "fleet_device_temperature_max_celsius",
 			wantSQLFrag: "HAVING max(latest_temp) > 85",
-			wantSummary: "Max sensor temperature for device is above 85C for at least 15 minutes.",
+			wantSummary: "Max sensor temperature for device is above 85°C for at least 15 minutes.",
 		},
 	}
 	for _, tc := range cases {
