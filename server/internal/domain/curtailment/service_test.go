@@ -90,6 +90,9 @@ type fakeStore struct {
 	beginRecurtailLastEventID uuid.UUID
 	beginRecurtailProfileID   int64
 	beginRecurtailRevision    uuid.UUID
+	beginRecurtailRuleID      int64
+	beginRecurtailSourceID    int64
+	beginRecurtailServiceUser int64
 
 	// List-history fakes. eventsHistory is the slice the fake's ListEvents
 	// paginates over (callers seed it newest-first to match the SQL impl).
@@ -932,11 +935,19 @@ func (f *fakeStore) guardAutomationDemandForRestore(eventUUID uuid.UUID, guard *
 	)
 }
 
-func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID, profileID int64, revision uuid.UUID) (*models.Event, error) {
+func (f *fakeStore) BeginRecurtailTransition(
+	_ context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	params interfaces.BeginRecurtailTransitionParams,
+) (*models.Event, error) {
 	f.beginRecurtailCalls++
 	f.beginRecurtailLastEventID = eventUUID
-	f.beginRecurtailProfileID = profileID
-	f.beginRecurtailRevision = revision
+	f.beginRecurtailProfileID = params.ResponseProfileID
+	f.beginRecurtailRevision = params.ResponseProfileRevision
+	f.beginRecurtailRuleID = params.AutomationRuleID
+	f.beginRecurtailSourceID = params.AutomationMQTTSourceID
+	f.beginRecurtailServiceUser = params.AutomationServiceUserID
 	if f.beginRecurtailErr != nil {
 		return nil, f.beginRecurtailErr
 	}

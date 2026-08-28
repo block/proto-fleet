@@ -743,6 +743,9 @@ func TestAutomationService_HandleMQTTSignal_OffRecurtailsRestoringReplayBeforeRe
 	assert.Equal(t, replayEvent.EventUUID, h.curtailments.beginRecurtailLastEventID)
 	assert.Equal(t, h.rule.ResponseProfileID, h.curtailments.beginRecurtailProfileID)
 	assert.Equal(t, h.rule.ResponseProfileRevision, h.curtailments.beginRecurtailRevision)
+	assert.Equal(t, h.rule.ID, h.curtailments.beginRecurtailRuleID)
+	assert.Equal(t, h.source.ID, h.curtailments.beginRecurtailSourceID)
+	assert.Equal(t, h.source.ServiceUserID, h.curtailments.beginRecurtailServiceUser)
 	assert.Equal(t, 1, h.rules.setActiveCalls)
 	assert.Equal(t, replayEvent.EventUUID, h.rules.lastActiveEvent)
 }

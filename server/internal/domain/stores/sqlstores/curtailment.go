@@ -1149,13 +1149,21 @@ func validateResponseProfileExecutionFence(profileID int64, revision uuid.UUID) 
 	return nil
 }
 
-func validateAutomationExecutionFence(ruleID, mqttSourceID, profileID int64, revision uuid.UUID) error {
-	if ruleID < 0 || mqttSourceID < 0 {
+func validateAutomationExecutionFence(ruleID, mqttSourceID, serviceUserID, profileID int64, revision uuid.UUID) error {
+	if ruleID < 0 || mqttSourceID < 0 || serviceUserID < 0 {
 		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
 	}
-	if (ruleID > 0) != (mqttSourceID > 0) {
+	if ruleID == 0 {
+		if mqttSourceID > 0 {
+			return fleeterror.NewInvalidArgumentError(
+				"automation execution fence requires a rule ID with the MQTT source ID",
+			)
+		}
+		return nil
+	}
+	if mqttSourceID == 0 || serviceUserID == 0 {
 		return fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires both rule ID and MQTT source ID",
+			"automation execution fence requires rule, MQTT source, and service user IDs",
 		)
 	}
 	if ruleID > 0 && (profileID <= 0 || revision == uuid.Nil) {
@@ -1275,22 +1283,20 @@ func lockAutomationRuleForExecution(
 	return nil
 }
 
-func authorizeTopologyAutomationExecution(
+func authorizeAutomationExecution(
 	ctx context.Context,
 	q sqlc.Querier,
-	event models.InsertEventParams,
+	ruleID int64,
+	serviceUserID int64,
+	event *models.Event,
 ) error {
-	if event.AutomationRuleID == 0 {
+	if ruleID == 0 {
 		return nil
 	}
-	scope, hasScope, err := domainCurtailment.ScopeFromJSON(event.ScopeJSON)
-	if err != nil {
-		return err
+	if event == nil {
+		return fleeterror.NewInternalError("automation execution authorization requires an event")
 	}
-	if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
-		return nil
-	}
-	effective, err := authz.LoadEffectiveForUpdate(ctx, q, event.CreatedByUserID, event.OrgID)
+	effective, err := authz.LoadEffectiveForUpdate(ctx, q, serviceUserID, event.OrgID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to reload automation source user permissions: %v", err)
 	}
@@ -1319,7 +1325,7 @@ func authorizeTopologyAutomationExecution(
 		return nil
 	}
 	roleName, err := q.GetUserRoleNameForUpdate(ctx, sqlc.GetUserRoleNameForUpdateParams{
-		UserID:         event.CreatedByUserID,
+		UserID:         serviceUserID,
 		OrganizationID: event.OrgID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1336,6 +1342,20 @@ func authorizeTopologyAutomationExecution(
 	return nil
 }
 
+func insertEventForAutomationAuthorization(event models.InsertEventParams) *models.Event {
+	return &models.Event{
+		OrgID:                       event.OrgID,
+		AuthorizationEnvelopeJSON:   event.AuthorizationEnvelopeJSON,
+		AllowUnbounded:              event.AllowUnbounded,
+		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		CurtailBatchIntervalSec:     event.CurtailBatchIntervalSec,
+		RestoreBatchIntervalSec:     event.RestoreBatchIntervalSec,
+		MaxDurationSeconds:          event.MaxDurationSeconds,
+		DecisionSnapshotJSON:        event.DecisionSnapshotJSON,
+	}
+}
+
 // InsertEventWithTargets writes event + targets in one transaction.
 func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	ctx context.Context,
@@ -1348,6 +1368,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	if err := validateAutomationExecutionFence(
 		event.AutomationRuleID,
 		event.AutomationMQTTSourceID,
+		event.CreatedByUserID,
 		event.ResponseProfileID,
 		event.ResponseProfileRevision,
 	); err != nil {
@@ -1514,7 +1535,13 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		); err != nil {
 			return nil, err
 		}
-		if err := authorizeTopologyAutomationExecution(ctx, q, event); err != nil {
+		if err := authorizeAutomationExecution(
+			ctx,
+			q,
+			event.AutomationRuleID,
+			event.CreatedByUserID,
+			insertEventForAutomationAuthorization(event),
+		); err != nil {
 			return nil, err
 		}
 		// pq.Array encodes a nil slice as SQL NULL. Keep the empty fan list
@@ -3439,10 +3466,18 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
-	responseProfileID int64,
-	responseProfileRevision uuid.UUID,
+	params interfaces.BeginRecurtailTransitionParams,
 ) (*models.Event, error) {
-	if err := validateResponseProfileExecutionFence(responseProfileID, responseProfileRevision); err != nil {
+	if err := validateResponseProfileExecutionFence(params.ResponseProfileID, params.ResponseProfileRevision); err != nil {
+		return nil, err
+	}
+	if err := validateAutomationExecutionFence(
+		params.AutomationRuleID,
+		params.AutomationMQTTSourceID,
+		params.AutomationServiceUserID,
+		params.ResponseProfileID,
+		params.ResponseProfileRevision,
+	); err != nil {
 		return nil, err
 	}
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {
@@ -3469,8 +3504,8 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 		}
 		if err := validateEventResponseProfileBinding(
 			current.DecisionSnapshotJsonb,
-			responseProfileID,
-			responseProfileRevision,
+			params.ResponseProfileID,
+			params.ResponseProfileRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -3478,8 +3513,39 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			ctx,
 			q,
 			orgID,
-			responseProfileID,
-			responseProfileRevision,
+			params.ResponseProfileID,
+			params.ResponseProfileRevision,
+		); err != nil {
+			return nil, err
+		}
+		event := convertEventRow(current)
+		if params.AutomationRuleID > 0 {
+			if err := domainCurtailment.ValidateAutomationEventOwnership(
+				event,
+				orgID,
+				params.AutomationRuleID,
+			); err != nil {
+				return nil, err
+			}
+		}
+		if err := lockAutomationRuleForExecution(
+			ctx,
+			q,
+			orgID,
+			params.AutomationRuleID,
+			params.AutomationMQTTSourceID,
+			params.ResponseProfileID,
+			params.ResponseProfileRevision,
+			params.AutomationServiceUserID,
+		); err != nil {
+			return nil, err
+		}
+		if err := authorizeAutomationExecution(
+			ctx,
+			q,
+			params.AutomationRuleID,
+			params.AutomationServiceUserID,
+			event,
 		); err != nil {
 			return nil, err
 		}

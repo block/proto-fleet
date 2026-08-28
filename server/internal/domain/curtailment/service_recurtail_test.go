@@ -3,6 +3,7 @@ package curtailment
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +22,29 @@ func TestService_Recurtail_HappyPath(t *testing.T) {
 	assert.Equal(t, f.event.EventUUID, f.store.beginRecurtailLastEventID)
 }
 
+func TestService_Recurtail_ForwardsAutomationExecutionFence(t *testing.T) {
+	t.Parallel()
+	f := newStopFixture(t, func(ev *models.Event) { ev.State = models.EventStateRestoring })
+	revision := uuid.New()
+
+	_, err := f.svc.Recurtail(t.Context(), RecurtailRequest{
+		OrgID:                   1,
+		EventUUID:               f.event.EventUUID,
+		ResponseProfileID:       41,
+		ResponseProfileRevision: revision,
+		AutomationRuleID:        42,
+		AutomationMQTTSourceID:  43,
+		AutomationServiceUserID: 44,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(41), f.store.beginRecurtailProfileID)
+	assert.Equal(t, revision, f.store.beginRecurtailRevision)
+	assert.Equal(t, int64(42), f.store.beginRecurtailRuleID)
+	assert.Equal(t, int64(43), f.store.beginRecurtailSourceID)
+	assert.Equal(t, int64(44), f.store.beginRecurtailServiceUser)
+}
+
 func TestService_Recurtail_ValidatesRequest(t *testing.T) {
 	t.Parallel()
 	f := newStopFixture(t, nil)
@@ -31,6 +55,20 @@ func TestService_Recurtail_ValidatesRequest(t *testing.T) {
 	}{
 		{"missing org", RecurtailRequest{EventUUID: f.event.EventUUID}},
 		{"missing event", RecurtailRequest{OrgID: 1}},
+		{
+			"partial automation fence",
+			RecurtailRequest{OrgID: 1, EventUUID: f.event.EventUUID, AutomationRuleID: 42},
+		},
+		{
+			"automation without profile binding",
+			RecurtailRequest{
+				OrgID:                   1,
+				EventUUID:               f.event.EventUUID,
+				AutomationRuleID:        42,
+				AutomationMQTTSourceID:  43,
+				AutomationServiceUserID: 44,
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
