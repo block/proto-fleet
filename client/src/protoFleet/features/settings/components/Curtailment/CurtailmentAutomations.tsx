@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
   AutomationRule,
@@ -366,6 +367,10 @@ function AutomationModal({
       await onSave(values);
       onDismiss();
     } catch (error) {
+      if (error instanceof AutomationResponseProfileRevisionConflictError) {
+        const latestRevision = error.latestResponseProfileRevisionById.get(values.responseProfileId) ?? "";
+        setValues((currentValues) => ({ ...currentValues, responseProfileRevision: latestRevision }));
+      }
       setSaveError(error instanceof Error && error.message ? error.message : "Failed to save automation.");
     }
   }, [hasValidationErrors, isSaveUnavailable, onDismiss, onSave, values]);

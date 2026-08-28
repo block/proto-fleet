@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
   AutomationRule,
@@ -154,6 +155,41 @@ describe("CurtailmentAutomationsContent", () => {
     const row = getAutomationRow("High LMP spike");
     expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
+  });
+
+  it("retries an automation save with the refreshed response profile revision", async () => {
+    const latestProfile = {
+      ...testResponseProfiles[0],
+      revision: "33333333-3333-4333-8333-333333333333",
+    };
+    const conflict = new AutomationResponseProfileRevisionConflictError(
+      "This response profile changed in another session. The latest values have been loaded; review the automation before trying again.",
+      [latestProfile],
+      new Error("stale revision"),
+    );
+    const onCreateAutomation = vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onCreateAutomation={onCreateAutomation}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "High LMP spike" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText(conflict.message);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onCreateAutomation).toHaveBeenCalledTimes(2));
+    expect(onCreateAutomation).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        responseProfileId: latestProfile.id,
+        responseProfileRevision: latestProfile.revision,
+      }),
+    );
   });
 
   it("includes facility-fan response profiles in automation choices", () => {
