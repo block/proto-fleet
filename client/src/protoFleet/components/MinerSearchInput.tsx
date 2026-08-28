@@ -4,11 +4,16 @@ import Search from "@/shared/components/Search";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
+const MAX_SEARCH_QUERY_CODE_POINTS = 255;
+
 // Leading whitespace never narrows a search, so it is dropped at the input,
 // where `sanitize` applies it to the displayed text and the emitted value
 // together. Trailing whitespace has to survive: stripping it would erase the
-// space the moment it is typed and make multi-word queries impossible.
-const trimLeadingWhitespace = (value: string) => value.trimStart();
+// space the moment it is typed and make multi-word queries impossible. Cap by
+// Unicode code point rather than UTF-16 code unit so this matches the proto
+// validator and the server's utf8.RuneCountInString check.
+const sanitizeSearchQuery = (value: string) =>
+  Array.from(value.trimStart()).slice(0, MAX_SEARCH_QUERY_CODE_POINTS).join("");
 
 interface MinerSearchInputProps {
   initialValue?: string;
@@ -55,8 +60,18 @@ const MinerSearchInput = ({
     }, SEARCH_DEBOUNCE_MS);
   }, []);
 
-  // Unmount-only: keying this on `onQueryChange` would cancel a pending search
-  // whenever an unrelated navigation changed the callback's identity.
+  const previousInitialValueRef = useRef(initialValue);
+  useEffect(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (previousInitialValueRef.current !== initialValue) {
+      previousInitialValueRef.current = initialValue;
+      onQueryInputRef.current?.(initialValue);
+    }
+  }, [initialValue]);
+
   useEffect(
     () => () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -71,7 +86,7 @@ const MinerSearchInput = ({
       variant="toolbar"
       initValue={initialValue}
       onChange={handleChange}
-      sanitize={trimLeadingWhitespace}
+      sanitize={sanitizeSearchQuery}
     />
   );
 };
