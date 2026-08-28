@@ -33,7 +33,7 @@ const LaneHistoryModal = ({ lane, rollouts, onRollback, onClose }: LaneHistoryMo
       buttons={[{ text: "Done", variant: variants.primary, onClick: onClose }]}
     >
       {rollouts.length === 0 ? (
-        <div className="py-6 text-center text-text-primary-50">No rollouts for this lane yet.</div>
+        <div className="py-6 text-center text-text-primary-50">No rollouts for this channel yet.</div>
       ) : (
         <table className="w-full text-left text-200">
           <thead>

@@ -53,7 +53,7 @@ function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
               onClick={closePopover}
               className="block rounded-xl px-3 py-2.5 text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
             >
-              View rollout lanes
+              View rollout channels
             </Link>
           </div>
         </div>

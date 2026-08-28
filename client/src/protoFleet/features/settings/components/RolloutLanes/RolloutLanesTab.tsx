@@ -33,7 +33,7 @@ import Input from "@/shared/components/Input";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const ROLLOUT_LANES_DESCRIPTION =
-  "Group miners into lanes and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
+  "Group miners into channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
 
 // Attention pill with a pulsing dot, shown wherever a rollout is ongoing.
 const RolloutActivePill = ({ count, testId }: { count: number; testId?: string }) => (
@@ -131,7 +131,7 @@ const ModelGroupSection = ({
 
       {group.miners.length === 0 ? (
         <span className="text-200 text-text-primary-50">
-          No miners of this model in the lane. The assignment applies as soon as one is added.
+          No miners of this model in the channel. The assignment applies as soon as one is added.
         </span>
       ) : null}
     </div>
@@ -236,7 +236,7 @@ const LaneCard = ({
     >
       {lane.modelGroups.length === 0 ? (
         <span className="text-300 text-text-primary-50">
-          Empty lane. Add miners to group them by model and assign firmware.
+          Empty channel. Add miners to group them by model and assign firmware.
         </span>
       ) : (
         lane.modelGroups.map((group) => (
@@ -343,7 +343,7 @@ const RolloutLanesTab = () => {
         setNewLaneName("");
       })
       .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't create lane", status: STATUSES.error });
+        pushToast({ message: error?.message || "Couldn't create channel", status: STATUSES.error });
       })
       .finally(() => setIsCreating(false));
   };
@@ -371,11 +371,11 @@ const RolloutLanesTab = () => {
     setIsDeleting(true);
     deleteLane(laneToDelete.id)
       .then(() => {
-        pushToast({ message: `Deleted lane ${laneToDelete.name}`, status: STATUSES.success });
+        pushToast({ message: `Deleted channel ${laneToDelete.name}`, status: STATUSES.success });
         setLaneToDelete(null);
       })
       .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't delete lane", status: STATUSES.error });
+        pushToast({ message: error?.message || "Couldn't delete channel", status: STATUSES.error });
       })
       .finally(() => setIsDeleting(false));
   };
@@ -399,10 +399,10 @@ const RolloutLanesTab = () => {
     updateMembers(laneToManage.id, add, remove)
       .then(() => {
         setLaneToManage(null);
-        pushToast({ message: "Lane miners updated", status: STATUSES.success });
+        pushToast({ message: "Channel miners updated", status: STATUSES.success });
       })
       .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't update lane miners", status: STATUSES.error });
+        pushToast({ message: error?.message || "Couldn't update channel miners", status: STATUSES.error });
       })
       .finally(() => setIsSavingMembers(false));
   };
@@ -410,11 +410,11 @@ const RolloutLanesTab = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Rollout lanes" description={ROLLOUT_LANES_DESCRIPTION} />
+        <SettingsPageHeader title="Rollout channels" description={ROLLOUT_LANES_DESCRIPTION} />
         <Button
           variant={variants.primary}
           size={sizes.compact}
-          text="New lane"
+          text="New channel"
           onClick={() => setShowCreateDialog(true)}
           className="shrink-0 phone:w-full"
         />
@@ -433,11 +433,11 @@ const RolloutLanesTab = () => {
       ) : null}
 
       {isLoading ? (
-        <div className="text-center text-text-primary-50">Loading rollout lanes...</div>
+        <div className="text-center text-text-primary-50">Loading rollout channels...</div>
       ) : lanes.length === 0 ? (
         <SettingsEmptyState
-          title="No rollout lanes"
-          description="Create a lane, add miners to it, and assign firmware per model to roll out updates."
+          title="No rollout channels"
+          description="Create a channel, add miners to it, and assign firmware per model to roll out updates."
         />
       ) : (
         lanes.map((lane) => (
@@ -457,8 +457,8 @@ const RolloutLanesTab = () => {
 
       <Dialog
         open={showCreateDialog}
-        title="New rollout lane"
-        subtitle="A lane starts empty. Add miners and assign firmware afterwards."
+        title="New rollout channel"
+        subtitle="A channel starts empty. Add miners and assign firmware afterwards."
         testId="create-lane-dialog"
         onDismiss={() => {
           if (!isCreating) setShowCreateDialog(false);
@@ -471,7 +471,7 @@ const RolloutLanesTab = () => {
             disabled: isCreating,
           },
           {
-            text: "Create lane",
+            text: "Create channel",
             variant: variants.primary,
             onClick: handleCreate,
             loading: isCreating,
@@ -481,7 +481,7 @@ const RolloutLanesTab = () => {
       >
         <Input
           id="lane-name"
-          label="Lane name"
+          label="Channel name"
           initValue={newLaneName}
           onChange={(value) => setNewLaneName(value)}
           autoFocus
@@ -490,8 +490,8 @@ const RolloutLanesTab = () => {
 
       <Dialog
         open={laneToDelete !== null}
-        title="Delete rollout lane?"
-        subtitle={`Miners in ${laneToDelete?.name ?? "this lane"} are released and firmware is no longer enforced for them.`}
+        title="Delete rollout channel?"
+        subtitle={`Miners in ${laneToDelete?.name ?? "this channel"} are released and firmware is no longer enforced for them.`}
         testId="delete-lane-dialog"
         onDismiss={() => {
           if (!isDeleting) setLaneToDelete(null);
@@ -509,7 +509,7 @@ const RolloutLanesTab = () => {
             disabled: isDeleting,
           },
           {
-            text: "Delete lane",
+            text: "Delete channel",
             variant: variants.danger,
             onClick: handleDelete,
             loading: isDeleting,

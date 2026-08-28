@@ -23,11 +23,11 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openRolloutLanesTab() {
-    await this.page.getByRole("button", { name: "Rollout lanes", exact: true }).click();
-    await this.validateTitle("Rollout lanes");
+    await this.page.getByRole("button", { name: "Rollout channels", exact: true }).click();
+    await this.validateTitle("Rollout channels");
     // Lane cards render only after loading finishes; helpers like
     // deleteLaneIfPresent would otherwise race and see no lanes.
-    await expect(this.page.getByText("Loading rollout lanes...", { exact: true })).toBeHidden();
+    await expect(this.page.getByText("Loading rollout channels...", { exact: true })).toBeHidden();
   }
 
   laneCard(laneName: string): Locator {
@@ -35,10 +35,10 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async createLane(laneName: string) {
-    await this.clickButton("New lane");
+    await this.clickButton("New channel");
     const dialog = this.page.getByTestId("create-lane-dialog");
-    await dialog.getByLabel("Lane name").fill(laneName);
-    await dialog.getByRole("button", { name: "Create lane", exact: true }).click();
+    await dialog.getByLabel("Channel name").fill(laneName);
+    await dialog.getByRole("button", { name: "Create channel", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(this.laneCard(laneName)).toBeVisible();
   }
@@ -182,9 +182,9 @@ export class SettingsFirmwarePage extends BasePage {
   // rollout lanes view.
   async followAppRolloutPillToLanes() {
     await this.appRolloutPill().click();
-    await this.page.getByRole("link", { name: "View rollout lanes", exact: true }).click();
-    await this.validateTitle("Rollout lanes");
-    await expect(this.page.getByText("Loading rollout lanes...", { exact: true })).toBeHidden();
+    await this.page.getByRole("link", { name: "View rollout channels", exact: true }).click();
+    await this.validateTitle("Rollout channels");
+    await expect(this.page.getByText("Loading rollout channels...", { exact: true })).toBeHidden();
   }
 
   // Collapsed lane: model groups hidden, header (and its pill) still visible.
@@ -232,7 +232,7 @@ export class SettingsFirmwarePage extends BasePage {
     await this.laneCard(laneName).getByRole("button", { name: "Delete", exact: true }).click();
     const dialog = this.page.getByTestId("delete-lane-dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: "Delete lane", exact: true }).click();
+    await dialog.getByRole("button", { name: "Delete channel", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(this.laneCard(laneName)).toBeHidden();
   }

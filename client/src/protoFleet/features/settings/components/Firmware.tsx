@@ -360,7 +360,7 @@ const ROLLOUT_LANES_TAB_PARAM = "rollout-lanes";
 
 const firmwareTabs = [
   { key: TAB_FILES, title: "Files" },
-  { key: TAB_ROLLOUT_LANES, title: "Rollout lanes" },
+  { key: TAB_ROLLOUT_LANES, title: "Rollout channels" },
 ];
 
 // The active tab lives in the `tab` search param so surfaces like the
