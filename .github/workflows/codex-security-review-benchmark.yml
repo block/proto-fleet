@@ -22,7 +22,8 @@ concurrency:
     }}-${{
       github.event.client_payload.corpus || 'adjudicated'
     }}-${{
-      github.event.client_payload['context-variant'] || 'all'
+      github.event.client_payload['context-variant'] ||
+      (github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all')
     }}-${{
       github.event.client_payload['reasoning-effort'] || 'xhigh'
     }}-${{

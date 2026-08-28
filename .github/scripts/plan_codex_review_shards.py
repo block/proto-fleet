@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -144,10 +145,72 @@ def _fits(current_bytes: int, current_lines: int, unit: Unit) -> bool:
     )
 
 
+def _ordered_units(units: list[Unit]) -> list[Unit]:
+    return sorted(units, key=lambda item: (-item.bytes, -item.lines, item.key))
+
+
+def find_bounded_assignment(
+    units: list[Unit], shared_bytes: int, shared_lines: int
+) -> list[list[Unit]] | None:
+    ordered = _ordered_units(units)
+    if sum(unit.bytes for unit in ordered) > 2 * (
+        MAX_PACKET_BYTES - shared_bytes
+    ) or sum(unit.lines for unit in ordered) > 2 * (MAX_PACKET_LINES - shared_lines):
+        return None
+
+    failed: set[tuple[int, int, int, int, int]] = set()
+
+    def search(
+        position: int,
+        bytes_0: int,
+        lines_0: int,
+        bytes_1: int,
+        lines_1: int,
+    ) -> tuple[int, ...] | None:
+        if position == len(ordered):
+            return ()
+        state = (position, bytes_0, lines_0, bytes_1, lines_1)
+        if state in failed:
+            return None
+        unit = ordered[position]
+        loads = ((bytes_0, lines_0), (bytes_1, lines_1))
+        candidates = sorted(range(2), key=lambda index: (*loads[index], index))
+        previous_load: tuple[int, int] | None = None
+        for index in candidates:
+            current_bytes, current_lines = loads[index]
+            if previous_load == (current_bytes, current_lines):
+                continue
+            previous_load = (current_bytes, current_lines)
+            if not _fits(current_bytes, current_lines, unit):
+                continue
+            next_loads = [list(loads[0]), list(loads[1])]
+            next_loads[index][0] += unit.bytes
+            next_loads[index][1] += unit.lines
+            suffix = search(
+                position + 1,
+                next_loads[0][0],
+                next_loads[0][1],
+                next_loads[1][0],
+                next_loads[1][1],
+            )
+            if suffix is not None:
+                return (index, *suffix)
+        failed.add(state)
+        return None
+
+    assignment = search(0, shared_bytes, shared_lines, shared_bytes, shared_lines)
+    if assignment is None:
+        return None
+    bins: list[list[Unit]] = [[], []]
+    for unit, index in zip(ordered, assignment, strict=True):
+        bins[index].append(unit)
+    return bins
+
+
 def _assign_without_limits(units: list[Unit]) -> list[list[Unit]]:
     bins: list[list[Unit]] = [[], []]
     loads = [[0, 0], [0, 0]]
-    for unit in sorted(units, key=lambda item: (-item.bytes, -item.lines, item.key)):
+    for unit in _ordered_units(units):
         index = min(
             range(2),
             key=lambda candidate: (loads[candidate][0], loads[candidate][1], candidate),
@@ -170,30 +233,16 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
     if shared_bytes > MAX_PACKET_BYTES or shared_lines > MAX_PACKET_LINES:
         reasons.append("replicated shared context exceeds a packet limit")
 
-    bins: list[list[Unit]] = [[], []]
-    loads = [[shared_bytes, shared_lines], [shared_bytes, shared_lines]]
-    for unit in sorted(
-        primary_units, key=lambda item: (-item.bytes, -item.lines, item.key)
-    ):
-        candidates = [
-            index for index in range(2) if _fits(loads[index][0], loads[index][1], unit)
-        ]
-        if not candidates:
-            reasons.append(
-                f"semantic unit {unit.key} does not fit in either bounded packet"
-            )
-            break
-        index = min(
-            candidates,
-            key=lambda candidate: (loads[candidate][0], loads[candidate][1], candidate),
-        )
-        bins[index].append(unit)
-        loads[index][0] += unit.bytes
-        loads[index][1] += unit.lines
+    bins = (
+        find_bounded_assignment(primary_units, shared_bytes, shared_lines)
+        if not reasons
+        else None
+    )
+    if bins is None:
+        reasons.append("semantic units do not fit in two bounded review-wide packets")
+        bins = _assign_without_limits(primary_units)
 
     status = "planned" if not reasons else "oversized"
-    if status == "oversized":
-        bins = _assign_without_limits(primary_units)
 
     # Shared files have one primary owner. They are context in shard 2 only when
     # the second review-wide packet has primary work.
@@ -265,19 +314,50 @@ def git(*args: str) -> bytes:
     return subprocess.check_output(("git", *args))
 
 
-def changed_paths(commit_range: str) -> list[str]:
-    raw = git("diff", "--name-only", "-z", "--find-renames", commit_range)
-    return sorted(
-        path.decode("utf-8", "surrogateescape") for path in raw.split(b"\0") if path
-    )
+def changed_file_patches(
+    commit_range: str, unified: int, inter_hunk: int
+) -> list[tuple[str, bytes]]:
+    raw_status = git("diff", "--name-status", "-z", "--find-renames", commit_range)
+    tokens = [token for token in raw_status.split(b"\0") if token]
+    paths: list[str] = []
+    index = 0
+    while index < len(tokens):
+        status = tokens[index].decode("ascii")
+        index += 1
+        if status.startswith(("R", "C")):
+            if index + 1 >= len(tokens):
+                raise ValueError("rename/copy status is missing a path pair")
+            # The new path owns a rename or copy, while the full patch below
+            # retains both sides of the pair.
+            index += 1
+            path = tokens[index]
+            index += 1
+        else:
+            if index >= len(tokens):
+                raise ValueError("change status is missing a path")
+            path = tokens[index]
+            index += 1
+        paths.append(path.decode("utf-8", "surrogateescape"))
 
-
-def file_patch(commit_range: str, path: str, unified: int, inter_hunk: int) -> bytes:
     args = ["diff", "--find-renames", "--submodule=diff", f"--unified={unified}"]
     if inter_hunk:
         args.append(f"--inter-hunk-context={inter_hunk}")
-    args.extend((commit_range, "--", path))
-    return git(*args)
+    args.append(commit_range)
+    full_patch = git(*args)
+    starts = [match.start() for match in re.finditer(rb"(?m)^diff --git ", full_patch)]
+    sections = [
+        full_patch[
+            start : starts[position + 1]
+            if position + 1 < len(starts)
+            else len(full_patch)
+        ]
+        for position, start in enumerate(starts)
+    ]
+    if len(paths) != len(sections):
+        raise ValueError(
+            f"full diff has {len(sections)} file sections for {len(paths)} changed paths"
+        )
+    return list(zip(paths, sections, strict=True))
 
 
 def write_output(name: str, value: str) -> None:
@@ -290,10 +370,11 @@ def write_output(name: str, value: str) -> None:
 def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, bytes]]:
     files = []
     patches: dict[str, bytes] = {}
-    for path in changed_paths(args.commit_range):
+    for path, patch in changed_file_patches(
+        args.commit_range, args.unified, args.inter_hunk
+    ):
         domain = classify_path(path)
         shared = is_shared_contract(path, domain)
-        patch = file_patch(args.commit_range, path, args.unified, args.inter_hunk)
         patches[path] = patch
         files.append(
             FileDiff(path, domain, semantic_unit(path, domain, shared), shared, patch)

@@ -234,6 +234,7 @@ const github = {
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
         "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
+        "SHARD_JOB_ID": str(scenario.get("shard_job_id", 456)),
         "RESULT_ARTIFACT_NAME": "benchmark-result-test",
     }
     completed = subprocess.run(

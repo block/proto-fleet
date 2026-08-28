@@ -116,6 +116,43 @@ jobs:
             --variant-metadata-json "$VARIANT_JSON" \
             --output-dir "$REVIEW_PLAN_DIR"
 
+      - name: Bind trusted shard job identity
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FULL_JOB_NAME: Sharded ${{ env.CASE_ID }} / ${{ env.VARIANT_ID }} / ${{ env.REPEAT }} / Shard ${{ env.SHARD_ID }}
+          SHORT_JOB_NAME: Shard ${{ env.SHARD_ID }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const matches = jobs.filter(job =>
+              job.status === 'in_progress' &&
+              (job.name === process.env.FULL_JOB_NAME || job.name === process.env.SHORT_JOB_NAME)
+            );
+            if (matches.length !== 1) {
+              core.setFailed(`Expected one in-progress shard job, found ${matches.length}.`);
+              return;
+            }
+            fs.writeFileSync(
+              `${process.env.REVIEW_PLAN_DIR}/shard-job-identity.json`,
+              `${JSON.stringify({
+                run_id: context.runId,
+                run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+                case: process.env.CASE_ID,
+                variant: process.env.VARIANT_ID,
+                repeat: process.env.REPEAT,
+                shard_id: process.env.SHARD_ID,
+                job_id: matches[0].id,
+              }, null, 2)}\n`,
+              {encoding: 'utf8', mode: 0o600},
+            );
+
       - name: Upload trusted shard plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -123,6 +160,7 @@ jobs:
           path: |
             ${{ env.REVIEW_MANIFEST_FILE }}
             ${{ env.REVIEW_DIFF_FILE }}
+            ${{ env.REVIEW_PLAN_DIR }}/shard-job-identity.json
           if-no-files-found: error
 
       - name: Require benchmark API key
@@ -239,11 +277,43 @@ jobs:
             --packet shard-plan/codex-review.diff \
             --shard "$SHARD_ID"
 
+      - name: Verify trusted shard job identity
+        id: identity
+        env:
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          identity = json.loads(
+              Path("shard-plan/shard-job-identity.json").read_text(encoding="utf-8")
+          )
+          expected = {
+              "run_id": int(os.environ["EXPECTED_RUN_ID"]),
+              "run_attempt": int(os.environ["EXPECTED_RUN_ATTEMPT"]),
+              "case": os.environ["CASE_ID"],
+              "variant": os.environ["VARIANT_ID"],
+              "repeat": os.environ["REPEAT"],
+              "shard_id": os.environ["SHARD_ID"],
+          }
+          for name, value in expected.items():
+              if identity.get(name) != value:
+                  raise SystemExit(f"trusted shard identity has invalid {name}")
+          job_id = identity.get("job_id")
+          if not isinstance(job_id, int) or job_id <= 0:
+              raise SystemExit("trusted shard identity has invalid job_id")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"job_id={job_id}\n")
+          PY
+
       - name: Inspect bounded shard job
         id: inspect
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          AGENT_JOB_NAME: Sharded ${{ env.CASE_ID }} / ${{ env.VARIANT_ID }} / ${{ env.REPEAT }} / Shard ${{ env.SHARD_ID }}
+          SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}
           RESULT_ARTIFACT_NAME: ${{ env.RESULT_ARTIFACT_NAME }}
         with:
           github-token: ${{ github.token }}
@@ -254,9 +324,9 @@ jobs:
               run_id: context.runId,
               per_page: 100,
             });
-            const matches = jobs.filter(job => job.name === process.env.AGENT_JOB_NAME);
+            const matches = jobs.filter(job => String(job.id) === process.env.SHARD_JOB_ID);
             if (matches.length !== 1) {
-              core.setFailed(`Expected one shard job named ${process.env.AGENT_JOB_NAME}, found ${matches.length}.`);
+              core.setFailed(`Expected one shard job with trusted ID ${process.env.SHARD_JOB_ID}, found ${matches.length}.`);
               return;
             }
             const job = matches[0];
@@ -269,6 +339,7 @@ jobs:
                 'Checkout trusted sharding tools',
                 'Fetch and validate fixed historical range',
                 'Plan bounded review shards',
+                'Bind trusted shard job identity',
                 'Upload trusted shard plan',
                 'Require benchmark API key',
                 'Render trusted shard prompt',

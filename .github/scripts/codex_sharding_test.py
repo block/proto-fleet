@@ -208,7 +208,20 @@ class PlannerTest(unittest.TestCase):
             [file_diff("server/a/a.go", planner.MAX_PACKET_BYTES + 1, 10)]
         )
         self.assertEqual(plan["status"], "oversized")
-        self.assertIn("does not fit", plan["oversized_reasons"][0])
+        self.assertIn("do not fit", plan["oversized_reasons"][-1])
+
+    def test_complete_search_finds_non_greedy_two_packet_assignment(self):
+        sizes = (266_666, 233_333, 200_000, 166_667, 133_333)
+        files = [
+            file_diff(f"server/package{index}/file.go", size, 1)
+            for index, size in enumerate(sizes)
+        ]
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        self.assertEqual(
+            sorted(shard["packet_bytes"] for shard in plan["shards"]),
+            [499_999, 500_000],
+        )
 
     def test_more_than_two_bounded_units_is_rejected(self):
         files = [
@@ -278,13 +291,18 @@ class PlannerTest(unittest.TestCase):
             )
             subprocess.run(("git", "config", "user.name", "Test"), cwd=repo, check=True)
             (repo / "server/a").mkdir(parents=True)
-            (repo / "server/a/a.go").write_text("package a\n", encoding="utf-8")
+            (repo / "server/a/old.go").write_text("package a\n", encoding="utf-8")
             subprocess.run(("git", "add", "."), cwd=repo, check=True)
             subprocess.run(("git", "commit", "-qm", "base"), cwd=repo, check=True)
             base = subprocess.check_output(
                 ("git", "rev-parse", "HEAD"), cwd=repo, text=True
             ).strip()
-            (repo / "server/a/a.go").write_text(
+            subprocess.run(
+                ("git", "mv", "server/a/old.go", "server/a/new.go"),
+                cwd=repo,
+                check=True,
+            )
+            (repo / "server/a/new.go").write_text(
                 "package a\nvar A = 1\n", encoding="utf-8"
             )
             subprocess.run(("git", "commit", "-qam", "head"), cwd=repo, check=True)
@@ -324,8 +342,12 @@ class PlannerTest(unittest.TestCase):
             finally:
                 os.chdir(previous)
             self.assertEqual(manifest["status"], "planned")
-            self.assertIn("server/a/a.go", patches)
-            self.assertIn(b"+var A = 1", patches["server/a/a.go"])
+            self.assertIn("server/a/new.go", patches)
+            patch = patches["server/a/new.go"]
+            self.assertIn(b"rename from server/a/old.go", patch)
+            self.assertIn(b"rename to server/a/new.go", patch)
+            self.assertIn(b"+var A = 1", patch)
+            self.assertNotIn(b"--- /dev/null", patch)
 
 
 class PromptTest(unittest.TestCase):
@@ -441,6 +463,25 @@ class ResultTest(unittest.TestCase):
         )
         self.assertEqual(second["status"], "inactive")
 
+    def test_finding_outside_findings_section_is_rejected(self):
+        finding = (
+            "#### [HIGH] Misplaced issue\n"
+            "- **Category**: Reliability\n"
+            "- **Location**: [`server/a/a.go:1`](https://example.test/a#L1)\n"
+            "- **Description**: Description.\n"
+            "- **Impact**: Impact.\n"
+            "- **Recommendation**: Recommendation."
+        )
+        markdown = (
+            "## Review Summary\n\n"
+            "**Overall Risk**: HIGH\n\n"
+            f"{finding}\n\n"
+            "### Findings\n\nNo findings here.\n\n"
+            "### Notes\n\nNote.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "outside the Findings section"):
+            writer.validate_review_markdown(markdown, "HIGH")
+
     def test_early_codex_failure_hard_fails_writer(self):
         manifest = signed_manifest(active_second=False)
         with self.assertRaisesRegex(ValueError, "unexpectedly"):
@@ -463,6 +504,12 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn('CODEX_CANCELLATION_CLEANUP_SECONDS: "300"', called)
         self.assertIn("github.workflow_sha", called)
         self.assertIn("sharded-benchmark-result-", called)
+        self.assertIn("SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}", called)
+        self.assertIn("String(job.id) === process.env.SHARD_JOB_ID", called)
+        self.assertIn(
+            "github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all'",
+            parent,
+        )
 
     def test_shard_prompt_comes_from_trusted_checkout(self):
         called = (
@@ -494,6 +541,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             "Checkout trusted sharding tools",
             "Fetch and validate fixed historical range",
             "Plan bounded review shards",
+            "Bind trusted shard job identity",
             "Upload trusted shard plan",
             "Require benchmark API key",
             "Render trusted shard prompt",
@@ -502,6 +550,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             {"name": name, "conclusion": "success"} for name in prerequisite_names
         ]
         timeout_job = {
+            "id": 456,
             "name": job_name,
             "conclusion": "cancelled",
             "started_at": "2026-08-28T00:00:00Z",
@@ -532,6 +581,7 @@ class WorkflowInvariantTest(unittest.TestCase):
                         "jobs": [job],
                         "artifacts": [],
                         "agent_job_name": job_name,
+                        "shard_job_id": 456,
                         "timeout_minutes": "6",
                         "cleanup_seconds": "300",
                     },

@@ -48,12 +48,20 @@ def validate_review_markdown(markdown: str, risk: str) -> None:
         for broad, exact in zip(finding_like, exact_findings, strict=True)
     ):
         raise ValueError("review Markdown contains an unparseable severity heading")
+    findings_start = section_positions[1]
+    notes_start = section_positions[2]
+    if any(
+        finding.start() <= findings_start or finding.start() >= notes_start
+        for finding in exact_findings
+    ):
+        raise ValueError(
+            "review Markdown contains a finding outside the Findings section"
+        )
     if risk == "NONE" and exact_findings:
         raise ValueError("NONE review Markdown must not contain findings")
     if risk != "NONE" and not exact_findings:
         raise ValueError("non-NONE review Markdown must contain a finding")
 
-    notes_start = section_positions[2]
     required_fields = (
         r"(?m)^- \*\*Category\*\*: \S.*$",
         r"(?m)^- \*\*Location\*\*: \[[^\]]+\]\([^\)]+\)[ \t]*$",
