@@ -76,19 +76,21 @@ rule ensures unknown paths are reviewed rather than dropped.
 Within each domain, the planner forms indivisible semantic units: Go packages,
 client feature directories, protobuf packages, a migration with its sqlc
 contract, plugin modules, or one deployment surface. It never splits a file or
-hunk. It then assigns units deterministically to no more than two shard packets,
-including replicated context, with both of these hard limits:
+hunk. The planner then collects units from every domain into one review-wide
+pool and assigns that pool to no more than two shard packets total, including
+replicated context. Domains do not receive separate packet allowances. Each of
+the two review-wide packets has both of these hard limits:
 
 - 500,000 bytes per complete packet.
 - 8,000 lines per complete packet.
 
 These initial limits are benchmark hypotheses. They split the known 812,319-byte,
-13,926-line PR #956 control into two possible packets while keeping both model
-jobs in one parallel wave. If one semantic unit exceeds either limit, shared
-context makes a packet exceed a limit, or the units require more than two
-bounded packets, the planner does not launch an unbounded model job. It emits a
-validated `oversized-review` incomplete result that requires human review and
-records the limiting units and packet measurements.
+13,926-line PR #956 control into two possible packets while keeping the entire
+review in one parallel wave. If one semantic unit exceeds either limit, shared
+context makes a packet exceed a limit, or the review-wide pool requires more
+than two bounded packets, the planner does not launch an unbounded model job. It
+emits a validated `oversized-review` incomplete result that requires human
+review and records the limiting units and packet measurements.
 
 ### Shared review context
 
@@ -99,8 +101,13 @@ Each shard receives:
 3. Changed shared contracts relevant to that shard, even when another shard
    owns them. Shared inputs include protobuf definitions, migrations and sqlc
    interfaces, API types, deployment schemas, and root build/runtime contracts.
-4. The same trusted prompt, model, security boundary, output schema, and
-   read-only sandbox as production.
+4. The production model, security boundary, output schema, read-only sandbox,
+   and common review guidance.
+5. A trusted shard-scope prompt stanza stating that the packet is the complete
+   authorized scope for this shard, not the complete PR diff; primary files are
+   its review ownership and shared files are supporting cross-boundary context.
+   It instructs the model not to regenerate the full PR diff and to report only
+   findings grounded in a primary change or its interaction with shared context.
 
 The packet records primary and shared files separately so duplicated contract
 context cannot be mistaken for duplicate review ownership. Every changed file
@@ -110,11 +117,13 @@ each complete packet against both hard size limits.
 
 ### Bounded shard execution
 
-Run shard reviewers as a matrix with bounded parallelism. The benchmark should
-start with a six-minute model budget per shard and reserve the existing
-five-minute Actions cancellation-cleanup allowance. Production timing is chosen
-only after benchmark evidence; it must keep trusted aggregation and artifact
-upload inside the current 15-minute end-to-end target.
+Run shard reviewers as one matrix wave with `max-parallel: 2`. Because the
+planner emits no more than two packets for the whole review, no second model
+wave can extend the deadline. The benchmark should start with a six-minute model
+budget per shard and reserve the existing five-minute Actions
+cancellation-cleanup allowance. Production timing is chosen only after
+benchmark evidence; it must keep the single parallel wave, trusted aggregation,
+and artifact upload inside the current 15-minute end-to-end target.
 
 Each shard emits the existing structured risk and Markdown contract plus trusted
 metadata identifying its shard, exact range, primary files, shared files, run
@@ -154,17 +163,23 @@ revalidating that the PR head is current.
    SHAs and trusted default-branch code.
 2. Replay the adjudicated corpus with `unified=40`, `xhigh`, and the baseline
    prompt. Compare against the unsharded control in the benchmark report.
-3. Human-adjudicate the union of shard findings. Across completed reviews,
+3. Require a completed aggregate for all six adjudicated corpus cases in the
+   initial candidate run. Any timeout or `oversized-review` rejects the
+   candidate before recall evaluation; hard finding-bearing cases cannot
+   disappear from the denominator.
+4. Human-adjudicate the union of shard findings. Across completed reviews,
    require every known `HIGH` and at least 90% of known `MEDIUM` findings.
    Require every newly reported `MEDIUM` or `HIGH` to be valid across the full
    corpus, not only the clean controls.
-4. Repeat only disagreements, misses, or cases within 10% of a shard budget.
-5. If the adjudicated gate passes, replay PRs #957 and #964. Both must produce a
+5. Repeat only disagreements, misses, or cases within 10% of a shard budget to
+   measure model variance. Repeats cannot erase a failure of the initial 6/6
+   completion gate.
+6. If the adjudicated gates pass, replay PRs #957 and #964. Both must produce a
    credible completed aggregate within 10 minutes and the final artifact within
    15 minutes. A validated timeout or `oversized-review` artifact demonstrates
    safe fallback behavior but blocks rollout because it does not improve the
    large-PR completion failure.
-6. Only after both large-PR cases pass, roll out behind a workflow-level switch
+7. Only after both large-PR cases pass, roll out behind a workflow-level switch
    that can return production to the single-agent path without weakening its
    current timeout or fail-closed behavior.
 
@@ -190,7 +205,8 @@ revalidating that the PR head is current.
 | Risk | Mitigation |
 | --- | --- |
 | A cross-domain bug is hidden | Replicate changed shared contracts and include the complete changed-file manifest in every shard |
-| Replicated context increases cost | Create only affected shards, cap concurrency, include shared bytes in the hard packet limits, and measure duplication |
+| Replicated context increases cost | Create only affected shards, cap the whole review at two packets, include shared bytes in the hard packet limits, and measure duplication |
+| A shard regenerates the full PR diff | State trusted primary/shared scope explicitly in the prompt and test that the full-diff instruction is absent |
 | Findings are duplicated | Preserve them by default; allow only exact deterministic fingerprint deduplication |
 | One shard timeout is masked | Any validated incomplete shard forces an aggregate `HIGH` human-review result |
 | Trusted handoff failure looks like model incompletion | Hard-fail missing, corrupt, stale, cross-run, or malformed artifacts; accept only validated incomplete evidence |
@@ -209,8 +225,10 @@ revalidating that the PR head is current.
 - Test both packet limits at, below, and above the boundary, including a single
   oversized unit, replicated context overflow, and a change requiring more than
   two packets.
-- Assert byte-identical security boundary, schema, sandbox, model, and prompt
-  between production and benchmark shard jobs.
+- Assert byte-identical model, security boundary, schema, common review guidance,
+  sandbox, and shard-scope prompt stanza between production and benchmark shard
+  jobs. Test that the stanza identifies primary/shared scope and prohibits
+  regenerating the full PR diff.
 - Test aggregate severity, stable ordering, exact deduplication, and validated
   timeout/oversized `HIGH` behavior. Separately prove missing, corrupt,
   malformed, stale, and cross-run artifacts hard-fail the workflow.
@@ -218,9 +236,10 @@ revalidating that the PR head is current.
   infrastructure, and supersession cancellation.
 - Run actionlint, Ruff, workflow-policy tests, and executable mocked posting
   tests.
-- Replay the fixed adjudicated corpus and record packet size, duplicated bytes,
-  completion, wall time, tools, tokens, compactions, human finding recall across
-  completed reviews, and the validity of every new `MEDIUM` or `HIGH`.
+- Replay the fixed adjudicated corpus and require 6/6 initial completion before
+  evaluating packet size, duplicated bytes, wall time, tools, tokens,
+  compactions, human finding recall, and the validity of every new `MEDIUM` or
+  `HIGH`.
 - Run the large-PR corpus only after the adjudicated recall and finding-validity
   gates pass; require both cases to complete credibly before rollout.
 - Observe the first 30 production runs before removing the single-agent rollback
