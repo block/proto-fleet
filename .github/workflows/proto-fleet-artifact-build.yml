@@ -237,6 +237,92 @@ jobs:
           path: ./server/proto-fleet-server-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
           retention-days: ${{ inputs.retention_days }}
 
+  package-fleet-node:
+    name: Package Fleet Node (${{ matrix.arch }})
+    needs: [metadata]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: 0
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build Fleet Node and Go plugins
+        run: |
+          go work sync
+          go build -v -o server/fleetnode ./server/cmd/fleetnode
+          go build -o server/proto-plugin ./plugin/proto
+          go build -o server/antminer-plugin ./plugin/antminer
+          go build -o server/virtual-plugin ./plugin/virtual
+          cp plugin/virtual/config.json server/virtual-plugin.json
+
+          for binary in fleetnode proto-plugin antminer-plugin virtual-plugin; do
+            if ! readelf -h "server/$binary" >/dev/null; then
+              echo "::error::Unable to inspect Fleet Node binary $binary"
+              exit 1
+            fi
+            if readelf -l "server/$binary" | grep INTERP >/dev/null || readelf -d "server/$binary" | grep NEEDED >/dev/null; then
+              echo "::error::Fleet Node binary $binary must be statically linked"
+              exit 1
+            fi
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build asicrs plugin
+        run: |
+          docker buildx build \
+            --file plugin/asicrs/Dockerfile.build \
+            --output "type=local,dest=/tmp/asicrs" \
+            .
+          cp /tmp/asicrs/asicrs-plugin server/asicrs-plugin
+          cp /tmp/asicrs/asicrs-config.yaml server/asicrs-config.yaml
+
+      - name: Package Fleet Node
+        working-directory: ./server
+        run: |
+          package_dir="fleetnode-${VERSION}-linux-${{ matrix.arch }}"
+          archive="${package_dir}.tar.gz"
+
+          mkdir -p "$package_dir/plugins"
+          install -m 0755 fleetnode "$package_dir/fleetnode"
+          install -m 0644 ../deployment-files/fleetnode/fleetnode.service "$package_dir/fleetnode.service"
+          install -m 0755 proto-plugin "$package_dir/plugins/proto-plugin"
+          install -m 0755 antminer-plugin "$package_dir/plugins/antminer-plugin"
+          install -m 0755 virtual-plugin "$package_dir/plugins/virtual-plugin"
+          install -m 0644 virtual-plugin.json "$package_dir/plugins/virtual-plugin.json"
+          install -m 0755 asicrs-plugin "$package_dir/plugins/asicrs-plugin"
+          install -m 0644 asicrs-config.yaml "$package_dir/plugins/asicrs-config.yaml"
+          printf 'version: %s\n' "$VERSION" > "$package_dir/version.txt"
+
+          tar -czf "$archive" "$package_dir"
+          sha256sum "$archive" > "$archive.sha256"
+          sha256sum -c "$archive.sha256"
+
+      - name: Upload Fleet Node artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fleetnode-linux-${{ matrix.arch }}
+          path: |
+            ./server/fleetnode-${{ needs.metadata.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            ./server/fleetnode-${{ needs.metadata.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+          retention-days: ${{ inputs.retention_days }}
+
   build-proto-fleet-client:
     name: Build ProtoFleet client
     runs-on: ubuntu-latest
