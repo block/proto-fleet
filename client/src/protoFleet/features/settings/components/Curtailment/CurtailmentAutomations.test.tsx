@@ -294,6 +294,60 @@ describe("CurtailmentAutomationsContent", () => {
     expect(screen.getByText("No automations configured")).toBeVisible();
   });
 
+  it("waits for an edit rule's response profile instead of selecting another profile", async () => {
+    const onUpdateAutomation = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        isLoadingResponseProfiles
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    fireEvent.click(getAutomationRow("ERCOT ERS obligation"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    rerender(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[testResponseProfiles[1]]}
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByTestId("automation-response-profile-select")).not.toHaveTextContent("Partial reduction");
+
+    rerender(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[testResponseProfiles[1], testResponseProfiles[0]]}
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("automation-response-profile-select")).toHaveTextContent("Standard shed"),
+    );
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(onUpdateAutomation).toHaveBeenCalledWith(
+        expect.objectContaining({ id: testAutomationRules[0].id }),
+        expect.objectContaining({
+          responseProfileId: testResponseProfiles[0].id,
+          responseProfileRevision: testResponseProfiles[0].revision,
+        }),
+      ),
+    );
+  });
+
   it("toggles automation rows without exposing reorder handles", () => {
     render(
       <CurtailmentAutomationsContent

@@ -69,6 +69,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.beginCurtailmentTopologyTargetRestoreStmt, err = db.PrepareContext(ctx, beginCurtailmentTopologyTargetRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentTopologyTargetRestore: %w", err)
 	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt, err = db.PrepareContext(ctx, bindCurtailmentAutomationRuleResponseProfileRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query BindCurtailmentAutomationRuleResponseProfileRevision: %w", err)
+	}
 	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
 	}
@@ -1791,6 +1794,11 @@ func (q *Queries) Close() error {
 	if q.beginCurtailmentTopologyTargetRestoreStmt != nil {
 		if cerr := q.beginCurtailmentTopologyTargetRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing beginCurtailmentTopologyTargetRestoreStmt: %w", cerr)
+		}
+	}
+	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt != nil {
+		if cerr := q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindCurtailmentAutomationRuleResponseProfileRevisionStmt: %w", cerr)
 		}
 	}
 	if q.bindEnrollmentToFleetNodeStmt != nil {
@@ -4587,6 +4595,7 @@ type Queries struct {
 	assignRoleStmt                                               *sql.Stmt
 	beginCurtailmentRestorationStmt                              *sql.Stmt
 	beginCurtailmentTopologyTargetRestoreStmt                    *sql.Stmt
+	bindCurtailmentAutomationRuleResponseProfileRevisionStmt     *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
 	buildingsByIDsStmt                                           *sql.Stmt
@@ -5139,23 +5148,24 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                                           tx,
-		tx:                                                           tx,
-		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
-		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
-		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
-		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
-		adminTerminateCurtailmentEventStmt:                           q.adminTerminateCurtailmentEventStmt,
-		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
-		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
-		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
-		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
-		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
-		assignDevicesToSiteStmt:                                      q.assignDevicesToSiteStmt,
-		assignPermissionToRoleStmt:                                   q.assignPermissionToRoleStmt,
-		assignRoleStmt:                                               q.assignRoleStmt,
-		beginCurtailmentRestorationStmt:                              q.beginCurtailmentRestorationStmt,
-		beginCurtailmentTopologyTargetRestoreStmt:                    q.beginCurtailmentTopologyTargetRestoreStmt,
+		db:                                        tx,
+		tx:                                        tx,
+		acquireFleetRuntimeLeaseStmt:              q.acquireFleetRuntimeLeaseStmt,
+		acquireReconcileLockStmt:                  q.acquireReconcileLockStmt,
+		addDevicesToDeviceSetStmt:                 q.addDevicesToDeviceSetStmt,
+		adminResetUserPasswordStmt:                q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:        q.adminTerminateCurtailmentEventStmt,
+		advanceFleetMetricRollupProgressStmt:      q.advanceFleetMetricRollupProgressStmt,
+		allDevicesBelongToOrgStmt:                 q.allDevicesBelongToOrgStmt,
+		assignBuildingToSiteStmt:                  q.assignBuildingToSiteStmt,
+		assignBuildingsToSiteBulkStmt:             q.assignBuildingsToSiteBulkStmt,
+		assignDevicesToBuildingStmt:               q.assignDevicesToBuildingStmt,
+		assignDevicesToSiteStmt:                   q.assignDevicesToSiteStmt,
+		assignPermissionToRoleStmt:                q.assignPermissionToRoleStmt,
+		assignRoleStmt:                            q.assignRoleStmt,
+		beginCurtailmentRestorationStmt:           q.beginCurtailmentRestorationStmt,
+		beginCurtailmentTopologyTargetRestoreStmt: q.beginCurtailmentTopologyTargetRestoreStmt,
+		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,

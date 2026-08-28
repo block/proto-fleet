@@ -343,6 +343,9 @@ admin requirement, topology, and quotas before claiming targets.
    settings still match the profile and can be recovered through idempotency
    replay. Mismatches remain unbound and fail closed; other existing events keep
    their durable recovery data.
+   Revision and binding state lives in companion tables maintained by triggers,
+   leaving the response-profile and automation-rule base table shapes unchanged
+   while the previous active binary serves during a passive-first HA update.
    After migration, records missing a required scope, envelope, revision, or
    binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org

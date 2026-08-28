@@ -29,6 +29,7 @@ const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
 
 const requestReadMaxBytes = 2 << 20
+const curtailmentExecutionSchemaVersionCurrent uint32 = 1
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
@@ -78,6 +79,9 @@ func NewHandlerWithAutomation(
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
 	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateCurtailmentExecutionSchemaVersion(req.Msg.GetExecutionSchemaVersion()); err != nil {
 		return nil, err
 	}
 	expectedProfileRevision, err := parseResponseProfileExecutionRevision(
@@ -134,6 +138,9 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
 	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateCurtailmentExecutionSchemaVersion(req.Msg.GetExecutionSchemaVersion()); err != nil {
 		return nil, err
 	}
 	expectedProfileRevision, err := parseResponseProfileExecutionRevision(

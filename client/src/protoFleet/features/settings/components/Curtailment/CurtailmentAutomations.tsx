@@ -178,7 +178,7 @@ function getAutomationFormValuesFromRule(
   return {
     name: rule.name,
     sourceId: rule.sourceId ?? sources[0]?.id ?? "",
-    responseProfileId: responseProfile?.id ?? "",
+    responseProfileId: rule.responseProfileId,
     responseProfileRevision: responseProfile?.revision ?? "",
   };
 }
@@ -324,7 +324,11 @@ function AutomationModal({
   const validationErrors = useMemo(() => validateAutomationFormValues(values), [values]);
   const visibleValidationErrors = showValidationErrors ? validationErrors : {};
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
-  const isSaveUnavailable = isLoadingSources || isLoadingResponseProfiles || isBusy;
+  const isSelectedResponseProfileUnavailable =
+    values.responseProfileId !== "" &&
+    !responseProfiles.some((profile) => profile.id === values.responseProfileId && profile.revision);
+  const isSaveUnavailable =
+    isLoadingSources || isLoadingResponseProfiles || isSelectedResponseProfileUnavailable || isBusy;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency options can load after the modal opens

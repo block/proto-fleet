@@ -82,6 +82,7 @@ type Querier interface {
 	// with no possible Curtail attempt release immediately; every other target
 	// enters the normal restore queue conservatively.
 	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
+	BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
@@ -523,7 +524,7 @@ type Querier interface {
 	// EnsureCurtailmentOrgConfig backfills post-migration tenants.
 	GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
-	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfile, error)
+	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
 	// partial, but the rollup must describe the whole event.
 	//
@@ -942,7 +943,7 @@ type Querier interface {
 	ListCurtailmentGroupScopeCoverage(ctx context.Context, arg ListCurtailmentGroupScopeCoverageParams) ([]ListCurtailmentGroupScopeCoverageRow, error)
 	ListCurtailmentRackScopeCoverage(ctx context.Context, arg ListCurtailmentRackScopeCoverageParams) ([]ListCurtailmentRackScopeCoverageRow, error)
 	ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg ListCurtailmentResponseProfileDeviceSitesByOrgParams) ([]ListCurtailmentResponseProfileDeviceSitesByOrgRow, error)
-	ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfile, error)
+	ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfileWithRevision, error)
 	// Coverage for explicit-device event authorization. target_count is every
 	// persisted target row; mapped_target_count includes only targets that still
 	// resolve to a live device with a site. Any mismatch fails closed in handlers.

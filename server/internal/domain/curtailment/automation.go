@@ -323,22 +323,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		case event.State.IsTerminal():
 			// Stale terminal state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
-			if eventMaxDurationElapsed(event, s.clock()) {
-				return nil
-			}
-			if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
-				return err
-			}
-			recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{
-				OrgID:                   rule.OrgID,
-				EventUUID:               event.EventUUID,
-				ResponseProfileID:       rule.ResponseProfileID,
-				ResponseProfileRevision: rule.ResponseProfileRevision,
-			})
-			if err != nil {
-				return err
-			}
-			return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, recurtailed.EventUUID, at)
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source.ID, event, at)
 		default:
 			return nil
 		}
@@ -377,6 +362,9 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		if err := validateAutomationReplayEvent(replayEvent, rule); err != nil {
 			return err
 		}
+		if replayEvent.State == models.EventStateRestoring {
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source.ID, replayEvent, at)
+		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
 	}
 	if err := validateBoundAutomationProfile(rule, profile); err != nil {
@@ -410,6 +398,31 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return err
 	}
 	return nil
+}
+
+func (s *AutomationService) recurtailAutomationEvent(
+	ctx context.Context,
+	rule *models.AutomationRule,
+	mqttSourceID int64,
+	event *models.Event,
+	at time.Time,
+) error {
+	if eventMaxDurationElapsed(event, s.clock()) {
+		return nil
+	}
+	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
+		return err
+	}
+	recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{
+		OrgID:                   rule.OrgID,
+		EventUUID:               event.EventUUID,
+		ResponseProfileID:       rule.ResponseProfileID,
+		ResponseProfileRevision: rule.ResponseProfileRevision,
+	})
+	if err != nil {
+		return err
+	}
+	return s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSourceID, recurtailed.EventUUID, at)
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {

@@ -232,6 +232,16 @@ func parseResponseProfileExecutionRevision(profileID int64, rawRevision string) 
 	return revision, nil
 }
 
+func validateCurtailmentExecutionSchemaVersion(version uint32) error {
+	if version != curtailmentExecutionSchemaVersionCurrent {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"execution_schema_version %d is required",
+			curtailmentExecutionSchemaVersionCurrent,
+		)
+	}
+	return nil
+}
+
 func (h *Handler) currentResponseProfileForExecution(
 	ctx context.Context,
 	orgID int64,

@@ -186,6 +186,18 @@ func (q *retryingQuerier) BeginCurtailmentTopologyTargetRestore(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "BindCurtailmentAutomationRuleResponseProfileRevision", func() error {
+		callResult, callErr := q.next.BindCurtailmentAutomationRuleResponseProfileRevision(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BindEnrollmentToFleetNode", func() error {
@@ -1830,8 +1842,8 @@ func (q *retryingQuerier) GetCurtailmentReconcilerHeartbeat(ctx context.Context)
 	return result, err
 }
 
-func (q *retryingQuerier) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfile, error) {
-	var result CurtailmentResponseProfile
+func (q *retryingQuerier) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error) {
+	var result CurtailmentResponseProfileWithRevision
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentResponseProfileByOrg", func() error {
 		callResult, callErr := q.next.GetCurtailmentResponseProfileByOrg(ctx, arg)
 		if callErr == nil {
@@ -3750,8 +3762,8 @@ func (q *retryingQuerier) ListCurtailmentResponseProfileDeviceSitesByOrg(ctx con
 	return result, err
 }
 
-func (q *retryingQuerier) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfile, error) {
-	var result []CurtailmentResponseProfile
+func (q *retryingQuerier) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfileWithRevision, error) {
+	var result []CurtailmentResponseProfileWithRevision
 	err := q.retrier.RetryQuery(ctx, "ListCurtailmentResponseProfilesByOrg", func() error {
 		callResult, callErr := q.next.ListCurtailmentResponseProfilesByOrg(ctx, orgID)
 		if callErr == nil {

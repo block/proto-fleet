@@ -19,6 +19,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
   buildForceInclusionFields,
+  curtailmentExecutionSchemaVersion,
   getResponseProfileExecutionFields,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -161,6 +162,7 @@ export function buildPreviewCurtailmentPlanRequest(
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
       scopeSchemaVersion: curtailmentScopeSchemaVersion,
+      executionSchemaVersion: curtailmentExecutionSchemaVersion,
       ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
@@ -178,6 +180,7 @@ export function buildPreviewCurtailmentPlanRequest(
   return create(PreviewCurtailmentPlanRequestSchema, {
     scopes,
     scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),

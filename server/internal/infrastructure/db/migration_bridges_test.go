@@ -75,6 +75,220 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 	}
 }
 
+func TestResponseProfileRevisionMigrationSupportsPassiveFirstHAWrites(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	migrateTestDBTo(t, conn, config.Name, 142)
+	insertLegacyCurtailmentRows(t, conn)
+	assert.NoError(t, runMigrationCompatibilityBridges(t.Context(), conn))
+
+	profileColumnsBefore := migrationTableColumns(t, conn, "curtailment_response_profile")
+	ruleColumnsBefore := migrationTableColumns(t, conn, "curtailment_automation_rule")
+	migrateTestDBTo(t, conn, config.Name, 144)
+	assert.Equal(t, profileColumnsBefore, migrationTableColumns(t, conn, "curtailment_response_profile"))
+	assert.Equal(t, ruleColumnsBefore, migrationTableColumns(t, conn, "curtailment_automation_rule"))
+
+	var orgID, sourceID, originalProfileID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT profile.org_id, rule.mqtt_source_id, profile.id
+		FROM curtailment_response_profile AS profile
+		JOIN curtailment_automation_rule AS rule
+		  ON rule.response_profile_id = profile.id
+		WHERE rule.rule_name = 'Legacy rule'
+	`).Scan(&orgID, &sourceID, &originalProfileID))
+
+	// These statements intentionally use the pre-migration column contract.
+	// The new passive binary has migrated the shared database, but the previous
+	// active binary may still issue them until takeover completes.
+	var profileID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO curtailment_response_profile (
+			org_id, profile_name, mode, target_kw, tolerance_kw,
+			scope_json, authorization_envelope_jsonb
+		) VALUES (
+			$1, 'Rolling update profile', 'FIXED_KW', 100, NULL,
+			'{}'::JSONB,
+			'{"schema_version":1,"selected_resource_site_ids":[],"current_member_site_ids":[],"miner_scope_unbounded":true,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}'::JSONB
+		)
+		RETURNING id
+	`, orgID).Scan(&profileID))
+
+	var initialRevision uuid.UUID
+	var wholeOrg bool
+	var scopeVersion int
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT
+			profile_revision.revision,
+			(profile.scope_json->>'whole_org')::BOOLEAN,
+			(profile.scope_json->>'scope_schema_version')::INT
+		FROM curtailment_response_profile AS profile
+		JOIN curtailment_response_profile_revision AS profile_revision
+		  ON profile_revision.response_profile_id = profile.id
+		WHERE profile.id = $1
+	`, profileID).Scan(&initialRevision, &wholeOrg, &scopeVersion))
+	assert.NotEqual(t, uuid.Nil, initialRevision)
+	assert.True(t, wholeOrg)
+	assert.Equal(t, 1, scopeVersion)
+
+	var ruleID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		INSERT INTO curtailment_automation_rule (
+			org_id, rule_name, mqtt_source_id, response_profile_id
+		) VALUES ($1, 'Rolling update rule', $2, $3)
+		RETURNING id
+	`, orgID, sourceID, profileID).Scan(&ruleID))
+
+	var boundRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT response_profile_revision
+		FROM curtailment_automation_rule_profile_revision
+		WHERE automation_rule_id = $1
+	`, ruleID).Scan(&boundRevision))
+	assert.Equal(t, initialRevision, boundRevision)
+
+	var userID int64
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT id FROM "user" WHERE user_id = 'bridge-user'
+	`).Scan(&userID))
+	ruleReference := strconv.FormatInt(ruleID, 10)
+	_, err := conn.ExecContext(t.Context(), `
+		INSERT INTO curtailment_event (
+			event_uuid, org_id, state, mode, strategy, level, priority,
+			loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+			curtail_batch_size, curtail_batch_interval_sec,
+			restore_batch_size, restore_batch_interval_sec,
+			include_maintenance, force_include_maintenance,
+			force_include_all_paired_miners,
+			facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec,
+			decision_snapshot_jsonb, authorization_envelope_jsonb,
+			source_actor_type, source_actor_id,
+			external_source, external_reference, idempotency_key,
+			reason, created_by_user_id
+		)
+		SELECT
+			'00000000-0000-0000-0000-000000000020', $1, 'active',
+			profile.mode, profile.strategy, profile.level, profile.priority,
+			'open', 'whole_org', '{}'::JSONB,
+			jsonb_build_object(
+				'target_kw', profile.target_kw,
+				'tolerance_kw', COALESCE(profile.tolerance_kw, 0)
+			),
+			profile.curtail_batch_size, profile.curtail_batch_interval_sec,
+			profile.restore_batch_size, profile.restore_batch_interval_sec,
+			profile.include_maintenance, profile.force_include_maintenance,
+			profile.force_include_all_paired_miners,
+			profile.facility_fan_device_ids, profile.fan_off_delay_sec,
+			profile.fan_restore_delay_sec,
+			'{"selected_count":1}'::JSONB, profile.authorization_envelope_jsonb,
+			'automation', $2, 'curtailment_automation', $2,
+			'curtailment_automation_rule:' || $2,
+			'Rolling update automation event', $3
+		FROM curtailment_response_profile AS profile
+		WHERE profile.id = $4
+	`, orgID, ruleReference, userID, profileID)
+	assert.NoError(t, err)
+	var eventRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT (decision_snapshot_jsonb->>'response_profile_revision')::UUID
+		FROM curtailment_event
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000020'
+	`).Scan(&eventRevision))
+	assert.Equal(t, initialRevision, eventRevision)
+
+	_, err = conn.ExecContext(t.Context(), `
+		UPDATE curtailment_response_profile
+		SET tolerance_kw = 0
+		WHERE id = $1
+	`, profileID)
+	assert.NoError(t, err)
+	var effectiveZeroRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT revision
+		FROM curtailment_response_profile_revision
+		WHERE response_profile_id = $1
+	`, profileID).Scan(&effectiveZeroRevision))
+	assert.Equal(t, initialRevision, effectiveZeroRevision)
+
+	_, err = conn.ExecContext(t.Context(), `
+		UPDATE curtailment_response_profile
+		SET restore_batch_size = restore_batch_size + 1
+		WHERE id = $1
+	`, profileID)
+	assert.NoError(t, err)
+	var rotatedRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT revision
+		FROM curtailment_response_profile_revision
+		WHERE response_profile_id = $1
+	`, profileID).Scan(&rotatedRevision))
+	assert.NotEqual(t, initialRevision, rotatedRevision)
+
+	_, err = conn.ExecContext(t.Context(), `
+		UPDATE curtailment_automation_rule
+		SET response_profile_id = $2
+		WHERE id = $1
+	`, ruleID, originalProfileID)
+	assert.NoError(t, err)
+	var reboundRevision, originalProfileRevision uuid.UUID
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT
+			rule_revision.response_profile_revision,
+			profile_revision.revision
+		FROM curtailment_automation_rule_profile_revision AS rule_revision
+		JOIN curtailment_automation_rule AS rule
+		  ON rule.id = rule_revision.automation_rule_id
+		JOIN curtailment_response_profile_revision AS profile_revision
+		  ON profile_revision.response_profile_id = rule.response_profile_id
+		WHERE rule.id = $1
+	`, ruleID).Scan(&reboundRevision, &originalProfileRevision))
+	assert.Equal(t, originalProfileRevision, reboundRevision)
+}
+
+func TestResponseProfileRevisionDownMigrationPreservesTerminalProvenance(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+
+	conn, config := newMigrationBridgeTestDB(t)
+	migrateTestDBTo(t, conn, config.Name, 142)
+	insertLegacyCurtailmentRows(t, conn)
+	assert.NoError(t, runMigrationCompatibilityBridges(t.Context(), conn))
+	migrateTestDBTo(t, conn, config.Name, 144)
+
+	_, err := conn.ExecContext(t.Context(), `
+		UPDATE curtailment_event
+		SET source_actor_type = 'automation',
+		    external_source = 'curtailment_automation',
+		    decision_snapshot_jsonb = decision_snapshot_jsonb || jsonb_build_object(
+		        'response_profile_id', 123,
+		        'response_profile_revision', '11111111-1111-4111-8111-111111111111'
+		    )
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000001'
+	`)
+	assert.NoError(t, err)
+
+	migrateTestDBTo(t, conn, config.Name, 143)
+
+	var liveHasBinding, terminalHasBinding bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT decision_snapshot_jsonb ? 'response_profile_id'
+		    OR decision_snapshot_jsonb ? 'response_profile_revision'
+		FROM curtailment_event
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000010'
+	`).Scan(&liveHasBinding))
+	assert.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT decision_snapshot_jsonb ? 'response_profile_id'
+		    AND decision_snapshot_jsonb ? 'response_profile_revision'
+		FROM curtailment_event
+		WHERE event_uuid = '00000000-0000-0000-0000-000000000001'
+	`).Scan(&terminalHasBinding))
+	assert.False(t, liveHasBinding)
+	assert.True(t, terminalHasBinding)
+}
+
 func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
@@ -298,6 +512,30 @@ func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version ui
 	assert.NoError(t, migration.Migrate(version))
 }
 
+func migrationTableColumns(t *testing.T, conn *sql.DB, table string) []string {
+	t.Helper()
+	if table != "curtailment_response_profile" && table != "curtailment_automation_rule" {
+		t.Fatalf("unsupported migration table %q", table)
+	}
+	rows, err := conn.QueryContext(t.Context(), `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = $1
+		ORDER BY ordinal_position
+	`, table)
+	assert.NoError(t, err)
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var column string
+		assert.NoError(t, rows.Scan(&column))
+		columns = append(columns, column)
+	}
+	assert.NoError(t, rows.Err())
+	return columns
+}
+
 func insertLegacyCurtailmentRows(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
@@ -505,15 +743,19 @@ func assertLegacyResponseProfileRevisionBinding(t *testing.T, conn *sql.DB) {
 	var scopeSchemaVersion int
 	assert.NoError(t, conn.QueryRowContext(t.Context(), `
 		SELECT
-			profile.revision,
-			rule.response_profile_revision,
+			profile_revision.revision,
+			rule_revision.response_profile_revision,
 			profile.site_id,
 			(profile.scope_json->'site_ids'->>0)::BIGINT,
 			(profile.scope_json->>'scope_schema_version')::INT
 		FROM curtailment_response_profile AS profile
+		JOIN curtailment_response_profile_revision AS profile_revision
+		  ON profile_revision.response_profile_id = profile.id
 		JOIN curtailment_automation_rule AS rule
 		  ON rule.response_profile_id = profile.id
 		 AND rule.org_id = profile.org_id
+		JOIN curtailment_automation_rule_profile_revision AS rule_revision
+		  ON rule_revision.automation_rule_id = rule.id
 		WHERE rule.rule_name = 'Legacy rule'
 	`).Scan(&profileRevision, &ruleRevision, &profileSiteID, &scopeSiteID, &scopeSchemaVersion))
 	assert.NotEqual(t, uuid.Nil, profileRevision)

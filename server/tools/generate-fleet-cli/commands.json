@@ -705,7 +705,7 @@
       "group": "curtailment",
       "subgroup": "events",
       "command": "preview",
-      "required_fields": ["mode"],
+      "required_fields": ["mode", "execution_schema_version"],
       "validation_exceptions": {
         "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
       }
@@ -715,7 +715,7 @@
       "group": "curtailment",
       "subgroup": "events",
       "command": "start",
-      "required_fields": ["mode", "reason"],
+      "required_fields": ["mode", "reason", "execution_schema_version"],
       "validation_exceptions": {
         "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
       }

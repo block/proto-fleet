@@ -637,6 +637,66 @@ func TestAutomationService_HandleMQTTSignal_OffRecoversReplayAfterBoundProfileCh
 	assert.Equal(t, eventUUID, h.rules.lastActiveEvent)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffRecurtailsRestoringReplayBeforeRecoveringPointer(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	replayEvent := h.seedAutomationReplayEvent(models.EventStateRestoring)
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, replayEvent.EventUUID, h.curtailments.beginRecurtailLastEventID)
+	assert.Equal(t, h.rule.ResponseProfileID, h.curtailments.beginRecurtailProfileID)
+	assert.Equal(t, h.rule.ResponseProfileRevision, h.curtailments.beginRecurtailRevision)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, replayEvent.EventUUID, h.rules.lastActiveEvent)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffDoesNotRecoverExpiredRestoringReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	replayEvent := h.seedAutomationReplayEvent(models.EventStateRestoring)
+	startedAt := time.Date(2026, 6, 11, 20, 50, 0, 0, time.UTC)
+	maxDurationSeconds := int32(300)
+	replayEvent.StartedAt = &startedAt
+	replayEvent.MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsRestoringReplayAfterProfileChange(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationReplayEvent(models.EventStateRestoring)
+	h.profile.Revision = uuid.New()
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "rebind_required")
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_OffRejectsStaleTopologyProfileBinding(t *testing.T) {
 	t.Parallel()
 
@@ -1334,6 +1394,30 @@ func (h *automationHarness) seedAutomationEvent(state models.EventState) uuid.UU
 		State:     state,
 	}
 	return activeEventUUID
+}
+
+func (h *automationHarness) seedAutomationReplayEvent(state models.EventState) *models.Event {
+	h.t.Helper()
+
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	event := &models.Event{
+		ID:                   77,
+		EventUUID:            uuid.New(),
+		OrgID:                h.orgID,
+		State:                state,
+		DecisionSnapshotJSON: automationProfileBindingJSON(h.t, h.rule.ResponseProfileID, h.rule.ResponseProfileRevision),
+		SourceActorType:      models.SourceActorAutomation,
+		SourceActorID:        &externalReference,
+		ExternalSource:       stringPtr(automationExternalSource),
+		ExternalReference:    &externalReference,
+		IdempotencyKey:       &idempotencyKey,
+	}
+	if h.curtailments.eventsByIdempotencyKey == nil {
+		h.curtailments.eventsByIdempotencyKey = make(map[string]*models.Event)
+	}
+	h.curtailments.eventsByIdempotencyKey[idempotencyKey] = event
+	h.curtailments.eventsByUUID[event.EventUUID] = event
+	return event
 }
 
 func (h *automationHarness) seedRunnableProfile() {

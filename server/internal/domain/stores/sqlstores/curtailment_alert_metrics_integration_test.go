@@ -50,10 +50,8 @@ func seedAutomationRule(t *testing.T, db *sql.DB, orgID, sourceID, profileID int
 	var id int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_automation_rule
-			(org_id, rule_name, mqtt_source_id, response_profile_id, response_profile_revision, enabled)
-		SELECT $1, $2, $3, $4, revision, $5
-		FROM curtailment_response_profile
-		WHERE id = $4 AND org_id = $1
+			(org_id, rule_name, mqtt_source_id, response_profile_id, enabled)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`,
 		orgID, name, sourceID, profileID, enabled).Scan(&id))
 	return id

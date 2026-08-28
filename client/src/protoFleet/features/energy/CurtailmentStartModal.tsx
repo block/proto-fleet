@@ -1920,10 +1920,14 @@ function CurtailmentStartModalContent({
   });
 
   const confirmForceInclusion = () => {
-    const nextValues = resetResponseProfileSelection({
+    const confirmedValues = {
       ...effectiveValues,
       ...pendingForceInclusionValues,
-    });
+    };
+    const nextValues =
+      pendingForceInclusionValues && Object.keys(pendingForceInclusionValues).length > 0
+        ? resetResponseProfileSelection(confirmedValues)
+        : confirmedValues;
 
     setConfirmedForceInclusionKey(getForceInclusionConfirmationKey(nextValues));
     setValues(nextValues);

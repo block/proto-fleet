@@ -522,6 +522,38 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("preserves the saved profile binding after confirming an unchanged all-paired run", async () => {
+    const user = userEvent.setup();
+    const savedProfile: CurtailmentResponseProfileOption = {
+      ...wholeFleetResponseProfiles[0],
+      values: {
+        ...wholeFleetResponseProfiles[0].values,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        forceIncludeAllPairedMiners: true,
+      },
+    };
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: [savedProfile],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Force include" }));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
+    await confirmCurtailment(user);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: savedProfile.id,
+        responseProfileRevision: savedProfile.revision,
+        forceIncludeAllPairedMiners: true,
+      }),
+    );
+  });
+
   it("preserves visible response profile controls when custom plan is selected", async () => {
     const user = userEvent.setup();
     const customResponseProfiles: CurtailmentResponseProfileOption[] = responseProfiles.map((profile) => ({

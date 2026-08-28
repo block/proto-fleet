@@ -248,8 +248,9 @@ func miner(id, status, pairing string, powerW float64, hashRateHS float64, effJH
 // the operational controls the service requires.
 func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 	return &pb.StartCurtailmentRequest{
-		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+		Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		// UNSPECIFIED maps to LEAST_EFFICIENT_FIRST in the translator; the
 		// proto-named constant passes through as `s.String()` and is rejected
 		// by the validator (existing pre-Start behavior preserved).

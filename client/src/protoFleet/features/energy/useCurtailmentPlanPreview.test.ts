@@ -115,6 +115,7 @@ describe("useCurtailmentPlanPreview", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
     expect(wholeFleetRequest?.responseProfileId).toBe(0n);
     expect(wholeFleetRequest?.expectedResponseProfileRevision).toBe("");
+    expect(wholeFleetRequest?.executionSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(wholeFleetRequest?.scopeSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);

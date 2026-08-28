@@ -53,6 +53,7 @@ describe("curtailmentRequestBuilders", () => {
 
     expect(request.responseProfileId).toBe(0n);
     expect(request.expectedResponseProfileRevision).toBe("");
+    expect(request.executionSchemaVersion).toBe(1);
     expect(request.mode).toBe(CurtailmentMode.FIXED_KW);
     expect(request.scopeSchemaVersion).toBe(1);
     expect(request.modeParams.case).toBe("fixedKw");

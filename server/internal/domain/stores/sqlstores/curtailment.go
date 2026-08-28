@@ -238,12 +238,12 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(
 	if err != nil {
 		return nil, err
 	}
-	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfileWithRevision, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		envelopeJSON, err := buildAuthorizationEnvelopeJSON(
 			ctx,
@@ -256,10 +256,17 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(
 			nil,
 		)
 		if err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		profile.AuthorizationEnvelopeJSON = envelopeJSON
-		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
+		inserted, err := q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
+		if err != nil {
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
+		}
+		return q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+			ID:    inserted.ID,
+			OrgID: profile.OrgID,
+		})
 	})
 	if err != nil {
 		return nil, mapResponseProfileWriteError("create", err)
@@ -281,12 +288,12 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		return nil, err
 	}
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
-	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfileWithRevision, error) {
 		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		if err := rejectTopologyProfileWithAutomationRules(ctx, q, profile); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		if err := lockResponseProfileSitesForWrite(
 			ctx,
@@ -296,10 +303,10 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 			expectedSiteID,
 			profile.SiteID,
 		); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		envelopeJSON, err := buildAuthorizationEnvelopeJSON(
 			ctx,
@@ -312,7 +319,7 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 			nil,
 		)
 		if err != nil {
-			return sqlc.CurtailmentResponseProfile{}, err
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
 		}
 		profile.AuthorizationEnvelopeJSON = envelopeJSON
 		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(
@@ -326,13 +333,19 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 				ID:    profile.ID,
 				OrgID: profile.OrgID,
 			}); errors.Is(getErr, sql.ErrNoRows) {
-				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profile.ID)
+				return sqlc.CurtailmentResponseProfileWithRevision{}, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profile.ID)
 			} else if getErr != nil {
-				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewInternalErrorf("failed to get curtailment response profile after update conflict: %v", getErr)
+				return sqlc.CurtailmentResponseProfileWithRevision{}, fleeterror.NewInternalErrorf("failed to get curtailment response profile after update conflict: %v", getErr)
 			}
-			return sqlc.CurtailmentResponseProfile{}, fleeterror.NewFailedPreconditionError("curtailment response profile changed before update; retry")
+			return sqlc.CurtailmentResponseProfileWithRevision{}, fleeterror.NewFailedPreconditionError("curtailment response profile changed before update; retry")
 		}
-		return row, err
+		if err != nil {
+			return sqlc.CurtailmentResponseProfileWithRevision{}, err
+		}
+		return q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+			ID:    row.ID,
+			OrgID: profile.OrgID,
+		})
 	})
 	if err != nil {
 		return nil, mapResponseProfileWriteError("update", err)
@@ -465,13 +478,12 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(
 			return sqlc.CurtailmentAutomationRule{}, err
 		}
 		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
-			OrgID:                   rule.OrgID,
-			RuleName:                rule.RuleName,
-			TriggerType:             string(rule.TriggerType),
-			MqttSourceID:            rule.MQTTSourceID,
-			ResponseProfileID:       rule.ResponseProfileID,
-			ResponseProfileRevision: rule.ResponseProfileRevision,
-			Enabled:                 rule.Enabled,
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			TriggerType:       string(rule.TriggerType),
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+			Enabled:           rule.Enabled,
 		})
 		if err != nil {
 			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
@@ -504,18 +516,32 @@ func (s *SQLCurtailmentStore) UpdateAutomationRule(
 			return automationRuleMutationResult{}, err
 		}
 		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
-			ID:                      rule.ID,
-			OrgID:                   rule.OrgID,
-			RuleName:                rule.RuleName,
-			MqttSourceID:            rule.MQTTSourceID,
-			ResponseProfileID:       rule.ResponseProfileID,
-			ResponseProfileRevision: rule.ResponseProfileRevision,
+			ID:                rule.ID,
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return automationRuleMutationResult{noRows: true}, nil
 		}
 		if err != nil {
 			return automationRuleMutationResult{}, mapAutomationRuleWriteError("update", err)
+		}
+		rows, err := q.BindCurtailmentAutomationRuleResponseProfileRevision(
+			ctx,
+			sqlc.BindCurtailmentAutomationRuleResponseProfileRevisionParams{
+				ID:                        rule.ID,
+				OrgID:                     rule.OrgID,
+				ExpectedResponseProfileID: rule.ResponseProfileID,
+				ResponseProfileRevision:   rule.ResponseProfileRevision,
+			},
+		)
+		if err != nil {
+			return automationRuleMutationResult{}, mapAutomationRuleWriteError("update", err)
+		}
+		if rows != 1 {
+			return automationRuleMutationResult{noRows: true}, nil
 		}
 		return automationRuleMutationResult{rule: updated}, err
 	})
@@ -575,6 +601,21 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
 			}
 			if err != nil {
 				return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+			}
+			rows, err := q.BindCurtailmentAutomationRuleResponseProfileRevision(
+				ctx,
+				sqlc.BindCurtailmentAutomationRuleResponseProfileRevisionParams{
+					ID:                        ruleID,
+					OrgID:                     orgID,
+					ExpectedResponseProfileID: rule.ResponseProfileID,
+					ResponseProfileRevision:   responseProfileRevision,
+				},
+			)
+			if err != nil {
+				return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+			}
+			if rows != 1 {
+				return automationRuleMutationResult{noRows: true}, nil
 			}
 			return automationRuleMutationResult{rule: updated}, err
 		})
@@ -1028,7 +1069,7 @@ func responseProfileScopeHasTopology(scopeJSON []byte) (bool, error) {
 }
 
 func responseProfileFanSettingsMatch(
-	profile sqlc.CurtailmentResponseProfile,
+	profile sqlc.CurtailmentResponseProfileWithRevision,
 	expected models.ResponseProfileFanSettings,
 ) bool {
 	return slices.Equal(profile.FacilityFanDeviceIds, expected.FacilityFanDeviceIDs) &&
@@ -1190,6 +1231,32 @@ func lockResponseProfileRevisionForExecution(
 		return fleeterror.NewInternalErrorf(
 			"failed to lock curtailment response profile revision for execution: %v",
 			err,
+		)
+	}
+	return nil
+}
+
+func validateEventResponseProfileBinding(
+	decisionSnapshotJSON []byte,
+	profileID int64,
+	revision uuid.UUID,
+) error {
+	if profileID == 0 {
+		return nil
+	}
+	var binding struct {
+		ResponseProfileID       int64  `json:"response_profile_id"`
+		ResponseProfileRevision string `json:"response_profile_revision"`
+	}
+	if err := json.Unmarshal(decisionSnapshotJSON, &binding); err != nil {
+		return fleeterror.NewFailedPreconditionError(
+			"curtailment event response profile binding is missing or invalid; retry with a new event",
+		)
+	}
+	boundRevision, err := uuid.Parse(binding.ResponseProfileRevision)
+	if err != nil || binding.ResponseProfileID != profileID || boundRevision != revision {
+		return fleeterror.NewFailedPreconditionError(
+			"curtailment event response profile binding does not match the execution profile; retry with a new event",
 		)
 	}
 	return nil
@@ -3361,6 +3428,13 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 		if state != models.EventStateRestoring {
 			return convertEventRow(current), nil
 		}
+		if err := validateEventResponseProfileBinding(
+			current.DecisionSnapshotJsonb,
+			responseProfileID,
+			responseProfileRevision,
+		); err != nil {
+			return nil, err
+		}
 		if err := lockResponseProfileRevisionForExecution(
 			ctx,
 			q,
@@ -4507,7 +4581,7 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 	return &v
 }
 
-func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.ResponseProfile {
+func responseProfileFromRow(row sqlc.CurtailmentResponseProfileWithRevision) *models.ResponseProfile {
 	return &models.ResponseProfile{
 		ID:                          row.ID,
 		OrgID:                       row.OrgID,

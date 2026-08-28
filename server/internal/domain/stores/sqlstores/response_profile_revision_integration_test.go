@@ -73,6 +73,83 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionFencesExecution(t *testing.T
 	require.NoError(t, err)
 }
 
+func TestSQLCurtailmentStore_RecurtailRequiresMatchingEventProfileBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	ctx := t.Context()
+	profileID := seedResponseProfile(t, database, user.OrganizationID, "recurtail-binding-profile")
+	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
+	require.NoError(t, err)
+
+	eventUUID := uuid.New()
+	execution := curtailmentStoreClosedLoopFullFleetEvent(
+		user.OrganizationID,
+		user.DatabaseID,
+		eventUUID,
+		models.ScopeTypeWholeOrg,
+		0,
+		"recurtail-profile-binding",
+	)
+	execution.ResponseProfileID = profile.ID
+	execution.ResponseProfileRevision = profile.Revision
+	execution.DecisionSnapshotJSON = []byte(`{}`)
+	inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
+	require.NoError(t, err)
+	require.NotNil(t, inserted)
+
+	_, err = database.ExecContext(ctx, `
+		UPDATE curtailment_event
+		SET state = 'restoring'
+		WHERE id = $1
+	`, inserted.ID)
+	require.NoError(t, err)
+
+	_, err = store.BeginRecurtailTransition(ctx, user.OrganizationID, eventUUID, profile.ID, profile.Revision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "unstamped replay must fail closed, got %v", err)
+
+	_, err = database.ExecContext(ctx, `
+		UPDATE curtailment_event
+		SET decision_snapshot_jsonb = jsonb_build_object(
+			'response_profile_id', $2::bigint,
+			'response_profile_revision', $3::text
+		)
+		WHERE id = $1
+	`, inserted.ID, profile.ID+1, profile.Revision.String())
+	require.NoError(t, err)
+
+	_, err = store.BeginRecurtailTransition(ctx, user.OrganizationID, eventUUID, profile.ID, profile.Revision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "mismatched replay must fail closed, got %v", err)
+
+	_, err = database.ExecContext(ctx, `
+		UPDATE curtailment_event
+		SET decision_snapshot_jsonb = jsonb_build_object(
+			'response_profile_id', $2::bigint,
+			'response_profile_revision', $3::text
+		)
+		WHERE id = $1
+	`, inserted.ID, profile.ID, profile.Revision.String())
+	require.NoError(t, err)
+
+	recurtailed, err := store.BeginRecurtailTransition(
+		ctx,
+		user.OrganizationID,
+		eventUUID,
+		profile.ID,
+		profile.Revision,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, recurtailed)
+	assert.Equal(t, models.EventStatePending, recurtailed.State)
+}
+
 func TestSQLCurtailmentStore_ResponseProfileRevisionIgnoresMetadataOnlyUpdate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -100,6 +177,63 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionIgnoresMetadataOnlyUpdate(t 
 	require.NoError(t, err)
 	assert.Equal(t, original.Revision, updated.Revision)
 	assert.Equal(t, updatedInput.ProfileName, updated.ProfileName)
+}
+
+func TestSQLCurtailmentStore_ResponseProfileRevisionTreatsNullAndZeroToleranceEqually(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	database := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	ctx := t.Context()
+
+	var profileID int64
+	require.NoError(t, database.QueryRowContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id, profile_name, mode, target_kw, tolerance_kw,
+			authorization_envelope_jsonb
+		) VALUES (
+			$1, 'effective-tolerance-revision-profile', 'FIXED_KW', 100, NULL,
+			'{"schema_version":1,"selected_resource_site_ids":[],"current_member_site_ids":[],"miner_scope_unbounded":true,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}'::jsonb
+		)
+		RETURNING id
+	`, user.OrganizationID).Scan(&profileID))
+
+	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
+	require.NoError(t, err)
+	require.Nil(t, original.ToleranceKW)
+
+	zero := 0.0
+	withExplicitZero := *original
+	withExplicitZero.ToleranceKW = &zero
+	updated, err := store.UpdateResponseProfile(
+		ctx,
+		withExplicitZero,
+		nil,
+		nil,
+		original.SiteID,
+		original.ScopeJSON,
+		models.ResponseProfileFanSettings{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, original.Revision, updated.Revision)
+
+	withNull := *updated
+	withNull.ToleranceKW = nil
+	updated, err = store.UpdateResponseProfile(
+		ctx,
+		withNull,
+		nil,
+		nil,
+		updated.SiteID,
+		updated.ScopeJSON,
+		models.ResponseProfileFanSettings{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, original.Revision, updated.Revision)
 }
 
 func TestSQLCurtailmentStore_ResponseProfileRevisionRejectsStaleUpdate(t *testing.T) {

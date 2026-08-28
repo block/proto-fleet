@@ -567,6 +567,12 @@ message PreviewCurtailmentPlanRequest {
     int64 response_profile_id = 32 [(buf.validate.field).int64.gte = 0];
     string expected_response_profile_revision = 33 [(buf.validate.field).string.max_len = 36];
 
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 34 [(buf.validate.field).uint32.const = 1];
+
     option (buf.validate.message).cel = {
         id: "response_profile_revision_pair"
         message: "response_profile_id and expected_response_profile_revision must be set together"
@@ -728,6 +734,12 @@ message StartCurtailmentRequest {
     // The server locks this revision in the event-create transaction.
     int64 response_profile_id = 42 [(buf.validate.field).int64.gte = 0];
     string expected_response_profile_revision = 43 [(buf.validate.field).string.max_len = 36];
+
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 44 [(buf.validate.field).uint32.const = 1];
 
     option (buf.validate.message).cel = {
         id: "response_profile_revision_pair"

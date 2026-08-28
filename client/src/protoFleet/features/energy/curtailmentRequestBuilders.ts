@@ -29,11 +29,13 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
 export const customResponseProfileId = "customPlan";
+export const curtailmentExecutionSchemaVersion = 1;
 
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   | "scopes"
   | "scopeSchemaVersion"
+  | "executionSchemaVersion"
   | "mode"
   | "strategy"
   | "level"
@@ -249,6 +251,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
   return {
     scopes,
     scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,

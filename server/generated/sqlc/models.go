@@ -472,15 +472,19 @@ type ConnectedPostgresIdentity struct {
 }
 
 type CurtailmentAutomationRule struct {
-	ID                      int64
-	OrgID                   int64
-	RuleName                string
-	TriggerType             string
-	MqttSourceID            int64
-	ResponseProfileID       int64
-	Enabled                 bool
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                int64
+	OrgID             int64
+	RuleName          string
+	TriggerType       string
+	MqttSourceID      int64
+	ResponseProfileID int64
+	Enabled           bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type CurtailmentAutomationRuleProfileRevision struct {
+	AutomationRuleID        int64
 	ResponseProfileRevision uuid.UUID
 }
 
@@ -602,6 +606,39 @@ type CurtailmentReconcilerHeartbeat struct {
 }
 
 type CurtailmentResponseProfile struct {
+	ID                          int64
+	OrgID                       int64
+	ProfileName                 string
+	SiteID                      sql.NullInt64
+	Mode                        string
+	Strategy                    string
+	Level                       string
+	Priority                    string
+	TargetKw                    sql.NullString
+	ToleranceKw                 sql.NullString
+	CurtailBatchSize            sql.NullInt32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	PostEventCooldownSec        int32
+	ScopeJson                   json.RawMessage
+	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
+	AuthorizationEnvelopeJsonb  json.RawMessage
+}
+
+type CurtailmentResponseProfileRevision struct {
+	ResponseProfileID int64
+	Revision          uuid.UUID
+}
+
+type CurtailmentResponseProfileWithRevision struct {
 	ID                          int64
 	OrgID                       int64
 	ProfileName                 string

@@ -331,6 +331,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
 							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
 							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "expected response profile revision"},
+							&cli.UintFlag{Name: "execution-schema-version", Usage: "(required unless provided by --json) execution schema version"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.PreviewCurtailmentPlanRequest{}
@@ -435,7 +436,14 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("expected-response-profile-revision") {
 								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
 							}
-							if err := generatedValidateRequiredFields(req, "mode"); err != nil {
+							if cmd.IsSet("execution-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "execution-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ExecutionSchemaVersion = value
+							}
+							if err := generatedValidateRequiredFields(req, "execution_schema_version", "mode"); err != nil {
 								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
@@ -474,6 +482,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
 							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
 							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "expected response profile revision"},
+							&cli.UintFlag{Name: "execution-schema-version", Usage: "(required unless provided by --json) execution schema version"},
 							&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
 							&cli.StringFlag{Name: "reason", Usage: "(required unless provided by --json) reason"},
 							&cli.StringFlag{Name: "external-source", Usage: "external source"},
@@ -648,6 +657,13 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("expected-response-profile-revision") {
 								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
 							}
+							if cmd.IsSet("execution-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "execution-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ExecutionSchemaVersion = value
+							}
 							if cmd.IsSet("idempotency-key") {
 								req.IdempotencyKey = cmd.String("idempotency-key")
 							}
@@ -660,7 +676,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("external-reference") {
 								req.ExternalReference = cmd.String("external-reference")
 							}
-							if err := generatedValidateRequiredFields(req, "mode", "reason"); err != nil {
+							if err := generatedValidateRequiredFields(req, "execution_schema_version", "mode", "reason"); err != nil {
 								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
