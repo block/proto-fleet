@@ -231,15 +231,20 @@ const RulesSection = () => {
         component: (rule) => (
           <div className="flex min-w-0 flex-col gap-1">
             <span className="truncate text-emphasis-300 text-text-primary">{rule.name}</span>
-            {rule.origin === "user" ? (
-              <span className="truncate text-200 text-text-primary-70">Custom rule</span>
-            ) : null}
+            <span className="truncate text-200 text-text-primary-70">
+              {rule.origin === "user" ? "Custom rule" : "Default rule"}
+            </span>
           </div>
         ),
         width: "w-80",
       },
       condition: {
-        component: (rule) => <span className="truncate text-text-primary">{formatRuleCondition(rule)}</span>,
+        component: (rule) => (
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="truncate text-text-primary">{formatRuleCondition(rule)}</span>
+            <span className="truncate text-200 text-text-primary-70">{rule.severity || "—"}</span>
+          </div>
+        ),
         width: "w-96",
       },
       scope: {

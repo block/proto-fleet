@@ -42,7 +42,6 @@ func TestPackagedDefaultRuleSet(t *testing.T) {
 	}, titlesByGroup["proto-fleet-defaults"])
 	require.ElementsMatch(t, []string{
 		"Curtailment Active",
-		"Curtailment Fan Restore Failed",
 		"Curtailment Source Unreachable",
 	}, titlesByGroup["proto-fleet-curtailment"])
 
@@ -50,7 +49,11 @@ func TestPackagedDefaultRuleSet(t *testing.T) {
 	for _, rule := range doc.DeleteRules {
 		deletedUIDs[rule.UID] = struct{}{}
 	}
-	const retiredUID = "protofleet-device-hashrate-low"
-	require.NotContains(t, provisionedUIDs, retiredUID)
-	require.Contains(t, deletedUIDs, retiredUID, "retired defaults need tombstones for existing Grafana installations")
+	for _, uid := range []string{
+		"protofleet-device-hashrate-low",
+		"protofleet-curtailment-fan-restore-fail",
+	} {
+		require.NotContains(t, provisionedUIDs, uid)
+		require.Contains(t, deletedUIDs, uid, "retired defaults need tombstones for existing Grafana installations")
+	}
 }

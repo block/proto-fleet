@@ -48,7 +48,7 @@ const renderRules = (rules: Rule[]) => {
 };
 
 describe("RulesSection", () => {
-  it("shows custom rule metadata without labeling defaults or repeating severity", () => {
+  it("shows origin and severity metadata", () => {
     renderRules([
       makeRule({}),
       makeRule({
@@ -61,10 +61,10 @@ describe("RulesSection", () => {
       }),
     ]);
 
-    expect(screen.queryByText("Default rule")).not.toBeInTheDocument();
+    expect(screen.getByText("Default rule")).toBeVisible();
     expect(screen.getByText("Custom rule")).toBeVisible();
-    expect(screen.queryByText("warning")).not.toBeInTheDocument();
-    expect(screen.queryByText("critical")).not.toBeInTheDocument();
+    expect(screen.getByText("warning")).toBeVisible();
+    expect(screen.getByText("critical")).toBeVisible();
     expect(screen.getByText("Device is offline for at least five minutes.")).toBeVisible();
     expect(screen.getByText("Rack hashrate is below 80% of expected.")).toBeVisible();
   });
