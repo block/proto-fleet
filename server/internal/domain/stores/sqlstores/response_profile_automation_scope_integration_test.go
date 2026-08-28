@@ -41,6 +41,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 	topologyProfileID := seedResponseProfile(t, database, orgID, "topology-profile")
 	topologyProfile, err := store.GetResponseProfile(ctx, orgID, topologyProfileID)
 	require.NoError(t, err)
+	expectedTopologyScopeJSON := append([]byte(nil), topologyProfile.ScopeJSON...)
 	topologyProfile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
 	topologyProfile, err = store.UpdateResponseProfile(
 		ctx,
@@ -48,7 +49,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 		nil,
 		nil,
 		topologyProfile.SiteID,
-		[]byte(`{}`),
+		expectedTopologyScopeJSON,
 		models.ResponseProfileFanSettings{},
 	)
 	require.NoError(t, err)
@@ -85,6 +86,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 
 	cleanProfile, err := store.GetResponseProfile(ctx, orgID, cleanProfileID)
 	require.NoError(t, err)
+	expectedCleanScopeJSON := append([]byte(nil), cleanProfile.ScopeJSON...)
 	cleanProfile.ScopeJSON = []byte(`{"scope_schema_version":1,"rack_ids":[8]}`)
 	_, err = store.UpdateResponseProfile(
 		ctx,
@@ -92,7 +94,7 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 		nil,
 		nil,
 		cleanProfile.SiteID,
-		[]byte(`{}`),
+		expectedCleanScopeJSON,
 		models.ResponseProfileFanSettings{},
 	)
 	require.Error(t, err)
@@ -100,5 +102,5 @@ func TestSQLCurtailmentStore_TopologyProfilesCannotBeAutomated(t *testing.T) {
 
 	unchanged, err := store.GetResponseProfile(ctx, orgID, cleanProfileID)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{}`, string(unchanged.ScopeJSON))
+	assert.JSONEq(t, string(expectedCleanScopeJSON), string(unchanged.ScopeJSON))
 }
