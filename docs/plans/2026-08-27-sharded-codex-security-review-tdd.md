@@ -15,8 +15,9 @@ showed that diff context, reasoning effort, and prompt guidance do not make the
 current single-agent review complete reliably. Only 22 of 72 adjudicated matrix
 cases completed; the other 50 exhausted the 12-minute outer budget. Compact
 context downgraded a known `HIGH` in two of three trials, `medium` effort
-recalled only one of five known `MEDIUM` findings, and the bounded prompt also
-downgraded the known `HIGH`. Production therefore remains on `unified=40`,
+recalled only one of five known `MEDIUM` findings and produced an invalid new
+`HIGH`, and the bounded prompt also downgraded the known `HIGH`. Production
+therefore remains on `unified=40`,
 `xhigh`, and the baseline prompt.
 
 The existing reviewer has one model process inspect the full exact diff and any
@@ -57,8 +58,9 @@ stable architecture domains:
 | --- | --- |
 | Contracts and persistence | `proto/`, migrations, sqlc queries, generated API boundaries |
 | Server | `server/` excluding shared contract inputs |
-| ProtoFleet and shared client | `client/src/protoFleet/` plus allowed `client/src/shared/` dependencies |
-| ProtoOS and shared client | `client/src/protoOS/` plus allowed `client/src/shared/` dependencies |
+| Shared client contracts | `client/src/shared/`; replicated as context to every affected client-app shard |
+| ProtoFleet | `client/src/protoFleet/` |
+| ProtoOS | `client/src/protoOS/` |
 | Go/Python plugins | `plugin/` except `plugin/asicrs/`, generator packages |
 | ASIC-RS | `plugin/asicrs/` |
 | Delivery and infrastructure | `.github/`, Docker, deployment, monitoring, scripts, root tooling |
@@ -146,7 +148,8 @@ revalidating that the PR head is current.
   the same 2/6 completion profile and downgraded an adjudicated `HIGH`.
 - **Lower reasoning effort:** Rejected because `high` completed 2/6 cases;
   `medium` completed 5/6 but recalled only one of five known `MEDIUM` findings
-  and one of two known `HIGH` findings.
+  and one of two known `HIGH` findings, while also producing an invalid new
+  `HIGH`.
 - **Smaller global diff context:** Rejected after three trials per variant. Every
   variant missed all 15 expected `MEDIUM` observations, and compact context
   downgraded a known `HIGH` in two trials.

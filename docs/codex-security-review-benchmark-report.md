@@ -55,9 +55,13 @@ every per-case finalizer succeeded and produced one uniquely named artifact.
   `MEDIUM`, `MEDIUM`, and `HIGH` across its three trials. All missed the
   existing-deployment compatibility `MEDIUM`.
 - The medium-effort PR #948 review missed the adjudicated topology-preview
-  `MEDIUM` and reported a different `HIGH` about enabled automations retaining
-  non-executable profiles. The new finding does not count as recall of the
-  expected finding.
+  `MEDIUM`. Its different `HIGH` about enabled automations retaining
+  non-executable profiles was adjudicated invalid. At merged commit
+  `e37f97c1c41004667ff9bc467a98cc130736a012`, the
+  [domain service](https://github.com/block/proto-fleet/blob/e37f97c1c41004667ff9bc467a98cc130736a012/server/internal/domain/curtailment/response_profile.go#L135)
+  and [SQL store](https://github.com/block/proto-fleet/blob/e37f97c1c41004667ff9bc467a98cc130736a012/server/internal/domain/stores/sqlstores/curtailment.go#L246)
+  already reject this transition, an advisory transaction lock serializes it
+  against automation changes, and unit and integration tests cover the case.
 - The medium-effort PR #954 review recalled the abandoned-staging-database
   `MEDIUM` and missed the connection-retry/deadline `MEDIUM`.
 - PR #953, which contains one expected `HIGH` and one expected `MEDIUM`, timed
@@ -98,8 +102,9 @@ other candidates ran once across the six-case corpus.
 | `unified-40` | `xhigh` | bounded | 2/6 | 4 | 0/2 | 0/5 | Reject: downgraded an adjudicated `HIGH` |
 
 `medium` materially improved completion, but it recalled only 20% of expected
-`MEDIUM` findings and missed the `HIGH` in timed-out PR #953. Lower effort is
-therefore not safe to roll out despite its runtime improvement.
+`MEDIUM` findings, missed the `HIGH` in timed-out PR #953, and introduced an
+invalid `HIGH` on PR #948. Lower effort is therefore not safe to roll out
+despite its runtime improvement.
 
 ### Completed-run metrics
 
@@ -129,6 +134,7 @@ cancellation cleanup.
 | Retain every adjudicated `HIGH` without downgrade | Failed by compact context and bounded prompt; other candidates timed out on PR #953 |
 | Retain at least 90% of adjudicated `MEDIUM` findings | Failed by every tested configuration; best observed recall was 1/5 at `medium` |
 | No invalid `HIGH` on completed clean controls | Passed; every completed PR #944 and PR #956 control returned `NONE` |
+| New medium-or-higher findings are valid | Failed; medium effort produced an invalid `HIGH` on PR #948 |
 | No increase in median tool calls or compactions | Not decision-bearing because recall failed |
 | At least 20% faster or equivalent with lower token use | `medium` improved completion, but recall failed |
 
