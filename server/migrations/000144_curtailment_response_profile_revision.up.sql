@@ -1,3 +1,9 @@
+-- Drain old-binary profile and rule writes before taking any backfill
+-- snapshots. The locks remain held through trigger installation, so every
+-- later write receives companion revision state.
+LOCK TABLE curtailment_response_profile IN SHARE MODE;
+LOCK TABLE curtailment_automation_rule IN SHARE MODE;
+
 -- Canonicalize API-created profiles before execution starts comparing the
 -- persisted selector schema with the request schema. Version-zero scopes were
 -- valid before topology selectors existed; after this migration all profiles
