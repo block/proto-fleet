@@ -128,10 +128,11 @@ A trusted aggregation job runs after every shard finalizer and does not execute
 code from the reviewed checkout. It:
 
 - Verifies the manifest, exact SHAs, run identity, and one result per shard.
-- Produces overall `HIGH` only for validated incomplete evidence, such as a
-  verified shard budget timeout, finalizer-normalized unusable model output, or
-  planner-produced `oversized-review`; the review states which domains require
-  human review.
+- Adds a synthetic `HIGH` fallback finding only for validated incomplete
+  evidence, such as a verified shard budget timeout, finalizer-normalized
+  unusable model output, or planner-produced `oversized-review`; completed shard
+  findings retain their reported severity, and the fallback states which
+  domains require human review.
 - Hard-fails the workflow when a trusted artifact is missing, corrupt,
   malformed, stale, or bound to another run. Artifact upload and finalizer
   failures never become normal aggregate findings.
