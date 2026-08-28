@@ -30,8 +30,9 @@ Both commits contain the same benchmark workflow blob,
 
 The fixed corpus contains two adjudicated `HIGH` findings, five adjudicated
 `MEDIUM` findings, and two clean controls across PRs #944, #948, #953, #954,
-#956, and #961. Each context variant ran three times. A timeout counts as no
-recalled finding because it produces no usable review.
+#956, and #961. Each context variant ran three times. Finding recall is
+calculated only across completed reviews, as required by the plan; completion
+and verified-timeout rates are reported separately.
 
 | Experiment | Run | Cases | Constant dimensions |
 | --- | --- | ---: | --- |
@@ -73,14 +74,14 @@ every per-case finalizer succeeded and produced one uniquely named artifact.
 
 ### Context experiment
 
-The recall denominators include all three trials: six expected `HIGH`
-observations and 15 expected `MEDIUM` observations per variant.
+Recall denominators include expected findings only in completed reviews. For
+example, PR #953's repeated timeouts reduce completion but do not enter recall.
 
 | Variant | Completed | Verified timeouts | `HIGH` recall | `MEDIUM` recall | Completed clean controls | Result |
 | --- | ---: | ---: | ---: | ---: | --- | --- |
-| `unified-40` | 4/18 | 14 | 3/6 | 0/15 | 1/6: `NONE` | Retain as control only |
-| `unified-10` | 4/18 | 14 | 2/6 | 0/15 | 2/6: `NONE` | Reject: insufficient completion and recall |
-| compact | 5/18 | 13 | 1/6 | 0/15 | 2/6: `NONE` | Reject: two `HIGH` downgrades |
+| `unified-40` | 4/18 | 14 | 3/3 | 0/3 | 1/6: `NONE` | Retain as control only |
+| `unified-10` | 4/18 | 14 | 2/2 | 0/2 | 2/6: `NONE` | Reject: insufficient completion and medium recall |
+| compact | 5/18 | 13 | 1/3 | 0/3 | 2/6: `NONE` | Reject: two `HIGH` downgrades |
 
 The repeats confirmed substantial model variance but did not rescue a context
 candidate. For PR #956, `unified-10` reduced the packet from 812,319 to 359,607
@@ -96,15 +97,15 @@ other candidates ran once across the six-case corpus.
 
 | Context | Effort | Prompt | Completed | Verified timeouts | `HIGH` recall | `MEDIUM` recall | Result |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `unified-40` | `xhigh` | baseline | 4/18 | 14 | 3/6 | 0/15 | Production control; did not pass tuning gate |
-| `unified-40` | `high` | baseline | 2/6 | 4 | 1/2 | 0/5 | Reject: no completion improvement |
-| `unified-40` | `medium` | baseline | 5/6 | 1 | 1/2 | 1/5 | Reject: recall below both gates |
-| `unified-40` | `xhigh` | bounded | 2/6 | 4 | 0/2 | 0/5 | Reject: downgraded an adjudicated `HIGH` |
+| `unified-40` | `xhigh` | baseline | 4/18 | 14 | 3/3 | 0/3 | Production control; did not pass tuning gate |
+| `unified-40` | `high` | baseline | 2/6 | 4 | 1/1 | 0/1 | Reject: no completion improvement |
+| `unified-40` | `medium` | baseline | 5/6 | 1 | 1/1 | 1/4 | Reject: medium recall and validity failed |
+| `unified-40` | `xhigh` | bounded | 2/6 | 4 | 0/1 | 0/1 | Reject: downgraded an adjudicated `HIGH` |
 
-`medium` materially improved completion, but it recalled only 20% of expected
-`MEDIUM` findings, missed the `HIGH` in timed-out PR #953, and introduced an
-invalid `HIGH` on PR #948. Lower effort is therefore not safe to roll out
-despite its runtime improvement.
+`medium` materially improved completion, but it recalled only 25% of expected
+`MEDIUM` findings in completed reviews and introduced an invalid `HIGH` on PR
+#948. PR #953's timeout remains a separate completion failure. Lower effort is
+therefore not safe to roll out despite its runtime improvement.
 
 ### Completed-run metrics
 
@@ -131,8 +132,8 @@ cancellation cleanup.
 
 | Gate | Outcome |
 | --- | --- |
-| Retain every adjudicated `HIGH` without downgrade | Failed by compact context and bounded prompt; other candidates timed out on PR #953 |
-| Retain at least 90% of adjudicated `MEDIUM` findings | Failed by every tested configuration; best observed recall was 1/5 at `medium` |
+| Retain every adjudicated `HIGH` without downgrade across completed reviews | Failed by compact context and bounded prompt |
+| Retain at least 90% of adjudicated `MEDIUM` findings across completed reviews | Failed by every tested configuration; best observed recall was 1/4 at `medium` |
 | No invalid `HIGH` on completed clean controls | Passed; every completed PR #944 and PR #956 control returned `NONE` |
 | New medium-or-higher findings are valid | Failed; medium effort produced an invalid `HIGH` on PR #948 |
 | No increase in median tool calls or compactions | Not decision-bearing because recall failed |

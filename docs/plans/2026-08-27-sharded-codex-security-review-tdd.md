@@ -15,8 +15,9 @@ showed that diff context, reasoning effort, and prompt guidance do not make the
 current single-agent review complete reliably. Only 22 of 72 adjudicated matrix
 cases completed; the other 50 exhausted the 12-minute outer budget. Compact
 context downgraded a known `HIGH` in two of three trials, `medium` effort
-recalled only one of five known `MEDIUM` findings and produced an invalid new
-`HIGH`, and the bounded prompt also downgraded the known `HIGH`. Production
+recalled only one of four expected `MEDIUM` findings in completed reviews and
+produced an invalid new `HIGH`, and the bounded prompt also downgraded the known
+`HIGH`. Production
 therefore remains on `unified=40`,
 `xhigh`, and the baseline prompt.
 
@@ -30,8 +31,8 @@ contracts or relying on a second unbounded model pass.
 
 - Complete normal and large semantic reviews within the existing end-to-end
   production bound.
-- Preserve every adjudicated `HIGH` and at least 90% of adjudicated `MEDIUM`
-  findings without severity downgrade.
+- Across completed reviews, preserve every adjudicated `HIGH` and at least 90%
+  of adjudicated `MEDIUM` findings without severity downgrade.
 - Preserve the exact three-dot diff, pinned SHAs, prompt-injection boundary,
   read-only sandbox, and fail-closed artifact contract.
 - Keep cross-component contract changes visible to every affected shard.
@@ -153,24 +154,27 @@ revalidating that the PR head is current.
    SHAs and trusted default-branch code.
 2. Replay the adjudicated corpus with `unified=40`, `xhigh`, and the baseline
    prompt. Compare against the unsharded control in the benchmark report.
-3. Human-adjudicate the union of shard findings. Require every known `HIGH`, at
-   least 90% of known `MEDIUM` findings, and no invalid `HIGH` on either clean
-   control.
+3. Human-adjudicate the union of shard findings. Across completed reviews,
+   require every known `HIGH` and at least 90% of known `MEDIUM` findings.
+   Require every newly reported `MEDIUM` or `HIGH` to be valid across the full
+   corpus, not only the clean controls.
 4. Repeat only disagreements, misses, or cases within 10% of a shard budget.
-5. If the adjudicated gate passes, replay PRs #957 and #964. Require a credible
-   aggregate review or an explicit incomplete `HIGH` artifact within 15 minutes.
-6. Roll out behind a workflow-level switch that can return production to the
-   single-agent path without weakening its current timeout or fail-closed
-   behavior.
+5. If the adjudicated gate passes, replay PRs #957 and #964. Both must produce a
+   credible completed aggregate within 10 minutes and the final artifact within
+   15 minutes. A validated timeout or `oversized-review` artifact demonstrates
+   safe fallback behavior but blocks rollout because it does not improve the
+   large-PR completion failure.
+6. Only after both large-PR cases pass, roll out behind a workflow-level switch
+   that can return production to the single-agent path without weakening its
+   current timeout or fail-closed behavior.
 
 ## Alternatives considered
 
 - **More single-agent prompt tuning:** Rejected because the bounded prompt had
   the same 2/6 completion profile and downgraded an adjudicated `HIGH`.
 - **Lower reasoning effort:** Rejected because `high` completed 2/6 cases;
-  `medium` completed 5/6 but recalled only one of five known `MEDIUM` findings
-  and one of two known `HIGH` findings, while also producing an invalid new
-  `HIGH`.
+  `medium` completed 5/6 but recalled only one of four expected `MEDIUM`
+  findings in completed reviews, while also producing an invalid new `HIGH`.
 - **Smaller global diff context:** Rejected after three trials per variant. Every
   variant missed all 15 expected `MEDIUM` observations, and compact context
   downgraded a known `HIGH` in two trials.
@@ -215,7 +219,9 @@ revalidating that the PR head is current.
 - Run actionlint, Ruff, workflow-policy tests, and executable mocked posting
   tests.
 - Replay the fixed adjudicated corpus and record packet size, duplicated bytes,
-  completion, wall time, tools, tokens, compactions, and human finding recall.
-- Run the large-PR corpus only after the adjudicated recall gate passes.
+  completion, wall time, tools, tokens, compactions, human finding recall across
+  completed reviews, and the validity of every new `MEDIUM` or `HIGH`.
+- Run the large-PR corpus only after the adjudicated recall and finding-validity
+  gates pass; require both cases to complete credibly before rollout.
 - Observe the first 30 production runs before removing the single-agent rollback
   path.

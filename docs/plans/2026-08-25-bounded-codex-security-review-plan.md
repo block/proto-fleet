@@ -288,8 +288,8 @@ experiment. Twenty-two completed and 50 reached the verified outer budget;
 every finalizer produced a distinct result or timeout artifact. No candidate met
 the recall gates. Compact context downgraded an adjudicated `HIGH` in two of
 three completed trials. `medium` effort improved completion to 5/6 but recalled
-only one of five adjudicated `MEDIUM` findings, timed out on a case containing
-the other adjudicated `HIGH`, and produced an invalid new `HIGH` on PR #948.
+only one of four adjudicated `MEDIUM` findings in completed reviews, left PR
+#953 incomplete, and produced an invalid new `HIGH` on PR #948.
 The bounded prompt also downgraded the known `HIGH`.
 
 Production therefore remains on `unified=40`, `xhigh`, and the baseline prompt.
