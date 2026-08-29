@@ -127,6 +127,11 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
 
 def completed_result(manifest: dict, shard_id: str, risk: str = "NONE") -> dict:
     shard = next(item for item in manifest["shards"] if item["id"] == shard_id)
+    location_path = shard["primary_files"][0] if shard["primary_files"] else ""
+    location_url = (
+        f"https://github.com/block/proto-fleet/blob/{manifest['head_sha']}/"
+        f"{location_path}#L1"
+    )
     if risk == "NONE":
         findings = "No concrete security, correctness, or reliability issues found."
     else:
@@ -134,7 +139,7 @@ def completed_result(manifest: dict, shard_id: str, risk: str = "NONE") -> dict:
             (
                 f"#### [{risk}] Test issue",
                 "- **Category**: Reliability",
-                "- **Location**: [`server/a/a.go:1`](https://example.test/server/a/a.go#L1)",
+                f"- **Location**: [`{location_path}:1`]({location_url})",
                 "- **Description**: Concrete test issue.",
                 "- **Impact**: Concrete test impact.",
                 "- **Recommendation**: Fix the test issue.",
@@ -199,6 +204,24 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan["status"], "planned")
         self.assertIn("client/package.json", plan["shards"][0]["primary_files"])
         self.assertIn("client/package.json", plan["shards"][1]["shared_files"])
+
+    def test_deployment_and_root_runtime_contracts_are_replicated(self):
+        files = [
+            file_diff("deployment-files/docker-compose.yaml", 100, 1),
+            file_diff("server/a/a.go", 300_000, 10),
+            file_diff("client/src/protoFleet/page.tsx", 300_000, 10),
+        ]
+        self.assertTrue(
+            planner.is_shared_contract(
+                "deployment-files/docker-compose.yaml", "delivery"
+            )
+        )
+        self.assertTrue(planner.is_shared_contract(".dockerignore", "delivery"))
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        self.assertIn(
+            "deployment-files/docker-compose.yaml", plan["shards"][1]["shared_files"]
+        )
 
     def test_review_wide_plan_has_exactly_one_owner_and_replicates_shared_context(self):
         files = [
@@ -417,6 +440,7 @@ class ResultTest(unittest.TestCase):
             for name in (
                 "GITHUB_RUN_ID",
                 "GITHUB_RUN_ATTEMPT",
+                "GITHUB_REPOSITORY",
                 "CODEX_MODEL",
                 "CODEX_REASONING_EFFORT",
                 "PROMPT_PROFILE",
@@ -425,6 +449,7 @@ class ResultTest(unittest.TestCase):
         os.environ.update(
             GITHUB_RUN_ID="123",
             GITHUB_RUN_ATTEMPT="1",
+            GITHUB_REPOSITORY="block/proto-fleet",
             CODEX_MODEL="gpt-test",
             CODEX_REASONING_EFFORT="xhigh",
             PROMPT_PROFILE="baseline",
@@ -521,6 +546,19 @@ class ResultTest(unittest.TestCase):
         )
         self.assertEqual(second["status"], "inactive")
 
+    def test_finding_outside_shard_packet_becomes_invalid_output(self):
+        manifest = signed_manifest(active_second=False)
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
+        review["review_markdown"] = review["review_markdown"].replace(
+            "server/a/a.go",
+            "client/src/protoOS/outside.ts",
+        )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "invalid-model-output")
+
     def test_finding_outside_findings_section_is_rejected(self):
         finding = (
             "#### [HIGH] Misplaced issue\n"
@@ -565,6 +603,11 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}", called)
         self.assertIn("String(job.id) === process.env.SHARD_JOB_ID", called)
         self.assertIn("include-hidden-files: true", called)
+        self.assertIn(
+            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1",
+            called,
+        )
+        self.assertNotIn('--started-at "${{', called)
         self.assertNotIn("case-json", called)
         self.assertNotIn("case-metadata-json", called)
         self.assertIn(

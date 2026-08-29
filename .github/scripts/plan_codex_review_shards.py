@@ -93,13 +93,24 @@ def classify_path(path: str) -> str:
 
 
 def is_shared_contract(path: str, domain: str) -> bool:
+    name = PurePosixPath(path).name.lower()
     if path.startswith("proto/") and not is_generated(path):
         return True
     if path.startswith(("server/migrations/", "server/sqlc/queries/")):
         return True
     if domain == "client-shared":
         return True
+    if path.startswith(("deployment-files/", "server/monitoring/")):
+        return True
+    if name.startswith(("dockerfile", "docker-compose", "compose.")):
+        return True
     return path in {
+        ".dockerignore",
+        "Procfile",
+        "buf.gen.yaml",
+        "buf.lock",
+        "buf.yaml",
+        "dev.sh",
         "go.work",
         "go.work.sum",
         "package.json",

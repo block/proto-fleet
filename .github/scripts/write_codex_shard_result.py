@@ -10,11 +10,18 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 SEVERITY_RANK = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
 
-def validate_review_markdown(markdown: str, risk: str) -> None:
+def validate_review_markdown(
+    markdown: str,
+    risk: str,
+    *,
+    allowed_paths: set[str] | None = None,
+    blob_base_url: str | None = None,
+) -> None:
     section_names = ("## Review Summary", "### Findings", "### Notes")
     section_positions = []
     for section in section_names:
@@ -78,11 +85,31 @@ def validate_review_markdown(markdown: str, risk: str) -> None:
         block = markdown[finding.start() : end]
         if not all(re.search(pattern, block) for pattern in required_fields):
             raise ValueError("review Markdown finding is missing required fields")
+        if allowed_paths is not None:
+            location = re.search(
+                r"(?m)^- \*\*Location\*\*: \[`(.+):([1-9][0-9]*)`\]\(([^)\n]+)\)[ \t]*$",
+                block,
+            )
+            if location is None:
+                raise ValueError("review Markdown finding has an invalid location")
+            path, line, url = location.groups()
+            if path not in allowed_paths:
+                raise ValueError("review Markdown finding is outside the shard packet")
+            if blob_base_url is not None:
+                expected_url = f"{blob_base_url}/{quote(path, safe='/')}#L{line}"
+                if url != expected_url:
+                    raise ValueError(
+                        "review Markdown finding has an invalid location URL"
+                    )
         if SEVERITY_RANK[finding.group(1)] > SEVERITY_RANK[risk]:
             raise ValueError("model output risk is lower than a reported finding")
 
 
-def parse_review(raw: str) -> tuple[dict[str, str] | None, str | None]:
+def parse_review(
+    raw: str,
+    allowed_paths: set[str],
+    blob_base_url: str | None,
+) -> tuple[dict[str, str] | None, str | None]:
     if not raw.strip():
         return None, "empty-model-output"
     try:
@@ -99,7 +126,10 @@ def parse_review(raw: str) -> tuple[dict[str, str] | None, str | None]:
         return None, "invalid-model-output"
     try:
         validate_review_markdown(
-            candidate["review_markdown"], candidate["overall_risk"]
+            candidate["review_markdown"],
+            candidate["overall_risk"],
+            allowed_paths=allowed_paths,
+            blob_base_url=blob_base_url,
         )
     except ValueError:
         return None, "invalid-model-output"
@@ -132,7 +162,17 @@ def build_result(
             raise ValueError(
                 f"Codex action ended unexpectedly before the outer budget: {outcome}"
             )
-        review, reason = parse_review(raw)
+        repository = os.environ.get("GITHUB_REPOSITORY")
+        blob_base_url = (
+            f"https://github.com/{repository}/blob/{manifest['head_sha']}"
+            if repository
+            else None
+        )
+        review, reason = parse_review(
+            raw,
+            set(shard["primary_files"] + shard["shared_files"]),
+            blob_base_url,
+        )
         status = "completed" if review else "incomplete"
 
     result = {

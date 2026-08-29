@@ -99,7 +99,18 @@ def validate_result(
         markdown = review.get("review_markdown")
         if risk not in SEVERITY_RANK or not isinstance(markdown, str):
             raise ValueError("completed shard review has an invalid shape")
-        validate_review_markdown(markdown, risk)
+        repository = os.environ.get("GITHUB_REPOSITORY")
+        blob_base_url = (
+            f"https://github.com/{repository}/blob/{manifest['head_sha']}"
+            if repository
+            else None
+        )
+        validate_review_markdown(
+            markdown,
+            risk,
+            allowed_paths=set(shard["primary_files"] + shard["shared_files"]),
+            blob_base_url=blob_base_url,
+        )
     elif status == "incomplete":
         if reason not in ALLOWED_INCOMPLETE_REASONS or review is not None:
             raise ValueError("incomplete shard result is not validated evidence")
