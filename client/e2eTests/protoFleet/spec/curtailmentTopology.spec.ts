@@ -65,17 +65,25 @@ function createTopologyTestState(testInfo: TestInfo): TopologyTestState {
   };
 }
 
+function getRequestBody(request: Request): Record<string, unknown> {
+  try {
+    const body = request.postDataJSON();
+    return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function isResponseProfileRequest(request: Request, methodName: string, profileName: string): boolean {
   if (request.method() !== "POST" || !request.url().includes(methodName)) {
     return false;
   }
 
-  const body = request.postDataJSON() as { profileName?: string };
-  return body.profileName === profileName;
+  return getRequestBody(request).profileName === profileName;
 }
 
 function expectOnlyTopologyScope(request: Request, expectedScope: CurtailmentScopeJson): ResponseProfileRequestBody {
-  const body = request.postDataJSON() as ResponseProfileRequestBody;
+  const body = getRequestBody(request) as ResponseProfileRequestBody;
   expect(body.scopeSchemaVersion).toBe(1);
   expect(body.scopes).toEqual([expectedScope]);
   return body;
