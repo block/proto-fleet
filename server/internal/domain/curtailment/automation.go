@@ -608,9 +608,6 @@ func (s *AutomationService) currentBoundAutomationProfile(
 	if err := validateBoundAutomationProfile(rule, profile); err != nil {
 		return nil, err
 	}
-	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
-		return nil, err
-	}
 	return profile, nil
 }
 

@@ -356,7 +356,12 @@ func TestAutomationService_RejectsUnavailableTopologyProfile(t *testing.T) {
 			h := newAutomationHarness(t)
 			h.profile.SiteID = nil
 			h.profile.ScopeJSON = []byte(`{"scope_schema_version":1,"building_ids":[7]}`)
-			h.profiles.topologyCoverageErr = fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
+			topologyErr := fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
+			if tt.name == "execute" {
+				h.curtailments.topologyCoverageErr = topologyErr
+			} else {
+				h.profiles.topologyCoverageErr = topologyErr
+			}
 
 			err := tt.run(h)
 
@@ -817,6 +822,63 @@ func TestAutomationService_HandleMQTTSignal_OffStartsTopologyProfile(t *testing.
 	assert.Equal(t, 1, h.rules.setActiveCalls)
 	assert.Equal(t, models.ScopeTypeMixed, h.curtailments.lastInsertEvent.ScopeType)
 	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
+}
+
+func TestValidateAutomationEventOwnership(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID  = int64(42)
+		ruleID = int64(9001)
+	)
+	externalReference, idempotencyKey := automationRuleEventReference(ruleID)
+	validEvent := func() *models.Event {
+		return &models.Event{
+			OrgID:             orgID,
+			SourceActorType:   models.SourceActorAutomation,
+			SourceActorID:     stringPtr(externalReference),
+			ExternalSource:    stringPtr(automationExternalSource),
+			ExternalReference: stringPtr(externalReference),
+			IdempotencyKey:    stringPtr(idempotencyKey),
+		}
+	}
+	tests := []struct {
+		name   string
+		event  func() *models.Event
+		mutate func(*models.Event)
+		wantOK bool
+	}{
+		{name: "valid", event: validEvent, wantOK: true},
+		{name: "nil event", event: func() *models.Event { return nil }},
+		{name: "organization", event: validEvent, mutate: func(event *models.Event) { event.OrgID++ }},
+		{name: "actor type", event: validEvent, mutate: func(event *models.Event) { event.SourceActorType = models.SourceActorWebhook }},
+		{name: "missing external source", event: validEvent, mutate: func(event *models.Event) { event.ExternalSource = nil }},
+		{name: "external source", event: validEvent, mutate: func(event *models.Event) { event.ExternalSource = stringPtr("other") }},
+		{name: "missing external reference", event: validEvent, mutate: func(event *models.Event) { event.ExternalReference = nil }},
+		{name: "external reference", event: validEvent, mutate: func(event *models.Event) { event.ExternalReference = stringPtr("other") }},
+		{name: "missing idempotency key", event: validEvent, mutate: func(event *models.Event) { event.IdempotencyKey = nil }},
+		{name: "idempotency key", event: validEvent, mutate: func(event *models.Event) { event.IdempotencyKey = stringPtr("other") }},
+		{name: "missing actor ID", event: validEvent, mutate: func(event *models.Event) { event.SourceActorID = nil }},
+		{name: "actor ID", event: validEvent, mutate: func(event *models.Event) { event.SourceActorID = stringPtr("other") }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			event := tt.event()
+			if tt.mutate != nil {
+				tt.mutate(event)
+			}
+
+			err := ValidateAutomationEventOwnership(event, orgID, ruleID)
+			if tt.wantOK {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		})
+	}
 }
 
 func TestAutomationService_HandleMQTTSignal_OffStartsClosedLoopTopologyProfile(t *testing.T) {

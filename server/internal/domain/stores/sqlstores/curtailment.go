@@ -1289,6 +1289,7 @@ func authorizeAutomationExecution(
 	ruleID int64,
 	serviceUserID int64,
 	event *models.Event,
+	currentTopology *interfaces.CurtailmentTopologyScopeCoverage,
 ) error {
 	if ruleID == 0 {
 		return nil
@@ -1298,13 +1299,26 @@ func authorizeAutomationExecution(
 	}
 	effective, err := authz.LoadEffectiveForUpdate(ctx, q, serviceUserID, event.OrgID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to reload automation source user permissions: %v", err)
+		return fleeterror.NewInternalErrorf("failed to reload automation source user permissions: %w", err)
 	}
 	envelope, err := domainCurtailment.AuthorizationEnvelopeFromJSON(event.AuthorizationEnvelopeJSON)
 	if err != nil {
 		return err
 	}
-	if !domainCurtailment.AuthorizationEnvelopeAllows(effective, envelope, nil, nil, false) {
+	var currentSelectedResourceSiteIDs, currentMemberSiteIDs []int64
+	currentRequiresOrgWide := false
+	if currentTopology != nil {
+		currentSelectedResourceSiteIDs = currentTopology.SelectedResourceSiteIDs
+		currentMemberSiteIDs = currentTopology.CurrentMemberSiteIDs
+		currentRequiresOrgWide = currentTopology.RequireOrgWide
+	}
+	if !domainCurtailment.AuthorizationEnvelopeAllows(
+		effective,
+		envelope,
+		currentSelectedResourceSiteIDs,
+		currentMemberSiteIDs,
+		currentRequiresOrgWide,
+	) {
 		return fleeterror.NewForbiddenError(
 			"automation source user no longer has permission to manage the response profile scope",
 		)
@@ -1332,7 +1346,7 @@ func authorizeAutomationExecution(
 		return fleeterror.NewForbiddenError("automation source user no longer has an active organization role")
 	}
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to reload automation source user role: %v", err)
+		return fleeterror.NewInternalErrorf("failed to reload automation source user role: %w", err)
 	}
 	if roleName != domainAuth.AdminRoleName && roleName != domainAuth.SuperAdminRoleName {
 		return fleeterror.NewForbiddenError(
@@ -1541,6 +1555,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			event.AutomationRuleID,
 			event.CreatedByUserID,
 			insertEventForAutomationAuthorization(event),
+			nil,
 		); err != nil {
 			return nil, err
 		}
@@ -3509,16 +3524,8 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 		); err != nil {
 			return nil, err
 		}
-		if err := lockResponseProfileRevisionForExecution(
-			ctx,
-			q,
-			orgID,
-			params.ResponseProfileID,
-			params.ResponseProfileRevision,
-		); err != nil {
-			return nil, err
-		}
 		event := convertEventRow(current)
+		var currentTopology *interfaces.CurtailmentTopologyScopeCoverage
 		if params.AutomationRuleID > 0 {
 			if err := domainCurtailment.ValidateAutomationEventOwnership(
 				event,
@@ -3527,6 +3534,24 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			); err != nil {
 				return nil, err
 			}
+			if event.CreatedByUserID != params.AutomationServiceUserID {
+				return nil, fleeterror.NewFailedPreconditionError(
+					"automation source principal changed since event creation",
+				)
+			}
+			currentTopology, err = lockCurrentTopologyAuthorizationCoverage(ctx, q, event)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := lockResponseProfileRevisionForExecution(
+			ctx,
+			q,
+			orgID,
+			params.ResponseProfileID,
+			params.ResponseProfileRevision,
+		); err != nil {
+			return nil, err
 		}
 		if err := lockAutomationRuleForExecution(
 			ctx,
@@ -3546,6 +3571,7 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			params.AutomationRuleID,
 			params.AutomationServiceUserID,
 			event,
+			currentTopology,
 		); err != nil {
 			return nil, err
 		}

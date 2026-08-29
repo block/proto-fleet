@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
@@ -507,6 +508,10 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 		wantErrorSubstring string
 	}{
 		{
+			name:          "authorized topology scope",
+			topologyScope: true,
+		},
+		{
 			name:               "revoked scope permission",
 			topologyScope:      true,
 			demoteAssignments:  true,
@@ -663,7 +668,20 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				tt.requiresAdminRole,
 			))
 
-			_, err = store.InsertEventWithTargets(ctx, execution, nil)
+			inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
+			if tt.wantErrorSubstring == "" {
+				require.NoError(t, err)
+				require.NotNil(t, inserted)
+				stored, getErr := store.GetEventByUUID(ctx, user.OrganizationID, execution.EventUUID)
+				require.NoError(t, getErr)
+				assert.JSONEq(t, string(profile.ScopeJSON), string(stored.ScopeJSON))
+				envelope, parseErr := domainCurtailment.AuthorizationEnvelopeFromJSON(stored.AuthorizationEnvelopeJSON)
+				require.NoError(t, parseErr)
+				assert.Equal(t, []int64{site.ID}, envelope.SelectedResourceSiteIDs)
+				assert.Empty(t, envelope.CurrentMemberSiteIDs)
+				assert.False(t, envelope.MinerScopeUnbounded)
+				return
+			}
 
 			require.Error(t, err)
 			if tt.wantForbidden {
@@ -702,7 +720,18 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 		{
 			name:               "changed MQTT source principal",
 			mutation:           "source",
-			wantErrorSubstring: "automation rule changed before execution",
+			wantErrorSubstring: "source principal changed since event creation",
+		},
+		{
+			name:               "changed ownership marker",
+			mutation:           "ownership",
+			wantErrorSubstring: "not owned by this automation rule",
+		},
+		{
+			name:               "topology coverage moved outside permissions",
+			mutation:           "topology",
+			wantForbidden:      true,
+			wantErrorSubstring: "no longer has permission",
 		},
 	}
 
@@ -717,9 +746,65 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			database := testContext.DatabaseService.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			ctx := t.Context()
+			queries := sqlc.New(database)
 			profileID := seedResponseProfile(t, database, user.OrganizationID, "automation-recurtail-profile")
 			profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 			require.NoError(t, err)
+			var topologyBuildingID, topologyNewSiteID int64
+			if tt.mutation == "topology" {
+				originalSite, createErr := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
+					OrgID: user.OrganizationID,
+					Name:  "Automation re-curtail original site",
+				})
+				require.NoError(t, createErr)
+				newSite, createErr := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
+					OrgID: user.OrganizationID,
+					Name:  "Automation re-curtail new site",
+				})
+				require.NoError(t, createErr)
+				building, createErr := sqlstores.NewSQLBuildingStore(database).CreateBuilding(ctx, buildingsmodels.CreateParams{
+					OrgID:  user.OrganizationID,
+					SiteID: &originalSite.ID,
+					Name:   "Automation re-curtail building",
+				})
+				require.NoError(t, createErr)
+				topologyBuildingID = building.ID
+				topologyNewSiteID = newSite.ID
+				expectedSiteID := profile.SiteID
+				expectedScopeJSON := append([]byte(nil), profile.ScopeJSON...)
+				profile.SiteID = nil
+				profile.ScopeJSON = []byte(fmt.Sprintf(`{"scope_schema_version":1,"building_ids":[%d]}`, building.ID))
+				profile, err = store.UpdateResponseProfile(
+					ctx,
+					*profile,
+					nil,
+					nil,
+					expectedSiteID,
+					expectedScopeJSON,
+					models.ResponseProfileFanSettings{},
+				)
+				require.NoError(t, err)
+
+				admin, roleErr := queries.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+					OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true},
+					BuiltinKey:     sql.NullString{String: string(authz.BuiltinKeyAdmin), Valid: true},
+				})
+				require.NoError(t, roleErr)
+				assignment, assignmentErr := queries.GetOrgScopeAssignmentForUser(ctx, sqlc.GetOrgScopeAssignmentForUserParams{
+					UserID:         user.DatabaseID,
+					OrganizationID: user.OrganizationID,
+				})
+				require.NoError(t, assignmentErr)
+				require.NoError(t, queries.UnassignRole(ctx, assignment.AssignmentID))
+				_, assignmentErr = queries.AssignRole(ctx, sqlc.AssignRoleParams{
+					UserID:         user.DatabaseID,
+					OrganizationID: user.OrganizationID,
+					RoleID:         admin.ID,
+					ScopeType:      string(authz.ScopeSite),
+					ScopeID:        sql.NullInt64{Int64: originalSite.ID, Valid: true},
+				})
+				require.NoError(t, assignmentErr)
+			}
 			sourceID := seedMQTTSourceConfig(
 				t,
 				database,
@@ -751,7 +836,11 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				0,
 				reference,
 			)
-			execution.AllowUnbounded = true
+			execution.AllowUnbounded = tt.mutation != "topology"
+			if tt.mutation == "topology" {
+				execution.ScopeType = models.ScopeTypeMixed
+				execution.ScopeJSON = append([]byte(nil), profile.ScopeJSON...)
+			}
 			execution.SourceActorType = models.SourceActorAutomation
 			execution.SourceActorID = &reference
 			execution.ExternalSource = &externalSource
@@ -761,24 +850,34 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			execution.ResponseProfileRevision = profile.Revision
 			execution.AutomationRuleID = rule.ID
 			execution.AutomationMQTTSourceID = sourceID
+			if tt.mutation == "ownership" {
+				differentRule := "different-rule"
+				execution.SourceActorID = &differentRule
+			}
 			execution.DecisionSnapshotJSON = []byte(fmt.Sprintf(
-				`{"response_profile_id":%d,"response_profile_revision":%q,"requires_admin_controls":true}`,
+				`{"response_profile_id":%d,"response_profile_revision":%q,"requires_admin_controls":%t}`,
 				profile.ID,
 				profile.Revision.String(),
+				tt.mutation != "topology",
 			))
 			inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
 			require.NoError(t, err)
-			_, err = database.ExecContext(ctx, `UPDATE curtailment_event SET state = 'restoring' WHERE id = $1`, inserted.ID)
+			updatedRows, err := queries.UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+				State:         string(models.EventStateRestoring),
+				ID:            inserted.ID,
+				ExpectedState: string(models.EventStateActive),
+			})
 			require.NoError(t, err)
+			require.Equal(t, int64(1), updatedRows)
 
-			queries := sqlc.New(database)
 			fieldTech, err := queries.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
 				OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true},
 				BuiltinKey:     sql.NullString{String: string(authz.BuiltinKeyFieldTech), Valid: true},
 			})
 			require.NoError(t, err)
+			automationServiceUserID := user.DatabaseID
 			switch tt.mutation {
-			case "none":
+			case "none", "ownership":
 			case "permissions":
 				assignment, assignmentErr := queries.GetOrgScopeAssignmentForUser(ctx, sqlc.GetOrgScopeAssignmentForUserParams{
 					UserID:         user.DatabaseID,
@@ -802,11 +901,34 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				}))
 			case "source":
 				replacement := testContext.DatabaseService.CreateSuperAdminUser2()
-				_, err = database.ExecContext(
+				source, sourceErr := queries.GetMQTTSourceConfigByOrg(ctx, sqlc.GetMQTTSourceConfigByOrgParams{
+					ID:             sourceID,
+					OrganizationID: user.OrganizationID,
+				})
+				require.NoError(t, sourceErr)
+				_, err = queries.UpdateMQTTSourceConfig(ctx, sqlc.UpdateMQTTSourceConfigParams{
+					ServiceUserID:         replacement.DatabaseID,
+					SourceName:            source.SourceName,
+					Topic:                 source.Topic,
+					BrokerPrimaryHost:     source.BrokerPrimaryHost,
+					BrokerSecondaryHost:   source.BrokerSecondaryHost,
+					BrokerPort:            source.BrokerPort,
+					BrokerTransport:       source.BrokerTransport,
+					MqttUsername:          source.MqttUsername,
+					MqttPasswordEnc:       source.MqttPasswordEnc,
+					PayloadFormat:         source.PayloadFormat,
+					StalenessThresholdSec: source.StalenessThresholdSec,
+					ID:                    source.ID,
+					OrganizationID:        source.OrganizationID,
+				})
+				require.NoError(t, err)
+				automationServiceUserID = replacement.DatabaseID
+			case "topology":
+				_, err = sqlstores.NewSQLSiteStore(database).AssignBuildingsToSiteBulk(
 					ctx,
-					`UPDATE curtailment_mqtt_source_config SET service_user_id = $1 WHERE id = $2`,
-					replacement.DatabaseID,
-					sourceID,
+					user.OrganizationID,
+					[]int64{topologyBuildingID},
+					&topologyNewSiteID,
 				)
 				require.NoError(t, err)
 			default:
@@ -822,7 +944,7 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 					ResponseProfileRevision: profile.Revision,
 					AutomationRuleID:        rule.ID,
 					AutomationMQTTSourceID:  sourceID,
-					AutomationServiceUserID: user.DatabaseID,
+					AutomationServiceUserID: automationServiceUserID,
 				},
 			)
 
