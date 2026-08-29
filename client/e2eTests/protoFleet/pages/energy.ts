@@ -1,6 +1,7 @@
 import { expect, type Locator, type Request, type Response } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
+import { CurtailmentModal } from "./components/curtailmentModal";
 
 const stopRequestPattern = /StopCurtailment/;
 const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
@@ -11,11 +12,36 @@ export interface CurtailmentCleanupTarget {
   eventUuid?: string;
 }
 
+export type CurtailmentScopeJson = {
+  building?: { buildingId?: string };
+  group?: { groupId?: string };
+  rack?: { rackId?: string };
+  site?: { siteId?: string };
+  wholeOrg?: Record<string, never>;
+};
+
+export type StartCurtailmentRequestBody = {
+  fixedKw?: { targetKw?: number; toleranceKw?: number };
+  forceIncludeAllPairedMiners?: boolean;
+  forceIncludeMaintenance?: boolean;
+  includeMaintenance?: boolean;
+  mode?: string;
+  modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
+  reason?: string;
+  responseProfileId?: string;
+  responseProfileRevision?: string;
+  restoreBatchIntervalSec?: number;
+  scopeSchemaVersion?: number;
+  scopes?: CurtailmentScopeJson[];
+};
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class EnergyPage extends BasePage {
+  private readonly curtailmentModal = new CurtailmentModal(this.page);
+
   async navigateToEnergyPage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/energy"]').click();
@@ -35,6 +61,27 @@ export class EnergyPage extends BasePage {
   async openCurtailmentPlanner() {
     await this.clickButton("Run curtailment");
     await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("New curtailment")).toBeVisible();
+  }
+
+  async selectResponseProfile(profileName: string) {
+    const modal = this.page.getByTestId("full-screen-two-pane-modal");
+    await modal.getByTestId("curtailment-response-profile-select").click();
+    await this.page.getByRole("option", { name: profileName, exact: true }).click();
+    await expect(modal.getByTestId("curtailment-response-profile-select")).toContainText(profileName);
+  }
+
+  async fillCurtailmentReason(reason: string) {
+    await this.page.getByTestId("full-screen-two-pane-modal").locator("#curtailment-reason").fill(reason);
+  }
+
+  async validateGroupTargetSelected() {
+    await this.curtailmentModal.validateSelection("Groups", "1 group");
+  }
+
+  async waitForCurtailmentReady() {
+    await expect(
+      this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }),
+    ).toBeEnabled({ timeout: DEFAULT_TIMEOUT * 2 });
   }
 
   async fillCurtailmentPlan({
@@ -84,16 +131,7 @@ export class EnergyPage extends BasePage {
   }
 
   async startCurtailment() {
-    await this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }).click();
-    const forceInclusionConfirmation = this.page.getByTestId("curtailment-force-inclusion-confirmation");
-    const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
-
-    await expect(forceInclusionConfirmation.or(runConfirmation)).toBeVisible();
-    if (await forceInclusionConfirmation.isVisible()) {
-      await forceInclusionConfirmation.getByRole("button", { name: "Force include" }).click();
-    }
-    await expect(runConfirmation).toBeVisible();
-    await runConfirmation.getByRole("button", { name: "Run curtailment" }).click();
+    await this.curtailmentModal.confirmRun();
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
   }
 
@@ -342,17 +380,8 @@ export class EnergyPage extends BasePage {
   }
 }
 
-export function getStartCurtailmentRequestBody(request: Request) {
-  return request.postDataJSON() as {
-    fixedKw?: { targetKw?: number; toleranceKw?: number };
-    forceIncludeMaintenance?: boolean;
-    includeMaintenance?: boolean;
-    mode?: string;
-    modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
-    reason?: string;
-    restoreBatchIntervalSec?: number;
-    scopes?: Array<{ wholeOrg?: Record<string, never> }>;
-  };
+export function getStartCurtailmentRequestBody(request: Request): StartCurtailmentRequestBody {
+  return request.postDataJSON() as StartCurtailmentRequestBody;
 }
 
 export async function getStartCurtailmentResponseBody(response: Response): Promise<{
