@@ -29,7 +29,7 @@ export type StartCurtailmentRequestBody = {
   modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
   reason?: string;
   responseProfileId?: string;
-  responseProfileRevision?: string;
+  expectedResponseProfileRevision?: string;
   restoreBatchIntervalSec?: number;
   scopeSchemaVersion?: number;
   scopes?: CurtailmentScopeJson[];

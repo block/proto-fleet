@@ -91,7 +91,7 @@ function expectOnlyTopologyScope(request: Request, expectedScope: CurtailmentSco
 
 function expectProfileReference(body: ReturnType<typeof getStartCurtailmentRequestBody>) {
   expect(body.responseProfileId).toEqual(expect.stringMatching(/\S/));
-  expect(body.responseProfileRevision).toEqual(expect.stringMatching(/\S/));
+  expect(body.expectedResponseProfileRevision).toEqual(expect.stringMatching(/\S/));
 }
 
 function expectGroupProfileStart(request: Request, groupId: bigint, reason?: string) {

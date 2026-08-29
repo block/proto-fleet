@@ -33,7 +33,16 @@ export class CurtailmentModal {
   }
 
   async confirmRun() {
-    await this.root.getByRole("button", { name: "Run curtailment", exact: true }).click();
+    const runButton = this.root.getByRole("button", { name: "Run curtailment", exact: true });
+    if (await runButton.isVisible().catch(() => false)) {
+      await runButton.click();
+    } else {
+      await this.root.getByTestId("overflow-menu-trigger").click();
+      await this.page
+        .getByTestId("modal-overflow-sheet-content")
+        .getByRole("button", { name: "Run curtailment", exact: true })
+        .click();
+    }
 
     const forceConfirmation = this.page.getByTestId("curtailment-force-inclusion-confirmation");
     const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
