@@ -152,6 +152,17 @@ type BeginRestoreTransitionParams struct {
 	KnownUnsentDeviceIdentifiers []string
 }
 
+// BeginRecurtailTransitionParams binds an automation-owned re-curtail to the
+// current rule, MQTT source principal, and response-profile revision. Manual
+// re-curtail calls leave the automation fields zero.
+type BeginRecurtailTransitionParams struct {
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
+}
+
 type AutomationDemandGuard struct {
 	ExternalReference *string
 }
@@ -596,7 +607,6 @@ type CurtailmentStore interface {
 		ctx context.Context,
 		orgID int64,
 		eventUUID uuid.UUID,
-		responseProfileID int64,
-		responseProfileRevision uuid.UUID,
+		params BeginRecurtailTransitionParams,
 	) (*models.Event, error)
 }

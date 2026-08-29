@@ -1,4 +1,4 @@
-import { type CurtailmentTerminalScopeType, isCurtailmentTopologyScopeType } from "@/protoFleet/api/curtailmentScopes";
+import { type CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
 
 export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
@@ -45,7 +45,7 @@ export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
 export type ResponseProfileScopeType = CurtailmentTerminalScopeType;
 
 export function isResponseProfileAutomationReady(scopeType: ResponseProfileScopeType | undefined): boolean {
-  return scopeType !== undefined && !isCurtailmentTopologyScopeType(scopeType);
+  return scopeType !== undefined;
 }
 
 export type ResponseProfileFormValues = {

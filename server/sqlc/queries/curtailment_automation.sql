@@ -72,14 +72,18 @@ SELECT rule.id
 FROM curtailment_automation_rule AS rule
 JOIN curtailment_automation_rule_profile_revision AS rule_revision
   ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_mqtt_source_config AS source
+  ON source.id = rule.mqtt_source_id
+ AND source.organization_id = rule.org_id
 WHERE rule.id = sqlc.arg('id')
   AND rule.org_id = sqlc.arg('org_id')
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
   AND rule.mqtt_source_id = sqlc.arg('mqtt_source_id')
+  AND source.service_user_id = sqlc.arg('service_user_id')
   AND rule.response_profile_id = sqlc.arg('response_profile_id')
   AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
-FOR UPDATE OF rule, rule_revision;
+FOR UPDATE OF rule, rule_revision, source;
 
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT

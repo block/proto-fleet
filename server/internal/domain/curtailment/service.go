@@ -201,11 +201,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
-	if hasTopologySelectors(req.Scope) && req.SourceActorType == models.SourceActorAutomation {
-		return nil, fleeterror.NewFailedPreconditionError(
-			"topology-scoped Start is not available for automation",
-		)
-	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits
@@ -2472,6 +2467,9 @@ type RecurtailRequest struct {
 	EventUUID               uuid.UUID
 	ResponseProfileID       int64
 	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
 }
 
 // Recurtail flips a restoring event back to pending and reclaims restore
@@ -2492,12 +2490,31 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 	if req.ResponseProfileID < 0 {
 		return nil, fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
 	}
+	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 || req.AutomationServiceUserID < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
+	}
+	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) ||
+		(req.AutomationRuleID > 0) != (req.AutomationServiceUserID > 0) {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires rule, MQTT source, and service user IDs",
+		)
+	}
+	if req.AutomationRuleID > 0 && req.ResponseProfileID == 0 {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"automation execution fence requires a response profile ID and revision",
+		)
+	}
 	return s.store.BeginRecurtailTransition(
 		ctx,
 		req.OrgID,
 		req.EventUUID,
-		req.ResponseProfileID,
-		req.ResponseProfileRevision,
+		interfaces.BeginRecurtailTransitionParams{
+			ResponseProfileID:       req.ResponseProfileID,
+			ResponseProfileRevision: req.ResponseProfileRevision,
+			AutomationRuleID:        req.AutomationRuleID,
+			AutomationMQTTSourceID:  req.AutomationMQTTSourceID,
+			AutomationServiceUserID: req.AutomationServiceUserID,
+		},
 	)
 }
 

@@ -74,6 +74,27 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 	return s.store.GetResponseProfile(ctx, orgID, profileID)
 }
 
+// ValidateAutomationScope strictly resolves topology selectors before an
+// automation binding or execution is accepted. Get intentionally returns
+// persisted profiles even when their selected topology was later deleted, so
+// callers that can execute a profile must opt into this live validation.
+func (s *ResponseProfileService) ValidateAutomationScope(ctx context.Context, profile *models.ResponseProfile) error {
+	if s == nil || s.store == nil {
+		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		return err
+	}
+	if !IsTopologyScope(scope) {
+		return nil
+	}
+	return s.validateResponseProfileScope(ctx, profile.OrgID, scope)
+}
+
 func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error) {
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
@@ -148,9 +169,6 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTopologyProfileAutomationBinding(ctx, profile); err != nil {
-		return nil, err
-	}
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,
@@ -159,29 +177,6 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 		req.ExpectedSiteID,
 		req.ExpectedScopeJSON,
 		req.ExpectedFacilityFanSettings,
-	)
-}
-
-func (s *ResponseProfileService) validateTopologyProfileAutomationBinding(
-	ctx context.Context,
-	profile models.ResponseProfile,
-) error {
-	scope, err := ResponseProfileScope(profile)
-	if err != nil {
-		return err
-	}
-	if !hasTopologySelectors(scope) {
-		return nil
-	}
-	count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return nil
-	}
-	return fleeterror.NewFailedPreconditionError(
-		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
 	)
 }
 

@@ -323,7 +323,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		case event.State.IsTerminal():
 			// Stale terminal state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
-			return s.recurtailAutomationEvent(ctx, rule, signal.Source.ID, event, at)
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source, event, at)
 		default:
 			return nil
 		}
@@ -363,11 +363,11 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 			return err
 		}
 		if replayEvent.State == models.EventStateRestoring {
-			return s.recurtailAutomationEvent(ctx, rule, signal.Source.ID, replayEvent, at)
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source, replayEvent, at)
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
 	}
-	if err := validateBoundAutomationProfile(rule, profile); err != nil {
+	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
 		return err
 	}
 	plan, err := s.curtailment.Start(ctx, startReq)
@@ -403,7 +403,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 func (s *AutomationService) recurtailAutomationEvent(
 	ctx context.Context,
 	rule *models.AutomationRule,
-	mqttSourceID int64,
+	mqttSource mqttingest.SourceConfig,
 	event *models.Event,
 	at time.Time,
 ) error {
@@ -418,11 +418,14 @@ func (s *AutomationService) recurtailAutomationEvent(
 		EventUUID:               event.EventUUID,
 		ResponseProfileID:       rule.ResponseProfileID,
 		ResponseProfileRevision: rule.ResponseProfileRevision,
+		AutomationRuleID:        rule.ID,
+		AutomationMQTTSourceID:  mqttSource.ID,
+		AutomationServiceUserID: mqttSource.ServiceUserID,
 	})
 	if err != nil {
 		return err
 	}
-	return s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSourceID, recurtailed.EventUUID, at)
+	return s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSource.ID, recurtailed.EventUUID, at)
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {
@@ -536,7 +539,7 @@ func (s *AutomationService) validateAndNormalize(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -580,7 +583,7 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -622,18 +625,16 @@ func validateBoundAutomationProfile(rule *models.AutomationRule, profile *models
 	return nil
 }
 
-func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
+func (s *AutomationService) validateAutomationProfileBinding(
+	ctx context.Context,
+	profile *models.ResponseProfile,
+	canUseAdminControls bool,
+) error {
 	if profile == nil {
 		return nil
 	}
-	scope, err := ResponseProfileScope(*profile)
-	if err != nil {
+	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
 		return err
-	}
-	if hasTopologySelectors(scope) {
-		return fleeterror.NewFailedPreconditionError(
-			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
-		)
 	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil
@@ -785,15 +786,21 @@ func validateAutomationReplayOwnership(event *models.Event, rule *models.Automat
 	if err != nil || event == nil {
 		return err
 	}
-	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
-	if event.OrgID != rule.OrgID ||
+	return ValidateAutomationEventOwnership(event, rule.OrgID, rule.ID)
+}
+
+// ValidateAutomationEventOwnership verifies that a persisted event carries
+// every immutable ownership marker for the expected automation rule.
+func ValidateAutomationEventOwnership(event *models.Event, orgID, ruleID int64) error {
+	externalReference, idempotencyKey := automationRuleEventReference(ruleID)
+	if event == nil || event.OrgID != orgID ||
 		event.SourceActorType != models.SourceActorAutomation ||
 		event.ExternalSource == nil || *event.ExternalSource != automationExternalSource ||
 		event.ExternalReference == nil || *event.ExternalReference != externalReference ||
 		event.IdempotencyKey == nil || *event.IdempotencyKey != idempotencyKey ||
 		event.SourceActorID == nil || *event.SourceActorID != externalReference {
 		return fleeterror.NewFailedPreconditionError(
-			"automation idempotency replay resolved to an event not owned by this automation rule",
+			"curtailment event is not owned by this automation rule",
 		)
 	}
 	return nil

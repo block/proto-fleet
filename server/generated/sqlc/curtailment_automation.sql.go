@@ -683,20 +683,25 @@ SELECT rule.id
 FROM curtailment_automation_rule AS rule
 JOIN curtailment_automation_rule_profile_revision AS rule_revision
   ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_mqtt_source_config AS source
+  ON source.id = rule.mqtt_source_id
+ AND source.organization_id = rule.org_id
 WHERE rule.id = $1
   AND rule.org_id = $2
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
   AND rule.mqtt_source_id = $3
-  AND rule.response_profile_id = $4
-  AND rule_revision.response_profile_revision = $5
-FOR UPDATE OF rule, rule_revision
+  AND source.service_user_id = $4
+  AND rule.response_profile_id = $5
+  AND rule_revision.response_profile_revision = $6
+FOR UPDATE OF rule, rule_revision, source
 `
 
 type LockCurtailmentAutomationRuleForExecutionParams struct {
 	ID                      int64
 	OrgID                   int64
 	MqttSourceID            int64
+	ServiceUserID           int64
 	ResponseProfileID       int64
 	ResponseProfileRevision uuid.UUID
 }
@@ -706,6 +711,7 @@ func (q *Queries) LockCurtailmentAutomationRuleForExecution(ctx context.Context,
 		arg.ID,
 		arg.OrgID,
 		arg.MqttSourceID,
+		arg.ServiceUserID,
 		arg.ResponseProfileID,
 		arg.ResponseProfileRevision,
 	)

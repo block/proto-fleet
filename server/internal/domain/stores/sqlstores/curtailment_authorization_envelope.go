@@ -122,6 +122,42 @@ func buildAuthorizationEnvelopeJSON(
 	return encoded, nil
 }
 
+func lockCurrentTopologyAuthorizationCoverage(
+	ctx context.Context,
+	q sqlc.Querier,
+	event *models.Event,
+) (*interfaces.CurtailmentTopologyScopeCoverage, error) {
+	if event == nil {
+		return nil, fleeterror.NewInternalError("topology authorization coverage requires an event")
+	}
+	scope, hasScope, err := domainCurtailment.ScopeFromJSON(event.ScopeJSON)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid persisted automation scope: %v", err)
+	}
+	if !hasScope || !domainCurtailment.IsTopologyScope(scope) {
+		return nil, nil
+	}
+	params, err := domainCurtailment.ListCandidatesParamsForScope(scope)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid persisted automation topology scope: %v", err)
+	}
+	params.OrgID = event.OrgID
+	lockedMemberSiteIDs, lockedRequiresOrgWide, err := lockTopologyScopeCoverage(ctx, q, params, nil)
+	if err != nil {
+		return nil, err
+	}
+	coverage, err := resolveCurtailmentTopologyScope(ctx, q, params)
+	if err != nil {
+		return nil, err
+	}
+	coverage.CurrentMemberSiteIDs = uniqueSortedInt64s(append(
+		append([]int64(nil), coverage.CurrentMemberSiteIDs...),
+		lockedMemberSiteIDs...,
+	))
+	coverage.RequireOrgWide = coverage.RequireOrgWide || lockedRequiresOrgWide
+	return &coverage, nil
+}
+
 func lockSiteScopeTargets(
 	ctx context.Context,
 	q sqlc.Querier,

@@ -298,39 +298,11 @@ func authorizationEnvelopeAllowsDispatch(
 	envelope models.AuthorizationEnvelope,
 	coverage interfaces.CurtailmentTopologyScopeCoverage,
 ) bool {
-	if effective == nil {
-		return false
-	}
-	requireOrgWideManage := envelope.MinerScopeUnbounded || envelope.FacilityFanScopeUnbounded || coverage.RequireOrgWide
-	if requireOrgWideManage && !effective.HasOrgWide(authz.PermCurtailmentManage) {
-		return false
-	}
-	manageSites := make(map[int64]struct{})
-	for _, sites := range [][]int64{
-		envelope.SelectedResourceSiteIDs,
-		envelope.CurrentMemberSiteIDs,
-		envelope.FacilityFanSiteIDs,
+	return curtailment.AuthorizationEnvelopeAllows(
+		effective,
+		envelope,
 		coverage.SelectedResourceSiteIDs,
 		coverage.CurrentMemberSiteIDs,
-	} {
-		for _, siteID := range sites {
-			manageSites[siteID] = struct{}{}
-		}
-	}
-	for siteID := range manageSites {
-		id := siteID
-		if !effective.Has(authz.PermCurtailmentManage, authz.ResourceContext{SiteID: &id}) {
-			return false
-		}
-	}
-	if envelope.FacilityFanScopeUnbounded && !effective.HasOrgWide(authz.PermSiteRead) {
-		return false
-	}
-	for _, siteID := range envelope.FacilityFanSiteIDs {
-		id := siteID
-		if !effective.Has(authz.PermSiteRead, authz.ResourceContext{SiteID: &id}) {
-			return false
-		}
-	}
-	return true
+		coverage.RequireOrgWide,
+	)
 }

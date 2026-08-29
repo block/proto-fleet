@@ -220,7 +220,7 @@ func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurta
 func (s *startStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by handler Start tests")
 }
-func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, int64, uuid.UUID) (*models.Event, error) {
+func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, interfaces.BeginRecurtailTransitionParams) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by handler Start tests")
 }
 

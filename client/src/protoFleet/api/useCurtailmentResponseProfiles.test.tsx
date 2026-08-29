@@ -494,7 +494,7 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(result.current.responseProfiles[0]).toMatchObject({
       scope: "2 buildings",
       isReadOnly: false,
-      isAutomationReady: false,
+      isAutomationReady: true,
       formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
     });
   });
@@ -888,6 +888,7 @@ describe("useCurtailmentResponseProfiles", () => {
       scope: "Unknown scope",
       formValues: undefined,
       isReadOnly: true,
+      isAutomationReady: false,
     });
   });
 
@@ -912,8 +913,20 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     expect(result.current.responseProfiles).toEqual([
-      expect.objectContaining({ id: "8", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
-      expect.objectContaining({ id: "9", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
+      expect.objectContaining({
+        id: "8",
+        scope: "Unknown scope",
+        formValues: undefined,
+        isReadOnly: true,
+        isAutomationReady: false,
+      }),
+      expect.objectContaining({
+        id: "9",
+        scope: "Unknown scope",
+        formValues: undefined,
+        isReadOnly: true,
+        isAutomationReady: false,
+      }),
     ]);
   });
 
@@ -977,21 +990,21 @@ describe("useCurtailmentResponseProfiles", () => {
           name: "Buildings",
           scope: "2 buildings",
           isReadOnly: false,
-          isAutomationReady: false,
+          isAutomationReady: true,
           formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
         }),
         expect.objectContaining({
           name: "Rack",
           scope: "1 rack",
           isReadOnly: false,
-          isAutomationReady: false,
+          isAutomationReady: true,
           formValues: expect.objectContaining({ scopeType: "rack", rackTargetIds: ["9"] }),
         }),
         expect.objectContaining({
           name: "Groups",
           scope: "2 groups",
           isReadOnly: false,
-          isAutomationReady: false,
+          isAutomationReady: true,
           formValues: expect.objectContaining({ scopeType: "group", groupTargetIds: ["10", "11"] }),
         }),
       ]),

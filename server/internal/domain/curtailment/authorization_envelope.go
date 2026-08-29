@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -16,6 +17,55 @@ var authorizationEnvelopeFields = [...]string{
 	"miner_scope_unbounded",
 	"facility_fan_site_ids",
 	"facility_fan_scope_unbounded",
+}
+
+// AuthorizationEnvelopeAllows reports whether the current permission snapshot
+// covers both the persisted authorization envelope and any current topology
+// coverage discovered at a later execution fence.
+func AuthorizationEnvelopeAllows(
+	effective *authz.EffectivePermissions,
+	envelope models.AuthorizationEnvelope,
+	currentSelectedResourceSiteIDs []int64,
+	currentMemberSiteIDs []int64,
+	currentRequiresOrgWide bool,
+) bool {
+	if effective == nil {
+		return false
+	}
+	requireOrgWideManage := envelope.MinerScopeUnbounded ||
+		envelope.FacilityFanScopeUnbounded ||
+		currentRequiresOrgWide
+	if requireOrgWideManage && !effective.HasOrgWide(authz.PermCurtailmentManage) {
+		return false
+	}
+	manageSites := make(map[int64]struct{})
+	for _, sites := range [][]int64{
+		envelope.SelectedResourceSiteIDs,
+		envelope.CurrentMemberSiteIDs,
+		envelope.FacilityFanSiteIDs,
+		currentSelectedResourceSiteIDs,
+		currentMemberSiteIDs,
+	} {
+		for _, siteID := range sites {
+			manageSites[siteID] = struct{}{}
+		}
+	}
+	for siteID := range manageSites {
+		id := siteID
+		if !effective.Has(authz.PermCurtailmentManage, authz.ResourceContext{SiteID: &id}) {
+			return false
+		}
+	}
+	if envelope.FacilityFanScopeUnbounded && !effective.HasOrgWide(authz.PermSiteRead) {
+		return false
+	}
+	for _, siteID := range envelope.FacilityFanSiteIDs {
+		id := siteID
+		if !effective.Has(authz.PermSiteRead, authz.ResourceContext{SiteID: &id}) {
+			return false
+		}
+	}
+	return true
 }
 
 // AuthorizationEnvelopeFromJSON parses the persisted authorization snapshot.
