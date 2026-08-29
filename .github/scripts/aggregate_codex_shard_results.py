@@ -132,8 +132,30 @@ def finding_blocks(markdown: str, shard_id: str) -> list[tuple[int, str, str, st
     return blocks
 
 
+def load_case_metadata(
+    corpus: dict[str, Any], manifest: dict[str, Any]
+) -> dict[str, Any]:
+    matches = [
+        case for case in corpus.get("cases", []) if case.get("id") == manifest["case"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("trusted corpus does not contain exactly one matching case")
+    case = matches[0]
+    if (
+        case.get("base") != manifest["base_sha"]
+        or case.get("head") != manifest["head_sha"]
+    ):
+        raise ValueError("trusted corpus case does not match the reviewed range")
+    required = {"pr", "purpose", "expected", "source-run", "source-comment"}
+    if not required.issubset(case):
+        raise ValueError("trusted corpus case is missing reporting metadata")
+    return case
+
+
 def aggregate(
-    manifest: dict[str, Any], results: list[dict[str, Any]]
+    manifest: dict[str, Any],
+    results: list[dict[str, Any]],
+    case_metadata: dict[str, Any],
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
     validate_manifest(manifest)
     by_id = {result.get("shard_id"): result for result in results}
@@ -201,14 +223,14 @@ def aggregate(
     }
     scope = {
         "case": manifest["case"],
-        "pull_request": int(manifest["case_metadata"]["pr"]),
+        "pull_request": int(case_metadata["pr"]),
         "base_sha": manifest["base_sha"],
         "head_sha": manifest["head_sha"],
         "commit_range": manifest["commit_range"],
-        "purpose": manifest["case_metadata"]["purpose"],
-        "adjudicated_result": manifest["case_metadata"]["expected"],
-        "source_run": manifest["case_metadata"]["source-run"],
-        "source_comment": manifest["case_metadata"]["source-comment"],
+        "purpose": case_metadata["purpose"],
+        "adjudicated_result": case_metadata["expected"],
+        "source_run": case_metadata["source-run"],
+        "source_comment": case_metadata["source-comment"],
         "variant": manifest["variant"],
         "repeat": manifest["repeat"],
         "model": os.environ["CODEX_MODEL"],
@@ -238,6 +260,7 @@ def aggregate(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus-file", type=Path, required=True)
     parser.add_argument("--shard-1-dir", type=Path, required=True)
     parser.add_argument("--shard-2-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -256,7 +279,9 @@ def main() -> None:
         json.loads((directory / "shard-result.json").read_text(encoding="utf-8"))
         for directory in directories
     ]
-    aggregate_result, markdown, scope = aggregate(manifests[0], results)
+    corpus = json.loads(args.corpus_file.read_text(encoding="utf-8"))
+    case_metadata = load_case_metadata(corpus, manifests[0])
+    aggregate_result, markdown, scope = aggregate(manifests[0], results, case_metadata)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "benchmark-review.json").write_text(

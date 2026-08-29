@@ -45,6 +45,16 @@ def file_diff(
     )
 
 
+def case_metadata() -> dict:
+    return {
+        "pr": 1,
+        "purpose": "test",
+        "expected": "NONE",
+        "source-run": "https://example.test/run",
+        "source-comment": "",
+    }
+
+
 def signed_manifest(*, active_second: bool = True, status: str = "planned") -> dict:
     shards = [
         {
@@ -99,13 +109,6 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
         "commit_range": f"{'a' * 40}...{'b' * 40}",
         "unified": 40,
         "inter_hunk_context": 0,
-        "case_metadata": {
-            "pr": 1,
-            "purpose": "test",
-            "expected": "NONE",
-            "source-run": "https://example.test/run",
-            "source-comment": "",
-        },
         "variant_metadata": {"id": "unified-40", "unified": 40, "inter-hunk": 0},
         "status": status,
         "oversized_reasons": ["test"] if status == "oversized" else [],
@@ -286,7 +289,6 @@ class PlannerTest(unittest.TestCase):
             "commit_range": f"{'a' * 40}...{'b' * 40}",
             "unified": 40,
             "inter_hunk_context": 0,
-            "case_metadata": {},
             "variant_metadata": {},
             **plan,
         }
@@ -337,15 +339,6 @@ class PlannerTest(unittest.TestCase):
                     "commit_range": f"{base}...{head}",
                     "unified": 40,
                     "inter_hunk": 0,
-                    "case_metadata_json": json.dumps(
-                        {
-                            "pr": 1,
-                            "purpose": "test",
-                            "expected": "NONE",
-                            "source-run": "",
-                            "source-comment": "",
-                        }
-                    ),
                     "variant_metadata_json": json.dumps(
                         {"id": "unified-40", "unified": 40, "inter-hunk": 0}
                     ),
@@ -358,6 +351,8 @@ class PlannerTest(unittest.TestCase):
             finally:
                 os.chdir(previous)
             self.assertEqual(manifest["status"], "planned")
+            self.assertNotIn("case_metadata", manifest)
+            self.assertNotIn("expected", json.dumps(manifest))
             self.assertIn("server/a/new.go", patches)
             patch = patches["server/a/new.go"]
             self.assertIn(b"rename from server/a/old.go", patch)
@@ -367,6 +362,34 @@ class PlannerTest(unittest.TestCase):
 
 
 class PromptTest(unittest.TestCase):
+    def test_sharded_prompt_preserves_exact_baseline_guidance(self):
+        workflow_lines = (
+            (REPO_ROOT / ".github/workflows/codex-security-review-benchmark.yml")
+            .read_text()
+            .splitlines()
+        )
+        start = workflow_lines.index("          prompt: |") + 1
+        end = next(
+            index
+            for index, line in enumerate(workflow_lines)
+            if index > start and "prompt_profile == 'bounded'" in line
+        )
+        baseline = "\n".join(
+            line.removeprefix("            ") for line in workflow_lines[start:end]
+        ).rstrip()
+        replacements = {
+            "${{ env.REVIEW_DIFF_FILE }}": "{{REVIEW_DIFF_FILE}}",
+            "${{ env.REVIEW_HEAD_SHA }}": "{{REVIEW_HEAD_SHA}}",
+            "${{ env.REVIEW_COMMIT_RANGE }}": "{{REVIEW_COMMIT_RANGE}}",
+            "${{ env.REVIEW_BLOB_BASE_URL }}": "{{REVIEW_BLOB_BASE_URL}}",
+        }
+        for original, placeholder in replacements.items():
+            baseline = baseline.replace(original, placeholder)
+        template = (REPO_ROOT / ".github/codex-sharded-review-prompt.md").read_text()
+        common, marker, _ = template.partition("## Trusted Shard Scope")
+        self.assertEqual(marker, "## Trusted Shard Scope")
+        self.assertEqual(common.rstrip(), baseline)
+
     def test_shard_prompt_is_complete_and_prohibits_full_diff_regeneration(self):
         template = (REPO_ROOT / ".github/codex-sharded-review-prompt.md").read_text()
         values = {
@@ -420,7 +443,7 @@ class ResultTest(unittest.TestCase):
             completed_result(manifest, "shard-1", "HIGH"),
             completed_result(manifest, "shard-2", "NONE"),
         ]
-        result, markdown, _ = aggregate.aggregate(manifest, results)
+        result, markdown, _ = aggregate.aggregate(manifest, results, case_metadata())
         self.assertEqual(result["benchmark_status"], "completed")
         self.assertEqual(result["review"]["overall_risk"], "HIGH")
         self.assertIn("#### [HIGH] Test issue", markdown)
@@ -437,10 +460,29 @@ class ResultTest(unittest.TestCase):
             elapsed_seconds=None,
             review=None,
         )
-        result, markdown, _ = aggregate.aggregate(manifest, results)
+        result, markdown, _ = aggregate.aggregate(manifest, results, case_metadata())
         self.assertEqual(result["benchmark_status"], "incomplete")
         self.assertEqual(result["review"]["overall_risk"], "HIGH")
         self.assertIn("Automated review incomplete for shard-2", markdown)
+
+    def test_trusted_corpus_metadata_is_reattached_after_review(self):
+        manifest = signed_manifest()
+        corpus = {
+            "cases": [
+                {
+                    "id": manifest["case"],
+                    "base": manifest["base_sha"],
+                    "head": manifest["head_sha"],
+                    **case_metadata(),
+                }
+            ]
+        }
+        self.assertEqual(
+            aggregate.load_case_metadata(corpus, manifest)["expected"], "NONE"
+        )
+        corpus["cases"][0]["head"] = "c" * 40
+        with self.assertRaisesRegex(ValueError, "reviewed range"):
+            aggregate.load_case_metadata(corpus, manifest)
 
     def test_cross_run_result_hard_fails(self):
         manifest = signed_manifest()
@@ -450,7 +492,7 @@ class ResultTest(unittest.TestCase):
         ]
         results[1]["run_id"] = 999
         with self.assertRaisesRegex(ValueError, "run_id"):
-            aggregate.aggregate(manifest, results)
+            aggregate.aggregate(manifest, results, case_metadata())
 
     def test_manifest_digest_tampering_hard_fails(self):
         manifest = signed_manifest()
@@ -523,6 +565,11 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}", called)
         self.assertIn("String(job.id) === process.env.SHARD_JOB_ID", called)
         self.assertIn("include-hidden-files: true", called)
+        self.assertNotIn("case-json", called)
+        self.assertNotIn("case-metadata-json", called)
+        self.assertIn(
+            "--corpus-file .codex-trusted/.github/codex-benchmark-corpus.json", called
+        )
         self.assertIn(
             "github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all'",
             parent,

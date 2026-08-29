@@ -133,7 +133,9 @@ jobs:
       matrix: ${{ fromJSON(needs.select-cases.outputs.matrix) }}
     uses: ./.github/workflows/codex-security-review-sharded-benchmark-case.yml
     with:
-      case-json: ${{ toJSON(matrix.case) }}
+      case-id: ${{ matrix.case.id }}
+      base-sha: ${{ matrix.case.base }}
+      head-sha: ${{ matrix.case.head }}
       variant-json: ${{ toJSON(matrix.variant) }}
       reasoning-effort: ${{ needs.select-cases.outputs.reasoning_effort }}
       prompt-profile: ${{ needs.select-cases.outputs.prompt_profile }}

@@ -430,7 +430,6 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, byte
         "commit_range": args.commit_range,
         "unified": args.unified,
         "inter_hunk_context": args.inter_hunk,
-        "case_metadata": json.loads(args.case_metadata_json),
         "variant_metadata": json.loads(args.variant_metadata_json),
         **plan,
     }
@@ -450,7 +449,6 @@ def main() -> None:
     parser.add_argument("--shard", choices=SHARD_IDS, required=True)
     parser.add_argument("--unified", type=int, required=True)
     parser.add_argument("--inter-hunk", type=int, default=0)
-    parser.add_argument("--case-metadata-json", required=True)
     parser.add_argument("--variant-metadata-json", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()

@@ -3,7 +3,13 @@ name: Codex sharded benchmark case
 on:
   workflow_call:
     inputs:
-      case-json:
+      case-id:
+        required: true
+        type: string
+      base-sha:
+        required: true
+        type: string
+      head-sha:
         required: true
         type: string
       variant-json:
@@ -37,22 +43,22 @@ jobs:
       matrix:
         shard: [shard-1, shard-2]
     env:
-      CASE_ID: ${{ fromJSON(inputs['case-json']).id }}
+      CASE_ID: ${{ inputs['case-id'] }}
       VARIANT_ID: ${{ fromJSON(inputs['variant-json']).id }}
       SHARD_ID: ${{ matrix.shard }}
       REPEAT: ${{ inputs.repeat }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-      REVIEW_BASE_SHA: ${{ fromJSON(inputs['case-json']).base }}
-      REVIEW_HEAD_SHA: ${{ fromJSON(inputs['case-json']).head }}
-      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', fromJSON(inputs['case-json']).base, fromJSON(inputs['case-json']).head) }}
-      REVIEW_BLOB_BASE_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, fromJSON(inputs['case-json']).head) }}
+      REVIEW_BASE_SHA: ${{ inputs['base-sha'] }}
+      REVIEW_HEAD_SHA: ${{ inputs['head-sha'] }}
+      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', inputs['base-sha'], inputs['head-sha']) }}
+      REVIEW_BLOB_BASE_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, inputs['head-sha']) }}
       REVIEW_PLAN_DIR: .git/codex-shard-plan
       REVIEW_MANIFEST_FILE: .git/codex-shard-plan/codex-shard-manifest.json
       REVIEW_DIFF_FILE: .git/codex-shard-plan/codex-review.diff
-      PLAN_ARTIFACT_NAME: sharded-benchmark-plan-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
-      RESULT_ARTIFACT_NAME: sharded-benchmark-shard-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      PLAN_ARTIFACT_NAME: sharded-benchmark-plan-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RESULT_ARTIFACT_NAME: sharded-benchmark-shard-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout fixed historical head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,7 +102,6 @@ jobs:
       - name: Plan bounded review shards
         id: plan
         env:
-          CASE_JSON: ${{ inputs['case-json'] }}
           VARIANT_JSON: ${{ inputs['variant-json'] }}
           UNIFIED: ${{ fromJSON(inputs['variant-json']).unified }}
           INTER_HUNK: ${{ fromJSON(inputs['variant-json'])['inter-hunk'] }}
@@ -112,7 +117,6 @@ jobs:
             --shard "$SHARD_ID" \
             --unified "$UNIFIED" \
             --inter-hunk "$INTER_HUNK" \
-            --case-metadata-json "$CASE_JSON" \
             --variant-metadata-json "$VARIANT_JSON" \
             --output-dir "$REVIEW_PLAN_DIR"
 
@@ -242,7 +246,7 @@ jobs:
       matrix:
         shard: [shard-1, shard-2]
     env:
-      CASE_ID: ${{ fromJSON(inputs['case-json']).id }}
+      CASE_ID: ${{ inputs['case-id'] }}
       VARIANT_ID: ${{ fromJSON(inputs['variant-json']).id }}
       SHARD_ID: ${{ matrix.shard }}
       REPEAT: ${{ inputs.repeat }}
@@ -250,8 +254,8 @@ jobs:
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
       CODEX_TIMEOUT_MINUTES: "6"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
-      PLAN_ARTIFACT_NAME: sharded-benchmark-plan-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
-      RESULT_ARTIFACT_NAME: sharded-benchmark-shard-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      PLAN_ARTIFACT_NAME: sharded-benchmark-plan-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RESULT_ARTIFACT_NAME: sharded-benchmark-shard-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted sharding tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -444,15 +448,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      CASE_ID: ${{ fromJSON(inputs['case-json']).id }}
+      CASE_ID: ${{ inputs['case-id'] }}
       VARIANT_ID: ${{ fromJSON(inputs['variant-json']).id }}
       REPEAT: ${{ inputs.repeat }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
       PROMPT_PROFILE: ${{ inputs['prompt-profile'] }}
-      SHARD_1_ARTIFACT: sharded-benchmark-shard-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-shard-1-${{ github.run_id }}-${{ github.run_attempt }}
-      SHARD_2_ARTIFACT: sharded-benchmark-shard-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-shard-2-${{ github.run_id }}-${{ github.run_attempt }}
-      AGGREGATE_ARTIFACT: sharded-benchmark-result-${{ fromJSON(inputs['case-json']).id }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
+      SHARD_1_ARTIFACT: sharded-benchmark-shard-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-shard-1-${{ github.run_id }}-${{ github.run_attempt }}
+      SHARD_2_ARTIFACT: sharded-benchmark-shard-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-shard-2-${{ github.run_id }}-${{ github.run_attempt }}
+      AGGREGATE_ARTIFACT: sharded-benchmark-result-${{ inputs['case-id'] }}-${{ fromJSON(inputs['variant-json']).id }}-${{ inputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted aggregation tool
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -462,6 +466,7 @@ jobs:
           persist-credentials: false
           path: .codex-trusted
           sparse-checkout: |
+            .github/codex-benchmark-corpus.json
             .github/scripts/aggregate_codex_shard_results.py
             .github/scripts/write_codex_shard_result.py
           sparse-checkout-cone-mode: false
@@ -481,6 +486,7 @@ jobs:
       - name: Aggregate trusted shard results
         run: |
           python3 .codex-trusted/.github/scripts/aggregate_codex_shard_results.py \
+            --corpus-file .codex-trusted/.github/codex-benchmark-corpus.json \
             --shard-1-dir shard-results/shard-1 \
             --shard-2-dir shard-results/shard-2 \
             --output-dir aggregate-result
