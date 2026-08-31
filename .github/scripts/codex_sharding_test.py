@@ -220,10 +220,34 @@ class PlannerTest(unittest.TestCase):
             )
         )
         self.assertTrue(planner.is_shared_contract(".dockerignore", "delivery"))
+        self.assertTrue(planner.is_shared_contract("lefthook.yml", "delivery"))
         plan = planner.plan_files(files)
         self.assertEqual(plan["status"], "planned")
         self.assertIn(
             "deployment-files/docker-compose.yaml", plan["shards"][1]["shared_files"]
+        )
+
+    def test_generated_api_contract_stays_with_affected_consumer_packet(self):
+        generated_path = "client/src/protoFleet/api/generated/example/v1/example.pb.ts"
+        consumer_path = "client/src/protoFleet/page.tsx"
+        files = [
+            file_diff(generated_path, 100, 1),
+            file_diff(consumer_path, 300_000, 10),
+            file_diff("server/a/a.go", 300_000, 10),
+        ]
+        self.assertTrue(
+            planner.is_shared_contract(
+                generated_path, planner.classify_path(generated_path)
+            )
+        )
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        consumer_shard = next(
+            shard for shard in plan["shards"] if consumer_path in shard["primary_files"]
+        )
+        self.assertIn(
+            generated_path,
+            consumer_shard["primary_files"] + consumer_shard["shared_files"],
         )
 
     def test_review_wide_plan_has_exactly_one_owner_and_replicates_shared_context(self):
@@ -301,7 +325,7 @@ class PlannerTest(unittest.TestCase):
             ]
         )
         self.assertEqual(plan["status"], "oversized")
-        self.assertIn("shared context", plan["oversized_reasons"][0])
+        self.assertIn("do not fit", plan["oversized_reasons"][0])
 
     def test_exact_packet_limits_are_accepted(self):
         plan = planner.plan_files(
@@ -651,6 +675,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("codex-security-review-sharded-benchmark", parent)
         self.assertIn("max-parallel: 1", parent)
         self.assertIn("max-parallel: 2", called)
+        self.assertIn("timeout-minutes: 7", called)
         self.assertIn("timeout-minutes: 6", called)
         self.assertIn('CODEX_CANCELLATION_CLEANUP_SECONDS: "300"', called)
         self.assertIn("github.workflow_sha", called)
@@ -691,6 +716,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             / ".github/workflows/codex-security-review-sharded-benchmark-case.yml"
         ).read_text()
         self.assertIn("elapsedSeconds >= budgetSeconds + cleanupSeconds", called)
+        self.assertIn("Date.parse(codexStep?.started_at || '')", called)
         self.assertIn("prerequisitesSucceeded", called)
         self.assertIn("codexReachedReviewPhase", called)
 
@@ -716,7 +742,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             "name": job_name,
             "conclusion": "cancelled",
             "started_at": "2026-08-28T00:00:00Z",
-            "completed_at": "2026-08-28T00:11:00Z",
+            "completed_at": "2026-08-28T00:11:30Z",
             "steps": [
                 *successful_steps,
                 {
@@ -730,7 +756,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         cases = (
             (timeout_job, "budget-timeout"),
             (
-                {**timeout_job, "completed_at": "2026-08-28T00:10:59Z"},
+                {**timeout_job, "completed_at": "2026-08-28T00:11:29Z"},
                 "unexpected-cancellation",
             ),
             ({**timeout_job, "steps": successful_steps[:2]}, "unexpected-cancellation"),

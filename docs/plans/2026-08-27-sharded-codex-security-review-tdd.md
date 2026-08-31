@@ -121,9 +121,10 @@ each complete packet against both hard size limits.
 Run shard reviewers as one matrix wave with `max-parallel: 2`. Because the
 planner emits no more than two packets for the whole review, no second model
 wave can extend the deadline. The benchmark should start with a six-minute model
-budget per shard and reserve the existing five-minute Actions
-cancellation-cleanup allowance. Production timing is chosen only after
-benchmark evidence; it must keep the single parallel wave, trusted aggregation,
+budget per shard, one minute for trusted setup, and the existing five-minute
+Actions cancellation-cleanup allowance. Timeout evidence is measured from the
+Codex step's trusted start time so setup cannot consume an accepted model
+budget. Production timing is chosen only after benchmark evidence; it must keep the single parallel wave, trusted aggregation,
 and artifact upload inside the current 15-minute end-to-end target.
 
 Each shard emits the existing structured risk and Markdown contract plus trusted

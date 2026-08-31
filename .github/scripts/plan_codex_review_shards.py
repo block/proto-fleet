@@ -112,6 +112,8 @@ def is_shared_contract(path: str, domain: str) -> bool:
     name = PurePosixPath(path).name.lower()
     if path.startswith("proto/") and not is_generated(path):
         return True
+    if is_generated(path):
+        return True
     if path.startswith(("server/migrations/", "server/sqlc/queries/")):
         return True
     if domain == "client-shared":
@@ -120,19 +122,18 @@ def is_shared_contract(path: str, domain: str) -> bool:
         return True
     if name.startswith(("dockerfile", "docker-compose", "compose.")):
         return True
-    return path in {
-        ".dockerignore",
-        "Procfile",
-        "buf.gen.yaml",
-        "buf.lock",
-        "buf.yaml",
-        "dev.sh",
-        "go.work",
-        "go.work.sum",
-        "package.json",
-        "package-lock.json",
-        "justfile",
-    }
+    if "/" not in path:
+        return path not in {
+            "AGENTS.md",
+            "CLAUDE.md",
+            "CODE_OF_CONDUCT.md",
+            "CONTRIBUTING.md",
+            "GOVERNANCE.md",
+            "LICENSE",
+            "README.md",
+            "SECURITY.md",
+        }
+    return False
 
 
 def semantic_unit(path: str, domain: str, shared: bool) -> str:
@@ -169,112 +170,116 @@ def _ordered_units(units: list[Unit]) -> list[Unit]:
     return sorted(units, key=lambda item: (-item.bytes, -item.lines, item.key))
 
 
-def _is_client_app_unit(unit: Unit) -> bool:
-    return any(file.domain in {"protofleet", "protoos"} for file in unit.files)
+def unit_domains(units: list[Unit]) -> set[str]:
+    return {file.domain for unit in units for file in unit.files}
+
+
+def shared_audiences(file: FileDiff) -> set[str] | None:
+    path = file.path
+    if file.domain == "client-shared":
+        return {"protofleet", "protoos"}
+    if is_generated(path):
+        if path.startswith("client/src/protoFleet/"):
+            return {"protofleet"}
+        if path.startswith("client/src/protoOS/"):
+            return {"protoos"}
+        if path.startswith("server/"):
+            return {"server"}
+        if path.startswith("plugin/asicrs/"):
+            return {"asicrs"}
+        if path.startswith(("plugin/", "packages/proto-python-gen/")):
+            return {"plugins"}
+    return None
 
 
 def shared_context_for_units(
     shared_files: list[FileDiff], units: list[Unit]
 ) -> list[FileDiff]:
-    if not units:
+    domains = unit_domains(units)
+    if not domains:
         return []
-    has_client_app = any(_is_client_app_unit(unit) for unit in units)
     return [
         file
         for file in shared_files
-        if file.domain != "client-shared" or has_client_app
+        if (audiences := shared_audiences(file)) is None or audiences & domains
     ]
 
 
-def find_bounded_assignment(
-    units: list[Unit], shared_files: list[FileDiff]
-) -> list[list[Unit]] | None:
+def packet_files_for_units(
+    owned_units: list[Unit], other_units: list[Unit]
+) -> list[FileDiff]:
+    primary = [file for unit in owned_units for file in unit.files]
+    other_shared = [file for unit in other_units for file in unit.files if file.shared]
+    context = shared_context_for_units(other_shared, owned_units)
+    return sorted(
+        {file.path: file for file in primary + context}.values(),
+        key=lambda file: file.path,
+    )
+
+
+def packet_metrics(bins: list[list[Unit]], index: int) -> tuple[int, int]:
+    files = packet_files_for_units(bins[index], bins[1 - index])
+    return sum(file.bytes for file in files), sum(file.lines for file in files)
+
+
+def find_bounded_assignment(units: list[Unit]) -> list[list[Unit]] | None:
     ordered = _ordered_units(units)
-    shared_bytes = sum(file.bytes for file in shared_files)
-    shared_lines = sum(file.lines for file in shared_files)
     if (
-        sum(unit.bytes for unit in ordered) + shared_bytes > 2 * MAX_PACKET_BYTES
-        or sum(unit.lines for unit in ordered) + shared_lines > 2 * MAX_PACKET_LINES
+        sum(unit.bytes for unit in ordered) > 2 * MAX_PACKET_BYTES
+        or sum(unit.lines for unit in ordered) > 2 * MAX_PACKET_LINES
     ):
         return None
 
-    global_context = [file for file in shared_files if file.domain != "client-shared"]
-    client_context = [file for file in shared_files if file.domain == "client-shared"]
-    global_bytes = sum(file.bytes for file in global_context)
-    global_lines = sum(file.lines for file in global_context)
-    client_bytes = sum(file.bytes for file in client_context)
-    client_lines = sum(file.lines for file in client_context)
-    failed: set[tuple[int, int, int, int, int, bool, bool]] = set()
+    bins: list[list[Unit]] = [[], []]
+    failed: set[tuple[Any, ...]] = set()
 
-    def search(
-        position: int,
-        bytes_0: int,
-        lines_0: int,
-        bytes_1: int,
-        lines_1: int,
-        shard_1_active: bool,
-        shard_1_has_client_app: bool,
-    ) -> tuple[int, ...] | None:
+    def search(position: int) -> tuple[int, ...] | None:
         if position == len(ordered):
             return ()
+        metrics = (packet_metrics(bins, 0), packet_metrics(bins, 1))
         state = (
             position,
-            bytes_0,
-            lines_0,
-            bytes_1,
-            lines_1,
-            shard_1_active,
-            shard_1_has_client_app,
+            metrics,
+            tuple(frozenset(unit_domains(items)) for items in bins),
+            tuple(
+                tuple(
+                    unit.key
+                    for unit in items
+                    if any(file.shared for file in unit.files)
+                )
+                for items in bins
+            ),
         )
         if state in failed:
             return None
         unit = ordered[position]
-        loads = ((bytes_0, lines_0), (bytes_1, lines_1))
-        candidates = sorted(range(2), key=lambda index: (*loads[index], index))
+        candidates = (
+            [0]
+            if position == 0
+            else sorted(range(2), key=lambda index: (*metrics[index], index))
+        )
         for index in candidates:
-            current_bytes, current_lines = loads[index]
-            extra_bytes = unit.bytes
-            extra_lines = unit.lines
-            next_active = shard_1_active
-            next_has_client_app = shard_1_has_client_app
-            if index == 1:
-                if not shard_1_active:
-                    extra_bytes += global_bytes
-                    extra_lines += global_lines
-                    next_active = True
-                if _is_client_app_unit(unit) and not shard_1_has_client_app:
-                    extra_bytes += client_bytes
-                    extra_lines += client_lines
-                    next_has_client_app = True
-            if (
-                current_bytes + extra_bytes > MAX_PACKET_BYTES
-                or current_lines + extra_lines > MAX_PACKET_LINES
+            bins[index].append(unit)
+            next_metrics = (packet_metrics(bins, 0), packet_metrics(bins, 1))
+            if all(
+                packet_bytes <= MAX_PACKET_BYTES and packet_lines <= MAX_PACKET_LINES
+                for packet_bytes, packet_lines in next_metrics
             ):
-                continue
-            next_loads = [list(loads[0]), list(loads[1])]
-            next_loads[index][0] += extra_bytes
-            next_loads[index][1] += extra_lines
-            suffix = search(
-                position + 1,
-                next_loads[0][0],
-                next_loads[0][1],
-                next_loads[1][0],
-                next_loads[1][1],
-                next_active,
-                next_has_client_app,
-            )
-            if suffix is not None:
-                return (index, *suffix)
+                suffix = search(position + 1)
+                if suffix is not None:
+                    bins[index].pop()
+                    return (index, *suffix)
+            bins[index].pop()
         failed.add(state)
         return None
 
-    assignment = search(0, shared_bytes, shared_lines, 0, 0, False, False)
+    assignment = search(0)
     if assignment is None:
         return None
-    bins: list[list[Unit]] = [[], []]
+    result: list[list[Unit]] = [[], []]
     for unit, index in zip(ordered, assignment, strict=True):
-        bins[index].append(unit)
-    return bins
+        result[index].append(unit)
+    return result
 
 
 def _assign_without_limits(units: list[Unit]) -> list[list[Unit]]:
@@ -292,37 +297,34 @@ def _assign_without_limits(units: list[Unit]) -> list[list[Unit]]:
 
 
 def plan_files(files: list[FileDiff]) -> dict[str, Any]:
-    shared_files = sorted(
-        (file for file in files if file.shared), key=lambda item: item.path
-    )
-    primary_units = [unit for unit in group_units(files) if not unit.files[0].shared]
-    shared_bytes = sum(file.bytes for file in shared_files)
-    shared_lines = sum(file.lines for file in shared_files)
+    units = group_units(files)
     reasons: list[str] = []
 
-    if shared_bytes > MAX_PACKET_BYTES or shared_lines > MAX_PACKET_LINES:
-        reasons.append("replicated shared context exceeds a packet limit")
-    if len(primary_units) > MAX_SEMANTIC_UNITS:
+    if len(units) > MAX_SEMANTIC_UNITS:
         reasons.append(
-            f"semantic unit count {len(primary_units)} exceeds planner safety limit "
+            f"semantic unit count {len(units)} exceeds planner safety limit "
             f"{MAX_SEMANTIC_UNITS}"
         )
 
-    bins = find_bounded_assignment(primary_units, shared_files) if not reasons else None
+    bins = find_bounded_assignment(units) if not reasons else None
     if bins is None:
         reasons.append("semantic units do not fit in two bounded review-wide packets")
-        bins = _assign_without_limits(primary_units)
+        bins = _assign_without_limits(units)
 
     status = "planned" if not reasons else "oversized"
 
-    # Shared files have one primary owner. They are context in shard 2 only when
-    # the second review-wide packet has primary work.
-    primary_by_shard: list[list[FileDiff]] = [list(shared_files), []]
-    for index, units in enumerate(bins):
-        for unit in units:
-            primary_by_shard[index].extend(unit.files)
+    primary_by_shard = [
+        [file for unit in owned_units for file in unit.files] for owned_units in bins
+    ]
     active = [bool(primary_by_shard[0]), bool(primary_by_shard[1])]
-    context_by_shard = [[], shared_context_for_units(shared_files, bins[1])]
+    context_by_shard = [
+        shared_context_for_units(
+            [file for file in primary_by_shard[1] if file.shared], bins[0]
+        ),
+        shared_context_for_units(
+            [file for file in primary_by_shard[0] if file.shared], bins[1]
+        ),
+    ]
 
     owners: dict[str, str] = {}
     for index, owned in enumerate(primary_by_shard):
@@ -340,10 +342,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
     for index, shard_id in enumerate(SHARD_IDS):
         primary = sorted(primary_by_shard[index], key=lambda item: item.path)
         context = sorted(context_by_shard[index], key=lambda item: item.path)
-        packet_files = sorted(
-            {file.path: file for file in primary + context}.values(),
-            key=lambda item: item.path,
-        )
+        packet_files = packet_files_for_units(bins[index], bins[1 - index])
         shard_records.append(
             {
                 "id": shard_id,

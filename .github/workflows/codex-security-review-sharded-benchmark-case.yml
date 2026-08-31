@@ -36,7 +36,9 @@ jobs:
   shard-review:
     name: Shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    # Reserve one minute for trusted setup before the six-minute model budget.
+    # GitHub may then spend up to five minutes cleaning up a cancelled job.
+    timeout-minutes: 7
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -354,10 +356,10 @@ jobs:
                 job.steps?.some(step => step.name === name && step.conclusion === 'success')
               );
               const codexStep = job.steps?.find(step => step.name === 'Run bounded shard review');
-              const startedAt = Date.parse(job.started_at || '');
+              const codexStartedAt = Date.parse(codexStep?.started_at || '');
               const completedAt = Date.parse(job.completed_at || '');
-              const elapsedSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
-                ? Math.max(0, Math.floor((completedAt - startedAt) / 1000))
+              const elapsedSeconds = Number.isFinite(codexStartedAt) && Number.isFinite(completedAt)
+                ? Math.max(0, Math.floor((completedAt - codexStartedAt) / 1000))
                 : null;
               const codexReachedReviewPhase =
                 Boolean(codexStep?.started_at) &&
@@ -379,7 +381,7 @@ jobs:
                 codex_started: Boolean(codexStep?.started_at),
                 codex_status: codexStep?.status || null,
                 codex_conclusion: codexStep?.conclusion || null,
-                observed_job_seconds: elapsedSeconds,
+                observed_codex_and_cleanup_seconds: elapsedSeconds,
                 budget_seconds: budgetSeconds,
                 expected_cleanup_seconds: cleanupSeconds,
               });
