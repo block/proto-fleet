@@ -174,7 +174,7 @@ jobs:
             /tmp/release-assets/proto-os/proto-os-"$TAG_NAME".tar.gz
             /tmp/release-assets/proto-os/proto-os_"$TAG_NAME".ipk
             ./deployment-files/install.sh
-            ./deployment-files/fleetnode/install-fleetnode.sh
+            ./deployment-files/fleetnode/install-fleet-node.sh
             ./deployment-files/uninstall.sh
           )
           # Refuse to clobber a non-draft release — published assets are immutable from this workflow.
