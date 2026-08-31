@@ -176,20 +176,25 @@ def build_result(
             raise ValueError(
                 f"Codex action ended unexpectedly before the outer budget: {outcome}"
             )
-        repository = os.environ.get("GITHUB_REPOSITORY")
-        blob_base_url = (
-            f"https://github.com/{repository}/blob/{manifest['head_sha']}"
-            if repository
-            else None
-        )
-        packet_paths = set(shard["primary_files"] + shard["shared_files"])
-        allowed_line_ranges = {
-            file["path"]: file["changed_line_ranges"]
-            for file in manifest["files"]
-            if file["path"] in packet_paths
-        }
-        review, reason = parse_review(raw, allowed_line_ranges, blob_base_url)
-        status = "completed" if review else "incomplete"
+        timeout_minutes = int(os.environ.get("CODEX_TIMEOUT_MINUTES", "0"))
+        if elapsed is not None and timeout_minutes and elapsed > timeout_minutes * 60:
+            status = "incomplete"
+            reason = "codex-budget-exceeded"
+        else:
+            repository = os.environ.get("GITHUB_REPOSITORY")
+            blob_base_url = (
+                f"https://github.com/{repository}/blob/{manifest['head_sha']}"
+                if repository
+                else None
+            )
+            packet_paths = set(shard["primary_files"] + shard["shared_files"])
+            allowed_line_ranges = {
+                file["path"]: file["changed_line_ranges"]
+                for file in manifest["files"]
+                if file["path"] in packet_paths
+            }
+            review, reason = parse_review(raw, allowed_line_ranges, blob_base_url)
+            status = "completed" if review else "incomplete"
 
     result = {
         "schema_version": 1,

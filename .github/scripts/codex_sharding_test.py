@@ -208,6 +208,29 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("client/package.json", plan["shards"][0]["primary_files"])
         self.assertIn("client/package.json", plan["shards"][1]["shared_files"])
 
+    def test_github_workflows_and_scripts_are_one_automation_surface(self):
+        workflow_path = ".github/workflows/review.yml"
+        script_path = ".github/scripts/review.py"
+        files = [
+            file_diff(workflow_path, 200_000, 100),
+            file_diff(script_path, 200_000, 100),
+            file_diff("server/a/a.go", 300_000, 100),
+        ]
+        self.assertEqual(files[0].unit, files[1].unit)
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        owner = next(
+            shard["id"]
+            for shard in plan["shards"]
+            if workflow_path in shard["primary_files"]
+        )
+        self.assertIn(
+            script_path,
+            next(shard for shard in plan["shards"] if shard["id"] == owner)[
+                "primary_files"
+            ],
+        )
+
     def test_deployment_and_root_runtime_contracts_are_replicated(self):
         files = [
             file_diff("deployment-files/docker-compose.yaml", 100, 1),
@@ -502,6 +525,7 @@ class ResultTest(unittest.TestCase):
                 "GITHUB_RUN_ATTEMPT",
                 "GITHUB_REPOSITORY",
                 "CODEX_MODEL",
+                "CODEX_TIMEOUT_MINUTES",
                 "CODEX_REASONING_EFFORT",
                 "PROMPT_PROFILE",
             )
@@ -511,6 +535,7 @@ class ResultTest(unittest.TestCase):
             GITHUB_RUN_ATTEMPT="1",
             GITHUB_REPOSITORY="block/proto-fleet",
             CODEX_MODEL="gpt-test",
+            CODEX_TIMEOUT_MINUTES="6",
             CODEX_REASONING_EFFORT="xhigh",
             PROMPT_PROFILE="baseline",
         )
@@ -549,6 +574,15 @@ class ResultTest(unittest.TestCase):
         self.assertEqual(result["benchmark_status"], "incomplete")
         self.assertEqual(result["review"]["overall_risk"], "HIGH")
         self.assertIn("Automated review incomplete for shard-2", markdown)
+
+    def test_success_after_model_budget_becomes_incomplete(self):
+        manifest = signed_manifest(active_second=False)
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 361
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "codex-budget-exceeded")
 
     def test_trusted_corpus_metadata_is_reattached_after_review(self):
         manifest = signed_manifest()
@@ -686,7 +720,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("codex-security-review-sharded-benchmark", parent)
         self.assertIn("max-parallel: 1", parent)
         self.assertIn("max-parallel: 2", called)
-        self.assertIn("timeout-minutes: 7", called)
+        self.assertIn("timeout-minutes: 10", called)
         self.assertIn("timeout-minutes: 6", called)
         self.assertIn('CODEX_CANCELLATION_CLEANUP_SECONDS: "300"', called)
         self.assertIn("github.workflow_sha", called)

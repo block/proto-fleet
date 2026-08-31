@@ -147,7 +147,9 @@ def semantic_unit(path: str, domain: str, shared: bool) -> str:
     elif domain == "delivery":
         if path.startswith("server/monitoring/"):
             root = parts[: min(len(parts), 3)]
-        elif parts and parts[0] in {".github", "deployment-files", "docs", "scripts"}:
+        elif path.startswith(".github/"):
+            root = parts[:1]
+        elif parts and parts[0] in {"deployment-files", "docs", "scripts"}:
             root = parts[: min(len(parts), 2)]
         else:
             root = parts[:1]

@@ -36,9 +36,10 @@ jobs:
   shard-review:
     name: Shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # Reserve one minute for trusted setup before the six-minute model budget.
-    # GitHub may then spend up to five minutes cleaning up a cancelled job.
-    timeout-minutes: 7
+    # Reserve four minutes for trusted setup before the six-minute model budget.
+    # Successful output after that model budget is discarded; GitHub may then
+    # spend up to five minutes cleaning up a cancelled job.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -51,6 +52,7 @@ jobs:
       REPEAT: ${{ inputs.repeat }}
       CODEX_MODEL: gpt-5.6-sol
       CODEX_REASONING_EFFORT: ${{ inputs['reasoning-effort'] }}
+      CODEX_TIMEOUT_MINUTES: "6"
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       REVIEW_BASE_SHA: ${{ inputs['base-sha'] }}
       REVIEW_HEAD_SHA: ${{ inputs['head-sha'] }}

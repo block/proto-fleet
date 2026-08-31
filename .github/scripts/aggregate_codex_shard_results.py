@@ -15,6 +15,7 @@ from write_codex_shard_result import SEVERITY_RANK, validate_review_markdown
 
 ALLOWED_INCOMPLETE_REASONS = {
     "codex-job-timeout",
+    "codex-budget-exceeded",
     "empty-model-output",
     "invalid-model-output",
     "oversized-review",
