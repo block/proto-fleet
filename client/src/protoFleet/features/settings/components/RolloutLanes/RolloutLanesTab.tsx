@@ -149,7 +149,8 @@ interface LaneCardProps {
   onApply: (laneId: bigint, assignments: { model: string; firmwareFileId: string }[]) => Promise<void>;
 }
 
-const LaneCard = ({
+// Exported for Storybook; the tab below is the only production consumer.
+export const LaneCard = ({
   lane,
   rollouts,
   firmwareFiles,
