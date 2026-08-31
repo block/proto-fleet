@@ -300,6 +300,17 @@ class PlannerTest(unittest.TestCase):
         plan = planner.plan_files(files)
         self.assertEqual(plan["status"], "oversized")
 
+    def test_impossible_global_shared_context_short_circuits(self):
+        files = [
+            file_diff(f"proto/package{index}/service.proto", 30_000, 100, shared=True)
+            for index in range(20)
+        ]
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "oversized")
+        self.assertIn(
+            "globally replicated shared context", plan["oversized_reasons"][0]
+        )
+
     def test_semantic_unit_safety_limit_fails_closed_without_recursion(self):
         files = [
             file_diff(f"server/package{index}/file.go", 1, 1)
@@ -325,7 +336,7 @@ class PlannerTest(unittest.TestCase):
             ]
         )
         self.assertEqual(plan["status"], "oversized")
-        self.assertIn("do not fit", plan["oversized_reasons"][0])
+        self.assertIn("shared context", plan["oversized_reasons"][0])
 
     def test_exact_packet_limits_are_accepted(self):
         plan = planner.plan_files(
@@ -688,6 +699,8 @@ class WorkflowInvariantTest(unittest.TestCase):
             called,
         )
         self.assertNotIn('--started-at "${{', called)
+        self.assertIn("STARTED_AT: ${{ steps.codex_start.outputs.started_at }}", called)
+        self.assertIn("Record trusted Codex start", called)
         self.assertNotIn("case-json", called)
         self.assertNotIn("case-metadata-json", called)
         self.assertIn(
@@ -733,6 +746,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             "Upload trusted shard plan",
             "Require benchmark API key",
             "Render trusted shard prompt",
+            "Record trusted Codex start",
         )
         successful_steps = [
             {"name": name, "conclusion": "success"} for name in prerequisite_names

@@ -185,6 +185,10 @@ jobs:
           python3 .codex-trusted/.github/scripts/render_codex_shard_prompt.py \
             --template .codex-trusted/.github/codex-sharded-review-prompt.md
 
+      - name: Record trusted Codex start
+        id: codex_start
+        run: echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Run bounded shard review
         id: run_codex
         if: ${{ steps.plan.outputs.active == 'true' }}
@@ -218,7 +222,7 @@ jobs:
         env:
           CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
-          STARTED_AT: ${{ steps.plan.outputs.started_at }}
+          STARTED_AT: ${{ steps.codex_start.outputs.started_at }}
         run: |
           python3 .codex-trusted/.github/scripts/write_codex_shard_result.py \
             --manifest "$REVIEW_MANIFEST_FILE" \
@@ -351,6 +355,7 @@ jobs:
                 'Upload trusted shard plan',
                 'Require benchmark API key',
                 'Render trusted shard prompt',
+                'Record trusted Codex start',
               ];
               const prerequisitesSucceeded = requiredSteps.every(name =>
                 job.steps?.some(step => step.name === name && step.conclusion === 'success')

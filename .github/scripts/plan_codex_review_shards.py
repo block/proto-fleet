@@ -299,6 +299,14 @@ def _assign_without_limits(units: list[Unit]) -> list[list[Unit]]:
 def plan_files(files: list[FileDiff]) -> dict[str, Any]:
     units = group_units(files)
     reasons: list[str] = []
+    global_shared = [
+        file for file in files if file.shared and shared_audiences(file) is None
+    ]
+    if (
+        sum(file.bytes for file in global_shared) > MAX_PACKET_BYTES
+        or sum(file.lines for file in global_shared) > MAX_PACKET_LINES
+    ):
+        reasons.append("globally replicated shared context exceeds a packet limit")
 
     if len(units) > MAX_SEMANTIC_UNITS:
         reasons.append(
@@ -522,7 +530,6 @@ def main() -> None:
         "context_lines",
         str(sum(1 for line in packet.splitlines() if line.startswith(b" "))),
     )
-    write_output("started_at", str(int(__import__("time").time())))
 
 
 if __name__ == "__main__":
