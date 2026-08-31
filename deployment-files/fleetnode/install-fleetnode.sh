@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=""
 DOWNLOAD_BASE_URL="${FLEETNODE_DOWNLOAD_BASE_URL:-}"
 TEST_MODE="${FLEETNODE_TEST_MODE:-0}"
 ROOT_PREFIX="${FLEETNODE_ROOT_PREFIX:-}"
 LINUX_SERVICE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+USE_SUDO=0
+INSTALL_LOCK_PID=""
+INSTALL_LOCK_RELEASE_PATH=""
 
 if [[ "$TEST_MODE" != "1" ]]; then
   PATH="$LINUX_SERVICE_PATH"
@@ -14,7 +16,7 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: install-fleetnode.sh --version VERSION
+Usage: install-fleetnode.sh VERSION
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
@@ -24,24 +26,15 @@ boot. After installation, enroll the node and then enable the service.
 EOF
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --version)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--version requires a value" >&2; exit 2; }
-      VERSION="$2"
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
-  esac
-done
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 2
+fi
+VERSION="$1"
 
 if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == "latest" ]]; then
   echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
@@ -57,12 +50,18 @@ if [[ "$(uname -s)" != "Linux" && "$TEST_MODE" != "1" ]]; then
   echo "Fleet Node installation currently supports Linux only" >&2
   exit 1
 fi
-if [[ "$TEST_MODE" != "1" ]]; then
-  if [[ "$(id -u)" -ne 0 ]]; then
-    echo "run this installer as root (for example: sudo ./install-fleetnode.sh --version $VERSION)" >&2
-    exit 1
-  fi
+if [[ "$(id -u)" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || { echo "required command not found: sudo" >&2; exit 1; }
+  USE_SUDO=1
 fi
+
+as_root() {
+  if [[ "$USE_SUDO" == "1" ]]; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
 
 case "${FLEETNODE_ARCH:-$(uname -m)}" in
   x86_64|amd64) ARCH=amd64 ;;
@@ -80,7 +79,7 @@ fi
 PROGRAM_DIR="${ROOT_PREFIX}/opt/fleetnode"
 CONFIG_DIR="${ROOT_PREFIX}/etc/fleetnode"
 STATE_DIR="${ROOT_PREFIX}/var/lib/fleetnode"
-UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleetnode.service"
+UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleet-node.service"
 INSTALL_LOCK_DIR="${ROOT_PREFIX}/run/proto-fleet"
 INSTALL_LOCK_PATH="$INSTALL_LOCK_DIR/fleetnode-installer.lock"
 SYSTEMCTL="${FLEETNODE_SYSTEMCTL:-systemctl}"
@@ -119,26 +118,45 @@ if [[ -e "$PROGRAM_DIR" && ! -d "$PROGRAM_DIR" ]]; then
 fi
 
 if [[ "$TEST_MODE" == "1" ]]; then
-  install -d -m 0755 "$INSTALL_LOCK_DIR"
+  as_root install -d -m 0755 "$INSTALL_LOCK_DIR"
 else
-  install -d -o root -g root -m 0755 "$INSTALL_LOCK_DIR"
+  as_root install -d -o root -g root -m 0755 "$INSTALL_LOCK_DIR"
 fi
-(
-  umask 077
-  : >> "$INSTALL_LOCK_PATH"
+as_root touch "$INSTALL_LOCK_PATH"
+if [[ "$TEST_MODE" != "1" ]]; then
+  as_root chown root:root "$INSTALL_LOCK_PATH"
+fi
+as_root chmod 0600 "$INSTALL_LOCK_PATH"
+
+work_dir=$(mktemp -d)
+INSTALL_LOCK_RELEASE_PATH="$work_dir/release-install-lock"
+
+# Keep the privileged flock process alive through a pipe while this unprivileged
+# installer performs downloads and invokes only the mutations that need sudo.
+exec 8< <(
+  # $1 is expanded by the privileged child shell.
+  # shellcheck disable=SC2016
+  if as_root flock -n "$INSTALL_LOCK_PATH" bash -c '
+    printf "%s\n" locked
+    while [[ ! -e "$1" ]]; do sleep 0.1; done
+  ' bash "$INSTALL_LOCK_RELEASE_PATH"; then
+    :
+  else
+    printf '%s\n' failed
+  fi
 )
-chmod 0600 "$INSTALL_LOCK_PATH"
-INSTALL_LOCK_FD=9
-exec 9<>"$INSTALL_LOCK_PATH"
-if ! flock -n "$INSTALL_LOCK_FD"; then
+INSTALL_LOCK_PID=$!
+if ! IFS= read -r lock_state <&8 || [[ "$lock_state" != "locked" ]]; then
+  wait "$INSTALL_LOCK_PID" 2>/dev/null || true
+  exec 8<&-
+  rm -rf "$work_dir"
   echo "another Fleet Node installer is running" >&2
   exit 1
 fi
 
-work_dir=$(mktemp -d)
 incoming="${PROGRAM_DIR%/*}/.fleetnode.install.$$"
 previous="${PROGRAM_DIR%/*}/.fleetnode.previous.$$"
-unit_backup="$work_dir/fleetnode.service.previous"
+unit_backup="$work_dir/fleet-node.service.previous"
 fresh_install=1
 [[ -x "$PROGRAM_DIR/fleetnode" && -f "$UNIT_PATH" ]] && fresh_install=0
 service_stopped=0
@@ -152,25 +170,30 @@ cleanup() {
   if [[ "$install_complete" != "1" ]]; then
     if [[ "$unit_replaced" == "1" ]]; then
       if [[ -f "$unit_backup" ]]; then
-        install -m 0644 "$unit_backup" "$UNIT_PATH"
+        as_root install -m 0644 "$unit_backup" "$UNIT_PATH"
       else
-        rm -f "$UNIT_PATH"
+        as_root rm -f "$UNIT_PATH"
       fi
-      "$SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+      as_root "$SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
     fi
     if [[ "$program_replaced" == "1" ]]; then
-      rm -rf "$PROGRAM_DIR"
+      as_root rm -rf "$PROGRAM_DIR"
     fi
     if [[ "$previous_saved" == "1" && -d "$previous" ]]; then
-      mv "$previous" "$PROGRAM_DIR"
+      as_root mv "$previous" "$PROGRAM_DIR"
     fi
     if [[ "$service_stopped" == "1" ]]; then
-      "$SYSTEMCTL" start fleetnode.service >/dev/null 2>&1 || true
+      as_root "$SYSTEMCTL" start fleet-node.service >/dev/null 2>&1 || true
     fi
   fi
-  rm -rf "$work_dir" "$incoming"
+  if [[ -n "$INSTALL_LOCK_PID" ]]; then
+    touch "$INSTALL_LOCK_RELEASE_PATH"
+    wait "$INSTALL_LOCK_PID" 2>/dev/null || true
+    exec 8<&-
+  fi
+  as_root rm -rf "$work_dir" "$incoming"
   if [[ "$install_complete" == "1" ]]; then
-    rm -rf "$previous"
+    as_root rm -rf "$previous"
   fi
   exit "$status"
 }
@@ -213,7 +236,7 @@ source_dir="$work_dir/extracted/$ARCHIVE_ROOT"
 for required in \
   fleetnode \
   version.txt \
-  fleetnode.service \
+  fleet-node.service \
   plugins/proto-plugin \
   plugins/antminer-plugin \
   plugins/virtual-plugin \
@@ -233,7 +256,7 @@ fi
 while IFS= read -r -d '' path; do
   relative_path="${path#"$source_dir"/}"
   case "$relative_path" in
-    fleetnode|version.txt|fleetnode.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/virtual-plugin|plugins/virtual-plugin.json|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
+    fleetnode|version.txt|fleet-node.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/virtual-plugin|plugins/virtual-plugin.json|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
     *) echo "archive contains an unexpected entry: $relative_path" >&2; exit 1 ;;
   esac
 done < <(find "$source_dir" -mindepth 1 -print0)
@@ -243,76 +266,71 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
 fi
 
 if [[ "$fresh_install" == "0" ]]; then
-  "$SYSTEMCTL" stop fleetnode.service
+  as_root "$SYSTEMCTL" stop fleet-node.service
   service_stopped=1
 fi
 
-install -d -m 0755 "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}"
+as_root install -d -m 0755 "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}"
 if [[ "$TEST_MODE" == "1" ]]; then
-  install -d -m 0750 "$CONFIG_DIR"
-  install -d -m 0700 "$STATE_DIR"
+  as_root install -d -m 0750 "$CONFIG_DIR"
+  as_root install -d -m 0700 "$STATE_DIR"
 else
   if ! getent passwd fleetnode >/dev/null; then
     if getent group fleetnode >/dev/null; then
-      useradd --system --gid fleetnode --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
+      as_root useradd --system --gid fleetnode --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
     else
-      useradd --system --user-group --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
+      as_root useradd --system --user-group --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
     fi
   fi
   getent group fleetnode >/dev/null || { echo "fleetnode user exists without a fleetnode group" >&2; exit 1; }
-  install -d -o root -g fleetnode -m 0750 "$CONFIG_DIR"
-  install -d -o fleetnode -g fleetnode -m 0700 "$STATE_DIR"
+  as_root install -d -o root -g fleetnode -m 0750 "$CONFIG_DIR"
+  as_root install -d -o fleetnode -g fleetnode -m 0700 "$STATE_DIR"
 fi
 
-rm -rf "$incoming" "$previous"
-install -d -m 0755 "$incoming" "$incoming/plugins"
-install -m 0755 "$source_dir/fleetnode" "$incoming/fleetnode"
-install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
-install -m 0644 "$source_dir/fleetnode.service" "$incoming/fleetnode.service"
-install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"
-install -m 0755 "$source_dir/plugins/antminer-plugin" "$incoming/plugins/antminer-plugin"
-install -m 0755 "$source_dir/plugins/virtual-plugin" "$incoming/plugins/virtual-plugin"
-install -m 0644 "$source_dir/plugins/virtual-plugin.json" "$incoming/plugins/virtual-plugin.json"
-install -m 0755 "$source_dir/plugins/asicrs-plugin" "$incoming/plugins/asicrs-plugin"
-install -m 0644 "$source_dir/plugins/asicrs-config.yaml" "$incoming/plugins/asicrs-config.yaml"
+as_root rm -rf "$incoming" "$previous"
+as_root install -d -m 0755 "$incoming" "$incoming/plugins"
+as_root install -m 0755 "$source_dir/fleetnode" "$incoming/fleetnode"
+as_root install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
+as_root install -m 0644 "$source_dir/fleet-node.service" "$incoming/fleet-node.service"
+as_root install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"
+as_root install -m 0755 "$source_dir/plugins/antminer-plugin" "$incoming/plugins/antminer-plugin"
+as_root install -m 0755 "$source_dir/plugins/virtual-plugin" "$incoming/plugins/virtual-plugin"
+as_root install -m 0644 "$source_dir/plugins/virtual-plugin.json" "$incoming/plugins/virtual-plugin.json"
+as_root install -m 0755 "$source_dir/plugins/asicrs-plugin" "$incoming/plugins/asicrs-plugin"
+as_root install -m 0644 "$source_dir/plugins/asicrs-config.yaml" "$incoming/plugins/asicrs-config.yaml"
 if [[ "$TEST_MODE" != "1" ]]; then
-  chown -R root:root "$incoming"
+  as_root chown -R root:root "$incoming"
 fi
 if [[ -d "$PROGRAM_DIR" ]]; then
-  mv "$PROGRAM_DIR" "$previous"
+  as_root mv "$PROGRAM_DIR" "$previous"
   previous_saved=1
 fi
-mv "$incoming" "$PROGRAM_DIR"
+as_root mv "$incoming" "$PROGRAM_DIR"
 program_replaced=1
 
 if [[ -f "$UNIT_PATH" ]]; then
-  cp -p "$UNIT_PATH" "$unit_backup"
+  as_root cp -p "$UNIT_PATH" "$unit_backup"
 fi
-install -m 0644 "$PROGRAM_DIR/fleetnode.service" "$UNIT_PATH"
+as_root install -m 0644 "$PROGRAM_DIR/fleet-node.service" "$UNIT_PATH"
 unit_replaced=1
-"$SYSTEMCTL" daemon-reload
+as_root "$SYSTEMCTL" daemon-reload
 
 if [[ "$fresh_install" == "1" ]]; then
-  if "$SYSTEMCTL" is-enabled --quiet fleetnode.service; then
-    "$SYSTEMCTL" disable fleetnode.service
+  if as_root "$SYSTEMCTL" is-enabled --quiet fleet-node.service; then
+    as_root "$SYSTEMCTL" disable fleet-node.service
   fi
 fi
-"$SYSTEMCTL" start fleetnode.service
+as_root "$SYSTEMCTL" start fleet-node.service
 
 install_complete=1
 echo "Fleet Node $VERSION installed."
 echo "Configuration: $CONFIG_DIR"
 echo "Protected state: $STATE_DIR"
-if [[ "$fresh_install" == "1" ]]; then
-  echo "The service was started and remains disabled at boot until enrollment is complete."
-else
-  echo "The service was restarted; its enablement state was preserved."
-fi
 echo
 echo "Enroll:"
 echo "  sudo -u fleetnode $PROGRAM_DIR/fleetnode --state-dir $STATE_DIR enroll --server-url=https://YOUR-FLEET-SERVER"
 echo "Then enable at boot:"
-echo "  sudo systemctl enable fleetnode.service"
+echo "  sudo systemctl enable fleet-node.service"
 echo "Inspect:"
-echo "  systemctl status fleetnode.service"
-echo "  journalctl -u fleetnode.service"
+echo "  systemctl status fleet-node.service"
+echo "  journalctl -u fleet-node.service"
