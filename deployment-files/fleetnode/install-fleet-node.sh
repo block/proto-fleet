@@ -138,8 +138,8 @@ exec 8< <(
   # shellcheck disable=SC2016
   if as_root flock -n "$INSTALL_LOCK_PATH" bash -c '
     printf "%s\n" locked
-    while [[ ! -e "$1" ]]; do sleep 0.1; done
-  ' bash "$INSTALL_LOCK_RELEASE_PATH"; then
+    while [[ ! -e "$1" ]] && kill -0 "$2" 2>/dev/null; do sleep 0.1; done
+  ' bash "$INSTALL_LOCK_RELEASE_PATH" "$$"; then
     :
   else
     printf '%s\n' failed

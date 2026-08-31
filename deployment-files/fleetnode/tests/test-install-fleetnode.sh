@@ -178,6 +178,26 @@ run_installer() {
     bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleet-node.sh") "$version"
 }
 
+start_installer() {
+  local version="$1"
+  local output_path="$2"
+  FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
+  FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
+  FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
+  REAL_FLOCK="${REAL_FLOCK:-}" \
+  SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
+  SUDO_LOG="$SUDO_LOG" \
+  PATH="$TEST_DIR/bin:$PATH" \
+  FLEETNODE_TEST_MODE=1 \
+  FLEETNODE_ROOT_PREFIX="$ROOT_PREFIX" \
+  FLEETNODE_ARCH=amd64 \
+  FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
+  FLEETNODE_DOWNLOAD_BASE_URL="file://$ASSETS_DIR/$version" \
+    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleet-node.sh") "$version" \
+      > "$output_path" 2>&1 &
+  STARTED_INSTALLER_PID=$!
+}
+
 : > "$SYSTEMCTL_LOG"
 : > "$SUDO_LOG"
 mkdir -p "$ROOT_PREFIX/etc/systemd/system"
@@ -249,6 +269,39 @@ if REAL_FLOCK_BINARY=$(command -v flock 2>/dev/null); then
   rm -f "$LOCK_BLOCK"
   wait "$first_installer_pid"
   assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+
+  ORPHAN_READY="$TEST_DIR/orphan-lock.ready"
+  ORPHAN_BLOCK="$TEST_DIR/orphan-lock.block"
+  : > "$ORPHAN_BLOCK"
+  REAL_FLOCK="$REAL_FLOCK_BINARY" \
+    FAKE_FLEETNODE_LOCK_READY="$ORPHAN_READY" \
+    FAKE_FLEETNODE_LOCK_BLOCK="$ORPHAN_BLOCK" \
+    start_installer v1.1.0 "$TEST_DIR/orphaned-installer.log"
+  orphaned_installer_pid=$STARTED_INSTALLER_PID
+
+  for _ in {1..100}; do
+    [[ -e "$ORPHAN_READY" ]] && break
+    sleep 0.05
+  done
+  if [[ ! -e "$ORPHAN_READY" ]]; then
+    rm -f "$ORPHAN_BLOCK"
+    wait "$orphaned_installer_pid" || true
+    fail "installer did not reach the orphaned-lock test barrier"
+  fi
+
+  kill -9 "$orphaned_installer_pid"
+  rm -f "$ORPHAN_BLOCK"
+  wait "$orphaned_installer_pid" 2>/dev/null || true
+
+  lock_released=0
+  for _ in {1..100}; do
+    if REAL_FLOCK="$REAL_FLOCK_BINARY" run_installer v1.1.0 > "$TEST_DIR/orphan-lock-recovery.log" 2>&1; then
+      lock_released=1
+      break
+    fi
+    sleep 0.05
+  done
+  [[ "$lock_released" == "1" ]] || fail "installer lock survived after its parent was killed"
 fi
 
 if run_installer v1.2.0; then
