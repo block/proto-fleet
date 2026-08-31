@@ -16,7 +16,7 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: install-fleetnode.sh VERSION
+Usage: install-fleet-node.sh VERSION
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.

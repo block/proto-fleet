@@ -112,14 +112,14 @@ exec "$@"
 EOF
 chmod 0755 "$TEST_DIR/bin/flock"
 
-if /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" > "$TEST_DIR/missing-version.out" 2>&1; then
+if /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" > "$TEST_DIR/missing-version.out" 2>&1; then
   fail "installer accepted a missing version"
 fi
-assert_file_contains "$TEST_DIR/missing-version.out" "Usage: install-fleetnode.sh VERSION"
-if /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" --version v1.0.0 > "$TEST_DIR/version-flag.out" 2>&1; then
+assert_file_contains "$TEST_DIR/missing-version.out" "Usage: install-fleet-node.sh VERSION"
+if /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" --version v1.0.0 > "$TEST_DIR/version-flag.out" 2>&1; then
   fail "installer accepted --version"
 fi
-assert_file_contains "$TEST_DIR/version-flag.out" "Usage: install-fleetnode.sh VERSION"
+assert_file_contains "$TEST_DIR/version-flag.out" "Usage: install-fleet-node.sh VERSION"
 
 NO_NMAP_BIN="$TEST_DIR/no-nmap-bin"
 mkdir -p "$NO_NMAP_BIN"
@@ -134,22 +134,22 @@ if PATH="$NO_NMAP_BIN" \
   FLEETNODE_ROOT_PREFIX="$ROOT_PREFIX" \
   FLEETNODE_ARCH=amd64 \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
-    /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" v1.0.0 2> "$TEST_DIR/missing-nmap.err"; then
+    /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" v1.0.0 2> "$TEST_DIR/missing-nmap.err"; then
   fail "installer accepted a host without nmap on PATH"
 fi
 assert_file_contains "$TEST_DIR/missing-nmap.err" "required command not found: nmap"
-assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
-assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "PATH=\"\$LINUX_SERVICE_PATH\""
-assert_file_contains "$FLEETNODE_DIR/install-fleetnode.sh" "as_root flock -n \"\$INSTALL_LOCK_PATH\""
-if grep -Fq 'is-active' "$FLEETNODE_DIR/install-fleetnode.sh"; then
+assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
+assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "PATH=\"\$LINUX_SERVICE_PATH\""
+assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "as_root flock -n \"\$INSTALL_LOCK_PATH\""
+if grep -Fq 'is-active' "$FLEETNODE_DIR/install-fleet-node.sh"; then
   fail "installer checks active state before restarting"
 fi
-if grep -Fq 'fleetnode.service' "$FLEETNODE_DIR/install-fleetnode.sh"; then
+if grep -Fq 'fleetnode.service' "$FLEETNODE_DIR/install-fleet-node.sh"; then
   fail "installer contains a migration path for the old systemd unit"
 fi
 
 if FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
-    /bin/bash "$FLEETNODE_DIR/install-fleetnode.sh" v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
+    /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" v1.0.0 2> "$TEST_DIR/systemctl-override.err"; then
   fail "installer accepted a systemctl override outside test mode"
 fi
 assert_file_contains "$TEST_DIR/systemctl-override.err" "installer overrides are restricted to automated tests"
@@ -175,7 +175,7 @@ run_installer() {
   FLEETNODE_ARCH=amd64 \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
   FLEETNODE_DOWNLOAD_BASE_URL="file://$ASSETS_DIR/$version" \
-    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleetnode.sh") "$version"
+    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleet-node.sh") "$version"
 }
 
 : > "$SYSTEMCTL_LOG"
@@ -201,7 +201,7 @@ fi
 assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 assert_file_contains "$SUDO_LOG" "$TEST_DIR/bin/systemctl start fleet-node.service"
-if grep -Fq 'install-fleetnode.sh' "$SUDO_LOG"; then
+if grep -Fq 'install-fleet-node.sh' "$SUDO_LOG"; then
   fail "installer asked sudo to rerun the whole script"
 fi
 
@@ -267,7 +267,7 @@ if FLEETNODE_TEST_MODE=1 \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
   SUDO_LOG="$SUDO_LOG" \
   PATH="$TEST_DIR/bin:$PATH" \
-    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleetnode.sh") v1.1.0 2> "$TEST_DIR/bad-checksum.err"; then
+    bash <(curl --disable --fail --silent --show-error "file://$FLEETNODE_DIR/install-fleet-node.sh") v1.1.0 2> "$TEST_DIR/bad-checksum.err"; then
   fail "installer accepted a checksum mismatch"
 fi
 assert_file_contains "$TEST_DIR/bad-checksum.err" "checksum sidecar is not bound"

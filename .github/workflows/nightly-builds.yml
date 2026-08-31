@@ -232,7 +232,7 @@ jobs:
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
             ./deployment-files/install.sh \
-            ./deployment-files/fleetnode/install-fleetnode.sh \
+            ./deployment-files/fleetnode/install-fleet-node.sh \
             ./deployment-files/uninstall.sh \
             --draft \
             --notes-file /tmp/nightly-release-notes.md \
@@ -255,7 +255,7 @@ jobs:
             /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
             /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
             ./deployment-files/install.sh \
-            ./deployment-files/fleetnode/install-fleetnode.sh \
+            ./deployment-files/fleetnode/install-fleet-node.sh \
             ./deployment-files/uninstall.sh \
             --clobber
 
@@ -336,5 +336,5 @@ jobs:
             echo "- \`installer.exe\`"
             echo "- \`uninstall.exe\`"
             echo "- \`install.sh\`"
-            echo "- \`install-fleetnode.sh\`"
+            echo "- \`install-fleet-node.sh\`"
           } >> "$GITHUB_STEP_SUMMARY"
