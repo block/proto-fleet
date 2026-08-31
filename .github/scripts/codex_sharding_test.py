@@ -85,6 +85,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
             "primary_shard": "shard-1",
             "diff_bytes": 100,
             "diff_lines": 4,
+            "changed_line_ranges": [[1, 4]],
         }
     ]
     if active_second:
@@ -97,6 +98,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
                 "primary_shard": "shard-2",
                 "diff_bytes": 100,
                 "diff_lines": 4,
+                "changed_line_ranges": [[1, 4]],
             }
         )
     manifest = {
@@ -116,6 +118,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
             "max_packets": 2,
             "max_packet_bytes": 500_000,
             "max_packet_lines": 12_500,
+            "max_semantic_units": 750,
         },
         "files": files,
         "shards": shards,
@@ -273,6 +276,19 @@ class PlannerTest(unittest.TestCase):
         plan = planner.plan_files(files)
         self.assertEqual(plan["status"], "oversized")
 
+    def test_semantic_unit_safety_limit_fails_closed_without_recursion(self):
+        files = [
+            file_diff(f"server/package{index}/file.go", 1, 1)
+            for index in range(planner.MAX_SEMANTIC_UNITS + 1)
+        ]
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "oversized")
+        self.assertTrue(
+            any(
+                "planner safety limit" in reason for reason in plan["oversized_reasons"]
+            )
+        )
+
     def test_replicated_shared_context_is_bounded(self):
         plan = planner.plan_files(
             [
@@ -382,6 +398,15 @@ class PlannerTest(unittest.TestCase):
             self.assertIn(b"rename to server/a/new.go", patch)
             self.assertIn(b"+var A = 1", patch)
             self.assertNotIn(b"--- /dev/null", patch)
+            file_record = next(
+                file for file in manifest["files"] if file["path"] == "server/a/new.go"
+            )
+            self.assertTrue(
+                any(
+                    start <= 2 <= end
+                    for start, end in file_record["changed_line_ranges"]
+                )
+            )
 
 
 class PromptTest(unittest.TestCase):
@@ -545,6 +570,36 @@ class ResultTest(unittest.TestCase):
             ("incomplete", "oversized-review"),
         )
         self.assertEqual(second["status"], "inactive")
+
+    def test_severity_less_finding_heading_is_rejected(self):
+        markdown = (
+            "## Review Summary\n\n"
+            "**Overall Risk**: NONE\n\n"
+            "### Findings\n\n"
+            "#### Missing severity\n"
+            "- **Category**: Reliability\n"
+            "- **Location**: [`server/a/a.go:1`](https://example.test/a#L1)\n"
+            "- **Description**: Description.\n"
+            "- **Impact**: Impact.\n"
+            "- **Recommendation**: Recommendation.\n\n"
+            "### Notes\n\nNote.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "invalid finding heading"):
+            writer.validate_review_markdown(markdown, "NONE")
+
+    def test_finding_outside_changed_hunk_becomes_invalid_output(self):
+        manifest = signed_manifest(active_second=False)
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
+        review["review_markdown"] = (
+            review["review_markdown"]
+            .replace("a.go:1", "a.go:999999")
+            .replace("a.go#L1", "a.go#L999999")
+        )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "invalid-model-output")
 
     def test_finding_outside_shard_packet_becomes_invalid_output(self):
         manifest = signed_manifest(active_second=False)

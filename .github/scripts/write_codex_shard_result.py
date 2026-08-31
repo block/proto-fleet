@@ -19,7 +19,7 @@ def validate_review_markdown(
     markdown: str,
     risk: str,
     *,
-    allowed_paths: set[str] | None = None,
+    allowed_line_ranges: dict[str, list[list[int]]] | None = None,
     blob_base_url: str | None = None,
 ) -> None:
     section_names = ("## Review Summary", "### Findings", "### Notes")
@@ -64,6 +64,14 @@ def validate_review_markdown(
         raise ValueError(
             "review Markdown contains a finding outside the Findings section"
         )
+    findings_section = markdown[findings_start:notes_start]
+    section_headings = re.findall(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+\S.*$", findings_section)
+    if any(
+        re.fullmatch(r"#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+", heading)
+        is None
+        for heading in section_headings[1:]
+    ):
+        raise ValueError("review Markdown contains an invalid finding heading")
     if risk == "NONE" and exact_findings:
         raise ValueError("NONE review Markdown must not contain findings")
     if risk != "NONE" and not exact_findings:
@@ -85,16 +93,22 @@ def validate_review_markdown(
         block = markdown[finding.start() : end]
         if not all(re.search(pattern, block) for pattern in required_fields):
             raise ValueError("review Markdown finding is missing required fields")
-        if allowed_paths is not None:
+        if allowed_line_ranges is not None:
             location = re.search(
                 r"(?m)^- \*\*Location\*\*: \[`(.+):([1-9][0-9]*)`\]\(([^)\n]+)\)[ \t]*$",
                 block,
             )
             if location is None:
                 raise ValueError("review Markdown finding has an invalid location")
-            path, line, url = location.groups()
-            if path not in allowed_paths:
+            path, line_text, url = location.groups()
+            line = int(line_text)
+            ranges = allowed_line_ranges.get(path)
+            if ranges is None:
                 raise ValueError("review Markdown finding is outside the shard packet")
+            if not any(start <= line <= end for start, end in ranges):
+                raise ValueError(
+                    "review Markdown finding is outside changed hunk lines"
+                )
             if blob_base_url is not None:
                 expected_url = f"{blob_base_url}/{quote(path, safe='/')}#L{line}"
                 if url != expected_url:
@@ -107,7 +121,7 @@ def validate_review_markdown(
 
 def parse_review(
     raw: str,
-    allowed_paths: set[str],
+    allowed_line_ranges: dict[str, list[list[int]]],
     blob_base_url: str | None,
 ) -> tuple[dict[str, str] | None, str | None]:
     if not raw.strip():
@@ -128,7 +142,7 @@ def parse_review(
         validate_review_markdown(
             candidate["review_markdown"],
             candidate["overall_risk"],
-            allowed_paths=allowed_paths,
+            allowed_line_ranges=allowed_line_ranges,
             blob_base_url=blob_base_url,
         )
     except ValueError:
@@ -168,11 +182,13 @@ def build_result(
             if repository
             else None
         )
-        review, reason = parse_review(
-            raw,
-            set(shard["primary_files"] + shard["shared_files"]),
-            blob_base_url,
-        )
+        packet_paths = set(shard["primary_files"] + shard["shared_files"])
+        allowed_line_ranges = {
+            file["path"]: file["changed_line_ranges"]
+            for file in manifest["files"]
+            if file["path"] in packet_paths
+        }
+        review, reason = parse_review(raw, allowed_line_ranges, blob_base_url)
         status = "completed" if review else "incomplete"
 
     result = {

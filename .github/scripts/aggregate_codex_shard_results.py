@@ -54,6 +54,20 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         file.get("primary_shard") != owner_map[file["path"]] for file in file_records
     ):
         raise ValueError("manifest file ownership metadata is inconsistent")
+    if any(
+        not isinstance(file.get("changed_line_ranges"), list)
+        or not file["changed_line_ranges"]
+        or any(
+            not isinstance(item, list)
+            or len(item) != 2
+            or not all(isinstance(value, int) for value in item)
+            or item[0] < 1
+            or item[1] < item[0]
+            for item in file["changed_line_ranges"]
+        )
+        for file in file_records
+    ):
+        raise ValueError("manifest changed-line ranges are invalid")
 
 
 def validate_result(
@@ -105,10 +119,16 @@ def validate_result(
             if repository
             else None
         )
+        packet_paths = set(shard["primary_files"] + shard["shared_files"])
+        allowed_line_ranges = {
+            file["path"]: file["changed_line_ranges"]
+            for file in manifest["files"]
+            if file["path"] in packet_paths
+        }
         validate_review_markdown(
             markdown,
             risk,
-            allowed_paths=set(shard["primary_files"] + shard["shared_files"]),
+            allowed_line_ranges=allowed_line_ranges,
             blob_base_url=blob_base_url,
         )
     elif status == "incomplete":

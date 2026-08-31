@@ -15,6 +15,7 @@ from typing import Any
 
 MAX_PACKET_BYTES = 500_000
 MAX_PACKET_LINES = 12_500
+MAX_SEMANTIC_UNITS = 750
 SHARD_IDS = ("shard-1", "shard-2")
 
 
@@ -33,6 +34,21 @@ class FileDiff:
     @property
     def lines(self) -> int:
         return len(self.patch.splitlines())
+
+    @property
+    def changed_line_ranges(self) -> list[list[int]]:
+        ranges = []
+        for match in re.finditer(
+            rb"(?m)^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@",
+            self.patch,
+        ):
+            start = int(match.group(1))
+            count = int(match.group(2)) if match.group(2) is not None else 1
+            # A deletion-only hunk has no new-side lines; bind it to the nearest
+            # surviving line so a model cannot cite an arbitrary file location.
+            end = start + max(count, 1) - 1
+            ranges.append([max(start, 1), max(end, 1)])
+        return ranges or [[1, 1]]
 
 
 @dataclass(frozen=True)
@@ -286,6 +302,11 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
 
     if shared_bytes > MAX_PACKET_BYTES or shared_lines > MAX_PACKET_LINES:
         reasons.append("replicated shared context exceeds a packet limit")
+    if len(primary_units) > MAX_SEMANTIC_UNITS:
+        reasons.append(
+            f"semantic unit count {len(primary_units)} exceeds planner safety limit "
+            f"{MAX_SEMANTIC_UNITS}"
+        )
 
     bins = find_bounded_assignment(primary_units, shared_files) if not reasons else None
     if bins is None:
@@ -344,6 +365,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
             "primary_shard": owners[file.path],
             "diff_bytes": file.bytes,
             "diff_lines": file.lines,
+            "changed_line_ranges": file.changed_line_ranges,
         }
         for file in sorted(files, key=lambda item: item.path)
     ]
@@ -354,6 +376,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
             "max_packets": 2,
             "max_packet_bytes": MAX_PACKET_BYTES,
             "max_packet_lines": MAX_PACKET_LINES,
+            "max_semantic_units": MAX_SEMANTIC_UNITS,
         },
         "files": file_records,
         "shards": shard_records,
