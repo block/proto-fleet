@@ -1,9 +1,9 @@
 ---
 title: "Sharded Codex security review"
 date: 2026-08-27
-status: draft
+status: accepted
 type: tdd
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/980
 ---
 
 # Sharded Codex security review
@@ -17,9 +17,8 @@ cases completed; the other 50 exhausted the 12-minute outer budget. Compact
 context downgraded a known `HIGH` in two of three trials, `medium` effort
 recalled only one of four expected `MEDIUM` findings in completed reviews and
 produced an invalid new `HIGH`, and the bounded prompt also downgraded the known
-`HIGH`. Production
-therefore remains on `unified=40`,
-`xhigh`, and the baseline prompt.
+`HIGH`. Production therefore remains on `unified=40`, `xhigh`, and the baseline
+prompt.
 
 The existing reviewer has one model process inspect the full exact diff and any
 unchanged files it chooses. Large cross-component changes can therefore consume
@@ -59,18 +58,20 @@ match wins, so ownership is deterministic and mutually exclusive:
 | Precedence | Domain | Primary paths |
 | ---: | --- | --- |
 | 1 | Delivery and repository infrastructure | `.github/`, `deployment-files/`, `docs/`, `scripts/`, `server/monitoring/`, every `Dockerfile*` and Compose file, and root-level tooling/configuration |
-| 2 | Contracts and persistence | `proto/`, `server/migrations/`, `server/sqlc/`, `server/generated/sqlc/`, generated protobuf files, and generated API boundaries |
+| 2 | Contracts and persistence | `proto/`, `server/migrations/`, `server/sqlc/`, `server/generated/sqlc/`, `server/sdk/v1/pb/`, generated protobuf files, and generated API boundaries |
 | 3 | ProtoFleet | `client/src/protoFleet/` |
 | 4 | ProtoOS | `client/src/protoOS/` |
 | 5 | Shared client contracts | Remaining `client/`, including `client/src/shared/`; replicated as context to every affected client-app shard |
-| 6 | ASIC-RS | `plugin/asicrs/` |
-| 7 | Go/Python plugins | Remaining `plugin/` and plugin-generator packages |
-| 8 | Server | Remaining `server/` |
-| 9 | Cross-cutting | Every remaining path |
+| 6 | Rust plugin SDK | `sdk/rust/`; replicated to affected ASIC-RS shards |
+| 7 | ASIC-RS | `plugin/asicrs/` |
+| 8 | Go/Python plugins | Remaining `plugin/` and plugin-generator packages |
+| 9 | Server | Remaining `server/` |
+| 10 | Cross-cutting | Every remaining path |
 
 The planner is path-based, versioned on the trusted default branch, and emits a
-machine-readable manifest containing the exact base/head SHAs, every changed
-file, its owning shard, and shared-contract membership. The final cross-cutting
+machine-readable manifest containing the exact base/head SHAs, computed
+three-dot merge-base SHA, every changed file, its owning shard, and
+shared-contract membership. The final cross-cutting
 rule ensures unknown paths are reviewed rather than dropped.
 
 Within each domain, the planner forms indivisible semantic units: Go packages,
@@ -82,25 +83,31 @@ replicated context. Domains do not receive separate packet allowances. Each of
 the two review-wide packets has both of these hard limits:
 
 - 500,000 bytes per complete packet.
-- 8,000 lines per complete packet.
+- 12,500 lines per complete packet.
 
-These initial limits are benchmark hypotheses. They split the known 812,319-byte,
-13,926-line PR #956 control into two possible packets while keeping the entire
-review in one parallel wave. If one semantic unit exceeds either limit, shared
+These initial limits are benchmark hypotheses. A planner dry run showed that PR
+#956 contains one indivisible 12,173-line lockfile unit. The line limit admits
+that unit, while the 500,000-byte limit still splits the known 812,319-byte,
+13,926-line control into two packets and keeps the entire review in one parallel
+wave. If one semantic unit exceeds either limit, shared
 context makes a packet exceed a limit, or the review-wide pool requires more
 than two bounded packets, the planner does not launch an unbounded model job. It
-emits a validated `oversized-review` incomplete result that requires human
-review and records the limiting units and packet measurements.
+also fails closed above 750 semantic units or 2,000 explored partition states,
+so pathological packing cannot exhaust the trusted planner job. These cases emit
+a validated `oversized-review` incomplete result that requires human review and
+records the limiting units, safety bound, and packet measurements.
 
 ### Shared review context
 
 Each shard receives:
 
-1. The complete changed-file manifest and per-file diff statistics.
+1. The complete changed-file manifest, per-file diff statistics, actual added-line
+   ranges, and merge-base-side deleted-line ranges for whole-file deletions.
 2. The `unified=40` diff for files owned by that shard.
 3. Changed shared contracts relevant to that shard, even when another shard
    owns them. Shared inputs include protobuf definitions, migrations and sqlc
-   interfaces, API types, deployment schemas, and root build/runtime contracts.
+   interfaces, API types, deployment schemas, root build/runtime contracts, and
+   the canonical plugin proto plus Rust SDK required by ASIC-RS.
 4. The production model, security boundary, output schema, read-only sandbox,
    and common review guidance.
 5. A trusted shard-scope prompt stanza stating that the packet is the complete
@@ -113,17 +120,36 @@ The packet records primary and shared files separately so duplicated contract
 context cannot be mistaken for duplicate review ownership. Every changed file
 must appear as primary in exactly one shard. The finalizer rejects manifests
 with missing, multiply owned, stale-SHA, or out-of-range files and remeasures
-each complete packet against both hard size limits.
+each complete packet against both hard size limits. Finding locations must cite
+a primary-owned changed file, never replicated shared context directly, and an
+actual added line in the head revision; hunkless metadata, binary, and empty-file
+changes expose no valid finding location. Deletion-only hunks in surviving files
+use a documented nearest-surviving-line anchor, while whole-file deletions and
+truncations to empty cite their actual removed lines in the exact three-dot
+merge-base revision.
 
 ### Bounded shard execution
 
 Run shard reviewers as one matrix wave with `max-parallel: 2`. Because the
 planner emits no more than two packets for the whole review, no second model
-wave can extend the deadline. The benchmark should start with a six-minute model
-budget per shard and reserve the existing five-minute Actions
-cancellation-cleanup allowance. Production timing is chosen only after
-benchmark evidence; it must keep the single parallel wave, trusted aggregation,
-and artifact upload inside the current 15-minute end-to-end target.
+wave can extend the deadline. A trusted preparation job with no model secret
+builds each packet and a compressed exact-head worktree. It excludes all Git
+metadata, extra refs, and the benchmark corpus before handing the archive,
+manifest, packet, and rendered prompt to the model job, so the model cannot
+recover omitted hunks or adjudication labels.
+
+Each isolated model job has an enforceable six-minute outer timeout; full
+repository history needed for the exact three-dot merge base exists only in the
+secretless preparation job. The pinned
+composite action remains byte-for-byte aligned with the baseline action contract,
+but cannot consume model API time beyond the model-only job boundary even though
+it ignores caller-step timeout. A separate trusted finalizer runs after GitHub
+cancellation cleanup. It accepts timeout evidence only when every model-job
+prerequisite succeeded and the Codex step itself was still cancelled or in
+progress; cancellation after successful model completion is an automation
+failure. Production timing is chosen only after benchmark evidence; completed
+runs must keep the single parallel wave, trusted aggregation, and artifact upload
+inside the current 15-minute end-to-end target.
 
 Each shard emits the existing structured risk and Markdown contract plus trusted
 metadata identifying its shard, exact range, primary files, shared files, run
@@ -153,6 +179,9 @@ code from the reviewed checkout. It:
   only by a documented deterministic fingerprint.
 - Emits the existing production artifact and comment contract so review policy
   continues to consume one trusted result.
+- Uploads incomplete evidence before failing the case, ensuring any timeout,
+  invalid output, or `oversized-review` makes the reusable case and parent corpus
+  roll-up fail rather than appearing as a green 6/6 run.
 
 No shard may post directly to a pull request. Only the aggregator posts after
 revalidating that the PR head is current.
@@ -210,7 +239,7 @@ revalidating that the PR head is current.
 | Findings are duplicated | Preserve them by default; allow only exact deterministic fingerprint deduplication |
 | One shard timeout is masked | Any validated incomplete shard forces an aggregate `HIGH` human-review result |
 | Trusted handoff failure looks like model incompletion | Hard-fail missing, corrupt, stale, cross-run, or malformed artifacts; accept only validated incomplete evidence |
-| One semantic unit exceeds the packet bound | Skip the model and emit a measured `oversized-review` human-review result instead of running unbounded |
+| One semantic unit or planner search exceeds a safety bound | Skip the model and emit a measured `oversized-review` human-review result instead of running unbounded |
 | Path rules overlap or silently omit files | Apply first-match precedence, require exact one-to-one primary ownership, and route unmatched paths to a cross-cutting shard |
 | Matrix output is mixed across runs | Bind every shard artifact to run ID, shard ID, exact base/head SHAs, and manifest digest |
 | Aggregation executes untrusted code | Use inline trusted default-branch logic without a PR checkout |
@@ -223,14 +252,16 @@ revalidating that the PR head is current.
   grouping, deterministic packing, shared-contract replication, and exact
   one-to-one changed-file coverage.
 - Test both packet limits at, below, and above the boundary, including a single
-  oversized unit, replicated context overflow, and a change requiring more than
-  two packets.
+  oversized unit, replicated context overflow, a bounded partition-state search,
+  and a change requiring more than two packets. Validate added-line-only ranges,
+  deletion anchors, and merge-base-revision links for whole-file deletions.
 - Assert byte-identical model, security boundary, schema, common review guidance,
   sandbox, and shard-scope prompt stanza between production and benchmark shard
   jobs. Test that the stanza identifies primary/shared scope and prohibits
   regenerating the full PR diff.
-- Test aggregate severity, stable ordering, exact deduplication, and validated
-  timeout/oversized `HIGH` behavior. Separately prove missing, corrupt,
+- Test aggregate severity, closed finding categories, stable ordering, exact
+  deduplication, and validated timeout/oversized `HIGH` behavior with measured
+  elapsed time. Separately prove missing, corrupt,
   malformed, stale, and cross-run artifacts hard-fail the workflow.
 - Mock Actions APIs to distinguish verified budget timeout from setup, manual,
   infrastructure, and supersession cancellation.

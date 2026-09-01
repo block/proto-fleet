@@ -234,6 +234,7 @@ const github = {
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
         "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
+        "SHARD_JOB_ID": str(scenario.get("shard_job_id", 456)),
         "RESULT_ARTIFACT_NAME": "benchmark-result-test",
     }
     completed = subprocess.run(
@@ -256,8 +257,11 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("review-policy-tests", jobs)
         self.assertIn("review-policy-tests", jobs["gate"]["needs"])
         self.assertEqual(
-            jobs["review-policy-tests"]["steps"][1]["run"],
-            "python3 .github/scripts/evaluate_review_policy_test.py",
+            jobs["review-policy-tests"]["steps"][1]["run"].splitlines(),
+            [
+                "python3 .github/scripts/evaluate_review_policy_test.py",
+                "python3 .github/scripts/codex_sharding_test.py",
+            ],
         )
 
     def test_codex_security_review_is_bounded_and_fail_closed(self):
@@ -583,7 +587,14 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(
             workflow_triggers(workflow),
-            {"repository_dispatch": {"types": ["codex-security-review-benchmark"]}},
+            {
+                "repository_dispatch": {
+                    "types": [
+                        "codex-security-review-benchmark",
+                        "codex-security-review-sharded-benchmark",
+                    ]
+                }
+            },
         )
         self.assertNotIn("workflow_dispatch:", workflow_text)
         self.assertNotIn("${{ inputs", workflow_text)
@@ -670,7 +681,7 @@ class ReviewPolicyTest(unittest.TestCase):
             case["id"] for case in corpus["cases"] if case["corpus"] == "large-pr"
         ]
 
-        def select(corpus_name, variant_name):
+        def select(corpus_name, variant_name, review_mode="unsharded"):
             with tempfile.TemporaryDirectory() as tmp:
                 target = Path(tmp) / ".github" / BENCHMARK_CORPUS_PATH.name
                 target.parent.mkdir()
@@ -680,6 +691,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 result = run_python_heredoc(
                     body,
                     {
+                        "REVIEW_MODE": review_mode,
                         "CORPUS": corpus_name,
                         "CONTEXT_VARIANT": variant_name,
                         "REASONING_EFFORT": "xhigh",
@@ -717,6 +729,18 @@ class ReviewPolicyTest(unittest.TestCase):
         result, emitted = select("adjudicated", "does-not-exist")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does-not-exist", result.stderr)
+        self.assertEqual(emitted, "")
+
+        result, emitted = select("adjudicated", "unified-40", "sharded")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
+        include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual(len(include), len(adjudicated))
+        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
+
+        result, emitted = select("adjudicated", "compact", "sharded")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("compact", result.stderr)
         self.assertEqual(emitted, "")
 
     def test_codex_review_workflows_share_bounded_review_configuration(self):

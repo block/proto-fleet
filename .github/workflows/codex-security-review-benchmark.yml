@@ -5,7 +5,9 @@ name: Codex Security Review Benchmark
 # workflow while receiving the repository's benchmark API key.
 on:
   repository_dispatch:
-    types: [codex-security-review-benchmark]
+    types:
+      - codex-security-review-benchmark
+      - codex-security-review-sharded-benchmark
 
 permissions:
   actions: read
@@ -16,9 +18,12 @@ concurrency:
   # instead of paying twice, while distinct repeats and corpora still run in parallel.
   group: >-
     codex-security-review-benchmark-${{
+      github.event.action
+    }}-${{
       github.event.client_payload.corpus || 'adjudicated'
     }}-${{
-      github.event.client_payload['context-variant'] || 'all'
+      github.event.client_payload['context-variant'] ||
+      (github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all')
     }}-${{
       github.event.client_payload['reasoning-effort'] || 'xhigh'
     }}-${{
@@ -50,8 +55,9 @@ jobs:
       - name: Select benchmark cases and context variants
         id: select
         env:
+          REVIEW_MODE: ${{ github.event.action == 'codex-security-review-sharded-benchmark' && 'sharded' || 'unsharded' }}
           CORPUS: ${{ github.event.client_payload.corpus || 'adjudicated' }}
-          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || 'all' }}
+          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || (github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all') }}
           REASONING_EFFORT: ${{ github.event.client_payload['reasoning-effort'] || 'xhigh' }}
           PROMPT_PROFILE: ${{ github.event.client_payload['prompt-profile'] || 'baseline' }}
           REPEAT: ${{ github.event.client_payload.repeat || 'initial' }}
@@ -61,18 +67,28 @@ jobs:
           import os
           from pathlib import Path
 
+          review_mode = os.environ["REVIEW_MODE"]
           corpus_name = os.environ["CORPUS"]
           variant_name = os.environ["CONTEXT_VARIANT"]
           reasoning_effort = os.environ["REASONING_EFFORT"]
           prompt_profile = os.environ["PROMPT_PROFILE"]
           repeat = os.environ["REPEAT"]
-          allowed = {
-              "corpus": ({"adjudicated", "large-pr"}, corpus_name),
-              "context-variant": ({"all", "unified-40", "unified-10", "compact"}, variant_name),
-              "reasoning-effort": ({"xhigh", "high", "medium"}, reasoning_effort),
-              "prompt-profile": ({"baseline", "bounded"}, prompt_profile),
-              "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
-          }
+          if review_mode == "sharded":
+              allowed = {
+                  "corpus": ({"adjudicated", "large-pr"}, corpus_name),
+                  "context-variant": ({"unified-40"}, variant_name),
+                  "reasoning-effort": ({"xhigh"}, reasoning_effort),
+                  "prompt-profile": ({"baseline"}, prompt_profile),
+                  "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
+              }
+          else:
+              allowed = {
+                  "corpus": ({"adjudicated", "large-pr"}, corpus_name),
+                  "context-variant": ({"all", "unified-40", "unified-10", "compact"}, variant_name),
+                  "reasoning-effort": ({"xhigh", "high", "medium"}, reasoning_effort),
+                  "prompt-profile": ({"baseline", "bounded"}, prompt_profile),
+                  "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
+              }
           for name, (choices, value) in allowed.items():
               if value not in choices:
                   raise SystemExit(f"Invalid benchmark {name} {value!r}; expected one of {sorted(choices)}")
@@ -107,9 +123,29 @@ jobs:
               print(f"selected {entry['case']['id']} / {entry['variant']['id']}")
           PY
 
+  sharded-benchmark-case:
+    name: Sharded ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
+    needs: select-cases
+    if: ${{ github.event.action == 'codex-security-review-sharded-benchmark' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.select-cases.outputs.matrix) }}
+    uses: ./.github/workflows/codex-security-review-sharded-benchmark-case.yml
+    with:
+      case-id: ${{ matrix.case.id }}
+      base-sha: ${{ matrix.case.base }}
+      head-sha: ${{ matrix.case.head }}
+      variant-json: ${{ toJSON(matrix.variant) }}
+      reasoning-effort: ${{ needs.select-cases.outputs.reasoning_effort }}
+      prompt-profile: ${{ needs.select-cases.outputs.prompt_profile }}
+      repeat: ${{ needs.select-cases.outputs.repeat }}
+    secrets: inherit
+
   benchmark-review:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
+    if: ${{ github.event.action == 'codex-security-review-benchmark' }}
     runs-on: ubuntu-latest
     # The composite action ignored its caller step timeout in production, so the
     # matrix job itself is the enforceable model budget. A separate matrix finalizer
@@ -511,7 +547,7 @@ jobs:
   benchmark-finalize:
     name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: [select-cases, benchmark-review]
-    if: ${{ always() && needs.select-cases.result == 'success' }}
+    if: ${{ always() && github.event.action == 'codex-security-review-benchmark' && needs.select-cases.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
