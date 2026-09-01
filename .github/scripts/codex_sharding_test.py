@@ -180,6 +180,59 @@ def completed_result(manifest: dict, shard_id: str, risk: str = "NONE") -> dict:
 
 
 class PlannerTest(unittest.TestCase):
+    def test_changed_ranges_include_only_added_lines(self):
+        patch = b"""diff --git a/server/a.go b/server/a.go
+--- a/server/a.go
++++ b/server/a.go
+@@ -10,4 +10,5 @@
+ context
+-old
++replacement
+ context
++separate
+"""
+        diff = planner.FileDiff(
+            "server/a.go",
+            "server",
+            "primary:server:server",
+            False,
+            patch,
+        )
+        self.assertEqual(diff.changed_line_ranges, [[11, 11], [13, 13]])
+        self.assertFalse(
+            any(start <= 10 <= end for start, end in diff.changed_line_ranges)
+        )
+        self.assertFalse(
+            any(start <= 12 <= end for start, end in diff.changed_line_ranges)
+        )
+
+    def test_deletion_only_hunk_uses_nearest_surviving_line(self):
+        patch = b"""diff --git a/server/a.go b/server/a.go
+--- a/server/a.go
++++ b/server/a.go
+@@ -10,3 +10,2 @@
+ context before
+-deleted
+ context after
+"""
+        diff = planner.FileDiff(
+            "server/a.go",
+            "server",
+            "primary:server:server",
+            False,
+            patch,
+        )
+        self.assertEqual(diff.changed_line_ranges, [[11, 11]])
+
+        no_surviving_lines = planner.FileDiff(
+            "server/deleted.go",
+            "server",
+            "primary:server:server",
+            False,
+            b"@@ -1 +0,0 @@\n-deleted\n",
+        )
+        self.assertEqual(no_surviving_lines.changed_line_ranges, [[1, 1]])
+
     def test_path_ownership_is_first_match_and_disjoint(self):
         cases = {
             "server/monitoring/grafana/rule.yml": "delivery",

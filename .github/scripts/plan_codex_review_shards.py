@@ -17,6 +17,21 @@ MAX_PACKET_BYTES = 500_000
 MAX_PACKET_LINES = 12_500
 MAX_SEMANTIC_UNITS = 750
 SHARD_IDS = ("shard-1", "shard-2")
+HUNK_HEADER = re.compile(rb"^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@")
+
+
+def _collapse_line_numbers(lines: list[int]) -> list[list[int]]:
+    if not lines:
+        return []
+    ranges = []
+    start = previous = lines[0]
+    for line in lines[1:]:
+        if line != previous + 1:
+            ranges.append([start, previous])
+            start = line
+        previous = line
+    ranges.append([start, previous])
+    return ranges
 
 
 @dataclass(frozen=True)
@@ -38,16 +53,51 @@ class FileDiff:
     @property
     def changed_line_ranges(self) -> list[list[int]]:
         ranges = []
-        for match in re.finditer(
-            rb"(?m)^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@",
-            self.patch,
-        ):
-            start = int(match.group(1))
-            count = int(match.group(2)) if match.group(2) is not None else 1
-            # A deletion-only hunk has no new-side lines; bind it to the nearest
-            # surviving line so a model cannot cite an arbitrary file location.
-            end = start + max(count, 1) - 1
-            ranges.append([max(start, 1), max(end, 1)])
+        added_lines: list[int] = []
+        deletion_anchor: int | None = None
+        hunk_start: int | None = None
+        hunk_end: int | None = None
+        new_line: int | None = None
+
+        def finish_hunk() -> None:
+            if added_lines:
+                ranges.extend(_collapse_line_numbers(added_lines))
+            elif deletion_anchor is not None:
+                # A deleted line cannot be linked in the head revision. Anchor a
+                # deletion-only hunk to its nearest surviving new-side line, or
+                # line 1 when the file has no surviving lines.
+                anchor = max(deletion_anchor, 1)
+                ranges.append([anchor, anchor])
+
+        for line in self.patch.splitlines():
+            if match := HUNK_HEADER.match(line):
+                finish_hunk()
+                added_lines = []
+                deletion_anchor = None
+                hunk_start = int(match.group(1))
+                count = int(match.group(2)) if match.group(2) is not None else 1
+                hunk_end = hunk_start + count - 1 if count else None
+                new_line = hunk_start
+                continue
+            if new_line is None:
+                continue
+            if line.startswith(b"+"):
+                added_lines.append(max(new_line, 1))
+                new_line += 1
+            elif line.startswith(b"-"):
+                if deletion_anchor is None:
+                    deletion_anchor = (
+                        min(max(new_line, hunk_start), hunk_end)
+                        if hunk_end is not None
+                        else max(hunk_start, 1)
+                    )
+                continue
+            elif line.startswith(b" "):
+                new_line += 1
+            elif not line.startswith(b"\\ No newline at end of file"):
+                new_line = None
+
+        finish_hunk()
         return ranges or [[1, 1]]
 
 
