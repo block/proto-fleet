@@ -15,7 +15,7 @@ ExecStart=/usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/s
 Restart=on-failure
 RestartSec=5s
 RestartPreventExitStatus=78
-TimeoutStartSec=120s
+TimeoutStartSec=180s
 TimeoutStopSec=90s
 NoNewPrivileges=true
 PrivateTmp=true

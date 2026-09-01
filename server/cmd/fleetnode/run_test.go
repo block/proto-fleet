@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -207,6 +208,38 @@ func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {
 
 	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
 	assert.True(t, notified, "Fleet Server unavailability must not block local readiness")
+}
+
+func TestRunCmd_StateLockErrorClassification(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not use the filesystem state lock")
+	}
+
+	t.Run("lock preparation error requires operator action", func(t *testing.T) {
+		realStateDir := t.TempDir()
+		freshState(t, realStateDir, time.Now().Add(24*time.Hour))
+		stateDir := filepath.Join(t.TempDir(), "state")
+		require.NoError(t, os.Symlink(realStateDir, stateDir))
+
+		err := (&RunCmd{}).run(&Context{StateDir: stateDir}, &bytes.Buffer{})
+
+		require.Error(t, err)
+		requireOperatorActionExit(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
+
+	t.Run("callback error keeps its original classification", func(t *testing.T) {
+		stateDir := t.TempDir()
+		freshState(t, stateDir, time.Now().Add(24*time.Hour))
+		notifyErr := errors.New("notify failed")
+		cmd := &RunCmd{notifyReady: func() error { return notifyErr }}
+
+		err := cmd.run(&Context{StateDir: stateDir}, &bytes.Buffer{})
+
+		require.ErrorIs(t, err, notifyErr)
+		var exitCoder interface{ ExitCode() int }
+		assert.False(t, errors.As(err, &exitCoder), "callback errors must not inherit lock-error classification")
+	})
 }
 
 func TestRunCmd_ControlWorkerShutdownWaitIsBounded(t *testing.T) {

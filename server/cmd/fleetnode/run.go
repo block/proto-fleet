@@ -141,9 +141,14 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	// concurrent enroll/refresh that rewrites state.yaml while we wait for the lock
 	// can't leave the discoverer scoped to a stale fleet_node_id.
 	logger.Info("acquiring state lock", "state_dir", c.StateDir)
-	return bootstrap.WithStateLock(c.StateDir, func() error {
-		return r.runLocked(ctx, c, resolvedPluginsDir, logger)
-	})
+	var runErr error
+	if err := bootstrap.WithStateLock(c.StateDir, func() error {
+		runErr = r.runLocked(ctx, c, resolvedPluginsDir, logger)
+		return nil
+	}); err != nil {
+		return operatorActionRequired(err)
+	}
+	return runErr
 }
 
 func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir string, logger *slog.Logger) error {
