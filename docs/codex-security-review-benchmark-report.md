@@ -223,7 +223,7 @@ cancellation cleanup.
 | No invalid `HIGH` on completed clean controls | Passed; every completed PR #944 and PR #956 control returned `NONE` |
 | New medium-or-higher findings are valid | Failed: medium effort produced an invalid `HIGH` on PR #948, and Terra produced an invalid `MEDIUM` on PR #953 |
 | No increase in median tool calls or compactions | Not decision-bearing because completion and recall failed |
-| At least 20% faster or equivalent with lower token use | Terra improved completion, and `medium` effort also improved completion, but both failed recall and validity gates |
+| At least 20% faster or equivalent with lower token use | Not evaluated for Terra: quality gates failed, and its completed-case set is not case-matched to the Sol timing samples; completion rate is not a latency comparison |
 
 The planned repeats showed that compact severity varies, but two completed
 trials still downgraded an adjudicated `HIGH`. Testing `medium` closed the effort
