@@ -10,7 +10,8 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "192.168.1.20",
       },
-      expected: "fleetnode enroll --server-url=http://192.168.1.20:4000 --allow-insecure-transport",
+      expected:
+        "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=http://192.168.1.20:4000 --allow-insecure-transport && sudo systemctl enable --now fleet-node.service",
     },
     {
       label: "HTTPS",
@@ -19,7 +20,8 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "https:",
         hostname: "fleet.example.com",
       },
-      expected: "fleetnode enroll --server-url=https://fleet.example.com/api-proxy",
+      expected:
+        "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=https://fleet.example.com/api-proxy && sudo systemctl enable --now fleet-node.service",
     },
     {
       label: "localhost HTTP",
@@ -28,7 +30,8 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "localhost",
       },
-      expected: "fleetnode enroll --server-url=http://localhost:4000",
+      expected:
+        "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=http://localhost:4000 && sudo systemctl enable --now fleet-node.service",
     },
     {
       label: "127.0.0.1 HTTP",
@@ -37,7 +40,8 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "127.0.0.1",
       },
-      expected: "fleetnode enroll --server-url=http://127.0.0.1:4000",
+      expected:
+        "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=http://127.0.0.1:4000 && sudo systemctl enable --now fleet-node.service",
     },
     {
       label: "::1 HTTP",
@@ -46,7 +50,8 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "[::1]",
       },
-      expected: "fleetnode enroll --server-url=http://[::1]:4000",
+      expected:
+        "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=http://[::1]:4000 && sudo systemctl enable --now fleet-node.service",
     },
   ])("builds the enroll command for $label", ({ location, expected }) => {
     expect(buildFleetNodeEnrollCommand(location)).toBe(expected);
