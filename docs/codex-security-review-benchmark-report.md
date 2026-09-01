@@ -142,8 +142,8 @@ were not run.
   against automation changes, and unit and integration tests cover the case.
 - The medium-effort PR #954 review recalled the abandoned-staging-database
   `MEDIUM` and missed the connection-retry/deadline `MEDIUM`.
-- PR #953, which contains one expected `HIGH` and one expected `MEDIUM`, timed
-  out in every experiment.
+- In the pre-Terra context, effort, and prompt experiments, PR #953 timed out
+  every time. It contains one expected `HIGH` and one expected `MEDIUM`.
 - The bounded prompt downgraded PR #961's expected `HIGH` to `MEDIUM` and missed
   its expected `MEDIUM`.
 - Terra recalled the expected `HIGH` findings on PR #953 and PR #961. It missed
