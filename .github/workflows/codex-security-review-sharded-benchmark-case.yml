@@ -36,10 +36,10 @@ jobs:
   shard-review:
     name: Shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # Reserve four minutes for trusted setup before the six-minute model budget.
-    # Successful output after that model budget is discarded; GitHub may then
-    # spend up to five minutes cleaning up a cancelled job.
-    timeout-minutes: 10
+    # Reserve four minutes for trusted setup before the six-minute model budget,
+    # five minutes for GitHub cancellation cleanup, and one minute of scheduling
+    # headroom so a verified budget timeout can still be classified fail-closed.
+    timeout-minutes: 16
     strategy:
       fail-fast: false
       max-parallel: 2

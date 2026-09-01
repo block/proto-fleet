@@ -251,6 +251,25 @@ rename to server/renamed.go
         )
         self.assertEqual(no_surviving_lines.changed_line_ranges, [[1, 1]])
 
+    def test_truncation_to_empty_tracks_merge_base_removed_lines(self):
+        patch = b"""diff --git a/server/empty.go b/server/empty.go
+--- a/server/empty.go
++++ b/server/empty.go
+@@ -1,2 +0,0 @@
+-package server
+-var Removed = true
+"""
+        diff = planner.FileDiff(
+            "server/empty.go",
+            "server",
+            "primary:server:server",
+            False,
+            patch,
+        )
+        self.assertTrue(diff.is_truncated_to_empty)
+        self.assertEqual(diff.citation_side, "merge-base")
+        self.assertEqual(diff.changed_line_ranges, [[1, 2]])
+
     def test_whole_file_deletion_tracks_base_side_removed_lines(self):
         patch = b"""diff --git a/server/deleted.go b/server/deleted.go
 --- a/server/deleted.go
@@ -1030,7 +1049,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("codex-security-review-sharded-benchmark", parent)
         self.assertIn("max-parallel: 1", parent)
         self.assertIn("max-parallel: 2", called)
-        self.assertIn("timeout-minutes: 10", called)
+        self.assertIn("timeout-minutes: 16", called)
         self.assertIn("timeout-minutes: 6", called)
         self.assertIn('CODEX_CANCELLATION_CLEANUP_SECONDS: "300"', called)
         self.assertIn("github.workflow_sha", called)

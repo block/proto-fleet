@@ -122,16 +122,18 @@ each complete packet against both hard size limits. Finding locations must cite
 a primary-owned changed file, never replicated shared context directly, and an
 actual added line in the head revision; hunkless metadata, binary, and empty-file
 changes expose no valid finding location. Deletion-only hunks in surviving files
-use a documented nearest-surviving-line anchor, while whole-file deletions cite
-their actual removed line in the exact three-dot merge-base revision.
+use a documented nearest-surviving-line anchor, while whole-file deletions and
+truncations to empty cite their actual removed lines in the exact three-dot
+merge-base revision.
 
 ### Bounded shard execution
 
 Run shard reviewers as one matrix wave with `max-parallel: 2`. Because the
 planner emits no more than two packets for the whole review, no second model
 wave can extend the deadline. The benchmark should start with a six-minute model
-budget per shard, up to four minutes for trusted setup, and the existing
-five-minute Actions cancellation-cleanup allowance. Timeout and elapsed-time
+budget per shard, up to four minutes for trusted setup, the existing five-minute
+Actions cancellation-cleanup allowance, and one minute of outer-job scheduling
+headroom. Timeout and elapsed-time
 evidence are measured from the Codex step's trusted start time, and successful
 output produced after six minutes is discarded as incomplete. Production timing
 is chosen only after benchmark evidence; it must keep the single parallel wave, trusted aggregation,

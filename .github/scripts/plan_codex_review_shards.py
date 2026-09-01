@@ -56,8 +56,20 @@ class FileDiff:
         return b"+++ /dev/null" in self.patch.splitlines()
 
     @property
+    def is_truncated_to_empty(self) -> bool:
+        return any(
+            match is not None and match.group(3) == b"0" and match.group(4) == b"0"
+            for line in self.patch.splitlines()
+            if (match := HUNK_HEADER.match(line))
+        )
+
+    @property
     def citation_side(self) -> str:
-        return "merge-base" if self.is_whole_file_deletion else "head"
+        return (
+            "merge-base"
+            if self.is_whole_file_deletion or self.is_truncated_to_empty
+            else "head"
+        )
 
     @property
     def changed_line_ranges(self) -> list[list[int]]:
@@ -71,7 +83,7 @@ class FileDiff:
         new_line: int | None = None
 
         def finish_hunk() -> None:
-            if self.is_whole_file_deletion and removed_lines:
+            if self.citation_side == "merge-base" and removed_lines:
                 ranges.extend(_collapse_line_numbers(removed_lines))
             elif added_lines:
                 ranges.extend(_collapse_line_numbers(added_lines))
