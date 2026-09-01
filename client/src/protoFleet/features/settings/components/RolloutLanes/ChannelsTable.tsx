@@ -2,7 +2,7 @@ import { useState } from "react";
 import clsx from "clsx";
 
 import { ModelStatusCell, StatusCell } from "./channelStatus";
-import { modelFirmwareLabel } from "./rolloutStatus";
+import { isAwaitingReview, modelFirmwareLabel } from "./rolloutStatus";
 import { type Rollout, type RolloutLane, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -42,9 +42,11 @@ const ChannelsTable = ({ lanes, rollouts, onManage }: ChannelsTableProps) => {
         const laneKey = lane.id.toString();
         const isExpanded = expanded[laneKey] === true;
         const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
-        const activeCount = lane.modelGroups.filter((group) =>
-          activeByLaneModel.has(`${laneKey}:${group.model}`),
-        ).length;
+        const laneActive = lane.modelGroups
+          .map((group) => activeByLaneModel.get(`${laneKey}:${group.model}`))
+          .filter((rollout): rollout is Rollout => rollout !== undefined);
+        const activeCount = laneActive.length;
+        const reviewCount = laneActive.filter(isAwaitingReview).length;
 
         return (
           <tbody key={laneKey} className="text-text-primary">
@@ -71,7 +73,9 @@ const ChannelsTable = ({ lanes, rollouts, onManage }: ChannelsTableProps) => {
                 {lane.modelGroups.length === 1 ? "1 model" : `${lane.modelGroups.length} models`}
               </td>
               <td className="py-3 pr-4" data-testid={`channel-status-${lane.name}`}>
-                {activeCount > 0 ? (
+                {reviewCount > 0 ? (
+                  <StatusCell dotClassName="bg-intent-warning-fill" label={`${activeCount} active · review needed`} />
+                ) : activeCount > 0 ? (
                   <StatusCell dotClassName="animate-pulse bg-intent-warning-fill" label={`${activeCount} active`} />
                 ) : (
                   <StatusCell dotClassName="bg-core-primary-10" label="No active updates" />

@@ -55,6 +55,9 @@ const (
 	// RolloutServiceListRolloutsProcedure is the fully-qualified name of the RolloutService's
 	// ListRollouts RPC.
 	RolloutServiceListRolloutsProcedure = "/rollout.v1.RolloutService/ListRollouts"
+	// RolloutServiceContinueRolloutProcedure is the fully-qualified name of the RolloutService's
+	// ContinueRollout RPC.
+	RolloutServiceContinueRolloutProcedure = "/rollout.v1.RolloutService/ContinueRollout"
 )
 
 // RolloutServiceClient is a client for the rollout.v1.RolloutService service.
@@ -79,6 +82,9 @@ type RolloutServiceClient interface {
 	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
+	// Advances a pilot rollout that is awaiting review to its rest stage,
+	// rolling the firmware out to the remaining miners.
+	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
 }
 
 // NewRolloutServiceClient constructs a client for the rollout.v1.RolloutService service. By
@@ -126,6 +132,11 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+RolloutServiceListRolloutsProcedure,
 			opts...,
 		),
+		continueRollout: connect.NewClient[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse](
+			httpClient,
+			baseURL+RolloutServiceContinueRolloutProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -138,6 +149,7 @@ type rolloutServiceClient struct {
 	applyRolloutLaneFirmware    *connect.Client[v1.ApplyRolloutLaneFirmwareRequest, v1.ApplyRolloutLaneFirmwareResponse]
 	rollbackRolloutLaneFirmware *connect.Client[v1.RollbackRolloutLaneFirmwareRequest, v1.RollbackRolloutLaneFirmwareResponse]
 	listRollouts                *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
+	continueRollout             *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
 }
 
 // ListRolloutLanes calls rollout.v1.RolloutService.ListRolloutLanes.
@@ -175,6 +187,11 @@ func (c *rolloutServiceClient) ListRollouts(ctx context.Context, req *connect.Re
 	return c.listRollouts.CallUnary(ctx, req)
 }
 
+// ContinueRollout calls rollout.v1.RolloutService.ContinueRollout.
+func (c *rolloutServiceClient) ContinueRollout(ctx context.Context, req *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
+	return c.continueRollout.CallUnary(ctx, req)
+}
+
 // RolloutServiceHandler is an implementation of the rollout.v1.RolloutService service.
 type RolloutServiceHandler interface {
 	// Lists all rollout lanes with members grouped by model, current
@@ -197,6 +214,9 @@ type RolloutServiceHandler interface {
 	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
+	// Advances a pilot rollout that is awaiting review to its rest stage,
+	// rolling the firmware out to the remaining miners.
+	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
 }
 
 // NewRolloutServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -240,6 +260,11 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		svc.ListRollouts,
 		opts...,
 	)
+	rolloutServiceContinueRolloutHandler := connect.NewUnaryHandler(
+		RolloutServiceContinueRolloutProcedure,
+		svc.ContinueRollout,
+		opts...,
+	)
 	return "/rollout.v1.RolloutService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RolloutServiceListRolloutLanesProcedure:
@@ -256,6 +281,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceRollbackRolloutLaneFirmwareHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutsProcedure:
 			rolloutServiceListRolloutsHandler.ServeHTTP(w, r)
+		case RolloutServiceContinueRolloutProcedure:
+			rolloutServiceContinueRolloutHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -291,4 +318,8 @@ func (UnimplementedRolloutServiceHandler) RollbackRolloutLaneFirmware(context.Co
 
 func (UnimplementedRolloutServiceHandler) ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRollouts is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ContinueRollout is not implemented"))
 }

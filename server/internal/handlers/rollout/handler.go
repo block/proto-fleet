@@ -95,7 +95,12 @@ func (h *Handler) ApplyRolloutLaneFirmware(ctx context.Context, r *connect.Reque
 	for _, a := range r.Msg.Assignments {
 		assignments = append(assignments, rollout.Assignment{Model: a.Model, FirmwareFileID: a.FirmwareFileId})
 	}
-	started, err := h.svc.ApplyFirmware(ctx, info.OrganizationID, info.UserID, r.Msg.LaneId, assignments)
+	opts := rollout.RolloutOptions{}
+	if o := r.Msg.Options; o != nil {
+		opts.Method = methodFromProto(o.Method)
+		opts.PilotCount = o.PilotCount
+	}
+	started, err := h.svc.ApplyFirmware(ctx, info.OrganizationID, info.UserID, r.Msg.LaneId, assignments, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +143,18 @@ func (h *Handler) RollbackRolloutLaneFirmware(ctx context.Context, r *connect.Re
 		resp.StartedRollouts = append(resp.StartedRollouts, rolloutToProto(&started[i]))
 	}
 	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) ContinueRollout(ctx context.Context, r *connect.Request[pb.ContinueRolloutRequest]) (*connect.Response[pb.ContinueRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.svc.ContinueRollout(ctx, info.OrganizationID, r.Msg.RolloutId)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ContinueRolloutResponse{Rollout: rolloutToProto(view)}), nil
 }
 
 func (h *Handler) ListRollouts(ctx context.Context, r *connect.Request[pb.ListRolloutsRequest]) (*connect.Response[pb.ListRolloutsResponse], error) {
@@ -191,6 +208,9 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 		FirmwareFileId:  r.FirmwareFileID,
 		FirmwareVersion: r.FirmwareVersion,
 		Status:          statusToProto(r.Status),
+		Method:          methodToProto(r.Method),
+		Stage:           stageToProto(r.Stage),
+		PilotCount:      r.PilotCount,
 		CreatedAt:       timestamppb.New(r.CreatedAt),
 	}
 	if r.FinishedAt != nil {
@@ -202,9 +222,44 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 			DeviceIdentifier: d.DeviceIdentifier,
 			FirmwareVersion:  d.FirmwareVersion,
 			State:            deviceStateToProto(d.State),
+			InPilotCohort:    d.InPilotCohort,
 		})
 	}
 	return out
+}
+
+func methodFromProto(method pb.RolloutMethod) string {
+	switch method {
+	case pb.RolloutMethod_ROLLOUT_METHOD_PILOT:
+		return rollout.MethodPilot
+	case pb.RolloutMethod_ROLLOUT_METHOD_IMMEDIATE:
+		return rollout.MethodImmediate
+	case pb.RolloutMethod_ROLLOUT_METHOD_UNSPECIFIED:
+		return "" // the domain treats this as immediate
+	}
+	return ""
+}
+
+func methodToProto(method string) pb.RolloutMethod {
+	switch method {
+	case rollout.MethodImmediate:
+		return pb.RolloutMethod_ROLLOUT_METHOD_IMMEDIATE
+	case rollout.MethodPilot:
+		return pb.RolloutMethod_ROLLOUT_METHOD_PILOT
+	}
+	return pb.RolloutMethod_ROLLOUT_METHOD_UNSPECIFIED
+}
+
+func stageToProto(stage string) pb.RolloutStage {
+	switch stage {
+	case rollout.StagePilot:
+		return pb.RolloutStage_ROLLOUT_STAGE_PILOT
+	case rollout.StageAwaitingReview:
+		return pb.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
+	case rollout.StageRest:
+		return pb.RolloutStage_ROLLOUT_STAGE_REST
+	}
+	return pb.RolloutStage_ROLLOUT_STAGE_UNSPECIFIED
 }
 
 func statusToProto(status string) pb.RolloutStatus {

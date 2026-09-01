@@ -32,6 +32,7 @@ const RolloutLanesTab = () => {
     updateMembers,
     applyFirmware,
     rollbackFirmware,
+    continueRollout,
   } = useRolloutLanes();
   const { listFirmwareFiles } = useFirmwareApi();
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
@@ -209,7 +210,24 @@ const RolloutLanesTab = () => {
         </>
       )}
 
-      {viewedRollout ? <RolloutDetailModal rollout={viewedRollout} onClose={() => setViewUpdateId(null)} /> : null}
+      {viewedRollout ? (
+        <RolloutDetailModal
+          rollout={viewedRollout}
+          onClose={() => setViewUpdateId(null)}
+          onContinue={(rollout) =>
+            continueRollout(rollout.id)
+              .then(() => {
+                pushToast({
+                  message: `Continuing ${rollout.model} rollout in ${rollout.laneName}`,
+                  status: STATUSES.success,
+                });
+              })
+              .catch((error) => {
+                pushToast({ message: error?.message || "Couldn't continue the rollout", status: STATUSES.error });
+              })
+          }
+        />
+      ) : null}
 
       <Dialog
         open={showCreateDialog}

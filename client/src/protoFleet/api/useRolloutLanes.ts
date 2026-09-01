@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
-import type { FirmwareAssignment, Rollout, RolloutLane } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type FirmwareAssignment,
+  type Rollout,
+  type RolloutLane,
+  RolloutMethod,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const POLL_INTERVAL_MS = 5000;
+
+// How rollouts started by an apply call run; omitted means all at once.
+export interface ApplyRolloutOptions {
+  method: RolloutMethod;
+  pilotCount: number;
+}
 
 export interface RolloutLanesApi {
   lanes: RolloutLane[];
@@ -15,8 +26,13 @@ export interface RolloutLanesApi {
   createLane: (name: string) => Promise<void>;
   deleteLane: (laneId: bigint) => Promise<void>;
   updateMembers: (laneId: bigint, add: string[], remove: string[]) => Promise<void>;
-  applyFirmware: (laneId: bigint, assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[]) => Promise<void>;
+  applyFirmware: (
+    laneId: bigint,
+    assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[],
+    options?: ApplyRolloutOptions,
+  ) => Promise<void>;
   rollbackFirmware: (rolloutId: bigint) => Promise<void>;
+  continueRollout: (rolloutId: bigint) => Promise<void>;
 }
 
 // Fetches rollout lanes and rollouts, polling while mounted so firmware
@@ -83,10 +99,17 @@ export function useRolloutLanes(): RolloutLanesApi {
   );
 
   const applyFirmware = useCallback(
-    async (laneId: bigint, assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[]) => {
+    async (
+      laneId: bigint,
+      assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[],
+      options?: ApplyRolloutOptions,
+    ) => {
       await rolloutClient.applyRolloutLaneFirmware({
         laneId,
         assignments: assignments.map((a) => ({ model: a.model, firmwareFileId: a.firmwareFileId })),
+        options: options
+          ? { method: options.method, pilotCount: options.pilotCount }
+          : { method: RolloutMethod.IMMEDIATE, pilotCount: 0 },
       });
       await refresh();
     },
@@ -96,6 +119,14 @@ export function useRolloutLanes(): RolloutLanesApi {
   const rollbackFirmware = useCallback(
     async (rolloutId: bigint) => {
       await rolloutClient.rollbackRolloutLaneFirmware({ rolloutId });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const continueRollout = useCallback(
+    async (rolloutId: bigint) => {
+      await rolloutClient.continueRollout({ rolloutId });
       await refresh();
     },
     [refresh],
@@ -112,5 +143,6 @@ export function useRolloutLanes(): RolloutLanesApi {
     updateMembers,
     applyFirmware,
     rollbackFirmware,
+    continueRollout,
   };
 }

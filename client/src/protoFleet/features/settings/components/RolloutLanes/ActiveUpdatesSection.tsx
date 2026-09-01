@@ -1,4 +1,10 @@
-import { rolloutDeviceCounts, rolloutProgressSummary } from "./rolloutStatus";
+import {
+  isAwaitingReview,
+  isPilotStage,
+  pilotCohortCounts,
+  rolloutDeviceCounts,
+  rolloutProgressSummary,
+} from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -20,7 +26,11 @@ const ActiveUpdatesSection = ({ rollouts, onViewUpdate }: ActiveUpdatesSectionPr
       </span>
     </div>
     {rollouts.map((rollout) => {
-      const counts = rolloutDeviceCounts(rollout);
+      const awaitingReview = isAwaitingReview(rollout);
+      const counts = isPilotStage(rollout) ? pilotCohortCounts(rollout) : rolloutDeviceCounts(rollout);
+      const summary = awaitingReview
+        ? `Pilot complete — review needed · ${rollout.firmwareVersion}`
+        : `${isPilotStage(rollout) ? `Pilot: ${rolloutProgressSummary(counts)}` : rolloutProgressSummary(counts)} · ${rollout.firmwareVersion}`;
       return (
         <div
           key={rollout.id.toString()}
@@ -28,20 +38,22 @@ const ActiveUpdatesSection = ({ rollouts, onViewUpdate }: ActiveUpdatesSectionPr
           data-testid={`active-update-${rollout.id.toString()}`}
         >
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-core-primary-5">
-            <ProgressCircular indeterminate />
+            {awaitingReview ? (
+              <span className="size-2.5 rounded-full bg-intent-warning-fill" />
+            ) : (
+              <ProgressCircular indeterminate />
+            )}
           </div>
           <div className="min-w-0 grow">
             <div className="truncate text-heading-100 text-text-primary">
               {`${rollout.laneName}, ${rollout.model} firmware update`}
             </div>
-            <div className="truncate text-200 text-text-primary-70">
-              {`${rolloutProgressSummary(counts)} · ${rollout.firmwareVersion}`}
-            </div>
+            <div className="truncate text-200 text-text-primary-70">{summary}</div>
           </div>
           <Button
-            variant={variants.secondary}
+            variant={awaitingReview ? variants.primary : variants.secondary}
             size={sizes.compact}
-            text="View update"
+            text={awaitingReview ? "Review update" : "View update"}
             onClick={() => onViewUpdate(rollout)}
             testId={`view-update-${rollout.id.toString()}`}
           />

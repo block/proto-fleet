@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_rollout_v1_rollout: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEikAEKC1JvbGxvdXRMYW5lEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoMbW9kZWxfZ3JvdXBzGAQgAygLMiEucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1vZGVsR3JvdXAiowEKFVJvbGxvdXRMYW5lTW9kZWxHcm91cBINCgVtb2RlbBgBIAEoCRIYChBmaXJtd2FyZV9maWxlX2lkGAIgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YAyABKAkSLAoGbWluZXJzGAQgAygLMhwucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1pbmVyEhkKEWFjdGl2ZV9yb2xsb3V0X2lkGAUgASgDImkKEFJvbGxvdXRMYW5lTWluZXISEQoJZGV2aWNlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YBCABKAkiPQoSRmlybXdhcmVBc3NpZ25tZW50Eg0KBW1vZGVsGAEgASgJEhgKEGZpcm13YXJlX2ZpbGVfaWQYAiABKAkitAIKB1JvbGxvdXQSCgoCaWQYASABKAMSDwoHbGFuZV9pZBgCIAEoAxIRCglsYW5lX25hbWUYAyABKAkSDQoFbW9kZWwYBCABKAkSGAoQZmlybXdhcmVfZmlsZV9pZBgFIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAYgASgJEikKBnN0YXR1cxgHIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dFN0YXR1cxIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoHZGV2aWNlcxgKIAMoCzIZLnJvbGxvdXQudjEuUm9sbG91dERldmljZSKGAQoNUm9sbG91dERldmljZRIRCglkZXZpY2VfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQZmlybXdhcmVfdmVyc2lvbhgDIAEoCRItCgVzdGF0ZRgEIAEoDjIeLnJvbGxvdXQudjEuUm9sbG91dERldmljZVN0YXRlIhkKF0xpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0IkIKGExpc3RSb2xsb3V0TGFuZXNSZXNwb25zZRImCgVsYW5lcxgBIAMoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUiKAoYQ3JlYXRlUm9sbG91dExhbmVSZXF1ZXN0EgwKBG5hbWUYASABKAkiQgoZQ3JlYXRlUm9sbG91dExhbmVSZXNwb25zZRIlCgRsYW5lGAEgASgLMhcucm9sbG91dC52MS5Sb2xsb3V0TGFuZSIrChhEZWxldGVSb2xsb3V0TGFuZVJlcXVlc3QSDwoHbGFuZV9pZBgBIAEoAyIbChlEZWxldGVSb2xsb3V0TGFuZVJlc3BvbnNlInUKH1VwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1JlcXVlc3QSDwoHbGFuZV9pZBgBIAEoAxIeChZhZGRfZGV2aWNlX2lkZW50aWZpZXJzGAIgAygJEiEKGXJlbW92ZV9kZXZpY2VfaWRlbnRpZmllcnMYAyADKAkiSQogVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUiZwofQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVxdWVzdBIPCgdsYW5lX2lkGAEgASgDEjMKC2Fzc2lnbm1lbnRzGAIgAygLMh4ucm9sbG91dC52MS5GaXJtd2FyZUFzc2lnbm1lbnQieAogQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCI4CiJSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0EhIKCnJvbGxvdXRfaWQYASABKAMiewojUm9sbGJhY2tSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCImChNMaXN0Um9sbG91dHNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiPQoUTGlzdFJvbGxvdXRzUmVzcG9uc2USJQoIcm9sbG91dHMYASADKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQqhQEKDVJvbGxvdXRTdGF0dXMSHgoaUk9MTE9VVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIZChVST0xMT1VUX1NUQVRVU19BQ1RJVkUQARIcChhST0xMT1VUX1NUQVRVU19DT01QTEVURUQQAhIbChdST0xMT1VUX1NUQVRVU19DQU5DRUxFRBADKqEBChJSb2xsb3V0RGV2aWNlU3RhdGUSJAogUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxST0xMT1VUX0RFVklDRV9TVEFURV9QRU5ESU5HEAESIQodUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVVBEQVRJTkcQAhIgChxST0xMT1VUX0RFVklDRV9TVEFURV9VUERBVEVEEAMy9AUKDlJvbGxvdXRTZXJ2aWNlEl0KEExpc3RSb2xsb3V0TGFuZXMSIy5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0GiQucm9sbG91dC52MS5MaXN0Um9sbG91dExhbmVzUmVzcG9uc2USYAoRQ3JlYXRlUm9sbG91dExhbmUSJC5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRMYW5lUmVxdWVzdBolLnJvbGxvdXQudjEuQ3JlYXRlUm9sbG91dExhbmVSZXNwb25zZRJgChFEZWxldGVSb2xsb3V0TGFuZRIkLnJvbGxvdXQudjEuRGVsZXRlUm9sbG91dExhbmVSZXF1ZXN0GiUucm9sbG91dC52MS5EZWxldGVSb2xsb3V0TGFuZVJlc3BvbnNlEnUKGFVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVycxIrLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVxdWVzdBosLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVzcG9uc2USdQoYQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlEisucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0Giwucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXNwb25zZRJ+ChtSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmUSLi5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlcXVlc3QaLy5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlc3BvbnNlElEKDExpc3RSb2xsb3V0cxIfLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVxdWVzdBogLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVzcG9uc2VCsAEKDmNvbS5yb2xsb3V0LnYxQgxSb2xsb3V0UHJvdG9QAVpHZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcm9sbG91dC92MTtyb2xsb3V0djGiAgNSWFiqAgpSb2xsb3V0LlYxygIKUm9sbG91dFxWMeICFlJvbGxvdXRcVjFcR1BCTWV0YWRhdGHqAgtSb2xsb3V0OjpWMWIGcHJvdG8z",
+    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEikAEKC1JvbGxvdXRMYW5lEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoMbW9kZWxfZ3JvdXBzGAQgAygLMiEucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1vZGVsR3JvdXAiowEKFVJvbGxvdXRMYW5lTW9kZWxHcm91cBINCgVtb2RlbBgBIAEoCRIYChBmaXJtd2FyZV9maWxlX2lkGAIgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YAyABKAkSLAoGbWluZXJzGAQgAygLMhwucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1pbmVyEhkKEWFjdGl2ZV9yb2xsb3V0X2lkGAUgASgDImkKEFJvbGxvdXRMYW5lTWluZXISEQoJZGV2aWNlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YBCABKAkiPQoSRmlybXdhcmVBc3NpZ25tZW50Eg0KBW1vZGVsGAEgASgJEhgKEGZpcm13YXJlX2ZpbGVfaWQYAiABKAkinQMKB1JvbGxvdXQSCgoCaWQYASABKAMSDwoHbGFuZV9pZBgCIAEoAxIRCglsYW5lX25hbWUYAyABKAkSDQoFbW9kZWwYBCABKAkSGAoQZmlybXdhcmVfZmlsZV9pZBgFIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAYgASgJEikKBnN0YXR1cxgHIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dFN0YXR1cxIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoHZGV2aWNlcxgKIAMoCzIZLnJvbGxvdXQudjEuUm9sbG91dERldmljZRIpCgZtZXRob2QYCyABKA4yGS5yb2xsb3V0LnYxLlJvbGxvdXRNZXRob2QSJwoFc3RhZ2UYDCABKA4yGC5yb2xsb3V0LnYxLlJvbGxvdXRTdGFnZRITCgtwaWxvdF9jb3VudBgNIAEoBSKfAQoNUm9sbG91dERldmljZRIRCglkZXZpY2VfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQZmlybXdhcmVfdmVyc2lvbhgDIAEoCRItCgVzdGF0ZRgEIAEoDjIeLnJvbGxvdXQudjEuUm9sbG91dERldmljZVN0YXRlEhcKD2luX3BpbG90X2NvaG9ydBgFIAEoCCIZChdMaXN0Um9sbG91dExhbmVzUmVxdWVzdCJCChhMaXN0Um9sbG91dExhbmVzUmVzcG9uc2USJgoFbGFuZXMYASADKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIigKGENyZWF0ZVJvbGxvdXRMYW5lUmVxdWVzdBIMCgRuYW1lGAEgASgJIkIKGUNyZWF0ZVJvbGxvdXRMYW5lUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUiKwoYRGVsZXRlUm9sbG91dExhbmVSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiGwoZRGVsZXRlUm9sbG91dExhbmVSZXNwb25zZSJ1Ch9VcGRhdGVSb2xsb3V0TGFuZU1lbWJlcnNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMSHgoWYWRkX2RldmljZV9pZGVudGlmaWVycxgCIAMoCRIhChlyZW1vdmVfZGV2aWNlX2lkZW50aWZpZXJzGAMgAygJIkkKIFVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1Jlc3BvbnNlEiUKBGxhbmUYASABKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIlAKDlJvbGxvdXRPcHRpb25zEikKBm1ldGhvZBgBIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dE1ldGhvZBITCgtwaWxvdF9jb3VudBgCIAEoBSKUAQofQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVxdWVzdBIPCgdsYW5lX2lkGAEgASgDEjMKC2Fzc2lnbm1lbnRzGAIgAygLMh4ucm9sbG91dC52MS5GaXJtd2FyZUFzc2lnbm1lbnQSKwoHb3B0aW9ucxgDIAEoCzIaLnJvbGxvdXQudjEuUm9sbG91dE9wdGlvbnMieAogQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCI4CiJSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0EhIKCnJvbGxvdXRfaWQYASABKAMiewojUm9sbGJhY2tSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCImChNMaXN0Um9sbG91dHNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiPQoUTGlzdFJvbGxvdXRzUmVzcG9uc2USJQoIcm9sbG91dHMYASADKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQiLAoWQ29udGludWVSb2xsb3V0UmVxdWVzdBISCgpyb2xsb3V0X2lkGAEgASgDIj8KF0NvbnRpbnVlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQqhQEKDVJvbGxvdXRTdGF0dXMSHgoaUk9MTE9VVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIZChVST0xMT1VUX1NUQVRVU19BQ1RJVkUQARIcChhST0xMT1VUX1NUQVRVU19DT01QTEVURUQQAhIbChdST0xMT1VUX1NUQVRVU19DQU5DRUxFRBADKmcKDVJvbGxvdXRNZXRob2QSHgoaUk9MTE9VVF9NRVRIT0RfVU5TUEVDSUZJRUQQABIcChhST0xMT1VUX01FVEhPRF9JTU1FRElBVEUQARIYChRST0xMT1VUX01FVEhPRF9QSUxPVBACKoEBCgxSb2xsb3V0U3RhZ2USHQoZUk9MTE9VVF9TVEFHRV9VTlNQRUNJRklFRBAAEhcKE1JPTExPVVRfU1RBR0VfUElMT1QQARIhCh1ST0xMT1VUX1NUQUdFX0FXQUlUSU5HX1JFVklFVxACEhYKElJPTExPVVRfU1RBR0VfUkVTVBADKqEBChJSb2xsb3V0RGV2aWNlU3RhdGUSJAogUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxST0xMT1VUX0RFVklDRV9TVEFURV9QRU5ESU5HEAESIQodUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVVBEQVRJTkcQAhIgChxST0xMT1VUX0RFVklDRV9TVEFURV9VUERBVEVEEAMy0AYKDlJvbGxvdXRTZXJ2aWNlEl0KEExpc3RSb2xsb3V0TGFuZXMSIy5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0GiQucm9sbG91dC52MS5MaXN0Um9sbG91dExhbmVzUmVzcG9uc2USYAoRQ3JlYXRlUm9sbG91dExhbmUSJC5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRMYW5lUmVxdWVzdBolLnJvbGxvdXQudjEuQ3JlYXRlUm9sbG91dExhbmVSZXNwb25zZRJgChFEZWxldGVSb2xsb3V0TGFuZRIkLnJvbGxvdXQudjEuRGVsZXRlUm9sbG91dExhbmVSZXF1ZXN0GiUucm9sbG91dC52MS5EZWxldGVSb2xsb3V0TGFuZVJlc3BvbnNlEnUKGFVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVycxIrLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVxdWVzdBosLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVzcG9uc2USdQoYQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlEisucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0Giwucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXNwb25zZRJ+ChtSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmUSLi5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlcXVlc3QaLy5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlc3BvbnNlElEKDExpc3RSb2xsb3V0cxIfLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVxdWVzdBogLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVzcG9uc2USWgoPQ29udGludWVSb2xsb3V0EiIucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXF1ZXN0GiMucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXNwb25zZUKwAQoOY29tLnJvbGxvdXQudjFCDFJvbGxvdXRQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9yb2xsb3V0L3YxO3JvbGxvdXR2MaICA1JYWKoCClJvbGxvdXQuVjHKAgpSb2xsb3V0XFYx4gIWUm9sbG91dFxWMVxHUEJNZXRhZGF0YeoCC1JvbGxvdXQ6OlYxYgZwcm90bzM",
     [file_google_protobuf_timestamp],
   );
 
@@ -221,6 +221,25 @@ export type Rollout = Message<"rollout.v1.Rollout"> & {
    * @generated from field: repeated rollout.v1.RolloutDevice devices = 10;
    */
   devices: RolloutDevice[];
+
+  /**
+   * @generated from field: rollout.v1.RolloutMethod method = 11;
+   */
+  method: RolloutMethod;
+
+  /**
+   * Stage of a pilot rollout; REST for immediate rollouts.
+   *
+   * @generated from field: rollout.v1.RolloutStage stage = 12;
+   */
+  stage: RolloutStage;
+
+  /**
+   * Requested pilot cohort size; 0 for immediate rollouts.
+   *
+   * @generated from field: int32 pilot_count = 13;
+   */
+  pilotCount: number;
 };
 
 /**
@@ -256,6 +275,13 @@ export type RolloutDevice = Message<"rollout.v1.RolloutDevice"> & {
    * @generated from field: rollout.v1.RolloutDeviceState state = 4;
    */
   state: RolloutDeviceState;
+
+  /**
+   * True when the miner is part of the rollout's pilot cohort.
+   *
+   * @generated from field: bool in_pilot_cohort = 5;
+   */
+  inPilotCohort: boolean;
 };
 
 /**
@@ -413,6 +439,35 @@ export const UpdateRolloutLaneMembersResponseSchema: GenMessage<UpdateRolloutLan
   messageDesc(file_rollout_v1_rollout, 13);
 
 /**
+ * How rollouts started by an apply call should run.
+ *
+ * @generated from message rollout.v1.RolloutOptions
+ */
+export type RolloutOptions = Message<"rollout.v1.RolloutOptions"> & {
+  /**
+   * Defaults to IMMEDIATE when unspecified.
+   *
+   * @generated from field: rollout.v1.RolloutMethod method = 1;
+   */
+  method: RolloutMethod;
+
+  /**
+   * Number of miners in the pilot cohort per started rollout. Required
+   * (>= 1) for the PILOT method; capped at the number of mismatched
+   * miners of the model.
+   *
+   * @generated from field: int32 pilot_count = 2;
+   */
+  pilotCount: number;
+};
+
+/**
+ * Describes the message rollout.v1.RolloutOptions.
+ * Use `create(RolloutOptionsSchema)` to create a new message.
+ */
+export const RolloutOptionsSchema: GenMessage<RolloutOptions> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 14);
+
+/**
  * @generated from message rollout.v1.ApplyRolloutLaneFirmwareRequest
  */
 export type ApplyRolloutLaneFirmwareRequest = Message<"rollout.v1.ApplyRolloutLaneFirmwareRequest"> & {
@@ -428,6 +483,13 @@ export type ApplyRolloutLaneFirmwareRequest = Message<"rollout.v1.ApplyRolloutLa
    * @generated from field: repeated rollout.v1.FirmwareAssignment assignments = 2;
    */
   assignments: FirmwareAssignment[];
+
+  /**
+   * Applies to every rollout started by this call.
+   *
+   * @generated from field: rollout.v1.RolloutOptions options = 3;
+   */
+  options?: RolloutOptions | undefined;
 };
 
 /**
@@ -436,7 +498,7 @@ export type ApplyRolloutLaneFirmwareRequest = Message<"rollout.v1.ApplyRolloutLa
  */
 export const ApplyRolloutLaneFirmwareRequestSchema: GenMessage<ApplyRolloutLaneFirmwareRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 14);
+  messageDesc(file_rollout_v1_rollout, 15);
 
 /**
  * @generated from message rollout.v1.ApplyRolloutLaneFirmwareResponse
@@ -461,7 +523,7 @@ export type ApplyRolloutLaneFirmwareResponse = Message<"rollout.v1.ApplyRolloutL
  */
 export const ApplyRolloutLaneFirmwareResponseSchema: GenMessage<ApplyRolloutLaneFirmwareResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 15);
+  messageDesc(file_rollout_v1_rollout, 16);
 
 /**
  * @generated from message rollout.v1.RollbackRolloutLaneFirmwareRequest
@@ -481,7 +543,7 @@ export type RollbackRolloutLaneFirmwareRequest = Message<"rollout.v1.RollbackRol
  */
 export const RollbackRolloutLaneFirmwareRequestSchema: GenMessage<RollbackRolloutLaneFirmwareRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 16);
+  messageDesc(file_rollout_v1_rollout, 17);
 
 /**
  * @generated from message rollout.v1.RollbackRolloutLaneFirmwareResponse
@@ -506,7 +568,7 @@ export type RollbackRolloutLaneFirmwareResponse = Message<"rollout.v1.RollbackRo
  */
 export const RollbackRolloutLaneFirmwareResponseSchema: GenMessage<RollbackRolloutLaneFirmwareResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 17);
+  messageDesc(file_rollout_v1_rollout, 18);
 
 /**
  * @generated from message rollout.v1.ListRolloutsRequest
@@ -526,7 +588,7 @@ export type ListRolloutsRequest = Message<"rollout.v1.ListRolloutsRequest"> & {
  */
 export const ListRolloutsRequestSchema: GenMessage<ListRolloutsRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 18);
+  messageDesc(file_rollout_v1_rollout, 19);
 
 /**
  * @generated from message rollout.v1.ListRolloutsResponse
@@ -544,7 +606,45 @@ export type ListRolloutsResponse = Message<"rollout.v1.ListRolloutsResponse"> & 
  */
 export const ListRolloutsResponseSchema: GenMessage<ListRolloutsResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 19);
+  messageDesc(file_rollout_v1_rollout, 20);
+
+/**
+ * @generated from message rollout.v1.ContinueRolloutRequest
+ */
+export type ContinueRolloutRequest = Message<"rollout.v1.ContinueRolloutRequest"> & {
+  /**
+   * Active pilot rollout in the AWAITING_REVIEW stage.
+   *
+   * @generated from field: int64 rollout_id = 1;
+   */
+  rolloutId: bigint;
+};
+
+/**
+ * Describes the message rollout.v1.ContinueRolloutRequest.
+ * Use `create(ContinueRolloutRequestSchema)` to create a new message.
+ */
+export const ContinueRolloutRequestSchema: GenMessage<ContinueRolloutRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 21);
+
+/**
+ * @generated from message rollout.v1.ContinueRolloutResponse
+ */
+export type ContinueRolloutResponse = Message<"rollout.v1.ContinueRolloutResponse"> & {
+  /**
+   * @generated from field: rollout.v1.Rollout rollout = 1;
+   */
+  rollout?: Rollout | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.ContinueRolloutResponse.
+ * Use `create(ContinueRolloutResponseSchema)` to create a new message.
+ */
+export const ContinueRolloutResponseSchema: GenMessage<ContinueRolloutResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 22);
 
 /**
  * Lifecycle of a rollout.
@@ -585,6 +685,77 @@ export enum RolloutStatus {
 export const RolloutStatusSchema: GenEnum<RolloutStatus> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 0);
 
 /**
+ * How a rollout distributes the update across its targets.
+ *
+ * @generated from enum rollout.v1.RolloutMethod
+ */
+export enum RolloutMethod {
+  /**
+   * @generated from enum value: ROLLOUT_METHOD_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * All mismatched miners are updated at once.
+   *
+   * @generated from enum value: ROLLOUT_METHOD_IMMEDIATE = 1;
+   */
+  IMMEDIATE = 1,
+
+  /**
+   * A pilot cohort is updated first; the rest only after an operator
+   * reviews the pilot and continues the rollout.
+   *
+   * @generated from enum value: ROLLOUT_METHOD_PILOT = 2;
+   */
+  PILOT = 2,
+}
+
+/**
+ * Describes the enum rollout.v1.RolloutMethod.
+ */
+export const RolloutMethodSchema: GenEnum<RolloutMethod> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 1);
+
+/**
+ * Progress of an active pilot rollout through its stages. Immediate
+ * rollouts are always in the rest stage.
+ *
+ * @generated from enum rollout.v1.RolloutStage
+ */
+export enum RolloutStage {
+  /**
+   * @generated from enum value: ROLLOUT_STAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Updating the pilot cohort only.
+   *
+   * @generated from enum value: ROLLOUT_STAGE_PILOT = 1;
+   */
+  PILOT = 1,
+
+  /**
+   * The pilot cohort is done; waiting for an operator to continue.
+   *
+   * @generated from enum value: ROLLOUT_STAGE_AWAITING_REVIEW = 2;
+   */
+  AWAITING_REVIEW = 2,
+
+  /**
+   * Updating all remaining targets.
+   *
+   * @generated from enum value: ROLLOUT_STAGE_REST = 3;
+   */
+  REST = 3,
+}
+
+/**
+ * Describes the enum rollout.v1.RolloutStage.
+ */
+export const RolloutStageSchema: GenEnum<RolloutStage> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 2);
+
+/**
  * Per-device progress within a rollout.
  *
  * @generated from enum rollout.v1.RolloutDeviceState
@@ -620,7 +791,7 @@ export enum RolloutDeviceState {
 /**
  * Describes the enum rollout.v1.RolloutDeviceState.
  */
-export const RolloutDeviceStateSchema: GenEnum<RolloutDeviceState> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 1);
+export const RolloutDeviceStateSchema: GenEnum<RolloutDeviceState> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 3);
 
 /**
  * Service for managing firmware rollout lanes.
@@ -712,5 +883,16 @@ export const RolloutService: GenService<{
     methodKind: "unary";
     input: typeof ListRolloutsRequestSchema;
     output: typeof ListRolloutsResponseSchema;
+  };
+  /**
+   * Advances a pilot rollout that is awaiting review to its rest stage,
+   * rolling the firmware out to the remaining miners.
+   *
+   * @generated from rpc rollout.v1.RolloutService.ContinueRollout
+   */
+  continueRollout: {
+    methodKind: "unary";
+    input: typeof ContinueRolloutRequestSchema;
+    output: typeof ContinueRolloutResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_rollout_v1_rollout, 0);

@@ -13,11 +13,16 @@ import {
   type Rollout,
   type RolloutLane,
   type RolloutLaneModelGroup,
+  RolloutMethod,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import type { ApplyRolloutOptions } from "@/protoFleet/api/useRolloutLanes";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar from "@/shared/components/CompositionBar";
+import Dialog from "@/shared/components/Dialog";
+import Input from "@/shared/components/Input";
+import Radio from "@/shared/components/Radio";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Attention pill with a pulsing dot, shown while a rollout is ongoing.
@@ -70,7 +75,11 @@ interface ChannelManageViewProps {
   onManageMiners: (lane: RolloutLane) => void;
   onShowHistory: (lane: RolloutLane) => void;
   onDelete: (lane: RolloutLane) => void;
-  onApply: (laneId: bigint, assignments: { model: string; firmwareFileId: string }[]) => Promise<void>;
+  onApply: (
+    laneId: bigint,
+    assignments: { model: string; firmwareFileId: string }[],
+    options?: ApplyRolloutOptions,
+  ) => Promise<void>;
 }
 
 // The per-channel management surface behind "Manage": a flat per-model table
@@ -92,6 +101,10 @@ const ChannelManageView = ({
   const [isApplying, setIsApplying] = useState(false);
   // Model whose miner table is open in the "View miners" modal.
   const [minersModel, setMinersModel] = useState<string | null>(null);
+  // Apply confirmation: rollout method and pilot size for this apply call.
+  const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [applyMethod, setApplyMethod] = useState<RolloutMethod>(RolloutMethod.IMMEDIATE);
+  const [pilotCountText, setPilotCountText] = useState("1");
 
   const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
   const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
@@ -108,11 +121,29 @@ const ChannelManageView = ({
     .filter((group) => stagedValue(group) !== group.firmwareFileId)
     .map((group) => ({ model: group.model, firmwareFileId: stagedValue(group) }));
 
+  // Human-readable version for a staged file id, for the dialog summary.
+  const versionLabel = (fileId: string): string => {
+    if (fileId === "") return "no firmware";
+    const file = firmwareFiles.find((f) => f.id === fileId);
+    return file?.firmware_version || file?.filename || "unknown version";
+  };
+
+  const dirtyMinerCount = lane.modelGroups
+    .filter((group) => stagedValue(group) !== group.firmwareFileId)
+    .reduce((sum, group) => sum + group.miners.length, 0);
+
+  const pilotCount = Math.max(1, Number.parseInt(pilotCountText, 10) || 1);
+
   const handleApply = () => {
+    const options: ApplyRolloutOptions =
+      applyMethod === RolloutMethod.PILOT
+        ? { method: RolloutMethod.PILOT, pilotCount }
+        : { method: RolloutMethod.IMMEDIATE, pilotCount: 0 };
     setIsApplying(true);
-    onApply(lane.id, dirtyAssignments)
+    onApply(lane.id, dirtyAssignments, options)
       .then(() => {
         setStaged({});
+        setShowApplyDialog(false);
         pushToast({ message: "Firmware changes applied", status: STATUSES.success });
       })
       .catch((error) => {
@@ -253,12 +284,93 @@ const ChannelManageView = ({
               variant={variants.primary}
               size={sizes.compact}
               text="Apply changes"
-              loading={isApplying}
-              onClick={handleApply}
+              onClick={() => setShowApplyDialog(true)}
             />
           </div>
         </div>
       ) : null}
+
+      <Dialog
+        open={showApplyDialog}
+        title="Start firmware rollout?"
+        subtitle={`One rollout starts per changed model in ${lane.name}.`}
+        testId="apply-firmware-dialog"
+        onDismiss={() => {
+          if (!isApplying) setShowApplyDialog(false);
+        }}
+        buttons={[
+          {
+            text: "Cancel",
+            variant: variants.secondary,
+            onClick: () => setShowApplyDialog(false),
+            disabled: isApplying,
+          },
+          {
+            text: "Start rollout",
+            variant: variants.primary,
+            onClick: handleApply,
+            loading: isApplying,
+          },
+        ]}
+      >
+        <div className="flex flex-col gap-5">
+          <div>
+            {dirtyAssignments.map((assignment) => (
+              <div
+                key={assignment.model}
+                className="flex items-baseline justify-between gap-4 border-t border-border-5 py-2.5 text-200"
+              >
+                <span className="text-text-primary">{assignment.model || "Unknown model"}</span>
+                <span className="text-right text-text-primary-70">{versionLabel(assignment.firmwareFileId)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3" role="radiogroup" aria-label="Rollout method">
+            <label className="flex cursor-pointer items-start gap-3" data-testid="apply-method-immediate">
+              <Radio
+                name="rollout-method"
+                selected={applyMethod === RolloutMethod.IMMEDIATE}
+                onChange={() => setApplyMethod(RolloutMethod.IMMEDIATE)}
+              />
+              <span className="flex flex-col">
+                <span className="text-300 text-text-primary">All at once</span>
+                <span className="text-200 text-text-primary-70">Every miner not on the new version updates now.</span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3" data-testid="apply-method-pilot">
+              <Radio
+                name="rollout-method"
+                selected={applyMethod === RolloutMethod.PILOT}
+                onChange={() => setApplyMethod(RolloutMethod.PILOT)}
+              />
+              <span className="flex flex-col">
+                <span className="text-300 text-text-primary">Pilot first</span>
+                <span className="text-200 text-text-primary-70">
+                  A small group updates first. The rest wait until you review the pilot and continue.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {applyMethod === RolloutMethod.PILOT ? (
+            <div className="flex flex-col gap-1">
+              <Input
+                id="pilot-count"
+                label="Pilot size (miners per model)"
+                type="number"
+                initValue={pilotCountText}
+                onChange={(value) => setPilotCountText(value)}
+              />
+              {dirtyMinerCount > 0 ? (
+                <span className="text-200 text-text-primary-50">
+                  {`${dirtyMinerCount.toLocaleString()} miners are affected in total.`}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </Dialog>
     </div>
   );
 };

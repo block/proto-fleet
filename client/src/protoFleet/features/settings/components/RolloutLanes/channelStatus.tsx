@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import { rolloutDeviceCounts } from "./rolloutStatus";
+import { isAwaitingReview, isPilotStage, pilotCohortCounts, rolloutDeviceCounts } from "./rolloutStatus";
 import type { Rollout, RolloutLaneModelGroup } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 // Status language shared between the release channels overview table and
@@ -24,6 +24,18 @@ export const ModelStatusCell = ({
   group: RolloutLaneModelGroup;
   activeRollout?: Rollout;
 }) => {
+  if (activeRollout && isPilotStage(activeRollout)) {
+    const counts = pilotCohortCounts(activeRollout);
+    return (
+      <StatusCell
+        dotClassName="animate-pulse bg-intent-warning-fill"
+        label={`Pilot: updating ${counts.updated} of ${counts.total}`}
+      />
+    );
+  }
+  if (activeRollout && isAwaitingReview(activeRollout)) {
+    return <StatusCell dotClassName="bg-intent-warning-fill" label="Pilot complete — review needed" />;
+  }
   if (activeRollout) {
     const counts = rolloutDeviceCounts(activeRollout);
     return (

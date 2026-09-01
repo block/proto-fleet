@@ -10,6 +10,7 @@ test.describe("Firmware release channels", () => {
   const laneA = `Lane A ${runId}`;
   const laneB = `Lane B ${runId}`;
   const laneC = `Lane C ${runId}`;
+  const laneD = `Lane D ${runId}`;
   // Unique per run: the fake rigs keep their firmware across runs, and a
   // version the miners already report would make the assignment a no-op
   // (no rollout is created when every member is already compliant).
@@ -19,6 +20,8 @@ test.describe("Firmware release channels", () => {
   const rollbackFileNameV1 = `rollback-${rollbackVersionV1}.swu`;
   const rollbackVersionV2 = `3.3.${runId}`;
   const rollbackFileNameV2 = `rollback-${rollbackVersionV2}.swu`;
+  const pilotVersion = `3.4.${runId}`;
+  const pilotFileName = `pilot-${pilotVersion}.swu`;
 
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(testConfig.target === "real", "Rollout lane E2E is only supported against the fake proto rig setup.");
@@ -51,6 +54,7 @@ test.describe("Firmware release channels", () => {
       await settingsFirmwarePage.deleteLaneIfPresent(laneA);
       await settingsFirmwarePage.deleteLaneIfPresent(laneB);
       await settingsFirmwarePage.deleteLaneIfPresent(laneC);
+      await settingsFirmwarePage.deleteLaneIfPresent(laneD);
       await settingsFirmwarePage.openFilesTab();
       await settingsFirmwarePage.deleteAllFirmwareFilesIfAny();
     } finally {
@@ -222,6 +226,70 @@ test.describe("Firmware release channels", () => {
 
     await test.step("Delete the channel", async () => {
       await settingsFirmwarePage.deleteLane(laneC);
+    });
+  });
+
+  test("Pilot rollout updates one miner, gates the rest, and continues after review", async ({
+    settingsFirmwarePage,
+  }) => {
+    // Two update waves have to complete: the pilot miner and, after the
+    // gate is released, the remaining miner.
+    test.setTimeout(testConfig.testTimeout * 8);
+
+    await test.step("Upload a Proto Rig firmware file", async () => {
+      await settingsFirmwarePage.navigateToFirmwareSettings();
+      await settingsFirmwarePage.validateFirmwarePageOpened();
+      await settingsFirmwarePage.deleteAllFirmwareFilesIfAny();
+      await settingsFirmwarePage.clickUploadFirmware();
+      await settingsFirmwarePage.uploadFirmwareFile(pilotFileName, `pilot payload ${runId}`, {
+        manufacturer: "Proto",
+        model: "Rig",
+        firmwareVersion: pilotVersion,
+      });
+      await settingsFirmwarePage.validateFirmwareFileVisible(pilotFileName);
+    });
+
+    await test.step("Create a channel with two Rig miners", async () => {
+      await settingsFirmwarePage.openRolloutLanesTab();
+      await settingsFirmwarePage.createLane(laneD);
+      await settingsFirmwarePage.manageChannel(laneD);
+      await settingsFirmwarePage.openManageLaneMiners(laneD);
+      await settingsFirmwarePage.selectLaneMinersByModel("Rig", 2);
+      await settingsFirmwarePage.confirmLaneMinerSelection();
+      await settingsFirmwarePage.validateLaneMinerCount(laneD, 2);
+    });
+
+    await test.step("Apply the firmware as a pilot of one miner", async () => {
+      await settingsFirmwarePage.selectLaneFirmware(laneD, "Rig", new RegExp(pilotVersion));
+      await settingsFirmwarePage.applyLaneFirmwareChangesWithPilot(laneD, 1);
+    });
+
+    await test.step("The pilot completes and parks at the review gate", async () => {
+      await settingsFirmwarePage.waitForModelReviewNeeded(laneD, testConfig.testTimeout * 4);
+    });
+
+    await test.step("Exactly one miner is on the new version while gated", async () => {
+      const updated = await settingsFirmwarePage.countModelMinersOnVersion(laneD, "Rig", pilotVersion);
+      test.expect(updated).toBe(1);
+    });
+
+    await test.step("The channels table and active updates flag the review", async () => {
+      await settingsFirmwarePage.backToChannels();
+      await settingsFirmwarePage.validateChannelReviewNeeded(laneD);
+      await settingsFirmwarePage.validateActiveUpdateRow(laneD, "Rig");
+    });
+
+    await test.step("Continue the rollout from the update detail modal", async () => {
+      await settingsFirmwarePage.continueRolloutFromActiveUpdates(laneD, "Rig");
+    });
+
+    await test.step("The remaining miner converges on the new version", async () => {
+      await settingsFirmwarePage.manageChannel(laneD);
+      await settingsFirmwarePage.waitForLaneRolloutCompleted(laneD, "Rig", pilotVersion, testConfig.testTimeout * 4);
+    });
+
+    await test.step("Delete the channel", async () => {
+      await settingsFirmwarePage.deleteLane(laneD);
     });
   });
 });

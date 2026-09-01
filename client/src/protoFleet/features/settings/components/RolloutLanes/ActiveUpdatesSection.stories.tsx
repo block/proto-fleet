@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ActiveUpdatesSection from "./ActiveUpdatesSection";
-import { activeRigRollout, activeS19Rollout } from "./RolloutChannels.fixtures";
+import { activeRigRollout, activeS19Rollout, gatedRigRollout } from "./RolloutChannels.fixtures";
 
 // The "Active updates" strip at the top of the release channels view: one
 // compact row per ongoing rollout with live progress and a "View update"
@@ -39,6 +39,15 @@ export const MultipleUpdates: Story = {
   render: () => (
     <Frame>
       <ActiveUpdatesSection rollouts={[activeRigRollout, activeS19Rollout]} onViewUpdate={noop} />
+    </Frame>
+  ),
+};
+
+export const ReviewNeeded: Story = {
+  name: "Pilot awaiting review",
+  render: () => (
+    <Frame>
+      <ActiveUpdatesSection rollouts={[gatedRigRollout, activeS19Rollout]} onViewUpdate={noop} />
     </Frame>
   ),
 };

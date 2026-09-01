@@ -3426,6 +3426,12 @@ func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams
 	return result, err
 }
 
+func (q *retryingQuerier) InsertFirmwareRolloutCohort(ctx context.Context, arg InsertFirmwareRolloutCohortParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertFirmwareRolloutCohort", func() error {
+		return q.next.InsertFirmwareRolloutCohort(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error) {
 	var result InsertMQTTSourceConfigRow
 	err := q.retrier.RetryQuery(ctx, "InsertMQTTSourceConfig", func() error {
@@ -5212,6 +5218,18 @@ func (q *retryingQuerier) SetDevicePairingAuthNeededIfNotPaired(ctx context.Cont
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "SetDevicePairingAuthNeededIfNotPaired", func() error {
 		callResult, callErr := q.next.SetDevicePairingAuthNeededIfNotPaired(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) SetFirmwareRolloutStage(ctx context.Context, arg SetFirmwareRolloutStageParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "SetFirmwareRolloutStage", func() error {
+		callResult, callErr := q.next.SetFirmwareRolloutStage(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

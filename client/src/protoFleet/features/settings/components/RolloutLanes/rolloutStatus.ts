@@ -2,6 +2,8 @@ import {
   type Rollout,
   RolloutDeviceState,
   type RolloutLaneModelGroup,
+  RolloutMethod,
+  RolloutStage,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { Segment } from "@/shared/components/CompositionBar";
@@ -16,17 +18,36 @@ export interface RolloutDeviceCounts {
   percent: number;
 }
 
-export function rolloutDeviceCounts(rollout: Rollout): RolloutDeviceCounts {
+function deviceCounts(devices: Rollout["devices"]): RolloutDeviceCounts {
   let updated = 0;
   let updating = 0;
   let pending = 0;
-  for (const device of rollout.devices) {
+  for (const device of devices) {
     if (device.state === RolloutDeviceState.UPDATED) updated += 1;
     else if (device.state === RolloutDeviceState.UPDATING) updating += 1;
     else pending += 1;
   }
-  const total = rollout.devices.length;
+  const total = devices.length;
   return { updated, updating, pending, total, percent: total === 0 ? 0 : Math.round((updated / total) * 100) };
+}
+
+export function rolloutDeviceCounts(rollout: Rollout): RolloutDeviceCounts {
+  return deviceCounts(rollout.devices);
+}
+
+// Progress of just the pilot cohort of a pilot rollout.
+export function pilotCohortCounts(rollout: Rollout): RolloutDeviceCounts {
+  return deviceCounts(rollout.devices.filter((device) => device.inPilotCohort));
+}
+
+// True while a pilot rollout sits at its review gate: the cohort is done and
+// the remaining miners wait for an operator to continue.
+export function isAwaitingReview(rollout: Rollout): boolean {
+  return rollout.status === RolloutStatus.ACTIVE && rollout.stage === RolloutStage.AWAITING_REVIEW;
+}
+
+export function isPilotStage(rollout: Rollout): boolean {
+  return rollout.status === RolloutStatus.ACTIVE && rollout.stage === RolloutStage.PILOT;
 }
 
 // Rollout progress colors follow the active curtailment card: done is
@@ -67,6 +88,20 @@ export const rolloutStatusLabels: Record<RolloutStatus, string> = {
   [RolloutStatus.COMPLETED]: "Completed",
   [RolloutStatus.CANCELED]: "Canceled",
 };
+
+export const rolloutMethodLabels: Record<RolloutMethod, string> = {
+  [RolloutMethod.UNSPECIFIED]: "All at once",
+  [RolloutMethod.IMMEDIATE]: "All at once",
+  [RolloutMethod.PILOT]: "Pilot first",
+};
+
+// Status headline for an active rollout, stage-aware for pilot rollouts.
+export function rolloutStatusHeadline(rollout: Rollout): string {
+  if (rollout.status !== RolloutStatus.ACTIVE) return rolloutStatusLabels[rollout.status];
+  if (isPilotStage(rollout)) return "Pilot in progress";
+  if (isAwaitingReview(rollout)) return "Pilot complete — review needed";
+  return rolloutStatusLabels[rollout.status];
+}
 
 export const deviceStateTone = (state: RolloutDeviceState): StatusTone => {
   if (state === RolloutDeviceState.UPDATED) return "success";

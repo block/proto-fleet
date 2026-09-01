@@ -3,13 +3,17 @@ import clsx from "clsx";
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
 import {
+  isAwaitingReview,
+  isPilotStage,
+  pilotCohortCounts,
   rolloutDeviceCounts,
+  rolloutMethodLabels,
   rolloutProgressColorMap,
   rolloutProgressSegments,
   rolloutProgressSummary,
-  rolloutStatusLabels,
+  rolloutStatusHeadline,
 } from "./rolloutStatus";
-import { type Rollout, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { type Rollout, RolloutMethod, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { variants } from "@/shared/components/Button";
 import CompositionBar from "@/shared/components/CompositionBar";
@@ -48,17 +52,30 @@ interface RolloutDetailModalProps {
   // Live rollout from the poll, so progress and status track the server.
   rollout: Rollout;
   onClose: () => void;
+  // Advances a pilot rollout past its review gate.
+  onContinue: (rollout: Rollout) => Promise<void>;
 }
 
 // Full update detail surface behind "View update": status lockup, live
-// progress, and a detail list that later grows richer rollout mechanics
-// (batching, ordering, telemetry deltas) as the backend supports them.
-const RolloutDetailModal = ({ rollout, onClose }: RolloutDetailModalProps) => {
-  const counts = rolloutDeviceCounts(rollout);
+// progress, the pilot review gate for gated rollouts, and a detail list
+// that later grows richer rollout mechanics (batching, ordering, telemetry
+// deltas) as the backend supports them.
+const RolloutDetailModal = ({ rollout, onClose, onContinue }: RolloutDetailModalProps) => {
+  const [isContinuing, setIsContinuing] = useState(false);
+  const awaitingReview = isAwaitingReview(rollout);
+  // In the pilot stage the progress lockup tracks the cohort; from the
+  // review gate on, the whole rollout.
+  const counts = isPilotStage(rollout) ? pilotCohortCounts(rollout) : rolloutDeviceCounts(rollout);
+  const pilotCounts = pilotCohortCounts(rollout);
   const segments = rolloutProgressSegments(counts);
   const isActive = rollout.status === RolloutStatus.ACTIVE;
   const startedAtMs = rollout.createdAt ? timestampMs(rollout.createdAt) : undefined;
   const finishedAtMs = rollout.finishedAt ? timestampMs(rollout.finishedAt) : undefined;
+
+  const handleContinue = () => {
+    setIsContinuing(true);
+    onContinue(rollout).finally(() => setIsContinuing(false));
+  };
 
   return (
     <Modal
@@ -66,12 +83,21 @@ const RolloutDetailModal = ({ rollout, onClose }: RolloutDetailModalProps) => {
       size={sizes.large}
       title={`${rollout.laneName}, ${rollout.model} firmware update`}
       onDismiss={onClose}
-      buttons={[{ text: "Done", variant: variants.primary, onClick: onClose }]}
+      buttons={
+        awaitingReview
+          ? [
+              { text: "Close", variant: variants.secondary, onClick: onClose, disabled: isContinuing },
+              { text: "Continue rollout", variant: variants.primary, onClick: handleContinue, loading: isContinuing },
+            ]
+          : [{ text: "Done", variant: variants.primary, onClick: onClose }]
+      }
     >
       <div className="flex flex-col gap-5" data-testid={`rollout-detail-${rollout.id.toString()}`}>
         <div className="flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-core-primary-5">
-            {isActive ? (
+            {awaitingReview ? (
+              <span className="size-2.5 rounded-full bg-intent-warning-fill" />
+            ) : isActive ? (
               <ProgressCircular indeterminate />
             ) : (
               <span
@@ -84,13 +110,30 @@ const RolloutDetailModal = ({ rollout, onClose }: RolloutDetailModalProps) => {
           </div>
           <div className="min-w-0">
             <div className="text-heading-50 text-text-primary-70">Update status</div>
-            <div className="text-heading-300 text-text-primary">{rolloutStatusLabels[rollout.status]}</div>
+            <div className="text-heading-300 text-text-primary">{rolloutStatusHeadline(rollout)}</div>
           </div>
         </div>
 
+        {awaitingReview ? (
+          <div
+            className="flex flex-col gap-1 rounded-lg bg-intent-warning-10 px-4 py-3"
+            data-testid="pilot-review-banner"
+          >
+            <span className="text-300 text-text-primary">
+              {`The pilot group (${pilotCounts.total === 1 ? "1 miner" : `${pilotCounts.total.toLocaleString()} miners`}) is on ${rollout.firmwareVersion}.`}
+            </span>
+            <span className="text-200 text-text-primary-70">
+              Check the pilot miners before continuing. Continuing updates the remaining miners; rolling back from
+              history reverts the whole model group.
+            </span>
+          </div>
+        ) : null}
+
         <div className="grid gap-3">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 text-200">
-            <span className="text-text-primary-50">{rolloutProgressSummary(counts)}</span>
+            <span className="text-text-primary-50">
+              {isPilotStage(rollout) ? `Pilot: ${rolloutProgressSummary(counts)}` : rolloutProgressSummary(counts)}
+            </span>
             <span className="text-right text-text-primary">
               {isActive && startedAtMs !== undefined ? (
                 <ElapsedProgressValue sinceMs={startedAtMs} />
@@ -118,9 +161,16 @@ const RolloutDetailModal = ({ rollout, onClose }: RolloutDetailModalProps) => {
         <div>
           <DetailRow
             label="Scope"
-            value={`${rollout.laneName} channel, ${counts.total === 1 ? "1 miner" : `${counts.total.toLocaleString()} miners`}`}
+            value={`${rollout.laneName} channel, ${rollout.devices.length === 1 ? "1 miner" : `${rollout.devices.length.toLocaleString()} miners`}`}
           />
           <DetailRow label="Target version" value={rollout.firmwareVersion} />
+          <DetailRow label="Method" value={rolloutMethodLabels[rollout.method]} />
+          {rollout.method === RolloutMethod.PILOT ? (
+            <DetailRow
+              label="Pilot size"
+              value={rollout.pilotCount === 1 ? "1 miner" : `${rollout.pilotCount.toLocaleString()} miners`}
+            />
+          ) : null}
           <DetailRow label="Started" value={formatRolloutTimestamp(rollout.createdAt)} />
           {rollout.finishedAt ? (
             <DetailRow label="Finished" value={formatRolloutTimestamp(rollout.finishedAt)} />

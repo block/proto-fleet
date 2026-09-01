@@ -6,7 +6,9 @@ import {
   RolloutDeviceState,
   type RolloutLane,
   RolloutLaneSchema,
+  RolloutMethod,
   RolloutSchema,
+  RolloutStage,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
@@ -137,6 +139,8 @@ export const activeRigRollout: Rollout = create(RolloutSchema, {
   firmwareFileId: "fw-rig-144",
   firmwareVersion: "1.4.4",
   status: RolloutStatus.ACTIVE,
+  method: RolloutMethod.IMMEDIATE,
+  stage: RolloutStage.REST,
   createdAt: minutesAgo(4),
   devices: [
     { deviceId: BigInt(101), deviceIdentifier: "rig-001", firmwareVersion: "1.4.4", state: RolloutDeviceState.UPDATED },
@@ -214,6 +218,38 @@ export const canceledRigRollout: Rollout = create(RolloutSchema, {
   createdAt: minutesAgo(60 * 27),
   finishedAt: minutesAgo(60 * 26),
   devices: [],
+});
+
+// A pilot rollout mid-pilot: the two-miner cohort is updating, the rest of
+// the group waits for the review gate.
+export const pilotRigRollout: Rollout = create(RolloutSchema, {
+  ...activeRigRollout,
+  id: BigInt(44),
+  method: RolloutMethod.PILOT,
+  stage: RolloutStage.PILOT,
+  pilotCount: 2,
+  createdAt: minutesAgo(9),
+  devices: activeRigRollout.devices.map((device, index) => ({
+    ...device,
+    inPilotCohort: index < 2,
+    firmwareVersion: index === 0 ? "1.4.4" : "1.4.3",
+    state:
+      index === 0 ? RolloutDeviceState.UPDATED : index === 1 ? RolloutDeviceState.UPDATING : RolloutDeviceState.PENDING,
+  })),
+});
+
+// The same pilot rollout parked at the review gate: the cohort is done and
+// the remaining four miners wait for the operator to continue.
+export const gatedRigRollout: Rollout = create(RolloutSchema, {
+  ...pilotRigRollout,
+  id: BigInt(45),
+  stage: RolloutStage.AWAITING_REVIEW,
+  createdAt: minutesAgo(22),
+  devices: pilotRigRollout.devices.map((device) => ({
+    ...device,
+    firmwareVersion: device.inPilotCohort ? "1.4.4" : "1.4.3",
+    state: device.inPilotCohort ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
+  })),
 });
 
 // Newest first, matching the server's ListRollouts order.

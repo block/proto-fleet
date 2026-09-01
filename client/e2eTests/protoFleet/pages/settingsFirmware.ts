@@ -183,9 +183,71 @@ export class SettingsFirmwarePage extends BasePage {
     await this.page.getByRole("option", { name: optionLabel }).click();
   }
 
+  private applyDialog(): Locator {
+    return this.page.getByTestId("apply-firmware-dialog");
+  }
+
+  // Applies staged firmware changes with the default method (all at once)
+  // through the apply confirmation dialog.
   async applyLaneFirmwareChanges(laneName: string) {
     await this.laneCard(laneName).getByRole("button", { name: "Apply changes", exact: true }).click();
+    await expect(this.applyDialog()).toBeVisible();
+    await this.applyDialog().getByRole("button", { name: "Start rollout", exact: true }).click();
+    await expect(this.applyDialog()).toBeHidden();
     await this.validateTextInToast("Firmware changes applied");
+  }
+
+  // Applies staged firmware changes as a pilot rollout: only `pilotSize`
+  // miners per model update until the pilot is reviewed and continued.
+  async applyLaneFirmwareChangesWithPilot(laneName: string, pilotSize: number) {
+    await this.laneCard(laneName).getByRole("button", { name: "Apply changes", exact: true }).click();
+    await expect(this.applyDialog()).toBeVisible();
+    await this.applyDialog().getByTestId("apply-method-pilot").click();
+    await this.applyDialog().getByLabel("Pilot size (miners per model)").fill(String(pilotSize));
+    await this.applyDialog().getByRole("button", { name: "Start rollout", exact: true }).click();
+    await expect(this.applyDialog()).toBeHidden();
+    await this.validateTextInToast("Firmware changes applied");
+  }
+
+  // The model group sits at the pilot review gate: the pilot cohort is on
+  // the new version and the rest wait for an operator to continue.
+  async waitForModelReviewNeeded(laneName: string, timeoutMs: number) {
+    await expect(this.laneCard(laneName).getByText("Pilot complete — review needed").first()).toBeVisible({
+      timeout: timeoutMs,
+    });
+  }
+
+  // Number of the model group's miners currently reporting this version.
+  async countModelMinersOnVersion(laneName: string, model: string, version: string): Promise<number> {
+    await this.openModelMiners(laneName, model);
+    const rows = this.minersModal().locator('[data-testid^="lane-miner-"]');
+    const count = await rows.count();
+    let matches = 0;
+    for (let i = 0; i < count; i++) {
+      if ((await rows.nth(i).innerText()).includes(version)) {
+        matches += 1;
+      }
+    }
+    await this.closeModelMiners();
+    return matches;
+  }
+
+  // The channel row's status column flags a pilot waiting for review.
+  async validateChannelReviewNeeded(laneName: string) {
+    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toContainText("review needed");
+  }
+
+  // Continues a gated pilot rollout from the active updates section: the
+  // row's "Review update" action opens the detail modal, whose primary
+  // action releases the gate (and, as a primary modal action, dismisses
+  // the modal).
+  async continueRolloutFromActiveUpdates(laneName: string, model: string) {
+    await this.activeUpdateRow(laneName, model).getByRole("button", { name: "Review update", exact: true }).click();
+    await this.validateTitleInModal(`${laneName}, ${model} firmware update`);
+    const modal = this.page.getByTestId("modal");
+    await modal.getByRole("button", { name: "Continue rollout", exact: true }).click();
+    await expect(modal).toBeHidden();
+    await this.validateTextInToast("Continuing");
   }
 
   async validateLaneRolloutInProgress(laneName: string, version: string) {

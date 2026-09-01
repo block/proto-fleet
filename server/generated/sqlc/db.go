@@ -921,6 +921,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
+	if q.insertFirmwareRolloutCohortStmt, err = db.PrepareContext(ctx, insertFirmwareRolloutCohort); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertFirmwareRolloutCohort: %w", err)
+	}
 	if q.insertMQTTSourceConfigStmt, err = db.PrepareContext(ctx, insertMQTTSourceConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMQTTSourceConfig: %w", err)
 	}
@@ -1403,6 +1406,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setDevicePairingAuthNeededIfNotPairedStmt, err = db.PrepareContext(ctx, setDevicePairingAuthNeededIfNotPaired); err != nil {
 		return nil, fmt.Errorf("error preparing query SetDevicePairingAuthNeededIfNotPaired: %w", err)
+	}
+	if q.setFirmwareRolloutStageStmt, err = db.PrepareContext(ctx, setFirmwareRolloutStage); err != nil {
+		return nil, fmt.Errorf("error preparing query SetFirmwareRolloutStage: %w", err)
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
@@ -3240,6 +3246,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
+	if q.insertFirmwareRolloutCohortStmt != nil {
+		if cerr := q.insertFirmwareRolloutCohortStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertFirmwareRolloutCohortStmt: %w", cerr)
+		}
+	}
 	if q.insertMQTTSourceConfigStmt != nil {
 		if cerr := q.insertMQTTSourceConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertMQTTSourceConfigStmt: %w", cerr)
@@ -4043,6 +4054,11 @@ func (q *Queries) Close() error {
 	if q.setDevicePairingAuthNeededIfNotPairedStmt != nil {
 		if cerr := q.setDevicePairingAuthNeededIfNotPairedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setDevicePairingAuthNeededIfNotPairedStmt: %w", cerr)
+		}
+	}
+	if q.setFirmwareRolloutStageStmt != nil {
+		if cerr := q.setFirmwareRolloutStageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setFirmwareRolloutStageStmt: %w", cerr)
 		}
 	}
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
@@ -4943,6 +4959,7 @@ type Queries struct {
 	insertDeviceStmt                                             *sql.Stmt
 	insertDeviceMetricsStmt                                      *sql.Stmt
 	insertErrorStmt                                              *sql.Stmt
+	insertFirmwareRolloutCohortStmt                              *sql.Stmt
 	insertMQTTSourceConfigStmt                                   *sql.Stmt
 	insertMinerStateSnapshotStmt                                 *sql.Stmt
 	insertNotificationHistoryStmt                                *sql.Stmt
@@ -5104,6 +5121,7 @@ type Queries struct {
 	setCurtailmentAutomationRestoreStartedStmt                   *sql.Stmt
 	setCurtailmentAutomationRuleEnabledStmt                      *sql.Stmt
 	setDevicePairingAuthNeededIfNotPairedStmt                    *sql.Stmt
+	setFirmwareRolloutStageStmt                                  *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
 	setInfrastructureControlSubnetsStmt                          *sql.Stmt
 	setLocalTransactionTimeoutStmt                               *sql.Stmt
@@ -5521,6 +5539,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                             q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                                      q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                              q.insertErrorStmt,
+		insertFirmwareRolloutCohortStmt:                              q.insertFirmwareRolloutCohortStmt,
 		insertMQTTSourceConfigStmt:                                   q.insertMQTTSourceConfigStmt,
 		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
 		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
@@ -5682,6 +5701,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setCurtailmentAutomationRestoreStartedStmt:                   q.setCurtailmentAutomationRestoreStartedStmt,
 		setCurtailmentAutomationRuleEnabledStmt:                      q.setCurtailmentAutomationRuleEnabledStmt,
 		setDevicePairingAuthNeededIfNotPairedStmt:                    q.setDevicePairingAuthNeededIfNotPairedStmt,
+		setFirmwareRolloutStageStmt:                                  q.setFirmwareRolloutStageStmt,
 		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
 		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
 		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,

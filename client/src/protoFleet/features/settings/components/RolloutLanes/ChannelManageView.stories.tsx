@@ -8,6 +8,7 @@ import {
   canaryChannelSettled,
   emptyChannel,
   firmwareFiles,
+  gatedRigRollout,
   minerNames,
 } from "./RolloutChannels.fixtures";
 
@@ -42,6 +43,24 @@ export const RolloutInProgress: Story = {
       <ChannelManageView
         lane={canaryChannel}
         rollouts={[activeRigRollout]}
+        firmwareFiles={firmwareFiles}
+        minerNames={minerNames}
+        onManageMiners={noop}
+        onShowHistory={noop}
+        onDelete={noop}
+        onApply={applyAfterDelay}
+      />
+    </Frame>
+  ),
+};
+
+export const PilotAwaitingReview: Story = {
+  name: "Pilot awaiting review",
+  render: () => (
+    <Frame>
+      <ChannelManageView
+        lane={canaryChannel}
+        rollouts={[gatedRigRollout]}
         firmwareFiles={firmwareFiles}
         minerNames={minerNames}
         onManageMiners={noop}

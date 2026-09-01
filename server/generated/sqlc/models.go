@@ -900,12 +900,16 @@ type FirmwareRollout struct {
 	CreatedBy       int64
 	CreatedAt       time.Time
 	FinishedAt      sql.NullTime
+	Method          string
+	Stage           string
+	PilotCount      int32
 }
 
 type FirmwareRolloutDevice struct {
 	RolloutID    int64
 	DeviceID     int64
-	UpdateSentAt time.Time
+	UpdateSentAt sql.NullTime
+	Cohort       string
 }
 
 type FleetActiveOrganization struct {

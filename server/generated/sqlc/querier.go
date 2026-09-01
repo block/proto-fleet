@@ -817,6 +817,9 @@ type Querier interface {
 	// VALUES form raised. Caller wraps generically (fleeterror.New
 	// InternalErrorf), so the surface is unchanged for present callers.
 	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
+	// Snapshots the pilot cohort at rollout creation, before any command is
+	// sent (update_sent_at stays NULL until the enforcement loop dispatches).
+	InsertFirmwareRolloutCohort(ctx context.Context, arg InsertFirmwareRolloutCohortParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
 	// CASE bucket order must match CountMinersByState (device.sql) — the chart
 	// and the live legend classify devices with the same rules.
@@ -1036,8 +1039,9 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
-	// Current lane members of the rollout's model with reported firmware and
-	// whether an update command was already sent by this rollout.
+	// Current lane members of the rollout's model with reported firmware,
+	// whether an update command was already sent by this rollout, and the
+	// device's cohort ('pilot' for snapshotted pilot members, 'rest' otherwise).
 	ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwareRolloutTargetsParams) ([]ListFirmwareRolloutTargetsRow, error)
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
@@ -1438,6 +1442,9 @@ type Querier interface {
 	// caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
 	// Zero rows means paired-like won.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
+	// Stage transitions of an active pilot rollout (pilot -> awaiting_review ->
+	// rest). Returns the affected row count so callers can detect a lost race.
+	SetFirmwareRolloutStage(ctx context.Context, arg SetFirmwareRolloutStageParams) (int64, error)
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.

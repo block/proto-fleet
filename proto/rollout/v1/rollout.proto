@@ -41,6 +41,10 @@ service RolloutService {
 
     // Lists rollouts (newest first) with live per-device progress.
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
+
+    // Advances a pilot rollout that is awaiting review to its rest stage,
+    // rolling the firmware out to the remaining miners.
+    rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
 }
 
 // A container of miners with per-model firmware assignments.
@@ -91,6 +95,28 @@ enum RolloutStatus {
     ROLLOUT_STATUS_CANCELED = 3;
 }
 
+// How a rollout distributes the update across its targets.
+enum RolloutMethod {
+    ROLLOUT_METHOD_UNSPECIFIED = 0;
+    // All mismatched miners are updated at once.
+    ROLLOUT_METHOD_IMMEDIATE = 1;
+    // A pilot cohort is updated first; the rest only after an operator
+    // reviews the pilot and continues the rollout.
+    ROLLOUT_METHOD_PILOT = 2;
+}
+
+// Progress of an active pilot rollout through its stages. Immediate
+// rollouts are always in the rest stage.
+enum RolloutStage {
+    ROLLOUT_STAGE_UNSPECIFIED = 0;
+    // Updating the pilot cohort only.
+    ROLLOUT_STAGE_PILOT = 1;
+    // The pilot cohort is done; waiting for an operator to continue.
+    ROLLOUT_STAGE_AWAITING_REVIEW = 2;
+    // Updating all remaining targets.
+    ROLLOUT_STAGE_REST = 3;
+}
+
 // Per-device progress within a rollout.
 enum RolloutDeviceState {
     ROLLOUT_DEVICE_STATE_UNSPECIFIED = 0;
@@ -116,6 +142,11 @@ message Rollout {
     google.protobuf.Timestamp finished_at = 9;
     // Current lane members of the rollout's model with their progress.
     repeated RolloutDevice devices = 10;
+    RolloutMethod method = 11;
+    // Stage of a pilot rollout; REST for immediate rollouts.
+    RolloutStage stage = 12;
+    // Requested pilot cohort size; 0 for immediate rollouts.
+    int32 pilot_count = 13;
 }
 
 // Progress of one miner within a rollout.
@@ -125,6 +156,8 @@ message RolloutDevice {
     // Firmware version the miner currently reports.
     string firmware_version = 3;
     RolloutDeviceState state = 4;
+    // True when the miner is part of the rollout's pilot cohort.
+    bool in_pilot_cohort = 5;
 }
 
 message ListRolloutLanesRequest {}
@@ -159,11 +192,23 @@ message UpdateRolloutLaneMembersResponse {
     RolloutLane lane = 1;
 }
 
+// How rollouts started by an apply call should run.
+message RolloutOptions {
+    // Defaults to IMMEDIATE when unspecified.
+    RolloutMethod method = 1;
+    // Number of miners in the pilot cohort per started rollout. Required
+    // (>= 1) for the PILOT method; capped at the number of mismatched
+    // miners of the model.
+    int32 pilot_count = 2;
+}
+
 message ApplyRolloutLaneFirmwareRequest {
     int64 lane_id = 1;
     // Full desired set of assignments for the lane. Models omitted here keep
     // their current assignment.
     repeated FirmwareAssignment assignments = 2;
+    // Applies to every rollout started by this call.
+    RolloutOptions options = 3;
 }
 
 message ApplyRolloutLaneFirmwareResponse {
@@ -190,4 +235,13 @@ message ListRolloutsRequest {
 
 message ListRolloutsResponse {
     repeated Rollout rollouts = 1;
+}
+
+message ContinueRolloutRequest {
+    // Active pilot rollout in the AWAITING_REVIEW stage.
+    int64 rollout_id = 1;
+}
+
+message ContinueRolloutResponse {
+    Rollout rollout = 1;
 }
