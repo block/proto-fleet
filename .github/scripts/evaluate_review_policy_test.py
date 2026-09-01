@@ -592,10 +592,34 @@ class ReviewPolicyTest(unittest.TestCase):
                     "types": [
                         "codex-security-review-benchmark",
                         "codex-security-review-sharded-benchmark",
+                        "codex-security-review-terra-benchmark",
                     ]
                 }
             },
         )
+        selector = find_step(workflow, "select-cases", "select")
+        self.assertEqual(
+            selector["env"]["BENCHMARK_PROFILE"],
+            "${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || 'sol' }}",
+        )
+        self.assertIn(
+            "github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh'",
+            selector["env"]["REASONING_EFFORT"],
+        )
+        self.assertIn(
+            "github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' || 'all'",
+            selector["env"]["CONTEXT_VARIANT"],
+        )
+        self.assertEqual(
+            workflow["jobs"]["sharded-benchmark-case"]["if"],
+            "${{ github.event.action == 'codex-security-review-sharded-benchmark' }}",
+        )
+        unsharded_events = (
+            "github.event.action == 'codex-security-review-benchmark' || "
+            "github.event.action == 'codex-security-review-terra-benchmark'"
+        )
+        self.assertEqual(job["if"], f"${{{{ {unsharded_events} }}}}")
+        self.assertIn(unsharded_events, workflow["jobs"]["benchmark-finalize"]["if"])
         self.assertNotIn("workflow_dispatch:", workflow_text)
         self.assertNotIn("${{ inputs", workflow_text)
         self.assertEqual(
@@ -662,7 +686,11 @@ class ReviewPolicyTest(unittest.TestCase):
             workflow["jobs"]["select-cases"]["outputs"],
             {
                 "matrix": "${{ steps.select.outputs.matrix }}",
+                "model": "${{ steps.select.outputs.model }}",
                 "reasoning_effort": "${{ steps.select.outputs.reasoning_effort }}",
+                "service_tier": "${{ steps.select.outputs.service_tier }}",
+                "verbosity": "${{ steps.select.outputs.verbosity }}",
+                "codex_args": "${{ steps.select.outputs.codex_args }}",
                 "prompt_profile": "${{ steps.select.outputs.prompt_profile }}",
                 "repeat": "${{ steps.select.outputs.repeat }}",
             },
@@ -681,7 +709,14 @@ class ReviewPolicyTest(unittest.TestCase):
             case["id"] for case in corpus["cases"] if case["corpus"] == "large-pr"
         ]
 
-        def select(corpus_name, variant_name, review_mode="unsharded"):
+        def select(
+            corpus_name,
+            variant_name,
+            review_mode="unsharded",
+            benchmark_profile="sol",
+            reasoning_effort="xhigh",
+            prompt_profile="baseline",
+        ):
             with tempfile.TemporaryDirectory() as tmp:
                 target = Path(tmp) / ".github" / BENCHMARK_CORPUS_PATH.name
                 target.parent.mkdir()
@@ -692,10 +727,11 @@ class ReviewPolicyTest(unittest.TestCase):
                     body,
                     {
                         "REVIEW_MODE": review_mode,
+                        "BENCHMARK_PROFILE": benchmark_profile,
                         "CORPUS": corpus_name,
                         "CONTEXT_VARIANT": variant_name,
-                        "REASONING_EFFORT": "xhigh",
-                        "PROMPT_PROFILE": "baseline",
+                        "REASONING_EFFORT": reasoning_effort,
+                        "PROMPT_PROFILE": prompt_profile,
                         "REPEAT": "initial",
                         "GITHUB_OUTPUT": str(output),
                     },
@@ -707,7 +743,14 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         outputs = dict(line.split("=", 1) for line in emitted.splitlines())
         include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual(outputs["model"], "gpt-5.6-sol")
         self.assertEqual(outputs["reasoning_effort"], "xhigh")
+        self.assertEqual(outputs["service_tier"], "unspecified")
+        self.assertEqual(outputs["verbosity"], "unspecified")
+        self.assertEqual(
+            json.loads(outputs["codex_args"]),
+            ["-c", "model_reasoning_effort=xhigh"],
+        )
         self.assertEqual(outputs["prompt_profile"], "baseline")
         self.assertEqual(outputs["repeat"], "initial")
         self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
@@ -743,6 +786,50 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("compact", result.stderr)
         self.assertEqual(emitted, "")
 
+        result, emitted = select(
+            "adjudicated",
+            "unified-40",
+            benchmark_profile="terra-high-default-low",
+            reasoning_effort="high",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
+        include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual(len(include), len(adjudicated))
+        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
+        self.assertEqual(outputs["model"], "gpt-5.6-terra")
+        self.assertEqual(outputs["reasoning_effort"], "high")
+        self.assertEqual(outputs["service_tier"], "default")
+        self.assertEqual(outputs["verbosity"], "low")
+        self.assertEqual(
+            json.loads(outputs["codex_args"]),
+            [
+                "-c",
+                "model_reasoning_effort=high",
+                "-c",
+                "service_tier=default",
+                "-c",
+                "model_verbosity=low",
+            ],
+        )
+
+        for variant, effort, prompt, rejected in (
+            ("unified-40", "xhigh", "baseline", "xhigh"),
+            ("compact", "high", "baseline", "compact"),
+            ("unified-40", "high", "bounded", "bounded"),
+        ):
+            with self.subTest(rejected=rejected):
+                result, emitted = select(
+                    "adjudicated",
+                    variant,
+                    benchmark_profile="terra-high-default-low",
+                    reasoning_effort=effort,
+                    prompt_profile=prompt,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(rejected, result.stderr)
+                self.assertEqual(emitted, "")
+
     def test_codex_review_workflows_share_bounded_review_configuration(self):
         production = load_workflow("codex-security-review.yml")
         benchmark = load_workflow("codex-security-review-benchmark.yml")
@@ -772,15 +859,19 @@ class ReviewPolicyTest(unittest.TestCase):
             production_poster["env"]["CODEX_MODEL"],
             production_job["env"]["CODEX_MODEL"],
         )
-        self.assertEqual(benchmark_job["env"]["CODEX_MODEL"], "gpt-5.6-sol")
         self.assertEqual(
-            benchmark_finalizer["env"]["CODEX_MODEL"],
-            benchmark_job["env"]["CODEX_MODEL"],
+            benchmark_codex["with"]["codex-args"],
+            "${{ needs.select-cases.outputs.codex_args }}",
         )
-        self.assertEqual(
-            benchmark_finalizer["env"]["CODEX_REASONING_EFFORT"],
-            benchmark_job["env"]["CODEX_REASONING_EFFORT"],
-        )
+        for name, output in (
+            ("CODEX_MODEL", "model"),
+            ("CODEX_REASONING_EFFORT", "reasoning_effort"),
+            ("CODEX_SERVICE_TIER", "service_tier"),
+            ("CODEX_VERBOSITY", "verbosity"),
+        ):
+            expected = f"${{{{ needs.select-cases.outputs.{output} }}}}"
+            self.assertEqual(benchmark_job["env"][name], expected)
+            self.assertEqual(benchmark_finalizer["env"][name], expected)
 
         production_writer = extract_python_heredoc(
             find_step(production, "security-review", "write_review_result")["run"]
@@ -907,11 +998,13 @@ class ReviewPolicyTest(unittest.TestCase):
                             "INTER_HUNK": "0",
                             "REPEAT": "initial",
                             "PROMPT_PROFILE": "baseline",
+                            "SERVICE_TIER": "default",
+                            "VERBOSITY": "low",
                             "REVIEW_BASE_SHA": "a" * 40,
                             "REVIEW_HEAD_SHA": "b" * 40,
                             "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
-                            "CODEX_MODEL": "gpt-5.6-sol",
-                            "CODEX_REASONING_EFFORT": "xhigh",
+                            "CODEX_MODEL": "gpt-5.6-terra",
+                            "CODEX_REASONING_EFFORT": "high",
                         },
                         tmp,
                     )
@@ -933,6 +1026,10 @@ class ReviewPolicyTest(unittest.TestCase):
                     "completed" if expected_reason is None else "incomplete",
                 )
                 self.assertEqual(scope["completed"], expected_reason is None)
+                self.assertEqual(scope["model"], "gpt-5.6-terra")
+                self.assertEqual(scope["reasoning_effort"], "high")
+                self.assertEqual(scope["service_tier"], "default")
+                self.assertEqual(scope["verbosity"], "low")
 
         self.assertEqual(
             {reason for reason, _, _, _ in cases if reason},
@@ -1064,8 +1161,8 @@ class ReviewPolicyTest(unittest.TestCase):
                 body,
                 {
                     "CODEX_TIMEOUT_MINUTES": "12",
-                    "CODEX_MODEL": "gpt-5.6-sol",
-                    "CODEX_REASONING_EFFORT": "xhigh",
+                    "CODEX_MODEL": "gpt-5.6-terra",
+                    "CODEX_REASONING_EFFORT": "high",
                     "REVIEW_BASE_SHA": "a" * 40,
                     "REVIEW_HEAD_SHA": "b" * 40,
                     "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
@@ -1080,6 +1177,8 @@ class ReviewPolicyTest(unittest.TestCase):
                     "INTER_HUNK": "0",
                     "REPEAT": "initial",
                     "PROMPT_PROFILE": "baseline",
+                    "SERVICE_TIER": "default",
+                    "VERBOSITY": "low",
                 },
                 tmp,
             )
@@ -1097,6 +1196,10 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(scope["incomplete_reason"], "codex-job-timeout")
         self.assertIsNone(scope["elapsed_seconds"])
         self.assertEqual(scope["timeout_budget_seconds"], 720)
+        self.assertEqual(scope["model"], "gpt-5.6-terra")
+        self.assertEqual(scope["reasoning_effort"], "high")
+        self.assertEqual(scope["service_tier"], "default")
+        self.assertEqual(scope["verbosity"], "low")
         self.assertEqual(elapsed_text, "unknown\n")
 
     def test_codex_benchmark_serializes_repeat_dispatches(self):
