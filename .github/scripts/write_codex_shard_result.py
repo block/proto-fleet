@@ -167,7 +167,11 @@ def review_location_contract(
         return allowed_line_ranges, None
     blob_base_urls = {}
     for file in records:
-        citation_sha = manifest[f"{file['citation_side']}_sha"]
+        citation_sha = (
+            manifest["merge_base_sha"]
+            if file["citation_side"] == "merge-base"
+            else manifest["head_sha"]
+        )
         blob_base_urls[file["path"]] = (
             f"https://github.com/{repository}/blob/{citation_sha}"
         )

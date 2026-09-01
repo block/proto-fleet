@@ -123,5 +123,7 @@ scope rules for this sharded benchmark:
   report an issue that exists only in a shared file.
 - The baseline head-revision Location rule applies when a manifest file has
   `citation_side: "head"`. For a whole-file deletion marked
-  `citation_side: "base"`, cite a listed deleted line and link to
-  `{{REVIEW_BASE_BLOB_URL}}/<path>#L<line>` instead.
+  `citation_side: "merge-base"`, cite a listed deleted line and link to
+  `{{REVIEW_MERGE_BASE_BLOB_URL}}/<path>#L<line>` instead. This trusted revision
+  is the left side of the exact three-dot diff, which may differ from its literal
+  base SHA.

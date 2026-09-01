@@ -59,7 +59,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         file.get("primary_shard") != owner_map[file["path"]] for file in file_records
     ):
         raise ValueError("manifest file ownership metadata is inconsistent")
-    if any(file.get("citation_side") not in {"base", "head"} for file in file_records):
+    if re.fullmatch(r"[0-9a-f]{40}", manifest.get("merge_base_sha", "")) is None:
+        raise ValueError("manifest merge-base SHA is invalid")
+    if any(
+        file.get("citation_side") not in {"merge-base", "head"} for file in file_records
+    ):
         raise ValueError("manifest file citation side is invalid")
     if any(
         not isinstance(file.get("changed_line_ranges"), list)

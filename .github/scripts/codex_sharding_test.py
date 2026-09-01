@@ -110,6 +110,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
         "variant": "unified-40",
         "repeat": "initial",
         "base_sha": "a" * 40,
+        "merge_base_sha": "c" * 40,
         "head_sha": "b" * 40,
         "commit_range": f"{'a' * 40}...{'b' * 40}",
         "unified": 40,
@@ -253,7 +254,7 @@ class PlannerTest(unittest.TestCase):
             patch,
         )
         self.assertTrue(diff.is_whole_file_deletion)
-        self.assertEqual(diff.citation_side, "base")
+        self.assertEqual(diff.citation_side, "merge-base")
         self.assertEqual(diff.changed_line_ranges, [[1, 3]])
 
     def test_path_ownership_is_first_match_and_disjoint(self):
@@ -602,6 +603,75 @@ class PlannerTest(unittest.TestCase):
                 )
             )
 
+    def test_whole_file_deletion_uses_three_dot_merge_base(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(("git", "init", "-q"), cwd=repo, check=True)
+            subprocess.run(
+                ("git", "config", "user.email", "test@example.test"),
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(("git", "config", "user.name", "Test"), cwd=repo, check=True)
+            (repo / "server").mkdir()
+            deleted = repo / "server/deleted.go"
+            deleted.write_text("package server\n\nvar Old = true\n", encoding="utf-8")
+            subprocess.run(("git", "add", "."), cwd=repo, check=True)
+            subprocess.run(("git", "commit", "-qm", "common"), cwd=repo, check=True)
+            merge_base = subprocess.check_output(
+                ("git", "rev-parse", "HEAD"), cwd=repo, text=True
+            ).strip()
+
+            deleted.unlink()
+            subprocess.run(("git", "commit", "-qam", "delete"), cwd=repo, check=True)
+            head = subprocess.check_output(
+                ("git", "rev-parse", "HEAD"), cwd=repo, text=True
+            ).strip()
+
+            subprocess.run(
+                ("git", "checkout", "-qb", "advanced-base", merge_base),
+                cwd=repo,
+                check=True,
+            )
+            deleted.write_text("package server\n\nvar New = true\n", encoding="utf-8")
+            subprocess.run(
+                ("git", "commit", "-qam", "advance base"), cwd=repo, check=True
+            )
+            base = subprocess.check_output(
+                ("git", "rev-parse", "HEAD"), cwd=repo, text=True
+            ).strip()
+
+            args = type(
+                "Args",
+                (),
+                {
+                    "case": "pr-test",
+                    "variant": "unified-40",
+                    "repeat": "initial",
+                    "base_sha": base,
+                    "head_sha": head,
+                    "commit_range": f"{base}...{head}",
+                    "unified": 40,
+                    "inter_hunk": 0,
+                    "variant_metadata_json": json.dumps(
+                        {"id": "unified-40", "unified": 40, "inter-hunk": 0}
+                    ),
+                },
+            )()
+            previous = Path.cwd()
+            try:
+                os.chdir(repo)
+                manifest, _ = planner.build_plan(args)
+            finally:
+                os.chdir(previous)
+
+            self.assertNotEqual(base, merge_base)
+            self.assertEqual(manifest["merge_base_sha"], merge_base)
+            record = manifest["files"][0]
+            self.assertEqual(record["path"], "server/deleted.go")
+            self.assertEqual(record["citation_side"], "merge-base")
+            self.assertEqual(record["changed_line_ranges"], [[1, 3]])
+
 
 class PromptTest(unittest.TestCase):
     def test_sharded_prompt_preserves_exact_baseline_guidance(self):
@@ -642,7 +712,7 @@ class PromptTest(unittest.TestCase):
         self.assertIn("primary_files", rendered)
         self.assertIn("shared_files", rendered)
         self.assertIn("citation_side", rendered)
-        self.assertIn(values["REVIEW_BASE_BLOB_URL"], rendered)
+        self.assertIn(values["REVIEW_MERGE_BASE_BLOB_URL"], rendered)
         self.assertIn(
             "Do not regenerate or read the complete pull-request diff", rendered
         )
@@ -796,7 +866,7 @@ class ResultTest(unittest.TestCase):
 
     def test_whole_file_deletion_requires_base_revision_location(self):
         manifest = signed_manifest(active_second=False)
-        manifest["files"][0]["citation_side"] = "base"
+        manifest["files"][0]["citation_side"] = "merge-base"
         unsigned = dict(manifest)
         unsigned.pop("manifest_digest")
         manifest["manifest_digest"] = hashlib.sha256(
@@ -804,7 +874,7 @@ class ResultTest(unittest.TestCase):
         ).hexdigest()
         review = completed_result(manifest, "shard-1", "HIGH")["review"]
         head_url = f"/blob/{manifest['head_sha']}/"
-        base_url = f"/blob/{manifest['base_sha']}/"
+        base_url = f"/blob/{manifest['merge_base_sha']}/"
         review["review_markdown"] = review["review_markdown"].replace(
             head_url, base_url
         )

@@ -68,8 +68,9 @@ match wins, so ownership is deterministic and mutually exclusive:
 | 9 | Cross-cutting | Every remaining path |
 
 The planner is path-based, versioned on the trusted default branch, and emits a
-machine-readable manifest containing the exact base/head SHAs, every changed
-file, its owning shard, and shared-contract membership. The final cross-cutting
+machine-readable manifest containing the exact base/head SHAs, computed
+three-dot merge-base SHA, every changed file, its owning shard, and
+shared-contract membership. The final cross-cutting
 rule ensures unknown paths are reviewed rather than dropped.
 
 Within each domain, the planner forms indivisible semantic units: Go packages,
@@ -100,7 +101,7 @@ records the limiting units, safety bound, and packet measurements.
 Each shard receives:
 
 1. The complete changed-file manifest, per-file diff statistics, actual added-line
-   ranges, and base-side deleted-line ranges for whole-file deletions.
+   ranges, and merge-base-side deleted-line ranges for whole-file deletions.
 2. The `unified=40` diff for files owned by that shard.
 3. Changed shared contracts relevant to that shard, even when another shard
    owns them. Shared inputs include protobuf definitions, migrations and sqlc
@@ -120,7 +121,7 @@ with missing, multiply owned, stale-SHA, or out-of-range files and remeasures
 each complete packet against both hard size limits. Finding locations must cite
 an actual added line in the head revision; deletion-only hunks in surviving files
 use a documented nearest-surviving-line anchor, while whole-file deletions cite
-their actual removed line in the exact base revision.
+their actual removed line in the exact three-dot merge-base revision.
 
 ### Bounded shard execution
 
@@ -234,7 +235,7 @@ revalidating that the PR head is current.
 - Test both packet limits at, below, and above the boundary, including a single
   oversized unit, replicated context overflow, a bounded partition-state search,
   and a change requiring more than two packets. Validate added-line-only ranges,
-  deletion anchors, and base-revision links for whole-file deletions.
+  deletion anchors, and merge-base-revision links for whole-file deletions.
 - Assert byte-identical model, security boundary, schema, common review guidance,
   sandbox, and shard-scope prompt stanza between production and benchmark shard
   jobs. Test that the stanza identifies primary/shared scope and prohibits

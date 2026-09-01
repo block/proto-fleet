@@ -57,7 +57,7 @@ class FileDiff:
 
     @property
     def citation_side(self) -> str:
-        return "base" if self.is_whole_file_deletion else "head"
+        return "merge-base" if self.is_whole_file_deletion else "head"
 
     @property
     def changed_line_ranges(self) -> list[list[int]]:
@@ -573,12 +573,14 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, byte
         )
 
     plan = plan_files(files)
+    merge_base_sha = git("merge-base", args.base_sha, args.head_sha).decode().strip()
     manifest = {
         "schema_version": 1,
         "case": args.case,
         "variant": args.variant,
         "repeat": args.repeat,
         "base_sha": args.base_sha,
+        "merge_base_sha": merge_base_sha,
         "head_sha": args.head_sha,
         "commit_range": args.commit_range,
         "unified": args.unified,
@@ -628,6 +630,7 @@ def main() -> None:
 
     write_output("planner_status", manifest["status"])
     write_output("manifest_digest", manifest["manifest_digest"])
+    write_output("merge_base_sha", manifest["merge_base_sha"])
     write_output(
         "active",
         "true" if manifest["status"] == "planned" and shard["active"] else "false",
