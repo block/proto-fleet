@@ -23,24 +23,85 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async openRolloutLanesTab() {
-    await this.page.getByRole("button", { name: "Rollout channels", exact: true }).click();
-    await this.validateTitle("Rollout channels");
-    // Lane cards render only after loading finishes; helpers like
-    // deleteLaneIfPresent would otherwise race and see no lanes.
-    await expect(this.page.getByText("Loading rollout channels...", { exact: true })).toBeHidden();
+    await this.page.getByRole("button", { name: "Release channels", exact: true }).click();
+    await this.validateTitle("Release channels");
+    // The channels table renders only after loading finishes; helpers like
+    // deleteLaneIfPresent would otherwise race and see no channels.
+    await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
   }
 
+  // Management card for a channel, shown after drilling in via "Manage".
   laneCard(laneName: string): Locator {
     return this.page.getByTestId(`rollout-lane-${laneName}`);
   }
 
+  // The channel's row in the release channels table.
+  channelRow(laneName: string): Locator {
+    return this.page.getByTestId(`channel-row-${laneName}`);
+  }
+
   async createLane(laneName: string) {
-    await this.clickButton("New channel");
+    await this.clickButton("Create release channel");
     const dialog = this.page.getByTestId("create-lane-dialog");
     await dialog.getByLabel("Channel name").fill(laneName);
     await dialog.getByRole("button", { name: "Create channel", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await expect(this.channelRow(laneName)).toBeVisible();
+  }
+
+  // Drills from the channels table into the channel's management card.
+  async manageChannel(laneName: string) {
+    await this.channelRow(laneName).getByTestId(`manage-channel-${laneName}`).click();
     await expect(this.laneCard(laneName)).toBeVisible();
+  }
+
+  // Returns from the management card to the channels table.
+  async backToChannels() {
+    await this.page.getByTestId("back-to-channels").click();
+    await expect(this.page.getByTestId("channels-table")).toBeVisible();
+  }
+
+  // Miner count shown in the channel's table row.
+  async validateChannelMinerCount(laneName: string, count: number) {
+    await expect(this.channelRow(laneName).getByTestId(`channel-miners-${laneName}`)).toHaveText(
+      count.toLocaleString(),
+    );
+  }
+
+  async expandChannel(laneName: string) {
+    await this.page.getByTestId(`channel-toggle-${laneName}`).click();
+  }
+
+  // The expanded per-model row reports an ongoing update.
+  async validateModelRowUpdating(laneName: string, model: string) {
+    await expect(this.page.getByTestId(`model-row-${laneName}-${model}`)).toContainText("Updating,");
+  }
+
+  // The channel row's status column reports this many active updates.
+  async validateChannelActiveUpdates(laneName: string, count: number) {
+    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toHaveText(`${count} active`);
+  }
+
+  activeUpdateRow(laneName: string, model: string): Locator {
+    return this.page.locator('[data-testid^="active-update-"]').filter({
+      hasText: `${laneName}, ${model} firmware update`,
+    });
+  }
+
+  async validateActiveUpdateRow(laneName: string, model: string) {
+    await expect(this.activeUpdateRow(laneName, model)).toBeVisible();
+  }
+
+  // Opens the update detail modal from the active updates section.
+  async openUpdateDetail(laneName: string, model: string) {
+    await this.activeUpdateRow(laneName, model).getByRole("button", { name: "View update", exact: true }).click();
+    await this.validateTitleInModal(`${laneName}, ${model} firmware update`);
+    await expect(this.page.getByTestId("modal").getByText("Update status", { exact: true })).toBeVisible();
+  }
+
+  async closeUpdateDetail() {
+    await this.page.getByTestId("modal").getByRole("button", { name: "Done", exact: true }).click();
+    await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
   async openManageLaneMiners(laneName: string) {
@@ -162,10 +223,6 @@ export class SettingsFirmwarePage extends BasePage {
     await this.closeLaneHistory();
   }
 
-  async toggleLane(laneName: string) {
-    await this.laneCard(laneName).getByTestId("lane-toggle").click();
-  }
-
   async validateLaneRolloutPill(laneName: string) {
     await expect(this.laneCard(laneName).getByTestId("lane-rollout-pill")).toBeVisible();
   }
@@ -179,18 +236,12 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   // Opens the app-header rollout pill popover and follows its link to the
-  // rollout lanes view.
+  // release channels view.
   async followAppRolloutPillToLanes() {
     await this.appRolloutPill().click();
-    await this.page.getByRole("link", { name: "View rollout channels", exact: true }).click();
-    await this.validateTitle("Rollout channels");
-    await expect(this.page.getByText("Loading rollout channels...", { exact: true })).toBeHidden();
-  }
-
-  // Collapsed lane: model groups hidden, header (and its pill) still visible.
-  async validateLaneCollapsed(laneName: string, model: string) {
-    await expect(this.laneCard(laneName).getByTestId(`model-group-${model}`)).toBeHidden();
-    await expect(this.laneCard(laneName).getByTestId("lane-toggle")).toBeVisible();
+    await this.page.getByRole("link", { name: "View release channels", exact: true }).click();
+    await this.validateTitle("Release channels");
+    await expect(this.page.getByText("Loading release channels...", { exact: true })).toBeHidden();
   }
 
   // The rollout is done when every miner in the model group reports the
@@ -228,21 +279,24 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.historyModal()).toBeHidden();
   }
 
+  // Deletes the channel from its open management card. Deleting returns to
+  // the channels table, where the row must be gone.
   async deleteLane(laneName: string) {
     await this.laneCard(laneName).getByRole("button", { name: "Delete", exact: true }).click();
     const dialog = this.page.getByTestId("delete-lane-dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Delete channel", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await expect(this.laneCard(laneName)).toBeHidden();
+    await expect(this.channelRow(laneName)).toBeHidden();
   }
 
   async deleteLaneIfPresent(laneName: string) {
     if (
-      await this.laneCard(laneName)
+      await this.channelRow(laneName)
         .isVisible()
         .catch(() => false)
     ) {
+      await this.manageChannel(laneName);
       await this.deleteLane(laneName);
     }
   }

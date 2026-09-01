@@ -1,4 +1,9 @@
-import { type Rollout, RolloutDeviceState, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  type Rollout,
+  RolloutDeviceState,
+  type RolloutLaneModelGroup,
+  RolloutStatus,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { Segment } from "@/shared/components/CompositionBar";
 
 export type StatusTone = "neutral" | "progress" | "success" | "critical";
@@ -73,4 +78,16 @@ export const rolloutStatusTone = (status: RolloutStatus): StatusTone => {
   if (status === RolloutStatus.COMPLETED) return "success";
   if (status === RolloutStatus.ACTIVE) return "progress";
   return "neutral";
+};
+
+// "current → target" while miners converge on the assignment, or just the
+// assigned version once every miner reports it.
+export const modelFirmwareLabel = (group: RolloutLaneModelGroup): string => {
+  if (group.firmwareVersion === "") return "—";
+  const behind = [...new Set(group.miners.map((miner) => miner.firmwareVersion))].filter(
+    (version) => version !== group.firmwareVersion,
+  );
+  if (behind.length === 0) return group.firmwareVersion;
+  const current = behind.length === 1 ? behind[0] || "Unknown" : "Mixed";
+  return `${current} → ${group.firmwareVersion}`;
 };

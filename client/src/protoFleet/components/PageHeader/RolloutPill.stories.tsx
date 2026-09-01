@@ -8,7 +8,7 @@ import {
 
 // The app-wide header pill shown while firmware rollouts are running. Its
 // popover lists each rollout's channel, model, target version, and progress,
-// and deep-links to the rollout channels view.
+// and deep-links to the release channels view.
 const meta = {
   title: "Proto Fleet/Firmware/Rollout Channels/Header Pill",
   component: RolloutPill,

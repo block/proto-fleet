@@ -1,297 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
-import FirmwarePickerButton from "./FirmwarePickerButton";
+import ActiveUpdatesSection from "./ActiveUpdatesSection";
+import ChannelManageView from "./ChannelManageView";
+import ChannelsTable from "./ChannelsTable";
 import LaneHistoryModal from "./LaneHistoryModal";
-import ModelMinersModal from "./ModelMinersModal";
-import ModelRolloutStatus from "./ModelRolloutStatus";
-import {
-  rolloutDeviceCounts,
-  rolloutProgressColorMap,
-  rolloutProgressSegments,
-  rolloutProgressSummary,
-} from "./rolloutStatus";
-import {
-  Rollout,
-  RolloutLane,
-  RolloutLaneModelGroup,
-  RolloutStatus,
-} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import RolloutDetailModal from "./RolloutDetailModal";
+import { Rollout, RolloutLane, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import { useRolloutLanes } from "@/protoFleet/api/useRolloutLanes";
 import MinerSelectionModal from "@/protoFleet/components/TargetSelectionModal/MinerSelectionModal";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { Alert, ChevronDown } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Card, { cardType } from "@/shared/components/Card";
-import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const ROLLOUT_LANES_DESCRIPTION =
-  "Group miners into channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
-
-// Attention pill with a pulsing dot, shown wherever a rollout is ongoing.
-const RolloutActivePill = ({ count, testId }: { count: number; testId?: string }) => (
-  <span
-    data-testid={testId}
-    className="inline-flex items-center gap-1.5 rounded-full bg-intent-warning-10 px-2 py-0.5 text-200 font-normal whitespace-nowrap text-text-primary"
-  >
-    <span className="size-2 shrink-0 animate-pulse rounded-full bg-intent-warning-fill" />
-    {count === 1 ? "Rollout in progress" : `${count} rollouts in progress`}
-  </span>
-);
-
-const CollapseChevron = ({ expanded }: { expanded: boolean }) => (
-  <ChevronDown width="w-3.5" className={clsx("shrink-0 transition-transform", !expanded && "-rotate-90")} />
-);
-
-// Compact in-group progress row. The full live view for the rollout sits in
-// the "Active rollouts" section at the top of the tab; this row keeps
-// progress visible in context, including while the group is collapsed.
-const ModelGroupRolloutProgress = ({ rollout }: { rollout: Rollout }) => {
-  const counts = rolloutDeviceCounts(rollout);
-  return (
-    <div className="flex flex-col gap-1.5" data-testid={`model-group-rollout-progress-${rollout.model}`}>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-200 text-text-primary-70">
-        <span>{`Rolling out ${rollout.firmwareVersion}`}</span>
-        <span>{rolloutProgressSummary(counts)}</span>
-      </div>
-      <CompositionBar segments={rolloutProgressSegments(counts)} height={6} colorMap={rolloutProgressColorMap} />
-    </div>
-  );
-};
-
-interface ModelGroupSectionProps {
-  group: RolloutLaneModelGroup;
-  activeRollout: Rollout | undefined;
-  firmwareFiles: FirmwareFileInfo[];
-  stagedFileId: string;
-  onStageFirmware: (model: string, fileId: string) => void;
-  onViewMiners: () => void;
-}
-
-// Compact per-model row: identity on the left, actions on the right, and
-// live rollout progress below. The miner table lives in a modal behind
-// "View miners" so lanes with many miners stay scannable.
-const ModelGroupSection = ({
-  group,
-  activeRollout,
-  firmwareFiles,
-  stagedFileId,
-  onStageFirmware,
-  onViewMiners,
-}: ModelGroupSectionProps) => {
-  const options = useMemo(() => {
-    const matching = firmwareFiles.filter((f) => f.target_model.toLowerCase() === group.model.toLowerCase());
-    return [
-      { value: "", label: "No firmware" },
-      ...matching.map((f) => ({
-        value: f.id,
-        label: f.firmware_version || f.filename,
-        description: f.filename,
-      })),
-    ];
-  }, [firmwareFiles, group.model]);
-
-  return (
-    <div className="flex flex-col gap-3 rounded-lg bg-core-primary-5 p-4" data-testid={`model-group-${group.model}`}>
-      <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
-        <div className="flex items-center gap-3">
-          <span className="text-heading-100 text-text-primary">{group.model || "Unknown model"}</span>
-          <span className="text-200 text-text-primary-50">
-            {group.miners.length === 1 ? "1 miner" : `${group.miners.length} miners`}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 phone:flex-col phone:items-stretch">
-          {group.miners.length > 0 ? (
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="View miners"
-              onClick={onViewMiners}
-              testId={`view-miners-${group.model}`}
-            />
-          ) : null}
-          <FirmwarePickerButton
-            label={`Firmware for ${group.model || "unknown model"}`}
-            options={options}
-            value={stagedFileId}
-            onChange={(value) => onStageFirmware(group.model, value)}
-            testId={`lane-firmware-select-${group.model}`}
-          />
-        </div>
-      </div>
-
-      {activeRollout ? <ModelGroupRolloutProgress rollout={activeRollout} /> : null}
-
-      {group.miners.length === 0 ? (
-        <span className="text-200 text-text-primary-50">
-          No miners of this model in the channel. The assignment applies as soon as one is added.
-        </span>
-      ) : null}
-    </div>
-  );
-};
-
-interface LaneCardProps {
-  lane: RolloutLane;
-  rollouts: Rollout[];
-  firmwareFiles: FirmwareFileInfo[];
-  minerNames: Record<string, string>;
-  onManageMiners: (lane: RolloutLane) => void;
-  onShowHistory: (lane: RolloutLane) => void;
-  onDelete: (lane: RolloutLane) => void;
-  onApply: (laneId: bigint, assignments: { model: string; firmwareFileId: string }[]) => Promise<void>;
-}
-
-// Exported for Storybook; the tab below is the only production consumer.
-export const LaneCard = ({
-  lane,
-  rollouts,
-  firmwareFiles,
-  minerNames,
-  onManageMiners,
-  onShowHistory,
-  onDelete,
-  onApply,
-}: LaneCardProps) => {
-  // Staged (unapplied) firmware choices per model; absent key = server value.
-  const [staged, setStaged] = useState<Record<string, string>>({});
-  const [isApplying, setIsApplying] = useState(false);
-  const [expanded, setExpanded] = useState(true);
-  // Model whose miner table is open in the "View miners" modal.
-  const [minersModel, setMinersModel] = useState<string | null>(null);
-
-  const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
-  const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
-  const activeByModel = new Map(laneRollouts.filter((r) => r.status === RolloutStatus.ACTIVE).map((r) => [r.model, r]));
-  const activeCount = activeByModel.size;
-  // Derived from the polled lane on every render so the open modal tracks
-  // live firmware versions and rollout states; closes if the group empties.
-  const minersGroup = minersModel !== null ? lane.modelGroups.find((group) => group.model === minersModel) : undefined;
-
-  const stagedValue = (group: RolloutLaneModelGroup): string =>
-    staged[group.model] !== undefined ? staged[group.model] : group.firmwareFileId;
-
-  const dirtyAssignments = lane.modelGroups
-    .filter((group) => stagedValue(group) !== group.firmwareFileId)
-    .map((group) => ({ model: group.model, firmwareFileId: stagedValue(group) }));
-
-  const handleApply = () => {
-    setIsApplying(true);
-    onApply(lane.id, dirtyAssignments)
-      .then(() => {
-        setStaged({});
-        pushToast({ message: "Firmware changes applied", status: STATUSES.success });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't apply firmware changes", status: STATUSES.error });
-      })
-      .finally(() => setIsApplying(false));
-  };
-
-  return (
-    <Card
-      title={
-        <button
-          type="button"
-          aria-expanded={expanded}
-          data-testid="lane-toggle"
-          className="flex cursor-pointer items-center gap-3 text-left"
-          onClick={() => setExpanded((current) => !current)}
-        >
-          <CollapseChevron expanded={expanded} />
-          <span>{lane.name}</span>
-          <span className="text-200 font-normal text-text-primary-50">
-            {memberCount === 1 ? "1 miner" : `${memberCount} miners`}
-          </span>
-          {activeCount > 0 ? <RolloutActivePill count={activeCount} testId="lane-rollout-pill" /> : null}
-        </button>
-      }
-      type={cardType.default}
-      testId={`rollout-lane-${lane.name}`}
-      className={clsx(activeCount > 0 && "ring-1 ring-intent-warning-50")}
-      headerAction={
-        <div className="flex gap-2">
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            text="History"
-            onClick={() => onShowHistory(lane)}
-          />
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            text="Manage miners"
-            onClick={() => onManageMiners(lane)}
-          />
-          <Button variant={variants.danger} size={sizes.compact} text="Delete" onClick={() => onDelete(lane)} />
-        </div>
-      }
-      bodyClassName={clsx("flex flex-col gap-4 p-6 pt-4", !expanded && "hidden")}
-    >
-      {lane.modelGroups.length === 0 ? (
-        <span className="text-300 text-text-primary-50">
-          Empty channel. Add miners to group them by model and assign firmware.
-        </span>
-      ) : (
-        lane.modelGroups.map((group) => (
-          <ModelGroupSection
-            key={group.model}
-            group={group}
-            activeRollout={activeByModel.get(group.model)}
-            firmwareFiles={firmwareFiles}
-            stagedFileId={stagedValue(group)}
-            onStageFirmware={(model, fileId) => setStaged((prev) => ({ ...prev, [model]: fileId }))}
-            onViewMiners={() => setMinersModel(group.model)}
-          />
-        ))
-      )}
-
-      {minersGroup ? (
-        <ModelMinersModal
-          laneName={lane.name}
-          group={minersGroup}
-          activeRollout={activeByModel.get(minersGroup.model)}
-          minerNames={minerNames}
-          onClose={() => setMinersModel(null)}
-        />
-      ) : null}
-
-      {dirtyAssignments.length > 0 ? (
-        <div className="flex items-center justify-between gap-4 rounded-lg bg-intent-warning-10 px-4 py-3">
-          <span className="text-300 text-text-primary">
-            {dirtyAssignments.length === 1
-              ? "1 firmware change pending"
-              : `${dirtyAssignments.length} firmware changes pending`}
-            {" — applying starts a rollout per model."}
-          </span>
-          <div className="flex shrink-0 gap-2">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Discard"
-              disabled={isApplying}
-              onClick={() => setStaged({})}
-            />
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Apply changes"
-              loading={isApplying}
-              onClick={handleApply}
-            />
-          </div>
-        </div>
-      ) : null}
-    </Card>
-  );
-};
+  "Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
 
 const RolloutLanesTab = () => {
   const {
@@ -318,6 +46,10 @@ const RolloutLanesTab = () => {
   // History entry whose firmware is about to be restored.
   const [rollbackTarget, setRollbackTarget] = useState<Rollout | null>(null);
   const [isRollingBack, setIsRollingBack] = useState(false);
+  // Channel drilled into via "Manage"; null shows the channels table.
+  const [managedLaneId, setManagedLaneId] = useState<bigint | null>(null);
+  // Rollout open in the update detail modal, resolved live on each poll.
+  const [viewUpdateId, setViewUpdateId] = useState<bigint | null>(null);
 
   useEffect(() => {
     listFirmwareFiles()
@@ -374,6 +106,7 @@ const RolloutLanesTab = () => {
       .then(() => {
         pushToast({ message: `Deleted channel ${laneToDelete.name}`, status: STATUSES.success });
         setLaneToDelete(null);
+        setManagedLaneId(null);
       })
       .catch((error) => {
         pushToast({ message: error?.message || "Couldn't delete channel", status: STATUSES.error });
@@ -408,43 +141,38 @@ const RolloutLanesTab = () => {
       .finally(() => setIsSavingMembers(false));
   };
 
+  // Resolved fresh on every poll so the drill-in card and the update detail
+  // modal track live progress; both fall back gracefully if the record goes.
+  const managedLane = managedLaneId !== null ? lanes.find((lane) => lane.id === managedLaneId) : undefined;
+  const viewedRollout = viewUpdateId !== null ? rollouts.find((rollout) => rollout.id === viewUpdateId) : undefined;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Rollout channels" description={ROLLOUT_LANES_DESCRIPTION} />
-        <Button
-          variant={variants.primary}
-          size={sizes.compact}
-          text="New channel"
-          onClick={() => setShowCreateDialog(true)}
-          className="shrink-0 phone:w-full"
-        />
+        <SettingsPageHeader title="Release channels" description={ROLLOUT_LANES_DESCRIPTION} />
+        {managedLane ? null : (
+          <Button
+            variant={variants.primary}
+            size={sizes.compact}
+            text="Create release channel"
+            onClick={() => setShowCreateDialog(true)}
+            className="shrink-0 phone:w-full"
+          />
+        )}
       </div>
 
-      {activeRollouts.length > 0 ? (
-        <section className="grid gap-3" data-testid="active-rollouts-section">
-          <Header
-            title={activeRollouts.length === 1 ? "Active rollout" : "Active rollouts"}
-            titleSize="text-heading-200"
-          />
-          {activeRollouts.map((rollout) => (
-            <ModelRolloutStatus key={rollout.id.toString()} rollout={rollout} />
-          ))}
-        </section>
-      ) : null}
-
-      {isLoading ? (
-        <div className="text-center text-text-primary-50">Loading rollout channels...</div>
-      ) : lanes.length === 0 ? (
-        <SettingsEmptyState
-          title="No rollout channels"
-          description="Create a channel, add miners to it, and assign firmware per model to roll out updates."
-        />
-      ) : (
-        lanes.map((lane) => (
-          <LaneCard
-            key={lane.id.toString()}
-            lane={lane}
+      {managedLane ? (
+        <>
+          <button
+            type="button"
+            data-testid="back-to-channels"
+            className="flex cursor-pointer items-center gap-2 self-start text-200 text-text-primary-70 transition-colors hover:text-text-primary"
+            onClick={() => setManagedLaneId(null)}
+          >
+            ← All release channels
+          </button>
+          <ChannelManageView
+            lane={managedLane}
             rollouts={rollouts}
             firmwareFiles={firmwareFiles}
             minerNames={minerNames}
@@ -453,12 +181,39 @@ const RolloutLanesTab = () => {
             onDelete={setLaneToDelete}
             onApply={applyFirmware}
           />
-        ))
+        </>
+      ) : (
+        <>
+          {activeRollouts.length > 0 ? (
+            <ActiveUpdatesSection rollouts={activeRollouts} onViewUpdate={(rollout) => setViewUpdateId(rollout.id)} />
+          ) : null}
+
+          {isLoading ? (
+            <div className="text-center text-text-primary-50">Loading release channels...</div>
+          ) : lanes.length === 0 ? (
+            <SettingsEmptyState
+              title="No release channels"
+              description="Create a release channel, add miners to it, and assign firmware per model to roll out updates."
+            />
+          ) : (
+            <section className="grid gap-3">
+              <span className="text-200 text-text-primary-50">
+                {lanes.length === 1 ? "1 release channel" : `${lanes.length} release channels`}
+              </span>
+              <ChannelsTable lanes={lanes} rollouts={rollouts} onManage={(lane) => setManagedLaneId(lane.id)} />
+              <span className="text-200 text-text-primary-50">
+                Expand a release channel to inspect its model-specific targets and update state.
+              </span>
+            </section>
+          )}
+        </>
       )}
+
+      {viewedRollout ? <RolloutDetailModal rollout={viewedRollout} onClose={() => setViewUpdateId(null)} /> : null}
 
       <Dialog
         open={showCreateDialog}
-        title="New rollout channel"
+        title="New release channel"
         subtitle="A channel starts empty. Add miners and assign firmware afterwards."
         testId="create-lane-dialog"
         onDismiss={() => {
@@ -491,7 +246,7 @@ const RolloutLanesTab = () => {
 
       <Dialog
         open={laneToDelete !== null}
-        title="Delete rollout channel?"
+        title="Delete release channel?"
         subtitle={`Miners in ${laneToDelete?.name ?? "this channel"} are released and firmware is no longer enforced for them.`}
         testId="delete-lane-dialog"
         onDismiss={() => {

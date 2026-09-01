@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import ChannelManageView from "./ChannelManageView";
 import {
   activeRigRollout,
   canaryChannel,
@@ -9,23 +10,23 @@ import {
   firmwareFiles,
   minerNames,
 } from "./RolloutChannels.fixtures";
-import { LaneCard } from "./RolloutLanesTab";
 
-// The channel card as rendered in Settings → Firmware → Rollout channels:
-// per-model rows with the firmware picker and "View miners", staged-change
-// banner, and in-card rollout progress. Picking a different firmware in the
-// story stages it live; "Apply changes" resolves after a short delay.
+// The per-channel management surface behind a channel's "Manage" action:
+// per-model table rows with the firmware picker, update status, and "View
+// miners", live progress under updating rows, and the staged-change banner.
+// Picking a different firmware in the story stages it live; "Apply changes"
+// resolves after a short delay.
 const meta = {
-  title: "Proto Fleet/Firmware/Rollout Channels/Channel Card",
-  component: LaneCard,
+  title: "Proto Fleet/Firmware/Rollout Channels/Manage Channel",
+  component: ChannelManageView,
   parameters: {
     layout: "fullscreen",
   },
-} satisfies Meta<typeof LaneCard>;
+} satisfies Meta<typeof ChannelManageView>;
 
 export default meta;
 
-type Story = StoryObj<typeof LaneCard>;
+type Story = StoryObj<typeof ChannelManageView>;
 
 const noop = () => {};
 const applyAfterDelay = () => new Promise<void>((resolve) => setTimeout(resolve, 800));
@@ -38,7 +39,7 @@ export const RolloutInProgress: Story = {
   name: "Rollout in progress",
   render: () => (
     <Frame>
-      <LaneCard
+      <ChannelManageView
         lane={canaryChannel}
         rollouts={[activeRigRollout]}
         firmwareFiles={firmwareFiles}
@@ -56,7 +57,7 @@ export const IdleCompliant: Story = {
   name: "Idle, all miners compliant",
   render: () => (
     <Frame>
-      <LaneCard
+      <ChannelManageView
         lane={canaryChannelSettled}
         rollouts={[]}
         firmwareFiles={firmwareFiles}
@@ -74,7 +75,7 @@ export const EmptyChannel: Story = {
   name: "Empty channel",
   render: () => (
     <Frame>
-      <LaneCard
+      <ChannelManageView
         lane={emptyChannel}
         rollouts={[]}
         firmwareFiles={firmwareFiles}

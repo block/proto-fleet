@@ -5,7 +5,7 @@ import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
 
-test.describe("Firmware rollout lanes", () => {
+test.describe("Firmware release channels", () => {
   const runId = Date.now();
   const laneA = `Lane A ${runId}`;
   const laneB = `Lane B ${runId}`;
@@ -76,13 +76,14 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.validateFirmwareFileVisible(firmwareFileName);
     });
 
-    await test.step("Create an empty lane", async () => {
+    await test.step("Create an empty channel", async () => {
       await settingsFirmwarePage.openRolloutLanesTab();
       await settingsFirmwarePage.createLane(laneA);
-      await settingsFirmwarePage.validateLaneMinerCount(laneA, 0);
+      await settingsFirmwarePage.validateChannelMinerCount(laneA, 0);
     });
 
-    await test.step("Add two Rig miners to the lane", async () => {
+    await test.step("Add two Rig miners to the channel", async () => {
+      await settingsFirmwarePage.manageChannel(laneA);
       await settingsFirmwarePage.openManageLaneMiners(laneA);
       await settingsFirmwarePage.selectLaneMinersByModel("Rig", 2);
       await settingsFirmwarePage.confirmLaneMinerSelection();
@@ -94,14 +95,24 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.applyLaneFirmwareChanges(laneA);
     });
 
-    await test.step("Lane and app header signal the ongoing rollout", async () => {
+    await test.step("Channel card and app header signal the ongoing rollout", async () => {
       await settingsFirmwarePage.validateLaneRolloutPill(laneA);
       await settingsFirmwarePage.validateAppRolloutPill();
     });
 
-    await test.step("Header pill deep-links to the rollout lanes view", async () => {
+    await test.step("Header pill deep-links to the release channels view", async () => {
       await settingsFirmwarePage.openFilesTab();
       await settingsFirmwarePage.followAppRolloutPillToLanes();
+      await settingsFirmwarePage.validateActiveUpdateRow(laneA, "Rig");
+      await settingsFirmwarePage.validateChannelActiveUpdates(laneA, 1);
+    });
+
+    await test.step("Update detail modal and per-model row report the update", async () => {
+      await settingsFirmwarePage.openUpdateDetail(laneA, "Rig");
+      await settingsFirmwarePage.closeUpdateDetail();
+      await settingsFirmwarePage.expandChannel(laneA);
+      await settingsFirmwarePage.validateModelRowUpdating(laneA, "Rig");
+      await settingsFirmwarePage.manageChannel(laneA);
       await settingsFirmwarePage.validateLaneRolloutPill(laneA);
     });
 
@@ -114,24 +125,24 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.waitForLaneRolloutCompleted(laneA, "Rig", firmwareVersion, testConfig.testTimeout * 4);
     });
 
-    await test.step("Collapsing the lane hides its model groups", async () => {
-      await settingsFirmwarePage.toggleLane(laneA);
-      await settingsFirmwarePage.validateLaneCollapsed(laneA, "Rig");
-      await settingsFirmwarePage.toggleLane(laneA);
-    });
-
-    await test.step("Moving a miner to a second lane removes it from the first", async () => {
+    await test.step("Moving a miner to a second channel removes it from the first", async () => {
       const [minerToMove] = await settingsFirmwarePage.getLaneMinerNames(laneA, "Rig");
+      await settingsFirmwarePage.backToChannels();
       await settingsFirmwarePage.createLane(laneB);
+      await settingsFirmwarePage.manageChannel(laneB);
       await settingsFirmwarePage.openManageLaneMiners(laneB);
       await settingsFirmwarePage.selectLaneMinerByName(minerToMove);
       await settingsFirmwarePage.confirmLaneMinerSelection();
       await settingsFirmwarePage.validateLaneMinerCount(laneB, 1);
-      await settingsFirmwarePage.validateLaneMinerCount(laneA, 1);
+      await settingsFirmwarePage.backToChannels();
+      await settingsFirmwarePage.validateChannelMinerCount(laneA, 1);
+      await settingsFirmwarePage.validateChannelMinerCount(laneB, 1);
     });
 
-    await test.step("Delete both lanes", async () => {
+    await test.step("Delete both channels", async () => {
+      await settingsFirmwarePage.manageChannel(laneB);
       await settingsFirmwarePage.deleteLane(laneB);
+      await settingsFirmwarePage.manageChannel(laneA);
       await settingsFirmwarePage.deleteLane(laneA);
     });
   });
@@ -161,9 +172,10 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.validateFirmwareFileVisible(rollbackFileNameV2);
     });
 
-    await test.step("Create a lane with one Rig miner", async () => {
+    await test.step("Create a channel with one Rig miner", async () => {
       await settingsFirmwarePage.openRolloutLanesTab();
       await settingsFirmwarePage.createLane(laneC);
+      await settingsFirmwarePage.manageChannel(laneC);
       await settingsFirmwarePage.openManageLaneMiners(laneC);
       await settingsFirmwarePage.selectLaneMinersByModel("Rig", 1);
       await settingsFirmwarePage.confirmLaneMinerSelection();
@@ -208,7 +220,7 @@ test.describe("Firmware rollout lanes", () => {
       await settingsFirmwarePage.validateHistoryRollbackAvailable(laneC, rollbackVersionV2);
     });
 
-    await test.step("Delete the lane", async () => {
+    await test.step("Delete the channel", async () => {
       await settingsFirmwarePage.deleteLane(laneC);
     });
   });

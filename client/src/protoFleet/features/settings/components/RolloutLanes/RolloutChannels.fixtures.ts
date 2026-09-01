@@ -120,6 +120,13 @@ export const emptyChannel: RolloutLane = create(RolloutLaneSchema, {
   modelGroups: [],
 });
 
+// A settled channel with a distinct id, for stories listing several channels.
+export const productionChannel: RolloutLane = create(RolloutLaneSchema, {
+  ...canaryChannelSettled,
+  id: BigInt(3),
+  name: "Production",
+});
+
 // Ongoing enforcement of 1.4.4 on the Rig group: two miners done, one
 // mid-flash, three queued.
 export const activeRigRollout: Rollout = create(RolloutSchema, {
