@@ -3,6 +3,7 @@ title: "Terra Codex security review benchmark"
 date: 2026-09-01
 status: implementing
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/987
 ---
 
 # Terra Codex security review benchmark
