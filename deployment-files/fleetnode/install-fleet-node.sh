@@ -194,9 +194,9 @@ load_service_account() {
 
 validate_group() {
   [[ -n "$group_record" ]] || { echo "fleetnode user exists without a fleetnode group" >&2; return 1; }
-  local _name _password _gid members member
+  local _name _password _uid _rest group_gid members member passwd_entries passwd_name passwd_gid
   local -a group_members=()
-  IFS=: read -r _name _password _gid members <<< "$group_record"
+  IFS=: read -r _name _password group_gid members <<< "$group_record"
   if [[ -n "$members" ]]; then
     IFS=, read -ra group_members <<< "$members"
     for member in "${group_members[@]}"; do
@@ -206,6 +206,14 @@ validate_group() {
       }
     done
   fi
+
+  passwd_entries=$(getent passwd) || { echo "cannot inspect primary group ownership for fleetnode group" >&2; return 1; }
+  while IFS=: read -r passwd_name _password _uid passwd_gid _rest; do
+    if [[ "$passwd_gid" == "$group_gid" && "$passwd_name" != "fleetnode" ]]; then
+      echo "fleetnode group is the primary group for unrelated account: $passwd_name" >&2
+      return 1
+    fi
+  done <<< "$passwd_entries"
 }
 
 validate_service_account() {

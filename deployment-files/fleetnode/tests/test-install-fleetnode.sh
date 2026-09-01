@@ -128,6 +128,18 @@ cat > "$TEST_DIR/bin/getent" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-}:${2:-}" in
+  passwd:)
+    if [[ -e "$FAKE_ACCOUNT_DB/user" ]]; then
+      printf 'fleetnode:x:995:%s::%s:%s\n' \
+        "${FAKE_ACCOUNT_PRIMARY_GID:-995}" \
+        "${FAKE_ACCOUNT_HOME:-/var/lib/fleetnode}" \
+        "${FAKE_ACCOUNT_SHELL:-$FAKE_NOLOGIN_PATH}"
+    fi
+    if [[ -n "${FAKE_PRIMARY_GID_USER:-}" ]]; then
+      printf '%s:x:996:%s::/home/%s:/bin/sh\n' \
+        "$FAKE_PRIMARY_GID_USER" "${FAKE_GROUP_GID:-995}" "$FAKE_PRIMARY_GID_USER"
+    fi
+    ;;
   passwd:fleetnode)
     [[ -e "$FAKE_ACCOUNT_DB/user" ]] || exit 2
     printf 'fleetnode:x:995:%s::%s:%s\n' \
@@ -282,6 +294,7 @@ run_installer() {
   FAKE_ACCOUNT_PRIMARY_GID="${FAKE_ACCOUNT_PRIMARY_GID:-995}" \
   FAKE_GROUP_GID="${FAKE_GROUP_GID:-995}" \
   FAKE_GROUP_MEMBERS="${FAKE_GROUP_MEMBERS:-}" \
+  FAKE_PRIMARY_GID_USER="${FAKE_PRIMARY_GID_USER:-}" \
   FAKE_RUNUSER_DENY="${FAKE_RUNUSER_DENY:-}" \
   FAKE_ACCOUNT_BUSY="${FAKE_ACCOUNT_BUSY:-0}" \
   FAKE_STATE_LOCK_HELD="${FAKE_STATE_LOCK_HELD:-0}" \
@@ -309,6 +322,7 @@ run_uninstaller() {
   FAKE_ACCOUNT_PRIMARY_GID="${FAKE_ACCOUNT_PRIMARY_GID:-995}" \
   FAKE_GROUP_GID="${FAKE_GROUP_GID:-995}" \
   FAKE_GROUP_MEMBERS="${FAKE_GROUP_MEMBERS:-}" \
+  FAKE_PRIMARY_GID_USER="${FAKE_PRIMARY_GID_USER:-}" \
   FAKE_ACCOUNT_BUSY="${FAKE_ACCOUNT_BUSY:-0}" \
   FAKE_STATE_LOCK_HELD="${FAKE_STATE_LOCK_HELD:-0}" \
   ACCOUNT_LOG="$ACCOUNT_LOG" \
@@ -336,6 +350,7 @@ start_installer() {
   FAKE_ACCOUNT_PRIMARY_GID="${FAKE_ACCOUNT_PRIMARY_GID:-995}" \
   FAKE_GROUP_GID="${FAKE_GROUP_GID:-995}" \
   FAKE_GROUP_MEMBERS="${FAKE_GROUP_MEMBERS:-}" \
+  FAKE_PRIMARY_GID_USER="${FAKE_PRIMARY_GID_USER:-}" \
   FAKE_RUNUSER_DENY="${FAKE_RUNUSER_DENY:-}" \
   ACCOUNT_LOG="$ACCOUNT_LOG" \
   REAL_FLOCK="${REAL_FLOCK:-}" \
@@ -402,6 +417,16 @@ fi
 printf 'operator config\n' > "$ROOT_PREFIX/etc/fleetnode/config.yaml"
 printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
 printf 'stale program file\n' > "$ROOT_PREFIX/opt/fleetnode/stale.txt"
+
+: > "$SYSTEMCTL_LOG"
+if FAKE_PRIMARY_GID_USER=operator run_installer v1.1.0 > "$TEST_DIR/shared-primary-gid-install.out" 2>&1; then
+  fail "installer reused a fleetnode group that is another account's primary group"
+fi
+assert_file_contains "$TEST_DIR/shared-primary-gid-install.out" "fleetnode group is the primary group for unrelated account: operator"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
+if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
+  fail "installer stopped the service before validating primary group ownership"
+fi
 
 : > "$SYSTEMCTL_LOG"
 if FAKE_ACCOUNT_HOME=/tmp/not-fleetnode run_installer v1.1.0 > "$TEST_DIR/bad-account.out" 2>&1; then
@@ -568,6 +593,21 @@ assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 
 run_uninstaller
 run_installer v1.1.0
+
+: > "$SYSTEMCTL_LOG"
+: > "$ACCOUNT_LOG"
+if FAKE_PRIMARY_GID_USER=operator run_uninstaller --purge > "$TEST_DIR/shared-primary-gid-purge.out" 2>&1; then
+  fail "purge accepted a fleetnode group that is another account's primary group"
+fi
+assert_file_contains "$TEST_DIR/shared-primary-gid-purge.out" "fleetnode group is the primary group for unrelated account: operator"
+[[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "refused purge removed the program"
+[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "refused purge removed state"
+if grep -Eq '(^| )(stop|disable) fleet-node.service($| )' "$SYSTEMCTL_LOG"; then
+  fail "purge mutated the service before validating primary group ownership"
+fi
+if [[ -s "$ACCOUNT_LOG" ]]; then
+  fail "purge mutated accounts before validating primary group ownership"
+fi
 
 : > "$ROOT_PREFIX/var/lib/fleetnode/state.lock"
 : > "$SYSTEMCTL_LOG"
