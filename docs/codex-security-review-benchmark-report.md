@@ -1,6 +1,6 @@
 # Codex security review benchmark report
 
-Date: 2026-08-27
+Date: 2026-09-01
 
 ## Decision
 
@@ -16,9 +16,17 @@ model tuning. Across 72 matrix cases, 50 reviews exhausted the outer budget and
 all 72 trusted finalizers uploaded either a completed-result or verified-timeout
 artifact. No ambiguous cancellation was admitted as benchmark data.
 
-Further runtime work should evaluate architecture-aware sharding rather than
-reducing context, effort, or prompt scope again. See the
-[sharded-review TDD](./plans/2026-08-27-sharded-codex-security-review-tdd.md).
+Architecture-aware sharding also failed its initial gate. The trusted sharded
+run completed only one of six aggregates; eight of 11 active shards exhausted
+their six-minute model budget. Do not repeat the sharded candidate or run it
+against the large-PR corpus. The completed
+[sharded-review TDD](./plans/archive/2026-08-27-sharded-codex-security-review-tdd.md)
+records the design and outcome.
+
+The next independent candidate is `gpt-5.6-terra` with `high` reasoning,
+default service tier, and low verbosity. It must run through trusted
+benchmark-only code before any production consideration. Production remains on
+`gpt-5.6-sol`, `unified=40`, `xhigh`, and the baseline prompt.
 
 ## Method
 
@@ -46,6 +54,36 @@ and verified-timeout rates are reported separately.
 GitHub reports each run as cancelled because timed-out matrix jobs are cancelled
 at the enforceable outer boundary. That top-level conclusion is expected here;
 every per-case finalizer succeeded and produced one uniquely named artifact.
+
+### Sharded candidate
+
+The initial sharded run
+[33534337325](https://github.com/block/proto-fleet/actions/runs/33534337325)
+loaded trusted `main` at
+`bfbc12bb61dd6372ddd25c05107a1fb41c94dfec`. It used `gpt-5.6-sol`,
+`unified=40`, `xhigh`, and the baseline prompt. Each review had at most two
+parallel packets and each active model job had a six-minute outer budget.
+
+| Case | Shard outcomes | Aggregate | Adjudicated result |
+| --- | --- | --- | --- |
+| PR #944 | timeout at 351s / timeout at 354s | Incomplete | Clean control |
+| PR #948 | timeout at 353s / timeout at 352s | Incomplete | One `MEDIUM` |
+| PR #953 | timeout at 355s / timeout at 355s | Incomplete | One `HIGH`, one `MEDIUM` |
+| PR #954 | timeout at 354s / completed at 105s | Incomplete | Two `MEDIUM` findings |
+| PR #956 | timeout at 351s / completed at 45s | Incomplete | Clean control |
+| PR #961 | completed at 82s / inactive | Completed | One `HIGH`, one `MEDIUM` |
+
+Three active shards completed and eight produced verified budget-timeout
+artifacts. All trusted preparation and finalizer jobs succeeded. Each incomplete
+aggregate uploaded fail-closed `HIGH` evidence and then failed its completion
+gate. No timeout was reclassified as an automation failure.
+
+PR #961's completed aggregate recalled the adjudicated `HIGH` about the shared
+824-day certificate lifetime. It missed the adjudicated `MEDIUM` that existing
+deployments do not receive the compatibility fix. The candidate therefore
+failed both the mandatory initial 6/6 completion gate and the only recall check
+available from a completed aggregate. Per the accepted sequence, repeats cannot
+erase the completion failure, and PRs #957 and #964 were not run.
 
 ## Human adjudication
 
@@ -145,10 +183,13 @@ matrix and showed that its completion gain comes with unacceptable recall.
 
 ## Follow-up
 
-1. Keep production tuning unchanged while retaining the bounded timeout and
-   fail-closed human-review path.
-2. Complete the original plan's first-30-production-run observation window.
-3. Review the sharded-review TDD before implementing another secret-backed
-   benchmark candidate.
-4. Require a sharded candidate to pass the same adjudicated recall gates before
-   replaying PRs #957 and #964 from the large-PR corpus.
+1. Keep production on `gpt-5.6-sol`, `unified=40`, `xhigh`, and the baseline
+   prompt while retaining the bounded timeout and fail-closed human-review path.
+2. Do not repeat the rejected sharded candidate or replay PRs #957 and #964.
+3. Add trusted benchmark-only support for `gpt-5.6-terra` with `high` reasoning,
+   default service tier, and low verbosity.
+4. After that support lands on `main`, run Terra independently across the fixed
+   adjudicated corpus. Require 6/6 completion, every adjudicated `HIGH`, at
+   least 90% of the five adjudicated `MEDIUM` findings, and no invalid new
+   `MEDIUM` or `HIGH` before any large-PR or production evaluation.
+5. Complete the original plan's first-30-production-run observation window.
