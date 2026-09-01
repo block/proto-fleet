@@ -103,6 +103,7 @@ PROGRAM_DIR="${ROOT_PREFIX}/opt/fleetnode"
 CONFIG_DIR="${ROOT_PREFIX}/etc/fleetnode"
 STATE_DIR="${ROOT_PREFIX}/var/lib/fleetnode"
 UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleet-node.service"
+ENROLL_HELPER_PATH="${ROOT_PREFIX}/usr/local/bin/fleetnode-enroll"
 INSTALL_LOCK_DIR="${ROOT_PREFIX}/run/proto-fleet"
 INSTALL_LOCK_PATH="$INSTALL_LOCK_DIR/fleetnode-installer.lock"
 SYSTEMCTL="${FLEETNODE_SYSTEMCTL:-systemctl}"
@@ -148,7 +149,7 @@ if ! as_root "$SYSTEMCTL" show --property=Version --value >/dev/null 2>&1; then
   exit 1
 fi
 
-for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
+for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "${ENROLL_HELPER_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$ENROLL_HELPER_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
   if [[ -L "$path" ]]; then
     if [[ "$ACTION" == "uninstall" && "$path" == "$UNIT_PATH" && "$path" -ef /dev/null ]]; then
       continue
@@ -270,6 +271,18 @@ validate_preserved_access() {
   done
 }
 
+validate_existing_enroll_helper() {
+  [[ -e "$ENROLL_HELPER_PATH" || -L "$ENROLL_HELPER_PATH" ]] || return 0
+  [[ -f "$ENROLL_HELPER_PATH" && ! -L "$ENROLL_HELPER_PATH" ]] || {
+    echo "enrollment helper path is not a regular file: $ENROLL_HELPER_PATH" >&2
+    return 1
+  }
+  [[ -f "$PROGRAM_DIR/fleetnode-enroll" ]] && cmp -s "$PROGRAM_DIR/fleetnode-enroll" "$ENROLL_HELPER_PATH" || {
+    echo "refusing to replace unmanaged enrollment helper: $ENROLL_HELPER_PATH" >&2
+    return 1
+  }
+}
+
 if [[ "$ACTION" == "install" ]]; then
   validate_existing_service_account
   validate_preserved_access
@@ -311,12 +324,14 @@ fi
 incoming="${PROGRAM_DIR%/*}/.fleetnode.install.$$"
 previous="${PROGRAM_DIR%/*}/.fleetnode.previous.$$"
 unit_backup="$work_dir/fleet-node.service.previous"
+enroll_helper_backup="$work_dir/fleetnode-enroll.previous"
 fresh_install=1
 [[ -x "$PROGRAM_DIR/fleetnode" && -f "$UNIT_PATH" ]] && fresh_install=0
 service_stopped=0
 previous_saved=0
 program_replaced=0
 unit_replaced=0
+enroll_helper_replaced=0
 install_complete=0
 
 cleanup() {
@@ -330,6 +345,13 @@ cleanup() {
   if [[ "$install_complete" != "1" ]]; then
     if [[ "$service_stopped" == "1" ]]; then
       as_root "$SYSTEMCTL" stop fleet-node.service || rollback_error "stop candidate Fleet Node service"
+    fi
+    if [[ "$enroll_helper_replaced" == "1" ]]; then
+      if [[ -f "$enroll_helper_backup" ]]; then
+        as_root install -m 0755 "$enroll_helper_backup" "$ENROLL_HELPER_PATH" || rollback_error "restore previous enrollment helper"
+      else
+        as_root rm -f "$ENROLL_HELPER_PATH" || rollback_error "remove candidate enrollment helper"
+      fi
     fi
     if [[ "$unit_replaced" == "1" ]]; then
       if [[ -f "$unit_backup" ]]; then
@@ -365,6 +387,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+validate_existing_enroll_helper
+
 remove_fleet_node() {
   local load_state
   load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
@@ -381,6 +405,7 @@ remove_fleet_node() {
     *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
   esac
 
+  as_root rm -f "$ENROLL_HELPER_PATH"
   as_root rm -rf "$PROGRAM_DIR"
   as_root rm -f "${UNIT_PATH%/*}/multi-user.target.wants/fleet-node.service"
   as_root rm -f "$UNIT_PATH"
@@ -446,6 +471,7 @@ source_dir="$work_dir/extracted/$ARCHIVE_ROOT"
 [[ -d "$source_dir" && ! -L "$source_dir" ]] || { echo "archive root must be a directory" >&2; exit 1; }
 for required in \
   fleetnode \
+  fleetnode-enroll \
   version.txt \
   fleet-node.service \
   plugins/proto-plugin \
@@ -465,7 +491,7 @@ fi
 while IFS= read -r -d '' path; do
   relative_path="${path#"$source_dir"/}"
   case "$relative_path" in
-    fleetnode|version.txt|fleet-node.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
+    fleetnode|fleetnode-enroll|version.txt|fleet-node.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
     *) echo "archive contains an unexpected entry: $relative_path" >&2; exit 1 ;;
   esac
 done < <(find "$source_dir" -mindepth 1 -print0)
@@ -518,6 +544,7 @@ fi
 
 ensure_shared_directory "${PROGRAM_DIR%/*}"
 ensure_shared_directory "${UNIT_PATH%/*}"
+ensure_shared_directory "${ENROLL_HELPER_PATH%/*}"
 
 if ! getent passwd fleetnode >/dev/null 2>&1; then
   if getent group fleetnode >/dev/null 2>&1; then
@@ -539,6 +566,7 @@ fi
 as_root rm -rf "$incoming" "$previous"
 as_root install -d -m 0755 "$incoming" "$incoming/plugins"
 as_root install -m 0755 "$source_dir/fleetnode" "$incoming/fleetnode"
+as_root install -m 0755 "$source_dir/fleetnode-enroll" "$incoming/fleetnode-enroll"
 as_root install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
 as_root install -m 0644 "$source_dir/fleet-node.service" "$incoming/fleet-node.service"
 as_root install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"
@@ -554,6 +582,12 @@ if [[ -d "$PROGRAM_DIR" ]]; then
 fi
 as_root mv "$incoming" "$PROGRAM_DIR"
 program_replaced=1
+
+if [[ -f "$ENROLL_HELPER_PATH" ]]; then
+  as_root cp -p "$ENROLL_HELPER_PATH" "$enroll_helper_backup"
+fi
+enroll_helper_replaced=1
+as_root install -m 0755 "$PROGRAM_DIR/fleetnode-enroll" "$ENROLL_HELPER_PATH"
 
 if [[ -f "$UNIT_PATH" ]]; then
   as_root cp -p "$UNIT_PATH" "$unit_backup"
@@ -581,9 +615,7 @@ echo "Configuration: $CONFIG_DIR"
 echo "Protected state: $STATE_DIR"
 echo
 echo "Enroll:"
-echo "  sudo -u fleetnode $PROGRAM_DIR/fleetnode --state-dir $STATE_DIR enroll --server-url=https://YOUR-FLEET-SERVER"
-echo "Then enable and start the service:"
-echo "  sudo systemctl enable --now fleet-node.service"
+echo "  sudo fleetnode-enroll --server-url=https://YOUR-FLEET-SERVER"
 echo "Inspect:"
 echo "  systemctl status fleet-node.service"
 echo "  journalctl -u fleet-node.service"

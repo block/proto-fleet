@@ -48,7 +48,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for path in /opt/fleetnode /etc/fleetnode /var/lib/fleetnode /etc/systemd/system/fleet-node.service; do
+for path in /opt/fleetnode /etc/fleetnode /var/lib/fleetnode /etc/systemd/system/fleet-node.service /usr/local/bin/fleetnode-enroll; do
   [[ ! -e "$path" ]] || fail "runner is not clean: $path already exists"
 done
 getent passwd fleetnode >/dev/null 2>&1 && fail "runner already has a fleetnode account"
@@ -58,6 +58,11 @@ CLEANUP_ALLOWED=1
 run_installer "$VERSION"
 sudo systemctl is-active --quiet fleet-node.service && fail "fresh install started the unenrolled service"
 sudo systemctl is-enabled --quiet fleet-node.service && fail "fresh install enabled the service"
+[[ -x /usr/local/bin/fleetnode-enroll ]] || fail "enrollment helper was not installed"
+/usr/local/bin/fleetnode-enroll --help | grep -Fq "sudo fleetnode-enroll --server-url=URL" || \
+  fail "enrollment helper did not report its supported command"
+sudo systemctl is-active --quiet fleet-node.service && fail "enrollment helper help started the service"
+sudo systemctl is-enabled --quiet fleet-node.service && fail "enrollment helper help enabled the service"
 
 sudo tee /var/lib/fleetnode/state.yaml >/dev/null <<'EOF'
 server_url: http://127.0.0.1:1
@@ -103,6 +108,7 @@ WORK_DIR=""
 run_installer uninstall
 [[ ! -e /opt/fleetnode ]] || fail "uninstall retained the program"
 [[ ! -e /etc/systemd/system/fleet-node.service ]] || fail "uninstall retained the unit"
+[[ ! -e /usr/local/bin/fleetnode-enroll ]] || fail "uninstall retained the enrollment helper"
 sudo test -f /var/lib/fleetnode/state.yaml || fail "uninstall removed state"
 getent passwd fleetnode >/dev/null || fail "uninstall removed the service account"
 

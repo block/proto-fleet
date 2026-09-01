@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
+usage() {
+  cat <<'EOF'
+Usage: sudo fleetnode-enroll --server-url=URL [--allow-insecure-transport]
+
+Enroll the packaged Fleet Node, then enable and start fleet-node.service.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    usage >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "fleetnode-enroll must run as root; use sudo fleetnode-enroll ..." >&2
+  exit 1
+fi
+
+for command in runuser systemctl; do
+  command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
+done
+[[ -x /opt/fleetnode/fleetnode ]] || { echo "Fleet Node is not installed at /opt/fleetnode/fleetnode" >&2; exit 1; }
+
+runuser -u fleetnode -- \
+  /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll "$@"
+systemctl enable --now fleet-node.service
