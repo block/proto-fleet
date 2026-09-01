@@ -121,6 +121,8 @@ scope rules for this sharded benchmark:
 - Report only findings grounded in a primary changed hunk or in a concrete
   interaction between a primary change and the supplied shared context. Do not
   report an issue that exists only in a shared file.
+- `NONE` is valid only as the overall risk for a review with no finding blocks;
+  never emit a `#### [NONE]` finding heading.
 - The baseline head-revision Location rule applies when a manifest file has
   `citation_side: "head"`. For a whole-file deletion marked
   `citation_side: "merge-base"`, cite a listed deleted line and link to

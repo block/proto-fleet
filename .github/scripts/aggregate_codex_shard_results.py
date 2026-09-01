@@ -148,7 +148,7 @@ def finding_blocks(markdown: str, shard_id: str) -> list[tuple[int, str, str, st
         raise ValueError("completed shard Markdown lacks findings/notes sections")
     section = markdown[findings_match.end() : notes_match.start()]
     headings = list(
-        re.finditer(r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+$", section)
+        re.finditer(r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW)\] [^\n]+$", section)
     )
     blocks = []
     for index, heading in enumerate(headings):

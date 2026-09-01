@@ -43,7 +43,7 @@ def validate_review_markdown(
         raise ValueError("model output risk disagrees with review summary")
 
     exact_findings = list(
-        re.finditer(r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+$", markdown)
+        re.finditer(r"(?m)^#### \[(CRITICAL|HIGH|MEDIUM|LOW)\] [^\n]+$", markdown)
     )
     finding_like = list(
         re.finditer(
@@ -68,8 +68,7 @@ def validate_review_markdown(
     findings_section = markdown[findings_start:notes_start]
     section_headings = re.findall(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+\S.*$", findings_section)
     if any(
-        re.fullmatch(r"#### \[(CRITICAL|HIGH|MEDIUM|LOW|NONE)\] [^\n]+", heading)
-        is None
+        re.fullmatch(r"#### \[(CRITICAL|HIGH|MEDIUM|LOW)\] [^\n]+", heading) is None
         for heading in section_headings[1:]
     ):
         raise ValueError("review Markdown contains an invalid finding heading")

@@ -892,6 +892,22 @@ class ResultTest(unittest.TestCase):
         self.assertEqual(result["status"], "incomplete")
         self.assertEqual(result["incomplete_reason"], "invalid-model-output")
 
+    def test_none_finding_heading_is_rejected(self):
+        markdown = (
+            "## Review Summary\n\n"
+            "**Overall Risk**: HIGH\n\n"
+            "### Findings\n\n"
+            "#### [NONE] No issue\n"
+            "- **Category**: Reliability\n"
+            "- **Location**: [`server/a/a.go:1`](https://example.test/a#L1)\n"
+            "- **Description**: Description.\n"
+            "- **Impact**: Impact.\n"
+            "- **Recommendation**: Recommendation.\n\n"
+            "### Notes\n\nNote.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "unparseable severity heading"):
+            writer.validate_review_markdown(markdown, "HIGH")
+
     def test_finding_outside_changed_hunk_becomes_invalid_output(self):
         manifest = signed_manifest(active_second=False)
         review = completed_result(manifest, "shard-1", "HIGH")["review"]
