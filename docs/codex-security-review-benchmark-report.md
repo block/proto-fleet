@@ -23,10 +23,12 @@ against the large-PR corpus. The completed
 [sharded-review TDD](./plans/archive/2026-08-27-sharded-codex-security-review-tdd.md)
 records the design and outcome.
 
-The next independent candidate is `gpt-5.6-terra` with `high` reasoning,
-default service tier, and low verbosity. It must run through trusted
-benchmark-only code before any production consideration. Production remains on
-`gpt-5.6-sol`, `unified=40`, `xhigh`, and the baseline prompt.
+The independent `gpt-5.6-terra` candidate also failed. It completed five of six
+cases and recalled both adjudicated `HIGH` findings, but recalled none of the
+five adjudicated `MEDIUM` findings and produced one invalid new `MEDIUM`. The
+completed [Terra benchmark plan](./plans/archive/2026-09-01-terra-codex-security-review-benchmark-plan.md)
+records the fixed profile and outcome. Production remains on `gpt-5.6-sol`,
+`unified=40`, `xhigh`, and the baseline prompt.
 
 ## Method
 
@@ -50,6 +52,7 @@ and verified-timeout rates are reported separately.
 | Effort, `high` | [33046668278](https://github.com/block/proto-fleet/actions/runs/33046668278) | 6 | `unified=40`, baseline prompt |
 | Effort, `medium` | [33092678963](https://github.com/block/proto-fleet/actions/runs/33092678963) | 6 | `unified=40`, baseline prompt |
 | Prompt | [33065249002](https://github.com/block/proto-fleet/actions/runs/33065249002) | 6 | `unified=40`, `xhigh` |
+| Terra | [33551271863](https://github.com/block/proto-fleet/actions/runs/33551271863) | 6 | `unified=40`, `high`, default service tier, low verbosity, baseline prompt |
 
 GitHub reports each run as cancelled because timed-out matrix jobs are cancelled
 at the enforceable outer boundary. That top-level conclusion is expected here;
@@ -85,6 +88,39 @@ failed both the mandatory initial 6/6 completion gate and the only recall check
 available from a completed aggregate. Per the accepted sequence, repeats cannot
 erase the completion failure, and PRs #957 and #964 were not run.
 
+### Terra candidate
+
+The initial Terra run
+[33551271863](https://github.com/block/proto-fleet/actions/runs/33551271863)
+loaded trusted `main` at
+`603ed457a23e9fe6c23ca8792b6aaad2e01722d1`. It used
+`gpt-5.6-terra`, `unified=40`, `high` reasoning, explicit `default` service
+tier, low verbosity, the baseline prompt, and the existing 12-minute outer
+budget.
+
+| Case | Outcome | Risk | Adjudicated result | Recall |
+| --- | --- | --- | --- | --- |
+| PR #944 | Verified timeout | — | Clean control | Not evaluated |
+| PR #948 | Completed at 150s | `NONE` | One `MEDIUM` | Missed |
+| PR #953 | Completed at 160s | `HIGH` | One `HIGH`, one `MEDIUM` | `HIGH` recalled; `MEDIUM` missed |
+| PR #954 | Completed at 174s | `NONE` | Two `MEDIUM` findings | Both missed |
+| PR #956 | Completed at 85s | `NONE` | Clean control | Correct |
+| PR #961 | Completed at 56s | `HIGH` | One `HIGH`, one `MEDIUM` | `HIGH` recalled; `MEDIUM` missed |
+
+The five completed cases had a 150-second median wall time (56–174 seconds) and
+reported a median 102,377 tokens (42,354–192,784). PR #944 reached a verified
+outer-budget timeout; every trusted finalizer succeeded.
+
+Terra recalled 2/2 adjudicated `HIGH` findings and 0/5 adjudicated `MEDIUM`
+findings. Its additional PR #953 `MEDIUM` claimed legacy site-scoped profile
+requests reach the envelope builder with empty scope JSON. That finding is
+invalid: [`validateAndNormalize`](https://github.com/block/proto-fleet/blob/586901c2c4b2ca21057202bac398718204ea6435/server/internal/domain/curtailment/response_profile.go#L220-L276)
+resolves the legacy `SiteID`, marshals the effective scope, and assigns canonical
+non-empty `ScopeJSON` before calling the store. The candidate therefore failed
+completion, recall, and new-finding
+validity. Repeats cannot repair the initial 6/6 failure, so PRs #957 and #964
+were not run.
+
 ## Human adjudication
 
 - Every completed PR #944 and PR #956 clean-control review correctly returned
@@ -107,6 +143,14 @@ erase the completion failure, and PRs #957 and #964 were not run.
   out in every experiment.
 - The bounded prompt downgraded PR #961's expected `HIGH` to `MEDIUM` and missed
   its expected `MEDIUM`.
+- Terra recalled the expected `HIGH` findings on PR #953 and PR #961. It missed
+  PR #948's topology-preview `MEDIUM`, PR #953's conflicting-lock-order
+  `MEDIUM`, both PR #954 database-harness `MEDIUM` findings, and PR #961's
+  existing-deployment compatibility `MEDIUM`.
+- Terra's new PR #953 legacy-site-profile `MEDIUM` is invalid. At the reviewed
+  head, the response-profile service resolves `SiteID` through
+  `ResponseProfileScope`, marshals it to canonical scope JSON, and replaces
+  `profile.ScopeJSON` before the SQL store invokes the envelope builder.
 
 ## Results
 
@@ -170,12 +214,13 @@ cancellation cleanup.
 
 | Gate | Outcome |
 | --- | --- |
-| Retain every adjudicated `HIGH` without downgrade across completed reviews | Failed by compact context and bounded prompt |
-| Retain at least 90% of adjudicated `MEDIUM` findings across completed reviews | Failed by every tested configuration; best observed recall was 1/4 at `medium` |
+| Initial candidate completion | Failed: sharding completed 1/6 aggregates; Terra completed 5/6 cases |
+| Retain every adjudicated `HIGH` without downgrade across completed reviews | Terra passed at 2/2; compact context and the bounded prompt failed |
+| Retain at least 90% of adjudicated `MEDIUM` findings across completed reviews | Failed by every tested configuration; Terra recalled 0/5, and the best observed result was 1/4 at `medium` effort |
 | No invalid `HIGH` on completed clean controls | Passed; every completed PR #944 and PR #956 control returned `NONE` |
-| New medium-or-higher findings are valid | Failed; medium effort produced an invalid `HIGH` on PR #948 |
-| No increase in median tool calls or compactions | Not decision-bearing because recall failed |
-| At least 20% faster or equivalent with lower token use | `medium` improved completion, but recall failed |
+| New medium-or-higher findings are valid | Failed: medium effort produced an invalid `HIGH` on PR #948, and Terra produced an invalid `MEDIUM` on PR #953 |
+| No increase in median tool calls or compactions | Not decision-bearing because completion and recall failed |
+| At least 20% faster or equivalent with lower token use | Terra improved completion, and `medium` effort also improved completion, but both failed recall and validity gates |
 
 The planned repeats showed that compact severity varies, but two completed
 trials still downgraded an adjudicated `HIGH`. Testing `medium` closed the effort
@@ -185,11 +230,9 @@ matrix and showed that its completion gain comes with unacceptable recall.
 
 1. Keep production on `gpt-5.6-sol`, `unified=40`, `xhigh`, and the baseline
    prompt while retaining the bounded timeout and fail-closed human-review path.
-2. Do not repeat the rejected sharded candidate or replay PRs #957 and #964.
-3. Add trusted benchmark-only support for `gpt-5.6-terra` with `high` reasoning,
-   default service tier, and low verbosity.
-4. After that support lands on `main`, run Terra independently across the fixed
-   adjudicated corpus. Require 6/6 completion, every adjudicated `HIGH`, at
-   least 90% of the five adjudicated `MEDIUM` findings, and no invalid new
-   `MEDIUM` or `HIGH` before any large-PR or production evaluation.
-5. Complete the original plan's first-30-production-run observation window.
+2. Do not repeat the rejected sharded or Terra candidates, and do not replay PRs
+   #957 and #964 for either candidate.
+3. Complete the original plan's first-30-production-run observation window.
+4. Require any future candidate to use trusted default-branch benchmark code and
+   pass the same initial completion, recall, and finding-validity gates before
+   production evaluation.

@@ -1,7 +1,7 @@
 ---
 title: "Terra Codex security review benchmark"
 date: 2026-09-01
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/pull/987
 ---
@@ -22,6 +22,24 @@ quality, latency, and cost. The current Codex configuration schema supports
 Codex action accepts these as trusted `codex-args` overrides. This experiment
 tests Terra independently so a model change is not mixed with sharding or
 prompt changes.
+
+## Outcome
+
+The benchmark-only implementation landed in PR #987 and ran from trusted `main`
+at `603ed457a23e9fe6c23ca8792b6aaad2e01722d1`. The initial adjudicated run
+[33551271863](https://github.com/block/proto-fleet/actions/runs/33551271863)
+completed five of six cases. PR #944 exhausted the 12-minute outer budget; its
+trusted finalizer produced a verified timeout artifact.
+
+Across the five completed cases, Terra recalled both adjudicated `HIGH`
+findings and none of the five adjudicated `MEDIUM` findings. It also reported a
+new `MEDIUM` on PR #953 that was adjudicated invalid: the response-profile
+service converts legacy `SiteID` requests to canonical, non-empty scope JSON
+before the SQL store builds the authorization envelope.
+
+The candidate failed the initial 6/6 completion gate, the medium-recall gate,
+and the new-finding validity gate. Repeats and the large-PR corpus were not run,
+and Terra did not advance to production.
 
 ## Goals
 
