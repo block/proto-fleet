@@ -21,6 +21,7 @@ def validate_review_markdown(
     *,
     allowed_line_ranges: dict[str, list[list[int]]] | None = None,
     blob_base_url: str | None = None,
+    blob_base_urls: dict[str, str] | None = None,
 ) -> None:
     section_names = ("## Review Summary", "### Findings", "### Notes")
     section_positions = []
@@ -109,8 +110,13 @@ def validate_review_markdown(
                 raise ValueError(
                     "review Markdown finding is outside changed hunk lines"
                 )
-            if blob_base_url is not None:
-                expected_url = f"{blob_base_url}/{quote(path, safe='/')}#L{line}"
+            expected_base_url = (
+                blob_base_urls.get(path)
+                if blob_base_urls is not None
+                else blob_base_url
+            )
+            if expected_base_url is not None:
+                expected_url = f"{expected_base_url}/{quote(path, safe='/')}#L{line}"
                 if url != expected_url:
                     raise ValueError(
                         "review Markdown finding has an invalid location URL"
@@ -122,7 +128,7 @@ def validate_review_markdown(
 def parse_review(
     raw: str,
     allowed_line_ranges: dict[str, list[list[int]]],
-    blob_base_url: str | None,
+    blob_base_urls: dict[str, str] | None,
 ) -> tuple[dict[str, str] | None, str | None]:
     if not raw.strip():
         return None, "empty-model-output"
@@ -143,11 +149,29 @@ def parse_review(
             candidate["review_markdown"],
             candidate["overall_risk"],
             allowed_line_ranges=allowed_line_ranges,
-            blob_base_url=blob_base_url,
+            blob_base_urls=blob_base_urls,
         )
     except ValueError:
         return None, "invalid-model-output"
     return candidate, None
+
+
+def review_location_contract(
+    manifest: dict[str, Any], packet_paths: set[str], repository: str | None
+) -> tuple[dict[str, list[list[int]]], dict[str, str] | None]:
+    records = [file for file in manifest["files"] if file["path"] in packet_paths]
+    allowed_line_ranges = {
+        file["path"]: file["changed_line_ranges"] for file in records
+    }
+    if repository is None:
+        return allowed_line_ranges, None
+    blob_base_urls = {}
+    for file in records:
+        citation_sha = manifest[f"{file['citation_side']}_sha"]
+        blob_base_urls[file["path"]] = (
+            f"https://github.com/{repository}/blob/{citation_sha}"
+        )
+    return allowed_line_ranges, blob_base_urls
 
 
 def build_result(
@@ -181,19 +205,11 @@ def build_result(
             status = "incomplete"
             reason = "codex-budget-exceeded"
         else:
-            repository = os.environ.get("GITHUB_REPOSITORY")
-            blob_base_url = (
-                f"https://github.com/{repository}/blob/{manifest['head_sha']}"
-                if repository
-                else None
-            )
             packet_paths = set(shard["primary_files"] + shard["shared_files"])
-            allowed_line_ranges = {
-                file["path"]: file["changed_line_ranges"]
-                for file in manifest["files"]
-                if file["path"] in packet_paths
-            }
-            review, reason = parse_review(raw, allowed_line_ranges, blob_base_url)
+            allowed_line_ranges, blob_base_urls = review_location_contract(
+                manifest, packet_paths, os.environ.get("GITHUB_REPOSITORY")
+            )
+            review, reason = parse_review(raw, allowed_line_ranges, blob_base_urls)
             status = "completed" if review else "incomplete"
 
     result = {

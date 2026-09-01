@@ -104,8 +104,10 @@ The baseline instructions above remain unchanged except for these more-specific
 scope rules for this sharded benchmark:
 
 - Start by also reading `{{REVIEW_MANIFEST_FILE}}`.
-- The manifest lists every changed file and its one primary shard owner. It
-  contains no benchmark purpose, expected findings, or prior adjudication data.
+- The manifest lists every changed file, its one primary shard owner, its
+  changed-line ranges, and whether finding links use the base or head revision.
+  It contains no benchmark purpose, expected findings, or prior adjudication
+  data.
 - References above to the authoritative or exact pull-request diff mean the
   supplied `{{REVIEW_DIFF_FILE}}` packet for shard `{{SHARD_ID}}`. The packet is
   the complete authorized changed-hunk scope for this shard, not the complete
@@ -119,3 +121,7 @@ scope rules for this sharded benchmark:
 - Report only findings grounded in a primary changed hunk or in a concrete
   interaction between a primary change and the supplied shared context. Do not
   report an issue that exists only in a shared file.
+- The baseline head-revision Location rule applies when a manifest file has
+  `citation_side: "head"`. For a whole-file deletion marked
+  `citation_side: "base"`, cite a listed deleted line and link to
+  `{{REVIEW_BASE_BLOB_URL}}/<path>#L<line>` instead.

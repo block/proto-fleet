@@ -90,14 +90,17 @@ that unit, while the 500,000-byte limit still splits the known 812,319-byte,
 wave. If one semantic unit exceeds either limit, shared
 context makes a packet exceed a limit, or the review-wide pool requires more
 than two bounded packets, the planner does not launch an unbounded model job. It
-emits a validated `oversized-review` incomplete result that requires human
-review and records the limiting units and packet measurements.
+also fails closed above 750 semantic units or 2,000 explored partition states,
+so pathological packing cannot exhaust the trusted planner job. These cases emit
+a validated `oversized-review` incomplete result that requires human review and
+records the limiting units, safety bound, and packet measurements.
 
 ### Shared review context
 
 Each shard receives:
 
-1. The complete changed-file manifest and per-file diff statistics.
+1. The complete changed-file manifest, per-file diff statistics, actual added-line
+   ranges, and base-side deleted-line ranges for whole-file deletions.
 2. The `unified=40` diff for files owned by that shard.
 3. Changed shared contracts relevant to that shard, even when another shard
    owns them. Shared inputs include protobuf definitions, migrations and sqlc
@@ -114,7 +117,10 @@ The packet records primary and shared files separately so duplicated contract
 context cannot be mistaken for duplicate review ownership. Every changed file
 must appear as primary in exactly one shard. The finalizer rejects manifests
 with missing, multiply owned, stale-SHA, or out-of-range files and remeasures
-each complete packet against both hard size limits.
+each complete packet against both hard size limits. Finding locations must cite
+an actual added line in the head revision; deletion-only hunks in surviving files
+use a documented nearest-surviving-line anchor, while whole-file deletions cite
+their actual removed line in the exact base revision.
 
 ### Bounded shard execution
 
@@ -213,7 +219,7 @@ revalidating that the PR head is current.
 | Findings are duplicated | Preserve them by default; allow only exact deterministic fingerprint deduplication |
 | One shard timeout is masked | Any validated incomplete shard forces an aggregate `HIGH` human-review result |
 | Trusted handoff failure looks like model incompletion | Hard-fail missing, corrupt, stale, cross-run, or malformed artifacts; accept only validated incomplete evidence |
-| One semantic unit exceeds the packet bound | Skip the model and emit a measured `oversized-review` human-review result instead of running unbounded |
+| One semantic unit or planner search exceeds a safety bound | Skip the model and emit a measured `oversized-review` human-review result instead of running unbounded |
 | Path rules overlap or silently omit files | Apply first-match precedence, require exact one-to-one primary ownership, and route unmatched paths to a cross-cutting shard |
 | Matrix output is mixed across runs | Bind every shard artifact to run ID, shard ID, exact base/head SHAs, and manifest digest |
 | Aggregation executes untrusted code | Use inline trusted default-branch logic without a PR checkout |
@@ -226,8 +232,9 @@ revalidating that the PR head is current.
   grouping, deterministic packing, shared-contract replication, and exact
   one-to-one changed-file coverage.
 - Test both packet limits at, below, and above the boundary, including a single
-  oversized unit, replicated context overflow, and a change requiring more than
-  two packets.
+  oversized unit, replicated context overflow, a bounded partition-state search,
+  and a change requiring more than two packets. Validate added-line-only ranges,
+  deletion anchors, and base-revision links for whole-file deletions.
 - Assert byte-identical model, security boundary, schema, common review guidance,
   sandbox, and shard-scope prompt stanza between production and benchmark shard
   jobs. Test that the stanza identifies primary/shared scope and prohibits

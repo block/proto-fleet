@@ -16,8 +16,9 @@ from typing import Any
 MAX_PACKET_BYTES = 500_000
 MAX_PACKET_LINES = 12_500
 MAX_SEMANTIC_UNITS = 750
+MAX_SEARCH_STATES = 2_000
 SHARD_IDS = ("shard-1", "shard-2")
-HUNK_HEADER = re.compile(rb"^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@")
+HUNK_HEADER = re.compile(rb"^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@")
 
 
 def _collapse_line_numbers(lines: list[int]) -> list[list[int]]:
@@ -51,21 +52,33 @@ class FileDiff:
         return len(self.patch.splitlines())
 
     @property
+    def is_whole_file_deletion(self) -> bool:
+        return b"+++ /dev/null" in self.patch.splitlines()
+
+    @property
+    def citation_side(self) -> str:
+        return "base" if self.is_whole_file_deletion else "head"
+
+    @property
     def changed_line_ranges(self) -> list[list[int]]:
         ranges = []
         added_lines: list[int] = []
+        removed_lines: list[int] = []
         deletion_anchor: int | None = None
-        hunk_start: int | None = None
+        hunk_start = 0
         hunk_end: int | None = None
+        old_line: int | None = None
         new_line: int | None = None
 
         def finish_hunk() -> None:
-            if added_lines:
+            if self.is_whole_file_deletion and removed_lines:
+                ranges.extend(_collapse_line_numbers(removed_lines))
+            elif added_lines:
                 ranges.extend(_collapse_line_numbers(added_lines))
             elif deletion_anchor is not None:
-                # A deleted line cannot be linked in the head revision. Anchor a
-                # deletion-only hunk to its nearest surviving new-side line, or
-                # line 1 when the file has no surviving lines.
+                # A deleted line in a surviving file cannot be linked in the head
+                # revision. Anchor a deletion-only hunk to its nearest surviving
+                # new-side line, or line 1 when no hunk lines survive.
                 anchor = max(deletion_anchor, 1)
                 ranges.append([anchor, anchor])
 
@@ -73,28 +86,33 @@ class FileDiff:
             if match := HUNK_HEADER.match(line):
                 finish_hunk()
                 added_lines = []
+                removed_lines = []
                 deletion_anchor = None
-                hunk_start = int(match.group(1))
-                count = int(match.group(2)) if match.group(2) is not None else 1
+                old_line = int(match.group(1))
+                hunk_start = int(match.group(3))
+                count = int(match.group(4)) if match.group(4) is not None else 1
                 hunk_end = hunk_start + count - 1 if count else None
                 new_line = hunk_start
                 continue
-            if new_line is None:
+            if new_line is None or old_line is None:
                 continue
             if line.startswith(b"+"):
                 added_lines.append(max(new_line, 1))
                 new_line += 1
             elif line.startswith(b"-"):
+                removed_lines.append(max(old_line, 1))
+                old_line += 1
                 if deletion_anchor is None:
                     deletion_anchor = (
                         min(max(new_line, hunk_start), hunk_end)
                         if hunk_end is not None
                         else max(hunk_start, 1)
                     )
-                continue
             elif line.startswith(b" "):
+                old_line += 1
                 new_line += 1
             elif not line.startswith(b"\\ No newline at end of file"):
+                old_line = None
                 new_line = None
 
         finish_hunk()
@@ -113,6 +131,10 @@ class Unit:
     @property
     def lines(self) -> int:
         return sum(file.lines for file in self.files)
+
+
+class PlannerSearchLimitExceeded(RuntimeError):
+    """The deterministic partition search exhausted its trusted state budget."""
 
 
 def is_generated(path: str) -> bool:
@@ -314,8 +336,13 @@ def find_bounded_assignment(units: list[Unit]) -> list[list[Unit]] | None:
 
     bins: list[list[Unit]] = [[], []]
     failed: set[tuple[Any, ...]] = set()
+    explored_states = 0
 
     def search(position: int) -> tuple[int, ...] | None:
+        nonlocal explored_states
+        explored_states += 1
+        if explored_states > MAX_SEARCH_STATES:
+            raise PlannerSearchLimitExceeded
         if position == len(ordered):
             return ()
         metrics = (packet_metrics(bins, 0), packet_metrics(bins, 1))
@@ -388,9 +415,18 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
             f"{MAX_SEMANTIC_UNITS}"
         )
 
-    bins = find_bounded_assignment(units) if not reasons else None
+    try:
+        bins = find_bounded_assignment(units) if not reasons else None
+    except PlannerSearchLimitExceeded:
+        reasons.append(
+            f"planner search exceeds trusted state limit {MAX_SEARCH_STATES}"
+        )
+        bins = None
     if bins is None:
-        reasons.append("semantic units do not fit in two bounded review-wide packets")
+        if not reasons:
+            reasons.append(
+                "semantic units do not fit in two bounded review-wide packets"
+            )
         bins = _assign_without_limits(units)
 
     status = "planned" if not reasons else "oversized"
@@ -447,6 +483,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
             "diff_bytes": file.bytes,
             "diff_lines": file.lines,
             "changed_line_ranges": file.changed_line_ranges,
+            "citation_side": file.citation_side,
         }
         for file in sorted(files, key=lambda item: item.path)
     ]
@@ -458,6 +495,7 @@ def plan_files(files: list[FileDiff]) -> dict[str, Any]:
             "max_packet_bytes": MAX_PACKET_BYTES,
             "max_packet_lines": MAX_PACKET_LINES,
             "max_semantic_units": MAX_SEMANTIC_UNITS,
+            "max_search_states": MAX_SEARCH_STATES,
         },
         "files": file_records,
         "shards": shard_records,

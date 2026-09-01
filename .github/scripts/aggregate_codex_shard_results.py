@@ -11,7 +11,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from write_codex_shard_result import SEVERITY_RANK, validate_review_markdown
+from write_codex_shard_result import (
+    SEVERITY_RANK,
+    review_location_contract,
+    validate_review_markdown,
+)
 
 ALLOWED_INCOMPLETE_REASONS = {
     "codex-job-timeout",
@@ -55,6 +59,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         file.get("primary_shard") != owner_map[file["path"]] for file in file_records
     ):
         raise ValueError("manifest file ownership metadata is inconsistent")
+    if any(file.get("citation_side") not in {"base", "head"} for file in file_records):
+        raise ValueError("manifest file citation side is invalid")
     if any(
         not isinstance(file.get("changed_line_ranges"), list)
         or not file["changed_line_ranges"]
@@ -114,23 +120,15 @@ def validate_result(
         markdown = review.get("review_markdown")
         if risk not in SEVERITY_RANK or not isinstance(markdown, str):
             raise ValueError("completed shard review has an invalid shape")
-        repository = os.environ.get("GITHUB_REPOSITORY")
-        blob_base_url = (
-            f"https://github.com/{repository}/blob/{manifest['head_sha']}"
-            if repository
-            else None
-        )
         packet_paths = set(shard["primary_files"] + shard["shared_files"])
-        allowed_line_ranges = {
-            file["path"]: file["changed_line_ranges"]
-            for file in manifest["files"]
-            if file["path"] in packet_paths
-        }
+        allowed_line_ranges, blob_base_urls = review_location_contract(
+            manifest, packet_paths, os.environ.get("GITHUB_REPOSITORY")
+        )
         validate_review_markdown(
             markdown,
             risk,
             allowed_line_ranges=allowed_line_ranges,
-            blob_base_url=blob_base_url,
+            blob_base_urls=blob_base_urls,
         )
     elif status == "incomplete":
         if reason not in ALLOWED_INCOMPLETE_REASONS or review is not None:

@@ -87,6 +87,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
             "diff_bytes": 100,
             "diff_lines": 4,
             "changed_line_ranges": [[1, 4]],
+            "citation_side": "head",
         }
     ]
     if active_second:
@@ -100,6 +101,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
                 "diff_bytes": 100,
                 "diff_lines": 4,
                 "changed_line_ranges": [[1, 4]],
+                "citation_side": "head",
             }
         )
     manifest = {
@@ -120,6 +122,7 @@ def signed_manifest(*, active_second: bool = True, status: str = "planned") -> d
             "max_packet_bytes": 500_000,
             "max_packet_lines": 12_500,
             "max_semantic_units": 750,
+            "max_search_states": 2_000,
         },
         "files": files,
         "shards": shards,
@@ -232,6 +235,26 @@ class PlannerTest(unittest.TestCase):
             b"@@ -1 +0,0 @@\n-deleted\n",
         )
         self.assertEqual(no_surviving_lines.changed_line_ranges, [[1, 1]])
+
+    def test_whole_file_deletion_tracks_base_side_removed_lines(self):
+        patch = b"""diff --git a/server/deleted.go b/server/deleted.go
+--- a/server/deleted.go
++++ /dev/null
+@@ -1,3 +0,0 @@
+-package server
+-
+-var Deleted = true
+"""
+        diff = planner.FileDiff(
+            "server/deleted.go",
+            "server",
+            "primary:server:server",
+            False,
+            patch,
+        )
+        self.assertTrue(diff.is_whole_file_deletion)
+        self.assertEqual(diff.citation_side, "base")
+        self.assertEqual(diff.changed_line_ranges, [[1, 3]])
 
     def test_path_ownership_is_first_match_and_disjoint(self):
         cases = {
@@ -367,6 +390,43 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(
             sorted(shard["packet_bytes"] for shard in plan["shards"]),
             [499_999, 500_000],
+        )
+
+    def test_partition_search_state_limit_fails_closed(self):
+        sizes = [
+            52_027,
+            31_068,
+            42_390,
+            68_417,
+            35_777,
+            53_823,
+            30_840,
+            53_063,
+            45_016,
+            56_589,
+            64_864,
+            62_834,
+            33_914,
+            48_854,
+            62_425,
+            45_294,
+            65_662,
+            61_707,
+            41_638,
+            43_798,
+        ]
+        files = [
+            file_diff(f"server/package{index}/file.go", size, 1)
+            for index, size in enumerate(sizes)
+        ]
+        with mock.patch.object(planner, "MAX_SEARCH_STATES", 100):
+            plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "oversized")
+        self.assertTrue(
+            any(
+                "planner search exceeds trusted state limit" in reason
+                for reason in plan["oversized_reasons"]
+            )
         )
 
     def test_more_than_two_bounded_units_is_rejected(self):
@@ -581,6 +641,8 @@ class PromptTest(unittest.TestCase):
         self.assertNotIn("{{", rendered)
         self.assertIn("primary_files", rendered)
         self.assertIn("shared_files", rendered)
+        self.assertIn("citation_side", rendered)
+        self.assertIn(values["REVIEW_BASE_BLOB_URL"], rendered)
         self.assertIn(
             "Do not regenerate or read the complete pull-request diff", rendered
         )
@@ -731,6 +793,34 @@ class ResultTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "invalid finding heading"):
             writer.validate_review_markdown(markdown, "NONE")
+
+    def test_whole_file_deletion_requires_base_revision_location(self):
+        manifest = signed_manifest(active_second=False)
+        manifest["files"][0]["citation_side"] = "base"
+        unsigned = dict(manifest)
+        unsigned.pop("manifest_digest")
+        manifest["manifest_digest"] = hashlib.sha256(
+            json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
+        head_url = f"/blob/{manifest['head_sha']}/"
+        base_url = f"/blob/{manifest['base_sha']}/"
+        review["review_markdown"] = review["review_markdown"].replace(
+            head_url, base_url
+        )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "completed")
+
+        review["review_markdown"] = review["review_markdown"].replace(
+            base_url, head_url
+        )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "invalid-model-output")
 
     def test_finding_outside_changed_hunk_becomes_invalid_output(self):
         manifest = signed_manifest(active_second=False)

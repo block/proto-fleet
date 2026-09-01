@@ -58,6 +58,7 @@ jobs:
       REVIEW_HEAD_SHA: ${{ inputs['head-sha'] }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', inputs['base-sha'], inputs['head-sha']) }}
       REVIEW_BLOB_BASE_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, inputs['head-sha']) }}
+      REVIEW_BASE_BLOB_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, inputs['base-sha']) }}
       REVIEW_PLAN_DIR: .git/codex-shard-plan
       REVIEW_MANIFEST_FILE: .git/codex-shard-plan/codex-shard-manifest.json
       REVIEW_DIFF_FILE: .git/codex-shard-plan/codex-review.diff
