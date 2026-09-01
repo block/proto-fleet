@@ -92,8 +92,9 @@ erase the completion failure, and PRs #957 and #964 were not run.
 
 The initial Terra run
 [33551271863](https://github.com/block/proto-fleet/actions/runs/33551271863)
-loaded trusted `main` at
-`603ed457a23e9fe6c23ca8792b6aaad2e01722d1`. It used
+loaded trusted workflow code from `main` at
+`603ed457a23e9fe6c23ca8792b6aaad2e01722d1`. Each case still checked out its
+fixed historical head from the corpus. The run used
 `gpt-5.6-terra`, `unified=40`, `high` reasoning, explicit `default` service
 tier, low verbosity, the baseline prompt, and the existing 12-minute outer
 budget.
@@ -116,7 +117,9 @@ findings. Its additional PR #953 `MEDIUM` claimed legacy site-scoped profile
 requests reach the envelope builder with empty scope JSON. That finding is
 invalid: [`validateAndNormalize`](https://github.com/block/proto-fleet/blob/586901c2c4b2ca21057202bac398718204ea6435/server/internal/domain/curtailment/response_profile.go#L220-L276)
 resolves the legacy `SiteID`, marshals the effective scope, and assigns canonical
-non-empty `ScopeJSON` before calling the store. The candidate therefore failed
+non-empty `ScopeJSON` before calling the store. That link intentionally targets
+PR #953's benchmarked historical head; `603ed457a` identifies the trusted
+workflow revision, not the code under review. The candidate therefore failed
 completion, recall, and new-finding
 validity. Repeats cannot repair the initial 6/6 failure, so PRs #957 and #964
 were not run.
