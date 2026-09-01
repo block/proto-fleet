@@ -11,6 +11,11 @@ INSTALL_LOCK_RELEASE_PATH=""
 ACTION=install
 VERSION=""
 
+case "$TEST_MODE" in
+  0|1|systemd) ;;
+  *) echo "invalid FLEETNODE_TEST_MODE" >&2; exit 1 ;;
+esac
+
 if [[ "$TEST_MODE" != "1" ]]; then
   PATH="$LINUX_SERVICE_PATH"
   export PATH
@@ -51,9 +56,14 @@ case "${1:-}" in
     fi
     ;;
 esac
-if [[ "$TEST_MODE" != "1" ]]; then
+if [[ "$TEST_MODE" == "0" ]]; then
   if [[ -n "$ROOT_PREFIX" || -n "${FLEETNODE_ARCH:-}" || -n "$DOWNLOAD_BASE_URL" || -n "${FLEETNODE_SYSTEMCTL:-}" ]]; then
     echo "Fleet Node installer overrides are restricted to automated tests" >&2
+    exit 1
+  fi
+elif [[ "$TEST_MODE" == "systemd" ]]; then
+  if [[ -n "$ROOT_PREFIX" || -n "${FLEETNODE_ARCH:-}" || -n "${FLEETNODE_SYSTEMCTL:-}" || "$DOWNLOAD_BASE_URL" != file://* ]]; then
+    echo "systemd qualification mode only accepts a local file:// download URL" >&2
     exit 1
   fi
 fi
@@ -402,7 +412,7 @@ curl_options=(
   --retry-delay 2
   --retry-connrefused
 )
-if [[ "$TEST_MODE" != "1" ]]; then
+if [[ "$TEST_MODE" == "0" ]]; then
   curl_options+=(--proto '=https' --proto-redir '=https')
 fi
 curl "${curl_options[@]}" \
@@ -440,8 +450,6 @@ for required in \
   fleet-node.service \
   plugins/proto-plugin \
   plugins/antminer-plugin \
-  plugins/virtual-plugin \
-  plugins/virtual-plugin.json \
   plugins/asicrs-plugin \
   plugins/asicrs-config.yaml; do
   [[ -f "$source_dir/$required" ]] || { echo "archive is missing $required" >&2; exit 1; }
@@ -457,7 +465,7 @@ fi
 while IFS= read -r -d '' path; do
   relative_path="${path#"$source_dir"/}"
   case "$relative_path" in
-    fleetnode|version.txt|fleet-node.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/virtual-plugin|plugins/virtual-plugin.json|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
+    fleetnode|version.txt|fleet-node.service|plugins|plugins/proto-plugin|plugins/antminer-plugin|plugins/asicrs-plugin|plugins/asicrs-config.yaml) ;;
     *) echo "archive contains an unexpected entry: $relative_path" >&2; exit 1 ;;
   esac
 done < <(find "$source_dir" -mindepth 1 -print0)
@@ -535,8 +543,6 @@ as_root install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
 as_root install -m 0644 "$source_dir/fleet-node.service" "$incoming/fleet-node.service"
 as_root install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"
 as_root install -m 0755 "$source_dir/plugins/antminer-plugin" "$incoming/plugins/antminer-plugin"
-as_root install -m 0755 "$source_dir/plugins/virtual-plugin" "$incoming/plugins/virtual-plugin"
-as_root install -m 0644 "$source_dir/plugins/virtual-plugin.json" "$incoming/plugins/virtual-plugin.json"
 as_root install -m 0755 "$source_dir/plugins/asicrs-plugin" "$incoming/plugins/asicrs-plugin"
 as_root install -m 0644 "$source_dir/plugins/asicrs-config.yaml" "$incoming/plugins/asicrs-config.yaml"
 if [[ "$TEST_MODE" != "1" ]]; then
