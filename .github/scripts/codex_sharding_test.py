@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
@@ -332,6 +333,28 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan["status"], "oversized")
         self.assertIn(
             "globally replicated shared context", plan["oversized_reasons"][0]
+        )
+
+    def test_impossible_audience_shared_context_short_circuits(self):
+        files = [
+            file_diff(
+                f"client/src/shared/package{index}/api.ts",
+                30_000,
+                100,
+                shared=True,
+            )
+            for index in range(17)
+        ] + [file_diff("client/src/protoFleet/page.tsx", 1, 1)]
+        with mock.patch.object(
+            planner,
+            "find_bounded_assignment",
+            side_effect=AssertionError("bounded search must not run"),
+        ):
+            plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "oversized")
+        self.assertIn(
+            "shared context for protofleet audience",
+            plan["oversized_reasons"][0],
         )
 
     def test_semantic_unit_safety_limit_fails_closed_without_recursion(self):
