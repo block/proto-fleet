@@ -21,17 +21,23 @@ concurrency:
     codex-security-review-benchmark-${{
       github.event.action
     }}-${{
-      github.event.client_payload.corpus || 'adjudicated'
+      github.event.client_payload.corpus == 'large-pr' && 'large-pr' || 'adjudicated'
     }}-${{
-      github.event.client_payload['context-variant'] ||
-      ((github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' || 'all')
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' ||
+      github.event.client_payload['context-variant'] == 'unified-40' && 'unified-40' ||
+      github.event.client_payload['context-variant'] == 'unified-10' && 'unified-10' ||
+      github.event.client_payload['context-variant'] == 'compact' && 'compact' || 'all'
     }}-${{
-      github.event.client_payload['reasoning-effort'] ||
-      (github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh')
+      github.event.action == 'codex-security-review-terra-benchmark' && 'high' ||
+      github.event.action == 'codex-security-review-sharded-benchmark' && 'xhigh' ||
+      github.event.client_payload['reasoning-effort'] == 'high' && 'high' ||
+      github.event.client_payload['reasoning-effort'] == 'medium' && 'medium' || 'xhigh'
     }}-${{
-      github.event.client_payload['prompt-profile'] || 'baseline'
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'baseline' ||
+      github.event.client_payload['prompt-profile'] == 'bounded' && 'bounded' || 'baseline'
     }}-${{
-      github.event.client_payload.repeat || 'initial'
+      github.event.client_payload.repeat == 'repeat-1' && 'repeat-1' ||
+      github.event.client_payload.repeat == 'repeat-2' && 'repeat-2' || 'initial'
     }}
   cancel-in-progress: false
 

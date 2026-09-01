@@ -59,7 +59,9 @@ to the existing trusted benchmark workflow. The event maps to one fixed profile:
 
 The event type, not caller-controlled profile data, selects the model and Codex
 arguments. The trusted selector rejects a Terra dispatch that requests another
-context, effort, or prompt. Existing Sol and sharded event behavior remains
+context, effort, or prompt. Concurrency keys canonicalize every payload value to
+an allowed option before selection, so malformed dispatches cannot create
+arbitrary parallel groups. Existing Sol and sharded event behavior remains
 unchanged.
 
 Both normal and timeout scope artifacts record model, reasoning effort, service

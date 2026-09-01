@@ -1219,6 +1219,24 @@ class ReviewPolicyTest(unittest.TestCase):
             "repeat",
         ):
             self.assertIn(name, group)
+        # Concurrency is evaluated before the trusted selector. Canonicalize every
+        # caller-controlled value so malformed dispatches cannot create arbitrary
+        # groups and fan out runner or model work.
+        self.assertNotIn("client_payload.corpus ||", group)
+        self.assertNotIn("client_payload['context-variant'] ||", group)
+        self.assertNotIn("client_payload['reasoning-effort'] ||", group)
+        self.assertNotIn("client_payload['prompt-profile'] ||", group)
+        self.assertNotIn("client_payload.repeat ||", group)
+        self.assertIn("client_payload.corpus == 'large-pr'", group)
+        self.assertIn("client_payload.repeat == 'repeat-2'", group)
+        self.assertIn(
+            "github.event.action == 'codex-security-review-terra-benchmark' && 'high'",
+            group,
+        )
+        self.assertIn(
+            "github.event.action == 'codex-security-review-sharded-benchmark' && 'xhigh'",
+            group,
+        )
 
     def test_incomplete_codex_review_cannot_take_approval_free_path(self):
         workflow = load_workflow("codex-security-review.yml")
