@@ -59,7 +59,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.REVIEW_HEAD_SHA }}
-          fetch-depth: 1
+          # Full history is confined to this secretless preparation job so the
+          # exact three-dot merge base is available to the trusted planner.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout trusted sharding tools

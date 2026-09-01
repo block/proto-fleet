@@ -138,8 +138,9 @@ metadata, extra refs, and the benchmark corpus before handing the archive,
 manifest, packet, and rendered prompt to the model job, so the model cannot
 recover omitted hunks or adjudication labels.
 
-Each isolated model job has an enforceable six-minute outer timeout; trusted
-setup that needs repository history runs only in preparation. The pinned
+Each isolated model job has an enforceable six-minute outer timeout; full
+repository history needed for the exact three-dot merge base exists only in the
+secretless preparation job. The pinned
 composite action remains byte-for-byte aligned with the baseline action contract,
 but cannot consume model API time beyond the model-only job boundary even though
 it ignores caller-step timeout. A separate trusted finalizer runs after GitHub

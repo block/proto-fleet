@@ -1142,6 +1142,13 @@ class WorkflowInvariantTest(unittest.TestCase):
         workflow = workflow_test_helpers.load_workflow(
             "codex-security-review-sharded-benchmark-case.yml"
         )
+        preparation = workflow["jobs"]["prepare-shard"]
+        historical_checkout = next(
+            step
+            for step in preparation["steps"]
+            if step.get("name") == "Checkout fixed historical head"
+        )
+        self.assertEqual(historical_checkout["with"]["fetch-depth"], 0)
         model = workflow["jobs"]["shard-review"]
         self.assertEqual(model["timeout-minutes"], 6)
         self.assertEqual(model["needs"], "prepare-shard")
