@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/coreos/go-systemd/v22/daemon"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -46,6 +47,7 @@ type RunCmd struct {
 	resolver                 ipResolver                                                               `kong:"-"`
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 	firmwareTempRoot         string                                                                   `kong:"-"`
+	notifyReady              func() error                                                             `kong:"-"`
 
 	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
@@ -89,6 +91,12 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
 	}
+	if r.notifyReady == nil {
+		r.notifyReady = func() error {
+			_, err := daemon.SdNotify(false, daemon.SdNotifyReady)
+			return err
+		}
+	}
 
 	// Wire signals before plugin work so a SIGTERM during the up-to-60s
 	// plugin load aborts cleanly instead of orphaning subprocesses.
@@ -102,20 +110,20 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	if r.discoverer == nil {
 		resolved, resolveErr := resolvePluginsDir(exeDir)
 		if resolveErr != nil {
-			return resolveErr
+			return operatorActionRequired(resolveErr)
 		}
 		resolvedPluginsDir = resolved
 	}
 	path := bootstrap.StatePath(c.StateDir)
 	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
-		return err
+		return operatorActionRequired(err)
 	}
 	if !exists || st.FleetNodeID == 0 {
-		return fmt.Errorf("no state at %s; run `fleetnode enroll` first", path)
+		return operatorActionRequired(fmt.Errorf("no state at %s; run `fleetnode enroll` first", path))
 	}
 	if st.APIKey == "" {
-		return fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path)
+		return operatorActionRequired(fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path))
 	}
 
 	logger := slog.New(slog.NewTextHandler(logOutput, nil))
@@ -142,20 +150,20 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	path := bootstrap.StatePath(c.StateDir)
 	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
-		return err
+		return operatorActionRequired(err)
 	}
 	if !exists || st.FleetNodeID == 0 || st.APIKey == "" {
-		return fmt.Errorf("state at %s became invalid between checks; re-run after `fleetnode enroll`", path)
+		return operatorActionRequired(fmt.Errorf("state at %s became invalid between checks; re-run after `fleetnode enroll`", path))
 	}
 	// Re-validate on every entry so a tampered state.yaml can't redirect
 	// bearer heartbeats to a plaintext non-loopback URL while the cached
 	// session_token is still fresh.
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
-		return err
+		return operatorActionRequired(err)
 	}
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
-		return fmt.Errorf("prepare firmware temp dir: %w", err)
+		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))
 	}
 
 	// Reap + spawn inside the lock, from the state loaded under it, so the
@@ -166,11 +174,11 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
 		credentials, credentialErr := ensureCredentialCodec(path, st)
 		if credentialErr != nil {
-			return fmt.Errorf("prepare credential key: %w", credentialErr)
+			return operatorActionRequired(fmt.Errorf("prepare credential key: %w", credentialErr))
 		}
 		disc, prr, tf, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
-			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
+			return operatorActionRequired(fmt.Errorf("bootstrap plugins: %w", bootstrapErr))
 		}
 		defer cleanup()
 		r.discoverer = disc
@@ -185,21 +193,12 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if r.passwordUpdatePrivateKey == nil {
 			privateKey, err := decodePasswordUpdatePrivateKey(st)
 			if err != nil {
-				return err
+				return operatorActionRequired(err)
 			}
 			r.passwordUpdatePrivateKey = privateKey
 		}
 		r.pairer = prr
 		r.telemetry = tf
-	}
-
-	if r.sessionNeedsRefresh(st) {
-		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
-			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
-				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI and retry; local credentials are preserved", bootstrap.ErrBeginAuthRejected)
-			}
-			return fmt.Errorf("initial session refresh: %w", err)
-		}
 	}
 
 	tokenSource := func() string {
@@ -222,6 +221,12 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 
 	if err := r.tick(ctx, client, st, path, logger); err != nil {
 		return err
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	if err := r.notifyReady(); err != nil {
+		return fmt.Errorf("notify systemd ready: %w", err)
 	}
 
 	loopCtx, cancelLoops := context.WithCancel(ctx)
@@ -349,7 +354,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
 			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
-				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected)
+				return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; local credentials are preserved, re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
 			return nil
@@ -362,7 +367,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 		return nil
 	}
 	if code := connect.CodeOf(err); code == connect.CodeNotFound {
-		return fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", err)
+		return operatorActionRequired(fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", err))
 	}
 	if connect.CodeOf(err) != connect.CodeUnauthenticated {
 		logger.Error("heartbeat failed", "fleet_node_id", st.FleetNodeID, "err", err)
@@ -372,7 +377,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 	logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
 	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
 		if errors.Is(refreshErr, bootstrap.ErrBeginAuthRejected) {
-			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected)
+			return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 		}
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil
@@ -383,7 +388,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 		return nil
 	}
 	if code := connect.CodeOf(retryErr); code == connect.CodeNotFound {
-		return fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", retryErr)
+		return operatorActionRequired(fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", retryErr))
 	}
 	logger.Error("heartbeat retry after refresh failed", "fleet_node_id", st.FleetNodeID, "err", retryErr)
 	return nil

@@ -21,8 +21,8 @@ Usage: install-fleet-node.sh VERSION
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
 
-The installer starts the service but leaves a fresh installation disabled at
-boot. After installation, enroll the node and then enable the service.
+The installer leaves a fresh installation stopped and disabled at boot. After
+installation, enroll the node and then enable and start the service.
 EOF
 }
 
@@ -167,23 +167,29 @@ install_complete=0
 
 cleanup() {
   status=$?
+  set +e
+  rollback_failed=0
+  rollback_error() {
+    echo "rollback failed: $*" >&2
+    rollback_failed=1
+  }
   if [[ "$install_complete" != "1" ]]; then
     if [[ "$unit_replaced" == "1" ]]; then
       if [[ -f "$unit_backup" ]]; then
-        as_root install -m 0644 "$unit_backup" "$UNIT_PATH"
+        as_root install -m 0644 "$unit_backup" "$UNIT_PATH" || rollback_error "restore previous systemd unit"
       else
-        as_root rm -f "$UNIT_PATH"
+        as_root rm -f "$UNIT_PATH" || rollback_error "remove candidate systemd unit"
       fi
-      as_root "$SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+      as_root "$SYSTEMCTL" daemon-reload || rollback_error "reload systemd after restoring previous unit"
     fi
     if [[ "$program_replaced" == "1" ]]; then
-      as_root rm -rf "$PROGRAM_DIR"
+      as_root rm -rf "$PROGRAM_DIR" || rollback_error "remove candidate Fleet Node payload"
     fi
     if [[ "$previous_saved" == "1" && -d "$previous" ]]; then
-      as_root mv "$previous" "$PROGRAM_DIR"
+      as_root mv "$previous" "$PROGRAM_DIR" || rollback_error "restore previous Fleet Node payload"
     fi
     if [[ "$service_stopped" == "1" ]]; then
-      as_root "$SYSTEMCTL" start fleet-node.service >/dev/null 2>&1 || true
+      as_root "$SYSTEMCTL" start fleet-node.service || rollback_error "restart previous Fleet Node service"
     fi
   fi
   if [[ -n "$INSTALL_LOCK_PID" ]]; then
@@ -194,6 +200,9 @@ cleanup() {
   as_root rm -rf "$work_dir" "$incoming"
   if [[ "$install_complete" == "1" ]]; then
     as_root rm -rf "$previous"
+  fi
+  if [[ "$rollback_failed" == "1" ]]; then
+    status=1
   fi
   exit "$status"
 }
@@ -319,8 +328,12 @@ if [[ "$fresh_install" == "1" ]]; then
   if as_root "$SYSTEMCTL" is-enabled --quiet fleet-node.service; then
     as_root "$SYSTEMCTL" disable fleet-node.service
   fi
+else
+  # Type=notify keeps this call blocked until Fleet Node finishes local
+  # initialization and reports READY=1, so the previous payload remains
+  # available to the EXIT trap until the candidate is actually runnable.
+  as_root "$SYSTEMCTL" start fleet-node.service
 fi
-as_root "$SYSTEMCTL" start fleet-node.service
 
 install_complete=1
 echo "Fleet Node $VERSION installed."
@@ -329,8 +342,8 @@ echo "Protected state: $STATE_DIR"
 echo
 echo "Enroll:"
 echo "  sudo -u fleetnode $PROGRAM_DIR/fleetnode --state-dir $STATE_DIR enroll --server-url=https://YOUR-FLEET-SERVER"
-echo "Then enable at boot:"
-echo "  sudo systemctl enable fleet-node.service"
+echo "Then enable and start the service:"
+echo "  sudo systemctl enable --now fleet-node.service"
 echo "Inspect:"
 echo "  systemctl status fleet-node.service"
 echo "  journalctl -u fleet-node.service"

@@ -5,7 +5,8 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=fleetnode
 Group=fleetnode
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -13,6 +14,8 @@ EnvironmentFile=-/etc/fleetnode/fleetnode.env
 ExecStart=/usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run
 Restart=on-failure
 RestartSec=5s
+RestartPreventExitStatus=78
+TimeoutStartSec=120s
 TimeoutStopSec=90s
 NoNewPrivileges=true
 PrivateTmp=true

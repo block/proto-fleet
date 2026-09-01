@@ -41,6 +41,13 @@ type authRecordingControlGateway struct {
 	authHeaders []string
 }
 
+func requireOperatorActionExit(t *testing.T, err error) {
+	t.Helper()
+	var exitCoder interface{ ExitCode() int }
+	require.ErrorAs(t, err, &exitCoder)
+	assert.Equal(t, operatorActionExitCode, exitCoder.ExitCode())
+}
+
 func (f *authRecordingControlGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	f.authMu.Lock()
 	f.authHeaders = append(f.authHeaders, stream.RequestHeader().Get("Authorization"))
@@ -154,6 +161,52 @@ func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	// Assert
 	calls, _ := stub.snapshot()
 	assert.GreaterOrEqual(t, calls, 3, "daemon must send at least 3 heartbeats before shutdown")
+}
+
+func TestRunCmd_NotifiesReadyAfterFirstHeartbeatAttempt(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	freshState(t, dir, time.Now().Add(24*time.Hour))
+
+	parent, cancel := context.WithCancel(context.Background())
+	stub := &stubGatewayClient{}
+	notified := false
+	cmd := &RunCmd{
+		parentCtx:     parent,
+		clientFactory: func(_ string, _ func() string) (gatewayClient, error) { return stub, nil },
+		notifyReady: func() error {
+			notified = true
+			cancel()
+			return nil
+		},
+	}
+
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
+	assert.True(t, notified)
+	calls, _ := stub.snapshot()
+	assert.Equal(t, 1, calls, "readiness must follow the first heartbeat attempt")
+}
+
+func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	freshState(t, dir, time.Now().Add(30*time.Minute))
+
+	parent, cancel := context.WithCancel(context.Background())
+	notified := false
+	cmd := &RunCmd{
+		parentCtx: parent,
+		notifyReady: func() error {
+			notified = true
+			cancel()
+			return nil
+		},
+	}
+
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
+	assert.True(t, notified, "Fleet Server unavailability must not block local readiness")
 }
 
 func TestRunCmd_ControlWorkerShutdownWaitIsBounded(t *testing.T) {
@@ -407,6 +460,7 @@ func TestRunCmd_FailsWhenStateIsMissing(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+	requireOperatorActionExit(t, err)
 	assert.Contains(t, err.Error(), "fleetnode enroll")
 	_, statErr := os.Stat(stateDir)
 	assert.True(t, os.IsNotExist(statErr), "state dir must not be created when run bails out on missing state")
@@ -434,6 +488,7 @@ func TestRunCmd_FailsWhenApiKeyIsMissing(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+	requireOperatorActionExit(t, err)
 	assert.Contains(t, err.Error(), "fleetnode refresh")
 }
 
@@ -469,6 +524,7 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+	requireOperatorActionExit(t, err)
 	assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "local credentials are preserved")
 }
@@ -533,6 +589,7 @@ func TestRunCmd_ExitsOnCodeNotFoundHeartbeat(t *testing.T) {
 	select {
 	case err := <-done:
 		require.Error(t, err)
+		requireOperatorActionExit(t, err)
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 		assert.Contains(t, err.Error(), "re-enroll")
 	case <-time.After(2 * time.Second):
@@ -580,6 +637,7 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 	select {
 	case err := <-done:
 		require.Error(t, err)
+		requireOperatorActionExit(t, err)
 		assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 		assert.Contains(t, err.Error(), "Exiting")
 	case <-time.After(3 * time.Second):
