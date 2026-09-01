@@ -119,7 +119,8 @@ context cannot be mistaken for duplicate review ownership. Every changed file
 must appear as primary in exactly one shard. The finalizer rejects manifests
 with missing, multiply owned, stale-SHA, or out-of-range files and remeasures
 each complete packet against both hard size limits. Finding locations must cite
-an actual added line in the head revision; deletion-only hunks in surviving files
+a primary-owned changed file, never replicated shared context directly, and an
+actual added line in the head revision; deletion-only hunks in surviving files
 use a documented nearest-surviving-line anchor, while whole-file deletions cite
 their actual removed line in the exact three-dot merge-base revision.
 

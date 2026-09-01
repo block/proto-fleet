@@ -157,9 +157,9 @@ def parse_review(
 
 
 def review_location_contract(
-    manifest: dict[str, Any], packet_paths: set[str], repository: str | None
+    manifest: dict[str, Any], primary_paths: set[str], repository: str | None
 ) -> tuple[dict[str, list[list[int]]], dict[str, str] | None]:
-    records = [file for file in manifest["files"] if file["path"] in packet_paths]
+    records = [file for file in manifest["files"] if file["path"] in primary_paths]
     allowed_line_ranges = {
         file["path"]: file["changed_line_ranges"] for file in records
     }
@@ -209,9 +209,9 @@ def build_result(
             status = "incomplete"
             reason = "codex-budget-exceeded"
         else:
-            packet_paths = set(shard["primary_files"] + shard["shared_files"])
+            primary_paths = set(shard["primary_files"])
             allowed_line_ranges, blob_base_urls = review_location_contract(
-                manifest, packet_paths, os.environ.get("GITHUB_REPOSITORY")
+                manifest, primary_paths, os.environ.get("GITHUB_REPOSITORY")
             )
             review, reason = parse_review(raw, allowed_line_ranges, blob_base_urls)
             status = "completed" if review else "incomplete"

@@ -906,6 +906,25 @@ class ResultTest(unittest.TestCase):
         self.assertEqual(result["status"], "incomplete")
         self.assertEqual(result["incomplete_reason"], "invalid-model-output")
 
+    def test_finding_in_shared_context_becomes_invalid_output(self):
+        manifest = signed_manifest()
+        shared_path = manifest["shards"][1]["primary_files"][0]
+        manifest["shards"][0]["shared_files"] = [shared_path]
+        unsigned = dict(manifest)
+        unsigned.pop("manifest_digest")
+        manifest["manifest_digest"] = hashlib.sha256(
+            json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
+        review["review_markdown"] = review["review_markdown"].replace(
+            "server/a/a.go", shared_path
+        )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "invalid-model-output")
+
     def test_finding_outside_shard_packet_becomes_invalid_output(self):
         manifest = signed_manifest(active_second=False)
         review = completed_result(manifest, "shard-1", "HIGH")["review"]

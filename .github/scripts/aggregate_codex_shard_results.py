@@ -124,9 +124,9 @@ def validate_result(
         markdown = review.get("review_markdown")
         if risk not in SEVERITY_RANK or not isinstance(markdown, str):
             raise ValueError("completed shard review has an invalid shape")
-        packet_paths = set(shard["primary_files"] + shard["shared_files"])
+        primary_paths = set(shard["primary_files"])
         allowed_line_ranges, blob_base_urls = review_location_contract(
-            manifest, packet_paths, os.environ.get("GITHUB_REPOSITORY")
+            manifest, primary_paths, os.environ.get("GITHUB_REPOSITORY")
         )
         validate_review_markdown(
             markdown,
