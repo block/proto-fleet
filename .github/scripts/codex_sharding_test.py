@@ -1095,10 +1095,8 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn(
             "--corpus-file .codex-trusted/.github/codex-benchmark-corpus.json", called
         )
-        self.assertIn(
-            "github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all'",
-            parent,
-        )
+        self.assertIn("codex-security-review-terra-benchmark", parent)
+        self.assertIn("&& 'unified-40' || 'all'", parent)
 
     def test_shard_prompt_comes_from_trusted_checkout(self):
         called = (
@@ -1128,7 +1126,6 @@ class WorkflowInvariantTest(unittest.TestCase):
         )
         for field in (
             "model",
-            "codex-args",
             "output-schema",
             "safety-strategy",
             "sandbox",
@@ -1137,6 +1134,17 @@ class WorkflowInvariantTest(unittest.TestCase):
                 self.assertEqual(
                     sharded_step["with"][field], baseline_step["with"][field]
                 )
+        # The unsharded benchmark now selects Codex arguments through a trusted
+        # profile. The policy tests execute that selector and lock its Sol output to
+        # the sharded baseline while independently locking the Terra candidate.
+        self.assertEqual(
+            baseline_step["with"]["codex-args"],
+            "${{ needs.select-cases.outputs.codex_args }}",
+        )
+        self.assertEqual(
+            sharded_step["with"]["codex-args"],
+            '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}"]',
+        )
 
     def test_model_job_has_no_checkout_or_corpus_labels(self):
         workflow = workflow_test_helpers.load_workflow(

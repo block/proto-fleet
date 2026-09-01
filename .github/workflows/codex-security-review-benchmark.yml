@@ -8,6 +8,7 @@ on:
     types:
       - codex-security-review-benchmark
       - codex-security-review-sharded-benchmark
+      - codex-security-review-terra-benchmark
 
 permissions:
   actions: read
@@ -20,16 +21,23 @@ concurrency:
     codex-security-review-benchmark-${{
       github.event.action
     }}-${{
-      github.event.client_payload.corpus || 'adjudicated'
+      github.event.client_payload.corpus == 'large-pr' && 'large-pr' || 'adjudicated'
     }}-${{
-      github.event.client_payload['context-variant'] ||
-      (github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all')
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' ||
+      github.event.client_payload['context-variant'] == 'unified-40' && 'unified-40' ||
+      github.event.client_payload['context-variant'] == 'unified-10' && 'unified-10' ||
+      github.event.client_payload['context-variant'] == 'compact' && 'compact' || 'all'
     }}-${{
-      github.event.client_payload['reasoning-effort'] || 'xhigh'
+      github.event.action == 'codex-security-review-terra-benchmark' && 'high' ||
+      github.event.action == 'codex-security-review-sharded-benchmark' && 'xhigh' ||
+      github.event.client_payload['reasoning-effort'] == 'high' && 'high' ||
+      github.event.client_payload['reasoning-effort'] == 'medium' && 'medium' || 'xhigh'
     }}-${{
-      github.event.client_payload['prompt-profile'] || 'baseline'
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'baseline' ||
+      github.event.client_payload['prompt-profile'] == 'bounded' && 'bounded' || 'baseline'
     }}-${{
-      github.event.client_payload.repeat || 'initial'
+      github.event.client_payload.repeat == 'repeat-1' && 'repeat-1' ||
+      github.event.client_payload.repeat == 'repeat-2' && 'repeat-2' || 'initial'
     }}
   cancel-in-progress: false
 
@@ -40,7 +48,11 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
+      model: ${{ steps.select.outputs.model }}
       reasoning_effort: ${{ steps.select.outputs.reasoning_effort }}
+      service_tier: ${{ steps.select.outputs.service_tier }}
+      verbosity: ${{ steps.select.outputs.verbosity }}
+      codex_args: ${{ steps.select.outputs.codex_args }}
       prompt_profile: ${{ steps.select.outputs.prompt_profile }}
       repeat: ${{ steps.select.outputs.repeat }}
     steps:
@@ -56,9 +68,10 @@ jobs:
         id: select
         env:
           REVIEW_MODE: ${{ github.event.action == 'codex-security-review-sharded-benchmark' && 'sharded' || 'unsharded' }}
+          BENCHMARK_PROFILE: ${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || 'sol' }}
           CORPUS: ${{ github.event.client_payload.corpus || 'adjudicated' }}
-          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || (github.event.action == 'codex-security-review-sharded-benchmark' && 'unified-40' || 'all') }}
-          REASONING_EFFORT: ${{ github.event.client_payload['reasoning-effort'] || 'xhigh' }}
+          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || ((github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' || 'all') }}
+          REASONING_EFFORT: ${{ github.event.client_payload['reasoning-effort'] || (github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh') }}
           PROMPT_PROFILE: ${{ github.event.client_payload['prompt-profile'] || 'baseline' }}
           REPEAT: ${{ github.event.client_payload.repeat || 'initial' }}
         run: |
@@ -68,6 +81,7 @@ jobs:
           from pathlib import Path
 
           review_mode = os.environ["REVIEW_MODE"]
+          benchmark_profile = os.environ["BENCHMARK_PROFILE"]
           corpus_name = os.environ["CORPUS"]
           variant_name = os.environ["CONTEXT_VARIANT"]
           reasoning_effort = os.environ["REASONING_EFFORT"]
@@ -81,7 +95,21 @@ jobs:
                   "prompt-profile": ({"baseline"}, prompt_profile),
                   "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
               }
-          else:
+              model = "gpt-5.6-sol"
+              service_tier = "unspecified"
+              verbosity = "unspecified"
+          elif benchmark_profile == "terra-high-default-low":
+              allowed = {
+                  "corpus": ({"adjudicated", "large-pr"}, corpus_name),
+                  "context-variant": ({"unified-40"}, variant_name),
+                  "reasoning-effort": ({"high"}, reasoning_effort),
+                  "prompt-profile": ({"baseline"}, prompt_profile),
+                  "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
+              }
+              model = "gpt-5.6-terra"
+              service_tier = "default"
+              verbosity = "low"
+          elif benchmark_profile == "sol":
               allowed = {
                   "corpus": ({"adjudicated", "large-pr"}, corpus_name),
                   "context-variant": ({"all", "unified-40", "unified-10", "compact"}, variant_name),
@@ -89,6 +117,11 @@ jobs:
                   "prompt-profile": ({"baseline", "bounded"}, prompt_profile),
                   "repeat": ({"initial", "repeat-1", "repeat-2"}, repeat),
               }
+              model = "gpt-5.6-sol"
+              service_tier = "unspecified"
+              verbosity = "unspecified"
+          else:
+              raise SystemExit(f"Invalid trusted benchmark profile {benchmark_profile!r}")
           for name, (choices, value) in allowed.items():
               if value not in choices:
                   raise SystemExit(f"Invalid benchmark {name} {value!r}; expected one of {sorted(choices)}")
@@ -114,9 +147,18 @@ jobs:
                   for variant in variants
               ]
           }
+          codex_args = ["-c", f"model_reasoning_effort={reasoning_effort}"]
+          if service_tier != "unspecified":
+              codex_args.extend(["-c", f"service_tier={service_tier}"])
+          if verbosity != "unspecified":
+              codex_args.extend(["-c", f"model_verbosity={verbosity}"])
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+              handle.write(f"model={model}\n")
               handle.write(f"reasoning_effort={reasoning_effort}\n")
+              handle.write(f"service_tier={service_tier}\n")
+              handle.write(f"verbosity={verbosity}\n")
+              handle.write(f"codex_args={json.dumps(codex_args, separators=(',', ':'))}\n")
               handle.write(f"prompt_profile={prompt_profile}\n")
               handle.write(f"repeat={repeat}\n")
           for entry in matrix["include"]:
@@ -145,7 +187,7 @@ jobs:
   benchmark-review:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
-    if: ${{ github.event.action == 'codex-security-review-benchmark' }}
+    if: ${{ github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' }}
     runs-on: ubuntu-latest
     # The composite action ignored its caller step timeout in production, so the
     # matrix job itself is the enforceable model budget. A separate matrix finalizer
@@ -157,9 +199,11 @@ jobs:
       matrix: ${{ fromJSON(needs.select-cases.outputs.matrix) }}
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-      CODEX_MODEL: gpt-5.6-sol
+      CODEX_MODEL: ${{ needs.select-cases.outputs.model }}
       CODEX_TIMEOUT_MINUTES: "12"
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
+      CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
+      CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', matrix.case.base, matrix.case.head) }}
@@ -228,7 +272,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
-          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}"]'
+          codex-args: ${{ needs.select-cases.outputs.codex_args }}
           output-schema: |
             {
               "type": "object",
@@ -373,6 +417,8 @@ jobs:
           INTER_HUNK: ${{ matrix.variant['inter-hunk'] }}
           REPEAT: ${{ needs.select-cases.outputs.repeat }}
           PROMPT_PROFILE: ${{ needs.select-cases.outputs.prompt_profile }}
+          SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
+          VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
         run: |
           python3 - <<'PY'
           import json
@@ -504,6 +550,8 @@ jobs:
               "repeat": os.environ["REPEAT"],
               "model": os.environ["CODEX_MODEL"],
               "reasoning_effort": os.environ["CODEX_REASONING_EFFORT"],
+              "service_tier": os.environ["SERVICE_TIER"],
+              "verbosity": os.environ["VERBOSITY"],
               "prompt_profile": os.environ["PROMPT_PROFILE"],
               "diff": {
                   "unified": int(os.environ["UNIFIED"]),
@@ -547,7 +595,7 @@ jobs:
   benchmark-finalize:
     name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: [select-cases, benchmark-review]
-    if: ${{ always() && github.event.action == 'codex-security-review-benchmark' && needs.select-cases.result == 'success' }}
+    if: ${{ always() && (github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && needs.select-cases.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -560,8 +608,10 @@ jobs:
       AGENT_JOB_NAME: ${{ format('{0} / {1} / {2}', matrix.case.id, matrix.variant.id, needs.select-cases.outputs.repeat) }}
       RESULT_ARTIFACT_NAME: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
       TIMEOUT_ARTIFACT_NAME: benchmark-timeout-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
-      CODEX_MODEL: gpt-5.6-sol
+      CODEX_MODEL: ${{ needs.select-cases.outputs.model }}
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
+      CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
+      CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
       CODEX_TIMEOUT_MINUTES: "12"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
@@ -685,6 +735,8 @@ jobs:
           INTER_HUNK: ${{ matrix.variant['inter-hunk'] }}
           REPEAT: ${{ needs.select-cases.outputs.repeat }}
           PROMPT_PROFILE: ${{ needs.select-cases.outputs.prompt_profile }}
+          SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
+          VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
         run: |
           python3 - <<'PY'
           import json
@@ -717,6 +769,8 @@ jobs:
               "repeat": os.environ["REPEAT"],
               "model": os.environ["CODEX_MODEL"],
               "reasoning_effort": os.environ["CODEX_REASONING_EFFORT"],
+              "service_tier": os.environ["SERVICE_TIER"],
+              "verbosity": os.environ["VERBOSITY"],
               "prompt_profile": os.environ["PROMPT_PROFILE"],
               "diff": {
                   "unified": int(os.environ["UNIFIED"]),
