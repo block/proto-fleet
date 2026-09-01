@@ -116,7 +116,7 @@ class FileDiff:
                 new_line = None
 
         finish_hunk()
-        return ranges or [[1, 1]]
+        return ranges
 
 
 @dataclass(frozen=True)

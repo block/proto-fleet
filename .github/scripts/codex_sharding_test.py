@@ -210,6 +210,20 @@ class PlannerTest(unittest.TestCase):
             any(start <= 12 <= end for start, end in diff.changed_line_ranges)
         )
 
+    def test_hunkless_diff_has_no_valid_finding_location(self):
+        diff = planner.FileDiff(
+            "server/renamed.go",
+            "server",
+            "primary:server:server",
+            False,
+            b"""diff --git a/server/old.go b/server/renamed.go
+similarity index 100%
+rename from server/old.go
+rename to server/renamed.go
+""",
+        )
+        self.assertEqual(diff.changed_line_ranges, [])
+
     def test_deletion_only_hunk_uses_nearest_surviving_line(self):
         patch = b"""diff --git a/server/a.go b/server/a.go
 --- a/server/a.go
@@ -916,6 +930,22 @@ class ResultTest(unittest.TestCase):
             .replace("a.go:1", "a.go:999999")
             .replace("a.go#L1", "a.go#L999999")
         )
+        result, _ = writer.build_result(
+            manifest, "shard-1", "success", json.dumps(review), 30
+        )
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["incomplete_reason"], "invalid-model-output")
+
+    def test_finding_in_hunkless_primary_file_becomes_invalid_output(self):
+        manifest = signed_manifest(active_second=False)
+        manifest["files"][0]["changed_line_ranges"] = []
+        unsigned = dict(manifest)
+        unsigned.pop("manifest_digest")
+        manifest["manifest_digest"] = hashlib.sha256(
+            json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        aggregate.validate_manifest(manifest)
+        review = completed_result(manifest, "shard-1", "HIGH")["review"]
         result, _ = writer.build_result(
             manifest, "shard-1", "success", json.dumps(review), 30
         )

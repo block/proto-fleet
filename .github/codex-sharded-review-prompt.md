@@ -123,6 +123,9 @@ scope rules for this sharded benchmark:
   report an issue that exists only in a shared file.
 - `NONE` is valid only as the overall risk for a review with no finding blocks;
   never emit a `#### [NONE]` finding heading.
+- A manifest file with an empty `changed_line_ranges` list has no textual changed
+  line that can ground a finding; do not invent a location for metadata-only,
+  binary, or empty-file changes.
 - The baseline head-revision Location rule applies when a manifest file has
   `citation_side: "head"`. For a whole-file deletion marked
   `citation_side: "merge-base"`, cite a listed deleted line and link to

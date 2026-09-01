@@ -67,7 +67,6 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         raise ValueError("manifest file citation side is invalid")
     if any(
         not isinstance(file.get("changed_line_ranges"), list)
-        or not file["changed_line_ranges"]
         or any(
             not isinstance(item, list)
             or len(item) != 2
