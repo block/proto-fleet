@@ -157,6 +157,11 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Offline",
 		},
 		{
+			name:     "fleet node unavailable",
+			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE},
+			expected: "Unavailable",
+		},
+		{
 			name:     "inactive returns sleeping",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_INACTIVE},
 			expected: "Sleeping",
@@ -262,6 +267,11 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 			name:     "needs mining pool",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL},
 			expected: "Pool required",
+		},
+		{
+			name:     "fleet node unavailable",
+			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE},
+			expected: "No connection",
 		},
 		{
 			name:     "no errors",

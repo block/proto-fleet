@@ -5,8 +5,7 @@ import { getMinerMeasurement } from "./getMinerMeasurement";
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const createMeasurement = (value: number, timestamp = new Date()): Measurement => {
   return create(MeasurementSchema, {
@@ -62,6 +61,14 @@ describe("getMinerMeasurement", () => {
     const miner = createMinerSnapshot({
       deviceStatus: DeviceStatus.OFFLINE,
       hashrate: [],
+    });
+    expect(getMinerMeasurement(miner, hashrateGetter)).toBeNull();
+  });
+
+  it("returns null instead of stale telemetry when the Fleet Node is unavailable", () => {
+    const miner = createMinerSnapshot({
+      deviceStatus: DeviceStatus.UNAVAILABLE,
+      hashrate: [createMeasurement(100)],
     });
     expect(getMinerMeasurement(miner, hashrateGetter)).toBeNull();
   });

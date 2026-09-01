@@ -62,6 +62,17 @@ func TestBuildMinerFilterParams_StatusFilterActiveOnly(t *testing.T) {
 	assert.False(t, params.needsAttentionFilter)
 }
 
+func TestBuildMinerFilterParams_StatusFilterUnavailable(t *testing.T) {
+	params := buildMinerFilterParams(&stores.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusUnavailable},
+	})
+
+	assert.True(t, params.statusFilter.Valid)
+	assert.Equal(t, []string{"UNAVAILABLE"}, params.statusValues)
+	assert.False(t, params.includeNullStatus)
+	assert.False(t, params.needsAttentionFilter)
+}
+
 func TestBuildMinerFilterParams_PairingStatusUnspecifiedOnly(t *testing.T) {
 	// Tests edge case: UNSPECIFIED should NOT set the filter (means "return all")
 	filter := &stores.MinerFilter{
@@ -200,6 +211,22 @@ func TestAppendFilterSQL_StatusFilterActiveDoesNotIncludeNull(t *testing.T) {
 
 	sql := sb.String()
 	assert.NotContains(t, sql, "device_status.status IS NULL")
+}
+
+func TestAppendFilterSQL_StatusFilterUsesEffectiveFleetNodeStatus(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"ACTIVE", "UNAVAILABLE"},
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "THEN 'UNAVAILABLE'")
+	assert.Contains(t, sql, "assigned_fleet_node.last_seen_at")
+	assert.Contains(t, sql, "= ANY($2::text[])")
+	assert.NotContains(t, sql, "device_status.status::text = ANY")
 }
 
 func TestAppendFilterSQL_CombinedFilters(t *testing.T) {

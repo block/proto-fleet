@@ -1,10 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create as createProto } from "@bufbuild/protobuf";
-import { deviceActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
+import { deviceActions, groupActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
+  DeviceStatus,
   MinerListFilterSchema,
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
@@ -14,7 +15,6 @@ import {
   CommandBatchUpdateStatus_CommandBatchUpdateStatusType,
   PerformanceMode,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
 
@@ -191,6 +191,21 @@ describe("useMinerActions", () => {
       expect(actions).toContain(settingsActions.miningPool);
       expect(actions).toContain(settingsActions.coolingMode);
       expect(actions).not.toContain(settingsActions.rename);
+    });
+
+    it("should only expose local actions for a single unavailable miner", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.UNAVAILABLE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      expect(result.current.popoverActions.map((action) => action.action)).toEqual([
+        groupActions.addToGroup,
+        deviceActions.unpair,
+      ]);
     });
   });
 
@@ -2349,6 +2364,30 @@ describe("useMinerActions", () => {
       );
 
       const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
+      );
+    });
+
+    it("should show unreachable warning for single unavailable Proto rig", () => {
+      setStoreMiners([
+        {
+          id: "device-1",
+          driverName: "proto",
+          deviceStatus: DeviceStatus.UNAVAILABLE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.UNAVAILABLE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((action) => action.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
       );

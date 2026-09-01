@@ -2,10 +2,9 @@ import clsx from "clsx";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
-// The daemon heartbeats every 30s (server/cmd/fleetnode/run.go); allow two
-// missed beats before calling a node stale. The server only records
-// last_seen_at, so connectivity is derived client-side.
-const STALE_AFTER_MS = 90_000;
+// The daemon heartbeats every 30s (server/cmd/fleetnode/run.go); allow four
+// missed beats before calling a node stale, matching miner availability.
+const STALE_AFTER_MS = 120_000;
 
 type NodeDisplayStatus = "online" | "stale" | "neverConnected" | "awaitingConfirmation" | "pending" | "revoked";
 

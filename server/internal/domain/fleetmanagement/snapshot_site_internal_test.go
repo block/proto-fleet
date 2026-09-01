@@ -8,9 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	fleetmanagementpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
+
+func TestListMinerStateSnapshots_FleetNodeUnavailabilityOverridesCachedMinerStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := storesMocks.NewMockDeviceStore(ctrl)
+	svc := &Service{deviceStore: store}
+
+	store.EXPECT().ListMinerStateSnapshots(gomock.Any(), int64(1), "", int32(10), gomock.Any(), gomock.Any()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier:     "miner-a",
+			DriverName:           "proto",
+			PairingStatus:        "PAIRED",
+			DeviceStatus:         sqlc.NullDeviceStatusEnum{DeviceStatusEnum: sqlc.DeviceStatusEnumACTIVE, Valid: true},
+			FleetNodeUnavailable: true,
+		}}, "", int64(1), nil)
+
+	snaps, _, _, err := svc.buildSnapshotsFromUnifiedQuery(t.Context(), 1, "", 10, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, snaps, 1)
+	assert.Equal(t, fleetmanagementpb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE, snaps[0].DeviceStatus)
+}
 
 // TestListMinerStateSnapshots_PopulatesDirectPlacementRefs asserts that the
 // snapshot builder propagates direct row-stamped placement refs without a

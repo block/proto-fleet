@@ -65,6 +65,53 @@ groups:
             Device {{ $labels.device_id }} (org {{ $labels.organization_id }})
             has been reporting fleet_device_online=0 for at least five minutes.
 
+      - uid: protofleet-fleet-node-unavailable
+        title: Fleet Node Unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- Fleet Nodes heartbeat every 30 seconds. Four missed
+                -- heartbeats mark the node unavailable; the rule's pending
+                -- period below brings the notification threshold to five
+                -- minutes without hiding the state from the miner list.
+                SELECT
+                    organization_id,
+                    fleet_node_id,
+                    fleet_node_name,
+                    1 AS value
+                FROM fleet_node_alert_status
+                WHERE COALESCE(last_seen_at, updated_at, created_at) < NOW() - INTERVAL '2 minutes'
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        for: 3m
+        labels:
+          proto_fleet_rule_uid: protofleet-fleet-node-unavailable
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-defaults
+          template: fleet-node-unavailable
+        annotations:
+          summary: "Fleet Node {{ $labels.fleet_node_name }} is unavailable."
+          description: |
+            Fleet Node {{ $labels.fleet_node_name }} (id {{ $labels.fleet_node_id }},
+            org {{ $labels.organization_id }}) has not checked in for at least
+            five minutes. Miners assigned to it are unavailable.
+
       - uid: protofleet-device-temperature-high
         title: Device Temperature High
         condition: B

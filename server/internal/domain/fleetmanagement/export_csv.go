@@ -242,6 +242,8 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 	}
 
 	switch snapshot.DeviceStatus {
+	case pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE:
+		return "Unavailable"
 	case pb.DeviceStatus_DEVICE_STATUS_OFFLINE:
 		return "Offline"
 	case pb.DeviceStatus_DEVICE_STATUS_INACTIVE, pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
@@ -264,6 +266,10 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 }
 
 func minerIssuesCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
+	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE {
+		return "No connection"
+	}
+
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return "Authentication required"
 	}
@@ -325,7 +331,7 @@ func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.Csv
 	}
 
 	switch snapshot.DeviceStatus {
-	case pb.DeviceStatus_DEVICE_STATUS_OFFLINE, pb.DeviceStatus_DEVICE_STATUS_INACTIVE, pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+	case pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE, pb.DeviceStatus_DEVICE_STATUS_OFFLINE, pb.DeviceStatus_DEVICE_STATUS_INACTIVE, pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
 		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return ""
@@ -354,7 +360,7 @@ func measurementCSVValue(snapshot *pb.MinerStateSnapshot, measurements []*common
 	}
 
 	switch snapshot.DeviceStatus {
-	case pb.DeviceStatus_DEVICE_STATUS_OFFLINE, pb.DeviceStatus_DEVICE_STATUS_INACTIVE, pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+	case pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE, pb.DeviceStatus_DEVICE_STATUS_OFFLINE, pb.DeviceStatus_DEVICE_STATUS_INACTIVE, pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
 		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return ""

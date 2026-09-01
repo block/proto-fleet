@@ -22,6 +22,7 @@ import {
   DeleteMinersRequestSchema,
   type DeleteMinersResponse,
   DeviceSelectorSchema,
+  DeviceStatus,
   type MinerListFilter,
   type MinerStateSnapshot,
   PairingStatus,
@@ -47,7 +48,6 @@ import {
   StopMiningResponse,
   StreamCommandBatchUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useMinerCoolingMode from "@/protoFleet/api/useMinerCoolingMode";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
@@ -204,13 +204,16 @@ const initialUnsupportedMinersState: UnsupportedMinersState = {
 };
 
 const protoDriverName = "proto";
+const unavailableMinerActions = new Set<SupportedAction>([groupActions.addToGroup, deviceActions.unpair]);
 
 /**
  * Determines if a Proto rig is reachable for device unpairing.
- * A device is reachable if it's not offline and has completed authentication (PAIRED).
+ * A device is reachable if it's neither offline nor unavailable and has completed authentication (PAIRED).
  */
 const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStatus): boolean =>
-  deviceStatus !== DeviceStatus.OFFLINE && pairingStatus === PairingStatus.PAIRED;
+  deviceStatus !== DeviceStatus.OFFLINE &&
+  deviceStatus !== DeviceStatus.UNAVAILABLE &&
+  pairingStatus === PairingStatus.PAIRED;
 
 /**
  * Builds a contextual confirmation subtitle for the unpair action based on the
@@ -1705,9 +1708,14 @@ export const useMinerActions = ({
       },
     ];
 
+    const availableActions =
+      deviceStatus === DeviceStatus.UNAVAILABLE
+        ? actions.filter((action) => unavailableMinerActions.has(action.action))
+        : actions;
+
     // Every action starts a new epoch so async continuations of a superseded
     // action bail instead of mutating the newer flow's state.
-    return actions.map((action) => ({
+    return availableActions.map((action) => ({
       ...action,
       actionHandler: () => {
         ++actionEpochRef.current;

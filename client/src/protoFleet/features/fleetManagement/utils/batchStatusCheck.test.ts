@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deviceActions, settingsActions } from "../components/MinerActionsMenu/constants";
 import { hasReachedExpectedStatus, isActionLoading, isStatusChangingBatchAction } from "./batchStatusCheck";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 function createBatch(overrides: Partial<BatchOperation> = {}): BatchOperation {

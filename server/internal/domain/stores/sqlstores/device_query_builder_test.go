@@ -52,3 +52,43 @@ func TestBuildStateCountsQuerySQL_NumericAndCIDRFilters_UsesDynamicPredicates(t 
 	assert.EqualValues(t, 1, args[0])
 	assert.Equal(t, minValue, args[1])
 }
+
+func TestBuildStateCountsQuerySQL_UsesEffectiveStatusAndBucketsUnavailableOffline(t *testing.T) {
+	store := &SQLDeviceStore{}
+	query, _ := store.buildStateCountsQuerySQL(1, minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"ACTIVE"},
+	})
+
+	assert.Contains(t, query, "THEN 'UNAVAILABLE'")
+	assert.Contains(t, query, "filtered.status IN ('OFFLINE', 'UNAVAILABLE')")
+	assert.Contains(t, query, "filtered.status = 'ACTIVE'")
+	assert.NotContains(t, query, "WHEN device_status.status = 'ACTIVE'")
+}
+
+func TestBuildDeviceIdentifiersByOrgWithFilterQuerySQL_JoinsFleetNodeForEffectiveStatus(t *testing.T) {
+	query, _ := buildDeviceIdentifiersByOrgWithFilterQuerySQL(1, minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"UNAVAILABLE"},
+	})
+
+	assert.Contains(t, query, "LEFT JOIN fleet_node assigned_fleet_node")
+	assert.Contains(t, query, "THEN 'UNAVAILABLE'")
+}
+
+func TestListAndPaginationCountShareEffectiveStatusFilter(t *testing.T) {
+	fp := minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"ACTIVE"},
+	}
+	store := &SQLDeviceStore{}
+
+	listQuery, _ := store.buildListQuerySQL(1, nil, 50, fp, nil)
+	countQuery, _ := store.buildCountQuerySQL(1, fp)
+
+	for _, query := range []string{listQuery, countQuery} {
+		assert.Contains(t, query, "THEN 'UNAVAILABLE'")
+		assert.Contains(t, query, "assigned_fleet_node.last_seen_at")
+		assert.NotContains(t, query, "device_status.status::text = ANY")
+	}
+}

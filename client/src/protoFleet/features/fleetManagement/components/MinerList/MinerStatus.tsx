@@ -56,6 +56,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
+  const isUnavailable = deviceStatusFromStore === DeviceStatus.UNAVAILABLE;
 
   const needsAttention = useNeedsAttention(
     needsRemediation,
@@ -94,6 +95,15 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
         <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
         <ProgressCircular size={14} indeterminate />
         <span className="text-text-primary-50">Refreshing</span>
+      </StatusWrapper>
+    );
+  }
+
+  if (isUnavailable) {
+    return (
+      <StatusWrapper onClick={onClick}>
+        <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        Unavailable
       </StatusWrapper>
     );
   }

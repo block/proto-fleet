@@ -1289,30 +1289,64 @@ func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGrou
 
 const getMinerStateCountsByDeviceIDs = `-- name: GetMinerStateCountsByDeviceIDs :one
 
+WITH effective_devices AS (
+    SELECT
+        d.id,
+        d.device_identifier,
+        dp.pairing_status,
+        CASE
+            WHEN fn.id IS NOT NULL
+                 AND fn.deleted_at IS NULL
+                 AND fn.enrollment_status = 'CONFIRMED'
+                 AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+            THEN 'UNAVAILABLE'
+            ELSE ds.status::text
+        END AS effective_status
+    FROM device d
+    JOIN discovered_device dd ON d.discovered_device_id = dd.id
+    JOIN device_pairing dp ON d.id = dp.device_id
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+    LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+    WHERE d.org_id = $1
+      AND d.device_identifier = ANY($2::text[])
+      AND d.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+),
+open_errors AS (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = $1
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3, 4)
+)
 SELECT
     -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_devices.effective_status IN ('OFFLINE', 'UNAVAILABLE')
+             OR (effective_devices.effective_status IS NULL AND effective_devices.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::int AS offline_count,
 
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+        WHEN effective_devices.effective_status IN ('MAINTENANCE', 'INACTIVE')
+             AND effective_devices.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::int AS sleeping_count,
 
     -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+        WHEN effective_devices.effective_status IS DISTINCT FROM 'OFFLINE'
+             AND effective_devices.effective_status IS DISTINCT FROM 'UNAVAILABLE'
+             AND NOT (effective_devices.effective_status IS NULL AND effective_devices.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_devices.effective_status IN ('MAINTENANCE', 'INACTIVE') AND effective_devices.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_devices.effective_status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                  OR effective_devices.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -1320,29 +1354,14 @@ SELECT
 
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+        WHEN effective_devices.effective_status = 'ACTIVE'
+             AND effective_devices.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
     END), 0)::int AS hashing_count
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN (
-    SELECT DISTINCT device_id
-    FROM errors
-    WHERE errors.org_id = $1
-      AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3, 4)
-) open_errors ON d.id = open_errors.device_id
-WHERE d.org_id = $1
-  AND d.device_identifier = ANY($2::text[])
-  AND d.deleted_at IS NULL
-  AND dd.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+FROM effective_devices
+LEFT JOIN open_errors ON effective_devices.id = open_errors.device_id
 `
 
 type GetMinerStateCountsByDeviceIDsParams struct {
@@ -1949,6 +1968,7 @@ SELECT
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
+    FALSE as fleet_node_unavailable,
     FALSE as embedded_web_view_available
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
@@ -1982,6 +2002,7 @@ type ListMinerStateSnapshotsRow struct {
 	SiteLabel                string
 	BuildingID               sql.NullInt64
 	BuildingLabel            string
+	FleetNodeUnavailable     bool
 	EmbeddedWebViewAvailable bool
 }
 
@@ -2021,6 +2042,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.SiteLabel,
 			&i.BuildingID,
 			&i.BuildingLabel,
+			&i.FleetNodeUnavailable,
 			&i.EmbeddedWebViewAvailable,
 		); err != nil {
 			return nil, err

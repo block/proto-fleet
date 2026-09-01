@@ -436,6 +436,52 @@ func TestRenderSlackResolvedCurtailmentSourcesNameEveryRecoveredCondition(t *tes
 	assert.NotContains(t, text, "unreachable")
 }
 
+func TestRenderSlackResolvedFleetNodeNamesRecoveredNode(t *testing.T) {
+	alert := Alert{
+		Status: "resolved", RuleUID: "protofleet-fleet-node-unavailable",
+		Labels: map[string]string{
+			"alertname": "Fleet Node Unavailable", "severity": "critical", "template": "fleet-node-unavailable",
+		},
+		Annotations: map[string]string{"summary": "Fleet Node node-a is unavailable."},
+	}
+
+	text := allSectionText(t, renderSlack("", []Alert{alert}, nil))
+	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-a")
+	assert.NotContains(t, text, "is unavailable")
+}
+
+func TestRenderSlackResolvedFleetNodesNameSamplesAndCountOverflow(t *testing.T) {
+	node := func(name string) Alert {
+		return Alert{
+			Status: "resolved", RuleUID: "protofleet-fleet-node-unavailable",
+			Labels: map[string]string{
+				"alertname": "Fleet Node Unavailable", "severity": "critical", "template": "fleet-node-unavailable",
+			},
+			Annotations: map[string]string{"summary": "Fleet Node " + name + " is unavailable."},
+		}
+	}
+
+	text := allSectionText(t, renderSlack("", []Alert{
+		node("node-a"), node("node-b"), node("node-c"), node("node-d"), node("node-e"),
+	}, nil))
+	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-a")
+	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-b")
+	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-c")
+	assert.Contains(t, text, "✅ …and 2 more Fleet Node connections restored")
+	assert.NotContains(t, text, "node-d")
+	assert.NotContains(t, text, "node-e")
+	assert.NotContains(t, text, "is unavailable")
+}
+
+func TestRenderSlackResolvedFleetNodesFallsBackForMalformedSummary(t *testing.T) {
+	text := groupLine(alertGroup{
+		Name: "Fleet Node Unavailable", Template: string(RuleTemplateFleetNodeUnavailable), InstanceCount: 2,
+		Summaries: []string{"node-a stopped checking in"}, SummaryCount: 1,
+	}, true)
+
+	assert.Equal(t, "✅ Connections restored to 2 Fleet Nodes", text)
+}
+
 func TestRenderSlackUsesConditionSpecificCurtailmentRecoveryCopy(t *testing.T) {
 	assert.Equal(t, "✅ Curtailment by maestro-a ended", groupLine(alertGroup{
 		Name: "Curtailment Active", Template: string(RuleTemplateMQTTCurtailment), InstanceCount: 1,

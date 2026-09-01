@@ -202,6 +202,12 @@ func (h *Handler) canReadDeviceScope(ctx context.Context) (bool, error) {
 	return middleware.HasOrgWidePermission(ctx, authz.PermMinerRead)
 }
 
+// canReadFleetNodeScope gates Fleet Node names on org-wide fleetnode:read. Alert history is org-wide, so a
+// narrower grant must not reveal a node name outside the caller's resource scope.
+func (h *Handler) canReadFleetNodeScope(ctx context.Context) (bool, error) {
+	return middleware.HasOrgWidePermission(ctx, authz.PermFleetnodeRead)
+}
+
 func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[alertsv1.PauseRuleRequest]) (*connect.Response[alertsv1.PauseRuleResponse], error) {
 	orgID, actor, err := h.authorizeActor(ctx, authz.PermAlertManage)
 	if err != nil {
@@ -388,6 +394,10 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
+	includeFleetNode, err := h.canReadFleetNodeScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// A rule group alone names no rule: "" is a real group, so it can't mean "every group with this name" here
 	// and "no group filter" there. Reject it rather than silently widen the drill-in to the whole firing set.
 	if req.Msg.GetActiveOnly() && req.Msg.GetRuleGroup() != "" && req.Msg.GetAlertName() == "" {
@@ -431,7 +441,7 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	}
 	out := make([]*alertsv1.AlertHistoryEntry, 0, len(rows))
 	for _, n := range rows {
-		out = append(out, historyEntryToProto(n, includeDevice))
+		out = append(out, historyEntryToProto(n, includeDevice, includeFleetNode))
 	}
 	// Off the last row of a full page only, so a final page advertises nothing to resume from.
 	nextCursor := ""
@@ -464,11 +474,14 @@ func parseBeforeID(s string) (*int64, error) {
 	return &v, nil
 }
 
-// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity, and the one
-// summary it does carry clears the same template gate the history API applies, so this needs no miner:read gate;
-// the drill-in does.
+// ListActiveAlertGroups answers "what is firing right now" per rule. Rows and aggregate fields require only
+// alert:read; summaries pass through the same resource-specific gates as alert history.
 func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertRead)
+	if err != nil {
+		return nil, err
+	}
+	includeFleetNode, err := h.canReadFleetNodeScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -489,9 +502,9 @@ func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[
 			AlertCount:     g.AlertCount,
 			DeviceCount:    g.DeviceCount,
 			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
-			// Same policy as the history API: a device template's summary names the miner, so it needs
-			// miner:read, which this endpoint never has. Device-less alone would let a stray offline row through.
-			Summary: visibleSummary(g.Summary, g.Template, false),
+			// Same policy as the history API: keep the rollup visible while gating resource names in its summary.
+			// Miner summaries remain redacted here; Fleet Node summaries require org-wide fleetnode:read.
+			Summary: visibleSummary(g.Summary, g.Template, false, includeFleetNode),
 		})
 	}
 	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{
@@ -806,7 +819,7 @@ func validateMaintenanceWindowTargetSelection(name string, all bool, ids []strin
 // includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,
 // which is sourced from alert annotations and routinely names the device. Rule-level fields — including the
 // template label, a rule-type slug the rules list already exposes — stay visible to any alert:read caller.
-func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice bool) *alertsv1.AlertHistoryEntry {
+func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice, includeFleetNode bool) *alertsv1.AlertHistoryEntry {
 	out := &alertsv1.AlertHistoryEntry{
 		Id:          strconv.FormatInt(n.ID, 10),
 		ReceivedAt:  timestamppb.New(n.ReceivedAt),
@@ -822,7 +835,7 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.DeviceName = n.DeviceName
 		out.DeviceMac = n.DeviceMAC
 	}
-	out.Summary = visibleSummary(n.Summary, n.Template, includeDevice)
+	out.Summary = visibleSummary(n.Summary, n.Template, includeDevice, includeFleetNode)
 	if n.StartsAt != nil {
 		out.StartsAt = timestamppb.New(*n.StartsAt)
 	}
@@ -832,9 +845,15 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 	return out
 }
 
-// A device template's summary names the miner, so it needs miner:read; a device-less one names a source, a
-// curtailment event, or the fleet, none of which is miner identity.
-func visibleSummary(summary, template string, includeDevice bool) string {
+// A Fleet Node alert names a node and therefore requires fleetnode:read even though it has no miner device id.
+// Other device templates require miner:read; the allowlisted resource-less templates are safe with alert:read.
+func visibleSummary(summary, template string, includeDevice, includeFleetNode bool) string {
+	if alerts.RuleTemplate(template) == alerts.RuleTemplateFleetNodeUnavailable {
+		if includeFleetNode {
+			return summary
+		}
+		return ""
+	}
 	if includeDevice || isDeviceLessTemplate(template) {
 		return summary
 	}

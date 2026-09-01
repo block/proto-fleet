@@ -65,6 +65,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
+  const isUnavailable = deviceStatus === DeviceStatus.UNAVAILABLE;
 
   // Transform errors to shared format using existing utility
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
@@ -81,8 +82,8 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   // Determine icon to show based on issue type
   // Note: Auth and pool issues don't have icons (per Figma design)
   const icon = useMemo((): ReactNode | null => {
-    // Auth and pool issues don't get icons
-    if (needsAuthentication || needsMiningPool) {
+    // Auth, pool, and connection issues don't get hardware icons.
+    if (needsAuthentication || needsMiningPool || isUnavailable) {
       return null;
     }
 
@@ -97,15 +98,15 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
       return getComponentIcon(componentTypesWithErrors[0]);
     }
     return <Alert width="w-4" />;
-  }, [needsAuthentication, needsMiningPool, sharedErrors]);
+  }, [isUnavailable, needsAuthentication, needsMiningPool, sharedErrors]);
 
   // While errors haven't loaded, show shimmer for devices that could have issues
-  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired) {
+  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired && !isUnavailable) {
     return <SkeletonBar className="w-24" />;
   }
 
   // Show empty state if no issues
-  if (!hasIssues) {
+  if (!hasIssues && !isUnavailable) {
     return null;
   }
 
@@ -115,7 +116,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const content = (
     <>
       {icon}
-      {summary}
+      {isUnavailable ? "No connection" : summary}
     </>
   );
 

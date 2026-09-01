@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import MinerList from "./MinerList";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 let minersById: Record<string, { pairingStatus: PairingStatus; deviceStatus: DeviceStatus }> = {};
 

@@ -202,6 +202,9 @@ enum DeviceStatus {
 
   // Miner firmware has been installed but requires a reboot to activate
   DEVICE_STATUS_REBOOT_REQUIRED = 8;
+
+  // Miner cannot be reached because its assigned Fleet Node is unavailable
+  DEVICE_STATUS_UNAVAILABLE = 9;
 }
 
 // Request to list miners with their metadata

@@ -240,6 +240,16 @@ describe("MinerStatus", () => {
       expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
     });
 
+    it("shows unavailable when the assigned Fleet Node has no connection", () => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.UNAVAILABLE });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(screen.getByText("Unavailable")).toBeInTheDocument();
+      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
+    });
+
     it("lets default-password remediation override sleeping status", async () => {
       const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
       const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");

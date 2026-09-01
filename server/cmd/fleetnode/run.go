@@ -22,6 +22,7 @@ import (
 
 const (
 	defaultHeartbeatInterval = 30 * time.Second
+	maxHeartbeatInterval     = defaultHeartbeatInterval
 	sessionRefreshLeeway     = 1 * time.Hour
 )
 
@@ -29,7 +30,7 @@ const (
 var controlWorkerShutdownTimeout = 10 * time.Second
 
 type RunCmd struct {
-	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
+	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
 	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
 	now                      func() time.Time                                                         `kong:"-"`
@@ -72,8 +73,8 @@ func (r *RunCmd) Run(c *Context) error {
 }
 
 func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
-	if r.HeartbeatInterval <= 0 {
-		r.HeartbeatInterval = defaultHeartbeatInterval
+	if err := r.validateHeartbeatInterval(); err != nil {
+		return err
 	}
 	if r.now == nil {
 		r.now = func() time.Time { return time.Now().UTC() }
@@ -136,6 +137,19 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	return bootstrap.WithStateLock(c.StateDir, func() error {
 		return r.runLocked(ctx, c, resolvedPluginsDir, logger)
 	})
+}
+
+func (r *RunCmd) validateHeartbeatInterval() error {
+	if r.HeartbeatInterval == 0 {
+		r.HeartbeatInterval = defaultHeartbeatInterval
+	}
+	if r.HeartbeatInterval < 0 {
+		return fmt.Errorf("heartbeat interval must be positive")
+	}
+	if r.HeartbeatInterval > maxHeartbeatInterval {
+		return fmt.Errorf("heartbeat interval must be no greater than %s", maxHeartbeatInterval)
+	}
+	return nil
 }
 
 func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir string, logger *slog.Logger) error {

@@ -24,11 +24,27 @@ const embeddedWebViewAvailableExpr = `(
     device.id IS NOT NULL
     AND COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND discovered_device.driver_name = 'proto'
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = device.id AND fnd.org_id = device.org_id
-    )
+    AND fleet_node_assignment.device_id IS NULL
 )`
+
+// Fleet Nodes heartbeat every 30 seconds. Four missed heartbeats distinguish a
+// node outage from a brief reconnect without conflating it with a miner that is
+// independently offline behind a healthy node.
+const fleetNodeUnavailableExpr = `(
+    assigned_fleet_node.id IS NOT NULL
+    AND assigned_fleet_node.deleted_at IS NULL
+    AND assigned_fleet_node.enrollment_status = 'CONFIRMED'
+    AND COALESCE(assigned_fleet_node.last_seen_at, assigned_fleet_node.updated_at, assigned_fleet_node.created_at) < NOW() - INTERVAL '2 minutes'
+)`
+
+// effectiveDeviceStatusExpr is the query-time status shown to users and used
+// by filters and live fleet-health counts. UNAVAILABLE is deliberately derived
+// rather than persisted so a resumed Fleet Node heartbeat immediately restores
+// the miner's last reported status.
+const effectiveDeviceStatusExpr = `CASE
+    WHEN ` + fleetNodeUnavailableExpr + ` THEN 'UNAVAILABLE'
+    ELSE device_status.status::text
+END`
 
 // minerSelectColumns contains the common SELECT columns for miner state queries.
 const minerSelectColumns = `SELECT
@@ -54,6 +70,7 @@ const minerSelectColumns = `SELECT
     COALESCE(site.name, '') as site_label,
     device.building_id,
     COALESCE(building.name, '') as building_label,
+    ` + fleetNodeUnavailableExpr + ` as fleet_node_unavailable,
     ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
@@ -70,6 +87,10 @@ LEFT JOIN device ON discovered_device.id = device.discovered_device_id
     AND device.org_id = $1
 LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
+LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
+    AND fleet_node_assignment.org_id = device.org_id
+LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN site ON site.id = device.site_id
     AND site.org_id = $1
     AND site.deleted_at IS NULL

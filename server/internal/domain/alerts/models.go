@@ -73,6 +73,9 @@ const (
 
 	// HA control and redundancy readiness is a cluster-wide, device-less rule.
 	RuleTemplateHAReadiness RuleTemplate = "ha-readiness"
+
+	// Fleet Node heartbeat staleness is node-scoped and has no device_id.
+	RuleTemplateFleetNodeUnavailable RuleTemplate = "fleet-node-unavailable"
 )
 
 // Origin decides mutability: only user rules accept UpdateRule/DeleteRule.

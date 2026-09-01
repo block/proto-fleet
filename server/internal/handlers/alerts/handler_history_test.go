@@ -295,6 +295,98 @@ func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
 	}
 }
 
+func TestListAlerts_FleetNodeSummaryRequiresFleetNodeRead(t *testing.T) {
+	row := notificationhistory.StoredNotification{
+		ID:         1,
+		ReceivedAt: time.Unix(1_700_000_000, 0),
+		Notification: notificationhistory.Notification{
+			AlertName: "Fleet Node Unavailable",
+			Status:    "firing",
+			Severity:  "critical",
+			Template:  string(alerts.RuleTemplateFleetNodeUnavailable),
+			Summary:   "Fleet Node test-node has not checked in.",
+		},
+	}
+	h := NewHandler(nil, &stubLister{rows: []notificationhistory.StoredNotification{row}})
+
+	for _, tc := range []struct {
+		name        string
+		permissions []string
+		wantSummary string
+	}{
+		{
+			name:        "alert read only redacts node name",
+			permissions: []string{authz.PermAlertRead},
+		},
+		{
+			name:        "fleet node reader sees node name",
+			permissions: []string{authz.PermAlertRead, authz.PermFleetnodeRead},
+			wantSummary: row.Summary,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := h.ListAlerts(
+				ctxWithPerms(tc.permissions...),
+				connect.NewRequest(&alertsv1.ListAlertsRequest{ActiveOnly: true}),
+			)
+			require.NoError(t, err)
+			require.Len(t, resp.Msg.Alerts, 1)
+
+			got := resp.Msg.Alerts[0]
+			require.Equal(t, row.AlertName, got.AlertName)
+			require.Equal(t, row.Status, got.Status)
+			require.Equal(t, row.Severity, got.Severity)
+			require.Equal(t, row.Template, got.Template)
+			require.Equal(t, tc.wantSummary, got.Summary)
+		})
+	}
+}
+
+func TestListActiveAlertGroups_FleetNodeSummaryRequiresFleetNodeRead(t *testing.T) {
+	started := time.Unix(1_700_000_000, 0)
+	group := notificationhistory.ActiveAlertGroup{
+		AlertName:      "Fleet Node Unavailable",
+		RuleGroup:      "proto-fleet-defaults",
+		AlertCount:     2,
+		FirstStartedAt: started,
+		Summary:        "Fleet Node test-node has not checked in.",
+		Template:       string(alerts.RuleTemplateFleetNodeUnavailable),
+	}
+	h := NewHandler(nil, &stubLister{groups: []notificationhistory.ActiveAlertGroup{group}})
+
+	for _, tc := range []struct {
+		name        string
+		permissions []string
+		wantSummary string
+	}{
+		{
+			name:        "alert read only redacts node name",
+			permissions: []string{authz.PermAlertRead},
+		},
+		{
+			name:        "fleet node reader sees node name",
+			permissions: []string{authz.PermAlertRead, authz.PermFleetnodeRead},
+			wantSummary: group.Summary,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := h.ListActiveAlertGroups(
+				ctxWithPerms(tc.permissions...),
+				connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
+			)
+			require.NoError(t, err)
+			require.Len(t, resp.Msg.Groups, 1)
+
+			got := resp.Msg.Groups[0]
+			require.Equal(t, group.AlertName, got.AlertName)
+			require.Equal(t, group.RuleGroup, got.RuleGroup)
+			require.Equal(t, group.AlertCount, got.AlertCount)
+			require.Equal(t, started.Unix(), got.FirstStartedAt.AsTime().Unix())
+			require.Equal(t, tc.wantSummary, got.Summary)
+		})
+	}
+}
+
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {
 	groups := make([]notificationhistory.ActiveAlertGroup, activeGroupsMaxPageSize+1)
 	h := NewHandler(nil, &stubLister{groups: groups})

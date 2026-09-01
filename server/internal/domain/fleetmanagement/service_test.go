@@ -865,6 +865,33 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByDeviceStatus(t *testing.T
 	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_ONLINE, resp.Miners[0].DeviceStatus)
 }
 
+func TestService_ListMinerStateSnapshots_MarksMinerUnavailableWhenFleetNodeHeartbeatIsStale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+
+	_, err := testContext.ServiceProvider.DB.ExecContext(t.Context(), `
+		UPDATE fleet_node
+		SET last_seen_at = NOW() - INTERVAL '3 minutes'
+		WHERE id = (
+			SELECT fleet_node_id FROM fleet_node_device
+			WHERE device_id = (SELECT id FROM device WHERE device_identifier = $1)
+		)`, deviceIDs[0])
+	require.NoError(t, err)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := testContext.ServiceProvider.FleetManagementService.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Miners, 1)
+	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE, resp.Miners[0].DeviceStatus)
+}
+
 func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")

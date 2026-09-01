@@ -14,10 +14,10 @@ import UpdateWorkerNameDialog from "./UpdateWorkerNameDialog";
 import { useMinerActions } from "./useMinerActions";
 import { waitForWorkerNameBatchResult } from "./waitForWorkerNameBatchResult";
 import type {
+  DeviceStatus,
   MinerStateSnapshot,
   UpdateWorkerNamesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
