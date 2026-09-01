@@ -906,6 +906,15 @@ class ResultTest(unittest.TestCase):
         self.assertEqual(result["status"], "incomplete")
         self.assertEqual(result["incomplete_reason"], "invalid-model-output")
 
+    def test_undeclared_finding_category_is_rejected(self):
+        markdown = completed_result(
+            signed_manifest(active_second=False), "shard-1", "HIGH"
+        )["review"]["review_markdown"].replace(
+            "**Category**: Reliability", "**Category**: banana"
+        )
+        with self.assertRaisesRegex(ValueError, "missing required fields"):
+            writer.validate_review_markdown(markdown, "HIGH")
+
     def test_none_finding_heading_is_rejected(self):
         markdown = (
             "## Review Summary\n\n"
@@ -1067,6 +1076,8 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("Date.parse(codexStep?.started_at || '')", called)
         self.assertIn("prerequisitesSucceeded", called)
         self.assertIn("codexReachedReviewPhase", called)
+        self.assertIn('--elapsed-seconds "$TIMEOUT_ELAPSED_SECONDS"', called)
+        self.assertNotIn("--elapsed-seconds -1", called)
 
         script = workflow_test_helpers.find_step(workflow, "finalize-shard", "inspect")[
             "with"
@@ -1126,6 +1137,8 @@ class WorkflowInvariantTest(unittest.TestCase):
                 )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertEqual(output["outputs"]["classification"], expected)
+                if expected == "budget-timeout":
+                    self.assertEqual(output["outputs"]["elapsed_seconds"], "660")
 
 
 if __name__ == "__main__":

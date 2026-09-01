@@ -242,8 +242,9 @@ revalidating that the PR head is current.
   sandbox, and shard-scope prompt stanza between production and benchmark shard
   jobs. Test that the stanza identifies primary/shared scope and prohibits
   regenerating the full PR diff.
-- Test aggregate severity, stable ordering, exact deduplication, and validated
-  timeout/oversized `HIGH` behavior. Separately prove missing, corrupt,
+- Test aggregate severity, closed finding categories, stable ordering, exact
+  deduplication, and validated timeout/oversized `HIGH` behavior with measured
+  elapsed time. Separately prove missing, corrupt,
   malformed, stale, and cross-run artifacts hard-fail the workflow.
 - Mock Actions APIs to distinguish verified budget timeout from setup, manual,
   infrastructure, and supersession cancellation.

@@ -349,6 +349,7 @@ jobs:
             const conclusion = job.conclusion || '';
             let classification = conclusion === 'success' ? 'completed' : 'automation-failure';
             let detail = '';
+            let elapsedSeconds = null;
             if (conclusion === 'cancelled') {
               const requiredSteps = [
                 'Checkout fixed historical head',
@@ -367,7 +368,7 @@ jobs:
               const codexStep = job.steps?.find(step => step.name === 'Run bounded shard review');
               const codexStartedAt = Date.parse(codexStep?.started_at || '');
               const completedAt = Date.parse(job.completed_at || '');
-              const elapsedSeconds = Number.isFinite(codexStartedAt) && Number.isFinite(completedAt)
+              elapsedSeconds = Number.isFinite(codexStartedAt) && Number.isFinite(completedAt)
                 ? Math.max(0, Math.floor((completedAt - codexStartedAt) / 1000))
                 : null;
               const codexReachedReviewPhase =
@@ -405,6 +406,7 @@ jobs:
             core.setOutput('conclusion', conclusion);
             core.setOutput('classification', classification);
             core.setOutput('classification_detail', detail);
+            core.setOutput('elapsed_seconds', elapsedSeconds === null ? '' : String(elapsedSeconds));
             core.setOutput(
               'result_artifact_exists',
               artifacts.some(artifact => artifact.name === process.env.RESULT_ARTIFACT_NAME && !artifact.expired) ? 'true' : 'false'
@@ -434,11 +436,13 @@ jobs:
       - name: Write trusted shard timeout result
         id: write_timeout
         if: ${{ steps.inspect.outputs.conclusion == 'cancelled' && steps.inspect.outputs.classification == 'budget-timeout' }}
+        env:
+          TIMEOUT_ELAPSED_SECONDS: ${{ steps.inspect.outputs.elapsed_seconds }}
         run: |
           python3 .codex-trusted/.github/scripts/write_codex_shard_result.py \
             --manifest shard-plan/codex-shard-manifest.json \
             --shard "$SHARD_ID" \
-            --elapsed-seconds -1 \
+            --elapsed-seconds "$TIMEOUT_ELAPSED_SECONDS" \
             --force-incomplete-reason codex-job-timeout \
             --output-dir shard-result
 

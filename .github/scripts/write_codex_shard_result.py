@@ -13,6 +13,23 @@ from typing import Any
 from urllib.parse import quote
 
 SEVERITY_RANK = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+FINDING_CATEGORIES = (
+    "Auth",
+    "SQLi/Database",
+    "gRPC",
+    "Command Injection",
+    "Network Discovery",
+    "Plugin",
+    "Concurrency",
+    "Reliability",
+    "Frontend",
+    "Infrastructure",
+    "Python",
+    "Protobuf",
+    "Cryptostealing/Pool Hijack",
+    "Other",
+)
+CATEGORY_PATTERN = "|".join(re.escape(category) for category in FINDING_CATEGORIES)
 
 
 def validate_review_markdown(
@@ -78,7 +95,7 @@ def validate_review_markdown(
         raise ValueError("non-NONE review Markdown must contain a finding")
 
     required_fields = (
-        r"(?m)^- \*\*Category\*\*: \S.*$",
+        rf"(?m)^- \*\*Category\*\*: (?:{CATEGORY_PATTERN})[ \t]*$",
         r"(?m)^- \*\*Location\*\*: \[[^\]]+\]\([^\)]+\)[ \t]*$",
         r"(?m)^- \*\*Description\*\*: \S.*$",
         r"(?m)^- \*\*Impact\*\*: \S.*$",
