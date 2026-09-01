@@ -44,7 +44,11 @@ describe("EnrollNodeModal", () => {
     const { getByText } = render(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
 
     await waitFor(() => {
-      expect(getByText(/fleetnode enroll --server-url=/)).toBeInTheDocument();
+      expect(
+        getByText(
+          "sudo -u fleetnode /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode enroll --server-url=http://localhost:4000 && sudo systemctl enable --now fleet-node.service",
+        ),
+      ).toBeInTheDocument();
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
