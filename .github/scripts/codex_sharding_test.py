@@ -297,6 +297,8 @@ rename to server/renamed.go
             "plugin/asicrs/Dockerfile": "delivery",
             "plugin/asicrs/src/main.rs": "asicrs",
             "plugin/driver/generated/device.pb.go": "contracts",
+            "server/sdk/v1/pb/driver.proto": "contracts",
+            "sdk/rust/proto-fleet-plugin/src/lib.rs": "rust-sdk",
             "client/src/shared/api.ts": "client-shared",
             "client/src/protoFleet/page.tsx": "protofleet",
             "unknown/thing.txt": "cross-cutting",
@@ -382,6 +384,28 @@ rename to server/renamed.go
         self.assertIn(
             generated_path,
             consumer_shard["primary_files"] + consumer_shard["shared_files"],
+        )
+
+    def test_asicrs_packet_receives_proto_and_rust_sdk_contracts(self):
+        proto_path = "server/sdk/v1/pb/driver.proto"
+        rust_path = "sdk/rust/proto-fleet-plugin/src/lib.rs"
+        asicrs_path = "plugin/asicrs/src/main.rs"
+        files = [
+            file_diff(proto_path, 100, 1),
+            file_diff(rust_path, 100, 1),
+            file_diff(asicrs_path, 300_000, 100),
+            file_diff("server/internal/app/app.go", 300_000, 100),
+        ]
+        plan = planner.plan_files(files)
+        self.assertEqual(plan["status"], "planned")
+        asicrs_shard = next(
+            shard for shard in plan["shards"] if asicrs_path in shard["primary_files"]
+        )
+        self.assertIn(
+            proto_path, asicrs_shard["primary_files"] + asicrs_shard["shared_files"]
+        )
+        self.assertIn(
+            rust_path, asicrs_shard["primary_files"] + asicrs_shard["shared_files"]
         )
 
     def test_review_wide_plan_has_exactly_one_owner_and_replicates_shared_context(self):
@@ -1049,14 +1073,16 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("codex-security-review-sharded-benchmark", parent)
         self.assertIn("max-parallel: 1", parent)
         self.assertIn("max-parallel: 2", called)
-        self.assertIn("timeout-minutes: 16", called)
         self.assertIn("timeout-minutes: 6", called)
+        self.assertIn("needs: prepare-shard", called)
         self.assertIn('CODEX_CANCELLATION_CLEANUP_SECONDS: "300"', called)
         self.assertIn("github.workflow_sha", called)
         self.assertIn("sharded-benchmark-result-", called)
         self.assertIn("SHARD_JOB_ID: ${{ steps.identity.outputs.job_id }}", called)
         self.assertIn("String(job.id) === process.env.SHARD_JOB_ID", called)
-        self.assertIn("include-hidden-files: true", called)
+        self.assertIn("git archive --format=tar.gz", called)
+        self.assertIn("':(glob,exclude)**/*codex*benchmark*'", called)
+        self.assertIn("test ! -e model-worktree/.git", called)
         self.assertIn(
             "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1",
             called,
@@ -1083,6 +1109,75 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("render_codex_shard_prompt.py", called)
         self.assertIn("prompt: ${{ steps.prompt.outputs.prompt }}", called)
 
+    def test_sharded_codex_step_matches_baseline_contract(self):
+        baseline = workflow_test_helpers.load_workflow(
+            "codex-security-review-benchmark.yml"
+        )
+        sharded = workflow_test_helpers.load_workflow(
+            "codex-security-review-sharded-benchmark-case.yml"
+        )
+        baseline_step = workflow_test_helpers.find_step(
+            baseline, "benchmark-review", "run_codex"
+        )
+        sharded_step = workflow_test_helpers.find_step(
+            sharded, "shard-review", "run_codex"
+        )
+        self.assertEqual(sharded_step["uses"], baseline_step["uses"])
+        self.assertEqual(
+            sharded_step["continue-on-error"], baseline_step["continue-on-error"]
+        )
+        for field in (
+            "model",
+            "codex-args",
+            "output-schema",
+            "safety-strategy",
+            "sandbox",
+        ):
+            with self.subTest(field=field):
+                self.assertEqual(
+                    sharded_step["with"][field], baseline_step["with"][field]
+                )
+
+    def test_model_job_has_no_checkout_or_corpus_labels(self):
+        workflow = workflow_test_helpers.load_workflow(
+            "codex-security-review-sharded-benchmark-case.yml"
+        )
+        model = workflow["jobs"]["shard-review"]
+        self.assertEqual(model["timeout-minutes"], 6)
+        self.assertEqual(model["needs"], "prepare-shard")
+        self.assertFalse(
+            any(
+                str(step.get("uses", "")).startswith("actions/checkout@")
+                for step in model["steps"]
+            )
+        )
+        called = (
+            REPO_ROOT
+            / ".github/workflows/codex-security-review-sharded-benchmark-case.yml"
+        ).read_text()
+        self.assertIn("model-worktree.tar.gz", called)
+        self.assertIn(
+            "test ! -e model-worktree/.github/codex-benchmark-corpus.json", called
+        )
+
+    def test_incomplete_aggregate_fails_after_artifact_upload(self):
+        workflow = workflow_test_helpers.load_workflow(
+            "codex-security-review-sharded-benchmark-case.yml"
+        )
+        steps = workflow["jobs"]["aggregate"]["steps"]
+        upload_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Upload aggregate benchmark result"
+        )
+        gate_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Require completed aggregate"
+        )
+        self.assertGreater(gate_index, upload_index)
+        self.assertIn("benchmark_status", steps[gate_index]["run"])
+
     def test_timeout_classifier_requires_budget_plus_cleanup(self):
         workflow = workflow_test_helpers.load_workflow(
             "codex-security-review-sharded-benchmark-case.yml"
@@ -1091,26 +1186,26 @@ class WorkflowInvariantTest(unittest.TestCase):
             REPO_ROOT
             / ".github/workflows/codex-security-review-sharded-benchmark-case.yml"
         ).read_text()
-        self.assertIn("elapsedSeconds >= budgetSeconds + cleanupSeconds", called)
+        self.assertIn(
+            "observedJobAndCleanupSeconds >= budgetSeconds + cleanupSeconds", called
+        )
         self.assertIn("Date.parse(codexStep?.started_at || '')", called)
         self.assertIn("prerequisitesSucceeded", called)
-        self.assertIn("codexReachedReviewPhase", called)
+        self.assertIn("codexWasCancelledInReview", called)
         self.assertIn('--elapsed-seconds "$TIMEOUT_ELAPSED_SECONDS"', called)
         self.assertNotIn("--elapsed-seconds -1", called)
 
         script = workflow_test_helpers.find_step(workflow, "finalize-shard", "inspect")[
             "with"
         ]["script"]
-        job_name = "Sharded pr-953 / unified-40 / initial / Shard shard-1"
+        job_name = "Sharded pr-953 / unified-40 / initial / Model shard-1"
         prerequisite_names = (
-            "Checkout fixed historical head",
-            "Checkout trusted sharding tools",
-            "Fetch and validate fixed historical range",
-            "Plan bounded review shards",
-            "Bind trusted shard job identity",
-            "Upload trusted shard plan",
+            "Download prepared shard",
+            "Materialize isolated model workspace",
+            "Bind trusted model job identity",
+            "Upload trusted model job identity",
             "Require benchmark API key",
-            "Render trusted shard prompt",
+            "Load trusted shard prompt",
             "Record trusted Codex start",
         )
         successful_steps = [
@@ -1132,16 +1227,34 @@ class WorkflowInvariantTest(unittest.TestCase):
                 },
             ],
         }
+        post_model_job = {
+            **timeout_job,
+            "steps": [
+                *successful_steps,
+                {
+                    "name": "Run bounded shard review",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "started_at": "2026-08-28T00:00:30Z",
+                },
+            ],
+        }
         cases = (
-            (timeout_job, "budget-timeout"),
+            ("verified-timeout", timeout_job, "budget-timeout"),
             (
-                {**timeout_job, "completed_at": "2026-08-28T00:11:29Z"},
+                "too-early",
+                {**timeout_job, "completed_at": "2026-08-28T00:10:59Z"},
                 "unexpected-cancellation",
             ),
-            ({**timeout_job, "steps": successful_steps[:2]}, "unexpected-cancellation"),
+            (
+                "missing-prerequisites",
+                {**timeout_job, "steps": successful_steps[:2]},
+                "unexpected-cancellation",
+            ),
+            ("post-model-cancellation", post_model_job, "unexpected-cancellation"),
         )
-        for job, expected in cases:
-            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+        for name, job, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
                 completed, output = workflow_test_helpers.run_github_script(
                     script,
                     {
@@ -1157,7 +1270,7 @@ class WorkflowInvariantTest(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertEqual(output["outputs"]["classification"], expected)
                 if expected == "budget-timeout":
-                    self.assertEqual(output["outputs"]["elapsed_seconds"], "660")
+                    self.assertEqual(output["outputs"]["elapsed_seconds"], "360")
 
 
 if __name__ == "__main__":

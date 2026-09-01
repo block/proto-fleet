@@ -58,14 +58,15 @@ match wins, so ownership is deterministic and mutually exclusive:
 | Precedence | Domain | Primary paths |
 | ---: | --- | --- |
 | 1 | Delivery and repository infrastructure | `.github/`, `deployment-files/`, `docs/`, `scripts/`, `server/monitoring/`, every `Dockerfile*` and Compose file, and root-level tooling/configuration |
-| 2 | Contracts and persistence | `proto/`, `server/migrations/`, `server/sqlc/`, `server/generated/sqlc/`, generated protobuf files, and generated API boundaries |
+| 2 | Contracts and persistence | `proto/`, `server/migrations/`, `server/sqlc/`, `server/generated/sqlc/`, `server/sdk/v1/pb/`, generated protobuf files, and generated API boundaries |
 | 3 | ProtoFleet | `client/src/protoFleet/` |
 | 4 | ProtoOS | `client/src/protoOS/` |
 | 5 | Shared client contracts | Remaining `client/`, including `client/src/shared/`; replicated as context to every affected client-app shard |
-| 6 | ASIC-RS | `plugin/asicrs/` |
-| 7 | Go/Python plugins | Remaining `plugin/` and plugin-generator packages |
-| 8 | Server | Remaining `server/` |
-| 9 | Cross-cutting | Every remaining path |
+| 6 | Rust plugin SDK | `sdk/rust/`; replicated to affected ASIC-RS shards |
+| 7 | ASIC-RS | `plugin/asicrs/` |
+| 8 | Go/Python plugins | Remaining `plugin/` and plugin-generator packages |
+| 9 | Server | Remaining `server/` |
+| 10 | Cross-cutting | Every remaining path |
 
 The planner is path-based, versioned on the trusted default branch, and emits a
 machine-readable manifest containing the exact base/head SHAs, computed
@@ -105,7 +106,8 @@ Each shard receives:
 2. The `unified=40` diff for files owned by that shard.
 3. Changed shared contracts relevant to that shard, even when another shard
    owns them. Shared inputs include protobuf definitions, migrations and sqlc
-   interfaces, API types, deployment schemas, and root build/runtime contracts.
+   interfaces, API types, deployment schemas, root build/runtime contracts, and
+   the canonical plugin proto plus Rust SDK required by ASIC-RS.
 4. The production model, security boundary, output schema, read-only sandbox,
    and common review guidance.
 5. A trusted shard-scope prompt stanza stating that the packet is the complete
@@ -130,14 +132,23 @@ merge-base revision.
 
 Run shard reviewers as one matrix wave with `max-parallel: 2`. Because the
 planner emits no more than two packets for the whole review, no second model
-wave can extend the deadline. The benchmark should start with a six-minute model
-budget per shard, up to four minutes for trusted setup, the existing five-minute
-Actions cancellation-cleanup allowance, and one minute of outer-job scheduling
-headroom. Timeout and elapsed-time
-evidence are measured from the Codex step's trusted start time, and successful
-output produced after six minutes is discarded as incomplete. Production timing
-is chosen only after benchmark evidence; it must keep the single parallel wave, trusted aggregation,
-and artifact upload inside the current 15-minute end-to-end target.
+wave can extend the deadline. A trusted preparation job with no model secret
+builds each packet and a compressed exact-head worktree. It excludes all Git
+metadata, extra refs, and the benchmark corpus before handing the archive,
+manifest, packet, and rendered prompt to the model job, so the model cannot
+recover omitted hunks or adjudication labels.
+
+Each isolated model job has an enforceable six-minute outer timeout; trusted
+setup that needs repository history runs only in preparation. The pinned
+composite action remains byte-for-byte aligned with the baseline action contract,
+but cannot consume model API time beyond the model-only job boundary even though
+it ignores caller-step timeout. A separate trusted finalizer runs after GitHub
+cancellation cleanup. It accepts timeout evidence only when every model-job
+prerequisite succeeded and the Codex step itself was still cancelled or in
+progress; cancellation after successful model completion is an automation
+failure. Production timing is chosen only after benchmark evidence; completed
+runs must keep the single parallel wave, trusted aggregation, and artifact upload
+inside the current 15-minute end-to-end target.
 
 Each shard emits the existing structured risk and Markdown contract plus trusted
 metadata identifying its shard, exact range, primary files, shared files, run
@@ -167,6 +178,9 @@ code from the reviewed checkout. It:
   only by a documented deterministic fingerprint.
 - Emits the existing production artifact and comment contract so review policy
   continues to consume one trusted result.
+- Uploads incomplete evidence before failing the case, ensuring any timeout,
+  invalid output, or `oversized-review` makes the reusable case and parent corpus
+  roll-up fail rather than appearing as a green 6/6 run.
 
 No shard may post directly to a pull request. Only the aggregator posts after
 revalidating that the PR head is current.

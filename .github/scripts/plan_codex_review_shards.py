@@ -174,7 +174,13 @@ def classify_path(path: str) -> str:
     if is_delivery_path(path):
         return "delivery"
     if path.startswith(
-        ("proto/", "server/migrations/", "server/sqlc/", "server/generated/sqlc/")
+        (
+            "proto/",
+            "server/migrations/",
+            "server/sqlc/",
+            "server/generated/sqlc/",
+            "server/sdk/v1/pb/",
+        )
     ) or is_generated(path):
         return "contracts"
     if path.startswith("client/src/protoFleet/"):
@@ -185,6 +191,8 @@ def classify_path(path: str) -> str:
         return "client-shared"
     if path.startswith("plugin/asicrs/"):
         return "asicrs"
+    if path.startswith("sdk/rust/"):
+        return "rust-sdk"
     if path.startswith(("plugin/", "packages/proto-python-gen/")):
         return "plugins"
     if path.startswith("server/"):
@@ -198,7 +206,9 @@ def is_shared_contract(path: str, domain: str) -> bool:
         return True
     if is_generated(path):
         return True
-    if path.startswith(("server/migrations/", "server/sqlc/queries/")):
+    if path.startswith(
+        ("server/migrations/", "server/sqlc/queries/", "server/sdk/v1/pb/", "sdk/rust/")
+    ):
         return True
     if domain == "client-shared":
         return True
@@ -226,7 +236,7 @@ def semantic_unit(path: str, domain: str, shared: bool) -> str:
     if domain in {"protofleet", "protoos"} and "features" in parts:
         index = parts.index("features")
         root = parts[: min(len(parts), index + 2)]
-    elif domain in {"plugins", "asicrs"}:
+    elif domain in {"plugins", "asicrs", "rust-sdk"}:
         root = parts[: min(len(parts), 2)]
     elif domain == "delivery":
         if path.startswith("server/monitoring/"):
@@ -262,6 +272,10 @@ def unit_domains(units: list[Unit]) -> set[str]:
 
 def shared_audiences(file: FileDiff) -> set[str] | None:
     path = file.path
+    if path.startswith("server/sdk/v1/pb/"):
+        return {"server", "plugins", "asicrs"}
+    if path.startswith("sdk/rust/"):
+        return {"asicrs"}
     if file.domain == "client-shared":
         return {"protofleet", "protoos"}
     if is_generated(path):
