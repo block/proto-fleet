@@ -1,7 +1,7 @@
 ---
 title: "Sharded Codex security review"
 date: 2026-08-27
-status: accepted
+status: completed
 type: tdd
 tracker: https://github.com/block/proto-fleet/pull/980
 ---
@@ -10,7 +10,7 @@ tracker: https://github.com/block/proto-fleet/pull/980
 
 ## Context
 
-The [bounded-review benchmark](../codex-security-review-benchmark-report.md)
+The [bounded-review benchmark](../../codex-security-review-benchmark-report.md)
 showed that diff context, reasoning effort, and prompt guidance do not make the
 current single-agent review complete reliably. Only 22 of 72 adjudicated matrix
 cases completed; the other 50 exhausted the 12-minute outer budget. Compact
@@ -25,6 +25,22 @@ unchanged files it chooses. Large cross-component changes can therefore consume
 the entire budget before producing output. The next experiment should bound the
 amount of changed code assigned to each model invocation without hiding shared
 contracts or relying on a second unbounded model pass.
+
+## Outcome
+
+The benchmark-only implementation landed in PR #980 and ran from trusted `main`
+at `bfbc12bb61dd6372ddd25c05107a1fb41c94dfec`. The initial adjudicated run
+[33534337325](https://github.com/block/proto-fleet/actions/runs/33534337325)
+produced one completed aggregate across six cases. Eight of 11 active shards
+exhausted their six-minute model budget; trusted finalizers classified every
+cancellation as a verified timeout, and all five incomplete aggregates failed
+closed.
+
+The only completed case, PR #961, recalled its adjudicated `HIGH` certificate
+expiry finding but missed its adjudicated `MEDIUM` upgrade-compatibility
+finding. The candidate therefore failed the required initial 6/6 completion
+gate before corpus-wide recall evaluation. Repeats and the large-PR corpus were
+not run, and sharding did not advance to production.
 
 ## Goals
 

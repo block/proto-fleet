@@ -297,7 +297,7 @@ The large-PR corpus is deferred because step 5 requires a selected candidate.
 Full evidence and human adjudication are in the
 [benchmark report](../codex-security-review-benchmark-report.md). Further
 runtime work moves to the separate
-[sharded-review TDD](./2026-08-27-sharded-codex-security-review-tdd.md).
+[sharded-review TDD](./archive/2026-08-27-sharded-codex-security-review-tdd.md).
 
 ## Risks and mitigations
 
