@@ -50,7 +50,7 @@ describe("EnrollNodeModal", () => {
       expect(command).toHaveTextContent("sudo -u fleetnode /opt/fleetnode/fleetnode");
       expect(command).toHaveTextContent("--state-dir /var/lib/fleetnode");
       expect(command).toHaveTextContent("enroll --server-url=http://localhost:4000");
-      expect(command).toHaveTextContent("sudo systemctl enable fleet-node.service");
+      expect(command).toHaveTextContent("sudo systemctl enable --now fleet-node.service");
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
