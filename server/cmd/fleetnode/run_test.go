@@ -210,6 +210,86 @@ func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {
 	assert.True(t, notified, "Fleet Server unavailability must not block local readiness")
 }
 
+func TestRunCmd_LocalRefreshFailureRequiresOperatorAction(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	state := freshState(t, dir, time.Now().Add(30*time.Minute))
+	state.IdentityPrivateKeyHex = "not-hex"
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), state))
+
+	notified := false
+	parent, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	cmd := &RunCmd{parentCtx: parent, notifyReady: func() error {
+		notified = true
+		return nil
+	}}
+
+	err := cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+
+	require.Error(t, err)
+	requireOperatorActionExit(t, err)
+	assert.Contains(t, err.Error(), "decode identity private key")
+	assert.False(t, notified, "unrecoverable local state must not report ready")
+}
+
+func TestRunCmd_StateSaveFailureRequiresOperatorAction(t *testing.T) {
+	t.Parallel()
+
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey:   "fleet_known_key",
+		identityPub:      pubKey,
+		challenge:        bytes.Repeat([]byte{0x35}, 32),
+		sessionToken:     "session-2",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+	srv := newFakeServer(t, fake)
+	state := &bootstrap.State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-1",
+		SessionExpiresAt:       time.Now().Add(30 * time.Minute),
+	}
+	blockedParent := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedParent, []byte("blocked"), 0o600))
+	statePath := filepath.Join(blockedParent, "state.yaml")
+	cmd := &RunCmd{now: func() time.Time { return time.Now().UTC() }}
+
+	err = cmd.tick(t.Context(), &stubGatewayClient{}, state, statePath, discardLogger(t))
+
+	require.Error(t, err)
+	requireOperatorActionExit(t, err)
+	assert.Contains(t, err.Error(), "save state after refresh")
+}
+
+func TestRunLocked_PluginBootstrapFailureRemainsRetryable(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	freshState(t, stateDir, time.Now().Add(24*time.Hour))
+	pluginsDir := t.TempDir()
+	badPlugin := filepath.Join(pluginsDir, "bad-plugin")
+	require.NoError(t, os.WriteFile(badPlugin, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755))
+	cmd := &RunCmd{
+		clientFactory: func(_ string, _ func() string) (gatewayClient, error) {
+			return &stubGatewayClient{}, nil
+		},
+	}
+
+	err := cmd.runLocked(t.Context(), &Context{StateDir: stateDir}, pluginsDir, discardLogger(t))
+
+	require.Error(t, err)
+	var exitCoder interface{ ExitCode() int }
+	assert.False(t, errors.As(err, &exitCoder), "transient plugin startup failures must remain restartable")
+}
+
 func TestRunCmd_StateLockErrorClassification(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not use the filesystem state lock")

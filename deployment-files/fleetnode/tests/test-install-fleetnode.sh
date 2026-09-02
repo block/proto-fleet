@@ -229,7 +229,7 @@ assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "Type=
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "NotifyAccess=main"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "Restart=on-failure"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "RestartPreventExitStatus=78"
-assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "TimeoutStartSec=180s"
+assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "TimeoutStartSec=300s"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleetnode.service" "legacy unit"
 if grep -Eq '(^| )enable( |$)|(^| )stop( |$)' "$SYSTEMCTL_LOG"; then

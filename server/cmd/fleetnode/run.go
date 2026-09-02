@@ -183,7 +183,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		}
 		disc, prr, tf, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
-			return operatorActionRequired(fmt.Errorf("bootstrap plugins: %w", bootstrapErr))
+			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
 		defer cleanup()
 		r.discoverer = disc
@@ -352,6 +352,14 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	return nil
 }
 
+func isRetryableRefreshError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var connectErr *connect.Error
+	return errors.As(err, &connectErr)
+}
+
 // tick runs one heartbeat cycle. A non-nil return is a permanent condition
 // (revoked credential / deleted fleet_node) that requires re-enrollment;
 // transient errors return nil so the next tick retries.
@@ -360,6 +368,9 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
 			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
 				return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; local credentials are preserved, re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
+			}
+			if !isRetryableRefreshError(err) {
+				return operatorActionRequired(fmt.Errorf("session refresh requires operator action: %w", err))
 			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
 			return nil
@@ -383,6 +394,9 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
 		if errors.Is(refreshErr, bootstrap.ErrBeginAuthRejected) {
 			return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
+		}
+		if !isRetryableRefreshError(refreshErr) {
+			return operatorActionRequired(fmt.Errorf("session refresh requires operator action: %w", refreshErr))
 		}
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil
