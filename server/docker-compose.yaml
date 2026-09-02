@@ -330,6 +330,35 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+  # Fake CT1 container simulator (MDK v2 REST surface). A single instance
+  # models a full container (96 modules x 3 = 288 boards), so unlike the R2
+  # rigs it runs as one replica rather than five.
+  fake-ct1:
+    build:
+      context: ..
+      dockerfile: server/fake-ct1/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+      SERVER_ID: "ct1-sim-001"
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "8090:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          memory: 128M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
 volumes:
   timescaledb-data:
 

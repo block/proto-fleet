@@ -1,0 +1,159 @@
+// Package main implements a fake CT1 container simulator for testing.
+//
+// This simulator implements the MDK v2 REST API surface a fleet client hits
+// against a real CT1 container, allowing the fleet management system to be
+// developed and tested without real hardware and without running Frigate's
+// heavy full-stack simulator (TimescaleDB + hbsim + containersim + ...).
+//
+// It mirrors server/fake-proto-rig (which fakes R2 rigs on the MDK v1 surface)
+// but models a full container: a Tank -> Module -> Slot -> Hashboard tree of
+// 96 modules x 3 boards = 288 boards, plant/PUE telemetry, and the scoped
+// mining write operations.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const (
+	defaultHTTPPort       = 8080
+	serverShutdownTimeout = 10 * time.Second
+)
+
+func main() {
+	instanceID := uuid.New().String()[:8]
+
+	cfg := ContainerConfig{
+		InstanceID:     instanceID,
+		ServerID:       getEnv("SERVER_ID", "ct1-sim-"+instanceID),
+		Hostname:       getEnv("HOSTNAME", "fake-ct1-"+instanceID),
+		Version:        getEnv("CT1_VERSION", defaultVersion),
+		Tanks:          getEnvInt("CT1_TANKS", defaultTanks),
+		ModulesPerTank: getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
+		SlotsPerModule: getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
+		AsicsPerBoard:  getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
+	}
+
+	state := NewContainerState(cfg)
+	state.IPAddress = getOutboundIP().String()
+
+	log.Printf(
+		"Starting fake CT1 container: serverID=%s tanks=%d modules=%d boards=%d",
+		cfg.ServerID, cfg.Tanks, state.ModuleCount(), state.BoardCount(),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	port := getEnvInt("HTTP_PORT", defaultHTTPPort)
+	if err := startHTTPServer(ctx, state, port); err != nil {
+		log.Fatalf("Failed to start HTTP server: %v", err)
+	}
+}
+
+func startHTTPServer(ctx context.Context, state *ContainerState, port int) error {
+	mux := http.NewServeMux()
+
+	handler := NewRESTApiHandler(state)
+	handler.RegisterRoutes(mux)
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           jsonErrorMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		// Bound total request and response time. Every handler holds the state
+		// mutex while reading the body / streaming the (up to 288-board)
+		// response, so an unbounded stall would pin the lock indefinitely.
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on port %d: %w", port, err)
+	}
+
+	// shutdownDone lets main() wait for a graceful drain: Shutdown closes the
+	// listener so Serve returns immediately, and without this the process could
+	// exit mid-drain.
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+		select {
+		case <-sigs:
+			log.Println("Shutting down fake CT1 container...")
+		case <-ctx.Done():
+		}
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer shutdownCancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("HTTP server listening on :%d", port)
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", err)
+	}
+	<-shutdownDone
+
+	return nil
+}
+
+// Helper functions for environment variables.
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// getEnvInt reads a positive integer env var. Topology knobs (CT1_TANKS, etc.)
+// must be >= 1, so a zero/negative/garbage value logs and falls back rather
+// than silently building an empty container.
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	i, err := strconv.Atoi(value)
+	if err != nil || i <= 0 {
+		log.Printf("invalid %s=%q; using %d", key, value, fallback)
+		return fallback
+	}
+	return i
+}
+
+// getOutboundIP gets the preferred outbound IP of this machine.
+func getOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return net.ParseIP("127.0.0.1")
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
+}

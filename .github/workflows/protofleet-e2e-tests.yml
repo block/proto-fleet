@@ -135,10 +135,29 @@ jobs:
           # (e.g. go:embed migrations).
           key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
 
+      # Reclaim ~20-25 GB of preinstalled toolchains this Hermit-based build
+      # never uses (Go/Node/etc. come from Hermit, not the hosted tool cache).
+      # The default runner has only ~2 GB free after building every compose
+      # image, and `docker save` needs roughly that much again to stage its
+      # export -- without this it hits "no space left on device".
+      - name: Free disk space for Docker image export
+        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "before:"; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/powershell /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          echo "after:"; df -h /
+
       - name: Build E2E Docker images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
         working-directory: server
         run: |
+          # pipefail so a failed `docker save` (e.g. ENOSPC) fails the step
+          # instead of silently piping nothing into gzip and uploading an empty
+          # tarball that only blows up downstream at `docker load`.
+          set -o pipefail
           mkdir -p /tmp/docker-images
           # `--ignore-buildable` pulls only services with `image:` and no
           # `build:` (otel-collector, jaeger). `docker save` below otherwise
@@ -150,6 +169,15 @@ jobs:
           # cache miss key doesn't serve stale FROM layers.
           echo "::group::docker compose build"
           docker compose build --pull
+          echo "::endgroup::"
+          # Reclaim the buildx build cache before saving: `docker save` streams
+          # every image into a tmp export dir under /var/lib/docker, roughly
+          # doubling image disk use. As the built image set grows this tips the
+          # runner into "no space left on device"; the build cache is no longer
+          # needed once the final images are loaded, so drop it first.
+          echo "::group::Prune build cache to free export headroom"
+          docker builder prune -af
+          df -h /var/lib/docker / 2>/dev/null || df -h
           echo "::endgroup::"
           echo "::group::Save images to compressed tarball"
           mapfile -t images < <(docker compose config --images | sort -u)

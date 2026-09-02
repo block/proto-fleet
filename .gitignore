@@ -24,6 +24,7 @@ server/fleetnode
 server/.fleetnode/
 server/fake-antminer/fake-antminer
 server/fake-proto-rig/fake-proto-rig
+server/fake-ct1/fake-ct1
 server/miner-debug-cli
 server/devtools/seedtelemetry/seedtelemetry
 
