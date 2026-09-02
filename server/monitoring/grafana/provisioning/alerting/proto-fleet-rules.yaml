@@ -79,11 +79,13 @@ groups:
               format: table
               rawSql: |
                 SELECT
-                    organization_id,
-                    fleet_node_id,
+                    org_id::text AS organization_id,
+                    id::text AS fleet_node_id,
                     1 AS value
-                FROM fleet_node_alert_status
-                WHERE COALESCE(last_seen_at, updated_at, created_at) < NOW() - INTERVAL '2 minutes'
+                FROM fleet_node
+                WHERE enrollment_status = 'CONFIRMED'
+                  AND deleted_at IS NULL
+                  AND COALESCE(last_seen_at, updated_at, created_at) < NOW() - INTERVAL '2 minutes'
           - refId: B
             datasourceUid: __expr__
             model:
