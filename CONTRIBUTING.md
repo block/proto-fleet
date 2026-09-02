@@ -210,6 +210,34 @@ The repository uses a Go workspace (`go.work`) for integrated development:
 
 ## Testing
 
+### Full PR CI
+
+Run the Linux portion of the PR gate against the current working tree:
+
+```bash
+just ci
+```
+
+The command uses the Hermit-pinned `act` runner to execute
+`.github/workflows/pr-gate.yml`, including its reusable workflows and path
+filters. It snapshots committed, staged, unstaged, and untracked non-ignored
+files without changing the branch or index, then runs in a temporary clone so
+generated and build outputs do not touch the working tree. Pass a different PR
+base branch as needed, for example `just ci release-branch`.
+
+Docker must be running. The first run downloads the runner image and referenced
+actions; later runs reuse them. Jobs run serially because GitHub's separate job
+runners share one Docker daemon and fixed test ports locally. To protect an
+active development stack, the command refuses to start while the `server`
+Compose project or `fake-proto-rig` container name is in use, and it cleans up
+CI containers and volumes afterward.
+
+`act` cannot reproduce Windows runners or GitHub-hosted policy checks. The
+Windows C# and PowerShell jobs, dependency review, security review, and final
+review policy still run on GitHub; all diff-selected Linux build, lint, test,
+generation, migration, contract, and E2E jobs run locally from their PR
+workflow definitions.
+
 ### Client
 
 ```bash

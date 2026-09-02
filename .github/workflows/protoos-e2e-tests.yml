@@ -138,3 +138,7 @@ jobs:
         run: |
           echo "=== fake-proto-rig Logs ==="
           docker logs fake-proto-rig 2>&1 || echo "No fake-proto-rig logs available"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f fake-proto-rig || true

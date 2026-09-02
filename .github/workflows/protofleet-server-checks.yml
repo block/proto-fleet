@@ -111,3 +111,7 @@ jobs:
 
       - name: Test
         run: just test
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v

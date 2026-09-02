@@ -256,8 +256,13 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertIn("review-policy-tests", jobs)
         self.assertIn("review-policy-tests", jobs["gate"]["needs"])
+        test_step = next(
+            step
+            for step in jobs["review-policy-tests"]["steps"]
+            if step.get("name") == "Run review policy and Codex sharding tests"
+        )
         self.assertEqual(
-            jobs["review-policy-tests"]["steps"][1]["run"].splitlines(),
+            test_step["run"].splitlines(),
             [
                 "python3 .github/scripts/evaluate_review_policy_test.py",
                 "python3 .github/scripts/codex_sharding_test.py",

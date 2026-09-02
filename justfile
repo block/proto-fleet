@@ -19,6 +19,71 @@ format: _format-server _format-client _format-plugins
 # run all non-mutating quality checks
 check: lint
 
+# run the PR CI selected by the current diff in local Linux containers
+ci base_branch="main":
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  repo_root="$(pwd)"
+  base_branch={{quote(base_branch)}}
+  if [[ ! "${base_branch}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "Invalid base branch: ${base_branch}" >&2
+    exit 1
+  fi
+  base_ref="origin/${base_branch}"
+  if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+    echo "Missing ${base_ref}; fetch it before running local CI." >&2
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker is not running; local CI uses it to run GitHub Actions." >&2
+    exit 1
+  fi
+  if [[ -n "$(docker compose -f server/docker-compose.yaml ps --all --quiet)" ]] \
+    || docker container inspect fake-proto-rig >/dev/null 2>&1; then
+    echo "Local CI needs the server Compose project and fake-proto-rig container name; stop them first." >&2
+    exit 1
+  fi
+
+  run_dir="$(mktemp -d /tmp/proto-fleet-local-ci.XXXXXX)"
+  snapshot_index="${run_dir}/index"
+  workspace="${run_dir}/workspace"
+  cleanup() {
+    docker rm -f fake-proto-rig >/dev/null 2>&1 || true
+    docker compose -f server/docker-compose.yaml \
+      down -v --remove-orphans >/dev/null 2>&1 || true
+    rm -rf "${run_dir}"
+  }
+  trap cleanup EXIT
+
+  # Represent committed, staged, unstaged, and untracked (non-ignored) files as
+  # one PR head without changing the developer's branch or index.
+  GIT_INDEX_FILE="${snapshot_index}" git read-tree HEAD
+  GIT_INDEX_FILE="${snapshot_index}" git add -A
+  tree="$(GIT_INDEX_FILE="${snapshot_index}" git write-tree)"
+  base_sha="$(git merge-base HEAD "${base_ref}")"
+  snapshot_sha="$(printf 'Local CI snapshot\n' | git commit-tree "${tree}" -p "${base_sha}")"
+  git clone --quiet --local --no-checkout "${repo_root}" "${workspace}"
+  git -C "${workspace}" checkout --quiet -b local-ci "${snapshot_sha}"
+  mkdir "${workspace}/.home"
+
+  printf '%s\n' \
+    '{"act":true,"base":{"sha":"'"${base_sha}"'"},' \
+    '"head":{"sha":"'"${snapshot_sha}"'"}}' \
+    > "${run_dir}/event.json"
+
+  bin/act --directory "${workspace}" workflow_dispatch \
+    --workflows .github/workflows/pr-gate.yml \
+    --eventpath "${run_dir}/event.json" \
+    --secret GITHUB_TOKEN= \
+    --env "HOME=${workspace}/.home" \
+    --artifact-server-path "${run_dir}/artifacts" \
+    --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
+    --container-architecture linux/amd64 \
+    --concurrent-jobs 1 \
+    --action-offline-mode \
+    --rm
+
 # run all code generation
 gen: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli _gen-server _format-client _format-server
 
@@ -516,7 +581,8 @@ _asicrs-build outdir="server/plugins":
     cp plugin/asicrs/config.yaml {{outdir}}/asicrs-config.yaml
   else
     CACHE_ARGS=()
-    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    # act's emulated GHA cache exporter can stall; local builds still use BuildKit.
+    if [ -n "${GITHUB_ACTIONS:-}" ] && [ -z "${ACT:-}" ]; then
       CACHE_ARGS+=(--cache-from 'type=gha,scope=asicrs-native')
       CACHE_ARGS+=(--cache-to 'type=gha,mode=max,scope=asicrs-native')
     fi
