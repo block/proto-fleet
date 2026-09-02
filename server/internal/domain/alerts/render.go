@@ -131,7 +131,8 @@ func activeDeviceGroupCopy(g alertGroup) string {
 		RuleTemplateMQTTDisconnected,
 		RuleTemplateCurtailmentFanRestore,
 		RuleTemplateMetricIngest,
-		RuleTemplateHAReadiness:
+		RuleTemplateHAReadiness,
+		RuleTemplateFleetNodeUnavailable:
 		// These templates are device-less today or have no specialized device copy.
 	default:
 		// Other and future templates use their rule-provided summary below.
@@ -168,7 +169,8 @@ func resolvedGroupCopy(g alertGroup) string {
 			RuleTemplateMQTTDisconnected,
 			RuleTemplateCurtailmentFanRestore,
 			RuleTemplateMetricIngest,
-			RuleTemplateHAReadiness:
+			RuleTemplateHAReadiness,
+			RuleTemplateFleetNodeUnavailable:
 			// Use the generic rule wording below for templates without device recovery copy.
 		default:
 			// Unknown templates use the same generic rule wording.
@@ -191,6 +193,8 @@ func resolvedGroupCopy(g alertGroup) string {
 		return "Metric ingest resumed"
 	case RuleTemplateHAReadiness:
 		return "HA ready to fail over"
+	case RuleTemplateFleetNodeUnavailable:
+		return "Fleet Node connection restored"
 	case RuleTemplateOffline, RuleTemplateHashrate, RuleTemplateTemperature,
 		RuleTemplatePool, RuleTemplateCommandFailure:
 		// Device-backed templates without a device label use the generic instance wording below.

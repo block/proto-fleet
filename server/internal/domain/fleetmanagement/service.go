@@ -855,7 +855,10 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			if row.SerialNumber.Valid {
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
-			if row.DeviceStatus.Valid {
+			if row.FleetNodeUnavailable {
+				snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+				snapshot.OfflineReason = pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE
+			} else if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {

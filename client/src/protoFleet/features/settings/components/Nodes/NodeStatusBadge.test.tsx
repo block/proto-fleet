@@ -21,7 +21,8 @@ afterEach(() => {
 describe("NodeStatusBadge", () => {
   it.each([
     ["Online", 30_000],
-    ["Stale", 120_000],
+    ["Online", 120_000],
+    ["Stale", 120_001],
   ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));

@@ -38,6 +38,7 @@ func TestPackagedDefaultRuleSet(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		"Device Offline",
 		"Device Temperature High",
+		"Fleet Node Unavailable",
 		"Telemetry Poll Failure Rate High",
 	}, titlesByGroup["proto-fleet-defaults"])
 	require.ElementsMatch(t, []string{

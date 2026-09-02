@@ -1109,6 +1109,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SiteLabel,
 			&row.BuildingID,
 			&row.BuildingLabel,
+			&row.FleetNodeUnavailable,
 			&row.EmbeddedWebViewAvailable,
 			&row.SortValue,
 		)
@@ -1223,7 +1224,7 @@ SELECT
     END), 0)::bigint AS hashing_count
 FROM (
     SELECT
-        device_status.status,
+		effective_status.status,
         device_pairing.pairing_status,
         open_errors.device_id IS NOT NULL AS has_open_error`)
 	sb.WriteString(minerFromJoins)
@@ -1422,6 +1423,14 @@ FROM device
 JOIN discovered_device ON device.discovered_device_id = discovered_device.id
 JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id`)
+	if fp.statusFilter.Valid || filterNeedsTelemetry {
+		sb.WriteString(`
+LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
+    AND fleet_node_assignment.org_id = device.org_id
+LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
+	}
 	if filterNeedsTelemetry {
 		sb.WriteString(" " + minerTelemetryInnerJoin)
 	}
@@ -1464,29 +1473,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
 	query := fmt.Sprintf(`SELECT dcm.device_set_id,
     -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_status.status = 'OFFLINE'
+             OR (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+        WHEN effective_status.status IN ('MAINTENANCE', 'INACTIVE')
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+        WHEN effective_status.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_status.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_status.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
+        WHEN effective_status.status = 'ACTIVE'
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
@@ -1496,7 +1505,12 @@ JOIN device_set dc ON dcm.device_set_id = dc.id
 JOIN device d ON dcm.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_status ON d.id = device_status.device_id
+LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
+    AND fleet_node_assignment.org_id = d.org_id
+LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 LEFT JOIN (
     SELECT DISTINCT device_id

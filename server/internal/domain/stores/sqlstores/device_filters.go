@@ -268,9 +268,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.statusFilter.Valid {
 		// Start outer AND group for status filter with optional needs attention
 		fmt.Fprintf(sb,
-			" AND ((device_status.status::text = ANY($%d::text[])"+
-				" AND (device_status.status IN %s"+
-				" OR (device_status.status = 'ACTIVE' AND NOT EXISTS ("+
+			" AND ((effective_status.status = ANY($%d::text[])"+
+				" AND (effective_status.status IN %s"+
+				" OR (effective_status.status = 'ACTIVE' AND NOT EXISTS ("+
 				"SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 				" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s))",
 			argNum, nonActionableStatuses, argNum+1, actionableErrorSeverities)
@@ -288,14 +288,14 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			// Auth-needed (exclude OFFLINE only)
 			sb.WriteString(
 				" OR (device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED')" +
-					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
+					" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE'))")
 			// Devices with actionable errors. Excludes NULL-status paired-like miners
 			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
 				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
-					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
+					" AND NOT (effective_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
+					" AND (effective_status.status IS NULL OR effective_status.status NOT IN %s))",
 				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
@@ -304,7 +304,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			// NULL-status paired-like miners (counted as offline in dashboard).
 			// Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
 			sb.WriteString(
-				" OR (device_status.status IS NULL" +
+				" OR (effective_status.status IS NULL" +
 					" AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 		}
 		// Close outer AND group
@@ -406,7 +406,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		// Match the UI's em-dash semantics: OFFLINE miners never expose a
 		// telemetry value, so a numeric predicate should not surface them
 		// even if a fresh metric exists.
-		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
+		sb.WriteString(" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE')")
 	}
 
 	// Subnet facet: CIDR containment and inclusive ranges are OR'd together

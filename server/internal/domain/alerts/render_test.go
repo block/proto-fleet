@@ -283,6 +283,21 @@ func TestRenderSlackResolutionOnlyBatchKeepsConditionSpecificCopy(t *testing.T) 
 	assert.NotContains(t, allSectionText(t, msg), "All alerts resolved")
 }
 
+func TestRenderSlackFleetNodeUnavailableUsesGenericCopy(t *testing.T) {
+	firing := Alert{
+		Status: "firing", RuleUID: "protofleet-fleet-node-unavailable",
+		Labels: map[string]string{
+			"alertname": "Fleet Node Unavailable", "template": "fleet-node-unavailable",
+		},
+		Annotations: map[string]string{"summary": "A Fleet Node is unavailable."},
+	}
+	resolved := firing
+	resolved.Status = "resolved"
+
+	assert.Contains(t, renderSlack("", []Alert{firing}, nil)["text"], "A Fleet Node is unavailable")
+	assert.Contains(t, renderSlack("", []Alert{resolved}, nil)["text"], "Fleet Node connection restored")
+}
+
 func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
 	tests := []struct {
 		name      string

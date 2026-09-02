@@ -124,6 +124,36 @@ func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *bootstrap
 	return st
 }
 
+func TestRunCmd_ValidateHeartbeatInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		interval     time.Duration
+		wantInterval time.Duration
+		wantErr      string
+	}{
+		{name: "omitted uses default", wantInterval: defaultHeartbeatInterval},
+		{name: "maximum interval is accepted", interval: defaultHeartbeatInterval, wantInterval: defaultHeartbeatInterval},
+		{name: "negative interval is rejected", interval: -time.Second, wantErr: "heartbeat interval must be positive"},
+		{name: "interval above maximum is rejected", interval: defaultHeartbeatInterval + time.Nanosecond, wantErr: "heartbeat interval must be no greater than 30s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cmd := &RunCmd{HeartbeatInterval: tt.interval}
+			err := cmd.validateHeartbeatInterval()
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantInterval, cmd.HeartbeatInterval)
+		})
+	}
+}
+
 func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	t.Parallel()
 

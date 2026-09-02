@@ -853,6 +853,7 @@ var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
 	alerts.RuleTemplateTelemetryPoll:         {},
 	alerts.RuleTemplateMetricIngest:          {},
 	alerts.RuleTemplateHAReadiness:           {},
+	alerts.RuleTemplateFleetNodeUnavailable:  {},
 }
 
 // isDeviceLessTemplate reports whether the template's summary is safe to show without miner:read. The label
@@ -927,7 +928,7 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
 	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
 	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
-	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness:
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness, alerts.RuleTemplateFleetNodeUnavailable:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
 }
