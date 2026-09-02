@@ -10,7 +10,6 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,15 +89,6 @@ func TestParseFilter_FirmwareVersions(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"v3.5.1", "v3.5.2"}, filter.FirmwareVersions)
-}
-
-func TestParseFilter_FleetNodeUnavailableStatus(t *testing.T) {
-	filter, err := callParseFilter(t, &pb.MinerListFilter{
-		DeviceStatus: []pb.DeviceStatus{pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE},
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, []minermodels.MinerStatus{minermodels.MinerStatusUnavailable}, filter.DeviceStatusFilter)
 }
 
 func TestParseFilter_ZoneKeys_AllWildcard(t *testing.T) {

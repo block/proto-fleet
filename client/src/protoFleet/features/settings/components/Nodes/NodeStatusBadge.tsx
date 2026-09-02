@@ -2,8 +2,7 @@ import clsx from "clsx";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
-// The daemon heartbeats every 30s (server/cmd/fleetnode/run.go); allow four
-// missed beats before calling a node stale, matching miner availability.
+// Four missed heartbeats matches the miner availability and alert thresholds.
 const STALE_AFTER_MS = 120_000;
 
 type NodeDisplayStatus = "online" | "stale" | "neverConnected" | "awaitingConfirmation" | "pending" | "revoked";

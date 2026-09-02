@@ -15,9 +15,6 @@ const (
 	MinerStatusNeedsMiningPool
 	MinerStatusUpdating
 	MinerStatusRebootRequired
-	// MinerStatusUnavailable is a derived status used when the assigned Fleet
-	// Node is stale. It is never persisted in device_status.
-	MinerStatusUnavailable
 )
 
 func (m MinerStatus) String() string {
@@ -40,8 +37,6 @@ func (m MinerStatus) String() string {
 		return "updating"
 	case MinerStatusRebootRequired:
 		return "reboot_required"
-	case MinerStatusUnavailable:
-		return "unavailable"
 	default:
 		return "unknown"
 	}
@@ -67,8 +62,6 @@ func (m MinerStatus) Parse(s string) (MinerStatus, error) {
 		return MinerStatusUpdating, nil
 	case "reboot_required":
 		return MinerStatusRebootRequired, nil
-	case "unavailable":
-		return MinerStatusUnavailable, nil
 	default:
 		return MinerStatusUnknown, fmt.Errorf("unknown miner status: %s", s)
 	}

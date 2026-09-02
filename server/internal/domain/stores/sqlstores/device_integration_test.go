@@ -822,6 +822,72 @@ func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
 	}
 }
 
+func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO discovered_device
+		(id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (9201, 1, 'node-owned-active', 'test-model', 'test-manufacturer', 'proto', '10.42.1.1', '50051', 'http', TRUE)`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (9201, 1, 9201, 'node-owned-active', 'AA:BB:CC:DD:EE:92')`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (9201, 'PAIRED', NOW())`)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO device_status (device_id, status, status_timestamp)
+		VALUES (9201, 'ACTIVE', NOW())`)
+	require.NoError(t, err)
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`INSERT INTO fleet_node
+		(org_id, name, identity_pubkey, encryption_pubkey, enrollment_status, last_seen_at)
+		VALUES (1, 'stale-node', $1, $2, 'CONFIRMED', NOW() - INTERVAL '3 minutes') RETURNING id`,
+		[]byte("stale-node-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, 9201, 1)`, fleetNodeID)
+	require.NoError(t, err)
+
+	offlineFilter := &interfaces.MinerFilter{DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline}}
+	rows, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	require.True(t, rows[0].FleetNodeUnavailable)
+	identifiers, err := store.GetDeviceIdentifiersByOrgWithFilter(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, []string{"node-owned-active"}, identifiers)
+	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), counts.OfflineCount)
+
+	_, err = conn.Exec(`UPDATE fleet_node SET last_seen_at = NOW() WHERE id = $1`, fleetNodeID)
+	require.NoError(t, err)
+	rows, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Zero(t, total)
+	require.Empty(t, rows)
+	identifiers, err = store.GetDeviceIdentifiersByOrgWithFilter(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Empty(t, identifiers)
+	rows, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, &interfaces.MinerFilter{
+		DeviceIdentifiers: []string{"node-owned-active"},
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.False(t, rows[0].FleetNodeUnavailable)
+	require.True(t, rows[0].DeviceStatus.Valid)
+	require.Equal(t, sqlc.DeviceStatusEnumACTIVE, rows[0].DeviceStatus.DeviceStatusEnum)
+}
+
 // TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with
 // NULL device_status go to broken_count, not offline_count.
 func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {

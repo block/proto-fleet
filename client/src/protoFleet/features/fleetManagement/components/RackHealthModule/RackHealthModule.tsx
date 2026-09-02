@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import { DeviceStatus, MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import {
   type StatusBreakdownItem,
   StatusBreakdownPanel,

@@ -283,6 +283,21 @@ func TestRenderSlackResolutionOnlyBatchKeepsConditionSpecificCopy(t *testing.T) 
 	assert.NotContains(t, allSectionText(t, msg), "All alerts resolved")
 }
 
+func TestRenderSlackFleetNodeUnavailableUsesGenericCopy(t *testing.T) {
+	firing := Alert{
+		Status: "firing", RuleUID: "protofleet-fleet-node-unavailable",
+		Labels: map[string]string{
+			"alertname": "Fleet Node Unavailable", "template": "fleet-node-unavailable",
+		},
+		Annotations: map[string]string{"summary": "A Fleet Node is unavailable."},
+	}
+	resolved := firing
+	resolved.Status = "resolved"
+
+	assert.Contains(t, renderSlack("", []Alert{firing}, nil)["text"], "A Fleet Node is unavailable")
+	assert.Contains(t, renderSlack("", []Alert{resolved}, nil)["text"], "Fleet Node connection restored")
+}
+
 func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -434,52 +449,6 @@ func TestRenderSlackResolvedCurtailmentSourcesNameEveryRecoveredCondition(t *tes
 	assert.NotContains(t, text, "maestro-e")
 	assert.NotContains(t, text, "All alerts resolved")
 	assert.NotContains(t, text, "unreachable")
-}
-
-func TestRenderSlackResolvedFleetNodeNamesRecoveredNode(t *testing.T) {
-	alert := Alert{
-		Status: "resolved", RuleUID: "protofleet-fleet-node-unavailable",
-		Labels: map[string]string{
-			"alertname": "Fleet Node Unavailable", "severity": "critical", "template": "fleet-node-unavailable",
-		},
-		Annotations: map[string]string{"summary": "Fleet Node node-a is unavailable."},
-	}
-
-	text := allSectionText(t, renderSlack("", []Alert{alert}, nil))
-	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-a")
-	assert.NotContains(t, text, "is unavailable")
-}
-
-func TestRenderSlackResolvedFleetNodesNameSamplesAndCountOverflow(t *testing.T) {
-	node := func(name string) Alert {
-		return Alert{
-			Status: "resolved", RuleUID: "protofleet-fleet-node-unavailable",
-			Labels: map[string]string{
-				"alertname": "Fleet Node Unavailable", "severity": "critical", "template": "fleet-node-unavailable",
-			},
-			Annotations: map[string]string{"summary": "Fleet Node " + name + " is unavailable."},
-		}
-	}
-
-	text := allSectionText(t, renderSlack("", []Alert{
-		node("node-a"), node("node-b"), node("node-c"), node("node-d"), node("node-e"),
-	}, nil))
-	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-a")
-	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-b")
-	assert.Contains(t, text, "✅ Connection restored to Fleet Node node-c")
-	assert.Contains(t, text, "✅ …and 2 more Fleet Node connections restored")
-	assert.NotContains(t, text, "node-d")
-	assert.NotContains(t, text, "node-e")
-	assert.NotContains(t, text, "is unavailable")
-}
-
-func TestRenderSlackResolvedFleetNodesFallsBackForMalformedSummary(t *testing.T) {
-	text := groupLine(alertGroup{
-		Name: "Fleet Node Unavailable", Template: string(RuleTemplateFleetNodeUnavailable), InstanceCount: 2,
-		Summaries: []string{"node-a stopped checking in"}, SummaryCount: 1,
-	}, true)
-
-	assert.Equal(t, "✅ Connections restored to 2 Fleet Nodes", text)
 }
 
 func TestRenderSlackUsesConditionSpecificCurtailmentRecoveryCopy(t *testing.T) {

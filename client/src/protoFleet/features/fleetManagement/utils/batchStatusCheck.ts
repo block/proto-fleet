@@ -1,5 +1,5 @@
 import { deviceActions, settingsActions, statusColumnLoadingMessages } from "../components/MinerActionsMenu/constants";
-import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 const statusChangingBatchActions = new Set<string>([

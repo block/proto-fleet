@@ -15,11 +15,12 @@ func TestFleetNodeUnavailableRuleUsesHeartbeatStaleness(t *testing.T) {
 	var doc struct {
 		Groups []struct {
 			Rules []struct {
-				UID    string            `yaml:"uid"`
-				Title  string            `yaml:"title"`
-				For    string            `yaml:"for"`
-				Labels map[string]string `yaml:"labels"`
-				Data   []struct {
+				UID         string            `yaml:"uid"`
+				Title       string            `yaml:"title"`
+				For         string            `yaml:"for"`
+				Labels      map[string]string `yaml:"labels"`
+				Annotations map[string]string `yaml:"annotations"`
+				Data        []struct {
 					Model struct {
 						RawSQL string `yaml:"rawSql"`
 					} `yaml:"model"`
@@ -38,11 +39,11 @@ func TestFleetNodeUnavailableRuleUsesHeartbeatStaleness(t *testing.T) {
 			require.Equal(t, "3m", rule.For)
 			require.Equal(t, rule.UID, rule.Labels["proto_fleet_rule_uid"])
 			require.Equal(t, "fleet-node-unavailable", rule.Labels["template"])
+			require.Equal(t, "A Fleet Node is unavailable.", rule.Annotations["summary"])
+			require.NotContains(t, rule.Annotations["summary"], "fleet_node_name")
 			require.NotEmpty(t, rule.Data)
 			sql := rule.Data[0].Model.RawSQL
 			require.Contains(t, sql, "FROM fleet_node_alert_status")
-			require.NotContains(t, sql, "FROM fleet_node\n")
-			require.Contains(t, sql, "COALESCE(last_seen_at, updated_at, created_at)")
 			require.Contains(t, sql, "INTERVAL '2 minutes'")
 			return
 		}

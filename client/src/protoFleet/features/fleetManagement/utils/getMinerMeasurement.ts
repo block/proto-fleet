@@ -1,6 +1,7 @@
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 
 // Stable reference for empty measurement array (prevents infinite re-renders when used in components)
@@ -24,7 +25,7 @@ export function getMinerMeasurement(
   if (!miner) return undefined;
 
   // Offline miners should always show placeholder, not stale cached values
-  if (miner.deviceStatus === DeviceStatus.OFFLINE || miner.deviceStatus === DeviceStatus.UNAVAILABLE) {
+  if (miner.deviceStatus === DeviceStatus.OFFLINE) {
     return null;
   }
 

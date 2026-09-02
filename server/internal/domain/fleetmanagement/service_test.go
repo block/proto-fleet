@@ -493,10 +493,12 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
 		Return([]sqlc.ListMinerStateSnapshotsRow{{
-			DeviceIdentifier: deviceID,
-			PairingStatus:    "PAIRED",
-			SerialNumber:     sql.NullString{String: serial, Valid: true},
-			Model:            sql.NullString{String: "S21 XP", Valid: true},
+			DeviceIdentifier:     deviceID,
+			PairingStatus:        "PAIRED",
+			SerialNumber:         sql.NullString{String: serial, Valid: true},
+			Model:                sql.NullString{String: "S21 XP", Valid: true},
+			DeviceStatus:         sqlc.NullDeviceStatusEnum{DeviceStatusEnum: sqlc.DeviceStatusEnumACTIVE, Valid: true},
+			FleetNodeUnavailable: true,
 		}}, "", int64(1), nil)
 	// Paired snapshot triggers hydration; return empty placement data.
 	collectionStore.EXPECT().
@@ -520,6 +522,8 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
 	assert.Equal(t, serial, resp.Snapshot.SerialNumber)
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Snapshot.PairingStatus)
+	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_OFFLINE, resp.Snapshot.DeviceStatus)
+	assert.Equal(t, pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE, resp.Snapshot.OfflineReason)
 }
 
 func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
@@ -863,33 +867,6 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByDeviceStatus(t *testing.T
 	require.NotNil(t, resp)
 	assert.Len(t, resp.Miners, 1, "Should return only ONLINE devices")
 	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_ONLINE, resp.Miners[0].DeviceStatus)
-}
-
-func TestService_ListMinerStateSnapshots_MarksMinerUnavailableWhenFleetNodeHeartbeatIsStale(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
-	pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
-
-	_, err := testContext.ServiceProvider.DB.ExecContext(t.Context(), `
-		UPDATE fleet_node
-		SET last_seen_at = NOW() - INTERVAL '3 minutes'
-		WHERE id = (
-			SELECT fleet_node_id FROM fleet_node_device
-			WHERE device_id = (SELECT id FROM device WHERE device_identifier = $1)
-		)`, deviceIDs[0])
-	require.NoError(t, err)
-
-	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-	resp, err := testContext.ServiceProvider.FleetManagementService.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
-
-	require.NoError(t, err)
-	require.Len(t, resp.Miners, 1)
-	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE, resp.Miners[0].DeviceStatus)
 }
 
 func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {

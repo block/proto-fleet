@@ -1210,8 +1210,6 @@ func deviceStatusFilterToMinerStatus(status fleetmanagementv1.DeviceStatus) mode
 		return models.MinerStatusUpdating
 	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
 		return models.MinerStatusRebootRequired
-	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_UNAVAILABLE:
-		return models.MinerStatusUnavailable
 	default:
 		return models.MinerStatusUnknown
 	}

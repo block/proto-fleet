@@ -22,7 +22,6 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
-  DeviceStatus,
   IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
@@ -30,6 +29,7 @@ import {
   NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";

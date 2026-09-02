@@ -856,7 +856,8 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
 			if row.FleetNodeUnavailable {
-				snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE
+				snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+				snapshot.OfflineReason = pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE
 			} else if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
@@ -1116,8 +1117,6 @@ func parseFilter(
 				statusFilters = append(statusFilters, mm.MinerStatusUpdating)
 			case pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
 				statusFilters = append(statusFilters, mm.MinerStatusRebootRequired)
-			case pb.DeviceStatus_DEVICE_STATUS_UNAVAILABLE:
-				statusFilters = append(statusFilters, mm.MinerStatusUnavailable)
 			default:
 				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
 			}

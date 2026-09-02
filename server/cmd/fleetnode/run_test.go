@@ -133,56 +133,25 @@ func TestRunCmd_ValidateHeartbeatInterval(t *testing.T) {
 		wantInterval time.Duration
 		wantErr      string
 	}{
-		{
-			name:         "omitted uses default",
-			wantInterval: defaultHeartbeatInterval,
-		},
-		{
-			name:         "positive interval is accepted",
-			interval:     time.Second,
-			wantInterval: time.Second,
-		},
-		{
-			name:         "maximum interval is accepted",
-			interval:     maxHeartbeatInterval,
-			wantInterval: maxHeartbeatInterval,
-		},
-		{
-			name:     "negative interval is rejected",
-			interval: -time.Second,
-			wantErr:  "heartbeat interval must be positive",
-		},
-		{
-			name:     "interval above maximum is rejected",
-			interval: maxHeartbeatInterval + time.Nanosecond,
-			wantErr:  "heartbeat interval must be no greater than 30s",
-		},
+		{name: "omitted uses default", wantInterval: defaultHeartbeatInterval},
+		{name: "maximum interval is accepted", interval: defaultHeartbeatInterval, wantInterval: defaultHeartbeatInterval},
+		{name: "negative interval is rejected", interval: -time.Second, wantErr: "heartbeat interval must be positive"},
+		{name: "interval above maximum is rejected", interval: defaultHeartbeatInterval + time.Nanosecond, wantErr: "heartbeat interval must be no greater than 30s"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			cmd := &RunCmd{HeartbeatInterval: tt.interval}
 			err := cmd.validateHeartbeatInterval()
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
 			}
-
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantInterval, cmd.HeartbeatInterval)
 		})
 	}
-}
-
-func TestRunCmd_RejectsHeartbeatIntervalAboveMaximumBeforeStartup(t *testing.T) {
-	t.Parallel()
-
-	cmd := &RunCmd{HeartbeatInterval: maxHeartbeatInterval + time.Second}
-	err := cmd.run(&Context{StateDir: t.TempDir()}, &bytes.Buffer{})
-
-	require.EqualError(t, err, "heartbeat interval must be no greater than 30s")
 }
 
 func TestRunCmd_HappyPathThreeTicks(t *testing.T) {

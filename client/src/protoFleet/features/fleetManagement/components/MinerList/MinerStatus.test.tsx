@@ -2,7 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MinerStatus from "./MinerStatus";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   deviceActions,
   performanceActions,
@@ -55,6 +59,18 @@ function createBatch(overrides: Partial<BatchOperation> = {}): BatchOperation {
 describe("MinerStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("shows unavailable when the miner is offline because its Fleet Node cannot be reached", () => {
+    const miner = createMockMiner({
+      deviceStatus: DeviceStatus.OFFLINE,
+      offlineReason: DeviceOfflineReason.FLEET_NODE_UNAVAILABLE,
+    });
+
+    render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument();
   });
 
   describe("Loading state display", () => {
@@ -237,16 +253,6 @@ describe("MinerStatus", () => {
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
 
       expect(screen.getByText("Offline")).toBeInTheDocument();
-      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
-    });
-
-    it("shows unavailable when the assigned Fleet Node has no connection", () => {
-      const miner = createMockMiner({ deviceStatus: DeviceStatus.UNAVAILABLE });
-
-      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
-
-      expect(screen.getByText("Unavailable")).toBeInTheDocument();
-      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
       expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
     });
 

@@ -1,6 +1,10 @@
 import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
@@ -65,7 +69,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
-  const isUnavailable = deviceStatus === DeviceStatus.UNAVAILABLE;
+  const isUnavailable = miner.offlineReason === DeviceOfflineReason.FLEET_NODE_UNAVAILABLE;
 
   // Transform errors to shared format using existing utility
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
@@ -82,7 +86,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   // Determine icon to show based on issue type
   // Note: Auth and pool issues don't have icons (per Figma design)
   const icon = useMemo((): ReactNode | null => {
-    // Auth, pool, and connection issues don't get hardware icons.
+    // Auth and pool issues don't get icons
     if (needsAuthentication || needsMiningPool || isUnavailable) {
       return null;
     }

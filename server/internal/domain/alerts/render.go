@@ -131,7 +131,8 @@ func activeDeviceGroupCopy(g alertGroup) string {
 		RuleTemplateMQTTDisconnected,
 		RuleTemplateCurtailmentFanRestore,
 		RuleTemplateMetricIngest,
-		RuleTemplateHAReadiness:
+		RuleTemplateHAReadiness,
+		RuleTemplateFleetNodeUnavailable:
 		// These templates are device-less today or have no specialized device copy.
 	default:
 		// Other and future templates use their rule-provided summary below.
@@ -168,7 +169,8 @@ func resolvedGroupCopy(g alertGroup) string {
 			RuleTemplateMQTTDisconnected,
 			RuleTemplateCurtailmentFanRestore,
 			RuleTemplateMetricIngest,
-			RuleTemplateHAReadiness:
+			RuleTemplateHAReadiness,
+			RuleTemplateFleetNodeUnavailable:
 			// Use the generic rule wording below for templates without device recovery copy.
 		default:
 			// Unknown templates use the same generic rule wording.
@@ -192,7 +194,7 @@ func resolvedGroupCopy(g alertGroup) string {
 	case RuleTemplateHAReadiness:
 		return "HA ready to fail over"
 	case RuleTemplateFleetNodeUnavailable:
-		return resolvedFleetNodeUnavailableCopy(g)
+		return "Fleet Node connection restored"
 	case RuleTemplateOffline, RuleTemplateHashrate, RuleTemplateTemperature,
 		RuleTemplatePool, RuleTemplateCommandFailure:
 		// Device-backed templates without a device label use the generic instance wording below.
@@ -224,29 +226,6 @@ func resolvedMQTTDisconnectedCopy(g alertGroup) string {
 	}
 	if more := g.SummaryCount - len(g.Summaries); more > 0 {
 		lines = append(lines, fmt.Sprintf("…and %d more curtailment source%s reachable again", more, plural(more)))
-	}
-	return strings.Join(lines, "\n✅ ")
-}
-
-func resolvedFleetNodeUnavailableCopy(g alertGroup) string {
-	fallback := fmt.Sprintf("Connection%s restored to %d Fleet Node%s", plural(g.InstanceCount), g.InstanceCount, plural(g.InstanceCount))
-	if len(g.Summaries) == 0 {
-		return fallback
-	}
-	lines := make([]string, 0, len(g.Summaries)+1)
-	for _, summary := range g.Summaries {
-		node, ok := strings.CutPrefix(sentenceText(summary), "Fleet Node ")
-		if !ok {
-			return fallback
-		}
-		node, ok = strings.CutSuffix(node, " is unavailable")
-		if !ok || node == "" {
-			return fallback
-		}
-		lines = append(lines, "Connection restored to Fleet Node "+node)
-	}
-	if more := g.SummaryCount - len(g.Summaries); more > 0 {
-		lines = append(lines, fmt.Sprintf("…and %d more Fleet Node connection%s restored", more, plural(more)))
 	}
 	return strings.Join(lines, "\n✅ ")
 }

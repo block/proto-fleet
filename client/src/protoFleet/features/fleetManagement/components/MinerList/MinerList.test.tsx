@@ -13,7 +13,7 @@ import {
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { SingleMinerRouteState } from "@/protoFleet/components/SingleMinerWrapper/routeState";
 import { useFleetStore } from "@/protoFleet/store";
 

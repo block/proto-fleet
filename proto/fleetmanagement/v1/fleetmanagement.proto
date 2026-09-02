@@ -170,6 +170,9 @@ message MinerStateSnapshot {
   // ownership; unsupported or fleet-node-owned devices should use their external
   // URL or typed control-stream commands instead.
   bool embedded_web_view_available = 29;
+
+  // Explains why device_status is OFFLINE. Unspecified for all other statuses.
+  DeviceOfflineReason offline_reason = 30;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -202,9 +205,13 @@ enum DeviceStatus {
 
   // Miner firmware has been installed but requires a reboot to activate
   DEVICE_STATUS_REBOOT_REQUIRED = 8;
+}
 
-  // Miner cannot be reached because its assigned Fleet Node is unavailable
-  DEVICE_STATUS_UNAVAILABLE = 9;
+enum DeviceOfflineReason {
+  DEVICE_OFFLINE_REASON_UNSPECIFIED = 0;
+
+  // The miner is unreachable because its assigned Fleet Node stopped checking in.
+  DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE = 1;
 }
 
 // Request to list miners with their metadata

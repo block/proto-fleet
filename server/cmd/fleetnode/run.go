@@ -22,7 +22,6 @@ import (
 
 const (
 	defaultHeartbeatInterval = 30 * time.Second
-	maxHeartbeatInterval     = defaultHeartbeatInterval
 	sessionRefreshLeeway     = 1 * time.Hour
 )
 
@@ -146,8 +145,8 @@ func (r *RunCmd) validateHeartbeatInterval() error {
 	if r.HeartbeatInterval < 0 {
 		return fmt.Errorf("heartbeat interval must be positive")
 	}
-	if r.HeartbeatInterval > maxHeartbeatInterval {
-		return fmt.Errorf("heartbeat interval must be no greater than %s", maxHeartbeatInterval)
+	if r.HeartbeatInterval > defaultHeartbeatInterval {
+		return fmt.Errorf("heartbeat interval must be no greater than %s", defaultHeartbeatInterval)
 	}
 	return nil
 }

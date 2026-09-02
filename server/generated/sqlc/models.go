@@ -999,7 +999,6 @@ type FleetNode struct {
 type FleetNodeAlertStatus struct {
 	OrganizationID string
 	FleetNodeID    string
-	FleetNodeName  string
 	LastSeenAt     sql.NullTime
 	UpdatedAt      time.Time
 	CreatedAt      time.Time

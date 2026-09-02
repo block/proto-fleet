@@ -11,11 +11,11 @@ import {
 } from "./utils";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
-  DeviceStatus,
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
@@ -195,8 +195,7 @@ const ProtoFleetStatusModal = ({
 
   // Determine status flags from DeviceStatus and PairingStatus
   const needsAuthentication = activeMiner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const isOffline =
-    activeMiner?.deviceStatus === DeviceStatus.OFFLINE || activeMiner?.deviceStatus === DeviceStatus.UNAVAILABLE;
+  const isOffline = activeMiner?.deviceStatus === DeviceStatus.OFFLINE;
   // When authentication is needed, we can't trust INACTIVE (or MAINTENANCE) status
   // (could be sleeping OR showing as inactive/maintenance because we can't authenticate)
   const isSleeping =

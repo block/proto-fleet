@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import MinerIssues from "./MinerIssues";
 import { ComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
   return {
@@ -19,7 +23,10 @@ describe("MinerIssues", () => {
     const staleHardwareError = { componentType: ComponentType.HASH_BOARD } as ErrorMessage;
     const { container } = render(
       <MinerIssues
-        miner={createMockMiner({ deviceStatus: DeviceStatus.UNAVAILABLE })}
+        miner={createMockMiner({
+          deviceStatus: DeviceStatus.OFFLINE,
+          offlineReason: DeviceOfflineReason.FLEET_NODE_UNAVAILABLE,
+        })}
         errors={[staleHardwareError]}
         errorsLoaded={false}
       />,

@@ -11,7 +11,7 @@ import {
   NumericField,
   NumericRangeFilterSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 describe("filterUrlParams", () => {
   describe("encodeFilterToURL", () => {

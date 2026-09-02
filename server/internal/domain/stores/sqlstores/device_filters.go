@@ -86,11 +86,7 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	if len(filter.DeviceStatusFilter) > 0 {
 		fp.statusFilter = sql.NullString{Valid: true}
 		for _, status := range filter.DeviceStatusFilter {
-			if status == minermodels.MinerStatusUnavailable {
-				fp.statusValues = append(fp.statusValues, "UNAVAILABLE")
-			} else {
-				fp.statusValues = append(fp.statusValues, string(toDeviceStatus(status)))
-			}
+			fp.statusValues = append(fp.statusValues, string(toDeviceStatus(status)))
 			if status == minermodels.MinerStatusError {
 				fp.needsAttentionFilter = true
 			}
@@ -272,14 +268,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.statusFilter.Valid {
 		// Start outer AND group for status filter with optional needs attention
 		fmt.Fprintf(sb,
-			" AND (((%s) = ANY($%d::text[])"+
-				" AND ((%s) IN %s"+
-				" OR ((%s) = 'ACTIVE' AND NOT EXISTS ("+
+			" AND ((effective_status.status = ANY($%d::text[])"+
+				" AND (effective_status.status IN %s"+
+				" OR (effective_status.status = 'ACTIVE' AND NOT EXISTS ("+
 				"SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 				" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s))",
-			effectiveDeviceStatusExpr, argNum, effectiveDeviceStatusExpr,
-			"('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL', 'UNAVAILABLE')",
-			effectiveDeviceStatusExpr, argNum+1, actionableErrorSeverities)
+			argNum, nonActionableStatuses, argNum+1, actionableErrorSeverities)
 		args = append(args, pq.Array(fp.statusValues), orgID)
 		argNum += 2
 
@@ -293,17 +287,16 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		if fp.needsAttentionFilter {
 			// Auth-needed (exclude OFFLINE only)
 			sb.WriteString(
-				" OR (NOT " + fleetNodeUnavailableExpr +
-					" AND device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED')" +
-					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
+				" OR (device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED')" +
+					" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE'))")
 			// Devices with actionable errors. Excludes NULL-status paired-like miners
 			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
-				" OR (NOT %s AND EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
+				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
-					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
-				fleetNodeUnavailableExpr, argNum, actionableErrorSeverities, nonActionableStatuses)
+					" AND NOT (effective_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
+					" AND (effective_status.status IS NULL OR effective_status.status NOT IN %s))",
+				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
 		}
@@ -311,8 +304,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			// NULL-status paired-like miners (counted as offline in dashboard).
 			// Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
 			sb.WriteString(
-				" OR (NOT " + fleetNodeUnavailableExpr +
-					" AND device_status.status IS NULL" +
+				" OR (effective_status.status IS NULL" +
 					" AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 		}
 		// Close outer AND group
@@ -414,7 +406,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		// Match the UI's em-dash semantics: OFFLINE miners never expose a
 		// telemetry value, so a numeric predicate should not surface them
 		// even if a fresh metric exists.
-		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
+		sb.WriteString(" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE')")
 	}
 
 	// Subnet facet: CIDR containment and inclusive ranges are OR'd together

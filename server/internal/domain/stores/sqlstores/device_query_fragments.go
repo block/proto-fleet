@@ -27,9 +27,7 @@ const embeddedWebViewAvailableExpr = `(
     AND fleet_node_assignment.device_id IS NULL
 )`
 
-// Fleet Nodes heartbeat every 30 seconds. Four missed heartbeats distinguish a
-// node outage from a brief reconnect without conflating it with a miner that is
-// independently offline behind a healthy node.
+// Four missed 30-second heartbeats marks a Fleet Node unavailable.
 const fleetNodeUnavailableExpr = `(
     assigned_fleet_node.id IS NOT NULL
     AND assigned_fleet_node.deleted_at IS NULL
@@ -37,12 +35,10 @@ const fleetNodeUnavailableExpr = `(
     AND COALESCE(assigned_fleet_node.last_seen_at, assigned_fleet_node.updated_at, assigned_fleet_node.created_at) < NOW() - INTERVAL '2 minutes'
 )`
 
-// effectiveDeviceStatusExpr is the query-time status shown to users and used
-// by filters and live fleet-health counts. UNAVAILABLE is deliberately derived
-// rather than persisted so a resumed Fleet Node heartbeat immediately restores
-// the miner's last reported status.
+// A stale Fleet Node makes its miners operationally offline without overwriting
+// their last reported state. A resumed heartbeat therefore restores that state.
 const effectiveDeviceStatusExpr = `CASE
-    WHEN ` + fleetNodeUnavailableExpr + ` THEN 'UNAVAILABLE'
+    WHEN ` + fleetNodeUnavailableExpr + ` THEN 'OFFLINE'
     ELSE device_status.status::text
 END`
 
@@ -70,7 +66,7 @@ const minerSelectColumns = `SELECT
     COALESCE(site.name, '') as site_label,
     device.building_id,
     COALESCE(building.name, '') as building_label,
-    ` + fleetNodeUnavailableExpr + ` as fleet_node_unavailable,
+    effective_status.fleet_node_unavailable,
     ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
@@ -91,6 +87,11 @@ LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.devic
     AND fleet_node_assignment.org_id = device.org_id
 LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (
+    SELECT
+        ` + effectiveDeviceStatusExpr + ` AS status,
+        ` + fleetNodeUnavailableExpr + ` AS fleet_node_unavailable
+) effective_status ON TRUE
 LEFT JOIN site ON site.id = device.site_id
     AND site.org_id = $1
     AND site.deleted_at IS NULL

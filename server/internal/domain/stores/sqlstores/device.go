@@ -459,9 +459,42 @@ func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceId
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
-	// Always use the dynamic builder so list filtering and fleet-health buckets
-	// share the same query-time effective status, including stale Fleet Nodes.
-	return s.executeStateCountsQuery(ctx, orgID, fp)
+	// Use the dynamic builder when filters the static sqlc query can't
+	// express are active (numeric ranges, CIDRs, site filters); otherwise
+	// the dashboard counts would diverge from the filtered list.
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack {
+		return s.executeStateCountsQuery(ctx, orgID, fp)
+	}
+
+	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
+		OrgID:                   orgID,
+		StatusFilter:            fp.statusFilter,
+		StatusValues:            fp.statusValues,
+		NeedsAttentionFilter:    sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+		IncludeNullStatusFilter: sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
+		ModelFilter:             fp.modelFilter,
+		ModelValues:             fp.modelValues,
+		DeviceIdentifiersFilter: fp.deviceIdentifiersFilter,
+		DeviceIdentifierValues:  fp.deviceIdentifierValues,
+		GroupIdsFilter:          fp.groupIDsFilter,
+		GroupIDValues:           fp.groupIDValues,
+		RackIdsFilter:           fp.rackIDsFilter,
+		RackIDValues:            fp.rackIDValues,
+		FirmwareVersionsFilter:  fp.firmwareVersionsFilter,
+		FirmwareVersionValues:   fp.firmwareVersionValues,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
+	}
+
+	return &tm.MinerStateCounts{
+		HashingCount:  int32(counts.HashingCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		BrokenCount:   int32(counts.BrokenCount),   //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		OfflineCount:  int32(counts.OfflineCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		SleepingCount: int32(counts.SleepingCount), //nolint:gosec // Miner counts bounded by fleet size (<millions)
+	}, nil
 }
 
 func (s *SQLDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([]string, error) {
@@ -496,7 +529,7 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	// Static sqlc query can't express numeric ranges, CIDR membership, or
 	// site filters; use the dynamic builder when any are active so the
 	// bulk-action modal counts match the filtered list.
-	if filter != nil && (len(filter.DeviceStatusFilter) > 0 || len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -989,11 +1022,40 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		})
 	}
 
-	// Count through the same dynamic predicate builder as the list so cached
-	// statuses behind a stale Fleet Node cannot leak into the pagination total.
-	total, err := s.executeCountQuery(ctx, orgID, fp)
-	if err != nil {
-		return nil, "", 0, err
+	// Total count must use the dynamic builder when filters the static
+	// sqlc query can't express (numeric ranges, CIDRs, site filters) are
+	// active; otherwise the total diverges from the listed rows.
+	var total int64
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack {
+		total, err = s.executeCountQuery(ctx, orgID, fp)
+		if err != nil {
+			return nil, "", 0, err
+		}
+	} else {
+		total, err = s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
+			OrgID:                     orgID,
+			StatusFilter:              fp.statusFilter,
+			StatusValues:              fp.statusValues,
+			ModelFilter:               fp.modelFilter,
+			ModelValues:               fp.modelValues,
+			PairingStatusFilter:       fp.pairingStatusFilter,
+			PairingStatusValues:       fp.pairingStatusValues,
+			NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+			IncludeNullStatusFilter:   sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
+			ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
+			ErrorComponentTypeValues:  fp.errorComponentTypeValues,
+			GroupIdsFilter:            fp.groupIDsFilter,
+			GroupIDValues:             fp.groupIDValues,
+			RackIdsFilter:             fp.rackIDsFilter,
+			RackIDValues:              fp.rackIDValues,
+			FirmwareVersionsFilter:    fp.firmwareVersionsFilter,
+			FirmwareVersionValues:     fp.firmwareVersionValues,
+		})
+		if err != nil {
+			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %w", err)
+		}
 	}
 
 	// Convert to SQLC row type for return
@@ -1136,7 +1198,7 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 )
 SELECT
     COALESCE(SUM(CASE
-        WHEN filtered.status IN ('OFFLINE', 'UNAVAILABLE')
+        WHEN filtered.status = 'OFFLINE'
              OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
@@ -1147,7 +1209,6 @@ SELECT
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND filtered.status IS DISTINCT FROM 'UNAVAILABLE'
              AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
@@ -1163,7 +1224,7 @@ SELECT
     END), 0)::bigint AS hashing_count
 FROM (
     SELECT
-		` + effectiveDeviceStatusExpr + ` AS status,
+		effective_status.status,
         device_pairing.pairing_status,
         open_errors.device_id IS NOT NULL AS has_open_error`)
 	sb.WriteString(minerFromJoins)
@@ -1362,11 +1423,14 @@ FROM device
 JOIN discovered_device ON device.discovered_device_id = discovered_device.id
 JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id`)
-	sb.WriteString(`
+	if fp.statusFilter.Valid || filterNeedsTelemetry {
+		sb.WriteString(`
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
 LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
-    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id`)
+    AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
+	}
 	if filterNeedsTelemetry {
 		sb.WriteString(" " + minerTelemetryInnerJoin)
 	}
@@ -1409,30 +1473,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
 	query := fmt.Sprintf(`SELECT dcm.device_set_id,
     -- Offline
     COALESCE(SUM(CASE
-        WHEN (CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IN ('OFFLINE', 'UNAVAILABLE')
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_status.status = 'OFFLINE'
+             OR (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN (CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IN ('MAINTENANCE', 'INACTIVE')
+        WHEN effective_status.status IN ('MAINTENANCE', 'INACTIVE')
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
-        WHEN (CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IS DISTINCT FROM 'OFFLINE'
-             AND (CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IS DISTINCT FROM 'UNAVAILABLE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT ((CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND ((CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+        WHEN effective_status.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_status.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_status.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN (CASE WHEN %s THEN 'UNAVAILABLE' ELSE ds.status::text END) = 'ACTIVE'
+        WHEN effective_status.status = 'ACTIVE'
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
@@ -1442,11 +1505,12 @@ JOIN device_set dc ON dcm.device_set_id = dc.id
 JOIN device d ON dcm.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_status ON d.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
     AND fleet_node_assignment.org_id = d.org_id
 LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
+LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 LEFT JOIN (
     SELECT DISTINCT device_id
@@ -1462,9 +1526,7 @@ WHERE dcm.device_set_id = ANY($2::bigint[])
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND `+actionablePairingStatusesExpr("dp")+`
-GROUP BY dcm.device_set_id`, fleetNodeUnavailableExpr, fleetNodeUnavailableExpr,
-		fleetNodeUnavailableExpr, fleetNodeUnavailableExpr, fleetNodeUnavailableExpr, fleetNodeUnavailableExpr,
-		fleetNodeUnavailableExpr, actionableErrorSeveritiesExpr("errors"))
+GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {

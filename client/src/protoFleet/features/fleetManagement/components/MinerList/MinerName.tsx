@@ -1,10 +1,8 @@
 import clsx from "clsx";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import {
-  DeviceStatus,
-  type MinerStateSnapshot,
-  PairingStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import { Alert } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";

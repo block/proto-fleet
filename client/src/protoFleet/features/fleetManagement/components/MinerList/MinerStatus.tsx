@@ -1,7 +1,11 @@
 import { ReactNode, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
@@ -56,7 +60,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
-  const isUnavailable = deviceStatusFromStore === DeviceStatus.UNAVAILABLE;
+  const isUnavailable = miner.offlineReason === DeviceOfflineReason.FLEET_NODE_UNAVAILABLE;
 
   const needsAttention = useNeedsAttention(
     needsRemediation,
