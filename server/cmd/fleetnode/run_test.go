@@ -313,7 +313,8 @@ func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) 
 	require.NoError(t, bootstrap.SaveState(statePath, state))
 
 	controlGateway := &controlFakeGateway{}
-	client := newControlClient(t, controlGateway)
+	// The client must be the only party enforcing expiry here; see dropGRPCDeadline.
+	client := newControlClient(t, controlGateway, dropGRPCDeadline)
 	cmd := &RunCmd{}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
