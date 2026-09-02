@@ -1,6 +1,6 @@
 module github.com/block/proto-fleet/tests/plugin-contract
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
