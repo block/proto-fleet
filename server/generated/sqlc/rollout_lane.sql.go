@@ -382,13 +382,20 @@ const listFirmwareRolloutTargets = `-- name: ListFirmwareRolloutTargets :many
 SELECT d.id AS device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '') AS firmware_version,
+       COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.update_sent_at,
        rd.batch_index,
        rd.baseline_status,
        rd.baseline_hash_rate_hs,
+       rd.baseline_power_w,
+       rd.baseline_efficiency_jh,
+       rd.baseline_temp_c,
        rd.baseline_open_errors,
        COALESCE(ds.status::text, '')::text AS status,
        hm.hash_rate_hs,
+       hm.power_w,
+       hm.efficiency_jh,
+       hm.temp_c,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors
 FROM rollout_lane_member m
@@ -398,7 +405,7 @@ LEFT JOIN firmware_rollout_device rd
        ON rd.rollout_id = $1 AND rd.device_id = d.id
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN LATERAL (
-    SELECT dm.hash_rate_hs
+    SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
       AND dm.time >= now() - INTERVAL '15 minutes'
@@ -417,17 +424,24 @@ type ListFirmwareRolloutTargetsParams struct {
 }
 
 type ListFirmwareRolloutTargetsRow struct {
-	DeviceID           int64
-	DeviceIdentifier   string
-	FirmwareVersion    string
-	UpdateSentAt       sql.NullTime
-	BatchIndex         sql.NullInt32
-	BaselineStatus     sql.NullString
-	BaselineHashRateHs sql.NullFloat64
-	BaselineOpenErrors sql.NullInt32
-	Status             string
-	HashRateHs         sql.NullFloat64
-	OpenErrors         int32
+	DeviceID             int64
+	DeviceIdentifier     string
+	FirmwareVersion      string
+	IpAddress            string
+	UpdateSentAt         sql.NullTime
+	BatchIndex           sql.NullInt32
+	BaselineStatus       sql.NullString
+	BaselineHashRateHs   sql.NullFloat64
+	BaselinePowerW       sql.NullFloat64
+	BaselineEfficiencyJh sql.NullFloat64
+	BaselineTempC        sql.NullFloat64
+	BaselineOpenErrors   sql.NullInt32
+	Status               string
+	HashRateHs           sql.NullFloat64
+	PowerW               sql.NullFloat64
+	EfficiencyJh         sql.NullFloat64
+	TempC                sql.NullFloat64
+	OpenErrors           int32
 }
 
 // Current lane members of the rollout's model with reported firmware, the
@@ -447,13 +461,20 @@ func (q *Queries) ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwa
 			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.FirmwareVersion,
+			&i.IpAddress,
 			&i.UpdateSentAt,
 			&i.BatchIndex,
 			&i.BaselineStatus,
 			&i.BaselineHashRateHs,
+			&i.BaselinePowerW,
+			&i.BaselineEfficiencyJh,
+			&i.BaselineTempC,
 			&i.BaselineOpenErrors,
 			&i.Status,
 			&i.HashRateHs,
+			&i.PowerW,
+			&i.EfficiencyJh,
+			&i.TempC,
 			&i.OpenErrors,
 		); err != nil {
 			return nil, err
@@ -791,20 +812,24 @@ func (q *Queries) ResumeFirmwareRollout(ctx context.Context, rolloutID int64) (i
 const snapshotFirmwareRolloutDevices = `-- name: SnapshotFirmwareRolloutDevices :exec
 INSERT INTO firmware_rollout_device (
     rollout_id, device_id, batch_index,
-    baseline_status, baseline_hash_rate_hs, baseline_open_errors, baseline_at
+    baseline_status, baseline_hash_rate_hs, baseline_power_w, baseline_efficiency_jh, baseline_temp_c,
+    baseline_open_errors, baseline_at
 )
 SELECT $1,
        d.id,
        $2::int,
        ds.status::text,
        hm.hash_rate_hs,
+       hm.power_w,
+       hm.efficiency_jh,
+       hm.temp_c,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int,
        now()
 FROM device d
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN LATERAL (
-    SELECT dm.hash_rate_hs
+    SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
     WHERE dm.device_identifier = d.device_identifier
       AND dm.time >= now() - INTERVAL '15 minutes'

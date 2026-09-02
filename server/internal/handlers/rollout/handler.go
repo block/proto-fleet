@@ -290,29 +290,37 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 			ReadyToAdvance:                ev.ReadyToAdvance,
 			HoldReason:                    ev.HoldReason,
 			StabilizationRemainingSeconds: ev.StabilizationRemainingSeconds,
+			PowerW:                        metricToProto(ev.PowerW),
+			EfficiencyJh:                  metricToProto(ev.EfficiencyJh),
+			TempC:                         metricToProto(ev.TempC),
 		}
 	}
 	for _, d := range r.Devices {
 		out.Devices = append(out.Devices, &pb.RolloutDevice{
-			DeviceId:            d.DeviceID,
-			DeviceIdentifier:    d.DeviceIdentifier,
-			FirmwareVersion:     d.FirmwareVersion,
-			State:               deviceStateToProto(d.State),
-			Batch:               d.Batch,
-			Status:              d.Status,
-			Online:              d.Online,
-			Hashing:             d.Hashing,
-			HasBaseline:         d.HasBaseline,
-			BaselineHashing:     d.BaselineHashing,
-			HashRateHs:          d.HashRateHs,
-			HasHashRate:         d.HasHashRate,
-			BaselineHashRateHs:  d.BaselineHashRateHs,
-			HasBaselineHashRate: d.HasBaselineHashRate,
-			OpenErrors:          d.OpenErrors,
-			BaselineOpenErrors:  d.BaselineOpenErrors,
+			DeviceId:           d.DeviceID,
+			DeviceIdentifier:   d.DeviceIdentifier,
+			IpAddress:          d.IPAddress,
+			FirmwareVersion:    d.FirmwareVersion,
+			State:              deviceStateToProto(d.State),
+			Batch:              d.Batch,
+			Status:             d.Status,
+			Online:             d.Online,
+			Hashing:            d.Hashing,
+			HasBaseline:        d.HasBaseline,
+			BaselineHashing:    d.BaselineHashing,
+			OpenErrors:         d.OpenErrors,
+			BaselineOpenErrors: d.BaselineOpenErrors,
+			HashRateHs:         metricToProto(d.HashRateHs),
+			PowerW:             metricToProto(d.PowerW),
+			EfficiencyJh:       metricToProto(d.EfficiencyJh),
+			TempC:              metricToProto(d.TempC),
 		})
 	}
 	return out
+}
+
+func metricToProto(m rollout.Metric) *pb.MetricComparison {
+	return &pb.MetricComparison{Baseline: m.Baseline, Current: m.Current}
 }
 
 func cancelReasonToProto(reason string) pb.RolloutCancelReason {

@@ -160,6 +160,13 @@ enum RolloutDeviceState {
     ROLLOUT_DEVICE_STATE_VERIFYING = 4;
 }
 
+// A telemetry metric before the update (baseline, captured when the rollout
+// started) and now. A missing half means no sample was available.
+message MetricComparison {
+    optional double baseline = 1;
+    optional double current = 2;
+}
+
 // Post-update evidence for the miners under review: the batch at the gate
 // (or in flight), or every target in the rest stage. Compared against each
 // miner's own baseline captured when the rollout started.
@@ -187,6 +194,11 @@ message RolloutEvidence {
     string hold_reason = 12;
     // Seconds of stabilization still required before auto-advance.
     int32 stabilization_remaining_seconds = 13;
+    // Aggregates over miners in scope that have both halves: total power,
+    // mean efficiency, mean temperature.
+    MetricComparison power_w = 14;
+    MetricComparison efficiency_jh = 15;
+    MetricComparison temp_c = 16;
 }
 
 // A firmware change being enforced for one model within one lane.
@@ -247,13 +259,13 @@ message RolloutDevice {
     // False for late joiners with no baseline snapshot.
     bool has_baseline = 9;
     bool baseline_hashing = 10;
-    double hash_rate_hs = 11;
-    // False when no hashrate sample landed recently.
-    bool has_hash_rate = 12;
-    double baseline_hash_rate_hs = 13;
-    bool has_baseline_hash_rate = 14;
     int32 open_errors = 15;
     int32 baseline_open_errors = 16;
+    MetricComparison hash_rate_hs = 17;
+    MetricComparison power_w = 18;
+    MetricComparison efficiency_jh = 19;
+    MetricComparison temp_c = 20;
+    string ip_address = 21;
 }
 
 message ListRolloutLanesRequest {}

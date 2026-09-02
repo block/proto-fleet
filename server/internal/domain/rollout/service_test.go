@@ -234,6 +234,16 @@ func (f *rolloutFixture) reportHashrate(t *testing.T, identifier string, hashRat
 	require.NoError(t, err)
 }
 
+// reportTelemetry lands a full telemetry sample for the miner.
+func (f *rolloutFixture) reportTelemetry(t *testing.T, identifier string, hashRateHs, powerW, efficiencyJh, tempC float64) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		INSERT INTO device_metrics (time, device_identifier, hash_rate_hs, power_w, efficiency_jh, temp_c)
+		VALUES (now(), $1, $2, $3, $4, $5)
+	`, identifier, hashRateHs, powerW, efficiencyJh, tempC)
+	require.NoError(t, err)
+}
+
 // finishUpdate makes the miner look like it came back from the update on the
 // version, online and hashing.
 func (f *rolloutFixture) finishUpdate(t *testing.T, identifier, version string) {
@@ -576,6 +586,38 @@ func TestSupersededRolloutsRecordTheReason(t *testing.T) {
 	rollouts, err := f.svc.ListRollouts(ctx, f.orgID, f.laneID)
 	require.NoError(t, err)
 	assert.Equal(t, CancelReasonCleared, rollouts[0].CancelReason)
+}
+
+func TestEvidenceAggregatesTelemetryAgainstBaseline(t *testing.T) {
+	f := newRolloutFixture(t, 2)
+	ctx := t.Context()
+	f.reportTelemetry(t, "miner-0", 100, 3000, 30, 60)
+	f.reportTelemetry(t, "miner-1", 100, 3200, 32, 64)
+
+	started := f.apply(t, "fw-2", RolloutOptions{})
+	f.svc.EnforceTick(ctx)
+	f.finishUpdate(t, "miner-0", "2.0.0")
+	f.reportTelemetry(t, "miner-0", 110, 3300, 30, 66)
+
+	r := f.rollout(t, started.ID)
+	require.NotNil(t, r.Evidence)
+	// Power is summed, efficiency and temperature averaged, over miners with
+	// both halves (miner-1 kept its samples, so both count).
+	require.NotNil(t, r.Evidence.PowerW.Baseline)
+	assert.InDelta(t, 6200, *r.Evidence.PowerW.Baseline, 0.01)
+	assert.InDelta(t, 6500, *r.Evidence.PowerW.Current, 0.01)
+	assert.InDelta(t, 62, *r.Evidence.TempC.Baseline, 0.01)
+	assert.InDelta(t, 65, *r.Evidence.TempC.Current, 0.01)
+	assert.InDelta(t, 31, *r.Evidence.EfficiencyJh.Current, 0.01)
+
+	for _, d := range r.Devices {
+		if d.DeviceIdentifier == "miner-0" {
+			require.NotNil(t, d.PowerW.Baseline)
+			assert.InDelta(t, 3000, *d.PowerW.Baseline, 0.01)
+			assert.InDelta(t, 3300, *d.PowerW.Current, 0.01)
+			assert.Equal(t, "10.0.0.1", d.IPAddress)
+		}
+	}
 }
 
 func TestRolloutOptionValidation(t *testing.T) {

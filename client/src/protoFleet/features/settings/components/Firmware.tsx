@@ -2,10 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { useRolloutLanes } from "@/protoFleet/api/useRolloutLanes";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import ActiveUpdatesMonitor from "@/protoFleet/features/settings/components/RolloutLanes/ActiveUpdatesMonitor";
 import RolloutLanesTab from "@/protoFleet/features/settings/components/RolloutLanes/RolloutLanesTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -365,9 +367,17 @@ const firmwareTabs = [
 
 // The active tab lives in the `tab` search param so surfaces like the
 // header rollout pill can deep-link straight to the rollout lanes view.
+// Ongoing firmware updates are polled here, above the tabs, so their banners
+// and detail are reachable from Files and Release channels alike.
 const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === ROLLOUT_LANES_TAB_PARAM ? TAB_ROLLOUT_LANES : TAB_FILES;
+  const rolloutApi = useRolloutLanes();
+  // Channel an update's "Manage" action asked to open; remounts the channels
+  // tab so it starts on that channel.
+  const [manageRequest, setManageRequest] = useState<{ laneId: bigint; seq: number } | null>(null);
+
+  const showChannels = () => setSearchParams({ tab: ROLLOUT_LANES_TAB_PARAM }, { replace: true });
 
   return (
     <div className="flex flex-col gap-6">
@@ -378,11 +388,31 @@ const Firmware = () => {
         className="self-start"
         segments={firmwareTabs}
         initialSegmentKey={activeTab}
-        onSelect={(key) =>
-          setSearchParams(key === TAB_ROLLOUT_LANES ? { tab: ROLLOUT_LANES_TAB_PARAM } : {}, { replace: true })
-        }
+        onSelect={(key) => {
+          if (key === TAB_ROLLOUT_LANES) {
+            showChannels();
+          } else {
+            setManageRequest(null);
+            setSearchParams({}, { replace: true });
+          }
+        }}
       />
-      {activeTab === TAB_ROLLOUT_LANES ? <RolloutLanesTab /> : <FirmwareFilesSection />}
+      <ActiveUpdatesMonitor
+        api={rolloutApi}
+        onManageChannel={(laneId) => {
+          setManageRequest((current) => ({ laneId, seq: (current?.seq ?? 0) + 1 }));
+          showChannels();
+        }}
+      />
+      {activeTab === TAB_ROLLOUT_LANES ? (
+        <RolloutLanesTab
+          key={manageRequest ? `manage-${manageRequest.seq}` : "channels"}
+          api={rolloutApi}
+          initialManagedLaneId={manageRequest?.laneId ?? null}
+        />
+      ) : (
+        <FirmwareFilesSection />
+      )}
     </div>
   );
 };

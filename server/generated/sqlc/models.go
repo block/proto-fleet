@@ -916,14 +916,17 @@ type FirmwareRollout struct {
 }
 
 type FirmwareRolloutDevice struct {
-	RolloutID          int64
-	DeviceID           int64
-	UpdateSentAt       sql.NullTime
-	BatchIndex         sql.NullInt32
-	BaselineStatus     sql.NullString
-	BaselineHashRateHs sql.NullFloat64
-	BaselineOpenErrors sql.NullInt32
-	BaselineAt         sql.NullTime
+	RolloutID            int64
+	DeviceID             int64
+	UpdateSentAt         sql.NullTime
+	BatchIndex           sql.NullInt32
+	BaselineStatus       sql.NullString
+	BaselineHashRateHs   sql.NullFloat64
+	BaselineOpenErrors   sql.NullInt32
+	BaselineAt           sql.NullTime
+	BaselinePowerW       sql.NullFloat64
+	BaselineEfficiencyJh sql.NullFloat64
+	BaselineTempC        sql.NullFloat64
 }
 
 type FleetActiveOrganization struct {

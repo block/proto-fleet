@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
+  MetricComparisonSchema,
   type Rollout,
   RolloutCancelReason,
   RolloutDeviceState,
@@ -246,27 +247,35 @@ export const abortedRigRollout: Rollout = create(RolloutSchema, {
 });
 
 // Health fields for a miner as the server reports them: live status and
-// hashrate alongside the baseline captured when the rollout started.
+// telemetry alongside the baseline captured when the rollout started.
 const TH = 1e12;
-const healthy = (hashRateTh: number, baselineTh = hashRateTh) => ({
+const metric = (baseline: number | undefined, current: number | undefined) =>
+  create(MetricComparisonSchema, { baseline, current });
+// Power, efficiency and temperature scale with hashrate so a degraded miner
+// reads consistently across the strip.
+const healthy = (hashRateTh: number, baselineTh = hashRateTh, ipSuffix = 11) => ({
   status: "ACTIVE",
   online: true,
   hashing: true,
   hasBaseline: true,
   baselineHashing: true,
-  hashRateHs: hashRateTh * TH,
-  hasHashRate: true,
-  baselineHashRateHs: baselineTh * TH,
-  hasBaselineHashRate: true,
+  ipAddress: `10.20.4.${ipSuffix}`,
+  hashRateHs: metric(baselineTh * TH, hashRateTh * TH),
+  powerW: metric(baselineTh * 30, hashRateTh * 30 + 40),
+  efficiencyJh: metric(30, hashRateTh > 0 ? 30 + 40 / hashRateTh : undefined),
+  tempC: metric(64, hashRateTh >= baselineTh ? 65 : 71),
   openErrors: 0,
   baselineOpenErrors: 0,
 });
-const offline = (baselineTh: number) => ({
-  ...healthy(0, baselineTh),
+const offline = (baselineTh: number, ipSuffix = 11) => ({
+  ...healthy(0, baselineTh, ipSuffix),
   status: "OFFLINE",
   online: false,
   hashing: false,
-  hasHashRate: false,
+  hashRateHs: metric(baselineTh * TH, undefined),
+  powerW: metric(baselineTh * 30, undefined),
+  efficiencyJh: metric(30, undefined),
+  tempC: metric(64, undefined),
 });
 
 // A pilot rollout mid-pilot: the two-miner batch is updating (one back and
@@ -283,7 +292,7 @@ export const pilotRigRollout: Rollout = create(RolloutSchema, {
   createdAt: minutesAgo(9),
   devices: activeRigRollout.devices.map((device, index) => ({
     ...device,
-    ...(index === 1 ? offline(112) : healthy(index === 0 ? 114 : 112)),
+    ...(index === 1 ? offline(112, 11 + index) : healthy(index === 0 ? 114 : 112, 112, 11 + index)),
     batch: index < 2 ? 1 : 0,
     firmwareVersion: index === 0 ? "1.4.4" : "1.4.3",
     state:
@@ -302,6 +311,9 @@ export const pilotRigRollout: Rollout = create(RolloutSchema, {
     newErrors: 0,
     readyToAdvance: false,
     holdReason: "Batch in progress",
+    powerW: metric(112 * 30, 114 * 30 + 40),
+    efficiencyJh: metric(30, 30.4),
+    tempC: metric(64, 65),
   }),
 });
 
@@ -313,9 +325,9 @@ export const gatedRigRollout: Rollout = create(RolloutSchema, {
   stage: RolloutStage.AWAITING_REVIEW,
   stageChangedAt: minutesAgo(6),
   createdAt: minutesAgo(22),
-  devices: pilotRigRollout.devices.map((device) => ({
+  devices: pilotRigRollout.devices.map((device, index) => ({
     ...device,
-    ...healthy(device.batch === 1 ? 115 : 112, 112),
+    ...healthy(device.batch === 1 ? 115 : 112, 112, 11 + index),
     firmwareVersion: device.batch === 1 ? "1.4.4" : "1.4.3",
     state: device.batch === 1 ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
   })),
@@ -332,6 +344,9 @@ export const gatedRigRollout: Rollout = create(RolloutSchema, {
     newErrors: 0,
     readyToAdvance: false,
     holdReason: "Manual review",
+    powerW: metric(224 * 30, 230 * 30 + 80),
+    efficiencyJh: metric(30, 30.3),
+    tempC: metric(64, 65),
   }),
 });
 
@@ -352,7 +367,7 @@ export const batchedRigRollout: Rollout = create(RolloutSchema, {
   createdAt: minutesAgo(41),
   devices: activeRigRollout.devices.map((device, index) => ({
     ...device,
-    ...healthy(index === 3 ? 61 : 112, 112),
+    ...healthy(index === 3 ? 61 : 112, 112, 11 + index),
     batch: Math.floor(index / 2) + 1,
     firmwareVersion: index < 4 ? "1.4.4" : "1.4.3",
     state: index < 4 ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
@@ -371,6 +386,9 @@ export const batchedRigRollout: Rollout = create(RolloutSchema, {
     newErrors: 2,
     readyToAdvance: false,
     holdReason: "2 new errors since the update",
+    powerW: metric(224 * 30, 173 * 30 + 80),
+    efficiencyJh: metric(30, 30.5),
+    tempC: metric(64, 68),
   }),
 });
 
@@ -382,7 +400,7 @@ export const pausedRigRollout: Rollout = create(RolloutSchema, {
   createdAt: minutesAgo(11),
   devices: activeRigRollout.devices.map((device, index) => ({
     ...device,
-    ...(index === 2 ? offline(112) : healthy(112)),
+    ...(index === 2 ? offline(112, 11 + index) : healthy(112, 112, 11 + index)),
   })),
   evidence: create(RolloutEvidenceSchema, {
     devicesTotal: 6,
@@ -397,6 +415,9 @@ export const pausedRigRollout: Rollout = create(RolloutSchema, {
     newErrors: 0,
     readyToAdvance: false,
     holdReason: "Paused",
+    powerW: metric(560 * 30, 560 * 30 + 200),
+    efficiencyJh: metric(30, 30.4),
+    tempC: metric(64, 65),
   }),
 });
 

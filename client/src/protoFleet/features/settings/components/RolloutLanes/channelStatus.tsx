@@ -1,75 +1,52 @@
 import clsx from "clsx";
 
-import {
-  batchCounts,
-  batchLabel,
-  isAwaitingReview,
-  isBatchStage,
-  isPaused,
-  rolloutDeviceCounts,
-} from "./rolloutStatus";
+import { modelUpdateStatus, type UpdateStatus, type UpdateTone } from "./rolloutStatus";
 import type { Rollout, RolloutLaneModelGroup } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 // Status language shared between the release channels overview table and
-// the per-channel manage view.
+// the per-channel manage view. Tones follow the reference design: attention
+// is critical red, active is primary, completed is success, none is muted.
+
+const updateToneDotClasses: Record<UpdateTone, string> = {
+  attention: "bg-intent-critical-fill",
+  active: "bg-core-primary-fill",
+  completed: "bg-intent-success-fill",
+  none: "bg-core-primary-20",
+};
 
 const StatusDot = ({ className }: { className: string }) => (
   <span className={clsx("inline-block size-2 shrink-0 rounded-full", className)} />
 );
 
-export const StatusCell = ({ dotClassName, label }: { dotClassName: string; label: string }) => (
-  <span className="inline-flex items-center gap-2 whitespace-nowrap">
-    <StatusDot className={dotClassName} />
-    {label}
+export const StatusCell = ({
+  status,
+  emphasized = false,
+  testId,
+}: {
+  status: UpdateStatus;
+  // Channel rows read heavier than their model rows.
+  emphasized?: boolean;
+  testId?: string;
+}) => (
+  <span
+    className={clsx(
+      "inline-flex items-center gap-2 whitespace-nowrap text-text-primary",
+      emphasized && "text-emphasis-300",
+    )}
+    data-testid={testId}
+  >
+    <StatusDot className={updateToneDotClasses[status.tone]} />
+    {status.label}
   </span>
 );
 
 export const ModelStatusCell = ({
   group,
   activeRollout,
+  lastCompleted,
 }: {
   group: RolloutLaneModelGroup;
   activeRollout?: Rollout;
-}) => {
-  if (activeRollout && isPaused(activeRollout)) {
-    const counts = rolloutDeviceCounts(activeRollout);
-    return <StatusCell dotClassName="bg-core-primary-30" label={`Paused, ${counts.updated} of ${counts.total}`} />;
-  }
-  if (activeRollout && isBatchStage(activeRollout)) {
-    const counts = batchCounts(activeRollout);
-    return (
-      <StatusCell
-        dotClassName="animate-pulse bg-intent-warning-fill"
-        label={`${batchLabel(activeRollout)}: updating ${counts.updated} of ${counts.total}`}
-      />
-    );
-  }
-  if (activeRollout && isAwaitingReview(activeRollout)) {
-    return (
-      <StatusCell
-        dotClassName="bg-intent-warning-fill"
-        label={`${batchLabel(activeRollout)} complete — review needed`}
-      />
-    );
-  }
-  if (activeRollout) {
-    const counts = rolloutDeviceCounts(activeRollout);
-    return (
-      <StatusCell
-        dotClassName="animate-pulse bg-intent-warning-fill"
-        label={`Updating, ${counts.updated} of ${counts.total}`}
-      />
-    );
-  }
-  if (group.firmwareVersion === "") {
-    return <StatusCell dotClassName="bg-core-primary-10" label="No firmware assigned" />;
-  }
-  if (group.miners.length === 0) {
-    return <StatusCell dotClassName="bg-core-primary-10" label="No miners" />;
-  }
-  const onTarget = group.miners.filter((miner) => miner.firmwareVersion === group.firmwareVersion).length;
-  if (onTarget === group.miners.length) {
-    return <StatusCell dotClassName="bg-intent-healthy-fill" label="Up to date" />;
-  }
-  return <StatusCell dotClassName="bg-core-primary-10" label={`${onTarget} of ${group.miners.length} on target`} />;
-};
+  // Most recent completed rollout for this model group, for "Updated <date>".
+  lastCompleted?: Rollout;
+}) => <StatusCell status={modelUpdateStatus(group, activeRollout, lastCompleted)} />;

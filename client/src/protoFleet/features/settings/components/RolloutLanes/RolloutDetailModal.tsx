@@ -2,38 +2,42 @@ import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
+import RolloutMinersModal, { type RolloutMinerFilter } from "./RolloutMinersModal";
 import {
-  batchLabel,
-  currentBatchDevices,
-  deviceStateLabels,
-  deviceStateTone,
+  attentionDevices,
+  type DeltaIntent,
   formatDurationSeconds,
-  formatHashRateHs,
-  formatPercentChange,
   isAwaitingReview,
   isBatchStage,
   isPaused,
   isStaged,
+  metricDisplay,
+  type MetricKind,
+  type MetricPair,
+  rolloutDeviceCounts,
   rolloutMethodLabels,
   rolloutProgressColorMap,
   rolloutProgressSegments,
-  rolloutProgressSummary,
-  rolloutStatusHeadline,
+  rolloutStageLabel,
   scopeCounts,
 } from "./rolloutStatus";
-import StatusChip from "./StatusChip";
 import {
   type Rollout,
   RolloutCancelReason,
-  type RolloutDevice,
   type RolloutEvidence,
   RolloutMethod,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import { useTemperatureUnit } from "@/protoFleet/store";
+import { Alert, Dismiss, Info, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
+import type { ButtonProps } from "@/shared/components/ButtonGroup";
+import Callout, { intents } from "@/shared/components/Callout";
 import CompositionBar from "@/shared/components/CompositionBar";
-import Modal, { sizes } from "@/shared/components/Modal";
+import Header from "@/shared/components/Header";
+import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
@@ -42,161 +46,115 @@ const millisecondsPerSecond = 1000;
 const formatRolloutTimestamp = (timestamp?: Timestamp): string =>
   timestamp ? formatTimestamp(Math.floor(timestampMs(timestamp) / 1000)) : "—";
 
-// Ticks once per second so the elapsed readout moves between polling
-// snapshots. Lives in its own component so the per-second tick re-renders
-// only this value (same pattern as the curtailment card).
-function ElapsedProgressValue({ sinceMs }: { sinceMs: number }): ReactElement {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+const minersNoun = (count: number): string => (count === 1 ? "1 miner" : `${count.toLocaleString()} miners`);
 
+// Ticks once per second so the elapsed readout moves between polling
+// snapshots (same pattern as the curtailment card).
+function ElapsedValue({ sinceMs }: { sinceMs: number }): ReactElement {
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const intervalId = setInterval(() => setNowMs(Date.now()), millisecondsPerSecond);
     return () => clearInterval(intervalId);
   }, []);
-
-  const elapsedSeconds = Math.max((nowMs - sinceMs) / millisecondsPerSecond, 0);
-  return <span>{`${formatElapsed(elapsedSeconds)} elapsed`}</span>;
+  return <span>{`${formatElapsed(Math.max((nowMs - sinceMs) / millisecondsPerSecond, 0))} elapsed`}</span>;
 }
 
-const DetailRow = ({ label, value }: { label: string; value: ReactNode }) => (
-  <div className="flex items-baseline justify-between gap-4 border-t border-border-5 py-3">
-    <span className="text-200 text-text-primary-50">{label}</span>
-    <span className="text-right text-200 text-text-primary">{value}</span>
-  </div>
-);
-
-const minersNoun = (count: number): string => (count === 1 ? "1 miner" : `${count.toLocaleString()} miners`);
-
-// One evidence figure: label, value, and an optional tone for the value.
-const EvidenceStat = ({
+// Same lockup as the curtailment detail's StatBlock.
+function StatBlock({
   label,
   value,
-  tone = "neutral",
+  detail,
   testId,
 }: {
   label: string;
   value: string;
-  tone?: "neutral" | "good" | "bad";
+  detail?: string;
   testId?: string;
-}) => (
-  <div className="flex flex-col gap-0.5 rounded-lg bg-surface-base px-3 py-2" data-testid={testId}>
-    <span className="text-100 text-text-primary-50">{label}</span>
-    <span
-      className={clsx(
-        "text-heading-100",
-        tone === "good" && "text-intent-healthy-text",
-        tone === "bad" && "text-text-critical",
-        tone === "neutral" && "text-text-primary",
-      )}
-    >
-      {value}
-    </span>
-  </div>
-);
-
-// In the rest stage (and for immediate rollouts) the evidence covers every
-// target; while batching or at the gate it covers the current batch.
-const rolloutIsRest = (rollout: Rollout): boolean => !isBatchStage(rollout) && !isAwaitingReview(rollout);
-
-// Post-update evidence for the miners under review, against their own
-// baselines: the centerpiece of the review gate.
-const EvidenceSection = ({ rollout, evidence }: { rollout: Rollout; evidence: RolloutEvidence }) => {
-  const scopeLabel = rolloutIsRest(rollout) ? "All miners" : batchLabel(rollout);
-  const hashrateValue = evidence.hasHashrateEvidence
-    ? `${formatPercentChange(evidence.hashrateChangePercent)} (${formatHashRateHs(evidence.baselineHashRateHs)} → ${formatHashRateHs(evidence.currentHashRateHs)})`
-    : "No recent samples";
-  const hashrateTone = !evidence.hasHashrateEvidence
-    ? "neutral"
-    : rollout.maxHashrateDropPercent > 0 && evidence.hashrateChangePercent < -rollout.maxHashrateDropPercent
-      ? "bad"
-      : "good";
-
+}) {
   return (
-    <section className="flex flex-col gap-3" data-testid="rollout-evidence">
-      <div className="flex items-baseline justify-between gap-4">
-        <h3 className="text-heading-100 text-text-primary">{`${scopeLabel} — evidence versus baseline`}</h3>
-        <span className="text-200 text-text-primary-50">{minersNoun(evidence.devicesTotal)}</span>
+    <div className="min-w-0" data-testid={testId}>
+      <div className="text-200 text-text-primary-50">{label}</div>
+      <div className="mt-1 text-emphasis-300 break-words text-text-primary" title={value}>
+        {value}
       </div>
-      <div className="grid grid-cols-4 gap-2 phone:grid-cols-2">
-        <EvidenceStat
-          label="Back online"
-          value={`${evidence.online} of ${evidence.devicesTotal}`}
-          tone={evidence.online === evidence.devicesTotal ? "good" : "bad"}
-          testId="evidence-online"
-        />
-        <EvidenceStat
-          label="Hashing"
-          value={`${evidence.hashing} of ${evidence.devicesTotal} (was ${evidence.baselineHashing})`}
-          tone={evidence.hashing >= evidence.baselineHashing ? "good" : "bad"}
-          testId="evidence-hashing"
-        />
-        <EvidenceStat label="Hashrate" value={hashrateValue} tone={hashrateTone} testId="evidence-hashrate" />
-        <EvidenceStat
-          label="New errors"
-          value={evidence.newErrors.toLocaleString()}
-          tone={evidence.newErrors === 0 ? "good" : "bad"}
-          testId="evidence-errors"
-        />
-      </div>
-      {rollout.autoAdvance ? (
-        <div className="text-200 text-text-primary-70" data-testid="evidence-auto-advance">
-          {evidence.readyToAdvance
-            ? "Thresholds met — continuing automatically."
-            : evidence.holdReason === "Stabilizing"
-              ? `Stabilizing: continues automatically in ${formatDurationSeconds(evidence.stabilizationRemainingSeconds)} if the evidence holds.`
-              : `Holding for review: ${evidence.holdReason}.`}
-          {` Limits: hashrate drop ≤ ${rollout.maxHashrateDropPercent}%, stabilization ${formatDurationSeconds(rollout.stabilizationSeconds)}.`}
-        </div>
-      ) : null}
-    </section>
+      {detail ? <div className="mt-1 text-200 break-words text-text-primary-70">{detail}</div> : null}
+    </div>
   );
+}
+
+const deltaTextColor: Record<DeltaIntent, string> = {
+  positive: "text-intent-success-fill",
+  negative: "text-intent-critical-fill",
+  neutral: "text-text-primary-50",
 };
 
-// Per-miner rows for the batch under review (or every target otherwise).
-const DeviceEvidenceTable = ({ devices }: { devices: RolloutDevice[] }) => (
-  <div className="max-h-64 overflow-y-auto rounded-lg border border-border-5">
-    <table className="w-full text-left text-200">
-      <thead className="text-100 sticky top-0 bg-surface-elevated-base text-text-primary-50">
-        <tr>
-          <th className="px-3 py-2 font-normal">Miner</th>
-          <th className="px-3 py-2 font-normal">State</th>
-          <th className="px-3 py-2 font-normal">Device status</th>
-          <th className="px-3 py-2 text-right font-normal">Hashrate (before → now)</th>
-          <th className="px-3 py-2 text-right font-normal">Open errors</th>
-        </tr>
-      </thead>
-      <tbody>
-        {devices.map((device) => (
-          <tr
-            key={device.deviceId.toString()}
-            className="border-t border-border-5 text-text-primary"
-            data-testid={`evidence-device-${device.deviceIdentifier}`}
+// Baseline-vs-current telemetry for the miners in scope, plus the error
+// count: the evidence an operator weighs at a review gate.
+function PerformanceStrip({ evidence }: { evidence: RolloutEvidence }): ReactElement {
+  const temperatureUnit = useTemperatureUnit();
+  const metrics: { kind: MetricKind; comparison: MetricPair | undefined }[] = [
+    {
+      kind: "hashrate",
+      comparison: evidence.hasHashrateEvidence
+        ? { baseline: evidence.baselineHashRateHs, current: evidence.currentHashRateHs }
+        : undefined,
+    },
+    { kind: "power", comparison: evidence.powerW },
+    { kind: "efficiency", comparison: evidence.efficiencyJh },
+    { kind: "temperature", comparison: evidence.tempC },
+  ];
+  return (
+    <div data-testid="rollout-performance">
+      <div className="grid gap-x-8 gap-y-5 text-text-primary tablet:grid-cols-2 laptop:grid-cols-5">
+        {metrics.map(({ kind, comparison }) => {
+          const display = metricDisplay(kind, comparison, temperatureUnit);
+          return (
+            <div key={kind} className="min-w-0" data-testid={`evidence-${kind}`}>
+              <div className="text-200 text-text-primary-50">{display.label}</div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-emphasis-300 text-text-primary">
+                <span className="min-w-0 whitespace-nowrap">{display.value}</span>
+                {display.delta ? <span className={deltaTextColor[display.deltaIntent]}>{display.delta}</span> : null}
+              </div>
+            </div>
+          );
+        })}
+        <div className="min-w-0" data-testid="evidence-errors">
+          <div className="text-200 text-text-primary-50">New errors</div>
+          <div
+            className={clsx(
+              "mt-1 text-emphasis-300",
+              evidence.newErrors > 0 ? "text-text-critical" : "text-text-primary",
+            )}
           >
-            <td className="truncate px-3 py-2">{device.deviceIdentifier}</td>
-            <td className="px-3 py-2">
-              <StatusChip label={deviceStateLabels[device.state]} tone={deviceStateTone(device.state)} />
-            </td>
-            <td className="px-3 py-2 text-text-primary-70">{device.status || "Unknown"}</td>
-            <td className="px-3 py-2 text-right text-text-primary-70">
-              {`${device.hasBaselineHashRate ? formatHashRateHs(device.baselineHashRateHs) : "—"} → ${device.hasHashRate ? formatHashRateHs(device.hashRateHs) : "—"}`}
-            </td>
-            <td
-              className={clsx(
-                "px-3 py-2 text-right",
-                device.openErrors > device.baselineOpenErrors ? "text-text-critical" : "text-text-primary-70",
-              )}
-            >
-              {device.hasBaseline ? `${device.openErrors} (was ${device.baselineOpenErrors})` : device.openErrors}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+            {evidence.newErrors.toLocaleString()}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 text-200 text-text-primary-50">
+        Compares the baseline before the update with telemetry after miners come back.
+      </div>
+    </div>
+  );
+}
+
+function statusIcon(rollout: Rollout): ReactNode {
+  if (rollout.status === RolloutStatus.COMPLETED) return <Success className="text-intent-success-fill" />;
+  if (rollout.status === RolloutStatus.CANCELED) {
+    return rollout.cancelReason === RolloutCancelReason.ABORTED ? (
+      <Alert className="text-intent-critical-fill" />
+    ) : (
+      <Info className="text-text-primary-50" />
+    );
+  }
+  if (isAwaitingReview(rollout)) return <Info className="text-text-primary" />;
+  if (isPaused(rollout)) return <Alert className="text-core-accent-fill" />;
+  return <ProgressCircular indeterminate className="text-core-primary-fill" />;
+}
 
 interface RolloutDetailModalProps {
   // Live rollout from the poll, so progress and status track the server.
   rollout: Rollout;
+  minerNames: Record<string, string>;
   onClose: () => void;
   // Releases the review gate.
   onContinue: (rollout: Rollout) => Promise<void>;
@@ -204,22 +162,40 @@ interface RolloutDetailModalProps {
   onResume: (rollout: Rollout) => Promise<void>;
   // Opens the abort confirmation (the caller owns the dialog).
   onAbort: (rollout: Rollout) => void;
+  // Drills into the rollout's release channel.
+  onManage?: (rollout: Rollout) => void;
 }
 
-// Full update detail surface behind "View update": status lockup, live
-// progress, the review gate with its evidence, the operator controls
-// (pause / resume / abort / continue), and the detail rows.
-const RolloutDetailModal = ({ rollout, onClose, onContinue, onPause, onResume, onAbort }: RolloutDetailModalProps) => {
+// Full-screen update detail: a sticky header carrying the lifecycle actions,
+// then (errors first) the status lockup, plan stat lockups, progress against
+// plan, and the telemetry evidence strip. Miner drill-downs open as a
+// standalone list modal.
+const RolloutDetailModal = ({
+  rollout,
+  minerNames,
+  onClose,
+  onContinue,
+  onPause,
+  onResume,
+  onAbort,
+  onManage,
+}: RolloutDetailModalProps) => {
   const [isContinuing, setIsContinuing] = useState(false);
   const [isTogglingPause, setIsTogglingPause] = useState(false);
+  const [minersFilter, setMinersFilter] = useState<RolloutMinerFilter | null>(null);
+
   const isActive = rollout.status === RolloutStatus.ACTIVE;
   const awaitingReview = isAwaitingReview(rollout);
   const paused = isPaused(rollout);
+  const staged = isStaged(rollout);
   const counts = scopeCounts(rollout);
+  const totals = rolloutDeviceCounts(rollout);
+  const attention = attentionDevices(rollout).length;
   const segments = rolloutProgressSegments(counts);
+  const evidence = rollout.evidence;
   const startedAtMs = rollout.createdAt ? timestampMs(rollout.createdAt) : undefined;
   const finishedAtMs = rollout.finishedAt ? timestampMs(rollout.finishedAt) : undefined;
-  const evidenceDevices = rolloutIsRest(rollout) ? rollout.devices : currentBatchDevices(rollout);
+  const title = `${rollout.laneName}, ${rollout.model} firmware update`;
 
   const handleContinue = () => {
     setIsContinuing(true);
@@ -229,160 +205,251 @@ const RolloutDetailModal = ({ rollout, onClose, onContinue, onPause, onResume, o
     setIsTogglingPause(true);
     (paused ? onResume(rollout) : onPause(rollout)).finally(() => setIsTogglingPause(false));
   };
-
   const busy = isContinuing || isTogglingPause;
-  const buttons = isActive
-    ? [
-        { text: "Abort", variant: variants.secondaryDanger, onClick: () => onAbort(rollout), disabled: busy },
-        {
-          text: paused ? "Resume" : "Pause",
-          variant: variants.secondary,
-          onClick: handleTogglePause,
-          loading: isTogglingPause,
-          disabled: isContinuing,
-        },
-        awaitingReview
-          ? { text: "Continue rollout", variant: variants.primary, onClick: handleContinue, loading: isContinuing }
-          : { text: "Done", variant: variants.primary, onClick: onClose, disabled: busy },
-      ]
-    : [{ text: "Done", variant: variants.primary, onClick: onClose }];
+
+  // Header action bar: Manage / Continue / Resume / Pause inline, the rest in
+  // an overflow menu, mirroring the reference ViewRolloutModal.
+  const headerButtons: ButtonProps[] = [];
+  if (isActive && onManage) {
+    headerButtons.push({
+      text: "Manage",
+      variant: variants.secondary,
+      onClick: () => onManage(rollout),
+      disabled: busy,
+      testId: "view-rollout-manage-action",
+    });
+  }
+  if (awaitingReview) {
+    headerButtons.push({
+      text: "Continue",
+      variant: variants.primary,
+      onClick: handleContinue,
+      loading: isContinuing,
+      disabled: isTogglingPause,
+      testId: "view-rollout-continue-action",
+    });
+  }
+  if (isActive) {
+    headerButtons.push({
+      text: paused ? "Resume" : "Pause",
+      variant: paused ? variants.primary : variants.secondary,
+      onClick: handleTogglePause,
+      loading: isTogglingPause,
+      disabled: isContinuing,
+      testId: paused ? "view-rollout-resume-action" : "view-rollout-pause-action",
+    });
+  }
+  const overflowActions: RowAction[] = [
+    { label: "View miners", onClick: () => setMinersFilter("all"), testId: "view-rollout-view-miners-action" },
+  ];
+  if (isActive) {
+    overflowActions.push({
+      label: "Cancel remaining update",
+      onClick: () => onAbort(rollout),
+      showGroupDivider: false,
+      testId: "view-rollout-cancel-action",
+    });
+  }
+
+  // Plan lockups: what the update is doing and how its gates behave.
+  const methodStat =
+    rollout.method === RolloutMethod.PILOT
+      ? {
+          value: `${minersNoun(rollout.batchSize)} in pilot batch`,
+          detail: `${minersNoun(Math.max(totals.total - rollout.batchSize, 0))} after review`,
+        }
+      : rollout.method === RolloutMethod.BATCHES
+        ? {
+            value: `${minersNoun(rollout.batchSize)} per batch`,
+            detail: `${rollout.batchCount} batches, review after each`,
+          }
+        : { value: `${minersNoun(totals.total)} in one batch` };
+  const gateStat = !staged
+    ? null
+    : rollout.autoAdvance
+      ? `Automatic (hashrate drop ≤ ${rollout.maxHashrateDropPercent}%, ${formatDurationSeconds(rollout.stabilizationSeconds)} stabilization)`
+      : "Manual";
 
   return (
-    <Modal
-      open
-      size={sizes.large}
-      title={`${rollout.laneName}, ${rollout.model} firmware update`}
-      onDismiss={onClose}
-      buttons={buttons}
-    >
-      <div className="flex flex-col gap-5" data-testid={`rollout-detail-${rollout.id.toString()}`}>
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-core-primary-5">
-            {awaitingReview ? (
-              <span className="size-2.5 rounded-full bg-intent-warning-fill" />
-            ) : paused ? (
-              <span className="bg-core-primary-30 size-2.5 rounded-full" />
-            ) : isActive ? (
-              <ProgressCircular indeterminate />
-            ) : (
-              <span
-                className={clsx(
-                  "size-2.5 rounded-full",
-                  rollout.status === RolloutStatus.COMPLETED
-                    ? "bg-intent-healthy-fill"
-                    : rollout.cancelReason === RolloutCancelReason.ABORTED
-                      ? "bg-intent-critical-fill"
-                      : "bg-core-primary-10",
-                )}
+    <>
+      <Modal
+        open
+        onDismiss={onClose}
+        size={modalSizes.fullscreen}
+        showHeader={false}
+        className="!p-0"
+        bodyClassName="flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6"
+      >
+        <div className="sticky top-0 z-10 bg-surface-base px-6 pt-6 pb-4" data-testid="rollout-detail-header">
+          <Header
+            title={title}
+            titleSize="text-heading-200"
+            icon={<Dismiss />}
+            iconAriaLabel="Close update details"
+            iconOnClick={onClose}
+            inline
+            centerButton
+            stackButtonsOnPhone={false}
+            buttons={headerButtons}
+          >
+            <RowActionsMenu
+              actions={overflowActions}
+              ariaLabel={`More actions for ${title}`}
+              popoverTestId="view-rollout-more-actions-menu"
+              testIdPrefix="view-rollout-more-actions"
+              triggerClassName="!h-10 !w-10 !px-0 !py-0"
+              triggerVariant={variants.secondary}
+            />
+          </Header>
+        </div>
+
+        <div className="mx-auto w-full max-w-[800px] px-6 pb-6" data-testid={`rollout-detail-${rollout.id.toString()}`}>
+          <div className="pt-6">
+            {isActive && attention > 0 ? (
+              <Callout
+                intent={intents.danger}
+                prefixIcon={<Alert />}
+                testId="rollout-attention-banner"
+                title={`${minersNoun(attention)} ${attention === 1 ? "needs" : "need"} attention`}
+                subtitle="Worse off than before the update: offline, no longer hashing, or reporting new errors. Review them before continuing."
+                buttonText="Review miners"
+                buttonOnClick={() => setMinersFilter("attention")}
               />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="text-heading-50 text-text-primary-70">Update status</div>
-            <div className="text-heading-300 text-text-primary" data-testid="rollout-status-headline">
-              {rolloutStatusHeadline(rollout)}
+            ) : null}
+
+            <div className={clsx("grid gap-3", isActive && attention > 0 && "mt-10")}>
+              <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
+                {statusIcon(rollout)}
+              </div>
+              <div>
+                <div className="text-heading-50 text-text-primary-70">Update status</div>
+                <div className="text-heading-300 text-text-primary" data-testid="rollout-status-headline">
+                  {rolloutStageLabel(rollout)}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {awaitingReview ? (
-          <div
-            className="flex flex-col gap-1 rounded-lg bg-intent-warning-10 px-4 py-3"
-            data-testid="pilot-review-banner"
-          >
-            <span className="text-300 text-text-primary">
-              {`${batchLabel(rollout)} (${minersNoun(counts.total)}) is on ${rollout.firmwareVersion}.`}
-            </span>
-            <span className="text-200 text-text-primary-70">
-              {rollout.currentBatch + 1 < rollout.batchCount
-                ? "Check the evidence below before continuing. Continuing starts the next batch; aborting restores the previous firmware assignment."
-                : "Check the evidence below before continuing. Continuing updates the remaining miners; aborting restores the previous firmware assignment."}
-            </span>
-          </div>
-        ) : null}
+            {awaitingReview ? (
+              <Callout
+                className="mt-10"
+                intent={intents.information}
+                prefixIcon={<Info />}
+                testId="pilot-review-banner"
+                title={`${counts.updated === counts.total ? "Every miner" : `${counts.updated} of ${counts.total} miners`} in this batch ${counts.updated === 1 && counts.total === 1 ? "is" : "are"} on ${rollout.firmwareVersion}.`}
+                subtitle={
+                  evidence && rollout.autoAdvance
+                    ? evidence.readyToAdvance
+                      ? "Thresholds met — continuing automatically."
+                      : evidence.holdReason === "Stabilizing"
+                        ? `Continues automatically in ${formatDurationSeconds(evidence.stabilizationRemainingSeconds)} if the evidence holds.`
+                        : `Holding for review: ${evidence.holdReason}.`
+                    : rollout.currentBatch + 1 < rollout.batchCount
+                      ? "Check the evidence below, then continue to start the next batch."
+                      : "Check the evidence below, then continue to update the remaining miners."
+                }
+              />
+            ) : null}
 
-        {paused ? (
-          <div
-            className="rounded-lg bg-core-primary-5 px-4 py-3 text-200 text-text-primary-70"
-            data-testid="paused-banner"
-          >
-            Paused: no new update commands are sent and the rollout does not advance until resumed. Miners already
-            updating finish on their own.
-          </div>
-        ) : null}
+            {paused ? (
+              <Callout
+                className="mt-10"
+                intent={intents.information}
+                prefixIcon={<Info />}
+                testId="paused-banner"
+                title="Update paused"
+                subtitle="No new update commands are sent and the update does not advance until resumed. Miners already updating finish on their own."
+              />
+            ) : null}
 
-        <div className="grid gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 text-200">
-            <span className="text-text-primary-50">
-              {isBatchStage(rollout) || awaitingReview
-                ? `${batchLabel(rollout)}: ${rolloutProgressSummary(counts)}`
-                : rolloutProgressSummary(counts)}
-            </span>
-            <span className="text-right text-text-primary">
-              {isActive && startedAtMs !== undefined ? (
-                <ElapsedProgressValue sinceMs={startedAtMs} />
-              ) : startedAtMs !== undefined && finishedAtMs !== undefined ? (
-                `${formatElapsed((finishedAtMs - startedAtMs) / millisecondsPerSecond)} elapsed`
-              ) : null}
-            </span>
-          </div>
-          <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
-          <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
-            {segments.map((segment) => (
-              <span key={segment.name} className="flex items-start gap-2">
-                <span
-                  className={clsx(
-                    "mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full",
-                    rolloutProgressColorMap[segment.status],
-                  )}
+            <div className="mt-10" data-testid="rollout-detail-stats">
+              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
+                <StatBlock label="Scope" value={`${rollout.laneName} channel, ${minersNoun(totals.total)}`} />
+                <StatBlock
+                  label={rolloutMethodLabels[rollout.method]}
+                  value={methodStat.value}
+                  detail={methodStat.detail}
                 />
-                {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
-              </span>
-            ))}
+                {gateStat ? <StatBlock label="Review gates" value={gateStat} /> : null}
+                <StatBlock
+                  label="Target version"
+                  value={rollout.firmwareVersion}
+                  detail={rollout.previousFirmwareVersion ? `from ${rollout.previousFirmwareVersion}` : undefined}
+                />
+                {evidence ? (
+                  <>
+                    <StatBlock
+                      label="Back online"
+                      value={`${evidence.online} of ${evidence.devicesTotal}`}
+                      testId="evidence-online"
+                    />
+                    <StatBlock
+                      label="Hashing"
+                      value={`${evidence.hashing} of ${evidence.devicesTotal}`}
+                      detail={`was ${evidence.baselineHashing} before the update`}
+                      testId="evidence-hashing"
+                    />
+                  </>
+                ) : null}
+                <StatBlock label="Started" value={formatRolloutTimestamp(rollout.createdAt)} />
+                {rollout.finishedAt ? (
+                  <StatBlock label="Finished" value={formatRolloutTimestamp(rollout.finishedAt)} />
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-10 grid gap-3" data-testid="rollout-detail-progress">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                <div className="text-200 text-text-primary-50">
+                  {`${isBatchStage(rollout) || awaitingReview ? `${rolloutStageLabel(rollout)}: ` : ""}${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated (${counts.percent}%)`}
+                </div>
+                <div className="text-right text-200 text-text-primary">
+                  {isActive && startedAtMs !== undefined ? (
+                    <ElapsedValue sinceMs={startedAtMs} />
+                  ) : startedAtMs !== undefined && finishedAtMs !== undefined ? (
+                    `${formatElapsed((finishedAtMs - startedAtMs) / millisecondsPerSecond)} elapsed`
+                  ) : null}
+                </div>
+              </div>
+              <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
+              <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
+                {segments.map((segment) => (
+                  <span key={segment.name} className="flex items-start gap-2">
+                    <span
+                      className={clsx(
+                        "mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full",
+                        rolloutProgressColorMap[segment.status],
+                      )}
+                    />
+                    {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
+                  </span>
+                ))}
+                {staged && counts.total !== totals.total ? (
+                  <span className="ml-auto text-right text-text-primary-50">
+                    {`${(totals.total - counts.total).toLocaleString()} outside this batch`}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {isActive && evidence ? (
+              <div className="mt-10" data-testid="rollout-evidence">
+                <PerformanceStrip evidence={evidence} />
+              </div>
+            ) : null}
           </div>
         </div>
+      </Modal>
 
-        {isActive && rollout.evidence ? (
-          <>
-            <EvidenceSection rollout={rollout} evidence={rollout.evidence} />
-            {evidenceDevices.length > 0 ? <DeviceEvidenceTable devices={evidenceDevices} /> : null}
-          </>
-        ) : null}
-
-        <div>
-          <DetailRow label="Scope" value={`${rollout.laneName} channel, ${minersNoun(rollout.devices.length)}`} />
-          <DetailRow label="Target version" value={rollout.firmwareVersion} />
-          {rollout.previousFirmwareVersion ? (
-            <DetailRow label="Previous version" value={rollout.previousFirmwareVersion} />
-          ) : null}
-          <DetailRow label="Method" value={rolloutMethodLabels[rollout.method]} />
-          {isStaged(rollout) ? (
-            <DetailRow
-              label={rollout.method === RolloutMethod.PILOT ? "Pilot size" : "Batch size"}
-              value={
-                rollout.batchCount > 1
-                  ? `${minersNoun(rollout.batchSize)} per batch, ${rollout.batchCount} batches`
-                  : minersNoun(rollout.batchSize)
-              }
-            />
-          ) : null}
-          {isStaged(rollout) ? (
-            <DetailRow
-              label="Review gates"
-              value={
-                rollout.autoAdvance
-                  ? `Automatic (hashrate drop ≤ ${rollout.maxHashrateDropPercent}%, ${formatDurationSeconds(rollout.stabilizationSeconds)} stabilization)`
-                  : "Manual"
-              }
-            />
-          ) : null}
-          <DetailRow label="Started" value={formatRolloutTimestamp(rollout.createdAt)} />
-          {rollout.finishedAt ? (
-            <DetailRow label="Finished" value={formatRolloutTimestamp(rollout.finishedAt)} />
-          ) : null}
-        </div>
-      </div>
-    </Modal>
+      {minersFilter !== null ? (
+        <RolloutMinersModal
+          key={minersFilter}
+          rollout={rollout}
+          minerNames={minerNames}
+          initialFilter={minersFilter}
+          onClose={() => setMinersFilter(null)}
+        />
+      ) : null}
+    </>
   );
 };
 

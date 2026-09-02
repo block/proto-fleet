@@ -292,8 +292,9 @@ test.describe("Firmware release channels", () => {
 
     await test.step("The review gate shows evidence and can be paused and resumed", async () => {
       await settingsFirmwarePage.openActiveUpdate(laneD, "Rig");
-      await settingsFirmwarePage.validateDetailHeadline("Pilot complete — review needed");
+      await settingsFirmwarePage.validateDetailHeadline("Pilot batch review");
       await settingsFirmwarePage.validateEvidenceVisible();
+      await settingsFirmwarePage.validateDetailMinersCount(2);
       await settingsFirmwarePage.pauseAndResumeFromDetail();
     });
 

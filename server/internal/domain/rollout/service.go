@@ -152,26 +152,47 @@ type Lane struct {
 	ModelGroups []ModelGroup
 }
 
+// Metric is one telemetry reading before the update (baseline) and now; a
+// nil half means no sample was available.
+type Metric struct {
+	Baseline *float64
+	Current  *float64
+}
+
+func metricFrom(baseline, current sql.NullFloat64) Metric {
+	var m Metric
+	if baseline.Valid {
+		b := baseline.Float64
+		m.Baseline = &b
+	}
+	if current.Valid {
+		c := current.Float64
+		m.Current = &c
+	}
+	return m
+}
+
 // RolloutDevice is the live progress and health of one miner within a
 // rollout, alongside the baseline captured when the rollout started.
 type RolloutDevice struct {
 	DeviceID         int64
 	DeviceIdentifier string
+	IPAddress        string
 	FirmwareVersion  string
 	State            string
 	// 1-based batch number; 0 when not part of a snapshotted batch.
-	Batch               int32
-	Status              string
-	Online              bool
-	Hashing             bool
-	HasBaseline         bool
-	BaselineHashing     bool
-	HashRateHs          float64
-	HasHashRate         bool
-	BaselineHashRateHs  float64
-	HasBaselineHashRate bool
-	OpenErrors          int32
-	BaselineOpenErrors  int32
+	Batch              int32
+	Status             string
+	Online             bool
+	Hashing            bool
+	HasBaseline        bool
+	BaselineHashing    bool
+	HashRateHs         Metric
+	PowerW             Metric
+	EfficiencyJh       Metric
+	TempC              Metric
+	OpenErrors         int32
+	BaselineOpenErrors int32
 }
 
 // Evidence summarizes post-update health of the miners under review versus
@@ -190,6 +211,11 @@ type Evidence struct {
 	ReadyToAdvance                bool
 	HoldReason                    string
 	StabilizationRemainingSeconds int32
+	// Aggregates over miners with both halves: total power, mean
+	// efficiency, mean temperature.
+	PowerW       Metric
+	EfficiencyJh Metric
+	TempC        Metric
 }
 
 // Rollout is one firmware change for one model within one lane.
@@ -867,21 +893,22 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 		state = DeviceStateUpdated
 	}
 	d := RolloutDevice{
-		DeviceID:            t.DeviceID,
-		DeviceIdentifier:    t.DeviceIdentifier,
-		FirmwareVersion:     t.FirmwareVersion,
-		State:               state,
-		Status:              t.Status,
-		Online:              t.online(),
-		Hashing:             t.hashing(),
-		HasBaseline:         t.BaselineStatus.Valid,
-		BaselineHashing:     t.baselineHashing(),
-		HasHashRate:         t.HashRateHs.Valid,
-		HashRateHs:          t.HashRateHs.Float64,
-		HasBaselineHashRate: t.BaselineHashRateHs.Valid,
-		BaselineHashRateHs:  t.BaselineHashRateHs.Float64,
-		OpenErrors:          t.OpenErrors,
-		BaselineOpenErrors:  t.BaselineOpenErrors.Int32,
+		DeviceID:           t.DeviceID,
+		DeviceIdentifier:   t.DeviceIdentifier,
+		IPAddress:          t.IpAddress,
+		FirmwareVersion:    t.FirmwareVersion,
+		State:              state,
+		Status:             t.Status,
+		Online:             t.online(),
+		Hashing:            t.hashing(),
+		HasBaseline:        t.BaselineStatus.Valid,
+		BaselineHashing:    t.baselineHashing(),
+		HashRateHs:         metricFrom(t.BaselineHashRateHs, t.HashRateHs),
+		PowerW:             metricFrom(t.BaselinePowerW, t.PowerW),
+		EfficiencyJh:       metricFrom(t.BaselineEfficiencyJh, t.EfficiencyJh),
+		TempC:              metricFrom(t.BaselineTempC, t.TempC),
+		OpenErrors:         t.OpenErrors,
+		BaselineOpenErrors: t.BaselineOpenErrors.Int32,
 	}
 	if t.BatchIndex.Valid {
 		d.Batch = t.BatchIndex.Int32 + 1
@@ -925,7 +952,11 @@ func reviewScope(r sqlc.FirmwareRollout, targets []target) []target {
 func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	ev := Evidence{DevicesTotal: int32(len(scope))} // #nosec G115 -- bounded by the member count
 	missingSamples := 0
+	var power, efficiency, temp metricAggregate
 	for _, t := range scope {
+		power.add(t.BaselinePowerW, t.PowerW)
+		efficiency.add(t.BaselineEfficiencyJh, t.EfficiencyJh)
+		temp.add(t.BaselineTempC, t.TempC)
 		if t.verified(r.FirmwareVersion) {
 			ev.Verified++
 		}
@@ -954,6 +985,9 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	if ev.HasHashrateEvidence && ev.BaselineHashRateHs > 0 {
 		ev.HashrateChangePercent = (ev.CurrentHashRateHs - ev.BaselineHashRateHs) / ev.BaselineHashRateHs * 100
 	}
+	ev.PowerW = power.sum()
+	ev.EfficiencyJh = efficiency.mean()
+	ev.TempC = temp.mean()
 
 	switch {
 	case r.Status != StatusActive:
@@ -984,6 +1018,38 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 		}
 	}
 	return ev
+}
+
+// metricAggregate folds per-device before/after samples, counting only
+// devices that have both halves so the comparison is like for like.
+type metricAggregate struct {
+	baseline, current float64
+	n                 int
+}
+
+func (a *metricAggregate) add(baseline, current sql.NullFloat64) {
+	if !baseline.Valid || !current.Valid {
+		return
+	}
+	a.baseline += baseline.Float64
+	a.current += current.Float64
+	a.n++
+}
+
+func (a *metricAggregate) sum() Metric {
+	if a.n == 0 {
+		return Metric{}
+	}
+	b, c := a.baseline, a.current
+	return Metric{Baseline: &b, Current: &c}
+}
+
+func (a *metricAggregate) mean() Metric {
+	if a.n == 0 {
+		return Metric{}
+	}
+	b, c := a.baseline/float64(a.n), a.current/float64(a.n)
+	return Metric{Baseline: &b, Current: &c}
 }
 
 func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, laneName string) (*Rollout, error) {

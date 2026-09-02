@@ -6,18 +6,20 @@ import {
   batchedRigRollout,
   completedRigRollout,
   gatedRigRollout,
+  minerNames,
   pausedRigRollout,
   pilotRigRollout,
 } from "./RolloutChannels.fixtures";
 import RolloutDetailModal from "./RolloutDetailModal";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
-// The update detail modal behind "View update": status lockup with a live
-// elapsed timer while running, segmented progress with legend, the review
-// gate with per-miner evidence against baseline, operator controls (pause,
-// resume, abort, continue), and the scope/target/timing detail rows.
+// The full-screen update detail behind "View update": a sticky header
+// carrying the lifecycle actions (Manage / Continue / Pause / Resume, with
+// View miners and Cancel remaining in the overflow), then errors first, the
+// status lockup, plan stat lockups, progress against plan, and the
+// telemetry evidence strip. "View miners" opens the standalone miners list.
 const meta = {
-  title: "Proto Fleet/Firmware/Rollout Channels/Update Detail Modal",
+  title: "Proto Fleet/Firmware/Rollout Channels/Update Detail",
   component: RolloutDetailModal,
   parameters: {
     layout: "fullscreen",
@@ -34,11 +36,13 @@ const afterDelay = () => new Promise<void>((resolve) => setTimeout(resolve, 800)
 const Render = ({ rollout }: { rollout: Rollout }) => (
   <RolloutDetailModal
     rollout={rollout}
+    minerNames={minerNames}
     onClose={noop}
     onContinue={afterDelay}
     onPause={afterDelay}
     onResume={afterDelay}
     onAbort={noop}
+    onManage={noop}
   />
 );
 
@@ -48,17 +52,17 @@ export const InProgress: Story = {
 };
 
 export const PilotInProgress: Story = {
-  name: "Pilot in progress",
+  name: "Pilot batch in progress",
   render: () => <Render rollout={pilotRigRollout} />,
 };
 
 export const PilotAwaitingReview: Story = {
-  name: "Pilot awaiting review (healthy evidence)",
+  name: "Pilot batch review (healthy evidence)",
   render: () => <Render rollout={gatedRigRollout} />,
 };
 
 export const BatchesHoldingOnEvidence: Story = {
-  name: "Batch 2 of 3 holding (degraded evidence, auto-advance)",
+  name: "Batch 2 review holding (miners need attention)",
   render: () => <Render rollout={batchedRigRollout} />,
 };
 
@@ -73,6 +77,6 @@ export const Completed: Story = {
 };
 
 export const Aborted: Story = {
-  name: "Aborted update",
+  name: "Canceled update",
   render: () => <Render rollout={abortedRigRollout} />,
 };

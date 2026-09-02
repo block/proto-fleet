@@ -35,9 +35,10 @@ export class SettingsFirmwarePage extends BasePage {
     return this.page.getByTestId(`rollout-lane-${laneName}`);
   }
 
-  // The channel's row in the release channels table.
+  // The channel's row in the release channels table (a shared List row,
+  // located through the name cell it contains).
   channelRow(laneName: string): Locator {
-    return this.page.getByTestId(`channel-row-${laneName}`);
+    return this.page.getByTestId("list-row").filter({ has: this.page.getByTestId(`channel-row-${laneName}`) });
   }
 
   async createLane(laneName: string) {
@@ -74,12 +75,12 @@ export class SettingsFirmwarePage extends BasePage {
 
   // The expanded per-model row reports an ongoing update.
   async validateModelRowUpdating(laneName: string, model: string) {
-    await expect(this.page.getByTestId(`model-row-${laneName}-${model}`)).toContainText("Updating,");
+    await expect(this.page.getByTestId(`model-status-${laneName}-${model}`)).toContainText("Updating,");
   }
 
   // The channel row's status column reports this many active updates.
   async validateChannelActiveUpdates(laneName: string, count: number) {
-    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toHaveText(`${count} active`);
+    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toContainText(`${count} active`);
   }
 
   activeUpdateRow(laneName: string, model: string): Locator {
@@ -92,7 +93,7 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.activeUpdateRow(laneName, model)).toBeVisible();
   }
 
-  // Opens the update detail modal from the active updates section.
+  // Opens the full-screen update detail from an active update banner.
   async openUpdateDetail(laneName: string, model: string) {
     await this.activeUpdateRow(laneName, model).getByRole("button", { name: "View update", exact: true }).click();
     await this.validateTitleInModal(`${laneName}, ${model} firmware update`);
@@ -100,7 +101,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async closeUpdateDetail() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Done", exact: true }).click();
+    await this.page.getByTestId("modal").getByRole("button", { name: "Close update details" }).click();
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
@@ -227,11 +228,7 @@ export class SettingsFirmwarePage extends BasePage {
   // The model group sits at a review gate: the batch is on the new version
   // and the rest wait for the rollout to be continued.
   async waitForModelReviewNeeded(laneName: string, timeoutMs: number) {
-    await expect(
-      this.laneCard(laneName)
-        .getByText(/complete — review needed/)
-        .first(),
-    ).toBeVisible({
+    await expect(this.laneCard(laneName).getByText("Review needed", { exact: true }).first()).toBeVisible({
       timeout: timeoutMs,
     });
   }
@@ -241,8 +238,8 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.appRolloutPill()).toContainText(/needs? review/);
   }
 
-  // Opens the detail modal of an active update, whichever action label the
-  // row currently carries ("View update" or "Review update").
+  // Opens the detail of an active update, whichever action label the banner
+  // currently carries ("View update" or "Review update").
   async openActiveUpdate(laneName: string, model: string) {
     await this.activeUpdateRow(laneName, model)
       .getByRole("button", { name: /^(View|Review) update$/ })
@@ -258,16 +255,30 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("rollout-status-headline")).toHaveText(text);
   }
 
-  // The review evidence block is on screen with its four figures.
+  // The review evidence is on screen: verification lockups in the stats
+  // grid and the telemetry strip with its error count.
   async validateEvidenceVisible() {
+    const stats = this.detailModal().getByTestId("rollout-detail-stats");
+    await expect(stats.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
+    await expect(stats.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
     const evidence = this.detailModal().getByTestId("rollout-evidence");
     await expect(evidence).toBeVisible();
-    await expect(evidence.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
-    await expect(evidence.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
+    await expect(evidence.getByTestId("evidence-hashrate")).toBeVisible();
     await expect(evidence.getByTestId("evidence-errors")).toBeVisible();
   }
 
-  // Pause from the detail modal and confirm the rollout reports paused;
+  // Opens the miners drill-down from the detail's overflow menu and checks
+  // it lists this many miners, then closes it.
+  async validateDetailMinersCount(count: number) {
+    await this.detailModal().getByTestId("view-rollout-more-actions-trigger").click();
+    await this.page.getByTestId("view-rollout-view-miners-action").click();
+    const miners = this.page.getByTestId("rollout-miners-modal");
+    await expect(miners.getByTestId("list-row")).toHaveCount(count);
+    await miners.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(miners).toBeHidden();
+  }
+
+  // Pause from the detail header and confirm the rollout reports paused;
   // then resume and confirm it no longer does.
   async pauseAndResumeFromDetail() {
     await this.detailModal().getByRole("button", { name: "Pause", exact: true }).click();
@@ -279,22 +290,26 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.detailModal().getByTestId("paused-banner")).toBeHidden();
   }
 
-  // Releases the review gate from the open detail modal (a primary modal
-  // action, so it also dismisses the modal).
+  // Releases the review gate from the detail header; the detail stays open
+  // showing the next step, so close it explicitly afterwards.
   async continueFromDetail() {
-    await this.detailModal().getByRole("button", { name: "Continue rollout", exact: true }).click();
-    await expect(this.detailModal()).toBeHidden();
+    await this.detailModal().getByRole("button", { name: "Continue", exact: true }).click();
     await this.validateTextInToast("Continuing");
+    await expect(this.detailModal().getByRole("button", { name: "Continue", exact: true })).toBeHidden();
+    await this.closeUpdateDetail();
   }
 
-  // Aborts from the open detail modal through the confirmation dialog.
+  // Cancels the remaining update from the detail's overflow menu through
+  // the confirmation dialog.
   async abortFromDetail() {
-    await this.detailModal().getByRole("button", { name: "Abort", exact: true }).click();
+    await this.detailModal().getByTestId("view-rollout-more-actions-trigger").click();
+    await this.page.getByTestId("view-rollout-cancel-action").click();
     const dialog = this.page.getByTestId("abort-rollout-dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: "Abort rollout", exact: true }).click();
+    await dialog.getByRole("button", { name: "Cancel update", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await this.validateTextInToast("Aborted");
+    await this.validateTextInToast("Canceled");
+    await expect(this.detailModal()).toBeHidden();
   }
 
   // The firmware picker of the model group shows this version.
@@ -327,8 +342,9 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   // The channel row's status column flags a pilot waiting for review.
+  // The channel row's status column flags an update waiting on a human.
   async validateChannelReviewNeeded(laneName: string) {
-    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toContainText("review needed");
+    await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toContainText(/needs? attention/);
   }
 
   async validateLaneRolloutInProgress(laneName: string, version: string) {

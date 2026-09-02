@@ -23,9 +23,9 @@ interface RolloutPillProps {
 // Trigger copy leads with what needs a human: a rollout parked at its review
 // gate outranks rollouts that are merely running.
 function triggerLabel(rollouts: Rollout[], reviewCount: number): string {
-  if (reviewCount === 1) return "Rollout needs review";
-  if (reviewCount > 1) return `${reviewCount} rollouts need review`;
-  return rollouts.length === 1 ? "Rollout in progress" : `${rollouts.length} rollouts in progress`;
+  if (reviewCount === 1) return "Firmware update needs review";
+  if (reviewCount > 1) return `${reviewCount} firmware updates need review`;
+  return rollouts.length === 1 ? "Firmware update in progress" : `${rollouts.length} firmware updates in progress`;
 }
 
 function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {

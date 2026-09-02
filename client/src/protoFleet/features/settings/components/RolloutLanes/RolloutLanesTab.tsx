@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { timestampMs } from "@bufbuild/protobuf/wkt";
+import { useCallback, useEffect, useState } from "react";
 
-import ActiveUpdatesSection from "./ActiveUpdatesSection";
 import ChannelManageView from "./ChannelManageView";
 import ChannelsTable from "./ChannelsTable";
 import LaneHistoryModal from "./LaneHistoryModal";
-import RolloutDetailModal from "./RolloutDetailModal";
-import { Rollout, RolloutLane, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { Rollout, RolloutLane } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
-import { useRolloutLanes } from "@/protoFleet/api/useRolloutLanes";
+import type { RolloutLanesApi } from "@/protoFleet/api/useRolloutLanes";
 import MinerSelectionModal from "@/protoFleet/components/TargetSelectionModal/MinerSelectionModal";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -21,7 +18,16 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const ROLLOUT_LANES_DESCRIPTION =
   "Group miners into release channels and assign firmware per model. Assigned firmware is enforced: miners not on the assigned version are updated automatically.";
 
-const RolloutLanesTab = () => {
+interface RolloutLanesTabProps {
+  // Shared with the active-updates monitor above the tabs, so one poll
+  // feeds both.
+  api: RolloutLanesApi;
+  // Channel to open in the manage view on mount (e.g. from an update's
+  // "Manage" action).
+  initialManagedLaneId?: bigint | null;
+}
+
+const RolloutLanesTab = ({ api, initialManagedLaneId = null }: RolloutLanesTabProps) => {
   const {
     lanes,
     rollouts,
@@ -32,11 +38,7 @@ const RolloutLanesTab = () => {
     updateMembers,
     applyFirmware,
     rollbackFirmware,
-    continueRollout,
-    pauseRollout,
-    resumeRollout,
-    abortRollout,
-  } = useRolloutLanes();
+  } = api;
   const { listFirmwareFiles } = useFirmwareApi();
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -50,13 +52,8 @@ const RolloutLanesTab = () => {
   // History entry whose firmware is about to be restored.
   const [rollbackTarget, setRollbackTarget] = useState<Rollout | null>(null);
   const [isRollingBack, setIsRollingBack] = useState(false);
-  // Active rollout about to be aborted.
-  const [abortTarget, setAbortTarget] = useState<Rollout | null>(null);
-  const [isAborting, setIsAborting] = useState(false);
   // Channel drilled into via "Manage"; null shows the channels table.
-  const [managedLaneId, setManagedLaneId] = useState<bigint | null>(null);
-  // Rollout open in the update detail modal, resolved live on each poll.
-  const [viewUpdateId, setViewUpdateId] = useState<bigint | null>(null);
+  const [managedLaneId, setManagedLaneId] = useState<bigint | null>(initialManagedLaneId);
 
   useEffect(() => {
     listFirmwareFiles()
@@ -65,15 +62,6 @@ const RolloutLanesTab = () => {
         pushToast({ message: error?.message || "Failed to load firmware files", status: STATUSES.error });
       });
   }, [listFirmwareFiles]);
-
-  // Live views for ongoing rollouts, most recently started first.
-  const activeRollouts = useMemo(
-    () =>
-      rollouts
-        .filter((rollout) => rollout.status === RolloutStatus.ACTIVE)
-        .sort((a, b) => (b.createdAt ? timestampMs(b.createdAt) : 0) - (a.createdAt ? timestampMs(a.createdAt) : 0)),
-    [rollouts],
-  );
 
   const handleCreate = () => {
     setIsCreating(true);
@@ -105,43 +93,6 @@ const RolloutLanesTab = () => {
       })
       .finally(() => setIsRollingBack(false));
   };
-
-  const handleAbort = () => {
-    if (!abortTarget) return;
-    const rollout = abortTarget;
-    setIsAborting(true);
-    abortRollout(rollout.id)
-      .then((result) => {
-        setAbortTarget(null);
-        pushToast({
-          message: result.restoredPrevious
-            ? `Aborted ${rollout.model} rollout in ${rollout.laneName}; restoring ${result.previousFirmwareVersion}`
-            : `Aborted ${rollout.model} rollout in ${rollout.laneName}; firmware assignment cleared`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({ message: error?.message || "Couldn't abort the rollout", status: STATUSES.error });
-      })
-      .finally(() => setIsAborting(false));
-  };
-
-  // Pause / resume act on the live rollout and report through toasts; the
-  // detail modal stays open so the operator sees the state flip.
-  const togglePause = (rollout: Rollout, pause: boolean) =>
-    (pause ? pauseRollout(rollout.id) : resumeRollout(rollout.id))
-      .then(() => {
-        pushToast({
-          message: `${pause ? "Paused" : "Resumed"} ${rollout.model} rollout in ${rollout.laneName}`,
-          status: STATUSES.success,
-        });
-      })
-      .catch((error) => {
-        pushToast({
-          message: error?.message || `Couldn't ${pause ? "pause" : "resume"} the rollout`,
-          status: STATUSES.error,
-        });
-      });
 
   const handleDelete = () => {
     if (!laneToDelete) return;
@@ -185,25 +136,13 @@ const RolloutLanesTab = () => {
       .finally(() => setIsSavingMembers(false));
   };
 
-  // Resolved fresh on every poll so the drill-in card and the update detail
-  // modal track live progress; both fall back gracefully if the record goes.
+  // Resolved fresh on every poll so the drill-in card tracks live progress;
+  // falls back to the table if the channel goes.
   const managedLane = managedLaneId !== null ? lanes.find((lane) => lane.id === managedLaneId) : undefined;
-  const viewedRollout = viewUpdateId !== null ? rollouts.find((rollout) => rollout.id === viewUpdateId) : undefined;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Release channels" description={ROLLOUT_LANES_DESCRIPTION} />
-        {managedLane ? null : (
-          <Button
-            variant={variants.primary}
-            size={sizes.compact}
-            text="Create release channel"
-            onClick={() => setShowCreateDialog(true)}
-            className="shrink-0 phone:w-full"
-          />
-        )}
-      </div>
+      <SettingsPageHeader title="Release channels" description={ROLLOUT_LANES_DESCRIPTION} />
 
       {managedLane ? (
         <>
@@ -226,92 +165,32 @@ const RolloutLanesTab = () => {
             onApply={applyFirmware}
           />
         </>
-      ) : (
-        <>
-          {activeRollouts.length > 0 ? (
-            <ActiveUpdatesSection rollouts={activeRollouts} onViewUpdate={(rollout) => setViewUpdateId(rollout.id)} />
-          ) : null}
-
-          {isLoading ? (
-            <div className="text-center text-text-primary-50">Loading release channels...</div>
-          ) : lanes.length === 0 ? (
-            <SettingsEmptyState
-              title="No release channels"
-              description="Create a release channel, add miners to it, and assign firmware per model to roll out updates."
+      ) : isLoading ? (
+        <div className="text-center text-text-primary-50">Loading release channels...</div>
+      ) : lanes.length === 0 ? (
+        <div className="flex flex-col gap-6">
+          <div>
+            <Button
+              variant={variants.primary}
+              size={sizes.compact}
+              text="Create release channel"
+              onClick={() => setShowCreateDialog(true)}
+              className="phone:w-full"
             />
-          ) : (
-            <section className="grid gap-3">
-              <span className="text-200 text-text-primary-50">
-                {lanes.length === 1 ? "1 release channel" : `${lanes.length} release channels`}
-              </span>
-              <ChannelsTable lanes={lanes} rollouts={rollouts} onManage={(lane) => setManagedLaneId(lane.id)} />
-              <span className="text-200 text-text-primary-50">
-                Expand a release channel to inspect its model-specific targets and update state.
-              </span>
-            </section>
-          )}
-        </>
-      )}
-
-      {viewedRollout ? (
-        <RolloutDetailModal
-          rollout={viewedRollout}
-          onClose={() => setViewUpdateId(null)}
-          onContinue={(rollout) =>
-            continueRollout(rollout.id)
-              .then(() => {
-                pushToast({
-                  message: `Continuing ${rollout.model} rollout in ${rollout.laneName}`,
-                  status: STATUSES.success,
-                });
-              })
-              .catch((error) => {
-                pushToast({ message: error?.message || "Couldn't continue the rollout", status: STATUSES.error });
-              })
-          }
-          onPause={(rollout) => togglePause(rollout, true)}
-          onResume={(rollout) => togglePause(rollout, false)}
-          onAbort={(rollout) => {
-            setViewUpdateId(null);
-            setAbortTarget(rollout);
-          }}
+          </div>
+          <SettingsEmptyState
+            title="No release channels"
+            description="Create a release channel, add miners to it, and assign firmware per model to roll out updates."
+          />
+        </div>
+      ) : (
+        <ChannelsTable
+          lanes={lanes}
+          rollouts={rollouts}
+          onCreate={() => setShowCreateDialog(true)}
+          onManage={(lane) => setManagedLaneId(lane.id)}
         />
-      ) : null}
-
-      <Dialog
-        open={abortTarget !== null}
-        title="Abort firmware rollout?"
-        subtitle={
-          abortTarget
-            ? abortTarget.previousFirmwareVersion && abortTarget.previousFirmwareVersion !== abortTarget.firmwareVersion
-              ? `The ${abortTarget.model} rollout in ${abortTarget.laneName} stops now. The previous assignment (${abortTarget.previousFirmwareVersion}) is restored and miners already on ${abortTarget.firmwareVersion} are rolled back to it.`
-              : `The ${abortTarget.model} rollout in ${abortTarget.laneName} stops now. There is no previous assignment to restore, so the model's firmware assignment is cleared; miners keep whatever version they are on.`
-            : ""
-        }
-        testId="abort-rollout-dialog"
-        onDismiss={() => {
-          if (!isAborting) setAbortTarget(null);
-        }}
-        icon={
-          <DialogIcon intent="critical">
-            <Alert />
-          </DialogIcon>
-        }
-        buttons={[
-          {
-            text: "Keep running",
-            variant: variants.secondary,
-            onClick: () => setAbortTarget(null),
-            disabled: isAborting,
-          },
-          {
-            text: "Abort rollout",
-            variant: variants.danger,
-            onClick: handleAbort,
-            loading: isAborting,
-          },
-        ]}
-      />
+      )}
 
       <Dialog
         open={showCreateDialog}
