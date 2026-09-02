@@ -1046,7 +1046,7 @@ func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "latest_metrics.hash_rate_hs / 1e12 > $2")
-	assert.Contains(t, sql, "device_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
 }
@@ -1139,7 +1139,7 @@ func TestAppendFilterSQL_NoNumericRange_DoesNotExcludeOffline(t *testing.T) {
 
 	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
 
-	assert.NotContains(t, sb.String(), "device_status.status != 'OFFLINE'")
+	assert.NotContains(t, sb.String(), "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
 }
 
 func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {
