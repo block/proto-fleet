@@ -78,6 +78,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0644 "+filepath.Join(secrets, "service-ca.crt")+" "+filepath.Join(configRoot, "service-ca.crt"))
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0600 "+filepath.Join(secrets, "fleet-client.key")+" "+filepath.Join(configRoot, "fleet-client.key"))
 	require.Contains(t, joined, "sudo install -o root -g root -m 0600 /dev/null "+haGrafanaVolumeOwnershipMarker)
+	require.Contains(t, joined, "sudo install -d -o root -g root -m 0755 "+haSystemMonitoringDir)
 }
 
 func TestInstallDoesNotRecordActiveMarkerWhenStartupFails(t *testing.T) {
@@ -465,7 +466,7 @@ func TestPrepareImagesRejectsMissingReleaseImage(t *testing.T) {
 			}
 
 			// Act
-			err := prepareImages(t.Context(), source, config, deps)
+			err := prepareImages(t.Context(), source, config, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps)
 
 			// Assert
 			require.ErrorContains(t, err, "archive did not load required image "+image)
@@ -867,15 +868,22 @@ func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
 }
 
 func TestValidateReleaseRejectsMissingRuntimeAsset(t *testing.T) {
-	// Arrange
-	source := testInstallRelease(t)
-	require.NoError(t, os.Remove(filepath.Join(source, "images", "fleet.tar.gz")))
+	for _, asset := range []string{
+		"images/fleet.tar.gz",
+		"server/otel-collector-config.datadog.yaml",
+		"server/monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml",
+		"server/monitoring/grafana/system-monitoring/dashboards.yaml",
+		"server/monitoring/grafana/system-monitoring/dashboards/system-monitoring.json",
+	} {
+		t.Run(asset, func(t *testing.T) {
+			source := testInstallRelease(t)
+			require.NoError(t, os.Remove(filepath.Join(source, asset)))
 
-	// Act
-	err := validateRelease(source, os.ReadFile)
+			err := validateRelease(source, os.ReadFile)
 
-	// Assert
-	require.ErrorContains(t, err, "release is missing images/fleet.tar.gz")
+			require.ErrorContains(t, err, "release is missing "+asset)
+		})
+	}
 }
 
 func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
@@ -926,7 +934,9 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 			return "", fmt.Errorf("not found")
 		},
 		requireEmpty: func(string, string) error { return nil },
-		validateHost: func(context.Context, string) (NodeConfig, error) { return config, nil },
+		validateHost: func(context.Context, string) (NodeConfig, fleetApplicationProfile, error) {
+			return config, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, nil
+		},
 		verifyVIP: func(context.Context, NodeConfig) error {
 			record("verify-vip")
 			return nil
@@ -971,14 +981,20 @@ func testInstallRelease(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	required := map[string]string{
-		"version.txt":                           "version: test\n",
-		"docker-compose.yaml":                   "services:\n  fleet-api:\n    image: proto-fleet-api:test\n  fleet-client:\n    image: proto-fleet-client:test\n",
-		"docker-compose.alerts.yaml":            "services:\n  grafana:\n    image: grafana/grafana:13.0\n",
-		"server/docker-compose.base.yaml":       "services: {}\n",
-		"server/monitoring/grafana/grafana.ini": "[unified_alerting]\nenabled = true\n",
-		"server/monitoring/grafana/provisioning/alerting/notification-policies.yaml": "apiVersion: 1\n",
-		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml":                     "apiVersion: 1\n",
-		"server/monitoring/grafana/ha/timescaledb.yaml":                              "apiVersion: 1\n",
+		"version.txt":                               "version: test\n",
+		"docker-compose.yaml":                       "services:\n  fleet-api:\n    image: proto-fleet-api:test\n  fleet-client:\n    image: proto-fleet-client:test\n",
+		"docker-compose.alerts.yaml":                "services:\n  grafana:\n    image: grafana/grafana:13.0\n",
+		"docker-compose.system-monitoring.yaml":     "services: {}\n",
+		"docker-compose.tracing.yaml":               "services: {}\n",
+		"server/docker-compose.base.yaml":           "services: {}\n",
+		"server/otel-collector-config.datadog.yaml": "receivers: {}\n",
+		"server/monitoring/grafana/grafana.ini":     "[unified_alerting]\nenabled = true\n",
+		"server/monitoring/grafana/provisioning/alerting/notification-policies.yaml":    "apiVersion: 1\n",
+		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml":                        "apiVersion: 1\n",
+		"server/monitoring/grafana/ha/timescaledb.yaml":                                 "apiVersion: 1\n",
+		"server/monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml":     "apiVersion: 1\n",
+		"server/monitoring/grafana/system-monitoring/dashboards.yaml":                   "apiVersion: 1\n",
+		"server/monitoring/grafana/system-monitoring/dashboards/system-monitoring.json": "{}\n",
 		"server/Dockerfile":                                      "FROM scratch\n",
 		"server/fleetd":                                          "binary",
 		"server/proto-plugin":                                    "binary",
@@ -992,6 +1008,9 @@ func testInstallRelease(t *testing.T) string {
 		"ha/fleet-ha":                                            "binary",
 		"ha/compose.yaml":                                        "services:\n  patroni:\n    image: proto-fleet-timescaledb-ha:test\n",
 		"ha/fleet-compose.yaml":                                  "services: {}\n",
+		"ha/fleet-compose.alerts.yaml":                           "services: {}\n",
+		"ha/fleet-compose.system-monitoring.yaml":                "services: {}\n",
+		"ha/fleet-compose.tracing.yaml":                          "services: {}\n",
 		"ha/firewall.nft.tmpl":                                   "${HA_NODE_IP} ${HA_DB_A_IP} ${HA_DB_B_IP} ${HA_DCS_C_IP} ${HA_NETWORK_INTERFACE}\n",
 		"ha/firewall-replace.nft":                                "delete table inet proto_fleet_ha\ninclude \"/etc/proto-fleet/ha/firewall.nft\"\n",
 		"ha/keepalived.conf.tmpl":                                "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
@@ -1031,17 +1050,19 @@ func writeTestSecretBundle(t *testing.T, config NodeConfig) {
 	for _, name := range copiedSecretFiles(config) {
 		contents := "test"
 		if name == fleetEnvironmentFile {
-			contents = "AUTH_CLIENT_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" +
-				"DB_DSN=postgresql://fleet:test@db/fleet\n" +
-				"GRAFANA_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"GRAFANA_DB_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" +
-				"GRAFANA_SECRET_KEY=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n" +
-				"FLEET_ALERTS_WEBHOOK_TOKEN=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n"
+			contents = testFleetEnvironment
 		}
 		require.NoError(t, os.WriteFile(filepath.Join(config.SecretsDir, name), []byte(contents), 0o600))
 	}
 }
+
+const testFleetEnvironment = "AUTH_CLIENT_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+	"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" +
+	"DB_DSN=postgresql://fleet:test@db/fleet\n" +
+	"GRAFANA_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+	"GRAFANA_DB_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" +
+	"GRAFANA_SECRET_KEY=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n" +
+	"FLEET_ALERTS_WEBHOOK_TOKEN=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n"
 
 func callIndex(calls []string, needle string) int {
 	for index, call := range calls {

@@ -63,6 +63,44 @@ ssh -A -t admin@10.40.0.11 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo
 makes it available to the peer checks after `sudo`. Normal password and
 host-key prompts still work when the agent has no applicable key.
 
+The HA installer persists the same deployment feature flags used by the
+standalone profile. `ENABLE_BETA_ALERTS` defaults to `true` for HA so the
+failover-readiness alert remains enabled; `ENABLE_SYSTEM_MONITORING` and
+`ENABLE_TRACING` default to `false`. To override them, export the selected
+`ENABLE_*` values before `sudo` and add them to `--preserve-env`. Tracing also
+requires `DD_API_KEY` to be preserved. To keep that secret out of command
+history and process arguments, open an interactive shell on `ha-a` and read it
+without echo before starting the installer:
+
+```bash
+ssh -A -t admin@10.40.0.11
+read -rsp 'Datadog API key: ' DD_API_KEY < /dev/tty && printf '\n'
+export ENABLE_TRACING=true DD_API_KEY
+curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK,ENABLE_TRACING,DD_API_KEY bash -s -- --ha
+unset DD_API_KEY
+```
+
+The public installer removes the preserved key from its exported environment
+before running any setup or download subprocesses. It exposes the captured
+value only to `fleet-ha`, which immediately moves it into the protected
+in-memory deployment profile and clears its own environment before host work.
+
+For a non-US1 Datadog account, preserve `DD_SITE` too. HA accepts Datadog's
+published site parameters: `datadoghq.com`, `us3.datadoghq.com`,
+`us5.datadoghq.com`, `datadoghq.eu`, `ap1.datadoghq.com`,
+`ap2.datadoghq.com`, `uk1.datadoghq.com`, `ddog-gov.com`, and
+`us2.ddog-gov.com`.
+
+The installer validates these values before changing the hosts and records
+them in the protected `/etc/proto-fleet/ha/fleet.env`. Host updates reuse that
+file, so every stop, preflight, and restart uses the same overlays. Setting
+`ENABLE_BETA_ALERTS=false` also disables the HA readiness
+Grafana sidecar; `fleet-ha status` remains the authoritative readiness check.
+System monitoring is configured on both database hosts, but its runtime job
+runs only on the host that currently owns Fleet. This keeps the shared metric
+series single-writer while preserving monitoring across failover. Its disk
+gauge watches the active host's filesystem containing `/var/lib/proto-fleet/ha`.
+
 The wizard asks for the `ha-b` address, `ha-c` address, VIP, and the SSH
 username shared by the peer hosts. It derives `ha-a`'s local address and
 interface, validates the release and all three addresses, and shows the
