@@ -168,22 +168,6 @@ fi
 EOF
 chmod 0755 "$TEST_DIR/bin/useradd"
 
-cat > "$TEST_DIR/bin/userdel" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'userdel %s\n' "$*" >> "$ACCOUNT_LOG"
-rm -f "$FAKE_ACCOUNT_DB/user"
-EOF
-chmod 0755 "$TEST_DIR/bin/userdel"
-
-cat > "$TEST_DIR/bin/groupdel" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'groupdel %s\n' "$*" >> "$ACCOUNT_LOG"
-rm -f "$FAKE_ACCOUNT_DB/group"
-EOF
-chmod 0755 "$TEST_DIR/bin/groupdel"
-
 cat > "$TEST_DIR/bin/runuser" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -194,12 +178,6 @@ fi
 exec "$@"
 EOF
 chmod 0755 "$TEST_DIR/bin/runuser"
-
-cat > "$TEST_DIR/bin/pgrep" <<'EOF'
-#!/usr/bin/env bash
-[[ "${FAKE_ACCOUNT_BUSY:-0}" == "1" ]]
-EOF
-chmod 0755 "$TEST_DIR/bin/pgrep"
 
 cat > "$TEST_DIR/bin/nologin" <<'EOF'
 #!/usr/bin/env bash
@@ -218,9 +196,6 @@ cat > "$TEST_DIR/bin/flock" <<'EOF'
 set -euo pipefail
 if [[ -n "${REAL_FLOCK:-}" ]]; then
   exec "$REAL_FLOCK" "$@"
-fi
-if [[ "${FAKE_STATE_LOCK_HELD:-0}" == "1" && " $* " == *"state.lock"* ]]; then
-  exit 1
 fi
 if [[ "${1:-}" == "-n" ]]; then
   shift 2
@@ -296,8 +271,6 @@ run_installer() {
   FAKE_GROUP_MEMBERS="${FAKE_GROUP_MEMBERS:-}" \
   FAKE_PRIMARY_GID_USER="${FAKE_PRIMARY_GID_USER:-}" \
   FAKE_RUNUSER_DENY="${FAKE_RUNUSER_DENY:-}" \
-  FAKE_ACCOUNT_BUSY="${FAKE_ACCOUNT_BUSY:-0}" \
-  FAKE_STATE_LOCK_HELD="${FAKE_STATE_LOCK_HELD:-0}" \
   ACCOUNT_LOG="$ACCOUNT_LOG" \
   REAL_FLOCK="${REAL_FLOCK:-}" \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
@@ -314,18 +287,6 @@ run_installer() {
 run_uninstaller() {
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
   FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-0}" \
-  FAKE_ACCOUNT_DB="$ACCOUNT_DB" \
-  FAKE_NOLOGIN_PATH="$TEST_DIR/bin/nologin" \
-  FAKE_ACCOUNT_HOME="${FAKE_ACCOUNT_HOME:-/var/lib/fleetnode}" \
-  FAKE_ACCOUNT_SHELL="${FAKE_ACCOUNT_SHELL:-$TEST_DIR/bin/nologin}" \
-  FAKE_ACCOUNT_GROUPS="${FAKE_ACCOUNT_GROUPS:-fleetnode}" \
-  FAKE_ACCOUNT_PRIMARY_GID="${FAKE_ACCOUNT_PRIMARY_GID:-995}" \
-  FAKE_GROUP_GID="${FAKE_GROUP_GID:-995}" \
-  FAKE_GROUP_MEMBERS="${FAKE_GROUP_MEMBERS:-}" \
-  FAKE_PRIMARY_GID_USER="${FAKE_PRIMARY_GID_USER:-}" \
-  FAKE_ACCOUNT_BUSY="${FAKE_ACCOUNT_BUSY:-0}" \
-  FAKE_STATE_LOCK_HELD="${FAKE_STATE_LOCK_HELD:-0}" \
-  ACCOUNT_LOG="$ACCOUNT_LOG" \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
   SUDO_LOG="$SUDO_LOG" \
   PATH="$TEST_DIR/bin:$PATH" \
@@ -573,6 +534,13 @@ assert_file_contains "$TEST_DIR/bad-checksum.err" "checksum sidecar is not bound
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity material"
 
+if run_uninstaller --purge > "$TEST_DIR/purge.out" 2>&1; then
+  fail "uninstaller accepted the unsupported --purge option"
+fi
+assert_file_contains "$TEST_DIR/purge.out" "Usage: install-fleet-node.sh VERSION"
+[[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "rejected purge removed the program"
+[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "rejected purge removed state"
+
 : > "$SYSTEMCTL_LOG"
 FAKE_FLEETNODE_ACTIVE=0 run_installer v1.3.0
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.3.0"
@@ -582,7 +550,8 @@ if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
   fail "inactive upgrade changed the Fleet Node service state"
 fi
 
-run_uninstaller
+rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+FAKE_FLEETNODE_ACTIVE=1 FAKE_FLEETNODE_ENABLED=1 run_uninstaller
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "uninstall retained the program"
 [[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "uninstall retained the unit"
 [[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "uninstall removed configuration"
@@ -592,55 +561,5 @@ assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 
 run_uninstaller
-run_installer v1.1.0
-
-: > "$SYSTEMCTL_LOG"
-: > "$ACCOUNT_LOG"
-if FAKE_PRIMARY_GID_USER=operator run_uninstaller --purge > "$TEST_DIR/shared-primary-gid-purge.out" 2>&1; then
-  fail "purge accepted a fleetnode group that is another account's primary group"
-fi
-assert_file_contains "$TEST_DIR/shared-primary-gid-purge.out" "fleetnode group is the primary group for unrelated account: operator"
-[[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "refused purge removed the program"
-[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "refused purge removed state"
-if grep -Eq '(^| )(stop|disable) fleet-node.service($| )' "$SYSTEMCTL_LOG"; then
-  fail "purge mutated the service before validating primary group ownership"
-fi
-if [[ -s "$ACCOUNT_LOG" ]]; then
-  fail "purge mutated accounts before validating primary group ownership"
-fi
-
-: > "$ROOT_PREFIX/var/lib/fleetnode/state.lock"
-: > "$SYSTEMCTL_LOG"
-if FAKE_FLEETNODE_ACTIVE=1 FAKE_FLEETNODE_ENABLED=1 FAKE_STATE_LOCK_HELD=1 run_uninstaller --purge > "$TEST_DIR/locked-purge.out" 2>&1; then
-  fail "purge accepted an active state lock"
-fi
-assert_file_contains "$TEST_DIR/locked-purge.out" "Fleet Node state is in use"
-[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "failed purge removed state"
-assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
-if grep -Fq "disable fleet-node.service" "$SYSTEMCTL_LOG"; then
-  fail "refused locked purge disabled the service"
-fi
-
-: > "$SYSTEMCTL_LOG"
-if FAKE_FLEETNODE_ACTIVE=1 FAKE_FLEETNODE_ENABLED=1 FAKE_ACCOUNT_BUSY=1 run_uninstaller --purge > "$TEST_DIR/busy-purge.out" 2>&1; then
-  fail "purge accepted a service account with running processes"
-fi
-assert_file_contains "$TEST_DIR/busy-purge.out" "fleetnode account still has running processes"
-[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "busy purge removed state"
-assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
-if grep -Fq "disable fleet-node.service" "$SYSTEMCTL_LOG"; then
-  fail "refused busy purge disabled the service"
-fi
-
-run_uninstaller --purge
-[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "purge retained the program"
-[[ ! -e "$ROOT_PREFIX/etc/fleetnode" ]] || fail "purge retained configuration"
-[[ ! -e "$ROOT_PREFIX/var/lib/fleetnode" ]] || fail "purge retained state"
-[[ ! -e "$ACCOUNT_DB/user" && ! -e "$ACCOUNT_DB/group" ]] || fail "purge retained the service account"
-assert_file_contains "$ACCOUNT_LOG" "userdel fleetnode"
-assert_file_contains "$ACCOUNT_LOG" "groupdel fleetnode"
-run_uninstaller --purge
 
 echo "Fleet Node installer tests passed"

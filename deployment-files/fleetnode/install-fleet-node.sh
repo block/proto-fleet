@@ -9,7 +9,6 @@ USE_SUDO=0
 INSTALL_LOCK_PID=""
 INSTALL_LOCK_RELEASE_PATH=""
 ACTION=install
-PURGE=0
 VERSION=""
 
 if [[ "$TEST_MODE" != "1" ]]; then
@@ -20,14 +19,13 @@ fi
 usage() {
   cat <<'EOF'
 Usage: install-fleet-node.sh VERSION
-       install-fleet-node.sh uninstall [--purge]
+       install-fleet-node.sh uninstall
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
 
 uninstall removes the program and systemd unit while preserving configuration,
-state, and the service account. --purge also removes those preserved files and
-the dedicated service account.
+state, and the service account.
 
 The installer leaves a fresh installation stopped and disabled at boot. After
 installation, enroll the node and then enable and start the service.
@@ -41,12 +39,7 @@ fi
 case "${1:-}" in
   uninstall)
     ACTION=uninstall
-    case "${2:-}" in
-      "") ;;
-      --purge) PURGE=1 ;;
-      *) usage >&2; exit 2 ;;
-    esac
-    [[ $# -le 2 ]] || { usage >&2; exit 2; }
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     ;;
   "") usage >&2; exit 2 ;;
   *)
@@ -129,14 +122,8 @@ if [[ "$ACTION" == "install" ]] && ! command -v nmap >/dev/null 2>&1; then
   echo "required command not found: nmap; install nmap in the Fleet Node service PATH ($LINUX_SERVICE_PATH)" >&2
   exit 1
 fi
-if [[ "$TEST_MODE" != "1" ]]; then
-  account_commands=()
-  if [[ "$ACTION" == "install" ]]; then
-    account_commands=(getent id nologin runuser useradd)
-  elif [[ "$PURGE" == "1" ]]; then
-    account_commands=(getent groupdel id nologin pgrep userdel)
-  fi
-  for command in "${account_commands[@]}"; do
+if [[ "$TEST_MODE" != "1" && "$ACTION" == "install" ]]; then
+  for command in getent id nologin runuser useradd; do
     command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
   done
 fi
@@ -366,51 +353,10 @@ cleanup() {
 trap cleanup EXIT
 
 remove_fleet_node() {
-  local unit_present=0
-  local service_was_active=0
-  [[ -f "$UNIT_PATH" ]] && unit_present=1
-
-  if [[ "$PURGE" == "1" ]]; then
-    load_service_account
-    if [[ -n "$passwd_record" ]]; then
-      validate_service_account
-    elif [[ -n "$group_record" ]]; then
-      validate_group
-      local _name _password _gid members
-      IFS=: read -r _name _password _gid members <<< "$group_record"
-      [[ -z "$members" ]] || { echo "fleetnode group exists without its service account" >&2; return 1; }
-    fi
-  fi
-
-  if [[ "$unit_present" == "1" ]]; then
-    if [[ "$PURGE" == "1" ]] && as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
-      service_was_active=1
-    fi
+  if as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
     as_root "$SYSTEMCTL" stop fleet-node.service
   fi
-
-  if [[ "$PURGE" == "1" ]]; then
-    if [[ -e "$STATE_DIR/state.lock" ]] && ! as_root flock -n "$STATE_DIR/state.lock" true; then
-      echo "Fleet Node state is in use; refusing to purge while state.lock is held" >&2
-      if [[ "$service_was_active" == "1" ]]; then
-        as_root "$SYSTEMCTL" start fleet-node.service || echo "failed to restart Fleet Node after refusing purge" >&2
-      fi
-      return 1
-    fi
-
-    load_service_account
-    if [[ -n "$passwd_record" ]]; then
-      if as_root pgrep -u "$account_uid" >/dev/null 2>&1; then
-        echo "fleetnode account still has running processes" >&2
-        if [[ "$service_was_active" == "1" ]]; then
-          as_root "$SYSTEMCTL" start fleet-node.service || echo "failed to restart Fleet Node after refusing purge" >&2
-        fi
-        return 1
-      fi
-    fi
-  fi
-
-  if [[ "$unit_present" == "1" ]]; then
+  if as_root "$SYSTEMCTL" is-enabled --quiet fleet-node.service; then
     as_root "$SYSTEMCTL" disable fleet-node.service
   fi
 
@@ -419,23 +365,10 @@ remove_fleet_node() {
   as_root "$SYSTEMCTL" daemon-reload
   as_root "$SYSTEMCTL" reset-failed fleet-node.service >/dev/null 2>&1 || true
 
-  if [[ "$PURGE" == "1" ]]; then
-    as_root rm -rf "$CONFIG_DIR" "$STATE_DIR"
-    load_service_account
-    if [[ -n "$passwd_record" ]]; then
-      as_root userdel fleetnode
-    fi
-    load_service_account
-    if [[ -n "$group_record" ]]; then
-      as_root groupdel fleetnode
-    fi
-    echo "Fleet Node uninstalled and local state purged."
-  else
-    echo "Fleet Node uninstalled. Preserved:"
-    echo "  $CONFIG_DIR"
-    echo "  $STATE_DIR"
-    echo "  fleetnode service account"
-  fi
+  echo "Fleet Node uninstalled. Preserved:"
+  echo "  $CONFIG_DIR"
+  echo "  $STATE_DIR"
+  echo "  fleetnode service account"
 }
 
 if [[ "$ACTION" == "uninstall" ]]; then
