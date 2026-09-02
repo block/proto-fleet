@@ -18,6 +18,8 @@ jobs:
     name: Detect changed areas
     runs-on: ubuntu-latest
     outputs:
+      parallel_phase: ${{ !github.event.act || github.event.phase == 'parallel' }}
+      exclusive_phase: ${{ !github.event.act || github.event.phase == 'exclusive' }}
       deployment_config: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.deployment_config == 'true' }}
       proto: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.proto == 'true' }}
       client: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.client == 'true' }}
@@ -35,6 +37,15 @@ jobs:
       protofleet_e2e: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ (github.event_name != 'pull_request' && !github.event.act) || steps.filter.outputs.protoos_e2e == 'true' }}
     steps:
+      - name: Validate local CI phase
+        if: github.event.act
+        env:
+          LOCAL_CI_PHASE: ${{ github.event.phase }}
+        run: |
+          case "$LOCAL_CI_PHASE" in
+            parallel|exclusive) ;;
+            *) echo "Invalid local CI phase: $LOCAL_CI_PHASE" >&2; exit 1 ;;
+          esac
       - name: Checkout
         if: github.event_name == 'pull_request' || github.event.act
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,6 +61,7 @@ jobs:
   generated-code:
     name: Generated Code Check
     needs: changes
+    if: needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/generated-code-check.yml
     secrets: inherit
 
@@ -63,111 +75,112 @@ jobs:
   deployment-config-checks:
     name: Deployment Config Checks
     needs: changes
-    if: needs.changes.outputs.deployment_config == 'true'
+    if: needs.changes.outputs.deployment_config == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/deployment-config-checks.yml
     secrets: inherit
 
   proto-checks:
     name: Proto Checks
     needs: changes
-    if: needs.changes.outputs.proto == 'true'
+    if: needs.changes.outputs.proto == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-proto-checks.yml
     secrets: inherit
 
   client-checks:
     name: Client Checks
     needs: changes
-    if: needs.changes.outputs.client == 'true'
+    if: needs.changes.outputs.client == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-client-checks.yml
     secrets: inherit
 
   server-checks:
     name: Server Checks
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.server == 'true' && needs.changes.outputs.exclusive_phase == 'true'
     uses: ./.github/workflows/protofleet-server-checks.yml
     secrets: inherit
 
   migration-hygiene:
     name: Migration Hygiene
     needs: changes
+    if: needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/migration-hygiene.yml
     secrets: inherit
 
   antminer-plugin-checks:
     name: Antminer Plugin Checks
     needs: changes
-    if: needs.changes.outputs.antminer_plugin == 'true'
+    if: needs.changes.outputs.antminer_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-antminer-plugin-checks.yml
     secrets: inherit
 
   proto-plugin-checks:
     name: Proto Plugin Checks
     needs: changes
-    if: needs.changes.outputs.proto_plugin == 'true'
+    if: needs.changes.outputs.proto_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-proto-plugin-checks.yml
     secrets: inherit
 
   virtual-plugin-checks:
     name: Virtual Plugin Checks
     needs: changes
-    if: needs.changes.outputs.virtual_plugin == 'true'
+    if: needs.changes.outputs.virtual_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-virtual-plugin-checks.yml
     secrets: inherit
 
   asicrs-plugin-checks:
     name: asicrs Plugin Checks
     needs: changes
-    if: needs.changes.outputs.asicrs_plugin == 'true'
+    if: needs.changes.outputs.asicrs_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/asicrs-plugin-checks.yml
     secrets: inherit
 
   python-checks:
     name: Python SDK and Generator Checks
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    if: needs.changes.outputs.python == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/python-tests.yml
     secrets: inherit
 
   example-python-plugin-checks:
     name: Example Python Plugin Checks
     needs: changes
-    if: needs.changes.outputs.example_python_plugin == 'true'
+    if: needs.changes.outputs.example_python_plugin == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-example-python-plugin-checks.yml
     secrets: inherit
 
   contract-checks:
     name: Plugin Contract Checks
     needs: changes
-    if: needs.changes.outputs.contract_tests == 'true'
+    if: needs.changes.outputs.contract_tests == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/protofleet-contract-checks.yml
     secrets: inherit
 
   rust-sdk-checks:
     name: Rust SDK Checks
     needs: changes
-    if: needs.changes.outputs.rust_sdk == 'true'
+    if: needs.changes.outputs.rust_sdk == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/rust-sdk-checks.yml
     secrets: inherit
 
   windows-checks:
     name: Windows C# Checks
     needs: changes
-    if: needs.changes.outputs.windows == 'true'
+    if: needs.changes.outputs.windows == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/windows-csharp-checks.yml
     secrets: inherit
 
   powershell-lint:
     name: PowerShell Lint
     needs: changes
-    if: needs.changes.outputs.powershell == 'true'
+    if: needs.changes.outputs.powershell == 'true' && needs.changes.outputs.parallel_phase == 'true'
     uses: ./.github/workflows/powershell-lint.yml
     secrets: inherit
 
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
-    if: needs.changes.outputs.protofleet_e2e == 'true'
+    if: needs.changes.outputs.protofleet_e2e == 'true' && needs.changes.outputs.exclusive_phase == 'true'
     uses: ./.github/workflows/protofleet-e2e-tests.yml
     with:
       run_scope: smoke
@@ -176,13 +189,14 @@ jobs:
   protoos-e2e-tests:
     name: ProtoOS E2E Tests
     needs: changes
-    if: needs.changes.outputs.protoos_e2e == 'true'
+    if: needs.changes.outputs.protoos_e2e == 'true' && needs.changes.outputs.exclusive_phase == 'true'
     uses: ./.github/workflows/protoos-e2e-tests.yml
     secrets: inherit
 
   review-policy-tests:
     name: Review Policy Tests
     runs-on: ubuntu-latest
+    if: ${{ !github.event.act || github.event.phase == 'parallel' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

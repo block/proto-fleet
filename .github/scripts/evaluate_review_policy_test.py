@@ -269,6 +269,53 @@ class ReviewPolicyTest(unittest.TestCase):
             ],
         )
 
+    def test_pr_gate_partitions_every_local_ci_job(self):
+        workflow = load_workflow("pr-gate.yml")
+        jobs = workflow["jobs"]
+        exclusive_jobs = {
+            "server-checks",
+            "protofleet-e2e-tests",
+            "protoos-e2e-tests",
+        }
+        infrastructure_jobs = {"changes", "dependency-review", "gate"}
+        parallel_jobs = set(jobs) - exclusive_jobs - infrastructure_jobs
+        outputs = jobs["changes"]["outputs"]
+        for phase in ("parallel", "exclusive"):
+            self.assertEqual(
+                outputs[f"{phase}_phase"],
+                f"${{{{ !github.event.act || github.event.phase == '{phase}' }}}}",
+            )
+
+        for job_id in parallel_jobs - {"review-policy-tests"}:
+            with self.subTest(job=job_id):
+                self.assertIn(
+                    "needs.changes.outputs.parallel_phase == 'true'",
+                    jobs[job_id]["if"],
+                )
+        self.assertIn(
+            "github.event.phase == 'parallel'",
+            jobs["review-policy-tests"]["if"],
+        )
+        for job_id in exclusive_jobs:
+            with self.subTest(job=job_id):
+                self.assertIn(
+                    "needs.changes.outputs.exclusive_phase == 'true'",
+                    jobs[job_id]["if"],
+                )
+
+        phase_validation = next(
+            step
+            for step in jobs["changes"]["steps"]
+            if step.get("name") == "Validate local CI phase"
+        )
+        self.assertEqual(phase_validation["if"], "github.event.act")
+        self.assertIn("parallel|exclusive", phase_validation["run"])
+
+        justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
+        self.assertIn('run_phase parallel "${parallelism}" || status=1', justfile)
+        self.assertIn("run_phase exclusive 1 || status=1", justfile)
+        self.assertIn('--concurrent-jobs "${jobs}"', justfile)
+
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")
         agent = workflow["jobs"]["review-agent"]

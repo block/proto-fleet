@@ -20,14 +20,19 @@ format: _format-server _format-client _format-plugins
 check: lint
 
 # run the PR CI selected by the current diff in local Linux containers
-ci base_branch="main":
+ci base_branch="main" parallelism="4":
   #!/usr/bin/env bash
   set -euo pipefail
 
   repo_root="$(pwd)"
   base_branch={{quote(base_branch)}}
+  parallelism={{quote(parallelism)}}
   if [[ ! "${base_branch}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     echo "Invalid base branch: ${base_branch}" >&2
+    exit 1
+  fi
+  if [[ ! "${parallelism}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid parallelism: ${parallelism}" >&2
     exit 1
   fi
   base_ref="origin/${base_branch}"
@@ -67,22 +72,34 @@ ci base_branch="main":
   git -C "${workspace}" checkout --quiet -b local-ci "${snapshot_sha}"
   mkdir "${workspace}/.home"
 
-  printf '%s\n' \
-    '{"act":true,"base":{"sha":"'"${base_sha}"'"},' \
-    '"head":{"sha":"'"${snapshot_sha}"'"}}' \
-    > "${run_dir}/event.json"
+  run_phase() {
+    local phase="$1"
+    local jobs="$2"
+    local event_path="${run_dir}/event-${phase}.json"
 
-  bin/act --directory "${workspace}" workflow_dispatch \
-    --workflows .github/workflows/pr-gate.yml \
-    --eventpath "${run_dir}/event.json" \
-    --secret GITHUB_TOKEN= \
-    --env "HOME=${workspace}/.home" \
-    --artifact-server-path "${run_dir}/artifacts" \
-    --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
-    --container-architecture linux/amd64 \
-    --concurrent-jobs 1 \
-    --action-offline-mode \
-    --rm
+    printf '%s\n' \
+      '{"act":true,"phase":"'"${phase}"'","base":{"sha":"'"${base_sha}"'"},' \
+      '"head":{"sha":"'"${snapshot_sha}"'"}}' \
+      > "${event_path}"
+
+    echo "=== Local CI ${phase} phase (up to ${jobs} job(s)) ==="
+    bin/act --directory "${workspace}" workflow_dispatch \
+      --workflows .github/workflows/pr-gate.yml \
+      --eventpath "${event_path}" \
+      --secret GITHUB_TOKEN= \
+      --env "HOME=${workspace}/.home" \
+      --artifact-server-path "${run_dir}/artifacts/${phase}" \
+      --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
+      --container-architecture linux/amd64 \
+      --concurrent-jobs "${jobs}" \
+      --action-offline-mode \
+      --rm
+  }
+
+  status=0
+  run_phase parallel "${parallelism}" || status=1
+  run_phase exclusive 1 || status=1
+  exit "${status}"
 
 # run all code generation
 gen: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli _gen-server _format-client _format-server

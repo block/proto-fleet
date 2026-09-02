@@ -223,14 +223,18 @@ The command uses the Hermit-pinned `act` runner to execute
 filters. It snapshots committed, staged, unstaged, and untracked non-ignored
 files without changing the branch or index, then runs in a temporary clone so
 generated and build outputs do not touch the working tree. Pass a different PR
-base branch as needed, for example `just ci release-branch`.
+base branch as needed, for example `just ci release-branch`. Independent jobs
+run with up to four workers by default; pass a different limit as the second
+argument, for example `just ci main 6`.
 
 Docker must be running. The first run downloads the runner image and referenced
-actions; later runs reuse them. Jobs run serially because GitHub's separate job
-runners share one Docker daemon and fixed test ports locally. To protect an
-active development stack, the command refuses to start while the `server`
-Compose project or `fake-proto-rig` container name is in use, and it cleans up
-CI containers and volumes afterward.
+actions; later runs reuse them. Local CI first runs independent checks in
+parallel, then runs the server and service-backed E2E workflows serially because
+GitHub's separate job runners share one Docker daemon and fixed test ports
+locally. Both phases run even when one fails. To protect an active development
+stack, the command refuses to start while the `server` Compose project or
+`fake-proto-rig` container name is in use, and it cleans up CI containers and
+volumes afterward.
 
 `act` cannot reproduce Windows runners or GitHub-hosted policy checks. The
 Windows C# and PowerShell jobs, dependency review, security review, and final
