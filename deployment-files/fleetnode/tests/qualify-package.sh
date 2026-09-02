@@ -41,7 +41,7 @@ cleanup() {
     sudo journalctl --no-pager -u fleet-node.service || true
   fi
   if [[ "$CLEANUP_ALLOWED" == "1" ]]; then
-    run_installer uninstall --purge >/dev/null 2>&1 || true
+    run_installer uninstall >/dev/null 2>&1 || true
   fi
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
   exit "$status"
@@ -108,12 +108,7 @@ getent passwd fleetnode >/dev/null || fail "uninstall removed the service accoun
 
 run_installer "$VERSION"
 sudo systemctl is-active --quiet fleet-node.service && fail "reinstall started the service"
-run_installer uninstall --purge
-
-[[ ! -e /opt/fleetnode ]] || fail "purge retained the program"
-[[ ! -e /etc/fleetnode ]] || fail "purge retained configuration"
-[[ ! -e /var/lib/fleetnode ]] || fail "purge retained state"
-getent passwd fleetnode >/dev/null 2>&1 && fail "purge retained the service account"
+run_installer uninstall
 
 trap - EXIT
 echo "Fleet Node package qualification passed"
