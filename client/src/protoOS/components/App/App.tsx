@@ -20,9 +20,10 @@ import { WarnWakeDialog } from "@/protoOS/components/Power";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
-import { globalRoutePrefetch } from "@/protoOS/routePrefetch";
+import { containerRoutePrefetch, globalRoutePrefetch } from "@/protoOS/routePrefetch";
 import {
   useDefaultPasswordActive,
+  useDeviceType,
   useOnboarded,
   usePasswordSet,
   usePoolsInfo as usePoolsInfoStore,
@@ -273,6 +274,7 @@ const App = ({
   // ============================================================================
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
+  const deviceType = useDeviceType();
 
   // Warm sidebar destinations at idle once the device passes the boot
   // wall — running prefetch parallel with bootup polling contends for
@@ -281,8 +283,10 @@ const App = ({
   // re-schedule.
   useEffect(() => {
     if (isFleetHosted || !isWebServerRunning || !isMiningDriverRunning) return;
-    return prefetchRoutes(globalRoutePrefetch);
-  }, [isWebServerRunning, isMiningDriverRunning, isFleetHosted]);
+    return prefetchRoutes(
+      deviceType === "container" ? [...globalRoutePrefetch, ...containerRoutePrefetch] : globalRoutePrefetch,
+    );
+  }, [isWebServerRunning, isMiningDriverRunning, isFleetHosted, deviceType]);
 
   // ============================================================================
   // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT

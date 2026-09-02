@@ -25,6 +25,26 @@ describe("adapter probe response parsing", () => {
     });
   });
 
+  test("preserves an MDK v2 R2 product", () => {
+    expect(
+      mdkV2Definition.probe.parseResponse({
+        info: { id: "rig-1", version: "v2.0.0", product: "R2" },
+      }),
+    ).toEqual({ deviceId: "rig-1", product: "R2", reportedVersion: "v2.0.0" });
+  });
+
+  test("preserves an unrecognized MDK v2 product", () => {
+    expect(
+      mdkV2Definition.probe.parseResponse({
+        info: { id: "unknown-1", version: "v2.0.0", product: "Frigate" },
+      }),
+    ).toEqual({
+      deviceId: "unknown-1",
+      product: "Frigate",
+      reportedVersion: "v2.0.0",
+    });
+  });
+
   test("rejects a v2 response without the documented info.version field", () => {
     expect(mdkV2Definition.probe.parseResponse({ info: { product: "CT1" } })).toBeUndefined();
   });
@@ -92,7 +112,16 @@ describe("resolveMinerAdapter", () => {
     );
 
     expect(request).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ status: "unsupported", adapterId: "mdk-v2", adapter: undefined });
+    expect(result).toEqual({
+      status: "unsupported",
+      adapterId: "mdk-v2",
+      adapter: undefined,
+      match: {
+        deviceId: undefined,
+        product: "R2",
+        reportedVersion: "v2.0.0",
+      },
+    });
   });
 
   test("returns unsupported without an adapter id when no definition matches", async () => {

@@ -2,7 +2,19 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { toCanonicalTelemetry } from "../../api/adapters/mdkV1/normalize";
-import { asComponentId, ROOT_MODULE_ID, ROOT_MODULE_KEY } from "../contract";
+import {
+  asComponentId,
+  asContainerId,
+  asDeviceId,
+  asEntityKey,
+  asTankId,
+  type CommandCapabilities,
+  type HardwareState,
+  ROOT_MODULE_ID,
+  ROOT_MODULE_KEY,
+  type TankNode,
+  type TelemetryState,
+} from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
 import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } from "./useHardware";
@@ -220,6 +232,128 @@ describe("useMiner", () => {
     const { result } = renderHook(() => useChartDataForMetric("hashrate"));
 
     expect(result.current.chartData).toEqual([]);
+  });
+
+  it("builds container KPI chart series for all six tanks", () => {
+    const commands: CommandCapabilities = {
+      startStop: "unknown",
+      powerTarget: "unknown",
+      locate: "unknown",
+      reboot: "unknown",
+      cooling: "unknown",
+      logs: "unknown",
+      firmwareUpdate: "unknown",
+      poolEditing: "unknown",
+      passwordManagement: "unknown",
+    };
+    const containerId = asContainerId("container:ct1-01");
+    const tanks = Array.from({ length: 6 }, (_, index) => {
+      const slot = index + 1;
+      const id = asTankId(`tank:${slot}`);
+      return [
+        id,
+        {
+          id,
+          containerId,
+          capabilities: commands,
+          moduleIds: [],
+          label: `Tank ${slot}`,
+          slot,
+        } satisfies TankNode,
+      ] as const;
+    });
+    const hardware: HardwareState = {
+      resource: { status: "ready", updatedAtMs: 1_000 },
+      topology: {
+        kind: "container",
+        deviceId: asDeviceId("device:ct1-01"),
+        containerId,
+        container: {
+          id: containerId,
+          capabilities: commands,
+          tankIds: tanks.map(([id]) => id),
+          controlBoardIds: [],
+          fanIds: [],
+          plantComponentIds: [],
+        },
+        tanks: new Map(tanks),
+        modules: new Map(),
+        hashboards: new Map(),
+      },
+      controlBoards: new Map(),
+      hashboards: new Map(),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+    };
+    const points = [
+      { timestampMs: 1_000, value: 800 },
+      { timestampMs: 2_000, value: 810 },
+    ];
+
+    const rollupsByEntity: TelemetryState["rollupsByEntity"] = new Map([
+      [
+        asEntityKey(String(containerId)),
+        {
+          hashrate: {
+            latest: { value: 806.2, units: "TH/s" },
+            timeSeries: {
+              points,
+              bucketSizeMs: 1_000,
+              units: "TH/s",
+              aggregates: {
+                min: { value: 782.4, units: "TH/s" },
+                avg: { value: 800.4, units: "TH/s" },
+                max: { value: 809.8, units: "TH/s" },
+              },
+            },
+          },
+        },
+      ],
+    ]);
+    tanks.forEach(([tankId], index) => {
+      const offset = index === 2 ? 18 : index;
+      rollupsByEntity.set(asEntityKey(String(tankId)), {
+        hashrate: {
+          timeSeries: {
+            points: points.map((point) => ({ ...point, value: point.value - offset })),
+            bucketSizeMs: 1_000,
+            aggregates: { avg: { value: 800 - offset, units: "TH/s" } },
+          },
+        },
+      });
+    });
+
+    useMinerStore.getState().hardware.replaceHardware(hardware);
+    useMinerStore.getState().telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity,
+      hashboards: new Map(),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    const { result } = renderHook(() => useChartDataForMetric("hashrate"));
+
+    expect(result.current.segmentsLabel).toBe("tanks");
+    expect(result.current.series.map(({ label, name }) => ({ label, name }))).toEqual(
+      Array.from({ length: 6 }, (_, index) => ({ label: String(index + 1), name: `Tank ${index + 1}` })),
+    );
+    expect(result.current.chartLines).toEqual(["miner", ...tanks.map(([id]) => String(id))]);
+    expect(result.current.chartData[0]).toMatchObject({
+      miner: 800,
+      "tank:1": 800,
+      "tank:3": 782,
+      "tank:6": 795,
+    });
+
+    const { result: miner } = renderHook(() => useMiner());
+    expect(miner.current?.hashboardSerials).toEqual([]);
+    expect(miner.current?.hashrate?.latest).toEqual({ value: 806.2, units: "TH/s" });
+    expect(miner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 800.4, units: "TH/s" });
   });
 
   it("derives fallback bays from one-based hashboard slots", () => {

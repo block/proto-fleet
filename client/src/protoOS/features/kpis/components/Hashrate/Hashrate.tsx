@@ -1,12 +1,7 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import {
-  convertAndFormatMeasurement,
-  useChartDataForMetric,
-  useMiner,
-  useMinerHashboards,
-  useMinerStore,
-} from "@/protoOS/store";
+import { getLowestAveragePerformer } from "@/protoOS/features/kpis/metricSeries";
+import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
 import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -38,7 +33,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
       size: "small",
     },
     {
-      label: "Lowest Performer",
+      label: "Lowest performer",
       value: lowestPerformer,
       size: "small",
     },
@@ -46,34 +41,25 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Hashrate = () => {
-  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("hashrate");
+  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("hashrate");
   const miner = useMiner();
-  const hashboards = useMinerHashboards();
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
-  const lowestPerformer = useMemo(() => {
-    if (hashboards.length === 0) return undefined;
-
-    let lowestSlot: number | undefined;
-    let lowestAvg = Infinity;
-
-    hashboards.forEach((hashboard) => {
-      const hashboardAvg = hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
-      if (typeof hashboardAvg === "number" && hashboardAvg < lowestAvg) {
-        lowestAvg = hashboardAvg;
-        lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
-      }
-    });
-
-    return lowestSlot === undefined ? undefined : "Hashboard " + lowestSlot;
-  }, [hashboards]);
+  const lowestPerformer = useMemo(() => getLowestAveragePerformer(series), [series]);
 
   return (
     <>
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="TH/s" xAxisDomainOverride={xAxisDomain} />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            series={series}
+            segmentsLabel={segmentsLabel}
+            units="TH/s"
+            xAxisDomainOverride={xAxisDomain}
+          />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

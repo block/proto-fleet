@@ -5,6 +5,7 @@ import { navigationItems } from "../constants";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -18,6 +19,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
   const { isFleetHosted } = useMinerHosting();
+  const deviceType = useDeviceType();
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -41,6 +43,12 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
     <>
       <NavigationItem id={navigationItems.home} text="Home" onClick={handleClick} pageName={pageName} />
       <NavigationItem id={navigationItems.diagnostics} text="Diagnostics" onClick={handleClick} pageName={pageName} />
+      {deviceType === "container" ? (
+        <>
+          <NavigationItem id={navigationItems.tanks} text="Tanks" onClick={handleClick} pageName={pageName} />
+          <NavigationItem id={navigationItems.modules} text="Modules" onClick={handleClick} pageName={pageName} />
+        </>
+      ) : null}
       <NavigationItem id={navigationItems.logs} text="Logs" onClick={handleClick} pageName={pageName} />
       <NavigationItem
         suffixIcon={

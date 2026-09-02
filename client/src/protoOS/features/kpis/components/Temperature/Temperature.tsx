@@ -1,13 +1,7 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import {
-  convertAndFormatMeasurement,
-  useChartDataForMetric,
-  useMiner,
-  useMinerHashboards,
-  useMinerStore,
-  useTemperatureUnit,
-} from "@/protoOS/store";
+import { getHighestMaximumPerformer } from "@/protoOS/features/kpis/metricSeries";
+import { convertAndFormatMeasurement, useChartDataForMetric, useMiner, useTemperatureUnit } from "@/protoOS/store";
 import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -16,7 +10,7 @@ import Stats from "@/shared/components/Stats";
 
 type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => {
+const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: string): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
 
   const baseStats: StatProps[] = [
@@ -42,7 +36,7 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => 
 
   if (lowestPerformer) {
     baseStats.push({
-      label: "Hottest Hashboard",
+      label: `Hottest ${segmentsLabel.slice(0, -1)}`,
       value: lowestPerformer,
       size: "small",
     });
@@ -52,37 +46,23 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => 
 };
 
 const Temperature = () => {
-  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("temperature");
+  const { chartData, chartLines, segmentsLabel, series, xAxisDomain } = useChartDataForMetric("temperature");
   const miner = useMiner();
-  const hashboards = useMinerHashboards();
   const temperatureUnit = useTemperatureUnit();
   const aggregates = miner?.temperature?.timeSeries?.aggregates;
 
-  const lowestPerformer = useMemo(() => {
-    if (hashboards.length === 0) return undefined;
-
-    let hottestSlot: number | undefined;
-    let hottestTemp = -Infinity;
-
-    hashboards.forEach((hashboard) => {
-      const hashboardMax = hashboard.temperature?.timeSeries?.aggregates?.max?.value;
-      if (typeof hashboardMax === "number" && hashboardMax > hottestTemp) {
-        hottestTemp = hashboardMax;
-        hottestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
-      }
-    });
-
-    return hottestSlot === undefined ? undefined : "Hashboard " + hottestSlot;
-  }, [hashboards]);
+  const lowestPerformer = useMemo(() => getHighestMaximumPerformer(series), [series]);
 
   return (
     <>
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
-          <Stats stats={getStats({ ...aggregates, lowestPerformer }, temperatureUnit)} />
+          <Stats stats={getStats({ ...aggregates, lowestPerformer }, temperatureUnit, segmentsLabel)} />
           <KpiLineChart
             chartData={chartData}
             chartLines={chartLines}
+            series={series}
+            segmentsLabel={segmentsLabel}
             units={"°" + temperatureUnit}
             xAxisDomainOverride={xAxisDomain}
           />

@@ -29,7 +29,7 @@ const TabMenuWrapper = memo(() => {
         path: "/efficiency",
       },
       powerUsage: {
-        name: "Power Usage",
+        name: "Power usage",
         value: convertAndFormatMeasurement(miner?.power?.latest, "kW", false),
         units: "kW",
         path: "/power-usage",

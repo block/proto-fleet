@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { asAsicId, ROOT_MODULE_KEY } from "../contract";
+import { asAsicId, asEntityKey, ROOT_MODULE_KEY, type Topology } from "../contract";
 import {
   asicTelemetryView,
   fanTelemetryView,
@@ -14,6 +14,27 @@ import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePre
 import { getDurationMs } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart";
 
+type KpiMetricName = "hashrate" | "temperature" | "power" | "efficiency";
+
+export interface KpiChartSeries {
+  key: string;
+  /** Compact selector label, for example `1`. */
+  label: string;
+  /** Full entity label used in summaries and tooltips. */
+  name: string;
+  colorIndex: number;
+  averageValue?: number | null;
+  maximumValue?: number | null;
+}
+
+const homeRollupKey = (topology: Topology | undefined) =>
+  topology?.kind === "container" ? asEntityKey(String(topology.containerId)) : ROOT_MODULE_KEY;
+
+const compactTankLabel = (label: string, fallback: number) => {
+  const withoutPrefix = label.replace(/^tank\s+/i, "").trim();
+  return withoutPrefix || String(fallback);
+};
+
 // =============================================================================
 // Miner Convenience Hooks (combining hardware + telemetry slices)
 // =============================================================================
@@ -23,10 +44,18 @@ import type { ChartData } from "@/shared/components/LineChart";
  */
 export const useMiner = (): MinerData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
-  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
+  const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
 
   return useMemo(() => {
-    const hardware = hardwareState.getMiner();
+    const hardware =
+      hardwareState.getMiner() ??
+      (hardwareState.topology?.kind === "container"
+        ? {
+            hashboardSerials: [...hardwareState.topology.hashboards.values()].map((board) => board.identity.value),
+            controlBoardSerial: [...hardwareState.controlBoards.values()][0]?.serialNumber,
+          }
+        : null);
+    const rollup = rollups.get(homeRollupKey(hardwareState.topology));
     const telemetry = minerTelemetryView(
       rollup,
       [...hardwareState.hashboards.values()].map((board) => board.identity.value),
@@ -38,7 +67,7 @@ export const useMiner = (): MinerData | null => {
       ...hardware,
       ...telemetry,
     };
-  }, [hardwareState, rollup]);
+  }, [hardwareState, rollups]);
 };
 
 /**
@@ -225,26 +254,86 @@ export const useMinerFans = (): FanData[] => {
  * Transforms telemetry store data into chart-ready format
  */
 export const useChartDataForMetric = (
-  metricName: "hashrate" | "temperature" | "power" | "efficiency",
-): { chartData: ChartData[]; chartLines: string[]; xAxisDomain?: [number, number] } => {
+  metricName: KpiMetricName,
+): {
+  chartData: ChartData[];
+  chartLines: string[];
+  series: KpiChartSeries[];
+  segmentsLabel: "hashboards" | "tanks";
+  xAxisDomain?: [number, number];
+} => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
-  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
+  const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
   const hardware = useMinerStore((state) => state.hardware);
-  const intervalMs = useMinerStore(
-    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.[metricName]?.timeSeries?.bucketSizeMs,
-  );
   const duration = useMinerStore((state) => state.ui.duration);
 
   return useMemo(() => {
+    if (hardware.topology?.kind === "container") {
+      const tanks = [...hardware.topology.tanks.values()].sort(
+        (a, b) => (a.slot ?? Number.MAX_SAFE_INTEGER) - (b.slot ?? Number.MAX_SAFE_INTEGER),
+      );
+      const series = tanks.map<KpiChartSeries>((tank, index) => {
+        const position = tank.slot ?? index + 1;
+        const name = tank.label?.trim() || `Tank ${position}`;
+        const metric = rollups.get(asEntityKey(String(tank.id)))?.[metricName];
+        return {
+          key: String(tank.id),
+          label: compactTankLabel(name, position),
+          name,
+          colorIndex: position,
+          averageValue: metric?.timeSeries?.aggregates?.avg?.value,
+          maximumValue: metric?.timeSeries?.aggregates?.max?.value,
+        };
+      });
+      const aggregateMetric = rollups.get(asEntityKey(String(hardware.topology.containerId)))?.[metricName]?.timeSeries;
+      const intervalMs = aggregateMetric?.bucketSizeMs;
+      if (!aggregateMetric?.points.length || intervalMs === undefined) {
+        return { chartData: [], chartLines: [], series, segmentsLabel: "tanks" as const };
+      }
+
+      const tankValues = new Map(
+        tanks.map((tank) => [
+          String(tank.id),
+          new Map(
+            (rollups.get(asEntityKey(String(tank.id)))?.[metricName]?.timeSeries?.points ?? []).map((point) => [
+              point.timestampMs,
+              point.value,
+            ]),
+          ),
+        ]),
+      );
+      const chartData = aggregateMetric.points.map((point) => {
+        const dataPoint: ChartData = { datetime: point.timestampMs, miner: point.value };
+        series.forEach(({ key }) => {
+          const value = tankValues.get(key)?.get(point.timestampMs);
+          if (value !== undefined) dataPoint[key] = value;
+        });
+        return dataPoint;
+      });
+      const durationMs = getDurationMs(duration);
+      const startTime = aggregateMetric.points[0].timestampMs;
+
+      return {
+        chartData,
+        chartLines: ["miner", ...series.map(({ key }) => key)],
+        series,
+        segmentsLabel: "tanks" as const,
+        xAxisDomain: [startTime, startTime + durationMs] as [number, number],
+      };
+    }
+
+    const rollup = rollups.get(ROOT_MODULE_KEY);
+    const intervalMs = rollup?.[metricName]?.timeSeries?.bucketSizeMs;
     const miner = minerTelemetryView(
       rollup,
       [...hardware.hashboards.values()].map((board) => board.identity.value),
     );
-    if (!miner) return { chartData: [], chartLines: [] };
+    if (!miner) return { chartData: [], chartLines: [], series: [], segmentsLabel: "hashboards" as const };
 
     const minerMetric = miner[metricName]?.timeSeries;
-    if (!minerMetric?.values.length || intervalMs === undefined) return { chartData: [], chartLines: [] };
+    if (!minerMetric?.values.length || intervalMs === undefined)
+      return { chartData: [], chartLines: [], series: [], segmentsLabel: "hashboards" as const };
 
     // Get hashboards associated with this miner
     const minerHashboards = miner.hashboards
@@ -259,8 +348,21 @@ export const useChartDataForMetric = (
       return (slotA ?? 0) - (slotB ?? 0);
     });
 
+    const series = sortedMinerHashboards.map<KpiChartSeries>((hashboard, index) => {
+      const slot = hardware.getHashboard(hashboard.serial)?.slot ?? index + 1;
+      const metric = hashboard[metricName]?.timeSeries;
+      return {
+        key: hashboard.serial,
+        label: String(slot),
+        name: `Hashboard ${slot}`,
+        colorIndex: slot,
+        averageValue: metric?.aggregates?.avg?.value,
+        maximumValue: metric?.aggregates?.max?.value,
+      };
+    });
+
     // Generate chart lines (keys that will be in the data)
-    const chartLines = ["miner", ...sortedMinerHashboards.map((hb) => hb.serial)];
+    const chartLines = ["miner", ...series.map(({ key }) => key)];
 
     // Create chart data points
     const chartData = minerMetric.values.map((minerValue, index) => {
@@ -287,8 +389,8 @@ export const useChartDataForMetric = (
     const durationMs = getDurationMs(duration);
     const xAxisDomain: [number, number] = [minerMetric.startTime, minerMetric.startTime + durationMs];
 
-    return { chartData, chartLines, xAxisDomain };
-  }, [rollup, hashboardsTelemetry, hardware, intervalMs, metricName, duration]);
+    return { chartData, chartLines, series, segmentsLabel: "hashboards" as const, xAxisDomain };
+  }, [rollups, hashboardsTelemetry, hardware, metricName, duration]);
 };
 
 // =============================================================================

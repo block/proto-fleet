@@ -34,7 +34,7 @@ export const resolveMinerAdapter = async (
         // a terminal unsupported result. Continue probing other API versions;
         // if none match, the failed supported probe resolves to unreachable.
         if (failedSupportedProbePaths.has(definition.probe.path)) continue;
-        return { status: "unsupported", adapterId: definition.id, adapter: undefined };
+        return { status: "unsupported", adapterId: definition.id, adapter: undefined, match };
       }
 
       return { status: "ready", adapterId: definition.id, adapter: definition.create(match) };

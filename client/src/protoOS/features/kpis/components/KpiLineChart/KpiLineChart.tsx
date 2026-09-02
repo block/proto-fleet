@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import HashboardSelector from "@/protoOS/features/kpis/components/HashboardSelector";
+import ChartSeriesSelector from "@/protoOS/features/kpis/components/ChartSeriesSelector";
 import { aggregateColor, aggregateKey } from "@/protoOS/features/kpis/constants";
 import { getHashboardColor } from "@/protoOS/features/kpis/utility";
 import {
@@ -12,24 +12,43 @@ import {
 import { HashboardIndicator } from "@/shared/assets/icons";
 import LineChart, { type LineChartProps } from "@/shared/components/LineChart";
 
-const ToolTipItemIcon = ({ itemKey }: { itemKey: string }) => {
-  const hashboard = useHashboardHardware(itemKey);
-  const slot = hashboard?.slot;
-  const totalBays = useBayCount();
-  const totalSlots = totalBays * 3; // TODO: assume 3 slots per bay for now
+export interface KpiChartSeries {
+  key: string;
+  label: string;
+  colorIndex: number;
+}
 
-  // Don't render icon for aggregate key
-  if (itemKey === aggregateKey) {
-    return null;
+interface ToolTipItemIconProps {
+  itemKey: string;
+  series: KpiChartSeries[];
+  segmentsLabel: string;
+}
+
+const ToolTipItemIcon = ({ itemKey, series, segmentsLabel }: ToolTipItemIconProps) => {
+  const hashboard = useHashboardHardware(itemKey);
+  const totalHashboards = useBayCount() * 3; // TODO: assume 3 slots per bay for now
+
+  if (itemKey === aggregateKey) return null;
+  const item = series.find(({ key }) => key === itemKey);
+  if (!item) return null;
+
+  if (segmentsLabel === "hashboards") {
+    const slot = hashboard?.slot;
+    return (
+      <div className="inline-flex items-center gap-2">
+        <div className="flex h-5 w-5 items-center justify-center rounded-3xl bg-core-primary-5 text-emphasis-200 text-text-primary">
+          {slot ?? ""}
+        </div>
+        <HashboardIndicator activeHashboardSlot={slot} totalHashboards={totalHashboards} />
+      </div>
+    );
   }
 
   return (
     <div className="inline-flex items-center gap-2">
       <div className="flex h-5 w-5 items-center justify-center rounded-3xl bg-core-primary-5 text-emphasis-200 text-text-primary">
-        {slot ?? ""}
+        {item.label}
       </div>
-
-      <HashboardIndicator activeHashboardSlot={slot} totalHashboards={totalSlots} />
     </div>
   );
 };
@@ -38,11 +57,13 @@ const ToolTipItemIcon = ({ itemKey }: { itemKey: string }) => {
 const KpiLineChart = ({
   chartData,
   chartLines,
+  series,
   units,
-  segmentsLabel = "Hashboards",
+  segmentsLabel = "hashboards",
   xAxisDomainOverride,
 }: Omit<LineChartProps, "aggregateKey" | "getSeriesColorMap"> & {
   chartLines: string[];
+  series?: KpiChartSeries[];
 }) => {
   const activeChartLines = useActiveChartLines() || [];
   const setActiveChartLines = useSetActiveChartLines();
@@ -86,33 +107,46 @@ const KpiLineChart = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartLines, activeChartLines.length, setActiveChartLines]);
 
+  const resolvedSeries = useMemo<KpiChartSeries[]>(() => {
+    if (series) return series;
+    return chartLines
+      .filter((key) => key !== aggregateKey)
+      .map((key, index) => {
+        const slot = useMinerStore.getState().hardware.getHashboard(key)?.slot ?? index + 1;
+        return { key, label: String(slot), colorIndex: slot };
+      });
+  }, [chartLines, series]);
+
   const colorMap = useMemo(() => {
-    return chartLines.reduce(
+    return resolvedSeries.reduce(
       (acc, key) => {
-        if (key === aggregateKey) {
-          acc[key] = aggregateColor;
-          return acc;
-        }
-
-        const slot = useMinerStore.getState().hardware.getHashboard(key)?.slot;
-        if (slot !== undefined) {
-          acc[key] = getHashboardColor(slot);
-        }
-
+        acc[key.key] = getHashboardColor(key.colorIndex);
         return acc;
       },
-      {} as { [key: string]: string },
+      { [aggregateKey]: aggregateColor } as { [key: string]: string },
     );
-  }, [chartLines]);
+  }, [resolvedSeries]);
+
+  const tooltipItemIcon = useMemo(
+    () => (props: { itemKey: string }) => (
+      <ToolTipItemIcon {...props} series={resolvedSeries} segmentsLabel={segmentsLabel} />
+    ),
+    [resolvedSeries, segmentsLabel],
+  );
 
   return (
     <>
       <div className="scrollbar-hide w-[calc(100%+theme(space.12))] -translate-x-6 overflow-x-auto tablet:w-[calc(100%+theme(space.20))] tablet:-translate-x-10 laptop:w-[calc(100%+theme(space.28))] laptop:-translate-x-14">
-        <HashboardSelector
-          chartLines={chartLines}
-          setActiveChartLines={setActiveChartLines}
-          activeChartLines={activeChartLines}
+        <ChartSeriesSelector
+          series={resolvedSeries.map(({ key, label, colorIndex }) => ({
+            key,
+            label,
+            color: getHashboardColor(colorIndex),
+          }))}
+          onChange={setActiveChartLines}
+          activeKeys={activeChartLines}
           aggregateKey={aggregateKey}
+          segmentsLabel={segmentsLabel}
           className={"px-6 tablet:px-10 laptop:px-14"}
         />
       </div>
@@ -121,9 +155,9 @@ const KpiLineChart = ({
         aggregateKey={aggregateKey}
         activeKeys={activeChartLines.length === 0 ? chartLines : activeChartLines}
         colorMap={colorMap}
-        toolTipItemIcon={ToolTipItemIcon}
+        toolTipItemIcon={tooltipItemIcon}
         units={units}
-        segmentsLabel={segmentsLabel}
+        segmentsLabel={segmentsLabel.charAt(0).toUpperCase() + segmentsLabel.slice(1)}
         tooltipXOffset={60}
         xAxisDomainOverride={xAxisDomainOverride}
       />
