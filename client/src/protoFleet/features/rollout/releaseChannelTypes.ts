@@ -5,6 +5,22 @@
 
 import type { RolloutPlanConfig } from "./rolloutTypes";
 
+/** Visual treatment for release-channel update state. */
+export type ReleaseChannelUpdateTone = "attention" | "active" | "completed" | "none";
+
+/** A hardware-model cohort within a release channel. */
+export interface ReleaseChannelModelCohort {
+  id: string;
+  model: string;
+  minerCount: number;
+  /** The last installed version, omitted when there is no prior release. */
+  previousVersion?: string;
+  /** The currently installed or targeted version. */
+  currentVersion: string;
+  updateStatus: string;
+  updateTone: ReleaseChannelUpdateTone;
+}
+
 /** A row in the Release channels table. */
 export interface ReleaseChannel {
   id: string;
@@ -15,6 +31,10 @@ export interface ReleaseChannel {
   releaseCount: number;
   /** Human-formatted last-updated timestamp, e.g. "11/7/25 9:01 PM". */
   lastUpdated: string;
+  /** Summary of active model-level updates. */
+  updateStatus: string;
+  updateTone: ReleaseChannelUpdateTone;
+  modelCohorts: ReleaseChannelModelCohort[];
 }
 
 /** A firmware file published to a channel. */
