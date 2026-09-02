@@ -3,7 +3,9 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   type Rollout,
+  RolloutCancelReason,
   RolloutDeviceState,
+  RolloutEvidenceSchema,
   type RolloutLane,
   RolloutLaneSchema,
   RolloutMethod,
@@ -215,42 +217,188 @@ export const canceledRigRollout: Rollout = create(RolloutSchema, {
   firmwareFileId: "fw-rig-142",
   firmwareVersion: "1.4.2",
   status: RolloutStatus.CANCELED,
+  cancelReason: RolloutCancelReason.SUPERSEDED,
   createdAt: minutesAgo(60 * 27),
   finishedAt: minutesAgo(60 * 26),
   devices: [],
 });
 
-// A pilot rollout mid-pilot: the two-miner cohort is updating, the rest of
-// the group waits for the review gate.
+// A rollout an operator aborted at the review gate: the previous assignment
+// (1.4.3) was restored.
+export const abortedRigRollout: Rollout = create(RolloutSchema, {
+  id: BigInt(38),
+  laneId: BigInt(1),
+  laneName: "Canary",
+  model: "Rig",
+  firmwareFileId: "fw-rig-144",
+  firmwareVersion: "1.4.4",
+  previousFirmwareFileId: "fw-rig-143",
+  previousFirmwareVersion: "1.4.3",
+  status: RolloutStatus.CANCELED,
+  cancelReason: RolloutCancelReason.ABORTED,
+  method: RolloutMethod.PILOT,
+  stage: RolloutStage.AWAITING_REVIEW,
+  batchSize: 1,
+  batchCount: 1,
+  createdAt: minutesAgo(60 * 48),
+  finishedAt: minutesAgo(60 * 47),
+  devices: [],
+});
+
+// Health fields for a miner as the server reports them: live status and
+// hashrate alongside the baseline captured when the rollout started.
+const TH = 1e12;
+const healthy = (hashRateTh: number, baselineTh = hashRateTh) => ({
+  status: "ACTIVE",
+  online: true,
+  hashing: true,
+  hasBaseline: true,
+  baselineHashing: true,
+  hashRateHs: hashRateTh * TH,
+  hasHashRate: true,
+  baselineHashRateHs: baselineTh * TH,
+  hasBaselineHashRate: true,
+  openErrors: 0,
+  baselineOpenErrors: 0,
+});
+const offline = (baselineTh: number) => ({
+  ...healthy(0, baselineTh),
+  status: "OFFLINE",
+  online: false,
+  hashing: false,
+  hasHashRate: false,
+});
+
+// A pilot rollout mid-pilot: the two-miner batch is updating (one back and
+// hashing, one still flashing), the rest of the group waits for the gate.
 export const pilotRigRollout: Rollout = create(RolloutSchema, {
   ...activeRigRollout,
   id: BigInt(44),
   method: RolloutMethod.PILOT,
-  stage: RolloutStage.PILOT,
-  pilotCount: 2,
+  stage: RolloutStage.BATCH,
+  batchSize: 2,
+  batchCount: 1,
+  currentBatch: 0,
+  stageChangedAt: minutesAgo(9),
   createdAt: minutesAgo(9),
   devices: activeRigRollout.devices.map((device, index) => ({
     ...device,
-    inPilotCohort: index < 2,
+    ...(index === 1 ? offline(112) : healthy(index === 0 ? 114 : 112)),
+    batch: index < 2 ? 1 : 0,
     firmwareVersion: index === 0 ? "1.4.4" : "1.4.3",
     state:
       index === 0 ? RolloutDeviceState.UPDATED : index === 1 ? RolloutDeviceState.UPDATING : RolloutDeviceState.PENDING,
   })),
+  evidence: create(RolloutEvidenceSchema, {
+    devicesTotal: 2,
+    verified: 1,
+    online: 1,
+    hashing: 1,
+    baselineHashing: 2,
+    hasHashrateEvidence: true,
+    baselineHashRateHs: 112 * TH,
+    currentHashRateHs: 114 * TH,
+    hashrateChangePercent: 1.8,
+    newErrors: 0,
+    readyToAdvance: false,
+    holdReason: "Batch in progress",
+  }),
 });
 
-// The same pilot rollout parked at the review gate: the cohort is done and
-// the remaining four miners wait for the operator to continue.
+// The same pilot rollout parked at the review gate with healthy evidence:
+// both pilot miners are back and hashing slightly above baseline.
 export const gatedRigRollout: Rollout = create(RolloutSchema, {
   ...pilotRigRollout,
   id: BigInt(45),
   stage: RolloutStage.AWAITING_REVIEW,
+  stageChangedAt: minutesAgo(6),
   createdAt: minutesAgo(22),
   devices: pilotRigRollout.devices.map((device) => ({
     ...device,
-    firmwareVersion: device.inPilotCohort ? "1.4.4" : "1.4.3",
-    state: device.inPilotCohort ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
+    ...healthy(device.batch === 1 ? 115 : 112, 112),
+    firmwareVersion: device.batch === 1 ? "1.4.4" : "1.4.3",
+    state: device.batch === 1 ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
   })),
+  evidence: create(RolloutEvidenceSchema, {
+    devicesTotal: 2,
+    verified: 2,
+    online: 2,
+    hashing: 2,
+    baselineHashing: 2,
+    hasHashrateEvidence: true,
+    baselineHashRateHs: 224 * TH,
+    currentHashRateHs: 230 * TH,
+    hashrateChangePercent: 2.7,
+    newErrors: 0,
+    readyToAdvance: false,
+    holdReason: "Manual review",
+  }),
+});
+
+// Fixed batches of two with auto-advance, holding at the gate after batch 2
+// of 3 because one miner came back hashing well below its baseline.
+export const batchedRigRollout: Rollout = create(RolloutSchema, {
+  ...activeRigRollout,
+  id: BigInt(46),
+  method: RolloutMethod.BATCHES,
+  stage: RolloutStage.AWAITING_REVIEW,
+  batchSize: 2,
+  batchCount: 3,
+  currentBatch: 1,
+  autoAdvance: true,
+  maxHashrateDropPercent: 10,
+  stabilizationSeconds: 600,
+  stageChangedAt: minutesAgo(14),
+  createdAt: minutesAgo(41),
+  devices: activeRigRollout.devices.map((device, index) => ({
+    ...device,
+    ...healthy(index === 3 ? 61 : 112, 112),
+    batch: Math.floor(index / 2) + 1,
+    firmwareVersion: index < 4 ? "1.4.4" : "1.4.3",
+    state: index < 4 ? RolloutDeviceState.UPDATED : RolloutDeviceState.PENDING,
+    openErrors: index === 3 ? 2 : 0,
+  })),
+  evidence: create(RolloutEvidenceSchema, {
+    devicesTotal: 2,
+    verified: 2,
+    online: 2,
+    hashing: 2,
+    baselineHashing: 2,
+    hasHashrateEvidence: true,
+    baselineHashRateHs: 224 * TH,
+    currentHashRateHs: 173 * TH,
+    hashrateChangePercent: -22.8,
+    newErrors: 2,
+    readyToAdvance: false,
+    holdReason: "2 new errors since the update",
+  }),
+});
+
+// An immediate rollout an operator paused mid-flight.
+export const pausedRigRollout: Rollout = create(RolloutSchema, {
+  ...activeRigRollout,
+  id: BigInt(47),
+  pausedAt: minutesAgo(3),
+  createdAt: minutesAgo(11),
+  devices: activeRigRollout.devices.map((device, index) => ({
+    ...device,
+    ...(index === 2 ? offline(112) : healthy(112)),
+  })),
+  evidence: create(RolloutEvidenceSchema, {
+    devicesTotal: 6,
+    verified: 2,
+    online: 5,
+    hashing: 5,
+    baselineHashing: 6,
+    hasHashrateEvidence: true,
+    baselineHashRateHs: 672 * TH,
+    currentHashRateHs: 560 * TH,
+    hashrateChangePercent: -16.7,
+    newErrors: 0,
+    readyToAdvance: false,
+    holdReason: "Paused",
+  }),
 });
 
 // Newest first, matching the server's ListRollouts order.
-export const canaryHistory: Rollout[] = [activeRigRollout, completedRigRollout, canceledRigRollout];
+export const canaryHistory: Rollout[] = [activeRigRollout, completedRigRollout, canceledRigRollout, abortedRigRollout];

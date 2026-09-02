@@ -1,9 +1,10 @@
 import {
+  batchLabel,
   isAwaitingReview,
-  isPilotStage,
-  pilotCohortCounts,
-  rolloutDeviceCounts,
+  isBatchStage,
+  isPaused,
   rolloutProgressSummary,
+  scopeCounts,
 } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -27,10 +28,16 @@ const ActiveUpdatesSection = ({ rollouts, onViewUpdate }: ActiveUpdatesSectionPr
     </div>
     {rollouts.map((rollout) => {
       const awaitingReview = isAwaitingReview(rollout);
-      const counts = isPilotStage(rollout) ? pilotCohortCounts(rollout) : rolloutDeviceCounts(rollout);
+      const paused = isPaused(rollout);
+      const counts = scopeCounts(rollout);
+      const progress = isBatchStage(rollout)
+        ? `${batchLabel(rollout)}: ${rolloutProgressSummary(counts)}`
+        : rolloutProgressSummary(counts);
       const summary = awaitingReview
-        ? `Pilot complete — review needed · ${rollout.firmwareVersion}`
-        : `${isPilotStage(rollout) ? `Pilot: ${rolloutProgressSummary(counts)}` : rolloutProgressSummary(counts)} · ${rollout.firmwareVersion}`;
+        ? `${batchLabel(rollout)} complete — review needed · ${rollout.firmwareVersion}`
+        : paused
+          ? `Paused · ${progress} · ${rollout.firmwareVersion}`
+          : `${progress} · ${rollout.firmwareVersion}`;
       return (
         <div
           key={rollout.id.toString()}
@@ -40,6 +47,8 @@ const ActiveUpdatesSection = ({ rollouts, onViewUpdate }: ActiveUpdatesSectionPr
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-core-primary-5">
             {awaitingReview ? (
               <span className="size-2.5 rounded-full bg-intent-warning-fill" />
+            ) : paused ? (
+              <span className="bg-core-primary-30 size-2.5 rounded-full" />
             ) : (
               <ProgressCircular indeterminate />
             )}

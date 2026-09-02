@@ -4,6 +4,7 @@ import { ModelStatusCell } from "./channelStatus";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import ModelMinersModal from "./ModelMinersModal";
 import {
+  isPaused,
   rolloutDeviceCounts,
   rolloutProgressColorMap,
   rolloutProgressSegments,
@@ -17,8 +18,9 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import type { ApplyRolloutOptions } from "@/protoFleet/api/useRolloutLanes";
+import { type ApplyRolloutOptions, IMMEDIATE_ROLLOUT_OPTIONS } from "@/protoFleet/api/useRolloutLanes";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Checkbox from "@/shared/components/Checkbox";
 import CompositionBar from "@/shared/components/CompositionBar";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
@@ -101,10 +103,14 @@ const ChannelManageView = ({
   const [isApplying, setIsApplying] = useState(false);
   // Model whose miner table is open in the "View miners" modal.
   const [minersModel, setMinersModel] = useState<string | null>(null);
-  // Apply confirmation: rollout method and pilot size for this apply call.
+  // Apply confirmation: rollout method, batch size and auto-advance
+  // thresholds for this apply call.
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [applyMethod, setApplyMethod] = useState<RolloutMethod>(RolloutMethod.IMMEDIATE);
-  const [pilotCountText, setPilotCountText] = useState("1");
+  const [batchSizeText, setBatchSizeText] = useState("1");
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [maxDropText, setMaxDropText] = useState("10");
+  const [stabilizationMinutesText, setStabilizationMinutesText] = useState("10");
 
   const memberCount = lane.modelGroups.reduce((sum, group) => sum + group.miners.length, 0);
   const laneRollouts = rollouts.filter((r) => r.laneId === lane.id);
@@ -132,13 +138,21 @@ const ChannelManageView = ({
     .filter((group) => stagedValue(group) !== group.firmwareFileId)
     .reduce((sum, group) => sum + group.miners.length, 0);
 
-  const pilotCount = Math.max(1, Number.parseInt(pilotCountText, 10) || 1);
+  const isStagedMethod = applyMethod !== RolloutMethod.IMMEDIATE;
+  const batchSize = Math.max(1, Number.parseInt(batchSizeText, 10) || 1);
+  const maxDrop = Math.min(100, Math.max(0, Number.parseFloat(maxDropText) || 0));
+  const stabilizationMinutes = Math.max(0, Number.parseInt(stabilizationMinutesText, 10) || 0);
 
   const handleApply = () => {
-    const options: ApplyRolloutOptions =
-      applyMethod === RolloutMethod.PILOT
-        ? { method: RolloutMethod.PILOT, pilotCount }
-        : { method: RolloutMethod.IMMEDIATE, pilotCount: 0 };
+    const options: ApplyRolloutOptions = isStagedMethod
+      ? {
+          method: applyMethod,
+          batchSize,
+          autoAdvance,
+          maxHashrateDropPercent: autoAdvance ? maxDrop : 0,
+          stabilizationSeconds: autoAdvance ? stabilizationMinutes * 60 : 0,
+        }
+      : IMMEDIATE_ROLLOUT_OPTIONS;
     setIsApplying(true);
     onApply(lane.id, dirtyAssignments, options)
       .then(() => {
@@ -236,7 +250,11 @@ const ChannelManageView = ({
                     <td className="pb-3" colSpan={5}>
                       <div className="flex flex-col gap-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-200 text-text-primary-70">
-                          <span>{`Rolling out ${activeRollout.firmwareVersion}`}</span>
+                          <span>
+                            {isPaused(activeRollout)
+                              ? `Rolling out ${activeRollout.firmwareVersion} (paused)`
+                              : `Rolling out ${activeRollout.firmwareVersion}`}
+                          </span>
                           <span>{rolloutProgressSummary(counts)}</span>
                         </div>
                         <CompositionBar
@@ -295,6 +313,9 @@ const ChannelManageView = ({
         title="Start firmware rollout?"
         subtitle={`One rollout starts per changed model in ${lane.name}.`}
         testId="apply-firmware-dialog"
+        // Wider than the default dialog: three method choices with
+        // descriptions plus the auto-advance controls need the room.
+        className="!w-[42rem]"
         onDismiss={() => {
           if (!isApplying) setShowApplyDialog(false);
         }}
@@ -329,6 +350,7 @@ const ChannelManageView = ({
           <div className="flex flex-col gap-3" role="radiogroup" aria-label="Rollout method">
             <label className="flex cursor-pointer items-start gap-3" data-testid="apply-method-immediate">
               <Radio
+                className="mt-0.5 shrink-0"
                 name="rollout-method"
                 selected={applyMethod === RolloutMethod.IMMEDIATE}
                 onChange={() => setApplyMethod(RolloutMethod.IMMEDIATE)}
@@ -340,6 +362,7 @@ const ChannelManageView = ({
             </label>
             <label className="flex cursor-pointer items-start gap-3" data-testid="apply-method-pilot">
               <Radio
+                className="mt-0.5 shrink-0"
                 name="rollout-method"
                 selected={applyMethod === RolloutMethod.PILOT}
                 onChange={() => setApplyMethod(RolloutMethod.PILOT)}
@@ -347,25 +370,80 @@ const ChannelManageView = ({
               <span className="flex flex-col">
                 <span className="text-300 text-text-primary">Pilot first</span>
                 <span className="text-200 text-text-primary-70">
-                  A small group updates first. The rest wait until you review the pilot and continue.
+                  A small group updates first. The rest wait until the pilot is reviewed and the rollout continued.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3" data-testid="apply-method-batches">
+              <Radio
+                className="mt-0.5 shrink-0"
+                name="rollout-method"
+                selected={applyMethod === RolloutMethod.BATCHES}
+                onChange={() => setApplyMethod(RolloutMethod.BATCHES)}
+              />
+              <span className="flex flex-col">
+                <span className="text-300 text-text-primary">Fixed batches</span>
+                <span className="text-200 text-text-primary-70">
+                  Miners update in batches of a fixed size, with a review between every batch.
                 </span>
               </span>
             </label>
           </div>
 
-          {applyMethod === RolloutMethod.PILOT ? (
-            <div className="flex flex-col gap-1">
-              <Input
-                id="pilot-count"
-                label="Pilot size (miners per model)"
-                type="number"
-                initValue={pilotCountText}
-                onChange={(value) => setPilotCountText(value)}
-              />
-              {dirtyMinerCount > 0 ? (
-                <span className="text-200 text-text-primary-50">
-                  {`${dirtyMinerCount.toLocaleString()} miners are affected in total.`}
+          {isStagedMethod ? (
+            <div className="flex flex-col gap-4 rounded-lg bg-core-primary-5 p-4">
+              <div className="flex flex-col gap-1">
+                <Input
+                  id="batch-size"
+                  label={
+                    applyMethod === RolloutMethod.PILOT
+                      ? "Pilot size (miners per model)"
+                      : "Batch size (miners per batch)"
+                  }
+                  type="number"
+                  initValue={batchSizeText}
+                  onChange={(value) => setBatchSizeText(value)}
+                />
+                {dirtyMinerCount > 0 ? (
+                  <span className="text-200 text-text-primary-50">
+                    {`${dirtyMinerCount.toLocaleString()} miners are affected in total.`}
+                  </span>
+                ) : null}
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-3" data-testid="apply-auto-advance">
+                <Checkbox
+                  className="mt-0.5 shrink-0"
+                  checked={autoAdvance}
+                  onChange={(e) => setAutoAdvance(e.target.checked)}
+                />
+                <span className="flex flex-col">
+                  <span className="text-300 text-text-primary">Continue automatically when the evidence holds</span>
+                  <span className="text-200 text-text-primary-70">
+                    Each review gate releases on its own once every miner in the batch is back and hashing, no new
+                    errors appeared, hashrate stayed within the limit, and the stabilization period passed. Degraded or
+                    missing evidence always waits for you.
+                  </span>
                 </span>
+              </label>
+
+              {autoAdvance ? (
+                <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
+                  <Input
+                    id="max-hashrate-drop"
+                    label="Max hashrate drop (%)"
+                    type="number"
+                    initValue={maxDropText}
+                    onChange={(value) => setMaxDropText(value)}
+                  />
+                  <Input
+                    id="stabilization-minutes"
+                    label="Stabilization (minutes)"
+                    type="number"
+                    initValue={stabilizationMinutesText}
+                    onChange={(value) => setStabilizationMinutesText(value)}
+                  />
+                </div>
               ) : null}
             </div>
           ) : null}

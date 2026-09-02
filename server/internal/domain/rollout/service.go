@@ -3,12 +3,21 @@
 // model has an assignment, the enforcement loop updates every lane member of
 // that model that is not running the assigned version. Each enforcement run
 // for one (lane, model) pair is tracked as a rollout.
+//
+// Rollouts run with a method: immediate (everything at once), pilot (one
+// batch, then a review gate, then the rest) or fixed batches (a review gate
+// after every batch). A gate can be released manually or, when the rollout
+// opted in, automatically once post-update evidence meets its thresholds.
+// A miner counts as updated only when it reports the target version, is back
+// online, and is at least as healthy (hashing) as before the update.
 package rollout
 
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -17,6 +26,8 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -27,36 +38,57 @@ import (
 const (
 	// StatusActive marks a rollout that is still enforcing its firmware.
 	StatusActive = "active"
-	// StatusCompleted marks a rollout whose targets all reported the version.
+	// StatusCompleted marks a rollout whose targets are all verified.
 	StatusCompleted = "completed"
-	// StatusCanceled marks a rollout superseded or cleared before completion.
+	// StatusCanceled marks a rollout that ended before completion.
 	StatusCanceled = "canceled"
+
+	// CancelReasonSuperseded: a newer assignment (or rollback) replaced it.
+	CancelReasonSuperseded = "superseded"
+	// CancelReasonAborted: an operator aborted it.
+	CancelReasonAborted = "aborted"
+	// CancelReasonCleared: the model's assignment was cleared.
+	CancelReasonCleared = "cleared"
 
 	// DeviceStatePending means no update command was sent to the miner yet.
 	DeviceStatePending = "pending"
 	// DeviceStateUpdating means a command was sent but the miner has not
 	// reported the target version yet.
 	DeviceStateUpdating = "updating"
-	// DeviceStateUpdated means the miner reports the target version.
+	// DeviceStateVerifying means the miner reports the target version but is
+	// not yet back online / hashing.
+	DeviceStateVerifying = "verifying"
+	// DeviceStateUpdated means the miner is on the target version, online,
+	// and at least as healthy as before the update.
 	DeviceStateUpdated = "updated"
 
 	// MethodImmediate updates every mismatched target at once.
 	MethodImmediate = "immediate"
-	// MethodPilot updates a pilot cohort first and gates the rest behind an
-	// operator review.
+	// MethodPilot updates one pilot batch, gates, then updates the rest.
 	MethodPilot = "pilot"
+	// MethodBatches updates fixed-size batches with a gate after each.
+	MethodBatches = "batches"
 
-	// StagePilot: only the pilot cohort is being updated.
-	StagePilot = "pilot"
-	// StageAwaitingReview: the pilot cohort is done; enforcement is paused
-	// until an operator continues the rollout.
+	// StageBatch: only the current batch is being updated.
+	StageBatch = "batch"
+	// StageAwaitingReview: the current batch is done; enforcement holds
+	// until the rollout is continued (manually or by auto-advance).
 	StageAwaitingReview = "awaiting_review"
-	// StageRest: all targets are being updated (the only stage of
+	// StageRest: all remaining targets are being updated (the only stage of
 	// immediate rollouts).
 	StageRest = "rest"
 
-	// CohortPilot marks a device snapshotted into the pilot cohort.
-	CohortPilot = "pilot"
+	// Activity event types.
+	EventRolloutStarted     = "rollout_started"
+	EventRolloutReviewReady = "rollout_review_ready"
+	EventRolloutContinued   = "rollout_continued"
+	EventRolloutPaused      = "rollout_paused"
+	EventRolloutResumed     = "rollout_resumed"
+	EventRolloutAborted     = "rollout_aborted"
+	EventRolloutCompleted   = "rollout_completed"
+
+	// deviceStatusActive is the device_status value of a hashing miner.
+	deviceStatusActive = "ACTIVE"
 
 	rolloutActorName = "rollout-enforcement"
 
@@ -76,15 +108,23 @@ type FirmwareFiles interface {
 	GetFirmwareMetadata(fileID string) (files.FirmwareMetadata, error)
 }
 
+// ActivityLogger records rollout lifecycle events in the activity log.
+type ActivityLogger interface {
+	Log(ctx context.Context, event activitymodels.Event)
+}
+
 // Service implements rollout-lane management and firmware enforcement.
 type Service struct {
 	store    *sqlstores.SQLRolloutLaneStore
 	commands CommandDispatcher
 	files    FirmwareFiles
+	activity ActivityLogger
+	now      func() time.Time
 }
 
-func NewService(store *sqlstores.SQLRolloutLaneStore, commands CommandDispatcher, firmwareFiles FirmwareFiles) *Service {
-	return &Service{store: store, commands: commands, files: firmwareFiles}
+// NewService builds the rollout service. activityLog may be nil.
+func NewService(store *sqlstores.SQLRolloutLaneStore, commands CommandDispatcher, firmwareFiles FirmwareFiles, activityLog ActivityLogger) *Service {
+	return &Service{store: store, commands: commands, files: firmwareFiles, activity: activityLog, now: time.Now}
 }
 
 // LaneMiner is a lane member with its currently reported model and firmware.
@@ -112,30 +152,73 @@ type Lane struct {
 	ModelGroups []ModelGroup
 }
 
-// RolloutDevice is the live progress of one miner within a rollout.
+// RolloutDevice is the live progress and health of one miner within a
+// rollout, alongside the baseline captured when the rollout started.
 type RolloutDevice struct {
 	DeviceID         int64
 	DeviceIdentifier string
 	FirmwareVersion  string
 	State            string
-	InPilotCohort    bool
+	// 1-based batch number; 0 when not part of a snapshotted batch.
+	Batch               int32
+	Status              string
+	Online              bool
+	Hashing             bool
+	HasBaseline         bool
+	BaselineHashing     bool
+	HashRateHs          float64
+	HasHashRate         bool
+	BaselineHashRateHs  float64
+	HasBaselineHashRate bool
+	OpenErrors          int32
+	BaselineOpenErrors  int32
+}
+
+// Evidence summarizes post-update health of the miners under review versus
+// their own baselines, and whether it clears the auto-advance thresholds.
+type Evidence struct {
+	DevicesTotal                  int32
+	Verified                      int32
+	Online                        int32
+	Hashing                       int32
+	BaselineHashing               int32
+	HashrateChangePercent         float64
+	HasHashrateEvidence           bool
+	BaselineHashRateHs            float64
+	CurrentHashRateHs             float64
+	NewErrors                     int32
+	ReadyToAdvance                bool
+	HoldReason                    string
+	StabilizationRemainingSeconds int32
 }
 
 // Rollout is one firmware change for one model within one lane.
 type Rollout struct {
-	ID              int64
-	LaneID          int64
-	LaneName        string
-	Model           string
-	FirmwareFileID  string
-	FirmwareVersion string
-	Status          string
-	Method          string
-	Stage           string
-	PilotCount      int32
-	CreatedAt       time.Time
-	FinishedAt      *time.Time
-	Devices         []RolloutDevice
+	ID                      int64
+	LaneID                  int64
+	LaneName                string
+	Model                   string
+	FirmwareFileID          string
+	FirmwareVersion         string
+	Status                  string
+	Method                  string
+	Stage                   string
+	BatchSize               int32
+	BatchCount              int32
+	CurrentBatch            int32
+	PausedAt                *time.Time
+	AutoAdvance             bool
+	MaxHashrateDropPercent  float64
+	StabilizationSeconds    int32
+	PreviousFirmwareFileID  string
+	PreviousFirmwareVersion string
+	CancelReason            string
+	StageChangedAt          time.Time
+	CreatedAt               time.Time
+	FinishedAt              *time.Time
+	Devices                 []RolloutDevice
+	// Evidence for the miners under review; nil unless the rollout is active.
+	Evidence *Evidence
 }
 
 // Assignment is the desired firmware for one model within a lane. An empty
@@ -148,8 +231,44 @@ type Assignment struct {
 // RolloutOptions selects how rollouts started by an apply call run. The
 // zero value means immediate.
 type RolloutOptions struct {
-	Method     string
-	PilotCount int32
+	Method                 string
+	BatchSize              int32
+	AutoAdvance            bool
+	MaxHashrateDropPercent float64
+	StabilizationSeconds   int32
+}
+
+func (o *RolloutOptions) validate() error {
+	if o.Method == "" {
+		o.Method = MethodImmediate
+	}
+	switch o.Method {
+	case MethodImmediate:
+		o.BatchSize, o.AutoAdvance, o.MaxHashrateDropPercent, o.StabilizationSeconds = 0, false, 0, 0
+	case MethodPilot, MethodBatches:
+		if o.BatchSize < 1 {
+			return fleeterror.NewInvalidArgumentError("staged rollouts need a batch size of at least 1")
+		}
+	default:
+		return fleeterror.NewInvalidArgumentErrorf("unknown rollout method %q", o.Method)
+	}
+	if o.MaxHashrateDropPercent < 0 || o.MaxHashrateDropPercent > 100 {
+		return fleeterror.NewInvalidArgumentError("max hashrate drop must be between 0 and 100 percent")
+	}
+	if o.StabilizationSeconds < 0 {
+		return fleeterror.NewInvalidArgumentError("stabilization must not be negative")
+	}
+	return nil
+}
+
+// AbortResult describes what an abort did to the lane.
+type AbortResult struct {
+	Rollout *Rollout
+	Lane    *Lane
+	// Rollouts started to bring already-updated miners back (at most one).
+	Started []Rollout
+	// True when the previous assignment was restored, false when cleared.
+	RestoredPrevious bool
 }
 
 // CreateLane creates an empty rollout lane.
@@ -201,24 +320,17 @@ func (s *Service) UpdateMembers(ctx context.Context, orgID, laneID int64, add, r
 	return s.getLane(ctx, orgID, laneID)
 }
 
-// ApplyFirmware replaces per-model assignments of a lane and starts rollouts
-// for changed models that have mismatched members. Unchanged assignments are
-// left alone (their active rollout, if any, keeps running). With the pilot
-// method, each started rollout snapshots a pilot cohort and gates the rest
-// of the miners behind an operator review.
+// ApplyFirmware replaces per-model assignments of a lane and starts a
+// rollout (with the given options) for every changed model that has
+// mismatched members. Unchanged assignments are left alone; their active
+// rollout, if any, keeps running.
 func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64, assignments []Assignment, opts RolloutOptions) ([]Rollout, error) {
-	if opts.Method == "" {
-		opts.Method = MethodImmediate
+	if err := opts.validate(); err != nil {
+		return nil, err
 	}
-	if opts.Method != MethodImmediate && opts.Method != MethodPilot {
-		return nil, fleeterror.NewInvalidArgumentErrorf("unknown rollout method %q", opts.Method)
-	}
-	if opts.Method == MethodPilot && opts.PilotCount < 1 {
-		return nil, fleeterror.NewInvalidArgumentError("pilot rollouts need a pilot count of at least 1")
-	}
-
 	q := s.store.Queries(ctx)
-	if _, err := q.GetRolloutLane(ctx, sqlc.GetRolloutLaneParams{LaneID: laneID, OrgID: orgID}); err != nil {
+	lane, err := q.GetRolloutLane(ctx, sqlc.GetRolloutLaneParams{LaneID: laneID, OrgID: orgID})
+	if err != nil {
 		return nil, fleeterror.NewNotFoundErrorf("lane not found: %d", laneID)
 	}
 	existing, err := q.ListRolloutLaneFirmware(ctx, orgID)
@@ -232,9 +344,7 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64
 		}
 	}
 
-	// Models whose assignment changed to a new firmware in this call; only
-	// these get pilot rollouts when the pilot method is requested.
-	var changed []sqlc.UpsertRolloutLaneFirmwareParams
+	var started []Rollout
 	for _, a := range assignments {
 		if a.Model == "" {
 			return nil, fleeterror.NewInvalidArgumentError("assignment model is required")
@@ -248,7 +358,9 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64
 			if err := q.DeleteRolloutLaneFirmware(ctx, sqlc.DeleteRolloutLaneFirmwareParams{LaneID: laneID, Model: a.Model}); err != nil {
 				return nil, fleeterror.NewInternalErrorf("clear assignment: %v", err)
 			}
-			if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{LaneID: laneID, Model: a.Model}); err != nil {
+			if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+				LaneID: laneID, Model: a.Model, CancelReason: CancelReasonCleared,
+			}); err != nil {
 				return nil, fleeterror.NewInternalErrorf("cancel rollout: %v", err)
 			}
 			continue
@@ -264,53 +376,43 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64
 		if !strings.EqualFold(meta.TargetModel, a.Model) {
 			return nil, fleeterror.NewInvalidArgumentErrorf("firmware file %q targets model %q, not %q", a.FirmwareFileID, meta.TargetModel, a.Model)
 		}
-		params := sqlc.UpsertRolloutLaneFirmwareParams{
+		if err := q.UpsertRolloutLaneFirmware(ctx, sqlc.UpsertRolloutLaneFirmwareParams{
 			LaneID:         laneID,
 			Model:          a.Model,
 			FirmwareFileID: a.FirmwareFileID,
 			// The metadata version is what miners report after installing.
 			FirmwareVersion: meta.FirmwareVersion,
 			AssignedBy:      userID,
-		}
-		if err := q.UpsertRolloutLaneFirmware(ctx, params); err != nil {
+		}); err != nil {
 			return nil, fleeterror.NewInternalErrorf("assign firmware: %v", err)
 		}
-		if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{LaneID: laneID, Model: a.Model}); err != nil {
+		if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+			LaneID: laneID, Model: a.Model, CancelReason: CancelReasonSuperseded,
+		}); err != nil {
 			return nil, fleeterror.NewInternalErrorf("cancel superseded rollout: %v", err)
 		}
-		changed = append(changed, params)
-	}
 
-	var started []Rollout
-	if opts.Method == MethodPilot {
-		// Create the changed models' rollouts here, before the enforcement
-		// loop can start immediate ones for the now-mismatched assignments.
-		for _, c := range changed {
-			r, err := s.startPilotRollout(ctx, orgID, userID, c, opts.PilotCount)
-			if err != nil {
-				return nil, err
-			}
-			if r == nil {
-				continue // no mismatched members, nothing to roll out
-			}
-			view, err := s.rolloutView(ctx, *r, "")
-			if err != nil {
-				return nil, err
-			}
-			started = append(started, *view)
+		// Start the rollout here rather than leaving it to the enforcement
+		// loop, so the operator's method applies (the loop only ever starts
+		// immediate drift-correction rollouts).
+		spec := rolloutSpec{
+			OrgID: orgID, LaneID: laneID, LaneName: lane.Name, Model: a.Model,
+			FirmwareFileID: a.FirmwareFileID, FirmwareVersion: meta.FirmwareVersion,
+			CreatedBy: userID, Options: opts,
 		}
-		return started, nil
-	}
-
-	created, err := s.startNeededRollouts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range created {
-		if r.LaneID != laneID {
-			continue
+		if hadPrev {
+			spec.PreviousFirmwareFileID = prev.FirmwareFileID
+			spec.PreviousFirmwareVersion = prev.FirmwareVersion
 		}
-		view, err := s.rolloutView(ctx, r, "")
+		r, err := s.startRollout(ctx, spec)
+		if err != nil {
+			return nil, err
+		}
+		if r == nil {
+			continue // every member already reports the version
+		}
+		s.logRolloutEvent(ctx, *r, lane.Name, EventRolloutStarted, false, nil)
+		view, err := s.rolloutView(ctx, *r, lane.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -319,75 +421,266 @@ func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, laneID int64
 	return started, nil
 }
 
-// startPilotRollout creates a pilot rollout for one changed assignment and
-// snapshots its pilot cohort: the first pilotCount mismatched members by
-// identifier. Returns nil when no member is mismatched (nothing to enforce;
-// the drift loop covers later joiners).
-func (s *Service) startPilotRollout(ctx context.Context, orgID, userID int64, a sqlc.UpsertRolloutLaneFirmwareParams, pilotCount int32) (*sqlc.FirmwareRollout, error) {
+// rolloutSpec is everything needed to create a rollout for one assignment.
+type rolloutSpec struct {
+	OrgID, LaneID                                   int64
+	LaneName, Model                                 string
+	FirmwareFileID, FirmwareVersion                 string
+	PreviousFirmwareFileID, PreviousFirmwareVersion string
+	CreatedBy                                       int64
+	Options                                         RolloutOptions
+}
+
+// startRollout creates a rollout for one assignment, snapshots every
+// mismatched member with its baseline health and, for staged methods, its
+// batch (the first Options.BatchSize mismatched miners by identifier form
+// batch 0, and so on). Returns nil when no member is mismatched.
+func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.FirmwareRollout, error) {
 	q := s.store.Queries(ctx)
 	targets, err := q.ListFirmwareRolloutTargets(ctx, sqlc.ListFirmwareRolloutTargetsParams{
-		RolloutID: 0, LaneID: a.LaneID, Model: a.Model,
+		RolloutID: 0, LaneID: spec.LaneID, Model: spec.Model,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("list pilot targets: %v", err)
+		return nil, fleeterror.NewInternalErrorf("list rollout targets: %v", err)
 	}
 	var mismatched []string
 	for _, t := range targets {
-		if t.FirmwareVersion != a.FirmwareVersion {
+		if t.FirmwareVersion != spec.FirmwareVersion {
 			mismatched = append(mismatched, t.DeviceIdentifier)
 		}
 	}
 	if len(mismatched) == 0 {
 		return nil, nil
 	}
-	cohort := mismatched
-	if int(pilotCount) < len(cohort) {
-		cohort = cohort[:pilotCount]
+
+	opts := spec.Options
+	batchSize := int(opts.BatchSize)
+	if batchSize > len(mismatched) {
+		batchSize = len(mismatched)
 	}
-	r, err := q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
-		OrgID:           orgID,
-		LaneID:          a.LaneID,
-		Model:           a.Model,
-		FirmwareFileID:  a.FirmwareFileID,
-		FirmwareVersion: a.FirmwareVersion,
-		CreatedBy:       userID,
-		Method:          MethodPilot,
-		Stage:           StagePilot,
-		PilotCount:      int32(len(cohort)), // #nosec G115 -- capped at pilotCount, an int32
-	})
+	var batches [][]string
+	switch opts.Method {
+	case MethodPilot:
+		batches = [][]string{mismatched[:batchSize]}
+	case MethodBatches:
+		for start := 0; start < len(mismatched); start += batchSize {
+			end := min(start+batchSize, len(mismatched))
+			batches = append(batches, mismatched[start:end])
+		}
+	}
+	stage := StageRest
+	if len(batches) > 0 {
+		stage = StageBatch
+	}
+
+	params := sqlc.CreateFirmwareRolloutParams{
+		OrgID:                   spec.OrgID,
+		LaneID:                  spec.LaneID,
+		Model:                   spec.Model,
+		FirmwareFileID:          spec.FirmwareFileID,
+		FirmwareVersion:         spec.FirmwareVersion,
+		CreatedBy:               spec.CreatedBy,
+		Method:                  opts.Method,
+		Stage:                   stage,
+		BatchSize:               int32(batchSize),    // #nosec G115 -- capped at Options.BatchSize, an int32
+		BatchCount:              int32(len(batches)), // #nosec G115 -- bounded by the member count
+		AutoAdvance:             opts.AutoAdvance,
+		StabilizationSeconds:    opts.StabilizationSeconds,
+		PreviousFirmwareFileID:  spec.PreviousFirmwareFileID,
+		PreviousFirmwareVersion: spec.PreviousFirmwareVersion,
+	}
+	if opts.MaxHashrateDropPercent > 0 {
+		params.MaxHashrateDropPercent = sql.NullFloat64{Float64: opts.MaxHashrateDropPercent, Valid: true}
+	}
+	if opts.Method == MethodImmediate {
+		params.BatchSize = 0
+	}
+	r, err := q.CreateFirmwareRollout(ctx, params)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("create pilot rollout: %v", err)
+		return nil, fleeterror.NewInternalErrorf("create rollout: %v", err)
 	}
-	if err := q.InsertFirmwareRolloutCohort(ctx, sqlc.InsertFirmwareRolloutCohortParams{
-		RolloutID: r.ID, Cohort: CohortPilot, DeviceIdentifiers: cohort,
-	}); err != nil {
-		return nil, fleeterror.NewInternalErrorf("snapshot pilot cohort: %v", err)
+
+	// Baselines for every mismatched miner; batched ones also get their
+	// batch index. Late joiners have no baseline and are judged on
+	// version + online only.
+	batched := map[string]bool{}
+	for i, batch := range batches {
+		if err := q.SnapshotFirmwareRolloutDevices(ctx, sqlc.SnapshotFirmwareRolloutDevicesParams{
+			RolloutID:         r.ID,
+			BatchIndex:        sql.NullInt32{Int32: int32(i), Valid: true}, // #nosec G115 -- batch count is bounded by the member count
+			DeviceIdentifiers: batch,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("snapshot batch %d: %v", i, err)
+		}
+		for _, id := range batch {
+			batched[id] = true
+		}
+	}
+	var rest []string
+	for _, id := range mismatched {
+		if !batched[id] {
+			rest = append(rest, id)
+		}
+	}
+	if len(rest) > 0 {
+		if err := q.SnapshotFirmwareRolloutDevices(ctx, sqlc.SnapshotFirmwareRolloutDevicesParams{
+			RolloutID: r.ID, DeviceIdentifiers: rest,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("snapshot rollout devices: %v", err)
+		}
 	}
 	return &r, nil
 }
 
-// ContinueRollout advances a pilot rollout that is awaiting review to its
-// rest stage; the next enforcement pass updates the remaining miners.
+// ContinueRollout releases the review gate of a staged rollout: the next
+// batch starts, or the rest stage when the last batch was under review.
 func (s *Service) ContinueRollout(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
+	row, laneName, err := s.activeRollout(ctx, orgID, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	if row.Stage != StageAwaitingReview {
+		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is not awaiting review", rolloutID)
+	}
+	if err := s.advance(ctx, &row); err != nil {
+		return nil, err
+	}
+	s.logRolloutEvent(ctx, row, laneName, EventRolloutContinued, false, nil)
+	return s.rolloutView(ctx, row, laneName)
+}
+
+// advance moves a rollout at the review gate to its next batch or, after
+// the last batch, to the rest stage. row is updated in place.
+func (s *Service) advance(ctx context.Context, row *sqlc.FirmwareRollout) error {
+	stage, batch := StageRest, row.CurrentBatch
+	if next := row.CurrentBatch + 1; next < row.BatchCount {
+		stage, batch = StageBatch, next
+	}
+	n, err := s.store.Queries(ctx).AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
+		RolloutID: row.ID, FromStage: StageAwaitingReview, Stage: stage, CurrentBatch: batch,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("continue rollout: %v", err)
+	}
+	if n == 0 {
+		return fleeterror.NewInvalidArgumentErrorf("rollout %d is not awaiting review", row.ID)
+	}
+	row.Stage, row.CurrentBatch, row.StageChangedAt = stage, batch, s.now()
+	return nil
+}
+
+// PauseRollout holds an active rollout: no new commands, no transitions.
+func (s *Service) PauseRollout(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
+	row, laneName, err := s.activeRollout(ctx, orgID, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	n, err := s.store.Queries(ctx).PauseFirmwareRollout(ctx, rolloutID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("pause rollout: %v", err)
+	}
+	if n == 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is already paused", rolloutID)
+	}
+	row.PausedAt = sql.NullTime{Time: s.now(), Valid: true}
+	s.logRolloutEvent(ctx, row, laneName, EventRolloutPaused, false, nil)
+	return s.rolloutView(ctx, row, laneName)
+}
+
+// ResumeRollout lets a paused rollout continue where it left off.
+func (s *Service) ResumeRollout(ctx context.Context, orgID, rolloutID int64) (*Rollout, error) {
+	row, laneName, err := s.activeRollout(ctx, orgID, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	n, err := s.store.Queries(ctx).ResumeFirmwareRollout(ctx, rolloutID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("resume rollout: %v", err)
+	}
+	if n == 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is not paused", rolloutID)
+	}
+	row.PausedAt = sql.NullTime{}
+	s.logRolloutEvent(ctx, row, laneName, EventRolloutResumed, false, nil)
+	return s.rolloutView(ctx, row, laneName)
+}
+
+// AbortRollout cancels an active rollout and makes sure enforcement does not
+// simply restart it: the model's previous assignment is restored (starting an
+// immediate rollout back to it for miners already updated) or, when there was
+// no previous assignment, the assignment is cleared.
+func (s *Service) AbortRollout(ctx context.Context, orgID, userID, rolloutID int64) (*AbortResult, error) {
+	row, laneName, err := s.activeRollout(ctx, orgID, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	q := s.store.Queries(ctx)
+	n, err := q.AbortFirmwareRollout(ctx, rolloutID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("abort rollout: %v", err)
+	}
+	if n == 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is not active", rolloutID)
+	}
+	row.Status, row.CancelReason = StatusCanceled, CancelReasonAborted
+	row.FinishedAt = sql.NullTime{Time: s.now(), Valid: true}
+
+	result := &AbortResult{}
+	canRestore := row.PreviousFirmwareFileID != "" && row.PreviousFirmwareFileID != row.FirmwareFileID
+	if canRestore {
+		started, err := s.ApplyFirmware(ctx, orgID, userID, row.LaneID, []Assignment{
+			{Model: row.Model, FirmwareFileID: row.PreviousFirmwareFileID},
+		}, RolloutOptions{})
+		if err != nil {
+			// The previous file may be gone; fall back to clearing so the
+			// aborted change is not re-enforced.
+			slog.Warn("abort: could not restore previous firmware, clearing assignment",
+				"rollout_id", rolloutID, "previous_file", row.PreviousFirmwareFileID, "error", err)
+			canRestore = false
+		} else {
+			result.Started = started
+			result.RestoredPrevious = true
+		}
+	}
+	if !canRestore {
+		if err := q.DeleteRolloutLaneFirmware(ctx, sqlc.DeleteRolloutLaneFirmwareParams{LaneID: row.LaneID, Model: row.Model}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("clear assignment: %v", err)
+		}
+	}
+	s.logRolloutEvent(ctx, row, laneName, EventRolloutAborted, false, map[string]any{
+		"restored_previous":         result.RestoredPrevious,
+		"previous_firmware_version": row.PreviousFirmwareVersion,
+	})
+
+	view, err := s.rolloutView(ctx, row, laneName)
+	if err != nil {
+		return nil, err
+	}
+	result.Rollout = view
+	lane, err := s.getLane(ctx, orgID, row.LaneID)
+	if err != nil {
+		return nil, err
+	}
+	result.Lane = lane
+	return result, nil
+}
+
+// activeRollout loads an active rollout of the org together with its lane
+// name, or returns a not-found / invalid-argument error.
+func (s *Service) activeRollout(ctx context.Context, orgID, rolloutID int64) (sqlc.FirmwareRollout, string, error) {
 	q := s.store.Queries(ctx)
 	row, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID})
 	if err != nil {
-		return nil, fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+		return sqlc.FirmwareRollout{}, "", fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
 	}
-	if row.Status != StatusActive || row.Method != MethodPilot || row.Stage != StageAwaitingReview {
-		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is not awaiting review", rolloutID)
+	if row.Status != StatusActive {
+		return sqlc.FirmwareRollout{}, "", fleeterror.NewInvalidArgumentErrorf("rollout %d is not active", rolloutID)
 	}
-	n, err := q.SetFirmwareRolloutStage(ctx, sqlc.SetFirmwareRolloutStageParams{
-		RolloutID: rolloutID, FromStage: StageAwaitingReview, Stage: StageRest,
-	})
+	lane, err := q.GetRolloutLane(ctx, sqlc.GetRolloutLaneParams{LaneID: row.LaneID, OrgID: orgID})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("continue rollout: %v", err)
+		return sqlc.FirmwareRollout{}, "", fleeterror.NewNotFoundErrorf("lane not found: %d", row.LaneID)
 	}
-	if n == 0 {
-		return nil, fleeterror.NewInvalidArgumentErrorf("rollout %d is not awaiting review", rolloutID)
-	}
-	row.Stage = StageRest
-	return s.rolloutView(ctx, row, "")
+	return row, lane.Name, nil
 }
 
 // RollbackFirmware re-applies the firmware of a past rollout to its lane's
@@ -485,10 +778,10 @@ func (s *Service) buildLane(ctx context.Context, orgID int64, row sqlc.RolloutLa
 		g.FirmwareVersion = f.FirmwareVersion
 	}
 	for _, r := range active {
-		if r.LaneID != row.ID {
+		if r.FirmwareRollout.LaneID != row.ID {
 			continue
 		}
-		group(r.Model).ActiveRolloutID = r.ID
+		group(r.FirmwareRollout.Model).ActiveRolloutID = r.FirmwareRollout.ID
 	}
 
 	lane := &Lane{ID: row.ID, Name: row.Name, CreatedAt: row.CreatedAt}
@@ -512,13 +805,7 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, laneID int64) (
 	}
 	rollouts := make([]Rollout, 0, len(rows))
 	for _, row := range rows {
-		view, err := s.rolloutView(ctx, sqlc.FirmwareRollout{
-			ID: row.ID, OrgID: row.OrgID, LaneID: row.LaneID, Model: row.Model,
-			FirmwareFileID: row.FirmwareFileID, FirmwareVersion: row.FirmwareVersion,
-			Status: row.Status, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
-			FinishedAt: row.FinishedAt,
-			Method:     row.Method, Stage: row.Stage, PilotCount: row.PilotCount,
-		}, row.LaneName)
+		view, err := s.rolloutView(ctx, row.FirmwareRollout, row.LaneName)
 		if err != nil {
 			return nil, err
 		}
@@ -527,50 +814,219 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, laneID int64) (
 	return rollouts, nil
 }
 
-func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, laneName string) (*Rollout, error) {
-	targets, err := s.store.Queries(ctx).ListFirmwareRolloutTargets(ctx, sqlc.ListFirmwareRolloutTargetsParams{
+// target is one lane member of a rollout's model with derived health.
+type target struct {
+	sqlc.ListFirmwareRolloutTargetsRow
+}
+
+// online: the miner is reachable. UPDATING counts as not yet back, since a
+// miner mid-flash has not proven it survived the update.
+func (t target) online() bool {
+	switch t.Status {
+	case "", "OFFLINE", "UNKNOWN", "UPDATING":
+		return false
+	}
+	return true
+}
+
+func (t target) hashing() bool { return t.Status == deviceStatusActive }
+
+func (t target) baselineHashing() bool {
+	return t.BaselineStatus.Valid && t.BaselineStatus.String == deviceStatusActive
+}
+
+func (t target) inBatch(index int32) bool {
+	return t.BatchIndex.Valid && t.BatchIndex.Int32 == index
+}
+
+// verified: on the target version, back online, and hashing if it was
+// hashing before the update. A miner that was not hashing before (e.g. no
+// pool configured) is not held to a standard the update cannot meet.
+func (t target) verified(version string) bool {
+	return t.FirmwareVersion == version && t.online() && (t.hashing() || !t.baselineHashing())
+}
+
+func (t target) state(version string) string {
+	switch {
+	case t.verified(version):
+		return DeviceStateUpdated
+	case t.FirmwareVersion == version:
+		return DeviceStateVerifying
+	case t.UpdateSentAt.Valid:
+		return DeviceStateUpdating
+	}
+	return DeviceStatePending
+}
+
+func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
+	state := t.state(r.FirmwareVersion)
+	// A rollout completes only once every target verified, so report it
+	// that way: comparing against live versions would misreport history
+	// after a later rollout moves the same miners elsewhere.
+	if r.Status == StatusCompleted {
+		state = DeviceStateUpdated
+	}
+	d := RolloutDevice{
+		DeviceID:            t.DeviceID,
+		DeviceIdentifier:    t.DeviceIdentifier,
+		FirmwareVersion:     t.FirmwareVersion,
+		State:               state,
+		Status:              t.Status,
+		Online:              t.online(),
+		Hashing:             t.hashing(),
+		HasBaseline:         t.BaselineStatus.Valid,
+		BaselineHashing:     t.baselineHashing(),
+		HasHashRate:         t.HashRateHs.Valid,
+		HashRateHs:          t.HashRateHs.Float64,
+		HasBaselineHashRate: t.BaselineHashRateHs.Valid,
+		BaselineHashRateHs:  t.BaselineHashRateHs.Float64,
+		OpenErrors:          t.OpenErrors,
+		BaselineOpenErrors:  t.BaselineOpenErrors.Int32,
+	}
+	if t.BatchIndex.Valid {
+		d.Batch = t.BatchIndex.Int32 + 1
+	}
+	return d
+}
+
+func (s *Service) listTargets(ctx context.Context, r sqlc.FirmwareRollout) ([]target, error) {
+	rows, err := s.store.Queries(ctx).ListFirmwareRolloutTargets(ctx, sqlc.ListFirmwareRolloutTargetsParams{
 		RolloutID: r.ID, LaneID: r.LaneID, Model: r.Model,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list rollout targets: %v", err)
 	}
+	targets := make([]target, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, target{row})
+	}
+	return targets, nil
+}
+
+// reviewScope is the set of targets whose evidence governs the rollout right
+// now: the current batch while batching or at the gate, everything in the
+// rest stage.
+func reviewScope(r sqlc.FirmwareRollout, targets []target) []target {
+	if r.Stage == StageRest {
+		return targets
+	}
+	var scope []target
+	for _, t := range targets {
+		if t.inBatch(r.CurrentBatch) {
+			scope = append(scope, t)
+		}
+	}
+	return scope
+}
+
+// evaluate summarizes the scope's post-update health against baseline and
+// decides whether the rollout may auto-advance. Missing or degraded evidence
+// never advances a rollout on its own.
+func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
+	ev := Evidence{DevicesTotal: int32(len(scope))} // #nosec G115 -- bounded by the member count
+	missingSamples := 0
+	for _, t := range scope {
+		if t.verified(r.FirmwareVersion) {
+			ev.Verified++
+		}
+		if t.online() {
+			ev.Online++
+		}
+		if t.hashing() {
+			ev.Hashing++
+		}
+		if t.baselineHashing() {
+			ev.BaselineHashing++
+		}
+		if t.BaselineHashRateHs.Valid {
+			if t.HashRateHs.Valid {
+				ev.HasHashrateEvidence = true
+				ev.BaselineHashRateHs += t.BaselineHashRateHs.Float64
+				ev.CurrentHashRateHs += t.HashRateHs.Float64
+			} else {
+				missingSamples++
+			}
+		}
+		if t.BaselineOpenErrors.Valid && t.OpenErrors > t.BaselineOpenErrors.Int32 {
+			ev.NewErrors += t.OpenErrors - t.BaselineOpenErrors.Int32
+		}
+	}
+	if ev.HasHashrateEvidence && ev.BaselineHashRateHs > 0 {
+		ev.HashrateChangePercent = (ev.CurrentHashRateHs - ev.BaselineHashRateHs) / ev.BaselineHashRateHs * 100
+	}
+
+	switch {
+	case r.Status != StatusActive:
+		return ev
+	case r.PausedAt.Valid:
+		ev.HoldReason = "Paused"
+	case r.Stage == StageBatch:
+		ev.HoldReason = "Batch in progress"
+	case r.Stage == StageRest:
+		ev.HoldReason = ""
+	case !r.AutoAdvance:
+		ev.HoldReason = "Manual review"
+	case ev.Verified < ev.DevicesTotal:
+		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified, ev.DevicesTotal)
+	case missingSamples > 0:
+		ev.HoldReason = fmt.Sprintf("No recent hashrate sample for %d miners", missingSamples)
+	case ev.NewErrors > 0:
+		ev.HoldReason = fmt.Sprintf("%d new errors since the update", ev.NewErrors)
+	case r.MaxHashrateDropPercent.Valid && ev.HasHashrateEvidence && ev.HashrateChangePercent < -r.MaxHashrateDropPercent.Float64:
+		ev.HoldReason = fmt.Sprintf("Hashrate down %.1f%% (limit %.0f%%)", -ev.HashrateChangePercent, r.MaxHashrateDropPercent.Float64)
+	default:
+		remaining := time.Duration(r.StabilizationSeconds)*time.Second - s.now().Sub(r.StageChangedAt)
+		if remaining > 0 {
+			ev.StabilizationRemainingSeconds = int32(math.Ceil(remaining.Seconds())) // #nosec G115 -- bounded by StabilizationSeconds, an int32
+			ev.HoldReason = "Stabilizing"
+		} else {
+			ev.ReadyToAdvance = true
+		}
+	}
+	return ev
+}
+
+func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, laneName string) (*Rollout, error) {
+	targets, err := s.listTargets(ctx, r)
+	if err != nil {
+		return nil, err
+	}
 	view := &Rollout{
-		ID:              r.ID,
-		LaneID:          r.LaneID,
-		LaneName:        laneName,
-		Model:           r.Model,
-		FirmwareFileID:  r.FirmwareFileID,
-		FirmwareVersion: r.FirmwareVersion,
-		Status:          r.Status,
-		Method:          r.Method,
-		Stage:           r.Stage,
-		PilotCount:      r.PilotCount,
-		CreatedAt:       r.CreatedAt,
+		ID:                      r.ID,
+		LaneID:                  r.LaneID,
+		LaneName:                laneName,
+		Model:                   r.Model,
+		FirmwareFileID:          r.FirmwareFileID,
+		FirmwareVersion:         r.FirmwareVersion,
+		Status:                  r.Status,
+		Method:                  r.Method,
+		Stage:                   r.Stage,
+		BatchSize:               r.BatchSize,
+		BatchCount:              r.BatchCount,
+		CurrentBatch:            r.CurrentBatch,
+		AutoAdvance:             r.AutoAdvance,
+		MaxHashrateDropPercent:  r.MaxHashrateDropPercent.Float64,
+		StabilizationSeconds:    r.StabilizationSeconds,
+		PreviousFirmwareFileID:  r.PreviousFirmwareFileID,
+		PreviousFirmwareVersion: r.PreviousFirmwareVersion,
+		CancelReason:            r.CancelReason,
+		StageChangedAt:          r.StageChangedAt,
+		CreatedAt:               r.CreatedAt,
 	}
 	if r.FinishedAt.Valid {
 		t := r.FinishedAt.Time
 		view.FinishedAt = &t
 	}
+	if r.PausedAt.Valid {
+		t := r.PausedAt.Time
+		view.PausedAt = &t
+	}
 	for _, t := range targets {
-		state := DeviceStatePending
-		switch {
-		// A rollout completes only once every target matched, so report it
-		// that way: comparing against live versions would misreport history
-		// after a later rollout moves the same miners elsewhere.
-		case r.Status == StatusCompleted:
-			state = DeviceStateUpdated
-		case t.FirmwareVersion == r.FirmwareVersion:
-			state = DeviceStateUpdated
-		case t.UpdateSentAt.Valid:
-			state = DeviceStateUpdating
-		}
-		view.Devices = append(view.Devices, RolloutDevice{
-			DeviceID:         t.DeviceID,
-			DeviceIdentifier: t.DeviceIdentifier,
-			FirmwareVersion:  t.FirmwareVersion,
-			State:            state,
-			InPilotCohort:    t.Cohort == CohortPilot,
-		})
+		view.Devices = append(view.Devices, t.view(r))
+	}
+	if r.Status == StatusActive {
+		ev := s.evaluate(r, reviewScope(r, targets))
+		view.Evidence = &ev
 	}
 	return view, nil
 }
@@ -578,7 +1034,7 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, laneN
 // EnforceTick runs one enforcement pass: it starts rollouts for assignments
 // with mismatched members and drives every active rollout forward.
 func (s *Service) EnforceTick(ctx context.Context) {
-	if _, err := s.startNeededRollouts(ctx); err != nil {
+	if err := s.startNeededRollouts(ctx); err != nil {
 		slog.Error("rollout enforcement: start rollouts", "error", err)
 	}
 	active, err := s.store.Queries(ctx).ListActiveFirmwareRollouts(ctx)
@@ -587,105 +1043,131 @@ func (s *Service) EnforceTick(ctx context.Context) {
 		return
 	}
 	for _, row := range active {
-		r := sqlc.FirmwareRollout{
-			ID: row.ID, OrgID: row.OrgID, LaneID: row.LaneID, Model: row.Model,
-			FirmwareFileID: row.FirmwareFileID, FirmwareVersion: row.FirmwareVersion,
-			Status: row.Status, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt,
-			Method: row.Method, Stage: row.Stage, PilotCount: row.PilotCount,
-		}
-		if err := s.enforceRollout(ctx, r); err != nil {
-			slog.Error("rollout enforcement", "rollout_id", r.ID, "error", err)
+		if err := s.enforceRollout(ctx, row.FirmwareRollout, row.LaneName); err != nil {
+			slog.Error("rollout enforcement", "rollout_id", row.FirmwareRollout.ID, "error", err)
 		}
 	}
 }
 
-// startNeededRollouts creates a rollout for every assignment that has at
-// least one mismatched member and no active rollout.
-func (s *Service) startNeededRollouts(ctx context.Context) ([]sqlc.FirmwareRollout, error) {
+// startNeededRollouts creates an immediate rollout for every assignment that
+// has at least one mismatched member and no active rollout: late joiners and
+// miners that drifted off the assigned version. No operator is present to
+// review a gate, so these never stage.
+func (s *Service) startNeededRollouts(ctx context.Context) error {
 	q := s.store.Queries(ctx)
 	needed, err := q.ListRolloutLaneFirmwareNeedingRollout(ctx)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("find assignments needing rollout: %v", err)
+		return fleeterror.NewInternalErrorf("find assignments needing rollout: %v", err)
 	}
-	var created []sqlc.FirmwareRollout
 	for _, n := range needed {
-		// Drift-correction rollouts (late joiners, miners off the assigned
-		// version) always run immediately: no operator is present to review
-		// a gate.
-		r, err := q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
-			OrgID:           n.OrgID,
-			LaneID:          n.LaneID,
-			Model:           n.Model,
-			FirmwareFileID:  n.FirmwareFileID,
-			FirmwareVersion: n.FirmwareVersion,
-			CreatedBy:       n.AssignedBy,
-			Method:          MethodImmediate,
-			Stage:           StageRest,
-			PilotCount:      0,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("create rollout: %v", err)
+		if _, err := s.startRollout(ctx, rolloutSpec{
+			OrgID: n.OrgID, LaneID: n.LaneID, Model: n.Model,
+			FirmwareFileID: n.FirmwareFileID, FirmwareVersion: n.FirmwareVersion,
+			// The assignment did not change, so "previous" is the assignment
+			// itself; abort then clears rather than restores.
+			PreviousFirmwareFileID: n.FirmwareFileID, PreviousFirmwareVersion: n.FirmwareVersion,
+			CreatedBy: n.AssignedBy, Options: RolloutOptions{Method: MethodImmediate},
+		}); err != nil {
+			return err
 		}
-		created = append(created, r)
 	}
-	return created, nil
+	return nil
 }
 
-// enforceRollout drives one active rollout forward according to its stage:
-// the pilot stage updates only the snapshotted cohort and then parks the
-// rollout at the review gate; awaiting_review does nothing; the rest stage
-// (and every immediate rollout) updates all mismatched targets and completes
-// the rollout once every target matches.
-func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout) error {
-	if r.Stage == StageAwaitingReview {
+// enforceRollout drives one active rollout forward according to its stage.
+// Paused rollouts are left alone. The batch stage updates only the current
+// batch and parks the rollout at the review gate once the batch is verified;
+// the gate holds until continued (manually, or by auto-advance once the
+// evidence clears the thresholds); the rest stage (and every immediate
+// rollout) updates all mismatched targets and completes the rollout once
+// every target is verified.
+func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, laneName string) error {
+	if r.PausedAt.Valid {
 		return nil
 	}
-	q := s.store.Queries(ctx)
-	targets, err := q.ListFirmwareRolloutTargets(ctx, sqlc.ListFirmwareRolloutTargetsParams{
-		RolloutID: r.ID, LaneID: r.LaneID, Model: r.Model,
-	})
+	targets, err := s.listTargets(ctx, r)
 	if err != nil {
 		return err
 	}
-	if r.Stage == StagePilot {
-		// Only the cohort counts in the pilot stage. Cohort members that
-		// left the lane drop out of the targets, so the gate is reached
-		// once every remaining cohort member reports the version.
-		var cohort []sqlc.ListFirmwareRolloutTargetsRow
-		for _, t := range targets {
-			if t.Cohort == CohortPilot {
-				cohort = append(cohort, t)
-			}
-		}
-		targets = cohort
-	}
+	scope := reviewScope(r, targets)
 
+	switch r.Stage {
+	case StageAwaitingReview:
+		if !r.AutoAdvance {
+			return nil
+		}
+		ev := s.evaluate(r, scope)
+		if !ev.ReadyToAdvance {
+			return nil
+		}
+		if err := s.advance(ctx, &r); err != nil {
+			return err
+		}
+		s.logRolloutEvent(ctx, r, laneName, EventRolloutContinued, true, map[string]any{
+			"auto_advanced":           true,
+			"hashrate_change_percent": ev.HashrateChangePercent,
+		})
+		return nil
+
+	case StageBatch:
+		if allVerified(scope, r.FirmwareVersion) {
+			n, err := s.store.Queries(ctx).AdvanceFirmwareRolloutStage(ctx, sqlc.AdvanceFirmwareRolloutStageParams{
+				RolloutID: r.ID, FromStage: StageBatch, Stage: StageAwaitingReview, CurrentBatch: r.CurrentBatch,
+			})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				r.Stage = StageAwaitingReview
+				s.logRolloutEvent(ctx, r, laneName, EventRolloutReviewReady, true, map[string]any{
+					"batch": r.CurrentBatch + 1, "batch_count": r.BatchCount,
+				})
+			}
+			return nil
+		}
+		return s.dispatchUpdates(ctx, r, scope)
+
+	default:
+		if allVerified(scope, r.FirmwareVersion) {
+			n, err := s.store.Queries(ctx).CompleteFirmwareRollout(ctx, r.ID)
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				r.Status = StatusCompleted
+				s.logRolloutEvent(ctx, r, laneName, EventRolloutCompleted, true, nil)
+			}
+			return nil
+		}
+		return s.dispatchUpdates(ctx, r, scope)
+	}
+}
+
+func allVerified(scope []target, version string) bool {
+	for _, t := range scope {
+		if !t.verified(version) {
+			return false
+		}
+	}
+	return true
+}
+
+// dispatchUpdates sends the firmware update to every mismatched target in
+// scope that was not attempted within resendInterval.
+func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, scope []target) error {
 	var toSend []string
-	mismatched := false
-	cutoff := time.Now().Add(-resendInterval)
-	for _, t := range targets {
+	cutoff := s.now().Add(-resendInterval)
+	for _, t := range scope {
 		if t.FirmwareVersion == r.FirmwareVersion {
 			continue
 		}
-		mismatched = true
 		if !t.UpdateSentAt.Valid || t.UpdateSentAt.Time.Before(cutoff) {
 			toSend = append(toSend, t.DeviceIdentifier)
 		}
 	}
-	if !mismatched {
-		if r.Stage == StagePilot {
-			// Pilot done: park at the review gate instead of completing.
-			_, err := q.SetFirmwareRolloutStage(ctx, sqlc.SetFirmwareRolloutStageParams{
-				RolloutID: r.ID, FromStage: StagePilot, Stage: StageAwaitingReview,
-			})
-			return err
-		}
-		return q.CompleteFirmwareRollout(ctx, r.ID)
-	}
 	if len(toSend) == 0 {
 		return nil
 	}
-
 	selector := &commandpb.DeviceSelector{
 		SelectionType: &commandpb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: toSend},
@@ -700,7 +1182,7 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout) er
 		"dispatched", result.DispatchedCount, "skipped", len(result.Skipped))
 	// Mark every attempted device (dispatched or preflight-skipped) so the
 	// next attempt waits for resendInterval instead of retrying each tick.
-	return q.MarkFirmwareRolloutDevicesSent(ctx, sqlc.MarkFirmwareRolloutDevicesSentParams{
+	return s.store.Queries(ctx).MarkFirmwareRolloutDevicesSent(ctx, sqlc.MarkFirmwareRolloutDevicesSentParams{
 		RolloutID: r.ID, DeviceIdentifiers: toSend,
 	})
 }
@@ -716,4 +1198,49 @@ func (s *Service) enforcementContext(ctx context.Context, r sqlc.FirmwareRollout
 		Username:       rolloutActorName,
 		Actor:          session.ActorRolloutEnforcement,
 	})
+}
+
+// logRolloutEvent records a rollout lifecycle event. system marks events
+// raised by the enforcement loop rather than an operator; operator events
+// take their actor from the request session.
+func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, laneName, eventType string, system bool, extra map[string]any) {
+	if s.activity == nil {
+		return
+	}
+	orgID := r.OrgID
+	metadata := map[string]any{
+		"rollout_id":       r.ID,
+		"lane_id":          r.LaneID,
+		"lane_name":        laneName,
+		"model":            r.Model,
+		"firmware_version": r.FirmwareVersion,
+		"method":           r.Method,
+		"stage":            r.Stage,
+	}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryDeviceCommand,
+		Type:           eventType,
+		Description:    fmt.Sprintf("%s: %s %s → %s", eventDescriptions[eventType], laneName, r.Model, r.FirmwareVersion),
+		OrganizationID: &orgID,
+		Metadata:       metadata,
+	}
+	if system {
+		event.ActorType = activitymodels.ActorSystem
+	} else {
+		activity.StampActor(ctx, &event)
+	}
+	s.activity.Log(ctx, event)
+}
+
+var eventDescriptions = map[string]string{
+	EventRolloutStarted:     "Started firmware rollout",
+	EventRolloutReviewReady: "Firmware rollout ready for review",
+	EventRolloutContinued:   "Continued firmware rollout",
+	EventRolloutPaused:      "Paused firmware rollout",
+	EventRolloutResumed:     "Resumed firmware rollout",
+	EventRolloutAborted:     "Aborted firmware rollout",
+	EventRolloutCompleted:   "Completed firmware rollout",
 }

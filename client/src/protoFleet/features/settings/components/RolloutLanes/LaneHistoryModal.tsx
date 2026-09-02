@@ -1,6 +1,6 @@
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
-import { rolloutDeviceCounts, rolloutStatusLabels, rolloutStatusTone } from "./rolloutStatus";
+import { rolloutDeviceCounts, rolloutOutcomeLabel, rolloutStatusTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import { type Rollout, type RolloutLane, RolloutStatus } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -60,7 +60,7 @@ const LaneHistoryModal = ({ lane, rollouts, onRollback, onClose }: LaneHistoryMo
               return (
                 <tr key={rollout.id.toString()} className="border-t border-border-5">
                   <td className="py-2 pr-4">
-                    <StatusChip label={rolloutStatusLabels[rollout.status]} tone={rolloutStatusTone(rollout.status)} />
+                    <StatusChip label={rolloutOutcomeLabel(rollout)} tone={rolloutStatusTone(rollout)} />
                   </td>
                   <td className="py-2 pr-4">{rollout.model}</td>
                   <td className="py-2 pr-4">{rollout.firmwareVersion}</td>

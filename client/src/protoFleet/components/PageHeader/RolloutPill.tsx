@@ -4,10 +4,13 @@ import { Link } from "react-router-dom";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
-  rolloutDeviceCounts,
+  isAwaitingReview,
+  isPaused,
   rolloutProgressColorMap,
   rolloutProgressSegments,
   rolloutProgressSummary,
+  rolloutStatusHeadline,
+  scopeCounts,
 } from "@/protoFleet/features/settings/components/RolloutLanes/rolloutStatus";
 import CompositionBar from "@/shared/components/CompositionBar";
 
@@ -17,26 +20,54 @@ interface RolloutPillProps {
   rollouts: Rollout[];
 }
 
+// Trigger copy leads with what needs a human: a rollout parked at its review
+// gate outranks rollouts that are merely running.
+function triggerLabel(rollouts: Rollout[], reviewCount: number): string {
+  if (reviewCount === 1) return "Rollout needs review";
+  if (reviewCount > 1) return `${reviewCount} rollouts need review`;
+  return rollouts.length === 1 ? "Rollout in progress" : `${rollouts.length} rollouts in progress`;
+}
+
 function RolloutPill({ rollouts }: RolloutPillProps): ReactElement {
+  const reviewCount = rollouts.filter(isAwaitingReview).length;
   return (
     <PageHeaderPopoverPill
       ariaLabel="View ongoing firmware rollouts"
-      dotClassName="animate-pulse bg-intent-warning-fill"
+      // Solid while a review is needed (waiting on you), pulsing while the
+      // fleet is still being worked on.
+      dotClassName={reviewCount > 0 ? "bg-intent-warning-fill" : "animate-pulse bg-intent-warning-fill"}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={rollouts.length === 1 ? "Rollout in progress" : `${rollouts.length} rollouts in progress`}
+      triggerLabel={triggerLabel(rollouts, reviewCount)}
     >
       {({ closePopover }) => (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-3">
             {rollouts.map((rollout) => {
-              const counts = rolloutDeviceCounts(rollout);
+              const counts = scopeCounts(rollout);
+              const needsReview = isAwaitingReview(rollout);
               return (
-                <div key={rollout.id.toString()} className="min-w-0 space-y-1.5">
+                <div
+                  key={rollout.id.toString()}
+                  className="min-w-0 space-y-1.5"
+                  data-testid={`rollout-pill-entry-${rollout.id.toString()}`}
+                >
                   <div className="truncate text-heading-100 text-text-primary">{rollout.laneName}</div>
                   <div className="text-200 leading-snug text-text-primary-70">
                     {`${rollout.model} → ${rollout.firmwareVersion}`}
                   </div>
-                  <div className="text-200 leading-snug text-text-primary-70">{rolloutProgressSummary(counts)}</div>
+                  {needsReview || isPaused(rollout) ? (
+                    <div
+                      className={
+                        needsReview
+                          ? "text-200 leading-snug text-intent-warning-text"
+                          : "text-200 leading-snug text-text-primary-70"
+                      }
+                    >
+                      {rolloutStatusHeadline(rollout)}
+                    </div>
+                  ) : (
+                    <div className="text-200 leading-snug text-text-primary-70">{rolloutProgressSummary(counts)}</div>
+                  )}
                   <CompositionBar
                     segments={rolloutProgressSegments(counts)}
                     height={6}

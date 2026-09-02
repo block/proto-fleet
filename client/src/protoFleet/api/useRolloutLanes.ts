@@ -13,7 +13,27 @@ const POLL_INTERVAL_MS = 5000;
 // How rollouts started by an apply call run; omitted means all at once.
 export interface ApplyRolloutOptions {
   method: RolloutMethod;
-  pilotCount: number;
+  // Miners per batch (the pilot size for PILOT); ignored for IMMEDIATE.
+  batchSize: number;
+  // Release each review gate automatically once the thresholds hold.
+  autoAdvance: boolean;
+  // Largest acceptable aggregate hashrate drop, in percent; 0 disables.
+  maxHashrateDropPercent: number;
+  stabilizationSeconds: number;
+}
+
+export const IMMEDIATE_ROLLOUT_OPTIONS: ApplyRolloutOptions = {
+  method: RolloutMethod.IMMEDIATE,
+  batchSize: 0,
+  autoAdvance: false,
+  maxHashrateDropPercent: 0,
+  stabilizationSeconds: 0,
+};
+
+export interface AbortRolloutResult {
+  // True when the previous assignment was restored, false when cleared.
+  restoredPrevious: boolean;
+  previousFirmwareVersion: string;
 }
 
 export interface RolloutLanesApi {
@@ -33,6 +53,9 @@ export interface RolloutLanesApi {
   ) => Promise<void>;
   rollbackFirmware: (rolloutId: bigint) => Promise<void>;
   continueRollout: (rolloutId: bigint) => Promise<void>;
+  pauseRollout: (rolloutId: bigint) => Promise<void>;
+  resumeRollout: (rolloutId: bigint) => Promise<void>;
+  abortRollout: (rolloutId: bigint) => Promise<AbortRolloutResult>;
 }
 
 // Fetches rollout lanes and rollouts, polling while mounted so firmware
@@ -104,12 +127,12 @@ export function useRolloutLanes(): RolloutLanesApi {
       assignments: Pick<FirmwareAssignment, "model" | "firmwareFileId">[],
       options?: ApplyRolloutOptions,
     ) => {
+      const { method, batchSize, autoAdvance, maxHashrateDropPercent, stabilizationSeconds } =
+        options ?? IMMEDIATE_ROLLOUT_OPTIONS;
       await rolloutClient.applyRolloutLaneFirmware({
         laneId,
         assignments: assignments.map((a) => ({ model: a.model, firmwareFileId: a.firmwareFileId })),
-        options: options
-          ? { method: options.method, pilotCount: options.pilotCount }
-          : { method: RolloutMethod.IMMEDIATE, pilotCount: 0 },
+        options: { method, batchSize, autoAdvance, maxHashrateDropPercent, stabilizationSeconds },
       });
       await refresh();
     },
@@ -132,6 +155,34 @@ export function useRolloutLanes(): RolloutLanesApi {
     [refresh],
   );
 
+  const pauseRollout = useCallback(
+    async (rolloutId: bigint) => {
+      await rolloutClient.pauseRollout({ rolloutId });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const resumeRollout = useCallback(
+    async (rolloutId: bigint) => {
+      await rolloutClient.resumeRollout({ rolloutId });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const abortRollout = useCallback(
+    async (rolloutId: bigint): Promise<AbortRolloutResult> => {
+      const resp = await rolloutClient.abortRollout({ rolloutId });
+      await refresh();
+      return {
+        restoredPrevious: resp.restoredPrevious,
+        previousFirmwareVersion: resp.rollout?.previousFirmwareVersion ?? "",
+      };
+    },
+    [refresh],
+  );
+
   return {
     lanes,
     rollouts,
@@ -144,5 +195,8 @@ export function useRolloutLanes(): RolloutLanesApi {
     applyFirmware,
     rollbackFirmware,
     continueRollout,
+    pauseRollout,
+    resumeRollout,
+    abortRollout,
   };
 }

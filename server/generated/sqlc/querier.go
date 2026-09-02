@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	AbortFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error)
 	AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error)
 	// Permission catalog queries. The catalog is reconciled at startup
 	// against domain/authz/catalog.go via domain/authz/reconcile.go.
@@ -36,6 +37,9 @@ type Querier interface {
 	// forced termination. Zero-row return lets the caller route active,
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
+	// Stage transitions of an active rollout (batch -> awaiting_review -> batch
+	// | rest). Returns the affected row count so callers can detect a lost race.
+	AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
@@ -127,6 +131,8 @@ type Querier interface {
 	// still lands on the next successful state-change write. EXISTS guard
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
+	// Cancels the (lane, model) pair's active rollout, recording why
+	// ('superseded' by a new assignment or 'cleared' with the assignment).
 	CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error
 	CancelEnrollmentForFleetNode(ctx context.Context, arg CancelEnrollmentForFleetNodeParams) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
@@ -236,7 +242,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
-	CompleteFirmwareRollout(ctx context.Context, rolloutID int64) error
+	CompleteFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error)
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
@@ -817,9 +823,6 @@ type Querier interface {
 	// VALUES form raised. Caller wraps generically (fleeterror.New
 	// InternalErrorf), so the surface is unchanged for present callers.
 	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
-	// Snapshots the pilot cohort at rollout creation, before any command is
-	// sent (update_sent_at stays NULL until the enforcement loop dispatches).
-	InsertFirmwareRolloutCohort(ctx context.Context, arg InsertFirmwareRolloutCohortParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
 	// CASE bucket order must match CountMinersByState (device.sql) — the chart
 	// and the live legend classify devices with the same rules.
@@ -1039,9 +1042,10 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
-	// Current lane members of the rollout's model with reported firmware,
-	// whether an update command was already sent by this rollout, and the
-	// device's cohort ('pilot' for snapshotted pilot members, 'rest' otherwise).
+	// Current lane members of the rollout's model with reported firmware, the
+	// rollout's per-device bookkeeping (command sent, batch, baseline health)
+	// and live health: device status, the most recent hashrate sample (NULL when
+	// no sample landed in the last 15 minutes) and open error count.
 	ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwareRolloutTargetsParams) ([]ListFirmwareRolloutTargetsRow, error)
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]ListFirmwareRolloutsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
@@ -1298,6 +1302,7 @@ type Querier interface {
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
+	PauseFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error)
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -1424,6 +1429,7 @@ type Querier interface {
 	// active reconciler has positively reopened airflow; clearing them here can
 	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
+	ResumeFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
@@ -1442,9 +1448,6 @@ type Querier interface {
 	// caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
 	// Zero rows means paired-like won.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
-	// Stage transitions of an active pilot rollout (pilot -> awaiting_review ->
-	// rest). Returns the affected row count so callers can detect a lost race.
-	SetFirmwareRolloutStage(ctx context.Context, arg SetFirmwareRolloutStageParams) (int64, error)
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
@@ -1481,6 +1484,10 @@ type Querier interface {
 	// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
 	// bulk-validate rack-list site_ids filter references in one round trip.
 	SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error)
+	// Records devices into a rollout at creation, before any command is sent:
+	// their batch (NULL for the unbatched rest) and a baseline of their health
+	// so post-update evidence can be compared against each miner's own past.
+	SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error
 	// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
 	// no reason to retain its webhook URL / bearer.
 	SoftDeleteAlertChannel(ctx context.Context, arg SoftDeleteAlertChannelParams) (int64, error)

@@ -42,9 +42,22 @@ service RolloutService {
     // Lists rollouts (newest first) with live per-device progress.
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
 
-    // Advances a pilot rollout that is awaiting review to its rest stage,
-    // rolling the firmware out to the remaining miners.
+    // Advances a staged rollout that is awaiting review: to its next batch,
+    // or to the rest stage after the last batch.
     rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
+
+    // Pauses an active rollout: no new update commands are sent and no stage
+    // transitions happen until it is resumed. Commands already sent finish.
+    rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
+
+    // Resumes a paused rollout.
+    rpc ResumeRollout(ResumeRolloutRequest) returns (ResumeRolloutResponse);
+
+    // Aborts an active rollout and restores the model's previous firmware
+    // assignment (starting a rollout back to it for miners already updated),
+    // or clears the assignment when there was none, so enforcement does not
+    // simply restart the aborted change.
+    rpc AbortRollout(AbortRolloutRequest) returns (AbortRolloutResponse);
 }
 
 // A container of miners with per-model firmware assignments.
@@ -89,10 +102,22 @@ enum RolloutStatus {
     ROLLOUT_STATUS_UNSPECIFIED = 0;
     // The rollout is enforcing its firmware version.
     ROLLOUT_STATUS_ACTIVE = 1;
-    // Every targeted miner reported the assigned version.
+    // Every targeted miner is on the assigned version, back online, and at
+    // least as healthy as before the update.
     ROLLOUT_STATUS_COMPLETED = 2;
-    // Superseded by a newer assignment or cleared before completion.
+    // Ended before completion; see cancel_reason.
     ROLLOUT_STATUS_CANCELED = 3;
+}
+
+// Why a rollout was canceled.
+enum RolloutCancelReason {
+    ROLLOUT_CANCEL_REASON_UNSPECIFIED = 0;
+    // A newer assignment (or rollback) replaced it.
+    ROLLOUT_CANCEL_REASON_SUPERSEDED = 1;
+    // An operator aborted it.
+    ROLLOUT_CANCEL_REASON_ABORTED = 2;
+    // The model's assignment was cleared.
+    ROLLOUT_CANCEL_REASON_CLEARED = 3;
 }
 
 // How a rollout distributes the update across its targets.
@@ -100,18 +125,22 @@ enum RolloutMethod {
     ROLLOUT_METHOD_UNSPECIFIED = 0;
     // All mismatched miners are updated at once.
     ROLLOUT_METHOD_IMMEDIATE = 1;
-    // A pilot cohort is updated first; the rest only after an operator
-    // reviews the pilot and continues the rollout.
+    // One pilot batch is updated first; the rest only after the pilot is
+    // reviewed and the rollout continued.
     ROLLOUT_METHOD_PILOT = 2;
+    // Mismatched miners are split into fixed-size batches, each gated on a
+    // review of the previous one; late joiners follow in the rest stage.
+    ROLLOUT_METHOD_BATCHES = 3;
 }
 
-// Progress of an active pilot rollout through its stages. Immediate
-// rollouts are always in the rest stage.
+// Progress of a staged rollout. Immediate rollouts are always in the rest
+// stage.
 enum RolloutStage {
     ROLLOUT_STAGE_UNSPECIFIED = 0;
-    // Updating the pilot cohort only.
-    ROLLOUT_STAGE_PILOT = 1;
-    // The pilot cohort is done; waiting for an operator to continue.
+    // Updating the current batch only.
+    ROLLOUT_STAGE_BATCH = 1;
+    // The current batch is done; waiting for a review (manual continue, or
+    // automatic once the evidence thresholds are met).
     ROLLOUT_STAGE_AWAITING_REVIEW = 2;
     // Updating all remaining targets.
     ROLLOUT_STAGE_REST = 3;
@@ -124,8 +153,40 @@ enum RolloutDeviceState {
     ROLLOUT_DEVICE_STATE_PENDING = 1;
     // Update command sent; miner has not reported the target version yet.
     ROLLOUT_DEVICE_STATE_UPDATING = 2;
-    // Miner reports the target version.
+    // Miner reports the target version, is back online, and is at least as
+    // healthy (hashing) as before the update.
     ROLLOUT_DEVICE_STATE_UPDATED = 3;
+    // Miner reports the target version but is not yet back online / hashing.
+    ROLLOUT_DEVICE_STATE_VERIFYING = 4;
+}
+
+// Post-update evidence for the miners under review: the batch at the gate
+// (or in flight), or every target in the rest stage. Compared against each
+// miner's own baseline captured when the rollout started.
+message RolloutEvidence {
+    int32 devices_total = 1;
+    // Miners that reached the UPDATED state.
+    int32 verified = 2;
+    int32 online = 3;
+    int32 hashing = 4;
+    // How many of these miners were hashing before the update.
+    int32 baseline_hashing = 5;
+    // Aggregate hashrate change versus baseline, in percent (negative is a
+    // drop). Only meaningful when has_hashrate_evidence is true.
+    double hashrate_change_percent = 6;
+    // False when no miner in scope has both a baseline and a current sample.
+    bool has_hashrate_evidence = 7;
+    double baseline_hash_rate_hs = 8;
+    double current_hash_rate_hs = 9;
+    // Open errors now minus open errors at baseline, summed (never below 0).
+    int32 new_errors = 10;
+    // Whether the evidence meets the rollout's auto-advance thresholds
+    // (always false for rollouts without auto-advance).
+    bool ready_to_advance = 11;
+    // Why the rollout is holding at the gate when it cannot auto-advance.
+    string hold_reason = 12;
+    // Seconds of stabilization still required before auto-advance.
+    int32 stabilization_remaining_seconds = 13;
 }
 
 // A firmware change being enforced for one model within one lane.
@@ -143,10 +204,30 @@ message Rollout {
     // Current lane members of the rollout's model with their progress.
     repeated RolloutDevice devices = 10;
     RolloutMethod method = 11;
-    // Stage of a pilot rollout; REST for immediate rollouts.
+    // Stage of a staged rollout; REST for immediate rollouts.
     RolloutStage stage = 12;
-    // Requested pilot cohort size; 0 for immediate rollouts.
-    int32 pilot_count = 13;
+    // Miners per batch (the pilot size for PILOT); 0 for immediate rollouts.
+    int32 batch_size = 13;
+    // Number of snapshotted batches; 0 for immediate rollouts.
+    int32 batch_count = 14;
+    // 0-based index of the batch in flight or under review.
+    int32 current_batch = 15;
+    // Set while the rollout is paused.
+    google.protobuf.Timestamp paused_at = 16;
+    bool auto_advance = 17;
+    // Auto-advance threshold: largest acceptable aggregate hashrate drop.
+    double max_hashrate_drop_percent = 18;
+    // Auto-advance threshold: how long the batch must hold at the gate.
+    int32 stabilization_seconds = 19;
+    // Assignment in place before this rollout; restored on abort.
+    string previous_firmware_file_id = 20;
+    string previous_firmware_version = 21;
+    RolloutCancelReason cancel_reason = 22;
+    // When the current stage began.
+    google.protobuf.Timestamp stage_changed_at = 23;
+    // Evidence for the miners currently under review; unset for rollouts
+    // that are not active.
+    RolloutEvidence evidence = 24;
 }
 
 // Progress of one miner within a rollout.
@@ -156,8 +237,23 @@ message RolloutDevice {
     // Firmware version the miner currently reports.
     string firmware_version = 3;
     RolloutDeviceState state = 4;
-    // True when the miner is part of the rollout's pilot cohort.
-    bool in_pilot_cohort = 5;
+    // 1-based batch the miner was snapshotted into; 0 when it is not part of
+    // any batch (rest stage / late joiner).
+    int32 batch = 5;
+    // Live device status (e.g. ACTIVE, OFFLINE, NEEDS_MINING_POOL).
+    string status = 6;
+    bool online = 7;
+    bool hashing = 8;
+    // False for late joiners with no baseline snapshot.
+    bool has_baseline = 9;
+    bool baseline_hashing = 10;
+    double hash_rate_hs = 11;
+    // False when no hashrate sample landed recently.
+    bool has_hash_rate = 12;
+    double baseline_hash_rate_hs = 13;
+    bool has_baseline_hash_rate = 14;
+    int32 open_errors = 15;
+    int32 baseline_open_errors = 16;
 }
 
 message ListRolloutLanesRequest {}
@@ -196,10 +292,18 @@ message UpdateRolloutLaneMembersResponse {
 message RolloutOptions {
     // Defaults to IMMEDIATE when unspecified.
     RolloutMethod method = 1;
-    // Number of miners in the pilot cohort per started rollout. Required
-    // (>= 1) for the PILOT method; capped at the number of mismatched
-    // miners of the model.
-    int32 pilot_count = 2;
+    // Miners per batch (the pilot size for PILOT). Required (>= 1) for the
+    // PILOT and BATCHES methods; capped at the number of mismatched miners.
+    int32 batch_size = 2;
+    // Advance past each review gate automatically once the batch is
+    // verified, the thresholds below hold, and the stabilization period has
+    // elapsed. Degraded or missing evidence always holds for manual review.
+    bool auto_advance = 3;
+    // Largest acceptable aggregate hashrate drop versus baseline, in
+    // percent. 0 disables the hashrate check.
+    double max_hashrate_drop_percent = 4;
+    // How long a verified batch must hold at the gate before auto-advancing.
+    int32 stabilization_seconds = 5;
 }
 
 message ApplyRolloutLaneFirmwareRequest {
@@ -238,10 +342,42 @@ message ListRolloutsResponse {
 }
 
 message ContinueRolloutRequest {
-    // Active pilot rollout in the AWAITING_REVIEW stage.
+    // Active staged rollout in the AWAITING_REVIEW stage.
     int64 rollout_id = 1;
 }
 
 message ContinueRolloutResponse {
     Rollout rollout = 1;
+}
+
+message PauseRolloutRequest {
+    int64 rollout_id = 1;
+}
+
+message PauseRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ResumeRolloutRequest {
+    int64 rollout_id = 1;
+}
+
+message ResumeRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message AbortRolloutRequest {
+    int64 rollout_id = 1;
+}
+
+message AbortRolloutResponse {
+    // The aborted rollout.
+    Rollout rollout = 1;
+    // The lane after the abort, reflecting the restored or cleared assignment.
+    RolloutLane lane = 2;
+    // Rollouts started to bring already-updated miners back to the previous
+    // version (at most one). Empty when the assignment was cleared instead.
+    repeated Rollout started_rollouts = 3;
+    // True when the previous assignment was restored, false when cleared.
+    bool restored_previous = 4;
 }

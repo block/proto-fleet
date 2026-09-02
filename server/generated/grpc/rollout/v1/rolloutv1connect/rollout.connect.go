@@ -58,6 +58,15 @@ const (
 	// RolloutServiceContinueRolloutProcedure is the fully-qualified name of the RolloutService's
 	// ContinueRollout RPC.
 	RolloutServiceContinueRolloutProcedure = "/rollout.v1.RolloutService/ContinueRollout"
+	// RolloutServicePauseRolloutProcedure is the fully-qualified name of the RolloutService's
+	// PauseRollout RPC.
+	RolloutServicePauseRolloutProcedure = "/rollout.v1.RolloutService/PauseRollout"
+	// RolloutServiceResumeRolloutProcedure is the fully-qualified name of the RolloutService's
+	// ResumeRollout RPC.
+	RolloutServiceResumeRolloutProcedure = "/rollout.v1.RolloutService/ResumeRollout"
+	// RolloutServiceAbortRolloutProcedure is the fully-qualified name of the RolloutService's
+	// AbortRollout RPC.
+	RolloutServiceAbortRolloutProcedure = "/rollout.v1.RolloutService/AbortRollout"
 )
 
 // RolloutServiceClient is a client for the rollout.v1.RolloutService service.
@@ -82,9 +91,19 @@ type RolloutServiceClient interface {
 	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
-	// Advances a pilot rollout that is awaiting review to its rest stage,
-	// rolling the firmware out to the remaining miners.
+	// Advances a staged rollout that is awaiting review: to its next batch,
+	// or to the rest stage after the last batch.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
+	// Pauses an active rollout: no new update commands are sent and no stage
+	// transitions happen until it is resumed. Commands already sent finish.
+	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
+	// Resumes a paused rollout.
+	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
+	// Aborts an active rollout and restores the model's previous firmware
+	// assignment (starting a rollout back to it for miners already updated),
+	// or clears the assignment when there was none, so enforcement does not
+	// simply restart the aborted change.
+	AbortRollout(context.Context, *connect.Request[v1.AbortRolloutRequest]) (*connect.Response[v1.AbortRolloutResponse], error)
 }
 
 // NewRolloutServiceClient constructs a client for the rollout.v1.RolloutService service. By
@@ -137,6 +156,21 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+RolloutServiceContinueRolloutProcedure,
 			opts...,
 		),
+		pauseRollout: connect.NewClient[v1.PauseRolloutRequest, v1.PauseRolloutResponse](
+			httpClient,
+			baseURL+RolloutServicePauseRolloutProcedure,
+			opts...,
+		),
+		resumeRollout: connect.NewClient[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse](
+			httpClient,
+			baseURL+RolloutServiceResumeRolloutProcedure,
+			opts...,
+		),
+		abortRollout: connect.NewClient[v1.AbortRolloutRequest, v1.AbortRolloutResponse](
+			httpClient,
+			baseURL+RolloutServiceAbortRolloutProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -150,6 +184,9 @@ type rolloutServiceClient struct {
 	rollbackRolloutLaneFirmware *connect.Client[v1.RollbackRolloutLaneFirmwareRequest, v1.RollbackRolloutLaneFirmwareResponse]
 	listRollouts                *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
 	continueRollout             *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
+	pauseRollout                *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
+	resumeRollout               *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
+	abortRollout                *connect.Client[v1.AbortRolloutRequest, v1.AbortRolloutResponse]
 }
 
 // ListRolloutLanes calls rollout.v1.RolloutService.ListRolloutLanes.
@@ -192,6 +229,21 @@ func (c *rolloutServiceClient) ContinueRollout(ctx context.Context, req *connect
 	return c.continueRollout.CallUnary(ctx, req)
 }
 
+// PauseRollout calls rollout.v1.RolloutService.PauseRollout.
+func (c *rolloutServiceClient) PauseRollout(ctx context.Context, req *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error) {
+	return c.pauseRollout.CallUnary(ctx, req)
+}
+
+// ResumeRollout calls rollout.v1.RolloutService.ResumeRollout.
+func (c *rolloutServiceClient) ResumeRollout(ctx context.Context, req *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error) {
+	return c.resumeRollout.CallUnary(ctx, req)
+}
+
+// AbortRollout calls rollout.v1.RolloutService.AbortRollout.
+func (c *rolloutServiceClient) AbortRollout(ctx context.Context, req *connect.Request[v1.AbortRolloutRequest]) (*connect.Response[v1.AbortRolloutResponse], error) {
+	return c.abortRollout.CallUnary(ctx, req)
+}
+
 // RolloutServiceHandler is an implementation of the rollout.v1.RolloutService service.
 type RolloutServiceHandler interface {
 	// Lists all rollout lanes with members grouped by model, current
@@ -214,9 +266,19 @@ type RolloutServiceHandler interface {
 	RollbackRolloutLaneFirmware(context.Context, *connect.Request[v1.RollbackRolloutLaneFirmwareRequest]) (*connect.Response[v1.RollbackRolloutLaneFirmwareResponse], error)
 	// Lists rollouts (newest first) with live per-device progress.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
-	// Advances a pilot rollout that is awaiting review to its rest stage,
-	// rolling the firmware out to the remaining miners.
+	// Advances a staged rollout that is awaiting review: to its next batch,
+	// or to the rest stage after the last batch.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
+	// Pauses an active rollout: no new update commands are sent and no stage
+	// transitions happen until it is resumed. Commands already sent finish.
+	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
+	// Resumes a paused rollout.
+	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
+	// Aborts an active rollout and restores the model's previous firmware
+	// assignment (starting a rollout back to it for miners already updated),
+	// or clears the assignment when there was none, so enforcement does not
+	// simply restart the aborted change.
+	AbortRollout(context.Context, *connect.Request[v1.AbortRolloutRequest]) (*connect.Response[v1.AbortRolloutResponse], error)
 }
 
 // NewRolloutServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -265,6 +327,21 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		svc.ContinueRollout,
 		opts...,
 	)
+	rolloutServicePauseRolloutHandler := connect.NewUnaryHandler(
+		RolloutServicePauseRolloutProcedure,
+		svc.PauseRollout,
+		opts...,
+	)
+	rolloutServiceResumeRolloutHandler := connect.NewUnaryHandler(
+		RolloutServiceResumeRolloutProcedure,
+		svc.ResumeRollout,
+		opts...,
+	)
+	rolloutServiceAbortRolloutHandler := connect.NewUnaryHandler(
+		RolloutServiceAbortRolloutProcedure,
+		svc.AbortRollout,
+		opts...,
+	)
 	return "/rollout.v1.RolloutService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RolloutServiceListRolloutLanesProcedure:
@@ -283,6 +360,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListRolloutsHandler.ServeHTTP(w, r)
 		case RolloutServiceContinueRolloutProcedure:
 			rolloutServiceContinueRolloutHandler.ServeHTTP(w, r)
+		case RolloutServicePauseRolloutProcedure:
+			rolloutServicePauseRolloutHandler.ServeHTTP(w, r)
+		case RolloutServiceResumeRolloutProcedure:
+			rolloutServiceResumeRolloutHandler.ServeHTTP(w, r)
+		case RolloutServiceAbortRolloutProcedure:
+			rolloutServiceAbortRolloutHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -322,4 +405,16 @@ func (UnimplementedRolloutServiceHandler) ListRollouts(context.Context, *connect
 
 func (UnimplementedRolloutServiceHandler) ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ContinueRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PauseRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ResumeRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) AbortRollout(context.Context, *connect.Request[v1.AbortRolloutRequest]) (*connect.Response[v1.AbortRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.AbortRollout is not implemented"))
 }

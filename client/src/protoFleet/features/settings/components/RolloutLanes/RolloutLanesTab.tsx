@@ -33,6 +33,9 @@ const RolloutLanesTab = () => {
     applyFirmware,
     rollbackFirmware,
     continueRollout,
+    pauseRollout,
+    resumeRollout,
+    abortRollout,
   } = useRolloutLanes();
   const { listFirmwareFiles } = useFirmwareApi();
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
@@ -47,6 +50,9 @@ const RolloutLanesTab = () => {
   // History entry whose firmware is about to be restored.
   const [rollbackTarget, setRollbackTarget] = useState<Rollout | null>(null);
   const [isRollingBack, setIsRollingBack] = useState(false);
+  // Active rollout about to be aborted.
+  const [abortTarget, setAbortTarget] = useState<Rollout | null>(null);
+  const [isAborting, setIsAborting] = useState(false);
   // Channel drilled into via "Manage"; null shows the channels table.
   const [managedLaneId, setManagedLaneId] = useState<bigint | null>(null);
   // Rollout open in the update detail modal, resolved live on each poll.
@@ -99,6 +105,43 @@ const RolloutLanesTab = () => {
       })
       .finally(() => setIsRollingBack(false));
   };
+
+  const handleAbort = () => {
+    if (!abortTarget) return;
+    const rollout = abortTarget;
+    setIsAborting(true);
+    abortRollout(rollout.id)
+      .then((result) => {
+        setAbortTarget(null);
+        pushToast({
+          message: result.restoredPrevious
+            ? `Aborted ${rollout.model} rollout in ${rollout.laneName}; restoring ${result.previousFirmwareVersion}`
+            : `Aborted ${rollout.model} rollout in ${rollout.laneName}; firmware assignment cleared`,
+          status: STATUSES.success,
+        });
+      })
+      .catch((error) => {
+        pushToast({ message: error?.message || "Couldn't abort the rollout", status: STATUSES.error });
+      })
+      .finally(() => setIsAborting(false));
+  };
+
+  // Pause / resume act on the live rollout and report through toasts; the
+  // detail modal stays open so the operator sees the state flip.
+  const togglePause = (rollout: Rollout, pause: boolean) =>
+    (pause ? pauseRollout(rollout.id) : resumeRollout(rollout.id))
+      .then(() => {
+        pushToast({
+          message: `${pause ? "Paused" : "Resumed"} ${rollout.model} rollout in ${rollout.laneName}`,
+          status: STATUSES.success,
+        });
+      })
+      .catch((error) => {
+        pushToast({
+          message: error?.message || `Couldn't ${pause ? "pause" : "resume"} the rollout`,
+          status: STATUSES.error,
+        });
+      });
 
   const handleDelete = () => {
     if (!laneToDelete) return;
@@ -226,8 +269,49 @@ const RolloutLanesTab = () => {
                 pushToast({ message: error?.message || "Couldn't continue the rollout", status: STATUSES.error });
               })
           }
+          onPause={(rollout) => togglePause(rollout, true)}
+          onResume={(rollout) => togglePause(rollout, false)}
+          onAbort={(rollout) => {
+            setViewUpdateId(null);
+            setAbortTarget(rollout);
+          }}
         />
       ) : null}
+
+      <Dialog
+        open={abortTarget !== null}
+        title="Abort firmware rollout?"
+        subtitle={
+          abortTarget
+            ? abortTarget.previousFirmwareVersion && abortTarget.previousFirmwareVersion !== abortTarget.firmwareVersion
+              ? `The ${abortTarget.model} rollout in ${abortTarget.laneName} stops now. The previous assignment (${abortTarget.previousFirmwareVersion}) is restored and miners already on ${abortTarget.firmwareVersion} are rolled back to it.`
+              : `The ${abortTarget.model} rollout in ${abortTarget.laneName} stops now. There is no previous assignment to restore, so the model's firmware assignment is cleared; miners keep whatever version they are on.`
+            : ""
+        }
+        testId="abort-rollout-dialog"
+        onDismiss={() => {
+          if (!isAborting) setAbortTarget(null);
+        }}
+        icon={
+          <DialogIcon intent="critical">
+            <Alert />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Keep running",
+            variant: variants.secondary,
+            onClick: () => setAbortTarget(null),
+            disabled: isAborting,
+          },
+          {
+            text: "Abort rollout",
+            variant: variants.danger,
+            onClick: handleAbort,
+            loading: isAborting,
+          },
+        ]}
+      />
 
       <Dialog
         open={showCreateDialog}

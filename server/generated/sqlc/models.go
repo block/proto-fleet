@@ -890,26 +890,40 @@ type Error struct {
 }
 
 type FirmwareRollout struct {
-	ID              int64
-	OrgID           int64
-	LaneID          int64
-	Model           string
-	FirmwareFileID  string
-	FirmwareVersion string
-	Status          string
-	CreatedBy       int64
-	CreatedAt       time.Time
-	FinishedAt      sql.NullTime
-	Method          string
-	Stage           string
-	PilotCount      int32
+	ID                      int64
+	OrgID                   int64
+	LaneID                  int64
+	Model                   string
+	FirmwareFileID          string
+	FirmwareVersion         string
+	Status                  string
+	CreatedBy               int64
+	CreatedAt               time.Time
+	FinishedAt              sql.NullTime
+	Method                  string
+	Stage                   string
+	BatchSize               int32
+	BatchCount              int32
+	CurrentBatch            int32
+	StageChangedAt          time.Time
+	PausedAt                sql.NullTime
+	AutoAdvance             bool
+	MaxHashrateDropPercent  sql.NullFloat64
+	StabilizationSeconds    int32
+	PreviousFirmwareFileID  string
+	PreviousFirmwareVersion string
+	CancelReason            string
 }
 
 type FirmwareRolloutDevice struct {
-	RolloutID    int64
-	DeviceID     int64
-	UpdateSentAt sql.NullTime
-	Cohort       string
+	RolloutID          int64
+	DeviceID           int64
+	UpdateSentAt       sql.NullTime
+	BatchIndex         sql.NullInt32
+	BaselineStatus     sql.NullString
+	BaselineHashRateHs sql.NullFloat64
+	BaselineOpenErrors sql.NullInt32
+	BaselineAt         sql.NullTime
 }
 
 type FleetActiveOrganization struct {

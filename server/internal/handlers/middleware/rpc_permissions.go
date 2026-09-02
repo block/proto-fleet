@@ -290,6 +290,9 @@ var ProcedurePermissions = map[string]string{
 	rolloutv1connect.RolloutServiceRollbackRolloutLaneFirmwareProcedure: authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListRolloutsProcedure:                authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceContinueRolloutProcedure:             authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePauseRolloutProcedure:                authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceResumeRolloutProcedure:               authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceAbortRolloutProcedure:                authz.PermMinerFirmwareUpdate,
 
 	// NetworkInfoService — GetNetworkInfo returns the device's own
 	// IP/gateway/subnet (shown on Settings → General to every user with

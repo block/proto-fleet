@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_rollout_v1_rollout: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEikAEKC1JvbGxvdXRMYW5lEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoMbW9kZWxfZ3JvdXBzGAQgAygLMiEucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1vZGVsR3JvdXAiowEKFVJvbGxvdXRMYW5lTW9kZWxHcm91cBINCgVtb2RlbBgBIAEoCRIYChBmaXJtd2FyZV9maWxlX2lkGAIgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YAyABKAkSLAoGbWluZXJzGAQgAygLMhwucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1pbmVyEhkKEWFjdGl2ZV9yb2xsb3V0X2lkGAUgASgDImkKEFJvbGxvdXRMYW5lTWluZXISEQoJZGV2aWNlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YBCABKAkiPQoSRmlybXdhcmVBc3NpZ25tZW50Eg0KBW1vZGVsGAEgASgJEhgKEGZpcm13YXJlX2ZpbGVfaWQYAiABKAkinQMKB1JvbGxvdXQSCgoCaWQYASABKAMSDwoHbGFuZV9pZBgCIAEoAxIRCglsYW5lX25hbWUYAyABKAkSDQoFbW9kZWwYBCABKAkSGAoQZmlybXdhcmVfZmlsZV9pZBgFIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAYgASgJEikKBnN0YXR1cxgHIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dFN0YXR1cxIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoHZGV2aWNlcxgKIAMoCzIZLnJvbGxvdXQudjEuUm9sbG91dERldmljZRIpCgZtZXRob2QYCyABKA4yGS5yb2xsb3V0LnYxLlJvbGxvdXRNZXRob2QSJwoFc3RhZ2UYDCABKA4yGC5yb2xsb3V0LnYxLlJvbGxvdXRTdGFnZRITCgtwaWxvdF9jb3VudBgNIAEoBSKfAQoNUm9sbG91dERldmljZRIRCglkZXZpY2VfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQZmlybXdhcmVfdmVyc2lvbhgDIAEoCRItCgVzdGF0ZRgEIAEoDjIeLnJvbGxvdXQudjEuUm9sbG91dERldmljZVN0YXRlEhcKD2luX3BpbG90X2NvaG9ydBgFIAEoCCIZChdMaXN0Um9sbG91dExhbmVzUmVxdWVzdCJCChhMaXN0Um9sbG91dExhbmVzUmVzcG9uc2USJgoFbGFuZXMYASADKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIigKGENyZWF0ZVJvbGxvdXRMYW5lUmVxdWVzdBIMCgRuYW1lGAEgASgJIkIKGUNyZWF0ZVJvbGxvdXRMYW5lUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUiKwoYRGVsZXRlUm9sbG91dExhbmVSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiGwoZRGVsZXRlUm9sbG91dExhbmVSZXNwb25zZSJ1Ch9VcGRhdGVSb2xsb3V0TGFuZU1lbWJlcnNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMSHgoWYWRkX2RldmljZV9pZGVudGlmaWVycxgCIAMoCRIhChlyZW1vdmVfZGV2aWNlX2lkZW50aWZpZXJzGAMgAygJIkkKIFVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1Jlc3BvbnNlEiUKBGxhbmUYASABKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIlAKDlJvbGxvdXRPcHRpb25zEikKBm1ldGhvZBgBIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dE1ldGhvZBITCgtwaWxvdF9jb3VudBgCIAEoBSKUAQofQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVxdWVzdBIPCgdsYW5lX2lkGAEgASgDEjMKC2Fzc2lnbm1lbnRzGAIgAygLMh4ucm9sbG91dC52MS5GaXJtd2FyZUFzc2lnbm1lbnQSKwoHb3B0aW9ucxgDIAEoCzIaLnJvbGxvdXQudjEuUm9sbG91dE9wdGlvbnMieAogQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCI4CiJSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0EhIKCnJvbGxvdXRfaWQYASABKAMiewojUm9sbGJhY2tSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCImChNMaXN0Um9sbG91dHNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiPQoUTGlzdFJvbGxvdXRzUmVzcG9uc2USJQoIcm9sbG91dHMYASADKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQiLAoWQ29udGludWVSb2xsb3V0UmVxdWVzdBISCgpyb2xsb3V0X2lkGAEgASgDIj8KF0NvbnRpbnVlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQqhQEKDVJvbGxvdXRTdGF0dXMSHgoaUk9MTE9VVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIZChVST0xMT1VUX1NUQVRVU19BQ1RJVkUQARIcChhST0xMT1VUX1NUQVRVU19DT01QTEVURUQQAhIbChdST0xMT1VUX1NUQVRVU19DQU5DRUxFRBADKmcKDVJvbGxvdXRNZXRob2QSHgoaUk9MTE9VVF9NRVRIT0RfVU5TUEVDSUZJRUQQABIcChhST0xMT1VUX01FVEhPRF9JTU1FRElBVEUQARIYChRST0xMT1VUX01FVEhPRF9QSUxPVBACKoEBCgxSb2xsb3V0U3RhZ2USHQoZUk9MTE9VVF9TVEFHRV9VTlNQRUNJRklFRBAAEhcKE1JPTExPVVRfU1RBR0VfUElMT1QQARIhCh1ST0xMT1VUX1NUQUdFX0FXQUlUSU5HX1JFVklFVxACEhYKElJPTExPVVRfU1RBR0VfUkVTVBADKqEBChJSb2xsb3V0RGV2aWNlU3RhdGUSJAogUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxST0xMT1VUX0RFVklDRV9TVEFURV9QRU5ESU5HEAESIQodUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVVBEQVRJTkcQAhIgChxST0xMT1VUX0RFVklDRV9TVEFURV9VUERBVEVEEAMy0AYKDlJvbGxvdXRTZXJ2aWNlEl0KEExpc3RSb2xsb3V0TGFuZXMSIy5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0GiQucm9sbG91dC52MS5MaXN0Um9sbG91dExhbmVzUmVzcG9uc2USYAoRQ3JlYXRlUm9sbG91dExhbmUSJC5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRMYW5lUmVxdWVzdBolLnJvbGxvdXQudjEuQ3JlYXRlUm9sbG91dExhbmVSZXNwb25zZRJgChFEZWxldGVSb2xsb3V0TGFuZRIkLnJvbGxvdXQudjEuRGVsZXRlUm9sbG91dExhbmVSZXF1ZXN0GiUucm9sbG91dC52MS5EZWxldGVSb2xsb3V0TGFuZVJlc3BvbnNlEnUKGFVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVycxIrLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVxdWVzdBosLnJvbGxvdXQudjEuVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVzcG9uc2USdQoYQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlEisucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0Giwucm9sbG91dC52MS5BcHBseVJvbGxvdXRMYW5lRmlybXdhcmVSZXNwb25zZRJ+ChtSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmUSLi5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlcXVlc3QaLy5yb2xsb3V0LnYxLlJvbGxiYWNrUm9sbG91dExhbmVGaXJtd2FyZVJlc3BvbnNlElEKDExpc3RSb2xsb3V0cxIfLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVxdWVzdBogLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRzUmVzcG9uc2USWgoPQ29udGludWVSb2xsb3V0EiIucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXF1ZXN0GiMucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXNwb25zZUKwAQoOY29tLnJvbGxvdXQudjFCDFJvbGxvdXRQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9yb2xsb3V0L3YxO3JvbGxvdXR2MaICA1JYWKoCClJvbGxvdXQuVjHKAgpSb2xsb3V0XFYx4gIWUm9sbG91dFxWMVxHUEJNZXRhZGF0YeoCC1JvbGxvdXQ6OlYxYgZwcm90bzM",
+    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEikAEKC1JvbGxvdXRMYW5lEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoMbW9kZWxfZ3JvdXBzGAQgAygLMiEucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1vZGVsR3JvdXAiowEKFVJvbGxvdXRMYW5lTW9kZWxHcm91cBINCgVtb2RlbBgBIAEoCRIYChBmaXJtd2FyZV9maWxlX2lkGAIgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YAyABKAkSLAoGbWluZXJzGAQgAygLMhwucm9sbG91dC52MS5Sb2xsb3V0TGFuZU1pbmVyEhkKEWFjdGl2ZV9yb2xsb3V0X2lkGAUgASgDImkKEFJvbGxvdXRMYW5lTWluZXISEQoJZGV2aWNlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YBCABKAkiPQoSRmlybXdhcmVBc3NpZ25tZW50Eg0KBW1vZGVsGAEgASgJEhgKEGZpcm13YXJlX2ZpbGVfaWQYAiABKAki3gIKD1JvbGxvdXRFdmlkZW5jZRIVCg1kZXZpY2VzX3RvdGFsGAEgASgFEhAKCHZlcmlmaWVkGAIgASgFEg4KBm9ubGluZRgDIAEoBRIPCgdoYXNoaW5nGAQgASgFEhgKEGJhc2VsaW5lX2hhc2hpbmcYBSABKAUSHwoXaGFzaHJhdGVfY2hhbmdlX3BlcmNlbnQYBiABKAESHQoVaGFzX2hhc2hyYXRlX2V2aWRlbmNlGAcgASgIEh0KFWJhc2VsaW5lX2hhc2hfcmF0ZV9ocxgIIAEoARIcChRjdXJyZW50X2hhc2hfcmF0ZV9ocxgJIAEoARISCgpuZXdfZXJyb3JzGAogASgFEhgKEHJlYWR5X3RvX2FkdmFuY2UYCyABKAgSEwoLaG9sZF9yZWFzb24YDCABKAkSJwofc3RhYmlsaXphdGlvbl9yZW1haW5pbmdfc2Vjb25kcxgNIAEoBSKyBgoHUm9sbG91dBIKCgJpZBgBIAEoAxIPCgdsYW5lX2lkGAIgASgDEhEKCWxhbmVfbmFtZRgDIAEoCRINCgVtb2RlbBgEIAEoCRIYChBmaXJtd2FyZV9maWxlX2lkGAUgASgJEhgKEGZpcm13YXJlX3ZlcnNpb24YBiABKAkSKQoGc3RhdHVzGAcgASgOMhkucm9sbG91dC52MS5Sb2xsb3V0U3RhdHVzEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIqCgdkZXZpY2VzGAogAygLMhkucm9sbG91dC52MS5Sb2xsb3V0RGV2aWNlEikKBm1ldGhvZBgLIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dE1ldGhvZBInCgVzdGFnZRgMIAEoDjIYLnJvbGxvdXQudjEuUm9sbG91dFN0YWdlEhIKCmJhdGNoX3NpemUYDSABKAUSEwoLYmF0Y2hfY291bnQYDiABKAUSFQoNY3VycmVudF9iYXRjaBgPIAEoBRItCglwYXVzZWRfYXQYECABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDGF1dG9fYWR2YW5jZRgRIAEoCBIhChltYXhfaGFzaHJhdGVfZHJvcF9wZXJjZW50GBIgASgBEh0KFXN0YWJpbGl6YXRpb25fc2Vjb25kcxgTIAEoBRIhChlwcmV2aW91c19maXJtd2FyZV9maWxlX2lkGBQgASgJEiEKGXByZXZpb3VzX2Zpcm13YXJlX3ZlcnNpb24YFSABKAkSNgoNY2FuY2VsX3JlYXNvbhgWIAEoDjIfLnJvbGxvdXQudjEuUm9sbG91dENhbmNlbFJlYXNvbhI0ChBzdGFnZV9jaGFuZ2VkX2F0GBcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBItCghldmlkZW5jZRgYIAEoCzIbLnJvbGxvdXQudjEuUm9sbG91dEV2aWRlbmNlIpUDCg1Sb2xsb3V0RGV2aWNlEhEKCWRldmljZV9pZBgBIAEoAxIZChFkZXZpY2VfaWRlbnRpZmllchgCIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAMgASgJEi0KBXN0YXRlGAQgASgOMh4ucm9sbG91dC52MS5Sb2xsb3V0RGV2aWNlU3RhdGUSDQoFYmF0Y2gYBSABKAUSDgoGc3RhdHVzGAYgASgJEg4KBm9ubGluZRgHIAEoCBIPCgdoYXNoaW5nGAggASgIEhQKDGhhc19iYXNlbGluZRgJIAEoCBIYChBiYXNlbGluZV9oYXNoaW5nGAogASgIEhQKDGhhc2hfcmF0ZV9ocxgLIAEoARIVCg1oYXNfaGFzaF9yYXRlGAwgASgIEh0KFWJhc2VsaW5lX2hhc2hfcmF0ZV9ocxgNIAEoARIeChZoYXNfYmFzZWxpbmVfaGFzaF9yYXRlGA4gASgIEhMKC29wZW5fZXJyb3JzGA8gASgFEhwKFGJhc2VsaW5lX29wZW5fZXJyb3JzGBAgASgFIhkKF0xpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0IkIKGExpc3RSb2xsb3V0TGFuZXNSZXNwb25zZRImCgVsYW5lcxgBIAMoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUiKAoYQ3JlYXRlUm9sbG91dExhbmVSZXF1ZXN0EgwKBG5hbWUYASABKAkiQgoZQ3JlYXRlUm9sbG91dExhbmVSZXNwb25zZRIlCgRsYW5lGAEgASgLMhcucm9sbG91dC52MS5Sb2xsb3V0TGFuZSIrChhEZWxldGVSb2xsb3V0TGFuZVJlcXVlc3QSDwoHbGFuZV9pZBgBIAEoAyIbChlEZWxldGVSb2xsb3V0TGFuZVJlc3BvbnNlInUKH1VwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1JlcXVlc3QSDwoHbGFuZV9pZBgBIAEoAxIeChZhZGRfZGV2aWNlX2lkZW50aWZpZXJzGAIgAygJEiEKGXJlbW92ZV9kZXZpY2VfaWRlbnRpZmllcnMYAyADKAkiSQogVXBkYXRlUm9sbG91dExhbmVNZW1iZXJzUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUipwEKDlJvbGxvdXRPcHRpb25zEikKBm1ldGhvZBgBIAEoDjIZLnJvbGxvdXQudjEuUm9sbG91dE1ldGhvZBISCgpiYXRjaF9zaXplGAIgASgFEhQKDGF1dG9fYWR2YW5jZRgDIAEoCBIhChltYXhfaGFzaHJhdGVfZHJvcF9wZXJjZW50GAQgASgBEh0KFXN0YWJpbGl6YXRpb25fc2Vjb25kcxgFIAEoBSKUAQofQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVxdWVzdBIPCgdsYW5lX2lkGAEgASgDEjMKC2Fzc2lnbm1lbnRzGAIgAygLMh4ucm9sbG91dC52MS5GaXJtd2FyZUFzc2lnbm1lbnQSKwoHb3B0aW9ucxgDIAEoCzIaLnJvbGxvdXQudjEuUm9sbG91dE9wdGlvbnMieAogQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCI4CiJSb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0EhIKCnJvbGxvdXRfaWQYASABKAMiewojUm9sbGJhY2tSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USJQoEbGFuZRgBIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgCIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dCImChNMaXN0Um9sbG91dHNSZXF1ZXN0Eg8KB2xhbmVfaWQYASABKAMiPQoUTGlzdFJvbGxvdXRzUmVzcG9uc2USJQoIcm9sbG91dHMYASADKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQiLAoWQ29udGludWVSb2xsb3V0UmVxdWVzdBISCgpyb2xsb3V0X2lkGAEgASgDIj8KF0NvbnRpbnVlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQiKQoTUGF1c2VSb2xsb3V0UmVxdWVzdBISCgpyb2xsb3V0X2lkGAEgASgDIjwKFFBhdXNlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQiKgoUUmVzdW1lUm9sbG91dFJlcXVlc3QSEgoKcm9sbG91dF9pZBgBIAEoAyI9ChVSZXN1bWVSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCIpChNBYm9ydFJvbGxvdXRSZXF1ZXN0EhIKCnJvbGxvdXRfaWQYASABKAMirQEKFEFib3J0Um9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQSJQoEbGFuZRgCIAEoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUSLQoQc3RhcnRlZF9yb2xsb3V0cxgDIAMoCzITLnJvbGxvdXQudjEuUm9sbG91dBIZChFyZXN0b3JlZF9wcmV2aW91cxgEIAEoCCqFAQoNUm9sbG91dFN0YXR1cxIeChpST0xMT1VUX1NUQVRVU19VTlNQRUNJRklFRBAAEhkKFVJPTExPVVRfU1RBVFVTX0FDVElWRRABEhwKGFJPTExPVVRfU1RBVFVTX0NPTVBMRVRFRBACEhsKF1JPTExPVVRfU1RBVFVTX0NBTkNFTEVEEAMqqAEKE1JvbGxvdXRDYW5jZWxSZWFzb24SJQohUk9MTE9VVF9DQU5DRUxfUkVBU09OX1VOU1BFQ0lGSUVEEAASJAogUk9MTE9VVF9DQU5DRUxfUkVBU09OX1NVUEVSU0VERUQQARIhCh1ST0xMT1VUX0NBTkNFTF9SRUFTT05fQUJPUlRFRBACEiEKHVJPTExPVVRfQ0FOQ0VMX1JFQVNPTl9DTEVBUkVEEAMqgwEKDVJvbGxvdXRNZXRob2QSHgoaUk9MTE9VVF9NRVRIT0RfVU5TUEVDSUZJRUQQABIcChhST0xMT1VUX01FVEhPRF9JTU1FRElBVEUQARIYChRST0xMT1VUX01FVEhPRF9QSUxPVBACEhoKFlJPTExPVVRfTUVUSE9EX0JBVENIRVMQAyqBAQoMUm9sbG91dFN0YWdlEh0KGVJPTExPVVRfU1RBR0VfVU5TUEVDSUZJRUQQABIXChNST0xMT1VUX1NUQUdFX0JBVENIEAESIQodUk9MTE9VVF9TVEFHRV9BV0FJVElOR19SRVZJRVcQAhIWChJST0xMT1VUX1NUQUdFX1JFU1QQAyrFAQoSUm9sbG91dERldmljZVN0YXRlEiQKIFJPTExPVVRfREVWSUNFX1NUQVRFX1VOU1BFQ0lGSUVEEAASIAocUk9MTE9VVF9ERVZJQ0VfU1RBVEVfUEVORElORxABEiEKHVJPTExPVVRfREVWSUNFX1NUQVRFX1VQREFUSU5HEAISIAocUk9MTE9VVF9ERVZJQ0VfU1RBVEVfVVBEQVRFRBADEiIKHlJPTExPVVRfREVWSUNFX1NUQVRFX1ZFUklGWUlORxAEMswICg5Sb2xsb3V0U2VydmljZRJdChBMaXN0Um9sbG91dExhbmVzEiMucm9sbG91dC52MS5MaXN0Um9sbG91dExhbmVzUmVxdWVzdBokLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRMYW5lc1Jlc3BvbnNlEmAKEUNyZWF0ZVJvbGxvdXRMYW5lEiQucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0TGFuZVJlcXVlc3QaJS5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRMYW5lUmVzcG9uc2USYAoRRGVsZXRlUm9sbG91dExhbmUSJC5yb2xsb3V0LnYxLkRlbGV0ZVJvbGxvdXRMYW5lUmVxdWVzdBolLnJvbGxvdXQudjEuRGVsZXRlUm9sbG91dExhbmVSZXNwb25zZRJ1ChhVcGRhdGVSb2xsb3V0TGFuZU1lbWJlcnMSKy5yb2xsb3V0LnYxLlVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1JlcXVlc3QaLC5yb2xsb3V0LnYxLlVwZGF0ZVJvbGxvdXRMYW5lTWVtYmVyc1Jlc3BvbnNlEnUKGEFwcGx5Um9sbG91dExhbmVGaXJtd2FyZRIrLnJvbGxvdXQudjEuQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVxdWVzdBosLnJvbGxvdXQudjEuQXBwbHlSb2xsb3V0TGFuZUZpcm13YXJlUmVzcG9uc2USfgobUm9sbGJhY2tSb2xsb3V0TGFuZUZpcm13YXJlEi4ucm9sbG91dC52MS5Sb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXF1ZXN0Gi8ucm9sbG91dC52MS5Sb2xsYmFja1JvbGxvdXRMYW5lRmlybXdhcmVSZXNwb25zZRJRCgxMaXN0Um9sbG91dHMSHy5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0c1JlcXVlc3QaIC5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0c1Jlc3BvbnNlEloKD0NvbnRpbnVlUm9sbG91dBIiLnJvbGxvdXQudjEuQ29udGludWVSb2xsb3V0UmVxdWVzdBojLnJvbGxvdXQudjEuQ29udGludWVSb2xsb3V0UmVzcG9uc2USUQoMUGF1c2VSb2xsb3V0Eh8ucm9sbG91dC52MS5QYXVzZVJvbGxvdXRSZXF1ZXN0GiAucm9sbG91dC52MS5QYXVzZVJvbGxvdXRSZXNwb25zZRJUCg1SZXN1bWVSb2xsb3V0EiAucm9sbG91dC52MS5SZXN1bWVSb2xsb3V0UmVxdWVzdBohLnJvbGxvdXQudjEuUmVzdW1lUm9sbG91dFJlc3BvbnNlElEKDEFib3J0Um9sbG91dBIfLnJvbGxvdXQudjEuQWJvcnRSb2xsb3V0UmVxdWVzdBogLnJvbGxvdXQudjEuQWJvcnRSb2xsb3V0UmVzcG9uc2VCsAEKDmNvbS5yb2xsb3V0LnYxQgxSb2xsb3V0UHJvdG9QAVpHZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcm9sbG91dC92MTtyb2xsb3V0djGiAgNSWFiqAgpSb2xsb3V0LlYxygIKUm9sbG91dFxWMeICFlJvbGxvdXRcVjFcR1BCTWV0YWRhdGHqAgtSb2xsb3V0OjpWMWIGcHJvdG8z",
     [file_google_protobuf_timestamp],
   );
 
@@ -163,6 +163,104 @@ export const FirmwareAssignmentSchema: GenMessage<FirmwareAssignment> =
   messageDesc(file_rollout_v1_rollout, 3);
 
 /**
+ * Post-update evidence for the miners under review: the batch at the gate
+ * (or in flight), or every target in the rest stage. Compared against each
+ * miner's own baseline captured when the rollout started.
+ *
+ * @generated from message rollout.v1.RolloutEvidence
+ */
+export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
+  /**
+   * @generated from field: int32 devices_total = 1;
+   */
+  devicesTotal: number;
+
+  /**
+   * Miners that reached the UPDATED state.
+   *
+   * @generated from field: int32 verified = 2;
+   */
+  verified: number;
+
+  /**
+   * @generated from field: int32 online = 3;
+   */
+  online: number;
+
+  /**
+   * @generated from field: int32 hashing = 4;
+   */
+  hashing: number;
+
+  /**
+   * How many of these miners were hashing before the update.
+   *
+   * @generated from field: int32 baseline_hashing = 5;
+   */
+  baselineHashing: number;
+
+  /**
+   * Aggregate hashrate change versus baseline, in percent (negative is a
+   * drop). Only meaningful when has_hashrate_evidence is true.
+   *
+   * @generated from field: double hashrate_change_percent = 6;
+   */
+  hashrateChangePercent: number;
+
+  /**
+   * False when no miner in scope has both a baseline and a current sample.
+   *
+   * @generated from field: bool has_hashrate_evidence = 7;
+   */
+  hasHashrateEvidence: boolean;
+
+  /**
+   * @generated from field: double baseline_hash_rate_hs = 8;
+   */
+  baselineHashRateHs: number;
+
+  /**
+   * @generated from field: double current_hash_rate_hs = 9;
+   */
+  currentHashRateHs: number;
+
+  /**
+   * Open errors now minus open errors at baseline, summed (never below 0).
+   *
+   * @generated from field: int32 new_errors = 10;
+   */
+  newErrors: number;
+
+  /**
+   * Whether the evidence meets the rollout's auto-advance thresholds
+   * (always false for rollouts without auto-advance).
+   *
+   * @generated from field: bool ready_to_advance = 11;
+   */
+  readyToAdvance: boolean;
+
+  /**
+   * Why the rollout is holding at the gate when it cannot auto-advance.
+   *
+   * @generated from field: string hold_reason = 12;
+   */
+  holdReason: string;
+
+  /**
+   * Seconds of stabilization still required before auto-advance.
+   *
+   * @generated from field: int32 stabilization_remaining_seconds = 13;
+   */
+  stabilizationRemainingSeconds: number;
+};
+
+/**
+ * Describes the message rollout.v1.RolloutEvidence.
+ * Use `create(RolloutEvidenceSchema)` to create a new message.
+ */
+export const RolloutEvidenceSchema: GenMessage<RolloutEvidence> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 4);
+
+/**
  * A firmware change being enforced for one model within one lane.
  *
  * @generated from message rollout.v1.Rollout
@@ -228,25 +326,97 @@ export type Rollout = Message<"rollout.v1.Rollout"> & {
   method: RolloutMethod;
 
   /**
-   * Stage of a pilot rollout; REST for immediate rollouts.
+   * Stage of a staged rollout; REST for immediate rollouts.
    *
    * @generated from field: rollout.v1.RolloutStage stage = 12;
    */
   stage: RolloutStage;
 
   /**
-   * Requested pilot cohort size; 0 for immediate rollouts.
+   * Miners per batch (the pilot size for PILOT); 0 for immediate rollouts.
    *
-   * @generated from field: int32 pilot_count = 13;
+   * @generated from field: int32 batch_size = 13;
    */
-  pilotCount: number;
+  batchSize: number;
+
+  /**
+   * Number of snapshotted batches; 0 for immediate rollouts.
+   *
+   * @generated from field: int32 batch_count = 14;
+   */
+  batchCount: number;
+
+  /**
+   * 0-based index of the batch in flight or under review.
+   *
+   * @generated from field: int32 current_batch = 15;
+   */
+  currentBatch: number;
+
+  /**
+   * Set while the rollout is paused.
+   *
+   * @generated from field: google.protobuf.Timestamp paused_at = 16;
+   */
+  pausedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: bool auto_advance = 17;
+   */
+  autoAdvance: boolean;
+
+  /**
+   * Auto-advance threshold: largest acceptable aggregate hashrate drop.
+   *
+   * @generated from field: double max_hashrate_drop_percent = 18;
+   */
+  maxHashrateDropPercent: number;
+
+  /**
+   * Auto-advance threshold: how long the batch must hold at the gate.
+   *
+   * @generated from field: int32 stabilization_seconds = 19;
+   */
+  stabilizationSeconds: number;
+
+  /**
+   * Assignment in place before this rollout; restored on abort.
+   *
+   * @generated from field: string previous_firmware_file_id = 20;
+   */
+  previousFirmwareFileId: string;
+
+  /**
+   * @generated from field: string previous_firmware_version = 21;
+   */
+  previousFirmwareVersion: string;
+
+  /**
+   * @generated from field: rollout.v1.RolloutCancelReason cancel_reason = 22;
+   */
+  cancelReason: RolloutCancelReason;
+
+  /**
+   * When the current stage began.
+   *
+   * @generated from field: google.protobuf.Timestamp stage_changed_at = 23;
+   */
+  stageChangedAt?: Timestamp | undefined;
+
+  /**
+   * Evidence for the miners currently under review; unset for rollouts
+   * that are not active.
+   *
+   * @generated from field: rollout.v1.RolloutEvidence evidence = 24;
+   */
+  evidence?: RolloutEvidence | undefined;
 };
 
 /**
  * Describes the message rollout.v1.Rollout.
  * Use `create(RolloutSchema)` to create a new message.
  */
-export const RolloutSchema: GenMessage<Rollout> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 4);
+export const RolloutSchema: GenMessage<Rollout> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 5);
 
 /**
  * Progress of one miner within a rollout.
@@ -277,18 +447,80 @@ export type RolloutDevice = Message<"rollout.v1.RolloutDevice"> & {
   state: RolloutDeviceState;
 
   /**
-   * True when the miner is part of the rollout's pilot cohort.
+   * 1-based batch the miner was snapshotted into; 0 when it is not part of
+   * any batch (rest stage / late joiner).
    *
-   * @generated from field: bool in_pilot_cohort = 5;
+   * @generated from field: int32 batch = 5;
    */
-  inPilotCohort: boolean;
+  batch: number;
+
+  /**
+   * Live device status (e.g. ACTIVE, OFFLINE, NEEDS_MINING_POOL).
+   *
+   * @generated from field: string status = 6;
+   */
+  status: string;
+
+  /**
+   * @generated from field: bool online = 7;
+   */
+  online: boolean;
+
+  /**
+   * @generated from field: bool hashing = 8;
+   */
+  hashing: boolean;
+
+  /**
+   * False for late joiners with no baseline snapshot.
+   *
+   * @generated from field: bool has_baseline = 9;
+   */
+  hasBaseline: boolean;
+
+  /**
+   * @generated from field: bool baseline_hashing = 10;
+   */
+  baselineHashing: boolean;
+
+  /**
+   * @generated from field: double hash_rate_hs = 11;
+   */
+  hashRateHs: number;
+
+  /**
+   * False when no hashrate sample landed recently.
+   *
+   * @generated from field: bool has_hash_rate = 12;
+   */
+  hasHashRate: boolean;
+
+  /**
+   * @generated from field: double baseline_hash_rate_hs = 13;
+   */
+  baselineHashRateHs: number;
+
+  /**
+   * @generated from field: bool has_baseline_hash_rate = 14;
+   */
+  hasBaselineHashRate: boolean;
+
+  /**
+   * @generated from field: int32 open_errors = 15;
+   */
+  openErrors: number;
+
+  /**
+   * @generated from field: int32 baseline_open_errors = 16;
+   */
+  baselineOpenErrors: number;
 };
 
 /**
  * Describes the message rollout.v1.RolloutDevice.
  * Use `create(RolloutDeviceSchema)` to create a new message.
  */
-export const RolloutDeviceSchema: GenMessage<RolloutDevice> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 5);
+export const RolloutDeviceSchema: GenMessage<RolloutDevice> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 6);
 
 /**
  * @generated from message rollout.v1.ListRolloutLanesRequest
@@ -301,7 +533,7 @@ export type ListRolloutLanesRequest = Message<"rollout.v1.ListRolloutLanesReques
  */
 export const ListRolloutLanesRequestSchema: GenMessage<ListRolloutLanesRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 6);
+  messageDesc(file_rollout_v1_rollout, 7);
 
 /**
  * @generated from message rollout.v1.ListRolloutLanesResponse
@@ -319,7 +551,7 @@ export type ListRolloutLanesResponse = Message<"rollout.v1.ListRolloutLanesRespo
  */
 export const ListRolloutLanesResponseSchema: GenMessage<ListRolloutLanesResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 7);
+  messageDesc(file_rollout_v1_rollout, 8);
 
 /**
  * @generated from message rollout.v1.CreateRolloutLaneRequest
@@ -337,7 +569,7 @@ export type CreateRolloutLaneRequest = Message<"rollout.v1.CreateRolloutLaneRequ
  */
 export const CreateRolloutLaneRequestSchema: GenMessage<CreateRolloutLaneRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 8);
+  messageDesc(file_rollout_v1_rollout, 9);
 
 /**
  * @generated from message rollout.v1.CreateRolloutLaneResponse
@@ -355,7 +587,7 @@ export type CreateRolloutLaneResponse = Message<"rollout.v1.CreateRolloutLaneRes
  */
 export const CreateRolloutLaneResponseSchema: GenMessage<CreateRolloutLaneResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 9);
+  messageDesc(file_rollout_v1_rollout, 10);
 
 /**
  * @generated from message rollout.v1.DeleteRolloutLaneRequest
@@ -373,7 +605,7 @@ export type DeleteRolloutLaneRequest = Message<"rollout.v1.DeleteRolloutLaneRequ
  */
 export const DeleteRolloutLaneRequestSchema: GenMessage<DeleteRolloutLaneRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 10);
+  messageDesc(file_rollout_v1_rollout, 11);
 
 /**
  * @generated from message rollout.v1.DeleteRolloutLaneResponse
@@ -386,7 +618,7 @@ export type DeleteRolloutLaneResponse = Message<"rollout.v1.DeleteRolloutLaneRes
  */
 export const DeleteRolloutLaneResponseSchema: GenMessage<DeleteRolloutLaneResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 11);
+  messageDesc(file_rollout_v1_rollout, 12);
 
 /**
  * @generated from message rollout.v1.UpdateRolloutLaneMembersRequest
@@ -418,7 +650,7 @@ export type UpdateRolloutLaneMembersRequest = Message<"rollout.v1.UpdateRolloutL
  */
 export const UpdateRolloutLaneMembersRequestSchema: GenMessage<UpdateRolloutLaneMembersRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 12);
+  messageDesc(file_rollout_v1_rollout, 13);
 
 /**
  * @generated from message rollout.v1.UpdateRolloutLaneMembersResponse
@@ -436,7 +668,7 @@ export type UpdateRolloutLaneMembersResponse = Message<"rollout.v1.UpdateRollout
  */
 export const UpdateRolloutLaneMembersResponseSchema: GenMessage<UpdateRolloutLaneMembersResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 13);
+  messageDesc(file_rollout_v1_rollout, 14);
 
 /**
  * How rollouts started by an apply call should run.
@@ -452,20 +684,43 @@ export type RolloutOptions = Message<"rollout.v1.RolloutOptions"> & {
   method: RolloutMethod;
 
   /**
-   * Number of miners in the pilot cohort per started rollout. Required
-   * (>= 1) for the PILOT method; capped at the number of mismatched
-   * miners of the model.
+   * Miners per batch (the pilot size for PILOT). Required (>= 1) for the
+   * PILOT and BATCHES methods; capped at the number of mismatched miners.
    *
-   * @generated from field: int32 pilot_count = 2;
+   * @generated from field: int32 batch_size = 2;
    */
-  pilotCount: number;
+  batchSize: number;
+
+  /**
+   * Advance past each review gate automatically once the batch is
+   * verified, the thresholds below hold, and the stabilization period has
+   * elapsed. Degraded or missing evidence always holds for manual review.
+   *
+   * @generated from field: bool auto_advance = 3;
+   */
+  autoAdvance: boolean;
+
+  /**
+   * Largest acceptable aggregate hashrate drop versus baseline, in
+   * percent. 0 disables the hashrate check.
+   *
+   * @generated from field: double max_hashrate_drop_percent = 4;
+   */
+  maxHashrateDropPercent: number;
+
+  /**
+   * How long a verified batch must hold at the gate before auto-advancing.
+   *
+   * @generated from field: int32 stabilization_seconds = 5;
+   */
+  stabilizationSeconds: number;
 };
 
 /**
  * Describes the message rollout.v1.RolloutOptions.
  * Use `create(RolloutOptionsSchema)` to create a new message.
  */
-export const RolloutOptionsSchema: GenMessage<RolloutOptions> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 14);
+export const RolloutOptionsSchema: GenMessage<RolloutOptions> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 15);
 
 /**
  * @generated from message rollout.v1.ApplyRolloutLaneFirmwareRequest
@@ -498,7 +753,7 @@ export type ApplyRolloutLaneFirmwareRequest = Message<"rollout.v1.ApplyRolloutLa
  */
 export const ApplyRolloutLaneFirmwareRequestSchema: GenMessage<ApplyRolloutLaneFirmwareRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 15);
+  messageDesc(file_rollout_v1_rollout, 16);
 
 /**
  * @generated from message rollout.v1.ApplyRolloutLaneFirmwareResponse
@@ -523,7 +778,7 @@ export type ApplyRolloutLaneFirmwareResponse = Message<"rollout.v1.ApplyRolloutL
  */
 export const ApplyRolloutLaneFirmwareResponseSchema: GenMessage<ApplyRolloutLaneFirmwareResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 16);
+  messageDesc(file_rollout_v1_rollout, 17);
 
 /**
  * @generated from message rollout.v1.RollbackRolloutLaneFirmwareRequest
@@ -543,7 +798,7 @@ export type RollbackRolloutLaneFirmwareRequest = Message<"rollout.v1.RollbackRol
  */
 export const RollbackRolloutLaneFirmwareRequestSchema: GenMessage<RollbackRolloutLaneFirmwareRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 17);
+  messageDesc(file_rollout_v1_rollout, 18);
 
 /**
  * @generated from message rollout.v1.RollbackRolloutLaneFirmwareResponse
@@ -568,7 +823,7 @@ export type RollbackRolloutLaneFirmwareResponse = Message<"rollout.v1.RollbackRo
  */
 export const RollbackRolloutLaneFirmwareResponseSchema: GenMessage<RollbackRolloutLaneFirmwareResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 18);
+  messageDesc(file_rollout_v1_rollout, 19);
 
 /**
  * @generated from message rollout.v1.ListRolloutsRequest
@@ -588,7 +843,7 @@ export type ListRolloutsRequest = Message<"rollout.v1.ListRolloutsRequest"> & {
  */
 export const ListRolloutsRequestSchema: GenMessage<ListRolloutsRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 19);
+  messageDesc(file_rollout_v1_rollout, 20);
 
 /**
  * @generated from message rollout.v1.ListRolloutsResponse
@@ -606,14 +861,14 @@ export type ListRolloutsResponse = Message<"rollout.v1.ListRolloutsResponse"> & 
  */
 export const ListRolloutsResponseSchema: GenMessage<ListRolloutsResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 20);
+  messageDesc(file_rollout_v1_rollout, 21);
 
 /**
  * @generated from message rollout.v1.ContinueRolloutRequest
  */
 export type ContinueRolloutRequest = Message<"rollout.v1.ContinueRolloutRequest"> & {
   /**
-   * Active pilot rollout in the AWAITING_REVIEW stage.
+   * Active staged rollout in the AWAITING_REVIEW stage.
    *
    * @generated from field: int64 rollout_id = 1;
    */
@@ -626,7 +881,7 @@ export type ContinueRolloutRequest = Message<"rollout.v1.ContinueRolloutRequest"
  */
 export const ContinueRolloutRequestSchema: GenMessage<ContinueRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 21);
+  messageDesc(file_rollout_v1_rollout, 22);
 
 /**
  * @generated from message rollout.v1.ContinueRolloutResponse
@@ -644,7 +899,139 @@ export type ContinueRolloutResponse = Message<"rollout.v1.ContinueRolloutRespons
  */
 export const ContinueRolloutResponseSchema: GenMessage<ContinueRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 22);
+  messageDesc(file_rollout_v1_rollout, 23);
+
+/**
+ * @generated from message rollout.v1.PauseRolloutRequest
+ */
+export type PauseRolloutRequest = Message<"rollout.v1.PauseRolloutRequest"> & {
+  /**
+   * @generated from field: int64 rollout_id = 1;
+   */
+  rolloutId: bigint;
+};
+
+/**
+ * Describes the message rollout.v1.PauseRolloutRequest.
+ * Use `create(PauseRolloutRequestSchema)` to create a new message.
+ */
+export const PauseRolloutRequestSchema: GenMessage<PauseRolloutRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 24);
+
+/**
+ * @generated from message rollout.v1.PauseRolloutResponse
+ */
+export type PauseRolloutResponse = Message<"rollout.v1.PauseRolloutResponse"> & {
+  /**
+   * @generated from field: rollout.v1.Rollout rollout = 1;
+   */
+  rollout?: Rollout | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.PauseRolloutResponse.
+ * Use `create(PauseRolloutResponseSchema)` to create a new message.
+ */
+export const PauseRolloutResponseSchema: GenMessage<PauseRolloutResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 25);
+
+/**
+ * @generated from message rollout.v1.ResumeRolloutRequest
+ */
+export type ResumeRolloutRequest = Message<"rollout.v1.ResumeRolloutRequest"> & {
+  /**
+   * @generated from field: int64 rollout_id = 1;
+   */
+  rolloutId: bigint;
+};
+
+/**
+ * Describes the message rollout.v1.ResumeRolloutRequest.
+ * Use `create(ResumeRolloutRequestSchema)` to create a new message.
+ */
+export const ResumeRolloutRequestSchema: GenMessage<ResumeRolloutRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 26);
+
+/**
+ * @generated from message rollout.v1.ResumeRolloutResponse
+ */
+export type ResumeRolloutResponse = Message<"rollout.v1.ResumeRolloutResponse"> & {
+  /**
+   * @generated from field: rollout.v1.Rollout rollout = 1;
+   */
+  rollout?: Rollout | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.ResumeRolloutResponse.
+ * Use `create(ResumeRolloutResponseSchema)` to create a new message.
+ */
+export const ResumeRolloutResponseSchema: GenMessage<ResumeRolloutResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 27);
+
+/**
+ * @generated from message rollout.v1.AbortRolloutRequest
+ */
+export type AbortRolloutRequest = Message<"rollout.v1.AbortRolloutRequest"> & {
+  /**
+   * @generated from field: int64 rollout_id = 1;
+   */
+  rolloutId: bigint;
+};
+
+/**
+ * Describes the message rollout.v1.AbortRolloutRequest.
+ * Use `create(AbortRolloutRequestSchema)` to create a new message.
+ */
+export const AbortRolloutRequestSchema: GenMessage<AbortRolloutRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 28);
+
+/**
+ * @generated from message rollout.v1.AbortRolloutResponse
+ */
+export type AbortRolloutResponse = Message<"rollout.v1.AbortRolloutResponse"> & {
+  /**
+   * The aborted rollout.
+   *
+   * @generated from field: rollout.v1.Rollout rollout = 1;
+   */
+  rollout?: Rollout | undefined;
+
+  /**
+   * The lane after the abort, reflecting the restored or cleared assignment.
+   *
+   * @generated from field: rollout.v1.RolloutLane lane = 2;
+   */
+  lane?: RolloutLane | undefined;
+
+  /**
+   * Rollouts started to bring already-updated miners back to the previous
+   * version (at most one). Empty when the assignment was cleared instead.
+   *
+   * @generated from field: repeated rollout.v1.Rollout started_rollouts = 3;
+   */
+  startedRollouts: Rollout[];
+
+  /**
+   * True when the previous assignment was restored, false when cleared.
+   *
+   * @generated from field: bool restored_previous = 4;
+   */
+  restoredPrevious: boolean;
+};
+
+/**
+ * Describes the message rollout.v1.AbortRolloutResponse.
+ * Use `create(AbortRolloutResponseSchema)` to create a new message.
+ */
+export const AbortRolloutResponseSchema: GenMessage<AbortRolloutResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 29);
 
 /**
  * Lifecycle of a rollout.
@@ -665,14 +1052,15 @@ export enum RolloutStatus {
   ACTIVE = 1,
 
   /**
-   * Every targeted miner reported the assigned version.
+   * Every targeted miner is on the assigned version, back online, and at
+   * least as healthy as before the update.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED = 2;
    */
   COMPLETED = 2,
 
   /**
-   * Superseded by a newer assignment or cleared before completion.
+   * Ended before completion; see cancel_reason.
    *
    * @generated from enum value: ROLLOUT_STATUS_CANCELED = 3;
    */
@@ -683,6 +1071,46 @@ export enum RolloutStatus {
  * Describes the enum rollout.v1.RolloutStatus.
  */
 export const RolloutStatusSchema: GenEnum<RolloutStatus> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 0);
+
+/**
+ * Why a rollout was canceled.
+ *
+ * @generated from enum rollout.v1.RolloutCancelReason
+ */
+export enum RolloutCancelReason {
+  /**
+   * @generated from enum value: ROLLOUT_CANCEL_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A newer assignment (or rollback) replaced it.
+   *
+   * @generated from enum value: ROLLOUT_CANCEL_REASON_SUPERSEDED = 1;
+   */
+  SUPERSEDED = 1,
+
+  /**
+   * An operator aborted it.
+   *
+   * @generated from enum value: ROLLOUT_CANCEL_REASON_ABORTED = 2;
+   */
+  ABORTED = 2,
+
+  /**
+   * The model's assignment was cleared.
+   *
+   * @generated from enum value: ROLLOUT_CANCEL_REASON_CLEARED = 3;
+   */
+  CLEARED = 3,
+}
+
+/**
+ * Describes the enum rollout.v1.RolloutCancelReason.
+ */
+export const RolloutCancelReasonSchema: GenEnum<RolloutCancelReason> =
+  /*@__PURE__*/
+  enumDesc(file_rollout_v1_rollout, 1);
 
 /**
  * How a rollout distributes the update across its targets.
@@ -703,22 +1131,30 @@ export enum RolloutMethod {
   IMMEDIATE = 1,
 
   /**
-   * A pilot cohort is updated first; the rest only after an operator
-   * reviews the pilot and continues the rollout.
+   * One pilot batch is updated first; the rest only after the pilot is
+   * reviewed and the rollout continued.
    *
    * @generated from enum value: ROLLOUT_METHOD_PILOT = 2;
    */
   PILOT = 2,
+
+  /**
+   * Mismatched miners are split into fixed-size batches, each gated on a
+   * review of the previous one; late joiners follow in the rest stage.
+   *
+   * @generated from enum value: ROLLOUT_METHOD_BATCHES = 3;
+   */
+  BATCHES = 3,
 }
 
 /**
  * Describes the enum rollout.v1.RolloutMethod.
  */
-export const RolloutMethodSchema: GenEnum<RolloutMethod> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 1);
+export const RolloutMethodSchema: GenEnum<RolloutMethod> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 2);
 
 /**
- * Progress of an active pilot rollout through its stages. Immediate
- * rollouts are always in the rest stage.
+ * Progress of a staged rollout. Immediate rollouts are always in the rest
+ * stage.
  *
  * @generated from enum rollout.v1.RolloutStage
  */
@@ -729,14 +1165,15 @@ export enum RolloutStage {
   UNSPECIFIED = 0,
 
   /**
-   * Updating the pilot cohort only.
+   * Updating the current batch only.
    *
-   * @generated from enum value: ROLLOUT_STAGE_PILOT = 1;
+   * @generated from enum value: ROLLOUT_STAGE_BATCH = 1;
    */
-  PILOT = 1,
+  BATCH = 1,
 
   /**
-   * The pilot cohort is done; waiting for an operator to continue.
+   * The current batch is done; waiting for a review (manual continue, or
+   * automatic once the evidence thresholds are met).
    *
    * @generated from enum value: ROLLOUT_STAGE_AWAITING_REVIEW = 2;
    */
@@ -753,7 +1190,7 @@ export enum RolloutStage {
 /**
  * Describes the enum rollout.v1.RolloutStage.
  */
-export const RolloutStageSchema: GenEnum<RolloutStage> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 2);
+export const RolloutStageSchema: GenEnum<RolloutStage> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 3);
 
 /**
  * Per-device progress within a rollout.
@@ -781,17 +1218,25 @@ export enum RolloutDeviceState {
   UPDATING = 2,
 
   /**
-   * Miner reports the target version.
+   * Miner reports the target version, is back online, and is at least as
+   * healthy (hashing) as before the update.
    *
    * @generated from enum value: ROLLOUT_DEVICE_STATE_UPDATED = 3;
    */
   UPDATED = 3,
+
+  /**
+   * Miner reports the target version but is not yet back online / hashing.
+   *
+   * @generated from enum value: ROLLOUT_DEVICE_STATE_VERIFYING = 4;
+   */
+  VERIFYING = 4,
 }
 
 /**
  * Describes the enum rollout.v1.RolloutDeviceState.
  */
-export const RolloutDeviceStateSchema: GenEnum<RolloutDeviceState> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 3);
+export const RolloutDeviceStateSchema: GenEnum<RolloutDeviceState> = /*@__PURE__*/ enumDesc(file_rollout_v1_rollout, 4);
 
 /**
  * Service for managing firmware rollout lanes.
@@ -885,8 +1330,8 @@ export const RolloutService: GenService<{
     output: typeof ListRolloutsResponseSchema;
   };
   /**
-   * Advances a pilot rollout that is awaiting review to its rest stage,
-   * rolling the firmware out to the remaining miners.
+   * Advances a staged rollout that is awaiting review: to its next batch,
+   * or to the rest stage after the last batch.
    *
    * @generated from rpc rollout.v1.RolloutService.ContinueRollout
    */
@@ -894,5 +1339,39 @@ export const RolloutService: GenService<{
     methodKind: "unary";
     input: typeof ContinueRolloutRequestSchema;
     output: typeof ContinueRolloutResponseSchema;
+  };
+  /**
+   * Pauses an active rollout: no new update commands are sent and no stage
+   * transitions happen until it is resumed. Commands already sent finish.
+   *
+   * @generated from rpc rollout.v1.RolloutService.PauseRollout
+   */
+  pauseRollout: {
+    methodKind: "unary";
+    input: typeof PauseRolloutRequestSchema;
+    output: typeof PauseRolloutResponseSchema;
+  };
+  /**
+   * Resumes a paused rollout.
+   *
+   * @generated from rpc rollout.v1.RolloutService.ResumeRollout
+   */
+  resumeRollout: {
+    methodKind: "unary";
+    input: typeof ResumeRolloutRequestSchema;
+    output: typeof ResumeRolloutResponseSchema;
+  };
+  /**
+   * Aborts an active rollout and restores the model's previous firmware
+   * assignment (starting a rollout back to it for miners already updated),
+   * or clears the assignment when there was none, so enforcement does not
+   * simply restart the aborted change.
+   *
+   * @generated from rpc rollout.v1.RolloutService.AbortRollout
+   */
+  abortRollout: {
+    methodKind: "unary";
+    input: typeof AbortRolloutRequestSchema;
+    output: typeof AbortRolloutResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_rollout_v1_rollout, 0);

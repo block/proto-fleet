@@ -77,8 +77,18 @@ WHERE l.org_id = sqlc.arg('org_id');
 -- Rollouts.
 
 -- name: CreateFirmwareRollout :one
-INSERT INTO firmware_rollout (org_id, lane_id, model, firmware_file_id, firmware_version, created_by, method, stage, pilot_count)
-VALUES (sqlc.arg('org_id'), sqlc.arg('lane_id'), sqlc.arg('model'), sqlc.arg('firmware_file_id'), sqlc.arg('firmware_version'), sqlc.arg('created_by'), sqlc.arg('method'), sqlc.arg('stage'), sqlc.arg('pilot_count'))
+INSERT INTO firmware_rollout (
+    org_id, lane_id, model, firmware_file_id, firmware_version, created_by,
+    method, stage, batch_size, batch_count,
+    auto_advance, max_hashrate_drop_percent, stabilization_seconds,
+    previous_firmware_file_id, previous_firmware_version
+)
+VALUES (
+    sqlc.arg('org_id'), sqlc.arg('lane_id'), sqlc.arg('model'), sqlc.arg('firmware_file_id'), sqlc.arg('firmware_version'), sqlc.arg('created_by'),
+    sqlc.arg('method'), sqlc.arg('stage'), sqlc.arg('batch_size'), sqlc.arg('batch_count'),
+    sqlc.arg('auto_advance'), sqlc.narg('max_hashrate_drop_percent')::double precision, sqlc.arg('stabilization_seconds'),
+    sqlc.arg('previous_firmware_file_id'), sqlc.arg('previous_firmware_version')
+)
 RETURNING *;
 
 -- name: GetFirmwareRollout :one
@@ -86,26 +96,45 @@ SELECT * FROM firmware_rollout
 WHERE id = sqlc.arg('rollout_id') AND org_id = sqlc.arg('org_id');
 
 -- name: CancelActiveFirmwareRollout :exec
+-- Cancels the (lane, model) pair's active rollout, recording why
+-- ('superseded' by a new assignment or 'cleared' with the assignment).
 UPDATE firmware_rollout
-SET status = 'canceled', finished_at = now()
+SET status = 'canceled', finished_at = now(), cancel_reason = sqlc.arg('cancel_reason')
 WHERE lane_id = sqlc.arg('lane_id') AND model = sqlc.arg('model') AND status = 'active';
 
--- name: CompleteFirmwareRollout :exec
+-- name: AbortFirmwareRollout :execrows
+UPDATE firmware_rollout
+SET status = 'canceled', finished_at = now(), cancel_reason = 'aborted'
+WHERE id = sqlc.arg('rollout_id') AND status = 'active';
+
+-- name: CompleteFirmwareRollout :execrows
 UPDATE firmware_rollout
 SET status = 'completed', finished_at = now()
 WHERE id = sqlc.arg('rollout_id') AND status = 'active';
 
--- name: SetFirmwareRolloutStage :execrows
--- Stage transitions of an active pilot rollout (pilot -> awaiting_review ->
--- rest). Returns the affected row count so callers can detect a lost race.
+-- name: AdvanceFirmwareRolloutStage :execrows
+-- Stage transitions of an active rollout (batch -> awaiting_review -> batch
+-- | rest). Returns the affected row count so callers can detect a lost race.
 UPDATE firmware_rollout
-SET stage = sqlc.arg('stage')
+SET stage = sqlc.arg('stage'),
+    current_batch = sqlc.arg('current_batch'),
+    stage_changed_at = now()
 WHERE id = sqlc.arg('rollout_id')
   AND status = 'active'
   AND stage = sqlc.arg('from_stage');
 
+-- name: PauseFirmwareRollout :execrows
+UPDATE firmware_rollout
+SET paused_at = now()
+WHERE id = sqlc.arg('rollout_id') AND status = 'active' AND paused_at IS NULL;
+
+-- name: ResumeFirmwareRollout :execrows
+UPDATE firmware_rollout
+SET paused_at = NULL
+WHERE id = sqlc.arg('rollout_id') AND status = 'active' AND paused_at IS NOT NULL;
+
 -- name: ListFirmwareRollouts :many
-SELECT r.*, l.name AS lane_name
+SELECT sqlc.embed(r), l.name AS lane_name
 FROM firmware_rollout r
 JOIN rollout_lane l ON l.id = r.lane_id
 WHERE r.org_id = sqlc.arg('org_id')
@@ -115,38 +144,75 @@ LIMIT 100;
 
 -- name: ListActiveFirmwareRollouts :many
 -- Across all orgs; drives the enforcement loop.
-SELECT r.*, l.name AS lane_name
+SELECT sqlc.embed(r), l.name AS lane_name
 FROM firmware_rollout r
 JOIN rollout_lane l ON l.id = r.lane_id
 WHERE r.status = 'active'
 ORDER BY r.id;
 
 -- name: ListFirmwareRolloutTargets :many
--- Current lane members of the rollout's model with reported firmware,
--- whether an update command was already sent by this rollout, and the
--- device's cohort ('pilot' for snapshotted pilot members, 'rest' otherwise).
+-- Current lane members of the rollout's model with reported firmware, the
+-- rollout's per-device bookkeeping (command sent, batch, baseline health)
+-- and live health: device status, the most recent hashrate sample (NULL when
+-- no sample landed in the last 15 minutes) and open error count.
 SELECT d.id AS device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '') AS firmware_version,
        rd.update_sent_at,
-       COALESCE(rd.cohort, 'rest') AS cohort
+       rd.batch_index,
+       rd.baseline_status,
+       rd.baseline_hash_rate_hs,
+       rd.baseline_open_errors,
+       COALESCE(ds.status::text, '')::text AS status,
+       hm.hash_rate_hs,
+       (SELECT count(*) FROM errors e
+         WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors
 FROM rollout_lane_member m
 JOIN device d ON d.id = m.device_id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN firmware_rollout_device rd
        ON rd.rollout_id = sqlc.arg('rollout_id') AND rd.device_id = d.id
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN LATERAL (
+    SELECT dm.hash_rate_hs
+    FROM device_metrics dm
+    WHERE dm.device_identifier = d.device_identifier
+      AND dm.time >= now() - INTERVAL '15 minutes'
+    ORDER BY dm.time DESC
+    LIMIT 1
+) hm ON true
 WHERE m.lane_id = sqlc.arg('lane_id')
   AND COALESCE(dd.model, '') = sqlc.arg('model')::text
 ORDER BY d.device_identifier;
 
--- name: InsertFirmwareRolloutCohort :exec
--- Snapshots the pilot cohort at rollout creation, before any command is
--- sent (update_sent_at stays NULL until the enforcement loop dispatches).
-INSERT INTO firmware_rollout_device (rollout_id, device_id, cohort)
-SELECT sqlc.arg('rollout_id'), d.id, sqlc.arg('cohort')
+-- name: SnapshotFirmwareRolloutDevices :exec
+-- Records devices into a rollout at creation, before any command is sent:
+-- their batch (NULL for the unbatched rest) and a baseline of their health
+-- so post-update evidence can be compared against each miner's own past.
+INSERT INTO firmware_rollout_device (
+    rollout_id, device_id, batch_index,
+    baseline_status, baseline_hash_rate_hs, baseline_open_errors, baseline_at
+)
+SELECT sqlc.arg('rollout_id'),
+       d.id,
+       sqlc.narg('batch_index')::int,
+       ds.status::text,
+       hm.hash_rate_hs,
+       (SELECT count(*) FROM errors e
+         WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int,
+       now()
 FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN LATERAL (
+    SELECT dm.hash_rate_hs
+    FROM device_metrics dm
+    WHERE dm.device_identifier = d.device_identifier
+      AND dm.time >= now() - INTERVAL '15 minutes'
+    ORDER BY dm.time DESC
+    LIMIT 1
+) hm ON true
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
-ON CONFLICT (rollout_id, device_id) DO UPDATE SET cohort = EXCLUDED.cohort;
+ON CONFLICT (rollout_id, device_id) DO UPDATE SET batch_index = EXCLUDED.batch_index;
 
 -- name: MarkFirmwareRolloutDevicesSent :exec
 INSERT INTO firmware_rollout_device (rollout_id, device_id, update_sent_at)

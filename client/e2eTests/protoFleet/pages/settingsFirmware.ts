@@ -209,12 +209,106 @@ export class SettingsFirmwarePage extends BasePage {
     await this.validateTextInToast("Firmware changes applied");
   }
 
-  // The model group sits at the pilot review gate: the pilot cohort is on
-  // the new version and the rest wait for an operator to continue.
+  // Applies staged firmware changes in fixed batches that advance on their
+  // own once the evidence thresholds hold (no stabilization wait).
+  async applyLaneFirmwareChangesWithAutoBatches(laneName: string, batchSize: number, maxHashrateDropPercent: number) {
+    await this.laneCard(laneName).getByRole("button", { name: "Apply changes", exact: true }).click();
+    await expect(this.applyDialog()).toBeVisible();
+    await this.applyDialog().getByTestId("apply-method-batches").click();
+    await this.applyDialog().getByLabel("Batch size (miners per batch)").fill(String(batchSize));
+    await this.applyDialog().getByTestId("apply-auto-advance").click();
+    await this.applyDialog().getByLabel("Max hashrate drop (%)").fill(String(maxHashrateDropPercent));
+    await this.applyDialog().getByLabel("Stabilization (minutes)").fill("0");
+    await this.applyDialog().getByRole("button", { name: "Start rollout", exact: true }).click();
+    await expect(this.applyDialog()).toBeHidden();
+    await this.validateTextInToast("Firmware changes applied");
+  }
+
+  // The model group sits at a review gate: the batch is on the new version
+  // and the rest wait for the rollout to be continued.
   async waitForModelReviewNeeded(laneName: string, timeoutMs: number) {
-    await expect(this.laneCard(laneName).getByText("Pilot complete — review needed").first()).toBeVisible({
+    await expect(
+      this.laneCard(laneName)
+        .getByText(/complete — review needed/)
+        .first(),
+    ).toBeVisible({
       timeout: timeoutMs,
     });
+  }
+
+  // The header pill leads with the review instead of plain progress.
+  async validateAppRolloutPillNeedsReview() {
+    await expect(this.appRolloutPill()).toContainText(/needs? review/);
+  }
+
+  // Opens the detail modal of an active update, whichever action label the
+  // row currently carries ("View update" or "Review update").
+  async openActiveUpdate(laneName: string, model: string) {
+    await this.activeUpdateRow(laneName, model)
+      .getByRole("button", { name: /^(View|Review) update$/ })
+      .click();
+    await this.validateTitleInModal(`${laneName}, ${model} firmware update`);
+  }
+
+  private detailModal(): Locator {
+    return this.page.getByTestId("modal");
+  }
+
+  async validateDetailHeadline(text: string | RegExp) {
+    await expect(this.detailModal().getByTestId("rollout-status-headline")).toHaveText(text);
+  }
+
+  // The review evidence block is on screen with its four figures.
+  async validateEvidenceVisible() {
+    const evidence = this.detailModal().getByTestId("rollout-evidence");
+    await expect(evidence).toBeVisible();
+    await expect(evidence.getByTestId("evidence-online")).toContainText(/\d+ of \d+/);
+    await expect(evidence.getByTestId("evidence-hashing")).toContainText(/\d+ of \d+/);
+    await expect(evidence.getByTestId("evidence-errors")).toBeVisible();
+  }
+
+  // Pause from the detail modal and confirm the rollout reports paused;
+  // then resume and confirm it no longer does.
+  async pauseAndResumeFromDetail() {
+    await this.detailModal().getByRole("button", { name: "Pause", exact: true }).click();
+    await this.validateTextInToast("Paused");
+    await this.validateDetailHeadline("Paused");
+    await expect(this.detailModal().getByTestId("paused-banner")).toBeVisible();
+    await this.detailModal().getByRole("button", { name: "Resume", exact: true }).click();
+    await this.validateTextInToast("Resumed");
+    await expect(this.detailModal().getByTestId("paused-banner")).toBeHidden();
+  }
+
+  // Releases the review gate from the open detail modal (a primary modal
+  // action, so it also dismisses the modal).
+  async continueFromDetail() {
+    await this.detailModal().getByRole("button", { name: "Continue rollout", exact: true }).click();
+    await expect(this.detailModal()).toBeHidden();
+    await this.validateTextInToast("Continuing");
+  }
+
+  // Aborts from the open detail modal through the confirmation dialog.
+  async abortFromDetail() {
+    await this.detailModal().getByRole("button", { name: "Abort", exact: true }).click();
+    const dialog = this.page.getByTestId("abort-rollout-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Abort rollout", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await this.validateTextInToast("Aborted");
+  }
+
+  // The firmware picker of the model group shows this version.
+  async validateModelAssignedFirmware(laneName: string, model: string, version: string | RegExp) {
+    await expect(this.laneCard(laneName).getByTestId(`lane-firmware-select-${model}`)).toContainText(version);
+  }
+
+  // A history entry for this version carries the given outcome label.
+  async validateHistoryOutcome(laneName: string, version: string, outcome: string) {
+    await this.openLaneHistory(laneName);
+    await expect(
+      this.historyModal().locator("tr").filter({ hasText: version }).filter({ hasText: outcome }).first(),
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await this.closeLaneHistory();
   }
 
   // Number of the model group's miners currently reporting this version.
@@ -235,19 +329,6 @@ export class SettingsFirmwarePage extends BasePage {
   // The channel row's status column flags a pilot waiting for review.
   async validateChannelReviewNeeded(laneName: string) {
     await expect(this.channelRow(laneName).getByTestId(`channel-status-${laneName}`)).toContainText("review needed");
-  }
-
-  // Continues a gated pilot rollout from the active updates section: the
-  // row's "Review update" action opens the detail modal, whose primary
-  // action releases the gate (and, as a primary modal action, dismisses
-  // the modal).
-  async continueRolloutFromActiveUpdates(laneName: string, model: string) {
-    await this.activeUpdateRow(laneName, model).getByRole("button", { name: "Review update", exact: true }).click();
-    await this.validateTitleInModal(`${laneName}, ${model} firmware update`);
-    const modal = this.page.getByTestId("modal");
-    await modal.getByRole("button", { name: "Continue rollout", exact: true }).click();
-    await expect(modal).toBeHidden();
-    await this.validateTextInToast("Continuing");
   }
 
   async validateLaneRolloutInProgress(laneName: string, version: string) {

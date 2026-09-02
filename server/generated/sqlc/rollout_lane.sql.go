@@ -8,10 +8,23 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"time"
 
 	"github.com/lib/pq"
 )
+
+const abortFirmwareRollout = `-- name: AbortFirmwareRollout :execrows
+UPDATE firmware_rollout
+SET status = 'canceled', finished_at = now(), cancel_reason = 'aborted'
+WHERE id = $1 AND status = 'active'
+`
+
+func (q *Queries) AbortFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error) {
+	result, err := q.exec(ctx, q.abortFirmwareRolloutStmt, abortFirmwareRollout, rolloutID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const addRolloutLaneMembers = `-- name: AddRolloutLaneMembers :exec
 
@@ -37,50 +50,104 @@ func (q *Queries) AddRolloutLaneMembers(ctx context.Context, arg AddRolloutLaneM
 	return err
 }
 
+const advanceFirmwareRolloutStage = `-- name: AdvanceFirmwareRolloutStage :execrows
+UPDATE firmware_rollout
+SET stage = $1,
+    current_batch = $2,
+    stage_changed_at = now()
+WHERE id = $3
+  AND status = 'active'
+  AND stage = $4
+`
+
+type AdvanceFirmwareRolloutStageParams struct {
+	Stage        string
+	CurrentBatch int32
+	RolloutID    int64
+	FromStage    string
+}
+
+// Stage transitions of an active rollout (batch -> awaiting_review -> batch
+// | rest). Returns the affected row count so callers can detect a lost race.
+func (q *Queries) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (int64, error) {
+	result, err := q.exec(ctx, q.advanceFirmwareRolloutStageStmt, advanceFirmwareRolloutStage,
+		arg.Stage,
+		arg.CurrentBatch,
+		arg.RolloutID,
+		arg.FromStage,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelActiveFirmwareRollout = `-- name: CancelActiveFirmwareRollout :exec
 UPDATE firmware_rollout
-SET status = 'canceled', finished_at = now()
-WHERE lane_id = $1 AND model = $2 AND status = 'active'
+SET status = 'canceled', finished_at = now(), cancel_reason = $1
+WHERE lane_id = $2 AND model = $3 AND status = 'active'
 `
 
 type CancelActiveFirmwareRolloutParams struct {
-	LaneID int64
-	Model  string
+	CancelReason string
+	LaneID       int64
+	Model        string
 }
 
+// Cancels the (lane, model) pair's active rollout, recording why
+// ('superseded' by a new assignment or 'cleared' with the assignment).
 func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error {
-	_, err := q.exec(ctx, q.cancelActiveFirmwareRolloutStmt, cancelActiveFirmwareRollout, arg.LaneID, arg.Model)
+	_, err := q.exec(ctx, q.cancelActiveFirmwareRolloutStmt, cancelActiveFirmwareRollout, arg.CancelReason, arg.LaneID, arg.Model)
 	return err
 }
 
-const completeFirmwareRollout = `-- name: CompleteFirmwareRollout :exec
+const completeFirmwareRollout = `-- name: CompleteFirmwareRollout :execrows
 UPDATE firmware_rollout
 SET status = 'completed', finished_at = now()
 WHERE id = $1 AND status = 'active'
 `
 
-func (q *Queries) CompleteFirmwareRollout(ctx context.Context, rolloutID int64) error {
-	_, err := q.exec(ctx, q.completeFirmwareRolloutStmt, completeFirmwareRollout, rolloutID)
-	return err
+func (q *Queries) CompleteFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error) {
+	result, err := q.exec(ctx, q.completeFirmwareRolloutStmt, completeFirmwareRollout, rolloutID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 
-INSERT INTO firmware_rollout (org_id, lane_id, model, firmware_file_id, firmware_version, created_by, method, stage, pilot_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, org_id, lane_id, model, firmware_file_id, firmware_version, status, created_by, created_at, finished_at, method, stage, pilot_count
+INSERT INTO firmware_rollout (
+    org_id, lane_id, model, firmware_file_id, firmware_version, created_by,
+    method, stage, batch_size, batch_count,
+    auto_advance, max_hashrate_drop_percent, stabilization_seconds,
+    previous_firmware_file_id, previous_firmware_version
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12::double precision, $13,
+    $14, $15
+)
+RETURNING id, org_id, lane_id, model, firmware_file_id, firmware_version, status, created_by, created_at, finished_at, method, stage, batch_size, batch_count, current_batch, stage_changed_at, paused_at, auto_advance, max_hashrate_drop_percent, stabilization_seconds, previous_firmware_file_id, previous_firmware_version, cancel_reason
 `
 
 type CreateFirmwareRolloutParams struct {
-	OrgID           int64
-	LaneID          int64
-	Model           string
-	FirmwareFileID  string
-	FirmwareVersion string
-	CreatedBy       int64
-	Method          string
-	Stage           string
-	PilotCount      int32
+	OrgID                   int64
+	LaneID                  int64
+	Model                   string
+	FirmwareFileID          string
+	FirmwareVersion         string
+	CreatedBy               int64
+	Method                  string
+	Stage                   string
+	BatchSize               int32
+	BatchCount              int32
+	AutoAdvance             bool
+	MaxHashrateDropPercent  sql.NullFloat64
+	StabilizationSeconds    int32
+	PreviousFirmwareFileID  string
+	PreviousFirmwareVersion string
 }
 
 // Rollouts.
@@ -94,7 +161,13 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.CreatedBy,
 		arg.Method,
 		arg.Stage,
-		arg.PilotCount,
+		arg.BatchSize,
+		arg.BatchCount,
+		arg.AutoAdvance,
+		arg.MaxHashrateDropPercent,
+		arg.StabilizationSeconds,
+		arg.PreviousFirmwareFileID,
+		arg.PreviousFirmwareVersion,
 	)
 	var i FirmwareRollout
 	err := row.Scan(
@@ -110,7 +183,17 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.FinishedAt,
 		&i.Method,
 		&i.Stage,
-		&i.PilotCount,
+		&i.BatchSize,
+		&i.BatchCount,
+		&i.CurrentBatch,
+		&i.StageChangedAt,
+		&i.PausedAt,
+		&i.AutoAdvance,
+		&i.MaxHashrateDropPercent,
+		&i.StabilizationSeconds,
+		&i.PreviousFirmwareFileID,
+		&i.PreviousFirmwareVersion,
+		&i.CancelReason,
 	)
 	return i, err
 }
@@ -171,7 +254,7 @@ func (q *Queries) DeleteRolloutLaneFirmware(ctx context.Context, arg DeleteRollo
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, lane_id, model, firmware_file_id, firmware_version, status, created_by, created_at, finished_at, method, stage, pilot_count FROM firmware_rollout
+SELECT id, org_id, lane_id, model, firmware_file_id, firmware_version, status, created_by, created_at, finished_at, method, stage, batch_size, batch_count, current_batch, stage_changed_at, paused_at, auto_advance, max_hashrate_drop_percent, stabilization_seconds, previous_firmware_file_id, previous_firmware_version, cancel_reason FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 `
 
@@ -196,7 +279,17 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.FinishedAt,
 		&i.Method,
 		&i.Stage,
-		&i.PilotCount,
+		&i.BatchSize,
+		&i.BatchCount,
+		&i.CurrentBatch,
+		&i.StageChangedAt,
+		&i.PausedAt,
+		&i.AutoAdvance,
+		&i.MaxHashrateDropPercent,
+		&i.StabilizationSeconds,
+		&i.PreviousFirmwareFileID,
+		&i.PreviousFirmwareVersion,
+		&i.CancelReason,
 	)
 	return i, err
 }
@@ -223,29 +316,8 @@ func (q *Queries) GetRolloutLane(ctx context.Context, arg GetRolloutLaneParams) 
 	return i, err
 }
 
-const insertFirmwareRolloutCohort = `-- name: InsertFirmwareRolloutCohort :exec
-INSERT INTO firmware_rollout_device (rollout_id, device_id, cohort)
-SELECT $1, d.id, $2
-FROM device d
-WHERE d.device_identifier = ANY($3::text[])
-ON CONFLICT (rollout_id, device_id) DO UPDATE SET cohort = EXCLUDED.cohort
-`
-
-type InsertFirmwareRolloutCohortParams struct {
-	RolloutID         int64
-	Cohort            string
-	DeviceIdentifiers []string
-}
-
-// Snapshots the pilot cohort at rollout creation, before any command is
-// sent (update_sent_at stays NULL until the enforcement loop dispatches).
-func (q *Queries) InsertFirmwareRolloutCohort(ctx context.Context, arg InsertFirmwareRolloutCohortParams) error {
-	_, err := q.exec(ctx, q.insertFirmwareRolloutCohortStmt, insertFirmwareRolloutCohort, arg.RolloutID, arg.Cohort, pq.Array(arg.DeviceIdentifiers))
-	return err
-}
-
 const listActiveFirmwareRollouts = `-- name: ListActiveFirmwareRollouts :many
-SELECT r.id, r.org_id, r.lane_id, r.model, r.firmware_file_id, r.firmware_version, r.status, r.created_by, r.created_at, r.finished_at, r.method, r.stage, r.pilot_count, l.name AS lane_name
+SELECT r.id, r.org_id, r.lane_id, r.model, r.firmware_file_id, r.firmware_version, r.status, r.created_by, r.created_at, r.finished_at, r.method, r.stage, r.batch_size, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.auto_advance, r.max_hashrate_drop_percent, r.stabilization_seconds, r.previous_firmware_file_id, r.previous_firmware_version, r.cancel_reason, l.name AS lane_name
 FROM firmware_rollout r
 JOIN rollout_lane l ON l.id = r.lane_id
 WHERE r.status = 'active'
@@ -253,19 +325,7 @@ ORDER BY r.id
 `
 
 type ListActiveFirmwareRolloutsRow struct {
-	ID              int64
-	OrgID           int64
-	LaneID          int64
-	Model           string
-	FirmwareFileID  string
-	FirmwareVersion string
-	Status          string
-	CreatedBy       int64
-	CreatedAt       time.Time
-	FinishedAt      sql.NullTime
-	Method          string
-	Stage           string
-	PilotCount      int32
+	FirmwareRollout FirmwareRollout
 	LaneName        string
 }
 
@@ -280,19 +340,29 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 	for rows.Next() {
 		var i ListActiveFirmwareRolloutsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.LaneID,
-			&i.Model,
-			&i.FirmwareFileID,
-			&i.FirmwareVersion,
-			&i.Status,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.FinishedAt,
-			&i.Method,
-			&i.Stage,
-			&i.PilotCount,
+			&i.FirmwareRollout.ID,
+			&i.FirmwareRollout.OrgID,
+			&i.FirmwareRollout.LaneID,
+			&i.FirmwareRollout.Model,
+			&i.FirmwareRollout.FirmwareFileID,
+			&i.FirmwareRollout.FirmwareVersion,
+			&i.FirmwareRollout.Status,
+			&i.FirmwareRollout.CreatedBy,
+			&i.FirmwareRollout.CreatedAt,
+			&i.FirmwareRollout.FinishedAt,
+			&i.FirmwareRollout.Method,
+			&i.FirmwareRollout.Stage,
+			&i.FirmwareRollout.BatchSize,
+			&i.FirmwareRollout.BatchCount,
+			&i.FirmwareRollout.CurrentBatch,
+			&i.FirmwareRollout.StageChangedAt,
+			&i.FirmwareRollout.PausedAt,
+			&i.FirmwareRollout.AutoAdvance,
+			&i.FirmwareRollout.MaxHashrateDropPercent,
+			&i.FirmwareRollout.StabilizationSeconds,
+			&i.FirmwareRollout.PreviousFirmwareFileID,
+			&i.FirmwareRollout.PreviousFirmwareVersion,
+			&i.FirmwareRollout.CancelReason,
 			&i.LaneName,
 		); err != nil {
 			return nil, err
@@ -313,12 +383,28 @@ SELECT d.id AS device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '') AS firmware_version,
        rd.update_sent_at,
-       COALESCE(rd.cohort, 'rest') AS cohort
+       rd.batch_index,
+       rd.baseline_status,
+       rd.baseline_hash_rate_hs,
+       rd.baseline_open_errors,
+       COALESCE(ds.status::text, '')::text AS status,
+       hm.hash_rate_hs,
+       (SELECT count(*) FROM errors e
+         WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors
 FROM rollout_lane_member m
 JOIN device d ON d.id = m.device_id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN firmware_rollout_device rd
        ON rd.rollout_id = $1 AND rd.device_id = d.id
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN LATERAL (
+    SELECT dm.hash_rate_hs
+    FROM device_metrics dm
+    WHERE dm.device_identifier = d.device_identifier
+      AND dm.time >= now() - INTERVAL '15 minutes'
+    ORDER BY dm.time DESC
+    LIMIT 1
+) hm ON true
 WHERE m.lane_id = $2
   AND COALESCE(dd.model, '') = $3::text
 ORDER BY d.device_identifier
@@ -331,16 +417,23 @@ type ListFirmwareRolloutTargetsParams struct {
 }
 
 type ListFirmwareRolloutTargetsRow struct {
-	DeviceID         int64
-	DeviceIdentifier string
-	FirmwareVersion  string
-	UpdateSentAt     sql.NullTime
-	Cohort           string
+	DeviceID           int64
+	DeviceIdentifier   string
+	FirmwareVersion    string
+	UpdateSentAt       sql.NullTime
+	BatchIndex         sql.NullInt32
+	BaselineStatus     sql.NullString
+	BaselineHashRateHs sql.NullFloat64
+	BaselineOpenErrors sql.NullInt32
+	Status             string
+	HashRateHs         sql.NullFloat64
+	OpenErrors         int32
 }
 
-// Current lane members of the rollout's model with reported firmware,
-// whether an update command was already sent by this rollout, and the
-// device's cohort ('pilot' for snapshotted pilot members, 'rest' otherwise).
+// Current lane members of the rollout's model with reported firmware, the
+// rollout's per-device bookkeeping (command sent, batch, baseline health)
+// and live health: device status, the most recent hashrate sample (NULL when
+// no sample landed in the last 15 minutes) and open error count.
 func (q *Queries) ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwareRolloutTargetsParams) ([]ListFirmwareRolloutTargetsRow, error) {
 	rows, err := q.query(ctx, q.listFirmwareRolloutTargetsStmt, listFirmwareRolloutTargets, arg.RolloutID, arg.LaneID, arg.Model)
 	if err != nil {
@@ -355,7 +448,13 @@ func (q *Queries) ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwa
 			&i.DeviceIdentifier,
 			&i.FirmwareVersion,
 			&i.UpdateSentAt,
-			&i.Cohort,
+			&i.BatchIndex,
+			&i.BaselineStatus,
+			&i.BaselineHashRateHs,
+			&i.BaselineOpenErrors,
+			&i.Status,
+			&i.HashRateHs,
+			&i.OpenErrors,
 		); err != nil {
 			return nil, err
 		}
@@ -371,7 +470,7 @@ func (q *Queries) ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwa
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT r.id, r.org_id, r.lane_id, r.model, r.firmware_file_id, r.firmware_version, r.status, r.created_by, r.created_at, r.finished_at, r.method, r.stage, r.pilot_count, l.name AS lane_name
+SELECT r.id, r.org_id, r.lane_id, r.model, r.firmware_file_id, r.firmware_version, r.status, r.created_by, r.created_at, r.finished_at, r.method, r.stage, r.batch_size, r.batch_count, r.current_batch, r.stage_changed_at, r.paused_at, r.auto_advance, r.max_hashrate_drop_percent, r.stabilization_seconds, r.previous_firmware_file_id, r.previous_firmware_version, r.cancel_reason, l.name AS lane_name
 FROM firmware_rollout r
 JOIN rollout_lane l ON l.id = r.lane_id
 WHERE r.org_id = $1
@@ -386,19 +485,7 @@ type ListFirmwareRolloutsParams struct {
 }
 
 type ListFirmwareRolloutsRow struct {
-	ID              int64
-	OrgID           int64
-	LaneID          int64
-	Model           string
-	FirmwareFileID  string
-	FirmwareVersion string
-	Status          string
-	CreatedBy       int64
-	CreatedAt       time.Time
-	FinishedAt      sql.NullTime
-	Method          string
-	Stage           string
-	PilotCount      int32
+	FirmwareRollout FirmwareRollout
 	LaneName        string
 }
 
@@ -412,19 +499,29 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 	for rows.Next() {
 		var i ListFirmwareRolloutsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.LaneID,
-			&i.Model,
-			&i.FirmwareFileID,
-			&i.FirmwareVersion,
-			&i.Status,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.FinishedAt,
-			&i.Method,
-			&i.Stage,
-			&i.PilotCount,
+			&i.FirmwareRollout.ID,
+			&i.FirmwareRollout.OrgID,
+			&i.FirmwareRollout.LaneID,
+			&i.FirmwareRollout.Model,
+			&i.FirmwareRollout.FirmwareFileID,
+			&i.FirmwareRollout.FirmwareVersion,
+			&i.FirmwareRollout.Status,
+			&i.FirmwareRollout.CreatedBy,
+			&i.FirmwareRollout.CreatedAt,
+			&i.FirmwareRollout.FinishedAt,
+			&i.FirmwareRollout.Method,
+			&i.FirmwareRollout.Stage,
+			&i.FirmwareRollout.BatchSize,
+			&i.FirmwareRollout.BatchCount,
+			&i.FirmwareRollout.CurrentBatch,
+			&i.FirmwareRollout.StageChangedAt,
+			&i.FirmwareRollout.PausedAt,
+			&i.FirmwareRollout.AutoAdvance,
+			&i.FirmwareRollout.MaxHashrateDropPercent,
+			&i.FirmwareRollout.StabilizationSeconds,
+			&i.FirmwareRollout.PreviousFirmwareFileID,
+			&i.FirmwareRollout.PreviousFirmwareVersion,
+			&i.FirmwareRollout.CancelReason,
 			&i.LaneName,
 		); err != nil {
 			return nil, err
@@ -643,6 +740,20 @@ func (q *Queries) MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFi
 	return err
 }
 
+const pauseFirmwareRollout = `-- name: PauseFirmwareRollout :execrows
+UPDATE firmware_rollout
+SET paused_at = now()
+WHERE id = $1 AND status = 'active' AND paused_at IS NULL
+`
+
+func (q *Queries) PauseFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error) {
+	result, err := q.exec(ctx, q.pauseFirmwareRolloutStmt, pauseFirmwareRollout, rolloutID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const removeRolloutLaneMembers = `-- name: RemoveRolloutLaneMembers :exec
 DELETE FROM rollout_lane_member m
 USING device d
@@ -663,28 +774,59 @@ func (q *Queries) RemoveRolloutLaneMembers(ctx context.Context, arg RemoveRollou
 	return err
 }
 
-const setFirmwareRolloutStage = `-- name: SetFirmwareRolloutStage :execrows
+const resumeFirmwareRollout = `-- name: ResumeFirmwareRollout :execrows
 UPDATE firmware_rollout
-SET stage = $1
-WHERE id = $2
-  AND status = 'active'
-  AND stage = $3
+SET paused_at = NULL
+WHERE id = $1 AND status = 'active' AND paused_at IS NOT NULL
 `
 
-type SetFirmwareRolloutStageParams struct {
-	Stage     string
-	RolloutID int64
-	FromStage string
-}
-
-// Stage transitions of an active pilot rollout (pilot -> awaiting_review ->
-// rest). Returns the affected row count so callers can detect a lost race.
-func (q *Queries) SetFirmwareRolloutStage(ctx context.Context, arg SetFirmwareRolloutStageParams) (int64, error) {
-	result, err := q.exec(ctx, q.setFirmwareRolloutStageStmt, setFirmwareRolloutStage, arg.Stage, arg.RolloutID, arg.FromStage)
+func (q *Queries) ResumeFirmwareRollout(ctx context.Context, rolloutID int64) (int64, error) {
+	result, err := q.exec(ctx, q.resumeFirmwareRolloutStmt, resumeFirmwareRollout, rolloutID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const snapshotFirmwareRolloutDevices = `-- name: SnapshotFirmwareRolloutDevices :exec
+INSERT INTO firmware_rollout_device (
+    rollout_id, device_id, batch_index,
+    baseline_status, baseline_hash_rate_hs, baseline_open_errors, baseline_at
+)
+SELECT $1,
+       d.id,
+       $2::int,
+       ds.status::text,
+       hm.hash_rate_hs,
+       (SELECT count(*) FROM errors e
+         WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int,
+       now()
+FROM device d
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN LATERAL (
+    SELECT dm.hash_rate_hs
+    FROM device_metrics dm
+    WHERE dm.device_identifier = d.device_identifier
+      AND dm.time >= now() - INTERVAL '15 minutes'
+    ORDER BY dm.time DESC
+    LIMIT 1
+) hm ON true
+WHERE d.device_identifier = ANY($3::text[])
+ON CONFLICT (rollout_id, device_id) DO UPDATE SET batch_index = EXCLUDED.batch_index
+`
+
+type SnapshotFirmwareRolloutDevicesParams struct {
+	RolloutID         int64
+	BatchIndex        sql.NullInt32
+	DeviceIdentifiers []string
+}
+
+// Records devices into a rollout at creation, before any command is sent:
+// their batch (NULL for the unbatched rest) and a baseline of their health
+// so post-update evidence can be compared against each miner's own past.
+func (q *Queries) SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error {
+	_, err := q.exec(ctx, q.snapshotFirmwareRolloutDevicesStmt, snapshotFirmwareRolloutDevices, arg.RolloutID, arg.BatchIndex, pq.Array(arg.DeviceIdentifiers))
+	return err
 }
 
 const upsertRolloutLaneFirmware = `-- name: UpsertRolloutLaneFirmware :exec

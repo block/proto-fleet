@@ -98,7 +98,10 @@ func (h *Handler) ApplyRolloutLaneFirmware(ctx context.Context, r *connect.Reque
 	opts := rollout.RolloutOptions{}
 	if o := r.Msg.Options; o != nil {
 		opts.Method = methodFromProto(o.Method)
-		opts.PilotCount = o.PilotCount
+		opts.BatchSize = o.BatchSize
+		opts.AutoAdvance = o.AutoAdvance
+		opts.MaxHashrateDropPercent = o.MaxHashrateDropPercent
+		opts.StabilizationSeconds = o.StabilizationSeconds
 	}
 	started, err := h.svc.ApplyFirmware(ctx, info.OrganizationID, info.UserID, r.Msg.LaneId, assignments, opts)
 	if err != nil {
@@ -157,6 +160,50 @@ func (h *Handler) ContinueRollout(ctx context.Context, r *connect.Request[pb.Con
 	return connect.NewResponse(&pb.ContinueRolloutResponse{Rollout: rolloutToProto(view)}), nil
 }
 
+func (h *Handler) PauseRollout(ctx context.Context, r *connect.Request[pb.PauseRolloutRequest]) (*connect.Response[pb.PauseRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.svc.PauseRollout(ctx, info.OrganizationID, r.Msg.RolloutId)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.PauseRolloutResponse{Rollout: rolloutToProto(view)}), nil
+}
+
+func (h *Handler) ResumeRollout(ctx context.Context, r *connect.Request[pb.ResumeRolloutRequest]) (*connect.Response[pb.ResumeRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.svc.ResumeRollout(ctx, info.OrganizationID, r.Msg.RolloutId)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ResumeRolloutResponse{Rollout: rolloutToProto(view)}), nil
+}
+
+func (h *Handler) AbortRollout(ctx context.Context, r *connect.Request[pb.AbortRolloutRequest]) (*connect.Response[pb.AbortRolloutResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AbortRollout(ctx, info.OrganizationID, info.UserID, r.Msg.RolloutId)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.AbortRolloutResponse{
+		Rollout:          rolloutToProto(result.Rollout),
+		Lane:             laneToProto(result.Lane),
+		RestoredPrevious: result.RestoredPrevious,
+	}
+	for i := range result.Started {
+		resp.StartedRollouts = append(resp.StartedRollouts, rolloutToProto(&result.Started[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) ListRollouts(ctx context.Context, r *connect.Request[pb.ListRolloutsRequest]) (*connect.Response[pb.ListRolloutsResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
@@ -201,37 +248,91 @@ func laneToProto(lane *rollout.Lane) *pb.RolloutLane {
 
 func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 	out := &pb.Rollout{
-		Id:              r.ID,
-		LaneId:          r.LaneID,
-		LaneName:        r.LaneName,
-		Model:           r.Model,
-		FirmwareFileId:  r.FirmwareFileID,
-		FirmwareVersion: r.FirmwareVersion,
-		Status:          statusToProto(r.Status),
-		Method:          methodToProto(r.Method),
-		Stage:           stageToProto(r.Stage),
-		PilotCount:      r.PilotCount,
-		CreatedAt:       timestamppb.New(r.CreatedAt),
+		Id:                      r.ID,
+		LaneId:                  r.LaneID,
+		LaneName:                r.LaneName,
+		Model:                   r.Model,
+		FirmwareFileId:          r.FirmwareFileID,
+		FirmwareVersion:         r.FirmwareVersion,
+		Status:                  statusToProto(r.Status),
+		Method:                  methodToProto(r.Method),
+		Stage:                   stageToProto(r.Stage),
+		BatchSize:               r.BatchSize,
+		BatchCount:              r.BatchCount,
+		CurrentBatch:            r.CurrentBatch,
+		AutoAdvance:             r.AutoAdvance,
+		MaxHashrateDropPercent:  r.MaxHashrateDropPercent,
+		StabilizationSeconds:    r.StabilizationSeconds,
+		PreviousFirmwareFileId:  r.PreviousFirmwareFileID,
+		PreviousFirmwareVersion: r.PreviousFirmwareVersion,
+		CancelReason:            cancelReasonToProto(r.CancelReason),
+		StageChangedAt:          timestamppb.New(r.StageChangedAt),
+		CreatedAt:               timestamppb.New(r.CreatedAt),
 	}
 	if r.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*r.FinishedAt)
 	}
+	if r.PausedAt != nil {
+		out.PausedAt = timestamppb.New(*r.PausedAt)
+	}
+	if ev := r.Evidence; ev != nil {
+		out.Evidence = &pb.RolloutEvidence{
+			DevicesTotal:                  ev.DevicesTotal,
+			Verified:                      ev.Verified,
+			Online:                        ev.Online,
+			Hashing:                       ev.Hashing,
+			BaselineHashing:               ev.BaselineHashing,
+			HashrateChangePercent:         ev.HashrateChangePercent,
+			HasHashrateEvidence:           ev.HasHashrateEvidence,
+			BaselineHashRateHs:            ev.BaselineHashRateHs,
+			CurrentHashRateHs:             ev.CurrentHashRateHs,
+			NewErrors:                     ev.NewErrors,
+			ReadyToAdvance:                ev.ReadyToAdvance,
+			HoldReason:                    ev.HoldReason,
+			StabilizationRemainingSeconds: ev.StabilizationRemainingSeconds,
+		}
+	}
 	for _, d := range r.Devices {
 		out.Devices = append(out.Devices, &pb.RolloutDevice{
-			DeviceId:         d.DeviceID,
-			DeviceIdentifier: d.DeviceIdentifier,
-			FirmwareVersion:  d.FirmwareVersion,
-			State:            deviceStateToProto(d.State),
-			InPilotCohort:    d.InPilotCohort,
+			DeviceId:            d.DeviceID,
+			DeviceIdentifier:    d.DeviceIdentifier,
+			FirmwareVersion:     d.FirmwareVersion,
+			State:               deviceStateToProto(d.State),
+			Batch:               d.Batch,
+			Status:              d.Status,
+			Online:              d.Online,
+			Hashing:             d.Hashing,
+			HasBaseline:         d.HasBaseline,
+			BaselineHashing:     d.BaselineHashing,
+			HashRateHs:          d.HashRateHs,
+			HasHashRate:         d.HasHashRate,
+			BaselineHashRateHs:  d.BaselineHashRateHs,
+			HasBaselineHashRate: d.HasBaselineHashRate,
+			OpenErrors:          d.OpenErrors,
+			BaselineOpenErrors:  d.BaselineOpenErrors,
 		})
 	}
 	return out
+}
+
+func cancelReasonToProto(reason string) pb.RolloutCancelReason {
+	switch reason {
+	case rollout.CancelReasonSuperseded:
+		return pb.RolloutCancelReason_ROLLOUT_CANCEL_REASON_SUPERSEDED
+	case rollout.CancelReasonAborted:
+		return pb.RolloutCancelReason_ROLLOUT_CANCEL_REASON_ABORTED
+	case rollout.CancelReasonCleared:
+		return pb.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CLEARED
+	}
+	return pb.RolloutCancelReason_ROLLOUT_CANCEL_REASON_UNSPECIFIED
 }
 
 func methodFromProto(method pb.RolloutMethod) string {
 	switch method {
 	case pb.RolloutMethod_ROLLOUT_METHOD_PILOT:
 		return rollout.MethodPilot
+	case pb.RolloutMethod_ROLLOUT_METHOD_BATCHES:
+		return rollout.MethodBatches
 	case pb.RolloutMethod_ROLLOUT_METHOD_IMMEDIATE:
 		return rollout.MethodImmediate
 	case pb.RolloutMethod_ROLLOUT_METHOD_UNSPECIFIED:
@@ -246,14 +347,16 @@ func methodToProto(method string) pb.RolloutMethod {
 		return pb.RolloutMethod_ROLLOUT_METHOD_IMMEDIATE
 	case rollout.MethodPilot:
 		return pb.RolloutMethod_ROLLOUT_METHOD_PILOT
+	case rollout.MethodBatches:
+		return pb.RolloutMethod_ROLLOUT_METHOD_BATCHES
 	}
 	return pb.RolloutMethod_ROLLOUT_METHOD_UNSPECIFIED
 }
 
 func stageToProto(stage string) pb.RolloutStage {
 	switch stage {
-	case rollout.StagePilot:
-		return pb.RolloutStage_ROLLOUT_STAGE_PILOT
+	case rollout.StageBatch:
+		return pb.RolloutStage_ROLLOUT_STAGE_BATCH
 	case rollout.StageAwaitingReview:
 		return pb.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
 	case rollout.StageRest:
@@ -282,6 +385,8 @@ func deviceStateToProto(state string) pb.RolloutDeviceState {
 		return pb.RolloutDeviceState_ROLLOUT_DEVICE_STATE_UPDATING
 	case rollout.DeviceStateUpdated:
 		return pb.RolloutDeviceState_ROLLOUT_DEVICE_STATE_UPDATED
+	case rollout.DeviceStateVerifying:
+		return pb.RolloutDeviceState_ROLLOUT_DEVICE_STATE_VERIFYING
 	}
 	return pb.RolloutDeviceState_ROLLOUT_DEVICE_STATE_UNSPECIFIED
 }

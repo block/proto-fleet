@@ -32,6 +32,14 @@ const labelMap: Record<string, string> = {
   command_preflight_blocked: "Command couldn't run",
   command_filter_skip: "Command ran with skipped miners",
 
+  rollout_started: "Started firmware rollout",
+  rollout_review_ready: "Firmware rollout ready for review",
+  rollout_continued: "Continued firmware rollout",
+  rollout_paused: "Paused firmware rollout",
+  rollout_resumed: "Resumed firmware rollout",
+  rollout_aborted: "Aborted firmware rollout",
+  rollout_completed: "Completed firmware rollout",
+
   create_collection: "Created collection",
   update_collection: "Updated collection",
   delete_collection: "Deleted collection",
@@ -125,6 +133,14 @@ const filterLabelMap: Record<string, string> = {
   uncurtail: "End curtailment",
   command_preflight_blocked: "Command couldn't run",
   command_filter_skip: "Command ran with skipped miners",
+
+  rollout_started: "Firmware rollout started",
+  rollout_review_ready: "Firmware rollout ready for review",
+  rollout_continued: "Firmware rollout continued",
+  rollout_paused: "Firmware rollout paused",
+  rollout_resumed: "Firmware rollout resumed",
+  rollout_aborted: "Firmware rollout aborted",
+  rollout_completed: "Firmware rollout completed",
 
   create_collection: "Create collection",
   update_collection: "Update collection",
