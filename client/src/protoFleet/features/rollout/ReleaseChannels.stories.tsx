@@ -48,6 +48,7 @@ function ReleaseChannelsTabInSitu(): ReactElement {
               setModalOpen(true);
             }}
             onManage={openForManage}
+            initiallyExpandedChannelIds={["dev"]}
           />
         }
       />

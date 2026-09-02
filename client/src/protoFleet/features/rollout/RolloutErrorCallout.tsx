@@ -15,9 +15,11 @@ function errorSummaryLabel(errorCount: number, impactedMinerCount: number): stri
 export default function RolloutErrorCallout({
   event,
   onReviewErrors,
+  className,
 }: {
   event: RolloutEvent;
   onReviewErrors?: () => void;
+  className?: string;
 }): ReactElement | null {
   const errorCount = rolloutErrorCount(event.errors);
   if (errorCount === 0) {
@@ -27,7 +29,7 @@ export default function RolloutErrorCallout({
   const impactedMinerCount = rolloutErrorImpactCount(event.errors);
   return (
     <Callout
-      className="mt-6"
+      className={className ?? "mt-6"}
       intent={intents.danger}
       prefixIcon={<Alert />}
       testId="active-rollout-error-banner"

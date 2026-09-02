@@ -22,11 +22,14 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
-interface RolloutMinersModalProps {
-  open: boolean;
+interface RolloutMinersContentProps {
   event: RolloutEvent;
   miners: RolloutMinerRow[];
   initialFilter?: RolloutMinerFilter;
+}
+
+interface RolloutMinersModalProps extends RolloutMinersContentProps {
+  open: boolean;
   onDismiss: () => void;
 }
 
@@ -223,13 +226,7 @@ function createRolloutMinerColConfig(
   };
 }
 
-function RolloutMinersModal({
-  open,
-  event,
-  miners,
-  initialFilter = "all",
-  onDismiss,
-}: RolloutMinersModalProps): ReactElement | null {
+function RolloutMinersContent({ event, miners, initialFilter = "all" }: RolloutMinersContentProps): ReactElement {
   const [filter, setFilter] = useState<RolloutMinerFilter>(initialFilter);
   const messagesByMiner = useMemo(() => createMinerErrorMessageMap(event), [event]);
   const errorCount = rolloutErrorCount(event.errors);
@@ -239,23 +236,63 @@ function RolloutMinersModal({
     [messagesByMiner, miners],
   );
   const visibleMiners = filter === "errors" ? minersWithErrors : miners;
+  const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
+  const summary =
+    filter === "errors"
+      ? `${errorCount.toLocaleString()} ${errorCount === 1 ? "error" : "errors"} affecting ${impactedMinerCount.toLocaleString()} ${impactedMinerCount === 1 ? "miner" : "miners"}`
+      : `${visibleMiners.length.toLocaleString()} of ${inScope.toLocaleString()} included miners shown`;
 
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="rollout-miners-push-view">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl
+          segments={[
+            { key: "all", title: "All miners" },
+            { key: "errors", title: "Errors" },
+          ]}
+          initialSegmentKey={initialFilter}
+          onSelect={(key) => setFilter(key as RolloutMinerFilter)}
+        />
+        <div className="text-200 text-text-primary-70">{summary}</div>
+      </div>
+      <List<RolloutMinerRow, string, RolloutMinerColumn>
+        activeCols={rolloutMinerColumns}
+        colTitles={rolloutMinerColTitles(event)}
+        colConfig={createRolloutMinerColConfig(event, messagesByMiner)}
+        items={visibleMiners}
+        itemKey="id"
+        total={visibleMiners.length}
+        itemName={{ singular: "miner", plural: "miners" }}
+        containerClassName="min-h-0"
+        tableClassName="mb-0 w-full !table-fixed"
+        applyColumnWidthsToCells
+        stickyFirstColumn={false}
+        emptyStateRow={
+          <div className="py-10 text-center text-300 text-text-primary-70">
+            {filter === "errors" ? "No miners with errors to show." : "No miners to show."}
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+function RolloutMinersModal({
+  open,
+  event,
+  miners,
+  initialFilter = "all",
+  onDismiss,
+}: RolloutMinersModalProps): ReactElement | null {
   if (!open) {
     return null;
   }
-
-  const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
-  const description =
-    filter === "errors"
-      ? `${visibleMiners.length.toLocaleString()} miners with errors, ${errorCount.toLocaleString()} ${errorCount === 1 ? "error" : "errors"}`
-      : `${visibleMiners.length.toLocaleString()} of ${inScope.toLocaleString()} included miners shown`;
 
   return (
     <Modal
       open={open}
       onDismiss={onDismiss}
       title={`Miners in ${rolloutProcessLabel(event.processType).toLowerCase()}`}
-      description={description}
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
@@ -270,42 +307,7 @@ function RolloutMinersModal({
         },
       ]}
     >
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <SegmentedControl
-            segments={[
-              { key: "all", title: "All miners" },
-              { key: "errors", title: "Errors" },
-            ]}
-            initialSegmentKey={initialFilter}
-            onSelect={(key) => setFilter(key as RolloutMinerFilter)}
-          />
-          {errorCount > 0 ? (
-            <div className="text-200 text-text-primary-70">
-              {errorCount.toLocaleString()} {errorCount === 1 ? "error" : "errors"} affecting{" "}
-              {impactedMinerCount.toLocaleString()} {impactedMinerCount === 1 ? "miner" : "miners"}
-            </div>
-          ) : null}
-        </div>
-        <List<RolloutMinerRow, string, RolloutMinerColumn>
-          activeCols={rolloutMinerColumns}
-          colTitles={rolloutMinerColTitles(event)}
-          colConfig={createRolloutMinerColConfig(event, messagesByMiner)}
-          items={visibleMiners}
-          itemKey="id"
-          total={visibleMiners.length}
-          itemName={{ singular: "miner", plural: "miners" }}
-          containerClassName="min-h-0"
-          tableClassName="mb-0 w-full !table-fixed"
-          applyColumnWidthsToCells
-          stickyFirstColumn={false}
-          emptyStateRow={
-            <div className="py-10 text-center text-300 text-text-primary-70">
-              {filter === "errors" ? "No miners with errors to show." : "No miners to show."}
-            </div>
-          }
-        />
-      </div>
+      <RolloutMinersContent event={event} miners={miners} initialFilter={initialFilter} />
     </Modal>
   );
 }

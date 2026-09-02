@@ -9,6 +9,7 @@ import {
   rolloutActiveSectionLabel,
   rolloutActiveStatusLabel,
   rolloutCompletionPercent,
+  rolloutErrorCount,
   rolloutLifecycleActions,
   rolloutPhaseCount,
   rolloutProgressSegments,
@@ -25,7 +26,6 @@ import Callout, { intents } from "@/shared/components/Callout";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import Row from "@/shared/components/Row";
 
 /**
  * Rollout progress colors follow the active curtailment card: done is primary,
@@ -95,27 +95,6 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
         </div>
       ) : null}
     </div>
-  );
-}
-
-/**
- * A single stat as a standard label/value table row. This follows the `SummaryRow` pattern
- * shared with `ActivityDetailModal`: label pinned left, value right-aligned, a
- * hairline divider between rows. Used in the modal (`embedded`) presentation,
- * where the four stats read better stacked as detail rows than as a stat grid.
- * `detail` (percent / elapsed) sits under the value, still right-aligned.
- */
-function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: boolean }): ReactElement {
-  return (
-    <Row compact divider={divider}>
-      <div className="flex w-full items-start justify-between gap-4">
-        <span className="shrink-0 text-300 text-text-primary-70">{label}</span>
-        <span className="flex min-w-0 flex-col items-end text-right">
-          <span className="min-w-0 text-300 break-words text-text-primary">{value}</span>
-          {detail ? <span className="min-w-0 text-200 break-words text-text-primary-70">{detail}</span> : null}
-        </span>
-      </div>
-    </Row>
   );
 }
 
@@ -196,6 +175,7 @@ function ActiveRolloutStatus({
   const isRunning = event.state === "inProgress";
   const isTelemetryStabilizing = event.state === "stabilizingTelemetry";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
+  const hasErrors = rolloutErrorCount(event.errors) > 0;
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const done = rolloutPhaseCount(event.rollups, "done");
   const percent = rolloutCompletionPercent(event);
@@ -290,6 +270,8 @@ function ActiveRolloutStatus({
           embedded ? "px-0 pt-6 pb-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
         )}
       >
+        {embedded ? <RolloutErrorCallout event={event} onReviewErrors={onViewErrors} className="mt-0" /> : null}
+
         {hasTopActions ? (
           <div className="mb-8 flex shrink-0 flex-wrap justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0 tablet:max-w-[24rem]">
             {overflowMenuActions.length > 0 ? (
@@ -314,7 +296,7 @@ function ActiveRolloutStatus({
           </div>
         ) : null}
 
-        <div className={clsx("grid gap-3", hasTopActions && "tablet:pr-96")}>
+        <div className={clsx("grid gap-3", hasTopActions && "tablet:pr-96", embedded && hasErrors && "mt-10")}>
           <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
             {statusIcon(event)}
           </div>
@@ -324,11 +306,11 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        <RolloutErrorCallout event={event} onReviewErrors={onViewErrors} />
+        {embedded ? null : <RolloutErrorCallout event={event} onReviewErrors={onViewErrors} />}
 
         {isTelemetryStabilizing ? (
           <Callout
-            className="mt-6"
+            className={embedded ? "mt-10" : "mt-6"}
             intent={intents.information}
             prefixIcon={<Info />}
             testId="active-rollout-telemetry-stabilizing-banner"
@@ -337,9 +319,24 @@ function ActiveRolloutStatus({
           />
         ) : null}
 
-        {/* Progress stays visible in the collapsed card. Embedded modal details
-            remain expanded because the modal is already the detail destination. */}
-        <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
+        {embedded && detailsOpen ? (
+          <div id={detailsId} className="mt-10" data-testid="active-rollout-details">
+            <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
+              {statItems.map((item) => (
+                <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
+              ))}
+            </div>
+            {pacing.detail ? (
+              <div className="mt-3 text-200 text-text-primary-70" data-testid="active-rollout-pacing-helper">
+                {pacing.detail}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Progress stays visible in the collapsed card. Full-screen details
+            put the always-visible plan lockups above the bar. */}
+        <div className={clsx("grid gap-3", embedded ? "mt-10" : "mt-6")} data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
             {event.startedAt ? (
@@ -365,38 +362,17 @@ function ActiveRolloutStatus({
           </div>
         )}
 
-        {detailsOpen ? (
+        {!embedded && detailsOpen ? (
           <div
             id={detailsId}
-            className={clsx(
-              "border-t border-border-5",
-              embedded ? "mt-4 pt-5" : "-mx-6 mt-6 px-6 pt-6 tablet:-mx-10 tablet:mt-10 tablet:px-10 tablet:pt-10",
-            )}
+            className="-mx-6 mt-6 border-t border-border-5 px-6 pt-6 tablet:-mx-10 tablet:mt-10 tablet:px-10 tablet:pt-10"
             data-testid="active-rollout-details"
           >
-            {/* Stat lockups: in the modal (embedded) they read as standard
-                label/value table rows; in the standalone card they use the same
-                multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
-                gap-x-12). */}
-            {embedded ? (
-              <div className="flex flex-col">
-                {statItems.map((item, index) => (
-                  <StatRow
-                    key={item.label}
-                    label={item.label}
-                    value={item.value}
-                    detail={item.detail}
-                    divider={index < statItems.length - 1}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-                {statItems.map((item) => (
-                  <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
-                ))}
-              </div>
-            )}
+            <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
+              {statItems.map((item) => (
+                <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
+              ))}
+            </div>
 
             {pacing.detail ? (
               <div className="mt-3 text-200 text-text-primary-70" data-testid="active-rollout-pacing-helper">
@@ -405,9 +381,11 @@ function ActiveRolloutStatus({
             ) : null}
 
             {/* Baseline telemetry for running batches and review gates. */}
-            <RolloutPerformanceStrip event={event} embedded={embedded} />
+            <RolloutPerformanceStrip event={event} />
           </div>
         ) : null}
+
+        {embedded ? <RolloutPerformanceStrip event={event} embedded className="mt-10" /> : null}
       </div>
     </section>
   );

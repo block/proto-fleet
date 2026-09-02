@@ -1,11 +1,18 @@
-import type { ComponentProps, ReactElement } from "react";
+import { type ReactElement, useState } from "react";
 
 import ActiveRolloutStatus from "./ActiveRolloutStatus";
+import { rolloutMinerRowsForEvent } from "./rollout.fixtures";
 import { rolloutLifecycleActions } from "./rolloutDisplayUtils";
+import RolloutMinersModal, { type RolloutMinerFilter } from "./RolloutMinersModal";
 import type { RolloutEvent } from "./rolloutTypes";
+import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
-import { sizes as buttonSizes, variants } from "@/shared/components/Button";
+import { Dismiss } from "@/shared/assets/icons";
+import { variants } from "@/shared/components/Button";
+import { type ButtonProps } from "@/shared/components/ButtonGroup";
+import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface ViewRolloutModalProps {
   /** The rollout to show; when null the modal is closed. */
@@ -21,7 +28,7 @@ interface ViewRolloutModalProps {
   onViewErrors?: () => void;
 }
 
-type ModalButton = NonNullable<ComponentProps<typeof Modal>["buttons"]>[number];
+type ModalButton = ButtonProps;
 
 const lifecycleButtonVariant = {
   primary: variants.primary,
@@ -96,7 +103,7 @@ function modalActions({
   };
 }
 
-/** Centered rollout detail modal. */
+/** Full-screen rollout detail with miner drill-downs presented as standalone modals. */
 function ViewRolloutModal({
   event,
   onDismiss,
@@ -109,6 +116,10 @@ function ViewRolloutModal({
   onViewMiners,
   onViewErrors,
 }: ViewRolloutModalProps): ReactElement | null {
+  const [minerModalFilter, setMinerModalFilter] = useState<RolloutMinerFilter | null>(null);
+  const { isPhone, isTablet } = useWindowDimensions();
+  const useCompactHeaderActions = isPhone || isTablet;
+
   if (!event) {
     return null;
   }
@@ -122,50 +133,79 @@ function ViewRolloutModal({
     onCancelRemaining,
     onContinueFromReview,
     onRetryFailed,
-    onViewMiners,
+    onViewMiners: onViewMiners ? () => setMinerModalFilter("all") : undefined,
   });
 
   return (
-    <Modal
-      title={event.title}
-      onDismiss={onDismiss}
-      testId="view-rollout-modal"
-      size={modalSizes.large}
-      surfaceClassName="max-w-[960px]"
-      bodyClassName="text-text-primary"
-      buttonSize={buttonSizes.compact}
-      buttons={actions.visibleButtons}
-      compactHeaderButtons={actions.compactButtons}
-      headerLeadingAction={
-        actions.overflowActions.length > 0 ? (
-          <RowActionsMenu
-            actions={actions.overflowActions}
-            ariaLabel={`More actions for ${event.title}`}
-            popoverTestId="view-rollout-more-actions-menu"
-            testIdPrefix="view-rollout-more-actions"
-            triggerClassName="!h-8 !w-8 !px-0 !py-0"
-            triggerVariant={variants.secondary}
+    <>
+      <Modal
+        open
+        onDismiss={onDismiss}
+        testId="view-rollout-modal"
+        size={modalSizes.fullscreen}
+        showHeader={false}
+        className="!p-0"
+        bodyClassName="flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6"
+      >
+        <div
+          className="sticky top-0 z-10 mb-0 bg-surface-base px-6 pt-6 pb-4 laptop:static laptop:mb-6"
+          data-testid="view-rollout-header"
+        >
+          <Header
+            title={event.title}
+            titleSize="text-heading-200"
+            icon={<Dismiss />}
+            iconAriaLabel="Close rollout details"
+            iconOnClick={onDismiss}
+            inline
+            centerButton
+            stackButtonsOnPhone={false}
+            buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden laptop:block"}
+            buttons={useCompactHeaderActions ? undefined : actions.visibleButtons}
+          >
+            {useCompactHeaderActions ? (
+              <FullScreenModalHeaderActions
+                buttons={actions.compactButtons}
+                renderWhen="phone-tablet"
+                triggerTestId="view-rollout-more-actions-trigger"
+              />
+            ) : actions.overflowActions.length > 0 ? (
+              <RowActionsMenu
+                actions={actions.overflowActions}
+                ariaLabel={`More actions for ${event.title}`}
+                popoverTestId="view-rollout-more-actions-menu"
+                testIdPrefix="view-rollout-more-actions"
+                triggerClassName="!h-10 !w-10 !px-0 !py-0"
+                triggerVariant={variants.secondary}
+              />
+            ) : null}
+          </Header>
+        </div>
+        <div className="mx-auto w-full max-w-[800px] px-6 pb-6" data-testid="view-rollout-content">
+          <ActiveRolloutStatus
+            event={event}
+            embedded
+            hideActions
+            onManage={onManage}
+            onPause={onPause}
+            onResume={onResume}
+            onCancelRemaining={onCancelRemaining}
+            onContinueFromReview={onContinueFromReview}
+            onRetryFailed={onRetryFailed}
+            onViewMiners={onViewMiners ? () => setMinerModalFilter("all") : undefined}
+            onViewErrors={onViewErrors ? () => setMinerModalFilter("errors") : undefined}
           />
-        ) : undefined
-      }
-      // Pin the title in the sticky top bar (rather than only collapsing there
-      // on scroll), so the rollout context stays visible while the body scrolls.
-      forceTitleCollapsed
-    >
-      <ActiveRolloutStatus
+        </div>
+      </Modal>
+      <RolloutMinersModal
+        key={minerModalFilter ?? "closed"}
+        open={minerModalFilter !== null}
         event={event}
-        embedded
-        hideActions
-        onManage={onManage}
-        onPause={onPause}
-        onResume={onResume}
-        onCancelRemaining={onCancelRemaining}
-        onContinueFromReview={onContinueFromReview}
-        onRetryFailed={onRetryFailed}
-        onViewMiners={onViewMiners}
-        onViewErrors={onViewErrors}
+        miners={rolloutMinerRowsForEvent(event)}
+        initialFilter={minerModalFilter ?? "all"}
+        onDismiss={() => setMinerModalFilter(null)}
       />
-    </Modal>
+    </>
   );
 }
 

@@ -6,7 +6,7 @@ import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { targetSelectPlaceholderLabel } from "@/protoFleet/components/TargetSelectButton";
-import { ActiveRolloutBanner } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
+import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
   AnimatedFirmwareBatchReviewSeriesInSitu,
@@ -20,6 +20,7 @@ import {
   batchReviewFirmwareEvent,
   completedFirmwareEvent,
   inProgressFirmwareEvent,
+  inProgressWithErrorsFirmwareEvent,
   pausedFirmwareEvent,
   pilotGateFirmwareEvent,
   scheduledFirmwareEvent,
@@ -28,6 +29,7 @@ import {
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import { rolloutPlanReadout } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
 import type { RolloutEvent, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
+import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
@@ -396,6 +398,64 @@ function ManageScheduledFirmwareRolloutModal({
   );
 }
 
+function ConcurrentFirmwareRolloutsStory(): ReactElement {
+  const [selectedEvent, setSelectedEvent] = useState<RolloutEvent | null>(null);
+  const concurrentEvents: RolloutEvent[] = [
+    {
+      ...inProgressWithErrorsFirmwareEvent,
+      title: "Dev, Antminer S21 Pro firmware update",
+      scopeLabel: "Dev channel, 90 miners",
+      totalTargets: 90,
+      excludedTargets: 3,
+      batchSize: 15,
+      currentBatch: 5,
+      totalBatches: 6,
+      estimatedSecondsRemaining: 180,
+      rollups: [
+        { phase: "done", count: 74 },
+        { phase: "inProgress", count: 5 },
+        { phase: "queued", count: 6 },
+        { phase: "failed", count: 2 },
+        { phase: "excluded", count: 3 },
+      ],
+    },
+    {
+      ...inProgressFirmwareEvent,
+      title: "Production, Whatsminer M60 firmware update",
+      scopeLabel: "Production channel, 120 miners",
+      totalTargets: 120,
+      excludedTargets: 0,
+      batchSize: 20,
+      currentBatch: 3,
+      totalBatches: 6,
+      estimatedSecondsRemaining: 360,
+      errors: undefined,
+      rollups: [
+        { phase: "done", count: 58 },
+        { phase: "inProgress", count: 20 },
+        { phase: "queued", count: 42 },
+      ],
+    },
+  ];
+
+  return (
+    <>
+      <FirmwareSettingsSurface
+        releaseChannelsTab={<FirmwareReleaseChannelsTab />}
+        rolloutBanner={<ActiveRolloutBannerStack events={concurrentEvents} onView={setSelectedEvent} />}
+      />
+      <ViewRolloutModal
+        event={selectedEvent}
+        onDismiss={() => setSelectedEvent(null)}
+        onPause={noop}
+        onCancelRemaining={noop}
+        onViewMiners={noop}
+        onViewErrors={noop}
+      />
+    </>
+  );
+}
+
 function ScheduledFirmwareStory(): ReactElement {
   const [configOpen, setConfigOpen] = useState(false);
   const [showScheduledBanner, setShowScheduledBanner] = useState(true);
@@ -426,6 +486,11 @@ function ScheduledFirmwareStory(): ReactElement {
 
 export const Scheduled: Story = {
   render: () => <ScheduledFirmwareStory />,
+};
+
+export const ConcurrentRollouts: Story = {
+  name: "Concurrent rollouts",
+  render: () => <ConcurrentFirmwareRolloutsStory />,
 };
 
 export const InProgress: Story = {

@@ -26,9 +26,11 @@ function DeltaValue({ delta }: { delta: RolloutMetricDelta }): ReactElement {
 export default function RolloutPerformanceStrip({
   event,
   embedded = false,
+  className,
 }: {
   event: RolloutEvent;
   embedded?: boolean;
+  className?: string;
 }): ReactElement | null {
   const temperatureUnit = useTemperatureUnit();
   const performance = event.performance;
@@ -41,7 +43,7 @@ export default function RolloutPerformanceStrip({
   }
 
   return (
-    <div className="mt-5" data-testid="active-rollout-performance">
+    <div className={className ?? "mt-5"} data-testid="active-rollout-performance">
       <div
         className={clsx(
           "grid gap-y-5 text-text-primary",
