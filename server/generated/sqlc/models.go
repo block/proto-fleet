@@ -996,14 +996,6 @@ type FleetNode struct {
 	EncryptionPubkey []byte
 }
 
-type FleetNodeAlertStatus struct {
-	OrganizationID string
-	FleetNodeID    string
-	LastSeenAt     sql.NullTime
-	UpdatedAt      time.Time
-	CreatedAt      time.Time
-}
-
 type FleetNodeAuthChallenge struct {
 	Challenge   []byte
 	FleetNodeID int64
