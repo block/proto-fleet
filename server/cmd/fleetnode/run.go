@@ -94,7 +94,10 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	if r.notifyReady == nil {
 		r.notifyReady = func() error {
 			_, err := daemon.SdNotify(false, daemon.SdNotifyReady)
-			return err
+			if err != nil {
+				return fmt.Errorf("send systemd readiness notification: %w", err)
+			}
+			return nil
 		}
 	}
 
