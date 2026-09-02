@@ -10,6 +10,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -868,6 +869,39 @@ func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), counts.OfflineCount)
+
+	snapshotAt := time.Now().UTC()
+	queries := sqlc.New(conn)
+	require.NoError(t, queries.InsertMinerStateSnapshot(ctx, snapshotAt))
+	snapshots, err := queries.GetMinerStateSnapshots(ctx, sqlc.GetMinerStateSnapshotsParams{
+		BucketInterval:          "1 minute",
+		OrgID:                   1,
+		StartTime:               snapshotAt.Add(-time.Second),
+		EndTime:                 snapshotAt.Add(time.Second),
+		DeviceIdentifiersFilter: sql.NullString{String: "node-owned-active", Valid: true},
+		DeviceIdentifierValues:  []string{"node-owned-active"},
+	})
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	require.Equal(t, int32(1), snapshots[0].OfflineCount)
+	require.Zero(t, snapshots[0].HashingCount)
+
+	collectionStore := sqlstores.NewSQLCollectionStore(conn)
+	rack, err := collectionStore.CreateCollection(ctx, 1, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "outage-rack", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, interfaces.CreateRackExtensionParams{
+		OrgID: 1, CollectionID: rack.Id, Rows: 1, Columns: 1,
+	}))
+	_, err = collectionStore.AddDevicesToCollection(ctx, 1, rack.Id, []string{"node-owned-active"})
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.SetRackSlotPosition(ctx, rack.Id, "node-owned-active", 0, 0, 1))
+	rackCounts, err := store.GetMinerStateCountsByCollections(ctx, 1, []int64{rack.Id})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), rackCounts[rack.Id].OfflineCount)
+	slotStatuses, err := collectionStore.GetRackSlotStatuses(ctx, 1, []int64{rack.Id})
+	require.NoError(t, err)
+	require.Len(t, slotStatuses[rack.Id], 1)
+	require.Equal(t, collectionpb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE, slotStatuses[rack.Id][0].Status)
 
 	_, err = conn.Exec(`UPDATE fleet_node SET last_seen_at = NOW() WHERE id = $1`, fleetNodeID)
 	require.NoError(t, err)

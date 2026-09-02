@@ -84,7 +84,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status
@@ -1077,7 +1078,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status
@@ -1146,7 +1148,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status
@@ -1263,7 +1266,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status
@@ -1385,7 +1389,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status
@@ -1750,7 +1755,8 @@ LEFT JOIN LATERAL (
         WHEN fn.id IS NOT NULL
              AND fn.deleted_at IS NULL
              AND fn.enrollment_status = 'CONFIRMED'
-             AND COALESCE(fn.last_seen_at, fn.updated_at, fn.created_at) < NOW() - INTERVAL '2 minutes'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
         THEN 'OFFLINE'
         ELSE ds.status::text
     END AS status

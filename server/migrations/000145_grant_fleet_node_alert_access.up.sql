@@ -7,8 +7,6 @@ BEGIN
             org_id,
             id,
             last_seen_at,
-            updated_at,
-            created_at,
             enrollment_status,
             deleted_at
         ) ON fleet_node TO grafana_ha_ro;

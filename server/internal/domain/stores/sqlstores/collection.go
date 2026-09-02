@@ -1006,7 +1006,7 @@ all_positions AS (
 slot_devices AS (
     SELECT rs.device_set_id, rs.row, rs.col,
            dcm.device_identifier,
-           ds.status AS device_status,
+           ` + effectiveDeviceStatusExpr + ` AS device_status,
            dp.pairing_status,
            CASE WHEN open_errors.device_id IS NOT NULL THEN true ELSE false END AS has_errors
     FROM rack_slot rs
@@ -1015,7 +1015,11 @@ slot_devices AS (
     JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
     JOIN device_pairing dp ON d.id = dp.device_id
         AND ` + actionablePairingStatusesExpr("dp") + `
-    LEFT JOIN device_status ds ON d.id = ds.device_id
+    LEFT JOIN device_status ON d.id = device_status.device_id
+    LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
+        AND fleet_node_assignment.org_id = d.org_id
+    LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+        AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
     LEFT JOIN (
         SELECT DISTINCT device_id
         FROM errors

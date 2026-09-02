@@ -157,6 +157,14 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Offline",
 		},
 		{
+			name: "fleet node unavailable",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_OFFLINE,
+				OfflineReason: pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE,
+			},
+			expected: "Unavailable",
+		},
+		{
 			name:     "inactive returns sleeping",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_INACTIVE},
 			expected: "Sleeping",
@@ -257,6 +265,14 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
 			expected: "",
+		},
+		{
+			name: "fleet node unavailable",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_OFFLINE,
+				OfflineReason: pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE,
+			},
+			expected: "No connection",
 		},
 		{
 			name:     "needs mining pool",

@@ -5,8 +5,6 @@ BEGIN
             org_id,
             id,
             last_seen_at,
-            updated_at,
-            created_at,
             enrollment_status,
             deleted_at
         ) ON fleet_node FROM grafana_ha_ro;

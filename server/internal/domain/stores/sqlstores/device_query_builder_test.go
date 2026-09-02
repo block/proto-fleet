@@ -1,6 +1,7 @@
 package sqlstores
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -60,9 +61,21 @@ func TestBuildStateCountsQuerySQL_DerivesFleetNodeOutagesAsOffline(t *testing.T)
 	query, _ := store.buildStateCountsQuerySQL(1, minerFilterParams{})
 
 	assert.Contains(t, query, "THEN 'OFFLINE'")
-	assert.Contains(t, query, "assigned_fleet_node.last_seen_at")
+	assert.Contains(t, query, "assigned_fleet_node.last_seen_at IS NOT NULL")
+	assert.Contains(t, query, "assigned_fleet_node.last_seen_at < NOW() - INTERVAL '2 minutes'")
+	assert.NotContains(t, query, "COALESCE(assigned_fleet_node.last_seen_at")
 	assert.Contains(t, query, "filtered.status = 'OFFLINE'")
 	assert.NotContains(t, query, "UNAVAILABLE")
+}
+
+func TestStaticMinerQueriesRequireFleetNodeHeartbeat(t *testing.T) {
+	raw, err := os.ReadFile("../../../../sqlc/queries/device.sql")
+	require.NoError(t, err)
+
+	sql := string(raw)
+	staleness := "AND fn.last_seen_at IS NOT NULL\n             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'"
+	assert.Equal(t, 6, strings.Count(sql, staleness))
+	assert.NotContains(t, sql, "COALESCE(fn.last_seen_at")
 }
 
 func TestBuildDeviceIdentifiersByOrgWithFilterQuerySQL_JoinsFleetNodeForEffectiveStatus(t *testing.T) {

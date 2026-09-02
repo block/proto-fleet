@@ -32,7 +32,8 @@ const fleetNodeUnavailableExpr = `(
     assigned_fleet_node.id IS NOT NULL
     AND assigned_fleet_node.deleted_at IS NULL
     AND assigned_fleet_node.enrollment_status = 'CONFIRMED'
-    AND COALESCE(assigned_fleet_node.last_seen_at, assigned_fleet_node.updated_at, assigned_fleet_node.created_at) < NOW() - INTERVAL '2 minutes'
+    AND assigned_fleet_node.last_seen_at IS NOT NULL
+    AND assigned_fleet_node.last_seen_at < NOW() - INTERVAL '2 minutes'
 )`
 
 // A stale Fleet Node makes its miners operationally offline without overwriting

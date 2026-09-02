@@ -85,7 +85,8 @@ groups:
                 FROM fleet_node
                 WHERE enrollment_status = 'CONFIRMED'
                   AND deleted_at IS NULL
-                  AND COALESCE(last_seen_at, updated_at, created_at) < NOW() - INTERVAL '2 minutes'
+                  AND last_seen_at IS NOT NULL
+                  AND last_seen_at < NOW() - INTERVAL '2 minutes'
           - refId: B
             datasourceUid: __expr__
             model:

@@ -2806,7 +2806,7 @@ GRANT SELECT ON fleet_active_organization TO "${grafana_user}";
 -- Owner-privilege view: scoped alert rules resolve current site/building/rack/group membership without grants on device or device_set tables.
 GRANT SELECT ON fleet_device_placement TO "${grafana_user}";
 -- Column-level access exposes heartbeat state without granting access to Fleet Node keys or names.
-GRANT SELECT (org_id, id, last_seen_at, updated_at, created_at, enrollment_status, deleted_at)
+GRANT SELECT (org_id, id, last_seen_at, enrollment_status, deleted_at)
     ON fleet_node TO "${grafana_user}";
 ${stats_grant}
 
@@ -2817,7 +2817,7 @@ SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
 SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
 SELECT 1 FROM fleet_active_organization LIMIT 0;
 SELECT 1 FROM fleet_device_placement LIMIT 0;
-SELECT org_id, id, last_seen_at, updated_at, created_at
+SELECT org_id, id, last_seen_at
 FROM fleet_node
 WHERE enrollment_status = 'CONFIRMED' AND deleted_at IS NULL
 LIMIT 0;
