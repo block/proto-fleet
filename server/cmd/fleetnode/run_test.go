@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -208,6 +209,35 @@ func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {
 
 	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
 	assert.True(t, notified, "Fleet Server unavailability must not block local readiness")
+}
+
+func TestIsRetryableRefreshError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		err       error
+		retryable bool
+	}{
+		{name: "context canceled", err: context.Canceled, retryable: true},
+		{name: "context deadline exceeded", err: context.DeadlineExceeded, retryable: true},
+		{name: "connect canceled", err: connect.NewError(connect.CodeCanceled, errors.New("canceled")), retryable: true},
+		{name: "connect deadline exceeded", err: connect.NewError(connect.CodeDeadlineExceeded, errors.New("deadline exceeded")), retryable: true},
+		{name: "connect resource exhausted", err: connect.NewError(connect.CodeResourceExhausted, errors.New("resource exhausted")), retryable: true},
+		{name: "connect aborted", err: connect.NewError(connect.CodeAborted, errors.New("aborted")), retryable: true},
+		{name: "connect internal", err: connect.NewError(connect.CodeInternal, errors.New("internal")), retryable: true},
+		{name: "wrapped connect unavailable", err: fmt.Errorf("refresh: %w", connect.NewError(connect.CodeUnavailable, errors.New("unavailable"))), retryable: true},
+		{name: "connect unauthenticated", err: connect.NewError(connect.CodeUnauthenticated, errors.New("unauthenticated")), retryable: false},
+		{name: "connect invalid argument", err: connect.NewError(connect.CodeInvalidArgument, errors.New("invalid argument")), retryable: false},
+		{name: "plain error", err: errors.New("local failure"), retryable: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.retryable, isRetryableRefreshError(tt.err))
+		})
+	}
 }
 
 func TestRunCmd_LocalRefreshFailureRequiresOperatorAction(t *testing.T) {

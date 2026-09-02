@@ -360,7 +360,16 @@ func isRetryableRefreshError(err error) bool {
 		return true
 	}
 	var connectErr *connect.Error
-	return errors.As(err, &connectErr)
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	code := connectErr.Code()
+	return code == connect.CodeCanceled ||
+		code == connect.CodeDeadlineExceeded ||
+		code == connect.CodeResourceExhausted ||
+		code == connect.CodeAborted ||
+		code == connect.CodeInternal ||
+		code == connect.CodeUnavailable
 }
 
 // tick runs one heartbeat cycle. A non-nil return is a permanent condition
