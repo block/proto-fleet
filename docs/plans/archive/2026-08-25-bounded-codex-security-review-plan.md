@@ -1,7 +1,7 @@
 ---
 title: "Bounded Codex security review"
 date: 2026-08-25
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/pull/965
 ---
@@ -295,9 +295,53 @@ The bounded prompt also downgraded the known `HIGH`.
 Production therefore remains on `unified=40`, `xhigh`, and the baseline prompt.
 The large-PR corpus is deferred because step 5 requires a selected candidate.
 Full evidence and human adjudication are in the
-[benchmark report](../codex-security-review-benchmark-report.md). Further
-runtime work moves to the separate
-[sharded-review TDD](./archive/2026-08-27-sharded-codex-security-review-tdd.md).
+[benchmark report](../../codex-security-review-benchmark-report.md). Further
+runtime work moved to the separate
+[sharded-review TDD](./2026-08-27-sharded-codex-security-review-tdd.md).
+
+## Production observation outcome
+
+The first 30 chronological production workflow runs after PR #965 merged ran
+from 2026-08-26 21:00 UTC through 2026-08-27 20:08 UTC. The observation counts
+each workflow run's first execution attempt; one later manual rerun does not
+replace or extend the window. Rapid updates to PR #977 account for 18 of the 30
+runs, so the sample measures cancellation safety more strongly than steady-state
+review completion.
+
+| Outcome | Runs | Observation |
+| --- | ---: | --- |
+| Completed review | 3 | Median 127s; nearest-rank p95 and maximum 140s |
+| Verified budget timeout | 13 | Every exact-SHA `HIGH` fallback posted; median delivery 860s, maximum 864s |
+| Verified supersession | 8 | Hard failure with no stale artifact or comment |
+| Unexpected cancellation | 6 | Hard failure; insufficient evidence to classify as a model timeout |
+
+All runs used `unified=40`. Recomputed exact three-dot packets had a median
+1,283,122 bytes and 25,050 lines, with ranges of 24,964–1,306,597 bytes and
+436–25,633 lines. The maximum bounded reviewer job duration was 841 seconds,
+well below GitHub's 30-minute limit. Every verified timeout delivered its
+fallback within 14 minutes 24 seconds, below the 15-minute target. The six
+ambiguous cancellations remained hard failures rather than being mislabeled as
+normal model incompletion.
+
+The three completed reviews reported three findings: two `MEDIUM` design risks
+on PR #975 and one `HIGH` alerting risk on PR #976. The two-wave sharding risk
+was accepted and fixed by reducing the design to one two-packet parallel wave.
+The cross-domain visibility concern was carried into the architecture-aware
+scope and benchmark gates; sharding never reached production. The PR #976 fan
+restore finding was initially acted on, then explicitly dismissed by owner
+direction before merge. No finding became stale without a recorded disposition.
+
+Completed-run logs reported a median 54,369 tokens (41,563–84,442), a median
+seven shell tool calls (5–17), no byte-identical repeated shell commands, and no
+observed context-compaction marker.
+
+The observation therefore satisfies the operational acceptance criteria while
+confirming poor model completion on large packets. Normal completed reviews
+were below 10 minutes, verified fallbacks arrived within 15 minutes, no job
+approached 30 minutes, and every unverified cancellation failed closed. Context,
+effort, prompt, sharding, and Terra candidates all failed their separate quality
+or completion gates, so production remains on `gpt-5.6-sol`, `unified=40`,
+`xhigh`, and the baseline prompt.
 
 ## Risks and mitigations
 
