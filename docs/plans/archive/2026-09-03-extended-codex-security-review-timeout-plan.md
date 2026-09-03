@@ -1,7 +1,7 @@
 ---
 title: "Extended Codex security review timeout benchmark"
 date: 2026-09-03
-status: implementing
+status: completed
 type: plan
 tracker: https://github.com/block/proto-fleet/pull/1007
 ---
@@ -24,11 +24,58 @@ valuable, but production should not absorb more latency until a fixed,
 adjudicated experiment shows that extra model time converts timeouts into valid
 reviews.
 
-The [bounded-review benchmark report](../codex-security-review-benchmark-report.md)
+The [bounded-review benchmark report](../../codex-security-review-benchmark-report.md)
 records the retained nine-minute production outer reviewer budget, followed by
 approximately five minutes of GitHub cancellation cleanup and trusted
 finalization. The original plan's closure is tracked separately in
 [PR #1006](https://github.com/block/proto-fleet/pull/1006).
+
+## Outcome
+
+The trusted benchmark support landed in PR #1007 at
+`c961dcba492a919a9f656e9b71b201e9b4404a25`. The initial adjudicated
+[run 33774469386](https://github.com/block/proto-fleet/actions/runs/33774469386)
+completed two of six cases. PRs #944, #948, #954, and #956 each exhausted the
+14-minute outer reviewer budget; their finalizers verified successful setup,
+that Codex reached the review phase, and 1,140–1,141 seconds of job-plus-cleanup
+evidence before writing timeout artifacts. Every model case produced exactly
+one trusted result or verified-timeout artifact. Completion remained 2/6 versus
+the initial 12-minute `unified=40` control: PR #953 completed instead of PR
+#956, so the additional two minutes yielded no net initial completion gain.
+
+| Case | Outcome | Risk | Recall |
+| --- | --- | --- | --- |
+| PR #944 | Verified timeout | — | Clean control not evaluated |
+| PR #948 | Verified timeout | — | Expected `MEDIUM` not evaluated |
+| PR #953 | Completed at 133s | `HIGH` | Expected `HIGH` recalled; expected `MEDIUM` missed |
+| PR #954 | Verified timeout | — | Two expected `MEDIUM` findings not evaluated |
+| PR #956 | Verified timeout | — | Clean control not evaluated |
+| PR #961 | Completed at 109s | `HIGH` | Expected `HIGH` recalled; expected `MEDIUM` missed |
+
+The completed reviews recalled both adjudicated `HIGH` findings and neither of
+the two adjudicated `MEDIUM` findings available in completed cases. PR #953
+also reported a new `HIGH`: the automation start path snapshots live device
+sites into the event envelope without comparing them with the response
+profile's persisted authorization envelope. That finding is a valid staged-design gap rather than a newly introduced
+execution regression: this persistence slice explicitly deferred automation
+binding and permission enforcement, but the changed path stores live sites as
+an authorization envelope that later stages must not trust as the profile's
+bound authorization. The accepted curtailment scope design requires automation
+OFF/start to check the exact bound
+profile envelope and current principal authorization; a moved or recreated
+explicit device must not silently widen the envelope at trigger time.
+
+Completed reviews had a 121-second median wall time (109–133 seconds), reported
+a median 76,409 tokens (46,891–105,926), and made a median 23 shell tool calls
+(7–39). Neither log contained a byte-identical repeated shell command or a
+context-compaction marker.
+
+The candidate failed the mandatory initial 6/6 completion gate and the
+completed-case medium-recall gate. Per the accepted sequence, repeats cannot
+erase the initial completion failure. No repeat, large-PR run, production
+rollout, or production observation was performed. Production remains at the
+nine-minute outer reviewer budget with `gpt-5.6-sol`, `unified=40`, `xhigh`, and
+the baseline prompt.
 
 ## Goals
 
