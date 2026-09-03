@@ -353,9 +353,16 @@ cleanup() {
 trap cleanup EXIT
 
 remove_fleet_node() {
-  if as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
-    as_root "$SYSTEMCTL" stop fleet-node.service
-  fi
+  local load_state
+  load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd unit" >&2
+    return 1
+  }
+  case "$load_state" in
+    loaded) as_root "$SYSTEMCTL" stop fleet-node.service ;;
+    not-found) ;;
+    *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
+  esac
   if as_root "$SYSTEMCTL" is-enabled --quiet fleet-node.service; then
     as_root "$SYSTEMCTL" disable fleet-node.service
   fi
@@ -473,19 +480,12 @@ if ! getent passwd fleetnode >/dev/null 2>&1; then
 fi
 validate_service_account
 
-if [[ ! -e "$CONFIG_DIR" ]]; then
-  if [[ "$TEST_MODE" == "1" ]]; then
-    as_root install -d -m 0750 "$CONFIG_DIR"
-  else
-    as_root install -d -o root -g fleetnode -m 0750 "$CONFIG_DIR"
-  fi
-fi
-if [[ ! -e "$STATE_DIR" ]]; then
-  if [[ "$TEST_MODE" == "1" ]]; then
-    as_root install -d -m 0700 "$STATE_DIR"
-  else
-    as_root install -d -o fleetnode -g fleetnode -m 0700 "$STATE_DIR"
-  fi
+if [[ "$TEST_MODE" == "1" ]]; then
+  as_root install -d -m 0750 "$CONFIG_DIR"
+  as_root install -d -m 0700 "$STATE_DIR"
+else
+  as_root install -d -o root -g fleetnode -m 0750 "$CONFIG_DIR"
+  as_root install -d -o fleetnode -g fleetnode -m 0700 "$STATE_DIR"
 fi
 
 as_root rm -rf "$incoming" "$previous"

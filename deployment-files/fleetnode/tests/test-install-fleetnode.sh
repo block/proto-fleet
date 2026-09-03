@@ -97,6 +97,11 @@ printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
 if [[ "${1:-}" == "show" && "${FAKE_SYSTEMCTL_FAIL_SHOW:-0}" == "1" ]]; then
   exit 1
 fi
+if [[ "${1:-}" == "show" && "${2:-}" == "--property=LoadState" ]]; then
+  [[ "${FAKE_SYSTEMCTL_FAIL_LOAD_STATE:-0}" == "0" ]] || exit 1
+  printf '%s\n' "${FAKE_FLEETNODE_LOAD_STATE:-not-found}"
+  exit 0
+fi
 if [[ "${1:-}" == "stop" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
   : > "$FAKE_FLEETNODE_LOCK_READY"
   while [[ -e "${FAKE_FLEETNODE_LOCK_BLOCK:-}" ]]; do
@@ -286,7 +291,8 @@ run_installer() {
 
 run_uninstaller() {
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
-  FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-0}" \
+  FAKE_FLEETNODE_LOAD_STATE="${FAKE_FLEETNODE_LOAD_STATE:-not-found}" \
+  FAKE_SYSTEMCTL_FAIL_LOAD_STATE="${FAKE_SYSTEMCTL_FAIL_LOAD_STATE:-0}" \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
   SUDO_LOG="$SUDO_LOG" \
   PATH="$TEST_DIR/bin:$PATH" \
@@ -409,12 +415,15 @@ if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
 fi
 
 : > "$SYSTEMCTL_LOG"
+chmod 0777 "$ROOT_PREFIX/etc/fleetnode" "$ROOT_PREFIX/var/lib/fleetnode"
 run_installer v1.1.0
 
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode/stale.txt" ]] || fail "upgrade retained stale program files"
 assert_file_contains "$ROOT_PREFIX/etc/fleetnode/config.yaml" "operator config"
 assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity material"
+[[ "$(file_mode "$ROOT_PREFIX/etc/fleetnode")" == "750" ]] || fail "upgrade did not restore config directory mode"
+[[ "$(file_mode "$ROOT_PREFIX/var/lib/fleetnode")" == "700" ]] || fail "upgrade did not restore state directory mode"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 
@@ -550,8 +559,22 @@ if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
   fail "inactive upgrade changed the Fleet Node service state"
 fi
 
+if FAKE_SYSTEMCTL_FAIL_LOAD_STATE=1 run_uninstaller > "$TEST_DIR/load-state-query-failed.out" 2>&1; then
+  fail "uninstaller removed Fleet Node after its systemd unit query failed"
+fi
+assert_file_contains "$TEST_DIR/load-state-query-failed.out" "cannot inspect Fleet Node systemd unit"
+[[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "failed systemd query removed the program"
+
+: > "$SYSTEMCTL_LOG"
+if FAKE_FLEETNODE_LOAD_STATE=error run_uninstaller > "$TEST_DIR/unexpected-load-state.out" 2>&1; then
+  fail "uninstaller accepted an unexpected systemd unit load state"
+fi
+assert_file_contains "$TEST_DIR/unexpected-load-state.out" "unexpected Fleet Node systemd unit load state: error"
+[[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "unexpected systemd state removed the program"
+
+: > "$SYSTEMCTL_LOG"
 rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
-FAKE_FLEETNODE_ACTIVE=1 FAKE_FLEETNODE_ENABLED=1 run_uninstaller
+FAKE_FLEETNODE_LOAD_STATE=loaded FAKE_FLEETNODE_ENABLED=1 run_uninstaller
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "uninstall retained the program"
 [[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "uninstall retained the unit"
 [[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "uninstall removed configuration"
@@ -560,6 +583,10 @@ FAKE_FLEETNODE_ACTIVE=1 FAKE_FLEETNODE_ENABLED=1 run_uninstaller
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 
+: > "$SYSTEMCTL_LOG"
 run_uninstaller
+if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
+  fail "idempotent uninstall stopped a unit that systemd could not find"
+fi
 
 echo "Fleet Node installer tests passed"
