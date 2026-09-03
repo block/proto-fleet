@@ -370,11 +370,9 @@ remove_fleet_node() {
     not-found) ;;
     *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
   esac
-  if as_root "$SYSTEMCTL" is-enabled --quiet fleet-node.service; then
-    as_root "$SYSTEMCTL" disable fleet-node.service
-  fi
 
   as_root rm -rf "$PROGRAM_DIR"
+  as_root rm -f "${UNIT_PATH%/*}/multi-user.target.wants/fleet-node.service"
   as_root rm -f "$UNIT_PATH"
   as_root "$SYSTEMCTL" daemon-reload
   as_root "$SYSTEMCTL" reset-failed fleet-node.service >/dev/null 2>&1 || true

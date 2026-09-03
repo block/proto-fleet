@@ -606,7 +606,7 @@ assert_file_contains "$TEST_DIR/unexpected-load-state.out" "unexpected Fleet Nod
 : > "$SYSTEMCTL_LOG"
 rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
 ln -s /dev/null "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
-FAKE_FLEETNODE_LOAD_STATE=masked FAKE_FLEETNODE_ENABLED=1 run_uninstaller
+FAKE_FLEETNODE_LOAD_STATE=masked run_uninstaller
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "masked uninstall retained the program"
 [[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "masked uninstall retained the unit mask"
 [[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "masked uninstall removed configuration"
@@ -614,23 +614,26 @@ FAKE_FLEETNODE_LOAD_STATE=masked FAKE_FLEETNODE_ENABLED=1 run_uninstaller
 [[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "masked uninstall removed the service account"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "unmask fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 
 run_installer v1.3.0
 
 : > "$SYSTEMCTL_LOG"
 rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
-FAKE_FLEETNODE_LOAD_STATE=loaded FAKE_FLEETNODE_ENABLED=1 run_uninstaller
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "uninstall retained the program"
 [[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "uninstall retained the unit"
 [[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "uninstall removed configuration"
 [[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "uninstall removed state"
 [[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "uninstall removed the service account"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
 
 : > "$SYSTEMCTL_LOG"
+mkdir -p "$ROOT_PREFIX/etc/systemd/system/multi-user.target.wants"
+ln -s "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" \
+  "$ROOT_PREFIX/etc/systemd/system/multi-user.target.wants/fleet-node.service"
 run_uninstaller
+[[ ! -L "$ROOT_PREFIX/etc/systemd/system/multi-user.target.wants/fleet-node.service" ]] || \
+  fail "uninstall retained a dangling enablement link"
 if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
   fail "idempotent uninstall stopped a unit that systemd could not find"
 fi
