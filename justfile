@@ -35,6 +35,23 @@ ci base_branch="main" parallelism="4":
     echo "Invalid parallelism: ${parallelism}" >&2
     exit 1
   fi
+
+  package_registry_env=()
+  add_registry_env() {
+    local variable="$1"
+    local value="$2"
+    [[ -n "${value}" ]] || return
+    if [[ ! "${value}" =~ ^https?://[^[:space:]@]+$ ]]; then
+      echo "${variable} must be an HTTP(S) URL without embedded credentials." >&2
+      exit 1
+    fi
+    package_registry_env+=(--env "${variable}=${value}")
+  }
+  pip_index_url="${PIP_INDEX_URL:-$(bin/python -m pip config get global.index-url 2>/dev/null || true)}"
+  npm_registry="${NPM_CONFIG_REGISTRY:-$(bin/npm config get registry)}"
+  add_registry_env PIP_INDEX_URL "${pip_index_url}"
+  add_registry_env NPM_CONFIG_REGISTRY "${npm_registry}"
+
   base_ref="origin/${base_branch}"
   if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
     echo "Missing ${base_ref}; fetch it before running local CI." >&2
@@ -88,6 +105,7 @@ ci base_branch="main" parallelism="4":
       --eventpath "${event_path}" \
       --secret GITHUB_TOKEN= \
       --env "HOME=${workspace}/.home" \
+      "${package_registry_env[@]}" \
       --artifact-server-path "${run_dir}/artifacts/${phase}" \
       --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
       --container-architecture linux/amd64 \

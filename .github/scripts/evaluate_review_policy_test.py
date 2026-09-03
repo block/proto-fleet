@@ -316,6 +316,20 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("run_phase exclusive 1 || status=1", justfile)
         self.assertIn('--concurrent-jobs "${jobs}"', justfile)
 
+    def test_local_ci_uses_host_package_registries(self):
+        justfile = (GITHUB_DIR.parent / "justfile").read_text(encoding="utf-8")
+        for command in (
+            "bin/python -m pip config get global.index-url",
+            "bin/npm config get registry",
+            'add_registry_env PIP_INDEX_URL "${pip_index_url}"',
+            'add_registry_env NPM_CONFIG_REGISTRY "${npm_registry}"',
+            '"${package_registry_env[@]}"',
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, justfile)
+        self.assertNotIn("PIP_INDEX_URL=https://", justfile)
+        self.assertNotIn("NPM_CONFIG_REGISTRY=https://", justfile)
+
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")
         agent = workflow["jobs"]["review-agent"]

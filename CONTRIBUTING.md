@@ -231,8 +231,11 @@ Docker must be running. The first run downloads the runner image and referenced
 actions; later runs reuse them. Local CI first runs independent checks in
 parallel, then runs the server and service-backed E2E workflows serially because
 GitHub's separate job runners share one Docker daemon and fixed test ports
-locally. Both phases run even when one fails. To protect an active development
-stack, the command refuses to start while the `server` Compose project or
+locally. Both phases run even when one fails. Local runners use the primary
+registry URLs selected by the host's standard `pip config` and `npm config`,
+without copying credentials or config files; absent an override, the package
+managers keep their public defaults. To protect an active development stack,
+the command refuses to start while the `server` Compose project or
 `fake-proto-rig` container name is in use, and it cleans up CI containers and
 volumes afterward.
 
