@@ -232,9 +232,6 @@ const github = {
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "9"),
-        "CODEX_JOB_TIMEOUT_MINUTES": scenario.get(
-            "job_timeout_minutes", scenario.get("timeout_minutes", "9")
-        ),
         "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
         "SHARD_JOB_ID": str(scenario.get("shard_job_id", 456)),
@@ -679,37 +676,6 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("issues: write", workflow_text)
         self.assertNotIn("pull-requests: write", workflow_text)
 
-    def test_extended_timeout_reserves_trusted_setup_allowance(self):
-        workflow = load_workflow("codex-security-review-benchmark.yml")
-        setup = find_step(workflow, "benchmark-review", "validate_setup")
-        job_start = find_step(workflow, "benchmark-review", "job_start")
-        extended_event = (
-            "${{ github.event.action == "
-            "'codex-security-review-extended-timeout-benchmark' }}"
-        )
-        self.assertEqual(job_start["if"], extended_event)
-        self.assertEqual(setup["if"], extended_event)
-        script = setup["run"]
-
-        for name, max_setup_seconds, elapsed_seconds, expected_code in (
-            ("existing-profile-no-limit", "0", 300, 0),
-            ("extended-within-allowance", "45", 44, 0),
-            ("extended-over-allowance", "45", 46, 1),
-        ):
-            with self.subTest(name=name):
-                result = subprocess.run(
-                    ["bash", "-c", script],
-                    env={
-                        **os.environ,
-                        "CODEX_MAX_SETUP_SECONDS": max_setup_seconds,
-                        "JOB_STARTED_AT": str(int(time.time()) - elapsed_seconds),
-                    },
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, expected_code, result.stderr)
-
     def test_codex_benchmark_matrix_comes_from_needs_not_the_matrix_context(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
         job = workflow["jobs"]["benchmark-review"]
@@ -734,8 +700,6 @@ class ReviewPolicyTest(unittest.TestCase):
                 "verbosity": "${{ steps.select.outputs.verbosity }}",
                 "codex_args": "${{ steps.select.outputs.codex_args }}",
                 "timeout_minutes": "${{ steps.select.outputs.timeout_minutes }}",
-                "job_timeout_minutes": "${{ steps.select.outputs.job_timeout_minutes }}",
-                "max_setup_seconds": "${{ steps.select.outputs.max_setup_seconds }}",
                 "prompt_profile": "${{ steps.select.outputs.prompt_profile }}",
                 "repeat": "${{ steps.select.outputs.repeat }}",
             },
@@ -798,8 +762,6 @@ class ReviewPolicyTest(unittest.TestCase):
             ["-c", "model_reasoning_effort=xhigh"],
         )
         self.assertEqual(outputs["timeout_minutes"], "12")
-        self.assertEqual(outputs["job_timeout_minutes"], "12")
-        self.assertEqual(outputs["max_setup_seconds"], "0")
         self.assertEqual(outputs["prompt_profile"], "baseline")
         self.assertEqual(outputs["repeat"], "initial")
         self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
@@ -851,8 +813,6 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(outputs["service_tier"], "default")
         self.assertEqual(outputs["verbosity"], "low")
         self.assertEqual(outputs["timeout_minutes"], "12")
-        self.assertEqual(outputs["job_timeout_minutes"], "12")
-        self.assertEqual(outputs["max_setup_seconds"], "0")
         self.assertEqual(
             json.loads(outputs["codex_args"]),
             [
@@ -897,8 +857,6 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(outputs["service_tier"], "unspecified")
         self.assertEqual(outputs["verbosity"], "unspecified")
         self.assertEqual(outputs["timeout_minutes"], "14")
-        self.assertEqual(outputs["job_timeout_minutes"], "15")
-        self.assertEqual(outputs["max_setup_seconds"], "45")
         self.assertEqual(
             json.loads(outputs["codex_args"]),
             ["-c", "model_reasoning_effort=xhigh"],
@@ -1000,22 +958,11 @@ class ReviewPolicyTest(unittest.TestCase):
             int(production_job["env"]["CODEX_TIMEOUT_MINUTES"]),
         )
         selected_timeout = "${{ needs.select-cases.outputs.timeout_minutes }}"
-        selected_job_timeout = "${{ needs.select-cases.outputs.job_timeout_minutes }}"
         dynamic_timeout = "${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}"
-        dynamic_job_timeout = (
-            "${{ fromJSON(needs.select-cases.outputs.job_timeout_minutes) }}"
-        )
         self.assertEqual(benchmark_codex["timeout-minutes"], dynamic_timeout)
-        self.assertEqual(benchmark_job["timeout-minutes"], dynamic_job_timeout)
+        self.assertEqual(benchmark_job["timeout-minutes"], dynamic_timeout)
         self.assertEqual(
             benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"], selected_timeout
-        )
-        self.assertEqual(
-            benchmark_job["env"]["CODEX_JOB_TIMEOUT_MINUTES"], selected_job_timeout
-        )
-        self.assertEqual(
-            benchmark_job["env"]["CODEX_MAX_SETUP_SECONDS"],
-            "${{ needs.select-cases.outputs.max_setup_seconds }}",
         )
         self.assertEqual(
             production_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
@@ -1033,15 +980,14 @@ class ReviewPolicyTest(unittest.TestCase):
             benchmark_finalizer["env"]["CODEX_TIMEOUT_MINUTES"], selected_timeout
         )
         self.assertEqual(
-            benchmark_finalizer["env"]["CODEX_JOB_TIMEOUT_MINUTES"],
-            selected_job_timeout,
-        )
-        self.assertEqual(
             benchmark_finalizer["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
             "300",
         )
         self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
+        )
+        self.assertEqual(
+            benchmark_codex["timeout-minutes"], benchmark_job["timeout-minutes"]
         )
 
     def test_codex_benchmark_records_timeouts_distinctly_from_failures(self):
@@ -1157,7 +1103,7 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(
             review_job["timeout-minutes"],
-            "${{ fromJSON(needs.select-cases.outputs.job_timeout_minutes) }}",
+            "${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}",
         )
         self.assertEqual(finalizer["needs"], ["select-cases", "benchmark-review"])
         self.assertIn("always()", finalizer["if"])
@@ -1178,11 +1124,6 @@ class ReviewPolicyTest(unittest.TestCase):
                 "Require benchmark API key",
             )
         ]
-        extended_successful_steps = [
-            {"name": "Record trusted benchmark job start", "conclusion": "success"},
-            *successful_steps,
-            {"name": "Validate benchmark setup allowance", "conclusion": "success"},
-        ]
         timeout_job = {
             "name": "pr-957 / unified-40 / initial",
             "conclusion": "cancelled",
@@ -1198,19 +1139,11 @@ class ReviewPolicyTest(unittest.TestCase):
                 },
             ],
         }
-        extended_timeout_job = {
-            **timeout_job,
-            "steps": [
-                *extended_successful_steps,
-                timeout_job["steps"][-1],
-            ],
-        }
         inspect_cases = [
-            ("budget-timeout", timeout_job, "12", "12", "budget-timeout"),
+            ("budget-timeout", timeout_job, "12", "budget-timeout"),
             (
                 "early-cancellation",
                 {**timeout_job, "completed_at": "2026-08-26T00:05:00Z"},
-                "12",
                 "12",
                 "unexpected-cancellation",
             ),
@@ -1218,55 +1151,28 @@ class ReviewPolicyTest(unittest.TestCase):
                 "cancellation-plus-cleanup",
                 {**timeout_job, "completed_at": "2026-08-26T00:12:00Z"},
                 "12",
-                "12",
                 "unexpected-cancellation",
             ),
             (
                 "setup-cancellation",
                 {**timeout_job, "steps": successful_steps[:1]},
                 "12",
-                "12",
                 "unexpected-cancellation",
             ),
             (
                 "extended-timeout-budget-plus-cleanup",
-                {
-                    **extended_timeout_job,
-                    "completed_at": "2026-08-26T00:20:00Z",
-                },
+                {**timeout_job, "completed_at": "2026-08-26T00:19:00Z"},
                 "14",
-                "15",
                 "budget-timeout",
             ),
             (
                 "extended-timeout-insufficient-evidence",
-                {
-                    **extended_timeout_job,
-                    "completed_at": "2026-08-26T00:19:59Z",
-                },
+                {**timeout_job, "completed_at": "2026-08-26T00:18:59Z"},
                 "14",
-                "15",
-                "unexpected-cancellation",
-            ),
-            (
-                "extended-timeout-missing-setup-evidence",
-                {
-                    **extended_timeout_job,
-                    "steps": timeout_job["steps"],
-                    "completed_at": "2026-08-26T00:20:00Z",
-                },
-                "14",
-                "15",
                 "unexpected-cancellation",
             ),
         ]
-        for (
-            name,
-            job,
-            timeout_minutes,
-            job_timeout_minutes,
-            expected_classification,
-        ) in inspect_cases:
+        for name, job, timeout_minutes, expected_classification in inspect_cases:
             with self.subTest(inspect=name), tempfile.TemporaryDirectory() as tmp:
                 completed, output = run_github_script(
                     inspect_script,
@@ -1275,7 +1181,6 @@ class ReviewPolicyTest(unittest.TestCase):
                         "artifacts": [],
                         "agent_job_name": timeout_job["name"],
                         "timeout_minutes": timeout_minutes,
-                        "job_timeout_minutes": job_timeout_minutes,
                     },
                     tmp,
                 )
