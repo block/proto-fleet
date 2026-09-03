@@ -169,9 +169,10 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
-	outgoing chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
-	done     chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
-	cmds     map[string]*inflightCommand    // in-flight commands by command_id
+	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
+	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result

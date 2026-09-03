@@ -101,7 +101,9 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	stream := client.ControlStream(ctx)
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 
-	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}))
 	first, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, first.GetAccepted(), "expected Accepted")

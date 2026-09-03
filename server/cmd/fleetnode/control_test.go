@@ -458,6 +458,9 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
+	for _, got := range fake.helloCommandProtocolVersionsCopy() {
+		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, got)
+	}
 }
 
 func TestIsNotActiveControlErrorRequiresStructuredDetail(t *testing.T) {
@@ -554,13 +557,14 @@ type pendingCommand struct {
 type controlFakeGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	mu          sync.Mutex
-	pending     []pendingCommand
-	hellos      int32
-	acks        []*pb.ControlAck
-	reports     []*pb.ReportDiscoveredDevicesRequest
-	pairReports []*pb.ReportPairedDevicesRequest
-	behavior    controlFakeBehavior
+	mu                           sync.Mutex
+	pending                      []pendingCommand
+	hellos                       int32
+	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	acks                         []*pb.ControlAck
+	reports                      []*pb.ReportDiscoveredDevicesRequest
+	pairReports                  []*pb.ReportPairedDevicesRequest
+	behavior                     controlFakeBehavior
 }
 
 func (f *controlFakeGateway) queue(payload []byte) {
@@ -597,6 +601,11 @@ func (f *controlFakeGateway) reportsCopy() []*pb.ReportDiscoveredDevicesRequest 
 	return out
 }
 func (f *controlFakeGateway) helloCount() int { return int(atomic.LoadInt32(&f.hellos)) }
+func (f *controlFakeGateway) helloCommandProtocolVersionsCopy() []pb.CommandProtocolVersion {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]pb.CommandProtocolVersion(nil), f.helloCommandProtocolVersions...)
+}
 
 func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
 	f.mu.Lock()
@@ -644,9 +653,13 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	if err != nil {
 		return fmt.Errorf("recv hello: %w", err)
 	}
-	if first.GetHello() == nil {
+	hello := first.GetHello()
+	if hello == nil {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("expected hello"))
 	}
+	f.mu.Lock()
+	f.helloCommandProtocolVersions = append(f.helloCommandProtocolVersions, hello.GetMaxCommandProtocolVersion())
+	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
 	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {

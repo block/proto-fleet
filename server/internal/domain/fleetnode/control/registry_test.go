@@ -18,6 +18,7 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	first := r.Register(7)
+	assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, first.conn.maxCommandProtocolVersion)
 	session, err := r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "in-flight"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	<-first.Outgoing
@@ -48,6 +49,36 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRegistry_ReRegisterReplacesCommandProtocolVersion(t *testing.T) {
+	r := NewRegistry()
+	legacy, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		legacy.conn.maxCommandProtocolVersion,
+	)
+
+	current, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
+	require.NoError(t, err)
+	defer current.Unregister()
+	assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, current.conn.maxCommandProtocolVersion)
+
+	select {
+	case <-legacy.Done:
+	case <-time.After(time.Second):
+		t.Fatal("prior stream was not evicted after command protocol version changed")
+	}
+}
+
 func TestRegistry_DelayedRegistrationRejectsInvalidatedSession(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -73,7 +104,11 @@ func TestRegistry_DelayedRegistrationRejectsInvalidatedSession(t *testing.T) {
 			// The old session authenticated before invalidation, but does not
 			// register until its delayed Hello arrives afterward.
 			test.invalidate(r)
-			stream, err := r.RegisterAuthenticated(7, "old-session")
+			stream, err := r.RegisterAuthenticated(
+				7,
+				"old-session",
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+			)
 
 			require.ErrorIs(t, err, errSessionInvalidated)
 			require.Nil(t, stream)
@@ -86,7 +121,11 @@ func TestRegistry_ReplacedSessionAllowsCurrentCredential(t *testing.T) {
 	r := NewRegistry()
 	r.ReplaceSession(7, "new-session")
 
-	stream, err := r.RegisterAuthenticated(7, "new-session")
+	stream, err := r.RegisterAuthenticated(
+		7,
+		"new-session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 
 	require.NoError(t, err)
 	defer stream.Unregister()
