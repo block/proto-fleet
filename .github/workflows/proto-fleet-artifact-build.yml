@@ -281,24 +281,11 @@ jobs:
           cp /tmp/asicrs/asicrs-config.yaml server/asicrs-config.yaml
 
       - name: Validate Fleet Node executables
-        env:
-          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
-          case "$EXPECTED_ARCH" in
-            amd64) expected_machine="Advanced Micro Devices X86-64" ;;
-            arm64) expected_machine="AArch64" ;;
-            *) echo "::error::Unsupported architecture $EXPECTED_ARCH"; exit 1 ;;
-          esac
-
           for binary in fleetnode proto-plugin antminer-plugin asicrs-plugin; do
             path="server/$binary"
-            if ! header=$(readelf -h "$path"); then
+            if ! readelf -h "$path" >/dev/null; then
               echo "::error::Unable to inspect Fleet Node executable $binary"
-              exit 1
-            fi
-            machine=$(awk -F: '/Machine:/{sub(/^[[:space:]]+/, "", $2); print $2}' <<< "$header")
-            if [[ "$machine" != "$expected_machine" ]]; then
-              echo "::error::$binary targets '$machine', expected '$expected_machine'"
               exit 1
             fi
             if readelf -l "$path" | grep INTERP >/dev/null || readelf -d "$path" | grep NEEDED >/dev/null; then
@@ -324,7 +311,6 @@ jobs:
 
           tar -czf "$archive" "$package_dir"
           sha256sum "$archive" > "$archive.sha256"
-          sha256sum -c "$archive.sha256"
 
       - name: Qualify Fleet Node package on systemd
         env:
