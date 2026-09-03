@@ -7,7 +7,7 @@ Date: 2026-09-01
 Keep the production reviewer on `unified=40`, `xhigh` reasoning effort, and the
 baseline prompt. None of the context, effort, or prompt candidates met the
 finding-recall and completion gates in the
-[bounded-review plan](./plans/2026-08-25-bounded-codex-security-review-plan.md).
+[bounded-review plan](./plans/archive/2026-08-25-bounded-codex-security-review-plan.md).
 The experiment included the two planned context repeats and all three effort
 levels.
 
@@ -27,8 +27,13 @@ The independent `gpt-5.6-terra` candidate also failed. It completed five of six
 cases and recalled both adjudicated `HIGH` findings, but recalled none of the
 five adjudicated `MEDIUM` findings and produced one invalid new `MEDIUM`. The
 completed [Terra benchmark plan](./plans/archive/2026-09-01-terra-codex-security-review-benchmark-plan.md)
-records the fixed profile and outcome. Production remains on `gpt-5.6-sol`,
-`unified=40`, `xhigh`, and the baseline prompt.
+records the fixed profile and outcome.
+
+The first 30 production runs met the bounded review's operational safety gates,
+but only three produced completed reviews. Thirteen produced verified timeout
+fallbacks, eight were verified superseded, and six ambiguous cancellations
+failed hard. Production remains on `gpt-5.6-sol`, `unified=40`, `xhigh`, and
+the baseline prompt.
 
 ## Method
 
@@ -123,6 +128,93 @@ workflow revision, not the code under review. The candidate therefore failed
 completion, recall, and new-finding
 validity. Repeats cannot repair the initial 6/6 failure, so PRs #957 and #964
 were not run.
+
+### First 30 production runs
+
+The observation window starts after PR #965 merged and contains the first 30
+chronological workflow run IDs, from
+[33013243027](https://github.com/block/proto-fleet/actions/runs/33013243027)
+on 2026-08-26 at 21:00 UTC through
+[33111901378](https://github.com/block/proto-fleet/actions/runs/33111901378)
+on 2026-08-27 at 20:08 UTC. It counts each run's first execution attempt; one
+later manual rerun is excluded. Six PRs appear in the window, and rapid updates
+to PR #977 account for 18 runs.
+
+| Outcome | Runs | Timing and delivery |
+| --- | ---: | --- |
+| Completed review | 3 | Median 127s; nearest-rank p95 and maximum 140s |
+| Verified timeout | 13 | Every exact-SHA `HIGH` fallback posted; median 860s, maximum 864s from reviewer start |
+| Superseded | 8 | Hard failure; no stale artifact or comment posted |
+| Unexpected cancellation | 6 | Hard failure; not admitted as timeout evidence |
+
+#### Run inventory
+
+For completed reviews, observed time is trusted review elapsed time. For
+verified timeouts, it is reviewer start through posted fallback. For hard
+cancellations, it is reviewer-job runtime.
+
+| Run | PR | Packet bytes | Outcome | Observed time |
+| --- | ---: | ---: | --- | ---: |
+| [33013243027](https://github.com/block/proto-fleet/actions/runs/33013243027) | #973 | 339,378 | Verified timeout | 860s |
+| [33069267204](https://github.com/block/proto-fleet/actions/runs/33069267204) | #975 | 24,964 | Completed | 140s |
+| [33082926600](https://github.com/block/proto-fleet/actions/runs/33082926600) | #970 | 45,507 | Verified timeout | 857s |
+| [33082934636](https://github.com/block/proto-fleet/actions/runs/33082934636) | #974 | 79,314 | Verified timeout | 861s |
+| [33088428219](https://github.com/block/proto-fleet/actions/runs/33088428219) | #976 | 61,839 | Completed | 127s |
+| [33090223191](https://github.com/block/proto-fleet/actions/runs/33090223191) | #970 | 47,860 | Verified timeout | 859s |
+| [33090246890](https://github.com/block/proto-fleet/actions/runs/33090246890) | #974 | 81,992 | Verified timeout | 862s |
+| [33099756059](https://github.com/block/proto-fleet/actions/runs/33099756059) | #975 | 24,964 | Unexpected cancellation | 17s |
+| [33099781009](https://github.com/block/proto-fleet/actions/runs/33099781009) | #975 | 26,834 | Completed | 69s |
+| [33100719008](https://github.com/block/proto-fleet/actions/runs/33100719008) | #977 | 1,198,589 | Verified timeout | 860s |
+| [33101658564](https://github.com/block/proto-fleet/actions/runs/33101658564) | #977 | 1,210,663 | Verified timeout | 864s |
+| [33103478682](https://github.com/block/proto-fleet/actions/runs/33103478682) | #977 | 1,283,122 | Superseded | 28s |
+| [33103512965](https://github.com/block/proto-fleet/actions/runs/33103512965) | #977 | 1,283,122 | Verified timeout | 858s |
+| [33104418972](https://github.com/block/proto-fleet/actions/runs/33104418972) | #977 | 1,283,426 | Unexpected cancellation | 679s |
+| [33105222533](https://github.com/block/proto-fleet/actions/runs/33105222533) | #977 | 1,283,465 | Unexpected cancellation | 240s |
+| [33105554943](https://github.com/block/proto-fleet/actions/runs/33105554943) | #977 | 1,291,586 | Superseded | 21s |
+| [33105582568](https://github.com/block/proto-fleet/actions/runs/33105582568) | #977 | 1,291,586 | Unexpected cancellation | 523s |
+| [33105955176](https://github.com/block/proto-fleet/actions/runs/33105955176) | #977 | 1,294,343 | Superseded | 44s |
+| [33106016897](https://github.com/block/proto-fleet/actions/runs/33106016897) | #977 | 1,294,343 | Verified timeout | 858s |
+| [33106881754](https://github.com/block/proto-fleet/actions/runs/33106881754) | #976 | 45,479 | Superseded | 840s |
+| [33107524583](https://github.com/block/proto-fleet/actions/runs/33107524583) | #977 | 1,297,551 | Superseded | 19s |
+| [33107565952](https://github.com/block/proto-fleet/actions/runs/33107565952) | #977 | 1,297,551 | Verified timeout | 857s |
+| [33107846974](https://github.com/block/proto-fleet/actions/runs/33107846974) | #976 | 45,479 | Verified timeout | 859s |
+| [33109009231](https://github.com/block/proto-fleet/actions/runs/33109009231) | #977 | 1,298,939 | Superseded | 31s |
+| [33109051099](https://github.com/block/proto-fleet/actions/runs/33109051099) | #977 | 1,298,939 | Unexpected cancellation | 687s |
+| [33109578613](https://github.com/block/proto-fleet/actions/runs/33109578613) | #977 | 1,298,947 | Verified timeout | 860s |
+| [33109613678](https://github.com/block/proto-fleet/actions/runs/33109613678) | #974 | 84,998 | Verified timeout | 860s |
+| [33111197981](https://github.com/block/proto-fleet/actions/runs/33111197981) | #977 | 1,305,195 | Superseded | 51s |
+| [33111271873](https://github.com/block/proto-fleet/actions/runs/33111271873) | #977 | 1,305,195 | Unexpected cancellation | 752s |
+| [33111901378](https://github.com/block/proto-fleet/actions/runs/33111901378) | #977 | 1,306,597 | Superseded | 49s |
+
+All 30 packets used `unified=40`. Recomputed exact three-dot packets had a
+median 1,283,122 bytes, 25,050 lines, and 63 files. Packet ranges were
+24,964–1,306,597 bytes, 436–25,633 lines, and 3–64 files. The unusually large
+median reflects PR #977's concentration in the sample rather than a typical PR
+distribution.
+
+The longest bounded reviewer job ran 841 seconds, below GitHub's 30-minute
+limit. Verified timeout fallbacks reached the PR in at most 864 seconds (14
+minutes 24 seconds), within the 15-minute target. Six cancellations lacked the
+trusted evidence required for timeout or supersession classification and
+therefore remained hard failures.
+
+Completed-run logs reported a median 54,369 tokens (41,563–84,442), a median
+seven shell tool calls (5–17), no byte-identical repeated shell commands, and no
+observed context-compaction marker.
+
+The three completed reviews produced three findings. Two PR #975 `MEDIUM`
+design risks were accepted: the two-wave deadline issue was fixed by reducing
+sharding to one two-packet wave, and the cross-domain visibility risk was
+carried into architecture-aware context and benchmark gates. Sharding later
+failed its benchmark and never reached production. PR #976's `HIGH` fan-restore
+alert finding was initially acted on, then explicitly dismissed by owner
+direction before merge. No finding became stale without a recorded disposition.
+
+The observation passes the bounded review's operational criteria: normal
+completed reviews stayed below 10 minutes, verified fallbacks arrived within 15
+minutes, no review approached 30 minutes, and unverified cancellations failed
+closed. It also confirms that bounded execution controls operational risk rather
+than solving model completion on large packets.
 
 ## Human adjudication
 
@@ -235,7 +327,8 @@ matrix and showed that its completion gain comes with unacceptable recall.
    prompt while retaining the bounded timeout and fail-closed human-review path.
 2. Do not repeat the rejected sharded or Terra candidates, and do not replay PRs
    #957 and #964 for either candidate.
-3. Complete the original plan's first-30-production-run observation window.
+3. Monitor hard cancellation classifications during normal operation; do not
+   weaken them into model timeouts without trusted evidence.
 4. Require any future candidate to use trusted default-branch benchmark code and
    pass the same initial completion, recall, and finding-validity gates before
    production evaluation.
