@@ -410,6 +410,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+	requireOperatorActionExit(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
