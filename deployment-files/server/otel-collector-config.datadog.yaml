@@ -36,6 +36,8 @@ exporters:
     api:
       key: ${env:DD_API_KEY}
       site: ${env:DD_SITE}
+      # Refuse to start when Datadog rejects the credential so the HA health probe reports degraded tracing.
+      fail_on_invalid_key: true
     # Fallback for the resource attribute above, which a whole-value env reference types as int for an all-numeric hostname.
     hostname: "${env:DD_HOSTNAME}"
 

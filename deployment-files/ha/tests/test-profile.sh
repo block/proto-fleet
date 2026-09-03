@@ -26,6 +26,55 @@ assert_not_contains() {
     fi
 }
 
+render_fleet_profile() {
+    local release_dir="$1"
+    local profile="$2"
+
+    local -a environment=(
+        AUTH_CLIENT_SECRET_KEY=test-auth-secret
+        DB_USERNAME=fleet
+        DB_PASSWORD=test-db-password
+        DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet
+        ENCRYPT_SERVICE_MASTER_KEY=test-master-key
+        GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password
+        GRAFANA_DB_PASSWORD=test-grafana-db-password
+        GRAFANA_SECRET_KEY=test-grafana-secret-key
+        FLEET_ALERTS_WEBHOOK_TOKEN=test-alert-webhook-token
+        DD_HOSTNAME=ha-a
+        HA_NODE_NAME=ha-a
+        HA_NODE_IP=10.40.0.11
+        HA_DB_A_IP=10.40.0.11
+        HA_DB_B_IP=10.40.0.12
+        HA_DCS_C_IP=10.40.0.13
+        HA_VIRTUAL_IP=10.40.0.100
+        HA_NETWORK_INTERFACE=eth0
+        HA_DATA_DIR=/var/lib/proto-fleet/ha
+        HA_SECRETS_DIR=/etc/proto-fleet/ha
+    )
+    local -a compose_files=(--file "${release_dir}/docker-compose.yaml")
+    local -a services=(fleet-api fleet-client)
+    if [[ "$profile" != "disabled" ]]; then
+        compose_files+=(--file "${release_dir}/docker-compose.alerts.yaml")
+        services+=(grafana)
+    fi
+    compose_files+=(--file "${release_dir}/ha/fleet-compose.yaml")
+    if [[ "$profile" != "disabled" ]]; then
+        compose_files+=(--file "${release_dir}/ha/fleet-compose.alerts.yaml")
+    fi
+    if [[ "$profile" == "tracing" ]]; then
+        environment+=(DD_API_KEY=test-datadog-key)
+        services+=(otel-collector)
+        compose_files+=(
+            --file "${release_dir}/docker-compose.system-monitoring.yaml"
+            --file "${release_dir}/ha/fleet-compose.system-monitoring.yaml"
+            --file "${release_dir}/docker-compose.tracing.yaml"
+            --file "${release_dir}/ha/fleet-compose.tracing.yaml"
+        )
+    fi
+
+    env "${environment[@]}" docker compose "${compose_files[@]}" config "${services[@]}"
+}
+
 test_compose_uses_one_host_identity() {
     local rendered
     rendered="$(mktemp)"
@@ -99,32 +148,17 @@ test_fleet_ha_contract() {
     mkdir -p "${release_dir}/ha" "${release_dir}/server"
     cp "${HA_DIR}/../docker-compose.yaml" "${release_dir}/docker-compose.yaml"
     cp "${HA_DIR}/../docker-compose.alerts.yaml" "${release_dir}/docker-compose.alerts.yaml"
+    cp "${HA_DIR}/../docker-compose.system-monitoring.yaml" "${release_dir}/docker-compose.system-monitoring.yaml"
+    cp "${HA_DIR}/../docker-compose.tracing.yaml" "${release_dir}/docker-compose.tracing.yaml"
     cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
+    cp "${HA_DIR}/fleet-compose.alerts.yaml" "${release_dir}/ha/fleet-compose.alerts.yaml"
+    cp "${HA_DIR}/fleet-compose.system-monitoring.yaml" "${release_dir}/ha/fleet-compose.system-monitoring.yaml"
+    cp "${HA_DIR}/fleet-compose.tracing.yaml" "${release_dir}/ha/fleet-compose.tracing.yaml"
     cp "${HA_DIR}/../../server/docker-compose.base.yaml" "${release_dir}/server/docker-compose.base.yaml"
+    cp "${HA_DIR}/../server/otel-collector-config.datadog.yaml" "${release_dir}/server/otel-collector-config.datadog.yaml"
     cp -r "${HA_DIR}/../../server/monitoring" "${release_dir}/server/monitoring"
 
-    AUTH_CLIENT_SECRET_KEY=test-auth-secret \
-    DB_USERNAME=fleet \
-    DB_PASSWORD=test-db-password \
-    DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet \
-    ENCRYPT_SERVICE_MASTER_KEY=test-master-key \
-    GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password \
-    GRAFANA_DB_PASSWORD=test-grafana-db-password \
-    GRAFANA_SECRET_KEY=test-grafana-secret-key \
-    FLEET_ALERTS_WEBHOOK_TOKEN=test-alert-webhook-token \
-    UPDATES_ENABLED=true \
-    HA_NODE_IP=10.40.0.11 \
-    HA_DB_A_IP=10.40.0.11 \
-    HA_DB_B_IP=10.40.0.12 \
-    HA_DCS_C_IP=10.40.0.13 \
-    HA_VIRTUAL_IP=10.40.0.100 \
-    HA_NETWORK_INTERFACE=eth0 \
-    HA_SECRETS_DIR=/etc/proto-fleet/ha \
-        docker compose \
-        --file "${release_dir}/docker-compose.yaml" \
-        --file "${release_dir}/docker-compose.alerts.yaml" \
-        --file "${release_dir}/ha/fleet-compose.yaml" \
-        config fleet-api fleet-client grafana >"$rendered"
+    UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
 
     if grep -q '^  timescaledb:$' "$rendered"; then
         fail "HA Fleet targets must not include the standalone database service"
@@ -178,6 +212,34 @@ test_fleet_ha_contract() {
     ' "$notification_policies" || fail "HA readiness notifications must use a five-second group wait"
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
+
+    render_fleet_profile "$release_dir" disabled >"$rendered"
+    assert_not_contains "$rendered" "grafana:"
+    assert_not_contains "$rendered" "grafana-data"
+    assert_not_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD"
+
+    render_fleet_profile "$release_dir" tracing >"$rendered"
+
+    assert_contains "$rendered" "FLEET_SYSTEM_MONITORING_ENABLED: \"true\""
+    assert_contains "$rendered" "source: /var/lib/proto-fleet/ha/system-monitoring"
+    assert_contains "$rendered" "target: /hostfs"
+    assert_contains "$rendered" "FLEET_TELEMETRY_ENABLED: \"true\""
+    assert_contains "$rendered" "DD_HOSTNAME: ha-a"
+    awk '
+        /^  fleet-api:$/ { f = 1; next }
+        f && /^  [[:alnum:]_-]+:$/ { exit }
+        f && /^      otel-collector:$/ { exit 1 }
+    ' "$rendered" || fail "HA tracing collector must not gate Fleet startup"
+    assert_contains "$rendered" 'published: "13133"'
+    assert_contains "$rendered" "image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0"
+    assert_contains "${release_dir}/server/otel-collector-config.datadog.yaml" "fail_on_invalid_key: true"
+    assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml"
+    awk '
+        /^  otel-collector:$/ { in_collector = 1; next }
+        in_collector && /^  [[:alnum:]_-]+:$/ { exit }
+        in_collector && /^[[:space:]]+restart: on-failure$/ { found = 1 }
+        END { exit !found }
+    ' "$rendered" || fail "HA tracing collector must remain behind the systemd start gate"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
 
