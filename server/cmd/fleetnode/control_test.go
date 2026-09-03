@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -209,6 +210,73 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
+	// Arrange: field 5 is a future top-level AgentCommand oneof arm unknown to
+	// this node. Follow it with a command the node does understand.
+	unknownPayload := protowire.AppendTag(nil, 5, protowire.BytesType)
+	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
+	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
+	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}
+	cmd := &RunCmd{discoverer: disc}
+	fake := &controlFakeGateway{}
+	fake.queueWithID("future-command", unknownPayload)
+	fake.queueWithID("known-command", discoveryPayload)
+
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() >= 2 }, 4*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
+
+	// Assert: the future command fails specifically as unsupported, while the
+	// following known command proves the same stream remained usable.
+	acks := fake.acksCopy()
+	require.Len(t, acks, 2)
+	acksByID := make(map[string]*pb.ControlAck, len(acks))
+	for _, ack := range acks {
+		acksByID[ack.GetCommandId()] = ack
+	}
+	unknownAck := acksByID["future-command"]
+	require.NotNil(t, unknownAck)
+	assert.False(t, unknownAck.GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, unknownAck.GetCode())
+
+	knownAck := acksByID["known-command"]
+	require.NotNil(t, knownAck)
+	assert.True(t, knownAck.GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, knownAck.GetCode())
+	require.Len(t, fake.reportsCopy(), 1)
+}
+
+func TestControlLoop_KnownCommandIgnoresUnrelatedUnknownFields(t *testing.T) {
+	// Arrange: append a field outside the AgentCommand oneof while keeping the
+	// known discovery arm intact.
+	payload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
+	payload = protowire.AppendTag(payload, 100, protowire.VarintType)
+	payload = protowire.AppendVarint(payload, 1)
+	cmd := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}}
+	fake := &controlFakeGateway{}
+	fake.queue(payload)
+
+	// Act
+	runControlLoopOnce(t, cmd, fake)
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.True(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, acks[0].GetCode())
+	require.Len(t, fake.reportsCopy(), 1)
 }
 
 func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {

@@ -366,6 +366,10 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	case *pb.AgentCommand_Telemetry:
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
+		if len(env.ProtoReflect().GetUnknown()) > 0 {
+			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
+			return
+		}
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
 	}
 }
