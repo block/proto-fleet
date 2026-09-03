@@ -1096,6 +1096,7 @@ class WorkflowInvariantTest(unittest.TestCase):
             "--corpus-file .codex-trusted/.github/codex-benchmark-corpus.json", called
         )
         self.assertIn("codex-security-review-terra-benchmark", parent)
+        self.assertIn("codex-security-review-extended-timeout-benchmark", parent)
         self.assertIn("&& 'unified-40' || 'all'", parent)
 
     def test_shard_prompt_comes_from_trusted_checkout(self):

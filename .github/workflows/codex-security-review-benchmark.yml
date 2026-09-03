@@ -9,6 +9,7 @@ on:
       - codex-security-review-benchmark
       - codex-security-review-sharded-benchmark
       - codex-security-review-terra-benchmark
+      - codex-security-review-extended-timeout-benchmark
 
 permissions:
   actions: read
@@ -21,21 +22,23 @@ concurrency:
     codex-security-review-benchmark-${{
       github.event.action
     }}-${{
+      github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'adjudicated' ||
       github.event.client_payload.corpus == 'large-pr' && 'large-pr' || 'adjudicated'
     }}-${{
-      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' ||
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'unified-40' ||
       github.event.client_payload['context-variant'] == 'unified-40' && 'unified-40' ||
       github.event.client_payload['context-variant'] == 'unified-10' && 'unified-10' ||
       github.event.client_payload['context-variant'] == 'compact' && 'compact' || 'all'
     }}-${{
       github.event.action == 'codex-security-review-terra-benchmark' && 'high' ||
-      github.event.action == 'codex-security-review-sharded-benchmark' && 'xhigh' ||
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'xhigh' ||
       github.event.client_payload['reasoning-effort'] == 'high' && 'high' ||
       github.event.client_payload['reasoning-effort'] == 'medium' && 'medium' || 'xhigh'
     }}-${{
-      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'baseline' ||
+      (github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'baseline' ||
       github.event.client_payload['prompt-profile'] == 'bounded' && 'bounded' || 'baseline'
     }}-${{
+      github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'initial' ||
       github.event.client_payload.repeat == 'repeat-1' && 'repeat-1' ||
       github.event.client_payload.repeat == 'repeat-2' && 'repeat-2' || 'initial'
     }}
@@ -53,6 +56,7 @@ jobs:
       service_tier: ${{ steps.select.outputs.service_tier }}
       verbosity: ${{ steps.select.outputs.verbosity }}
       codex_args: ${{ steps.select.outputs.codex_args }}
+      timeout_minutes: ${{ steps.select.outputs.timeout_minutes }}
       prompt_profile: ${{ steps.select.outputs.prompt_profile }}
       repeat: ${{ steps.select.outputs.repeat }}
     steps:
@@ -68,9 +72,9 @@ jobs:
         id: select
         env:
           REVIEW_MODE: ${{ github.event.action == 'codex-security-review-sharded-benchmark' && 'sharded' || 'unsharded' }}
-          BENCHMARK_PROFILE: ${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || 'sol' }}
+          BENCHMARK_PROFILE: ${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'sol-extended-timeout' || 'sol' }}
           CORPUS: ${{ github.event.client_payload.corpus || 'adjudicated' }}
-          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || ((github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' || 'all') }}
+          CONTEXT_VARIANT: ${{ github.event.client_payload['context-variant'] || ((github.event.action == 'codex-security-review-sharded-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'unified-40' || 'all') }}
           REASONING_EFFORT: ${{ github.event.client_payload['reasoning-effort'] || (github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh') }}
           PROMPT_PROFILE: ${{ github.event.client_payload['prompt-profile'] || 'baseline' }}
           REPEAT: ${{ github.event.client_payload.repeat || 'initial' }}
@@ -87,6 +91,7 @@ jobs:
           reasoning_effort = os.environ["REASONING_EFFORT"]
           prompt_profile = os.environ["PROMPT_PROFILE"]
           repeat = os.environ["REPEAT"]
+          timeout_minutes = 12
           if review_mode == "sharded":
               allowed = {
                   "corpus": ({"adjudicated", "large-pr"}, corpus_name),
@@ -109,6 +114,18 @@ jobs:
               model = "gpt-5.6-terra"
               service_tier = "default"
               verbosity = "low"
+          elif benchmark_profile == "sol-extended-timeout":
+              allowed = {
+                  "corpus": ({"adjudicated"}, corpus_name),
+                  "context-variant": ({"unified-40"}, variant_name),
+                  "reasoning-effort": ({"xhigh"}, reasoning_effort),
+                  "prompt-profile": ({"baseline"}, prompt_profile),
+                  "repeat": ({"initial"}, repeat),
+              }
+              model = "gpt-5.6-sol"
+              service_tier = "unspecified"
+              verbosity = "unspecified"
+              timeout_minutes = 14
           elif benchmark_profile == "sol":
               allowed = {
                   "corpus": ({"adjudicated", "large-pr"}, corpus_name),
@@ -159,6 +176,7 @@ jobs:
               handle.write(f"service_tier={service_tier}\n")
               handle.write(f"verbosity={verbosity}\n")
               handle.write(f"codex_args={json.dumps(codex_args, separators=(',', ':'))}\n")
+              handle.write(f"timeout_minutes={timeout_minutes}\n")
               handle.write(f"prompt_profile={prompt_profile}\n")
               handle.write(f"repeat={repeat}\n")
           for entry in matrix["include"]:
@@ -187,12 +205,12 @@ jobs:
   benchmark-review:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
-    if: ${{ github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' }}
+    if: ${{ github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark' }}
     runs-on: ubuntu-latest
     # The composite action ignored its caller step timeout in production, so the
     # matrix job itself is the enforceable model budget. A separate matrix finalizer
     # creates timeout artifacts after GitHub finishes cancelled-job cleanup.
-    timeout-minutes: 12
+    timeout-minutes: ${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -200,7 +218,7 @@ jobs:
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: ${{ needs.select-cases.outputs.model }}
-      CODEX_TIMEOUT_MINUTES: "12"
+      CODEX_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.timeout_minutes }}
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
       CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
@@ -266,7 +284,7 @@ jobs:
 
       - name: Run bounded benchmark review
         id: run_codex
-        timeout-minutes: 12
+        timeout-minutes: ${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}
         continue-on-error: true
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
@@ -595,7 +613,7 @@ jobs:
   benchmark-finalize:
     name: Finalize ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: [select-cases, benchmark-review]
-    if: ${{ always() && (github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark') && needs.select-cases.result == 'success' }}
+    if: ${{ always() && (github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') && needs.select-cases.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -612,7 +630,7 @@ jobs:
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
       CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
-      CODEX_TIMEOUT_MINUTES: "12"
+      CODEX_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.timeout_minutes }}
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
