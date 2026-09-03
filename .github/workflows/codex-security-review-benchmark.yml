@@ -57,6 +57,8 @@ jobs:
       verbosity: ${{ steps.select.outputs.verbosity }}
       codex_args: ${{ steps.select.outputs.codex_args }}
       timeout_minutes: ${{ steps.select.outputs.timeout_minutes }}
+      job_timeout_minutes: ${{ steps.select.outputs.job_timeout_minutes }}
+      max_setup_seconds: ${{ steps.select.outputs.max_setup_seconds }}
       prompt_profile: ${{ steps.select.outputs.prompt_profile }}
       repeat: ${{ steps.select.outputs.repeat }}
     steps:
@@ -92,6 +94,8 @@ jobs:
           prompt_profile = os.environ["PROMPT_PROFILE"]
           repeat = os.environ["REPEAT"]
           timeout_minutes = 12
+          job_timeout_minutes = 12
+          max_setup_seconds = 0
           if review_mode == "sharded":
               allowed = {
                   "corpus": ({"adjudicated", "large-pr"}, corpus_name),
@@ -126,6 +130,8 @@ jobs:
               service_tier = "unspecified"
               verbosity = "unspecified"
               timeout_minutes = 14
+              job_timeout_minutes = 15
+              max_setup_seconds = 45
           elif benchmark_profile == "sol":
               allowed = {
                   "corpus": ({"adjudicated", "large-pr"}, corpus_name),
@@ -177,6 +183,8 @@ jobs:
               handle.write(f"verbosity={verbosity}\n")
               handle.write(f"codex_args={json.dumps(codex_args, separators=(',', ':'))}\n")
               handle.write(f"timeout_minutes={timeout_minutes}\n")
+              handle.write(f"job_timeout_minutes={job_timeout_minutes}\n")
+              handle.write(f"max_setup_seconds={max_setup_seconds}\n")
               handle.write(f"prompt_profile={prompt_profile}\n")
               handle.write(f"repeat={repeat}\n")
           for entry in matrix["include"]:
@@ -205,12 +213,13 @@ jobs:
   benchmark-review:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
-    if: ${{ github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark' }}
+    if: ${{ needs.select-cases.result == 'success' && (github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') }}
     runs-on: ubuntu-latest
     # The composite action ignored its caller step timeout in production, so the
-    # matrix job itself is the enforceable model budget. A separate matrix finalizer
-    # creates timeout artifacts after GitHub finishes cancelled-job cleanup.
-    timeout-minutes: ${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}
+    # matrix job is the enforceable deadline. The extended profile reserves one job
+    # minute for bounded setup before its 14-minute model step. A separate matrix
+    # finalizer creates timeout artifacts after cancelled-job cleanup.
+    timeout-minutes: ${{ fromJSON(needs.select-cases.outputs.job_timeout_minutes) }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -219,6 +228,8 @@ jobs:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: ${{ needs.select-cases.outputs.model }}
       CODEX_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.timeout_minutes }}
+      CODEX_JOB_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.job_timeout_minutes }}
+      CODEX_MAX_SETUP_SECONDS: ${{ needs.select-cases.outputs.max_setup_seconds }}
       CODEX_REASONING_EFFORT: ${{ needs.select-cases.outputs.reasoning_effort }}
       CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
       CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
@@ -228,6 +239,11 @@ jobs:
       REVIEW_BLOB_BASE_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, matrix.case.head) }}
       REVIEW_DIFF_FILE: .git/codex-review.diff
     steps:
+      - name: Record trusted benchmark job start
+        if: ${{ github.event.action == 'codex-security-review-extended-timeout-benchmark' }}
+        id: job_start
+        run: echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout fixed historical head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -279,6 +295,22 @@ jobs:
         run: |
           if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
             echo "OPENAI_API_KEY is required for Codex Security Review Benchmark." >&2
+            exit 1
+          fi
+
+      - name: Validate benchmark setup allowance
+        if: ${{ github.event.action == 'codex-security-review-extended-timeout-benchmark' }}
+        id: validate_setup
+        env:
+          JOB_STARTED_AT: ${{ steps.job_start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          if [ "$CODEX_MAX_SETUP_SECONDS" -eq 0 ]; then
+            exit 0
+          fi
+          setup_seconds=$(( $(date +%s) - JOB_STARTED_AT ))
+          if [ "$setup_seconds" -gt "$CODEX_MAX_SETUP_SECONDS" ]; then
+            echo "Benchmark setup took ${setup_seconds}s; the trusted limit is ${CODEX_MAX_SETUP_SECONDS}s." >&2
             exit 1
           fi
 
@@ -631,6 +663,7 @@ jobs:
       CODEX_SERVICE_TIER: ${{ needs.select-cases.outputs.service_tier }}
       CODEX_VERBOSITY: ${{ needs.select-cases.outputs.verbosity }}
       CODEX_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.timeout_minutes }}
+      CODEX_JOB_TIMEOUT_MINUTES: ${{ needs.select-cases.outputs.job_timeout_minutes }}
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
       REVIEW_BASE_SHA: ${{ matrix.case.base }}
       REVIEW_HEAD_SHA: ${{ matrix.case.head }}
@@ -661,12 +694,20 @@ jobs:
             let cancellationClassification = conclusion === 'success' ? 'completed' : 'automation-failure';
             let cancellationDetail = '';
             if (conclusion === 'cancelled') {
+              const modelBudgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
+              const jobBudgetSeconds = Number(process.env.CODEX_JOB_TIMEOUT_MINUTES) * 60;
               const requiredSteps = [
                 'Checkout fixed historical head',
                 'Fetch and validate fixed historical range',
                 'Write review packet and scope metrics',
                 'Require benchmark API key',
               ];
+              if (jobBudgetSeconds > modelBudgetSeconds) {
+                requiredSteps.push(
+                  'Record trusted benchmark job start',
+                  'Validate benchmark setup allowance',
+                );
+              }
               const prerequisitesSucceeded = requiredSteps.every(name =>
                 job.steps?.some(step => step.name === name && step.conclusion === 'success')
               );
@@ -683,13 +724,12 @@ jobs:
                   codexStep?.conclusion === 'cancelled' ||
                   (codexStep?.status === 'in_progress' && codexStep?.conclusion == null)
                 );
-              const budgetSeconds = Number(process.env.CODEX_TIMEOUT_MINUTES) * 60;
               const cleanupSeconds = Number(process.env.CODEX_CANCELLATION_CLEANUP_SECONDS);
               const budgetEvidence =
                 prerequisitesSucceeded &&
                 codexReachedReviewPhase &&
                 elapsedSeconds !== null &&
-                elapsedSeconds >= budgetSeconds + cleanupSeconds;
+                elapsedSeconds >= jobBudgetSeconds + cleanupSeconds;
               cancellationClassification = budgetEvidence ? 'budget-timeout' : 'unexpected-cancellation';
               cancellationDetail = JSON.stringify({
                 prerequisites_succeeded: prerequisitesSucceeded,
@@ -697,7 +737,8 @@ jobs:
                 codex_status: codexStep?.status || null,
                 codex_conclusion: codexStep?.conclusion || null,
                 observed_job_seconds: elapsedSeconds,
-                budget_seconds: budgetSeconds,
+                model_budget_seconds: modelBudgetSeconds,
+                job_budget_seconds: jobBudgetSeconds,
                 expected_cleanup_seconds: cleanupSeconds,
               });
             }
