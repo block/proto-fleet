@@ -462,10 +462,21 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
 fi
 
 if [[ "$fresh_install" == "0" ]]; then
-  if as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
-    as_root "$SYSTEMCTL" stop fleet-node.service
-    service_stopped=1
-  fi
+  active_state=$(as_root "$SYSTEMCTL" show --property=ActiveState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd active state" >&2
+    exit 1
+  }
+  case "$active_state" in
+    active)
+      as_root "$SYSTEMCTL" stop fleet-node.service
+      service_stopped=1
+      ;;
+    inactive|failed) ;;
+    *)
+      echo "cannot upgrade Fleet Node while service is ${active_state:-unknown}" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 ensure_shared_directory "${PROGRAM_DIR%/*}"

@@ -102,6 +102,10 @@ if [[ "${1:-}" == "show" && "${2:-}" == "--property=LoadState" ]]; then
   printf '%s\n' "${FAKE_FLEETNODE_LOAD_STATE:-not-found}"
   exit 0
 fi
+if [[ "${1:-}" == "show" && "${2:-}" == "--property=ActiveState" ]]; then
+  printf '%s\n' "${FAKE_FLEETNODE_ACTIVE_STATE:-active}"
+  exit 0
+fi
 if [[ "${1:-}" == "stop" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
   : > "$FAKE_FLEETNODE_LOCK_READY"
   while [[ -e "${FAKE_FLEETNODE_LOCK_BLOCK:-}" ]]; do
@@ -110,10 +114,6 @@ if [[ "${1:-}" == "stop" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
 fi
 if [[ "${1:-}" == "is-enabled" ]]; then
   [[ "${FAKE_FLEETNODE_ENABLED:-0}" == "1" ]]
-  exit
-fi
-if [[ "${1:-}" == "is-active" ]]; then
-  [[ "${FAKE_FLEETNODE_ACTIVE:-0}" == "1" ]]
   exit
 fi
 if [[ "${1:-}" == "start" ]]; then
@@ -238,7 +238,7 @@ assert_file_contains "$TEST_DIR/missing-nmap.err" "required command not found: n
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "PATH=\"\$LINUX_SERVICE_PATH\""
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "as_root flock -n \"\$INSTALL_LOCK_PATH\""
-assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" 'is-active --quiet fleet-node.service'
+assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" '--property=ActiveState --value fleet-node.service'
 if grep -Fq 'fleetnode.service' "$FLEETNODE_DIR/install-fleet-node.sh"; then
   fail "installer contains a migration path for the old systemd unit"
 fi
@@ -260,7 +260,7 @@ printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 run_installer() {
   local version="$1"
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
-  FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-1}" \
+  FAKE_FLEETNODE_ACTIVE_STATE="${FAKE_FLEETNODE_ACTIVE_STATE:-active}" \
   FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
   FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
   FAKE_SYSTEMCTL_FAIL_START="${FAKE_SYSTEMCTL_FAIL_START:-0}" \
@@ -306,7 +306,7 @@ start_installer() {
   local version="$1"
   local output_path="$2"
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
-  FAKE_FLEETNODE_ACTIVE="${FAKE_FLEETNODE_ACTIVE:-1}" \
+  FAKE_FLEETNODE_ACTIVE_STATE="${FAKE_FLEETNODE_ACTIVE_STATE:-active}" \
   FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
   FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
   FAKE_ACCOUNT_DB="$ACCOUNT_DB" \
@@ -439,8 +439,8 @@ if grep -Fq '# candidate unit v1.3.0' "$ROOT_PREFIX/etc/systemd/system/fleet-nod
 fi
 [[ "$(grep -Fc 'start fleet-node.service' "$SYSTEMCTL_LOG")" == "2" ]] || \
   fail "failed upgrade did not start the candidate and then restart the previous service"
-[[ "$(grep -E '^(is-active --quiet|stop|start) fleet-node.service$' "$SYSTEMCTL_LOG")" == \
-  $'is-active --quiet fleet-node.service\nstop fleet-node.service\nstart fleet-node.service\nstop fleet-node.service\nstart fleet-node.service' ]] || \
+[[ "$(grep -E '^(show --property=ActiveState --value|stop|start) fleet-node.service$' "$SYSTEMCTL_LOG")" == \
+  $'show --property=ActiveState --value fleet-node.service\nstop fleet-node.service\nstart fleet-node.service\nstop fleet-node.service\nstart fleet-node.service' ]] || \
   fail "failed upgrade did not stop the candidate before restarting the previous service"
 
 : > "$SYSTEMCTL_LOG"
@@ -551,10 +551,24 @@ assert_file_contains "$TEST_DIR/purge.out" "Usage: install-fleet-node.sh VERSION
 [[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "rejected purge removed state"
 
 : > "$SYSTEMCTL_LOG"
-FAKE_FLEETNODE_ACTIVE=0 run_installer v1.3.0
+if FAKE_FLEETNODE_ACTIVE_STATE=activating \
+    run_installer v1.3.0 > "$TEST_DIR/activating-upgrade.out" 2>&1; then
+  fail "installer accepted an upgrade while the service was activating"
+fi
+assert_file_contains "$TEST_DIR/activating-upgrade.out" "cannot upgrade Fleet Node while service is activating"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+if grep -Fq '# candidate unit v1.3.0' "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"; then
+  fail "activating upgrade replaced the Fleet Node systemd unit"
+fi
+if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
+  fail "activating upgrade changed the Fleet Node service state"
+fi
+
+: > "$SYSTEMCTL_LOG"
+FAKE_FLEETNODE_ACTIVE_STATE=inactive run_installer v1.3.0
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.3.0"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "# candidate unit v1.3.0"
-assert_file_contains "$SYSTEMCTL_LOG" "is-active --quiet fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "show --property=ActiveState --value fleet-node.service"
 if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
   fail "inactive upgrade changed the Fleet Node service state"
 fi
