@@ -10,6 +10,8 @@ import type {
   TelemetryLevel,
   TimeSeriesQuery,
 } from "../types";
+import { mapWithConcurrency } from "../utils/async";
+import { parseIsoDurationMs } from "../utils/time";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
@@ -39,6 +41,7 @@ import type { PoolInfo } from "@/shared/types/pool";
 export type MdkV2Client = InstanceType<typeof Api>["api"];
 
 const ACTOR = "proto-os";
+const DEFAULT_DEVICE_ID = "ct1";
 const HASHBOARD_CONCURRENCY = 8;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
@@ -46,17 +49,10 @@ const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeri
   power: "TIME_SERIES_METRIC_POWER",
 };
 
-const durationMs = (duration: string | undefined) => {
-  if (!duration) return undefined;
-  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
-  if (!match) return undefined;
-  return (Number(match[1] ?? 0) * 3_600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
-};
-
 const bucketConfig = (
   interval: string | undefined,
 ): { size: TelemetryServiceQueryTimeSeriesParams["bucketSize"]; intervalMs: number } => {
-  switch (durationMs(interval)) {
+  switch (parseIsoDurationMs(interval)) {
     case 60_000:
       return { size: "BUCKET_SIZE_1M", intervalMs: 60_000 };
     case 5 * 60_000:
@@ -98,6 +94,8 @@ const toWireModuleId = (value: string) => {
   return markerIndex === -1 ? value : value.slice(markerIndex + marker.length);
 };
 
+const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
+
 const toWirePerformanceMode = (value: MiningTargetUpdate["performanceMode"]) =>
   value === "maximumHashrate"
     ? V2PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE
@@ -112,28 +110,18 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
   throw new Error(`Unknown CT1 PLL algorithm: ${value}`);
 };
 
-const mapWithConcurrency = async <T, R>(values: T[], limit: number, map: (value: T) => Promise<R>): Promise<R[]> => {
-  const results = new Array<R>(values.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < values.length) {
-      const index = next;
-      next += 1;
-      results[index] = await map(values[index]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
-  return results;
-};
-
 export class MdkV2Ct1Adapter implements MinerAdapter {
-  private deviceId: string;
+  private deviceId: string | undefined;
 
   constructor(
     private readonly client: MdkV2Client,
     match: AdapterProbeMatch = {},
   ) {
-    this.deviceId = match.deviceId ?? "ct1";
+    this.deviceId = match.deviceId;
+  }
+
+  private containerDeviceId(context?: { deviceId: string }) {
+    return this.deviceId ?? (context ? toWireDeviceId(context.deviceId) : DEFAULT_DEVICE_ID);
   }
 
   decorate(params: AdapterRequestOptions = {}): AdapterRequestOptions {
@@ -167,7 +155,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
 
   async getMiningStatus(params: AdapterRequestOptions = {}) {
     const { data: wire } = await this.client.miningServiceGetMiningStatus(this.decorate(params));
-    return toCanonicalOperationalStatus(wire, ct1ContainerId(this.deviceId));
+    return toCanonicalOperationalStatus(wire, ct1ContainerId(this.containerDeviceId()));
   }
 
   async getErrors() {
@@ -271,7 +259,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
     params: AdapterRequestOptions = {},
   ) {
-    return this.containerState(this.deviceId || context.deviceId, params);
+    return this.containerState(this.containerDeviceId(context), params);
   }
 
   async getHashboards(params: AdapterRequestOptions = {}) {
@@ -306,14 +294,14 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
 
   async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
     if (!levels.length || levels.some((level) => level !== "miner")) {
-      return (await this.containerState(this.deviceId, params)).telemetry;
+      return (await this.containerState(this.containerDeviceId(), params)).telemetry;
     }
     const decorated = this.decorate(params);
     const [status, telemetry] = await Promise.all([
       this.client.miningServiceGetMiningStatus(decorated),
       this.client.telemetryServiceGetContainerHealth(decorated),
     ]);
-    return toCanonicalContainerTelemetry(status.data, telemetry.data, this.deviceId);
+    return toCanonicalContainerTelemetry(status.data, telemetry.data, this.containerDeviceId());
   }
 
   async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
@@ -338,7 +326,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
 
     const startMs = Date.parse(request.startTime);
     if (Number.isNaN(startMs)) throw new Error(`Invalid CT1 time-series start time: ${request.startTime}`);
-    const windowMs = durationMs(request.duration);
+    const windowMs = parseIsoDurationMs(request.duration);
     if (request.duration && windowMs === undefined) {
       throw new Error(`Invalid CT1 time-series duration: ${request.duration}`);
     }
@@ -386,7 +374,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     }
     return toCanonicalContainerTimeSeries(
       containerResponses,
-      this.deviceId,
+      this.containerDeviceId(),
       bucket.intervalMs,
       aggregation as "mean" | "avg" | "min" | "max",
       hashboardResponses,
@@ -395,7 +383,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.telemetryServiceGetContainerHealth(this.decorate(params));
-    return { mode: "unknown" as CoolingMode, fans: toCanonicalContainerFans(response.data, this.deviceId) };
+    return { mode: "unknown" as CoolingMode, fans: toCanonicalContainerFans(response.data, this.containerDeviceId()) };
   }
 
   async setCoolingMode() {

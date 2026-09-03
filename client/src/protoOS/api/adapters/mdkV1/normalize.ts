@@ -1,4 +1,5 @@
 import type { AsicTelemetrySample, HashboardStatus } from "../types";
+import { parseIsoDurationMs } from "../utils/time";
 import type {
   CoolingConfig,
   CoolingStatusCoolingstatus,
@@ -595,12 +596,9 @@ export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
   return state;
 };
 
-const parseDurationMs = (duration: string | undefined): number | undefined => {
-  if (!duration) return undefined;
-  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
-  if (!match) return undefined;
-  const durationMs = (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
-  return durationMs > 0 ? durationMs : undefined;
+const parsePositiveDurationMs = (duration: string | undefined): number | undefined => {
+  const durationMs = parseIsoDurationMs(duration);
+  return durationMs && durationMs > 0 ? durationMs : undefined;
 };
 
 const toCanonicalSeries = (
@@ -652,7 +650,7 @@ export const toCanonicalTimeSeries = (
   const state = createEmptyTelemetryState();
   const responseStartTimeMs = Date.parse(wire.meta?.start_time ?? "");
   const safeStartTimeMs = Number.isNaN(responseStartTimeMs) ? (options.startTimeMs ?? Date.now()) : responseStartTimeMs;
-  const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? parseDurationMs(options.interval);
+  const bucketSizeMs = parsePositiveDurationMs(wire.meta?.interval) ?? parsePositiveDurationMs(options.interval);
   if (bucketSizeMs === undefined)
     throw new Error("MDK v1 time-series response did not provide a valid positive interval");
   state.resourceByScope.set(asResourceKey("telemetry:history:module:root"), ready());

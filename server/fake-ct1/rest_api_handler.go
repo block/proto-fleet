@@ -846,12 +846,12 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	metric := query.Get("metric")
-	start, err := time.Parse(time.RFC3339, query.Get("range.start"))
+	start, err := time.Parse(time.RFC3339Nano, query.Get("range.start"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "range.start must be an RFC3339 timestamp")
 		return
 	}
-	end, err := time.Parse(time.RFC3339, query.Get("range.end"))
+	end, err := time.Parse(time.RFC3339Nano, query.Get("range.end"))
 	if err != nil || !end.After(start) {
 		writeError(w, http.StatusBadRequest, "range.end must be after range.start")
 		return

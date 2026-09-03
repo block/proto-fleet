@@ -33,6 +33,7 @@ import {
   type HashboardHardware,
   type HashboardId,
   type HashboardNode,
+  type HashboardTelemetry,
   type HealthState,
   type LevelRollup,
   type Measurement,
@@ -76,6 +77,8 @@ const numeric = (value: string | number | undefined): number | undefined => {
 };
 const latest = <U extends Measurement["units"]>(value: number | undefined, units: U) =>
   value === undefined ? undefined : { latest: { value, units } };
+const average = (values: number[]) =>
+  values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
 
 export const ct1DeviceId = (value: string | undefined) => asDeviceId(`device:${value || "ct1"}`);
 export const ct1ContainerId = (value: string | undefined) => asContainerId(`container:${value || "ct1"}`);
@@ -283,7 +286,7 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     hashrate: latest(hashrate, "TH/s"),
     power: latest(power, "W"),
     efficiency: latest(hashrate > 0 ? power / hashrate : undefined, "J/TH"),
-    temperature: latest(temps.length ? temps.reduce((sum, value) => sum + value, 0) / temps.length : undefined, "°C"),
+    temperature: latest(average(temps), "°C"),
     miningStatus: onlineBoardCount === 0 ? "stopped" : onlineBoardCount === boards.length ? "mining" : "degradedMining",
     health:
       boards.length === 0
@@ -302,6 +305,34 @@ const boardRollup = (boards: BoardEntry[]): LevelRollup => {
     powerCoverage: { kind: "hashboardOnly", includesNonHashboardLoads: false, methods: ["topologyMapping"] },
   };
 };
+
+const groupBoards = <K>(boards: BoardEntry[], key: (entry: BoardEntry) => K) => {
+  const grouped = new Map<K, BoardEntry[]>();
+  for (const entry of boards) {
+    const groupKey = key(entry);
+    const entries = grouped.get(groupKey);
+    if (entries) {
+      entries.push(entry);
+    } else {
+      grouped.set(groupKey, [entry]);
+    }
+  }
+  return grouped;
+};
+
+const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
+  hashboardId: entry.hashboardId,
+  hashrate: latest(entry.board.health?.hashrate, "TH/s"),
+  power: latest(entry.board.health?.power, "W"),
+  efficiency: latest(
+    entry.board.health?.hashrate && entry.board.health.power
+      ? entry.board.health.power / entry.board.health.hashrate
+      : undefined,
+    "J/TH",
+  ),
+  temperature: latest(average(entry.board.health?.temperatures ?? []), "°C"),
+  averageAsicTemperature: latest(entry.board.health?.averageAsicTemperatureC, "°C"),
+});
 
 const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse) => {
   const owner = { kind: "container" as const, id: asContainerId(containerId) };
@@ -477,6 +508,8 @@ export const toCanonicalContainer = (
   }
 
   const plant = plantComponents(containerId, telemetryWire);
+  const boardsByTank = groupBoards(boards, (entry) => entry.tankId);
+  const boardsByModule = groupBoards(boards, (entry) => entry.moduleId);
   const hardware: HardwareState = {
     resource: ready(),
     topology: {
@@ -528,29 +561,13 @@ export const toCanonicalContainer = (
   // container/tank entities directly.
   telemetry.rollupsByEntity.set(ROOT_MODULE_KEY, containerRollup);
   for (const [id] of tanks) {
-    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boards.filter((entry) => entry.tankId === id)));
+    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByTank.get(id) ?? []));
   }
   for (const [id] of modules) {
-    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boards.filter((entry) => entry.moduleId === id)));
+    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByModule.get(id) ?? []));
   }
   for (const entry of boards) {
-    const temperatures = entry.board.health?.temperatures ?? [];
-    telemetry.hashboards.set(entry.hashboardId, {
-      hashboardId: entry.hashboardId,
-      hashrate: latest(entry.board.health?.hashrate, "TH/s"),
-      power: latest(entry.board.health?.power, "W"),
-      efficiency: latest(
-        entry.board.health?.hashrate && entry.board.health.power
-          ? entry.board.health.power / entry.board.health.hashrate
-          : undefined,
-        "J/TH",
-      ),
-      temperature: latest(
-        temperatures.length ? temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length : undefined,
-        "°C",
-      ),
-      averageAsicTemperature: latest(entry.board.health?.averageAsicTemperatureC, "°C"),
-    });
+    telemetry.hashboards.set(entry.hashboardId, toHashboardTelemetry(entry));
   }
   return { hardware, telemetry };
 };

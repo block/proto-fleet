@@ -26,6 +26,22 @@ describe("MdkV2Ct1Adapter", () => {
     });
   });
 
+  test("uses the canonical context device id without double-prefixing when no probe id was reported", async () => {
+    const adapter = new MdkV2Ct1Adapter(
+      client({
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: { containerMap: { tanks: [] } } }),
+        miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: {} }),
+        telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: { timestamp: "2026-09-02T12:00:00Z" } }),
+      }),
+    );
+
+    const { hardware } = await adapter.getHardware({ deviceId: "device:ct1-context", profile: "ct1" });
+
+    if (hardware.topology?.kind !== "container") throw new Error("expected container topology");
+    expect(hardware.topology.deviceId).toBe("device:ct1-context");
+    expect(hardware.topology.containerId).toBe("container:ct1-context");
+  });
+
   test("forwards scoped power and module-voltage writes with actor attribution", async () => {
     const setScopedPower = vi.fn().mockResolvedValue(undefined);
     const setModuleFixedVoltage = vi.fn().mockResolvedValue(undefined);

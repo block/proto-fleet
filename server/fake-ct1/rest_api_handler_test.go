@@ -272,6 +272,12 @@ func TestTimeSeries(t *testing.T) {
 		t.Fatalf("unexpected time-series response: unit=%q avg=%f", response.Unit, response.Buckets[0].Avg)
 	}
 
+	var fractionalTimestampResponse timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00.000Z&range.end=2026-09-02T12:00:00.000Z&bucketSize=BUCKET_SIZE_5M", &fractionalTimestampResponse)
+	if len(fractionalTimestampResponse.Buckets) != 12 {
+		t.Fatalf("fractional timestamp buckets = %d, want 12", len(fractionalTimestampResponse.Buckets))
+	}
+
 	var boardResponse timeSeriesResponse
 	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M&identifier="+state.eachBoard()[0].MAC, &boardResponse)
 	if boardResponse.Buckets[0].Avg >= response.Buckets[0].Avg {
