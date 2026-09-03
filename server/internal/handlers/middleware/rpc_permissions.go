@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -322,6 +323,23 @@ var ProcedurePermissions = map[string]string{
 	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
+
+	// RolloutService — release channels exist solely to drive firmware
+	// updates, so every RPC (including reads) sits on the firmware-update
+	// permission; the handler re-checks it.
+	rolloutv1connect.RolloutServiceListReleaseChannelsProcedure:            authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCreateReleaseChannelProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceUpdateReleaseChannelProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceDeleteReleaseChannelProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePreviewReleaseChannelScopeProcedure:     authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceApplyReleaseChannelFirmwareProcedure:    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceRollbackReleaseChannelFirmwareProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutsProcedure:                   authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceContinueRolloutProcedure:                authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePauseRolloutProcedure:                   authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceResumeRolloutProcedure:                  authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCancelRolloutProcedure:                  authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceRetryFailedRolloutDevicesProcedure:      authz.PermMinerFirmwareUpdate,
 
 	// ScheduleService — recurring miner actions. CreateSchedule and
 	// UpdateSchedule additionally re-check the underlying miner action
