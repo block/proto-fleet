@@ -99,6 +99,7 @@ interface ReleaseChannelManageViewProps {
   previewScope: (scope: ReleaseChannelScope, channelId?: bigint) => Promise<PreviewReleaseChannelScopeResponse>;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onDelete?: (channel: ReleaseChannel) => void;
+  onShowHistory?: (channel: ReleaseChannel) => void;
   onApply: (channelId: bigint, assignments: { model: string; firmwareFileId: string }[]) => Promise<void>;
 }
 
@@ -113,6 +114,7 @@ const ReleaseChannelManageView = ({
   previewScope,
   onSave,
   onDelete,
+  onShowHistory,
   onApply,
 }: ReleaseChannelManageViewProps) => {
   // The draft is seeded once from the channel; the parent remounts this
@@ -225,6 +227,15 @@ const ReleaseChannelManageView = ({
           ) : null}
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
+          {channel && onShowHistory ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="History"
+              onClick={() => onShowHistory(channel)}
+              testId="channel-history"
+            />
+          ) : null}
           {channel && onDelete ? (
             <Button
               variant={variants.danger}

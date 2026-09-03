@@ -16,6 +16,7 @@ import {
   singleBatchBehavior,
 } from "./ReleaseChannels.fixtures";
 import {
+  activeUpdateSummary,
   channelUpdateStatus,
   metricDisplay,
   modelFirmwareLabel,
@@ -105,6 +106,13 @@ describe("device counts and progress", () => {
   it("scopes counts to the batch under review", () => {
     expect(scopeCounts(gatedRigRollout)).toMatchObject({ updated: 2, total: 2, percent: 100 });
     expect(scopeCounts(activeRigRollout)).toMatchObject({ updated: 2, total: 6 });
+  });
+
+  it("summarizes an active update for banners and the header pill", () => {
+    expect(activeUpdateSummary(activeRigRollout)).toBe("2 of 6 miners updated");
+    expect(activeUpdateSummary(gatedRigRollout)).toBe("2 of 6 miners updated, Pilot batch review");
+    expect(activeUpdateSummary(batchedRigRollout)).toBe("3 of 6 miners updated, 1 failed, Batch review");
+    expect(activeUpdateSummary(pausedRigRollout)).toBe("2 of 6 miners updated, Paused");
   });
 
   it("flags rollouts that need a human", () => {
