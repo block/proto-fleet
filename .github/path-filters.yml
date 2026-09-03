@@ -7,7 +7,7 @@ global: &global
   - .github/actions/**
   - .github/workflows/**
   - .github/*.{yml,yaml}
-  - .github/copilot-instructions.md
+  - .github/skills/**
   - bin/**
   - hermit-packages/**
   - just/**
