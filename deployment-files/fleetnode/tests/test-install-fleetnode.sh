@@ -343,6 +343,22 @@ mkdir -p "$ROOT_PREFIX/opt"
 chmod 0711 "$ROOT_PREFIX/opt"
 chmod 0751 "$ROOT_PREFIX/etc/systemd/system"
 printf 'legacy unit\n' > "$ROOT_PREFIX/etc/systemd/system/fleetnode.service"
+
+: > "$SYSTEMCTL_LOG"
+printf '# incomplete installation\n' > "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+if CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_LOAD_STATE=loaded \
+    run_installer v1.0.0 > "$TEST_DIR/active-partial-install.out" 2>&1; then
+  fail "installer accepted an active incomplete installation"
+fi
+assert_file_contains "$TEST_DIR/active-partial-install.out" \
+  "cannot install Fleet Node over an incomplete installation while service is active"
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "active partial install created the Fleet Node payload"
+assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "# incomplete installation"
+if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
+  fail "active partial install changed the Fleet Node service state"
+fi
+rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+
 CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
 
 [[ "$(file_mode "$ROOT_PREFIX/opt")" == "711" ]] || fail "installer changed /opt mode"
@@ -381,19 +397,6 @@ fi
 if grep -Fq 'install-fleet-node.sh' "$SUDO_LOG"; then
   fail "installer asked sudo to rerun the whole script"
 fi
-
-: > "$SYSTEMCTL_LOG"
-rm -f "$ROOT_PREFIX/opt/fleetnode/fleetnode"
-printf '# incomplete installation\n' >> "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
-FAKE_FLEETNODE_LOAD_STATE=loaded run_installer v1.0.0
-[[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "partial install did not restore the Fleet Node binary"
-if grep -Fq '# incomplete installation' "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"; then
-  fail "partial install did not replace the Fleet Node systemd unit"
-fi
-assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
-assert_file_contains "$SYSTEMCTL_LOG" "show --property=LoadState --value fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
-assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 
 printf 'operator config\n' > "$ROOT_PREFIX/etc/fleetnode/config.yaml"
 printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"

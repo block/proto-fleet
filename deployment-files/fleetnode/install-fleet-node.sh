@@ -474,7 +474,19 @@ if [[ "$fresh_install" == "1" ]]; then
     exit 1
   }
   case "$load_state" in
-    loaded) fresh_install=0 ;;
+    loaded)
+      active_state=$(as_root "$SYSTEMCTL" show --property=ActiveState --value fleet-node.service) || {
+        echo "cannot inspect Fleet Node systemd active state" >&2
+        exit 1
+      }
+      case "$active_state" in
+        inactive|failed) ;;
+        *)
+          echo "cannot install Fleet Node over an incomplete installation while service is ${active_state:-unknown}" >&2
+          exit 1
+          ;;
+      esac
+      ;;
     not-found) ;;
     *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; exit 1 ;;
   esac
