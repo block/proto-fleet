@@ -659,6 +659,33 @@ FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
 [[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "uninstall removed the service account"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+run_installer v1.3.0
+rm -f "$ROOT_PREFIX/opt/fleetnode/fleetnode-enroll"
+printf 'unrelated helper\n' > "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+
+: > "$SYSTEMCTL_LOG"
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "damaged uninstall retained the program"
+[[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "damaged uninstall retained the unit"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "unrelated helper"
+[[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "damaged uninstall removed configuration"
+[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "damaged uninstall removed state"
+[[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "damaged uninstall removed the service account"
+
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+run_installer v1.3.0
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+printf 'unrelated helper target\n' > "$TEST_DIR/unrelated-fleetnode-enroll"
+ln -s "$TEST_DIR/unrelated-fleetnode-enroll" "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+
+: > "$SYSTEMCTL_LOG"
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "symlink-helper uninstall retained the program"
+[[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "symlink-helper uninstall retained the unit"
+[[ -L "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" ]] || fail "uninstall removed an unmanaged helper symlink"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "unrelated helper target"
+
 : > "$SYSTEMCTL_LOG"
 mkdir -p "$ROOT_PREFIX/etc/systemd/system/multi-user.target.wants"
 ln -s "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" \
