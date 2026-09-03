@@ -1,8 +1,9 @@
 ---
 title: "Extended Codex security review timeout benchmark"
 date: 2026-09-03
-status: proposed
+status: implementing
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/1007
 ---
 
 # Extended Codex security review timeout benchmark
