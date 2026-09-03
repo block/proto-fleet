@@ -147,6 +147,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	var runErr error
 	if err := bootstrap.WithStateLock(c.StateDir, func() error {
 		runErr = r.runLocked(ctx, c, resolvedPluginsDir, logger)
+		// Keep runLocked's exit classification separate from lock acquisition errors.
 		return nil
 	}); err != nil {
 		return operatorActionRequired(err)
@@ -335,7 +336,13 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	// stall the control loop's token reads.
 	next := *st
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
-		return err
+		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
+			return err
+		}
+		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", st.FleetNodeID, "err", err)
+		if err := bootstrap.Refresh(ctx, &next); err != nil {
+			return err
+		}
 	}
 	r.stateMu.Lock()
 	st.SessionToken = next.SessionToken
@@ -369,6 +376,8 @@ func isRetryableRefreshError(err error) bool {
 		code == connect.CodeResourceExhausted ||
 		code == connect.CodeAborted ||
 		code == connect.CodeInternal ||
+		code == connect.CodeUnknown ||
+		code == connect.CodeUnimplemented ||
 		code == connect.CodeUnavailable
 }
 

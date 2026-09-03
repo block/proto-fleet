@@ -226,6 +226,8 @@ func TestIsRetryableRefreshError(t *testing.T) {
 		{name: "connect resource exhausted", err: connect.NewError(connect.CodeResourceExhausted, errors.New("resource exhausted")), retryable: true},
 		{name: "connect aborted", err: connect.NewError(connect.CodeAborted, errors.New("aborted")), retryable: true},
 		{name: "connect internal", err: connect.NewError(connect.CodeInternal, errors.New("internal")), retryable: true},
+		{name: "connect unknown", err: connect.NewError(connect.CodeUnknown, errors.New("unknown")), retryable: true},
+		{name: "connect unimplemented", err: connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented")), retryable: true},
 		{name: "wrapped connect unavailable", err: fmt.Errorf("refresh: %w", connect.NewError(connect.CodeUnavailable, errors.New("unavailable"))), retryable: true},
 		{name: "connect unauthenticated", err: connect.NewError(connect.CodeUnauthenticated, errors.New("unauthenticated")), retryable: false},
 		{name: "connect invalid argument", err: connect.NewError(connect.CodeInvalidArgument, errors.New("invalid argument")), retryable: false},
@@ -297,6 +299,82 @@ func TestRunCmd_StateSaveFailureRequiresOperatorAction(t *testing.T) {
 	require.Error(t, err)
 	requireOperatorActionExit(t, err)
 	assert.Contains(t, err.Error(), "save state after refresh")
+}
+
+func TestRunCmd_RefreshRetriesOneCompleteAuthRejection(t *testing.T) {
+	t.Parallel()
+
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey:   "fleet_known_key",
+		identityPub:      pubKey,
+		challenge:        bytes.Repeat([]byte{0x36}, 32),
+		sessionToken:     "session-2",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour),
+		completeAuthResponder: func(call int) error {
+			if call == 1 {
+				return connect.NewError(connect.CodeUnauthenticated, errors.New("expired challenge"))
+			}
+			return nil
+		},
+	}
+	srv := newFakeServer(t, fake)
+	state := &bootstrap.State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-1",
+		SessionExpiresAt:       time.Now().Add(30 * time.Minute),
+	}
+	statePath := bootstrap.StatePath(t.TempDir())
+	cmd := &RunCmd{}
+
+	err = cmd.refreshAndSave(t.Context(), state, statePath, discardLogger(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, fake.completeAuthCount())
+	assert.Equal(t, "session-2", state.SessionToken)
+}
+
+func TestRunCmd_RepeatedCompleteAuthRejectionRequiresOperatorAction(t *testing.T) {
+	t.Parallel()
+
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey:   "fleet_known_key",
+		identityPub:      pubKey,
+		challenge:        bytes.Repeat([]byte{0x37}, 32),
+		sessionToken:     "session-2",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour),
+		completeAuthResponder: func(int) error {
+			return connect.NewError(connect.CodeUnauthenticated, errors.New("expired challenge"))
+		},
+	}
+	srv := newFakeServer(t, fake)
+	state := &bootstrap.State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-1",
+		SessionExpiresAt:       time.Now().Add(30 * time.Minute),
+	}
+	cmd := &RunCmd{now: func() time.Time { return time.Now().UTC() }}
+
+	err = cmd.tick(t.Context(), &stubGatewayClient{}, state, bootstrap.StatePath(t.TempDir()), discardLogger(t))
+
+	require.Error(t, err)
+	requireOperatorActionExit(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	assert.Equal(t, 2, fake.completeAuthCount())
+	assert.Equal(t, "session-1", state.SessionToken)
 }
 
 func TestRunLocked_PluginBootstrapFailureRemainsRetryable(t *testing.T) {

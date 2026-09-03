@@ -2,6 +2,7 @@ package main
 
 import "errors"
 
+// EX_CONFIG; keep in sync with RestartPreventExitStatus in deployment-files/fleetnode/fleet-node.service.
 const operatorActionExitCode = 78
 
 type operatorActionError struct {

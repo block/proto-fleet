@@ -174,6 +174,9 @@ cleanup() {
     rollback_failed=1
   }
   if [[ "$install_complete" != "1" ]]; then
+    if [[ "$service_stopped" == "1" ]]; then
+      as_root "$SYSTEMCTL" stop fleet-node.service || rollback_error "stop candidate Fleet Node service"
+    fi
     if [[ "$unit_replaced" == "1" ]]; then
       if [[ -f "$unit_backup" ]]; then
         as_root install -m 0644 "$unit_backup" "$UNIT_PATH" || rollback_error "restore previous systemd unit"
@@ -275,8 +278,10 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
 fi
 
 if [[ "$fresh_install" == "0" ]]; then
-  as_root "$SYSTEMCTL" stop fleet-node.service
-  service_stopped=1
+  if as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
+    as_root "$SYSTEMCTL" stop fleet-node.service
+    service_stopped=1
+  fi
 fi
 
 as_root install -d -m 0755 "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}"
@@ -332,7 +337,9 @@ else
   # Type=notify keeps this call blocked until Fleet Node finishes local
   # initialization and reports READY=1, so the previous payload remains
   # available to the EXIT trap until the candidate is actually runnable.
-  as_root "$SYSTEMCTL" start fleet-node.service
+  if [[ "$service_stopped" == "1" ]]; then
+    as_root "$SYSTEMCTL" start fleet-node.service
+  fi
 fi
 
 install_complete=1
