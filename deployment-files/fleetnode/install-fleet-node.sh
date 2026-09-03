@@ -8,6 +8,8 @@ LINUX_SERVICE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 USE_SUDO=0
 INSTALL_LOCK_PID=""
 INSTALL_LOCK_RELEASE_PATH=""
+ACTION=install
+VERSION=""
 
 if [[ "$TEST_MODE" != "1" ]]; then
   PATH="$LINUX_SERVICE_PATH"
@@ -17,9 +19,13 @@ fi
 usage() {
   cat <<'EOF'
 Usage: install-fleet-node.sh VERSION
+       install-fleet-node.sh uninstall
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
+
+uninstall removes the program and systemd unit while preserving configuration,
+state, and the service account.
 
 The installer leaves a fresh installation stopped and disabled at boot. After
 installation, enroll the node and then enable and start the service.
@@ -30,16 +36,21 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
-if [[ $# -ne 1 ]]; then
-  usage >&2
-  exit 2
-fi
-VERSION="$1"
-
-if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == "latest" ]]; then
-  echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
-  exit 2
-fi
+case "${1:-}" in
+  uninstall)
+    ACTION=uninstall
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    ;;
+  "") usage >&2; exit 2 ;;
+  *)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    VERSION="$1"
+    if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == "latest" ]]; then
+      echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
+      exit 2
+    fi
+    ;;
+esac
 if [[ "$TEST_MODE" != "1" ]]; then
   if [[ -n "$ROOT_PREFIX" || -n "${FLEETNODE_ARCH:-}" || -n "$DOWNLOAD_BASE_URL" || -n "${FLEETNODE_SYSTEMCTL:-}" ]]; then
     echo "Fleet Node installer overrides are restricted to automated tests" >&2
@@ -63,11 +74,13 @@ as_root() {
   fi
 }
 
-case "${FLEETNODE_ARCH:-$(uname -m)}" in
-  x86_64|amd64) ARCH=amd64 ;;
-  aarch64|arm64) ARCH=arm64 ;;
-  *) echo "unsupported Linux architecture: ${FLEETNODE_ARCH:-$(uname -m)}" >&2; exit 1 ;;
-esac
+if [[ "$ACTION" == "install" ]]; then
+  case "${FLEETNODE_ARCH:-$(uname -m)}" in
+    x86_64|amd64) ARCH=amd64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *) echo "unsupported Linux architecture: ${FLEETNODE_ARCH:-$(uname -m)}" >&2; exit 1 ;;
+  esac
+fi
 
 if [[ "$TEST_MODE" == "1" ]]; then
   [[ -n "$ROOT_PREFIX" && "$ROOT_PREFIX" == /* && "$ROOT_PREFIX" != "/" ]] || {
@@ -83,45 +96,176 @@ UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleet-node.service"
 INSTALL_LOCK_DIR="${ROOT_PREFIX}/run/proto-fleet"
 INSTALL_LOCK_PATH="$INSTALL_LOCK_DIR/fleetnode-installer.lock"
 SYSTEMCTL="${FLEETNODE_SYSTEMCTL:-systemctl}"
-ARCHIVE_ROOT="fleetnode-${VERSION}-linux-${ARCH}"
-ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
-if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+ARCHIVE_ROOT=""
+ARCHIVE_NAME=""
+if [[ "$ACTION" == "install" ]]; then
+  ARCHIVE_ROOT="fleetnode-${VERSION}-linux-${ARCH}"
+  ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
+fi
+if [[ "$ACTION" == "install" && -z "$DOWNLOAD_BASE_URL" ]]; then
   DOWNLOAD_BASE_URL="https://github.com/block/proto-fleet/releases/download/${VERSION}"
 fi
 
-for command in curl sha256sum tar install flock "$SYSTEMCTL"; do
+for command in install flock "$SYSTEMCTL"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
+if [[ "$ACTION" == "install" ]]; then
+  for command in curl sha256sum tar; do
+    command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
+  done
+fi
 if [[ "$TEST_MODE" != "1" && ! -x /usr/bin/env ]]; then
   echo "required command not found: /usr/bin/env" >&2
   exit 1
 fi
-if ! command -v nmap >/dev/null 2>&1; then
+if [[ "$ACTION" == "install" ]] && ! command -v nmap >/dev/null 2>&1; then
   echo "required command not found: nmap; install nmap in the Fleet Node service PATH ($LINUX_SERVICE_PATH)" >&2
   exit 1
 fi
-if [[ "$TEST_MODE" != "1" ]]; then
-  for command in getent useradd nologin; do
+if [[ "$TEST_MODE" != "1" && "$ACTION" == "install" ]]; then
+  for command in getent id nologin runuser useradd; do
     command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
   done
 fi
 
-for path in "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
+SYSTEMD_RUNTIME_DIR="${ROOT_PREFIX}/run/systemd/system"
+if [[ ! -d "$SYSTEMD_RUNTIME_DIR" || -L "$SYSTEMD_RUNTIME_DIR" ]]; then
+  echo "Fleet Node installation requires a running systemd system manager" >&2
+  exit 1
+fi
+if ! as_root "$SYSTEMCTL" show --property=Version --value >/dev/null 2>&1; then
+  echo "Fleet Node installation requires a running systemd system manager" >&2
+  exit 1
+fi
+
+for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
   if [[ -L "$path" ]]; then
+    if [[ "$ACTION" == "uninstall" && "$path" == "$UNIT_PATH" && "$path" -ef /dev/null ]]; then
+      continue
+    fi
     echo "refusing to install through symlink: $path" >&2
     exit 1
   fi
 done
-if [[ -e "$PROGRAM_DIR" && ! -d "$PROGRAM_DIR" ]]; then
-  echo "program path exists but is not a directory: $PROGRAM_DIR" >&2
-  exit 1
+for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR"; do
+  if [[ -e "$path" && ! -d "$path" ]]; then
+    echo "directory path exists but is not a directory: $path" >&2
+    exit 1
+  fi
+done
+
+ensure_shared_directory() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    [[ -d "$path" && ! -L "$path" ]] || { echo "shared path is not a directory: $path" >&2; return 1; }
+    return
+  fi
+  if [[ "$TEST_MODE" == "1" ]]; then
+    as_root install -d -m 0755 "$path"
+  else
+    as_root install -d -o root -g root -m 0755 "$path"
+  fi
+}
+
+group_record=""
+passwd_record=""
+account_uid=""
+
+load_service_account() {
+  passwd_record=""
+  group_record=""
+  if getent passwd fleetnode >/dev/null 2>&1; then
+    passwd_record=$(getent passwd fleetnode)
+  fi
+  if getent group fleetnode >/dev/null 2>&1; then
+    group_record=$(getent group fleetnode)
+  fi
+}
+
+validate_group() {
+  [[ -n "$group_record" ]] || { echo "fleetnode user exists without a fleetnode group" >&2; return 1; }
+  local _name _password _uid _rest group_gid members member passwd_entries passwd_name passwd_gid
+  local -a group_members=()
+  IFS=: read -r _name _password group_gid members <<< "$group_record"
+  if [[ -n "$members" ]]; then
+    IFS=, read -ra group_members <<< "$members"
+    for member in "${group_members[@]}"; do
+      [[ "$member" == "fleetnode" ]] || {
+        echo "fleetnode group contains unrelated member: $member" >&2
+        return 1
+      }
+    done
+  fi
+
+  passwd_entries=$(getent passwd) || { echo "cannot inspect primary group ownership for fleetnode group" >&2; return 1; }
+  while IFS=: read -r passwd_name _password _uid passwd_gid _rest; do
+    if [[ "$passwd_gid" == "$group_gid" && "$passwd_name" != "fleetnode" ]]; then
+      echo "fleetnode group is the primary group for unrelated account: $passwd_name" >&2
+      return 1
+    fi
+  done <<< "$passwd_entries"
+}
+
+validate_service_account() {
+  load_service_account
+  [[ -n "$passwd_record" ]] || { echo "fleetnode account does not exist" >&2; return 1; }
+  validate_group
+
+  local _name _password primary_gid _gecos home shell group_gid groups group
+  IFS=: read -r _name _password account_uid primary_gid _gecos home shell <<< "$passwd_record"
+  IFS=: read -r _name _password group_gid _ <<< "$group_record"
+  [[ "$account_uid" != "0" ]] || { echo "fleetnode account must not be root" >&2; return 1; }
+  [[ "$primary_gid" == "$group_gid" ]] || { echo "fleetnode account must use the fleetnode group as its primary group" >&2; return 1; }
+  [[ "$home" == "/var/lib/fleetnode" ]] || { echo "fleetnode account must use home /var/lib/fleetnode" >&2; return 1; }
+  [[ "$shell" == "$(command -v nologin)" ]] || { echo "fleetnode account must use the system nologin shell" >&2; return 1; }
+  groups=$(id -nG fleetnode) || { echo "cannot inspect fleetnode group membership" >&2; return 1; }
+  for group in $groups; do
+    [[ "$group" == "fleetnode" ]] || { echo "fleetnode account belongs to unrelated group: $group" >&2; return 1; }
+  done
+  [[ " $groups " == *" fleetnode "* ]] || { echo "fleetnode account is not a member of fleetnode group" >&2; return 1; }
+}
+
+validate_existing_service_account() {
+  load_service_account
+  if [[ -n "$passwd_record" ]]; then
+    validate_service_account
+  elif [[ -n "$group_record" ]]; then
+    validate_group
+    local _name _password _gid members
+    IFS=: read -r _name _password _gid members <<< "$group_record"
+    [[ -z "$members" ]] || { echo "fleetnode group exists without its service account" >&2; return 1; }
+  elif [[ -e "$STATE_DIR" || -e "$CONFIG_DIR" ]]; then
+    echo "preserved Fleet Node data exists without the fleetnode service account" >&2
+    return 1
+  fi
+}
+
+validate_preserved_access() {
+  load_service_account
+  [[ -n "$passwd_record" ]] || return 0
+  if [[ -e "$STATE_DIR" ]]; then
+    [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || { echo "state path is not a directory: $STATE_DIR" >&2; return 1; }
+    as_root runuser -u fleetnode -- test -x "$STATE_DIR" && \
+      as_root runuser -u fleetnode -- test -w "$STATE_DIR" || {
+        echo "fleetnode cannot traverse and write preserved state directory: $STATE_DIR" >&2
+        return 1
+      }
+  fi
+  local path
+  for path in "$STATE_DIR/state.yaml" "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/fleetnode.env"; do
+    if [[ -e "$path" ]] && ! as_root runuser -u fleetnode -- test -r "$path"; then
+      echo "fleetnode cannot read preserved file: $path" >&2
+      return 1
+    fi
+  done
+}
+
+if [[ "$ACTION" == "install" ]]; then
+  validate_existing_service_account
+  validate_preserved_access
 fi
 
-if [[ "$TEST_MODE" == "1" ]]; then
-  as_root install -d -m 0755 "$INSTALL_LOCK_DIR"
-else
-  as_root install -d -o root -g root -m 0755 "$INSTALL_LOCK_DIR"
-fi
+ensure_shared_directory "$INSTALL_LOCK_DIR"
 as_root touch "$INSTALL_LOCK_PATH"
 if [[ "$TEST_MODE" != "1" ]]; then
   as_root chown root:root "$INSTALL_LOCK_PATH"
@@ -211,8 +355,53 @@ cleanup() {
 }
 trap cleanup EXIT
 
+remove_fleet_node() {
+  local load_state
+  load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd unit" >&2
+    return 1
+  }
+  case "$load_state" in
+    loaded) as_root "$SYSTEMCTL" stop fleet-node.service ;;
+    masked)
+      as_root "$SYSTEMCTL" stop fleet-node.service
+      as_root "$SYSTEMCTL" unmask fleet-node.service
+      ;;
+    not-found) ;;
+    *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
+  esac
+
+  as_root rm -rf "$PROGRAM_DIR"
+  as_root rm -f "${UNIT_PATH%/*}/multi-user.target.wants/fleet-node.service"
+  as_root rm -f "$UNIT_PATH"
+  as_root "$SYSTEMCTL" daemon-reload
+  as_root "$SYSTEMCTL" reset-failed fleet-node.service >/dev/null 2>&1 || true
+
+  echo "Fleet Node uninstalled. Preserved:"
+  echo "  $CONFIG_DIR"
+  echo "  $STATE_DIR"
+  echo "  fleetnode service account"
+}
+
+if [[ "$ACTION" == "uninstall" ]]; then
+  remove_fleet_node
+  install_complete=1
+  exit 0
+fi
+
 echo "Downloading Fleet Node $VERSION for linux/$ARCH..."
-curl_options=(--disable --fail --location --silent --show-error)
+curl_options=(
+  --disable
+  --fail
+  --location
+  --silent
+  --show-error
+  --connect-timeout 10
+  --max-time 300
+  --retry 3
+  --retry-delay 2
+  --retry-connrefused
+)
 if [[ "$TEST_MODE" != "1" ]]; then
   curl_options+=(--proto '=https' --proto-redir '=https')
 fi
@@ -277,26 +466,64 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
   exit 1
 fi
 
-if [[ "$fresh_install" == "0" ]]; then
-  if as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
-    as_root "$SYSTEMCTL" stop fleet-node.service
-    service_stopped=1
-  fi
+if [[ "$fresh_install" == "1" ]]; then
+  load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd unit load state" >&2
+    exit 1
+  }
+  case "$load_state" in
+    loaded)
+      active_state=$(as_root "$SYSTEMCTL" show --property=ActiveState --value fleet-node.service) || {
+        echo "cannot inspect Fleet Node systemd active state" >&2
+        exit 1
+      }
+      case "$active_state" in
+        inactive|failed) ;;
+        *)
+          echo "cannot install Fleet Node over an incomplete installation while service is ${active_state:-unknown}" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    not-found) ;;
+    *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; exit 1 ;;
+  esac
 fi
 
-as_root install -d -m 0755 "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}"
+if [[ "$fresh_install" == "0" ]]; then
+  active_state=$(as_root "$SYSTEMCTL" show --property=ActiveState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd active state" >&2
+    exit 1
+  }
+  case "$active_state" in
+    active)
+      as_root "$SYSTEMCTL" stop fleet-node.service
+      service_stopped=1
+      ;;
+    inactive|failed) ;;
+    *)
+      echo "cannot upgrade Fleet Node while service is ${active_state:-unknown}" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+ensure_shared_directory "${PROGRAM_DIR%/*}"
+ensure_shared_directory "${UNIT_PATH%/*}"
+
+if ! getent passwd fleetnode >/dev/null 2>&1; then
+  if getent group fleetnode >/dev/null 2>&1; then
+    as_root useradd --system --gid fleetnode --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
+  else
+    as_root useradd --system --user-group --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
+  fi
+fi
+validate_service_account
+
 if [[ "$TEST_MODE" == "1" ]]; then
   as_root install -d -m 0750 "$CONFIG_DIR"
   as_root install -d -m 0700 "$STATE_DIR"
 else
-  if ! getent passwd fleetnode >/dev/null; then
-    if getent group fleetnode >/dev/null; then
-      as_root useradd --system --gid fleetnode --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
-    else
-      as_root useradd --system --user-group --home-dir /var/lib/fleetnode --shell "$(command -v nologin)" fleetnode
-    fi
-  fi
-  getent group fleetnode >/dev/null || { echo "fleetnode user exists without a fleetnode group" >&2; exit 1; }
   as_root install -d -o root -g fleetnode -m 0750 "$CONFIG_DIR"
   as_root install -d -o fleetnode -g fleetnode -m 0700 "$STATE_DIR"
 fi
@@ -325,8 +552,8 @@ program_replaced=1
 if [[ -f "$UNIT_PATH" ]]; then
   as_root cp -p "$UNIT_PATH" "$unit_backup"
 fi
-as_root install -m 0644 "$PROGRAM_DIR/fleet-node.service" "$UNIT_PATH"
 unit_replaced=1
+as_root install -m 0644 "$PROGRAM_DIR/fleet-node.service" "$UNIT_PATH"
 as_root "$SYSTEMCTL" daemon-reload
 
 if [[ "$fresh_install" == "1" ]]; then
