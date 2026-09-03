@@ -154,6 +154,9 @@ for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "${ENROLL_HELPER_PATH%/*}" "$P
     if [[ "$ACTION" == "uninstall" && "$path" == "$UNIT_PATH" && "$path" -ef /dev/null ]]; then
       continue
     fi
+    if [[ "$ACTION" == "uninstall" && "$path" == "$ENROLL_HELPER_PATH" ]]; then
+      continue
+    fi
     echo "refusing to install through symlink: $path" >&2
     exit 1
   fi
@@ -387,7 +390,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-validate_existing_enroll_helper
+if [[ "$ACTION" == "install" ]]; then
+  validate_existing_enroll_helper
+fi
 
 remove_fleet_node() {
   local load_state
@@ -405,7 +410,11 @@ remove_fleet_node() {
     *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
   esac
 
-  as_root rm -f "$ENROLL_HELPER_PATH"
+  if [[ -f "$ENROLL_HELPER_PATH" && ! -L "$ENROLL_HELPER_PATH" && \
+      -f "$PROGRAM_DIR/fleetnode-enroll" ]] && \
+      cmp -s "$PROGRAM_DIR/fleetnode-enroll" "$ENROLL_HELPER_PATH"; then
+    as_root rm -f "$ENROLL_HELPER_PATH"
+  fi
   as_root rm -rf "$PROGRAM_DIR"
   as_root rm -f "${UNIT_PATH%/*}/multi-user.target.wants/fleet-node.service"
   as_root rm -f "$UNIT_PATH"

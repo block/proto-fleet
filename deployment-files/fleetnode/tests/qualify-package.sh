@@ -81,7 +81,7 @@ EOF
 sudo chown fleetnode:fleetnode /var/lib/fleetnode/state.yaml
 sudo chmod 0600 /var/lib/fleetnode/state.yaml
 
-sudo systemctl enable --now fleet-node.service
+sudo fleetnode-enroll --server-url=http://127.0.0.1:1 --allow-insecure-transport
 sudo systemctl is-active --quiet fleet-node.service || fail "installed service did not report ready"
 
 original_plugin_hash=$(sha256sum /opt/fleetnode/plugins/antminer-plugin | awk '{print $1}')
