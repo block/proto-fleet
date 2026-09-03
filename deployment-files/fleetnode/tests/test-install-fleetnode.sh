@@ -260,6 +260,7 @@ printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 run_installer() {
   local version="$1"
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
+  FAKE_FLEETNODE_LOAD_STATE="${FAKE_FLEETNODE_LOAD_STATE:-not-found}" \
   FAKE_FLEETNODE_ACTIVE_STATE="${FAKE_FLEETNODE_ACTIVE_STATE:-active}" \
   FAKE_FLEETNODE_LOCK_READY="${FAKE_FLEETNODE_LOCK_READY:-}" \
   FAKE_FLEETNODE_LOCK_BLOCK="${FAKE_FLEETNODE_LOCK_BLOCK:-}" \
@@ -380,6 +381,19 @@ fi
 if grep -Fq 'install-fleet-node.sh' "$SUDO_LOG"; then
   fail "installer asked sudo to rerun the whole script"
 fi
+
+: > "$SYSTEMCTL_LOG"
+rm -f "$ROOT_PREFIX/opt/fleetnode/fleetnode"
+printf '# incomplete installation\n' >> "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+FAKE_FLEETNODE_LOAD_STATE=loaded run_installer v1.0.0
+[[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "partial install did not restore the Fleet Node binary"
+if grep -Fq '# incomplete installation' "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"; then
+  fail "partial install did not replace the Fleet Node systemd unit"
+fi
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
+assert_file_contains "$SYSTEMCTL_LOG" "show --property=LoadState --value fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 
 printf 'operator config\n' > "$ROOT_PREFIX/etc/fleetnode/config.yaml"
 printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
@@ -585,6 +599,21 @@ if FAKE_FLEETNODE_LOAD_STATE=error run_uninstaller > "$TEST_DIR/unexpected-load-
 fi
 assert_file_contains "$TEST_DIR/unexpected-load-state.out" "unexpected Fleet Node systemd unit load state: error"
 [[ -e "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "unexpected systemd state removed the program"
+
+: > "$SYSTEMCTL_LOG"
+rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+ln -s /dev/null "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+FAKE_FLEETNODE_LOAD_STATE=masked FAKE_FLEETNODE_ENABLED=1 run_uninstaller
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "masked uninstall retained the program"
+[[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "masked uninstall retained the unit mask"
+[[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "masked uninstall removed configuration"
+[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "masked uninstall removed state"
+[[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "masked uninstall removed the service account"
+assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "unmask fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "disable fleet-node.service"
+
+run_installer v1.3.0
 
 : > "$SYSTEMCTL_LOG"
 rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"

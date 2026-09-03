@@ -140,6 +140,9 @@ fi
 
 for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
   if [[ -L "$path" ]]; then
+    if [[ "$ACTION" == "uninstall" && "$path" == "$UNIT_PATH" && "$path" -ef /dev/null ]]; then
+      continue
+    fi
     echo "refusing to install through symlink: $path" >&2
     exit 1
   fi
@@ -360,6 +363,10 @@ remove_fleet_node() {
   }
   case "$load_state" in
     loaded) as_root "$SYSTEMCTL" stop fleet-node.service ;;
+    masked)
+      as_root "$SYSTEMCTL" stop fleet-node.service
+      as_root "$SYSTEMCTL" unmask fleet-node.service
+      ;;
     not-found) ;;
     *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; return 1 ;;
   esac
@@ -459,6 +466,18 @@ done < <(find "$source_dir" -mindepth 1 -print0)
 if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
   echo "Fleet Node archive metadata does not match requested version '$VERSION'" >&2
   exit 1
+fi
+
+if [[ "$fresh_install" == "1" ]]; then
+  load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
+    echo "cannot inspect Fleet Node systemd unit load state" >&2
+    exit 1
+  }
+  case "$load_state" in
+    loaded) fresh_install=0 ;;
+    not-found) ;;
+    *) echo "unexpected Fleet Node systemd unit load state: $load_state" >&2; exit 1 ;;
+  esac
 fi
 
 if [[ "$fresh_install" == "0" ]]; then
