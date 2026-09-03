@@ -143,8 +143,8 @@ to PR #977 account for 18 runs.
 | Outcome | Runs | Timing and delivery |
 | --- | ---: | --- |
 | Completed review | 3 | Median 127s; nearest-rank p95 and maximum 140s |
-| Verified budget timeout | 13 | Every exact-SHA `HIGH` fallback posted; median 860s, maximum 864s from reviewer start |
-| Verified supersession | 8 | Hard failure; no stale artifact or comment posted |
+| Verified timeout | 13 | Every exact-SHA `HIGH` fallback posted; median 860s, maximum 864s from reviewer start |
+| Superseded | 8 | Hard failure; no stale artifact or comment posted |
 | Unexpected cancellation | 6 | Hard failure; not admitted as timeout evidence |
 
 #### Run inventory
