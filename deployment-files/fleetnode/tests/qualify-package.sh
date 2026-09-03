@@ -79,6 +79,9 @@ sudo systemctl enable --now fleet-node.service
 sudo systemctl is-active --quiet fleet-node.service || fail "installed service did not report ready"
 
 original_plugin_hash=$(sha256sum /opt/fleetnode/plugins/antminer-plugin | awk '{print $1}')
+run_installer "$VERSION"
+sudo systemctl is-active --quiet fleet-node.service || fail "known-good upgrade did not leave the service active"
+
 WORK_DIR=$(mktemp -d)
 tar -xzf "$PACKAGE_DIR/$ARCHIVE" -C "$WORK_DIR"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$WORK_DIR/${ARCHIVE%.tar.gz}/plugins/antminer-plugin"
