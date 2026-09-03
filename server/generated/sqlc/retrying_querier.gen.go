@@ -4002,6 +4002,18 @@ func (q *retryingQuerier) ListCustomRolesForOrg(ctx context.Context, organizatio
 	return result, err
 }
 
+func (q *retryingQuerier) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDeviceIDsByIdentifiersParams) ([]ListDeviceIDsByIdentifiersRow, error) {
+	var result []ListDeviceIDsByIdentifiersRow
+	err := q.retrier.RetryQuery(ctx, "ListDeviceIDsByIdentifiers", func() error {
+		callResult, callErr := q.next.ListDeviceIDsByIdentifiers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListDeviceSetMembersPaginated(ctx context.Context, arg ListDeviceSetMembersPaginatedParams) ([]ListDeviceSetMembersPaginatedRow, error) {
 	var result []ListDeviceSetMembersPaginatedRow
 	err := q.retrier.RetryQuery(ctx, "ListDeviceSetMembersPaginated", func() error {
@@ -4458,8 +4470,8 @@ func (q *retryingQuerier) ListReleaseChannelMismatchedMembers(ctx context.Contex
 	return result, err
 }
 
-func (q *retryingQuerier) ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ReleaseChannelTarget, error) {
-	var result []ReleaseChannelTarget
+func (q *retryingQuerier) ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ListReleaseChannelTargetsRow, error) {
+	var result []ListReleaseChannelTargetsRow
 	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelTargets", func() error {
 		callResult, callErr := q.next.ListReleaseChannelTargets(ctx, orgID)
 		if callErr == nil {

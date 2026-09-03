@@ -71,12 +71,24 @@ SELECT sqlc.arg('channel_id'),
 ON CONFLICT DO NOTHING;
 
 -- name: ListReleaseChannelTargets :many
--- Targets of every channel in the org.
-SELECT t.channel_id, t.target_type, t.target_id
+-- Targets of every channel in the org; miner targets carry their identifier.
+SELECT t.channel_id,
+       t.target_type,
+       t.target_id,
+       COALESCE(d.device_identifier, '')::text AS device_identifier
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
+LEFT JOIN device d ON t.target_type = 'miner' AND d.id = t.target_id
 WHERE c.org_id = sqlc.arg('org_id')
 ORDER BY t.channel_id, t.target_type, t.target_id;
+
+-- name: ListDeviceIDsByIdentifiers :many
+-- Resolves an org's device identifiers to ids; unknown identifiers are dropped.
+SELECT d.id, d.device_identifier
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
 
 -- --- Membership ---
 
@@ -104,7 +116,7 @@ WITH scoped AS (
     FROM device d
     WHERE d.org_id = sqlc.arg('org_id')
       AND d.deleted_at IS NULL
-      AND d.id = ANY(sqlc.arg('device_ids')::bigint[])
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
     UNION
     SELECT d.id
     FROM fleet_device_placement p

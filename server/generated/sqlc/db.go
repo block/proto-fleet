@@ -1071,6 +1071,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCustomRolesForOrgStmt, err = db.PrepareContext(ctx, listCustomRolesForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCustomRolesForOrg: %w", err)
 	}
+	if q.listDeviceIDsByIdentifiersStmt, err = db.PrepareContext(ctx, listDeviceIDsByIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceIDsByIdentifiers: %w", err)
+	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
 	}
@@ -3568,6 +3571,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCustomRolesForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listDeviceIDsByIdentifiersStmt != nil {
+		if cerr := q.listDeviceIDsByIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceIDsByIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
 		if cerr := q.listDeviceSetMembersPaginatedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedStmt: %w", cerr)
@@ -5201,6 +5209,7 @@ type Queries struct {
 	listCurtailmentTargetsByEventPageStmt                        *sql.Stmt
 	listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt      *sql.Stmt
 	listCustomRolesForOrgStmt                                    *sql.Stmt
+	listDeviceIDsByIdentifiersStmt                               *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                            *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt                       *sql.Stmt
 	listDeviceSetMembersPaginatedFilteredStmt                    *sql.Stmt
@@ -5805,6 +5814,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentTargetsByEventPageStmt:                        q.listCurtailmentTargetsByEventPageStmt,
 		listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt:      q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt,
 		listCustomRolesForOrgStmt:                                    q.listCustomRolesForOrgStmt,
+		listDeviceIDsByIdentifiersStmt:                               q.listDeviceIDsByIdentifiersStmt,
 		listDeviceSetMembersPaginatedStmt:                            q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:                       q.listDeviceSetMembersPaginatedAfterStmt,
 		listDeviceSetMembersPaginatedFilteredStmt:                    q.listDeviceSetMembersPaginatedFilteredStmt,

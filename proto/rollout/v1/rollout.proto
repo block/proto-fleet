@@ -90,8 +90,8 @@ message ReleaseChannelScope {
     repeated int64 building_ids = 2 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
     repeated int64 rack_ids = 3 [(buf.validate.field).repeated = {max_items: 500, items: {int64: {gt: 0}}}];
     repeated int64 group_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
-    // Individual miners by device id.
-    repeated int64 device_ids = 5 [(buf.validate.field).repeated = {max_items: 10000, items: {int64: {gt: 0}}}];
+    // Individual miners by device identifier.
+    repeated string device_identifiers = 5 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 255}}}];
 }
 
 // How a rollout distributes the update across its targets.

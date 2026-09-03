@@ -566,7 +566,7 @@ func TestLeastEfficientFirstAndRandomOrdering(t *testing.T) {
 	}
 	_, err := f.svc.UpdateChannel(t.Context(), f.orgID, f.channelID, ChannelSpec{
 		Name:     "Test channel",
-		Scope:    Scope{DeviceIDs: []int64{f.deviceIDs["miner-0"], f.deviceIDs["miner-1"], f.deviceIDs["miner-2"], f.deviceIDs["miner-3"]}},
+		Scope:    Scope{DeviceIdentifiers: []string{"miner-0", "miner-1", "miner-2", "miner-3"}},
 		Behavior: Behavior{Method: MethodBatched, BatchSize: 1, ReviewAfterEachBatch: true, Order: OrderRandom},
 	})
 	require.NoError(t, err)
@@ -643,9 +643,16 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 
 	// Editing the rack channel itself does not conflict with itself.
 	_, err = f.svc.UpdateChannel(ctx, f.orgID, rackChannel.ID, ChannelSpec{
-		Name: "Rack channel", Scope: Scope{RackIDs: []int64{rack}, DeviceIDs: []int64{f.deviceIDs["miner-4"]}},
+		Name: "Rack channel", Scope: Scope{RackIDs: []int64{rack}, DeviceIdentifiers: []string{"miner-4"}},
 	})
 	require.NoError(t, err)
+	_, err = f.svc.UpdateChannel(ctx, f.orgID, rackChannel.ID, ChannelSpec{
+		Name: "Rack channel", Scope: Scope{DeviceIdentifiers: []string{"ghost-9"}},
+	})
+	assert.ErrorContains(t, err, `unknown miner "ghost-9"`)
+	edited, err := f.svc.GetChannel(ctx, f.orgID, rackChannel.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"miner-4"}, edited.Scope.DeviceIdentifiers, "identifiers round-trip through storage by id")
 
 	// The site channel covers the miners placed at the site directly
 	// (miner-3 and other-0); no overlap with the rack channel yet.
@@ -736,7 +743,7 @@ func TestBehaviorValidation(t *testing.T) {
 
 	// A pilot larger than the mismatched set still starts.
 	f.channelID = ch.ID
-	_, err = f.svc.UpdateChannel(ctx, f.orgID, ch.ID, ChannelSpec{Name: "normalized", Scope: Scope{DeviceIDs: []int64{f.deviceIDs["miner-0"]}}, Behavior: ch.Behavior})
+	_, err = f.svc.UpdateChannel(ctx, f.orgID, ch.ID, ChannelSpec{Name: "normalized", Scope: Scope{DeviceIdentifiers: []string{"miner-0"}}, Behavior: ch.Behavior})
 	require.NoError(t, err)
 	started := f.apply(t, "fw-2")
 	assert.Equal(t, int32(1), started.BatchCount)

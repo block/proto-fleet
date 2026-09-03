@@ -71,21 +71,21 @@ func scopeFromProto(s *pb.ReleaseChannelScope) rollout.Scope {
 		return rollout.Scope{}
 	}
 	return rollout.Scope{
-		SiteIDs:     s.SiteIds,
-		BuildingIDs: s.BuildingIds,
-		RackIDs:     s.RackIds,
-		GroupIDs:    s.GroupIds,
-		DeviceIDs:   s.DeviceIds,
+		SiteIDs:           s.SiteIds,
+		BuildingIDs:       s.BuildingIds,
+		RackIDs:           s.RackIds,
+		GroupIDs:          s.GroupIds,
+		DeviceIdentifiers: s.DeviceIdentifiers,
 	}
 }
 
 func scopeToProto(s rollout.Scope) *pb.ReleaseChannelScope {
 	return &pb.ReleaseChannelScope{
-		SiteIds:     s.SiteIDs,
-		BuildingIds: s.BuildingIDs,
-		RackIds:     s.RackIDs,
-		GroupIds:    s.GroupIDs,
-		DeviceIds:   s.DeviceIDs,
+		SiteIds:           s.SiteIDs,
+		BuildingIds:       s.BuildingIDs,
+		RackIds:           s.RackIDs,
+		GroupIds:          s.GroupIDs,
+		DeviceIdentifiers: s.DeviceIdentifiers,
 	}
 }
 

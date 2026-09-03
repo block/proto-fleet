@@ -993,6 +993,8 @@ type Querier interface {
 	// orgs, so an admin in org A cannot see or assign org B's custom
 	// roles even if they happen to know an internal id.
 	ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
+	// Resolves an org's device identifiers to ids; unknown identifiers are dropped.
+	ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDeviceIDsByIdentifiersParams) ([]ListDeviceIDsByIdentifiersRow, error)
 	ListDeviceSetMembersPaginated(ctx context.Context, arg ListDeviceSetMembersPaginatedParams) ([]ListDeviceSetMembersPaginatedRow, error)
 	ListDeviceSetMembersPaginatedAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedAfterParams) ([]ListDeviceSetMembersPaginatedAfterRow, error)
 	ListDeviceSetMembersPaginatedFiltered(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredParams) ([]ListDeviceSetMembersPaginatedFilteredRow, error)
@@ -1163,8 +1165,8 @@ type Querier interface {
 	// (failed / canceled) for this version since the assignment was last made.
 	// Carries the latest efficiency sample for ordering.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
-	// Targets of every channel in the org.
-	ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ReleaseChannelTarget, error)
+	// Targets of every channel in the org; miner targets carry their identifier.
+	ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ListReleaseChannelTargetsRow, error)
 	ListReleaseChannels(ctx context.Context, orgID int64) ([]ReleaseChannel, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
 	// Returns every permission key attached to the given role. Used by the

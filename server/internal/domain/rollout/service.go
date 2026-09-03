@@ -188,7 +188,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID, userID int64, spec C
 			return fleeterror.NewInternalErrorf("create channel: %v", err)
 		}
 		channelID = row.ID
-		return s.replaceTargets(ctx, row.ID, spec.Scope)
+		return s.replaceTargets(ctx, orgID, row.ID, spec.Scope)
 	})
 	if err != nil {
 		return nil, err
@@ -238,7 +238,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID, channelID int64, spe
 			}
 			return fleeterror.NewInternalErrorf("update channel: %v", err)
 		}
-		return s.replaceTargets(ctx, channelID, spec.Scope)
+		return s.replaceTargets(ctx, orgID, channelID, spec.Scope)
 	})
 	if err != nil {
 		return nil, err
@@ -268,12 +268,35 @@ func (spec *ChannelSpec) validate() error {
 	return spec.Behavior.validate()
 }
 
-func (s *Service) replaceTargets(ctx context.Context, channelID int64, scope Scope) error {
+func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, scope Scope) error {
 	q := s.store.Queries(ctx)
 	if err := q.DeleteReleaseChannelTargets(ctx, channelID); err != nil {
 		return fleeterror.NewInternalErrorf("clear channel targets: %v", err)
 	}
-	types, ids := scope.targets()
+	var deviceIDs []int64
+	if len(scope.DeviceIdentifiers) > 0 {
+		devices, err := q.ListDeviceIDsByIdentifiers(ctx, sqlc.ListDeviceIDsByIdentifiersParams{
+			OrgID: orgID, DeviceIdentifiers: scope.DeviceIdentifiers,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("resolve miner identifiers: %v", err)
+		}
+		if len(devices) != len(scope.DeviceIdentifiers) {
+			known := map[string]bool{}
+			for _, d := range devices {
+				known[d.DeviceIdentifier] = true
+			}
+			for _, id := range scope.DeviceIdentifiers {
+				if !known[id] {
+					return fleeterror.NewInvalidArgumentErrorf("unknown miner %q", id)
+				}
+			}
+		}
+		for _, d := range devices {
+			deviceIDs = append(deviceIDs, d.ID)
+		}
+	}
+	types, ids := scope.targets(deviceIDs)
 	if len(ids) == 0 {
 		return nil
 	}
@@ -312,13 +335,13 @@ func (s *Service) PreviewScope(ctx context.Context, orgID int64, scope Scope, ex
 		return preview, nil
 	}
 	rows, err := s.store.Queries(ctx).ResolveReleaseChannelScope(ctx, sqlc.ResolveReleaseChannelScopeParams{
-		OrgID:            orgID,
-		DeviceIds:        scope.DeviceIDs,
-		GroupIds:         scope.GroupIDs,
-		RackIds:          scope.RackIDs,
-		BuildingIds:      scope.BuildingIDs,
-		SiteIds:          scope.SiteIDs,
-		ExcludeChannelID: excludeChannelID,
+		OrgID:             orgID,
+		DeviceIdentifiers: scope.DeviceIdentifiers,
+		GroupIds:          scope.GroupIDs,
+		RackIds:           scope.RackIDs,
+		BuildingIds:       scope.BuildingIDs,
+		SiteIds:           scope.SiteIDs,
+		ExcludeChannelID:  excludeChannelID,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("resolve scope: %v", err)
@@ -396,7 +419,7 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		return nil, fleeterror.NewInternalErrorf("list active rollouts: %v", err)
 	}
 
-	targetsByChannel := map[int64][]sqlc.ReleaseChannelTarget{}
+	targetsByChannel := map[int64][]sqlc.ListReleaseChannelTargetsRow{}
 	for _, t := range targets {
 		targetsByChannel[t.ChannelID] = append(targetsByChannel[t.ChannelID], t)
 	}

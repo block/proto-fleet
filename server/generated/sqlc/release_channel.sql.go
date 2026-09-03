@@ -567,6 +567,48 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 	return items, nil
 }
 
+const listDeviceIDsByIdentifiers = `-- name: ListDeviceIDsByIdentifiers :many
+SELECT d.id, d.device_identifier
+FROM device d
+WHERE d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND d.device_identifier = ANY($2::text[])
+`
+
+type ListDeviceIDsByIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListDeviceIDsByIdentifiersRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+// Resolves an org's device identifiers to ids; unknown identifiers are dropped.
+func (q *Queries) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDeviceIDsByIdentifiersParams) ([]ListDeviceIDsByIdentifiersRow, error) {
+	rows, err := q.query(ctx, q.listDeviceIDsByIdentifiersStmt, listDeviceIDsByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeviceIDsByIdentifiersRow
+	for rows.Next() {
+		var i ListDeviceIDsByIdentifiersRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFirmwareRolloutDevices = `-- name: ListFirmwareRolloutDevices :many
 
 SELECT rd.device_id,
@@ -1029,24 +1071,40 @@ func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg L
 }
 
 const listReleaseChannelTargets = `-- name: ListReleaseChannelTargets :many
-SELECT t.channel_id, t.target_type, t.target_id
+SELECT t.channel_id,
+       t.target_type,
+       t.target_id,
+       COALESCE(d.device_identifier, '')::text AS device_identifier
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
+LEFT JOIN device d ON t.target_type = 'miner' AND d.id = t.target_id
 WHERE c.org_id = $1
 ORDER BY t.channel_id, t.target_type, t.target_id
 `
 
-// Targets of every channel in the org.
-func (q *Queries) ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ReleaseChannelTarget, error) {
+type ListReleaseChannelTargetsRow struct {
+	ChannelID        int64
+	TargetType       string
+	TargetID         int64
+	DeviceIdentifier string
+}
+
+// Targets of every channel in the org; miner targets carry their identifier.
+func (q *Queries) ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ListReleaseChannelTargetsRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelTargetsStmt, listReleaseChannelTargets, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ReleaseChannelTarget
+	var items []ListReleaseChannelTargetsRow
 	for rows.Next() {
-		var i ReleaseChannelTarget
-		if err := rows.Scan(&i.ChannelID, &i.TargetType, &i.TargetID); err != nil {
+		var i ListReleaseChannelTargetsRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.DeviceIdentifier,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1231,7 +1289,7 @@ WITH scoped AS (
     FROM device d
     WHERE d.org_id = $2
       AND d.deleted_at IS NULL
-      AND d.id = ANY($3::bigint[])
+      AND d.device_identifier = ANY($3::text[])
     UNION
     SELECT d.id
     FROM fleet_device_placement p
@@ -1266,13 +1324,13 @@ ORDER BY d.device_identifier
 `
 
 type ResolveReleaseChannelScopeParams struct {
-	ExcludeChannelID int64
-	OrgID            int64
-	DeviceIds        []int64
-	GroupIds         []int64
-	RackIds          []int64
-	BuildingIds      []int64
-	SiteIds          []int64
+	ExcludeChannelID  int64
+	OrgID             int64
+	DeviceIdentifiers []string
+	GroupIds          []int64
+	RackIds           []int64
+	BuildingIds       []int64
+	SiteIds           []int64
 }
 
 type ResolveReleaseChannelScopeRow struct {
@@ -1291,7 +1349,7 @@ func (q *Queries) ResolveReleaseChannelScope(ctx context.Context, arg ResolveRel
 	rows, err := q.query(ctx, q.resolveReleaseChannelScopeStmt, resolveReleaseChannelScope,
 		arg.ExcludeChannelID,
 		arg.OrgID,
-		pq.Array(arg.DeviceIds),
+		pq.Array(arg.DeviceIdentifiers),
 		pq.Array(arg.GroupIds),
 		pq.Array(arg.RackIds),
 		pq.Array(arg.BuildingIds),

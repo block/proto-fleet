@@ -118,12 +118,8 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 // and remembers it as the fixture's channel.
 func (f *fixture) channel(t *testing.T, behavior Behavior, miners ...string) *Channel {
 	t.Helper()
-	ids := make([]int64, 0, len(miners))
-	for _, m := range miners {
-		ids = append(ids, f.deviceIDs[m])
-	}
 	ch, err := f.svc.CreateChannel(t.Context(), f.orgID, 1, ChannelSpec{
-		Name: "Test channel", Scope: Scope{DeviceIDs: ids}, Behavior: behavior,
+		Name: "Test channel", Scope: Scope{DeviceIdentifiers: miners}, Behavior: behavior,
 	})
 	require.NoError(t, err)
 	f.channelID = ch.ID

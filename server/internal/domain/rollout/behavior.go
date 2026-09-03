@@ -3,6 +3,7 @@ package rollout
 import (
 	"database/sql"
 	"slices"
+	"strings"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -37,12 +38,14 @@ type Scope struct {
 	BuildingIDs []int64
 	RackIDs     []int64
 	GroupIDs    []int64
-	DeviceIDs   []int64
+	// Individual miners by device identifier (the client's currency);
+	// stored by device id.
+	DeviceIdentifiers []string
 }
 
 // IsEmpty reports whether the scope selects nothing.
 func (s *Scope) IsEmpty() bool {
-	return len(s.SiteIDs)+len(s.BuildingIDs)+len(s.RackIDs)+len(s.GroupIDs)+len(s.DeviceIDs) == 0
+	return len(s.SiteIDs)+len(s.BuildingIDs)+len(s.RackIDs)+len(s.GroupIDs)+len(s.DeviceIdentifiers) == 0
 }
 
 func (s *Scope) normalize() {
@@ -50,11 +53,12 @@ func (s *Scope) normalize() {
 	s.BuildingIDs = uniquePositive(s.BuildingIDs)
 	s.RackIDs = uniquePositive(s.RackIDs)
 	s.GroupIDs = uniquePositive(s.GroupIDs)
-	s.DeviceIDs = uniquePositive(s.DeviceIDs)
+	s.DeviceIdentifiers = uniqueNonEmpty(s.DeviceIdentifiers)
 }
 
-// targets flattens the scope into parallel (type, id) arrays for storage.
-func (s *Scope) targets() (types []string, ids []int64) {
+// targets flattens the scope into parallel (type, id) arrays for storage,
+// given the device ids the identifiers resolved to.
+func (s *Scope) targets(deviceIDs []int64) (types []string, ids []int64) {
 	add := func(kind string, list []int64) {
 		for _, id := range list {
 			types = append(types, kind)
@@ -65,11 +69,11 @@ func (s *Scope) targets() (types []string, ids []int64) {
 	add(TargetTypeBuilding, s.BuildingIDs)
 	add(TargetTypeRack, s.RackIDs)
 	add(TargetTypeGroup, s.GroupIDs)
-	add(TargetTypeMiner, s.DeviceIDs)
+	add(TargetTypeMiner, deviceIDs)
 	return types, ids
 }
 
-func scopeFromTargets(rows []sqlc.ReleaseChannelTarget) Scope {
+func scopeFromTargets(rows []sqlc.ListReleaseChannelTargetsRow) Scope {
 	var s Scope
 	for _, t := range rows {
 		switch t.TargetType {
@@ -82,10 +86,27 @@ func scopeFromTargets(rows []sqlc.ReleaseChannelTarget) Scope {
 		case TargetTypeGroup:
 			s.GroupIDs = append(s.GroupIDs, t.TargetID)
 		case TargetTypeMiner:
-			s.DeviceIDs = append(s.DeviceIDs, t.TargetID)
+			if t.DeviceIdentifier != "" {
+				s.DeviceIdentifiers = append(s.DeviceIdentifiers, t.DeviceIdentifier)
+			}
 		}
 	}
 	return s
+}
+
+func uniqueNonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func uniquePositive(ids []int64) []int64 {

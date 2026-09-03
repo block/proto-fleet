@@ -196,7 +196,7 @@ func newFakeService() *fakeService {
 	return &fakeService{
 		channel: &rollout.Channel{
 			ID: 3, Name: "Canary", Description: "First wave",
-			Scope:    rollout.Scope{RackIDs: []int64{10}, DeviceIDs: []int64{500}},
+			Scope:    rollout.Scope{RackIDs: []int64{10}, DeviceIdentifiers: []string{"miner-0"}},
 			Behavior: rollout.Behavior{Method: rollout.MethodBatched, Order: rollout.OrderRandom, BatchSize: 5, ReviewAfterEachBatch: true, AutoContinue: true, Thresholds: rollout.Thresholds{MaxHashrateDropPercent: ptr(10.0), MaxNewErrors: ptr(int32(0))}, MaxConcurrentOffline: 20},
 			ModelGroups: []rollout.ModelGroup{{
 				Model: "Rig", FirmwareFileID: "fw-2", FirmwareVersion: "2.0.0", ActiveRolloutID: 9,
@@ -233,7 +233,7 @@ func TestCreateReleaseChannelTranslatesSpecAndView(t *testing.T) {
 
 	resp, err := h.CreateReleaseChannel(ctx, connect.NewRequest(&pb.CreateReleaseChannelRequest{
 		Name: "Canary", Description: "First wave",
-		Scope: &pb.ReleaseChannelScope{RackIds: []int64{10}, DeviceIds: []int64{500}},
+		Scope: &pb.ReleaseChannelScope{RackIds: []int64{10}, DeviceIdentifiers: []string{"miner-0"}},
 		Behavior: &pb.RolloutBehavior{
 			Method: pb.RolloutMethod_ROLLOUT_METHOD_BATCHED, Order: pb.RolloutOrder_ROLLOUT_ORDER_RANDOM,
 			BatchSize: 5, ReviewAfterEachBatch: true, AutoContinueOnHealthyTelemetry: true, MaxConcurrentOffline: 20,
@@ -246,7 +246,7 @@ func TestCreateReleaseChannelTranslatesSpecAndView(t *testing.T) {
 	assert.Equal(t, int64(42), svc.lastUserID)
 	assert.Equal(t, rollout.ChannelSpec{
 		Name: "Canary", Description: "First wave",
-		Scope:    rollout.Scope{RackIDs: []int64{10}, DeviceIDs: []int64{500}},
+		Scope:    rollout.Scope{RackIDs: []int64{10}, DeviceIdentifiers: []string{"miner-0"}},
 		Behavior: svc.channel.Behavior,
 	}, svc.lastSpec)
 
