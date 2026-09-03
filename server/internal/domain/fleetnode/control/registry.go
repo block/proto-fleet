@@ -40,6 +40,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // commandEventBuffer sizes a report-bearing command's event channel; overflow drops
@@ -259,16 +260,24 @@ func (r *Registry) inflightFor(fleetNodeID int64, commandID string) *inflightCom
 	return conn.cmds[commandID] // nil if absent
 }
 
-// addCmd registers c under its command_id, returning errNoActiveStream if the node
-// has no connection or errDuplicateCommandID on a colliding id. On success it also
-// returns the connection's outgoing/done channels so the caller can enqueue without
-// re-locking. Caller must NOT hold Registry.mu.
-func (r *Registry) addCmd(fleetNodeID int64, c *inflightCommand) (chan *gatewaypb.ControlCommand, chan struct{}, error) {
+// addCmd registers c under its command_id, returning ErrNoActiveStream if the node
+// has no connection, FailedPrecondition if its command protocol is too old, or
+// errDuplicateCommandID on a colliding id. On success it also returns the
+// connection's outgoing/done channels so the caller can enqueue without re-locking.
+// Caller must NOT hold Registry.mu.
+func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, c *inflightCommand) (chan *gatewaypb.ControlCommand, chan struct{}, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn, ok := r.conns[fleetNodeID]
 	if !ok {
 		return nil, nil, ErrNoActiveStream
+	}
+	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
+		return nil, nil, fleeterror.NewFailedPreconditionErrorf(
+			"fleet node command protocol version %d does not support this command; requires version %d; upgrade Fleet Node",
+			conn.maxCommandProtocolVersion,
+			minimumCommandProtocolVersion,
+		)
 	}
 	if _, dup := conn.cmds[c.id]; dup {
 		return nil, nil, errDuplicateCommandID

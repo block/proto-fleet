@@ -273,28 +273,35 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsAckTimeoutToConnectionError(t *
 	assert.True(t, fleeterror.IsConnectionError(got.err))
 }
 
-func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
-	registry := control.NewRegistry()
-	stream := registry.Register(12)
-	defer stream.Unregister()
-	miner := newTestRemoteFleetNodeMiner(t, registry)
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnsupportedAck(t *testing.T) {
+	for _, code := range []gatewaypb.AckCode{
+		gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE,
+		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
+	} {
+		t.Run(code.String(), func(t *testing.T) {
+			registry := control.NewRegistry()
+			stream := registry.Register(12)
+			defer stream.Unregister()
+			miner := newTestRemoteFleetNodeMiner(t, registry)
 
-	results := make(chan metricsResult, 1)
-	go func() {
-		metrics, err := miner.GetDeviceMetrics(context.Background())
-		results <- metricsResult{metrics: metrics, err: err}
-	}()
+			results := make(chan metricsResult, 1)
+			go func() {
+				metrics, err := miner.GetDeviceMetrics(context.Background())
+				results <- metricsResult{metrics: metrics, err: err}
+			}()
 
-	cmd := receiveRemoteCommand(t, stream)
-	stream.PublishAck(&gatewaypb.ControlAck{
-		CommandId:    cmd.GetCommandId(),
-		Code:         gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE,
-		ErrorMessage: "driver missing",
-	})
+			cmd := receiveRemoteCommand(t, stream)
+			stream.PublishAck(&gatewaypb.ControlAck{
+				CommandId:    cmd.GetCommandId(),
+				Code:         code,
+				ErrorMessage: "driver missing",
+			})
 
-	got := receiveMetricsResult(t, results)
-	require.Error(t, got.err)
-	assert.True(t, fleeterror.IsUnimplementedError(got.err))
+			got := receiveMetricsResult(t, results)
+			require.Error(t, got.err)
+			assert.True(t, fleeterror.IsUnimplementedError(got.err))
+		})
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsFailedOKAck(t *testing.T) {
