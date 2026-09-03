@@ -74,6 +74,23 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsRequiresCommandProtocolV1(t *testing.T) {
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(12, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	_, err = miner.GetDeviceMetrics(t.Context())
+
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("legacy node received telemetry command %q", cmd.GetCommandId())
+	default:
+	}
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesComponentPayload(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
