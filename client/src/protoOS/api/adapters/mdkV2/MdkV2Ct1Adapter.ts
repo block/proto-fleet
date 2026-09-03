@@ -1,0 +1,449 @@
+import type {
+  AdapterProbeMatch,
+  AdapterRequestOptions,
+  HashboardStatus,
+  MinerAdapter,
+  MiningScope,
+  ModuleRunInRequest,
+  SystemLogs,
+  SystemLogSource,
+  TelemetryLevel,
+  TimeSeriesQuery,
+} from "../types";
+import {
+  Api,
+  type TelemetryServiceQueryTimeSeriesParams,
+  V2PerformanceMode,
+  V2PLLAlgorithm,
+} from "./generated/generatedApi";
+import {
+  type ContainerSeriesField,
+  ct1ContainerId,
+  toCanonicalContainer,
+  toCanonicalContainerFans,
+  toCanonicalContainerTelemetry,
+  toCanonicalContainerTimeSeries,
+  toCanonicalHashboards,
+  toCanonicalHashboardStatus,
+  toCanonicalLifecycle,
+  toCanonicalMiningTarget,
+  toCanonicalNetworkInfo,
+  toCanonicalOperationalStatus,
+  toCanonicalPools,
+  toCanonicalSystemInfo,
+} from "./normalize";
+import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
+import { getHashboardId } from "@/protoOS/store/utils/entityIds";
+import type { PoolInfo } from "@/shared/types/pool";
+
+export type MdkV2Client = InstanceType<typeof Api>["api"];
+
+const ACTOR = "proto-os";
+const HASHBOARD_CONCURRENCY = 8;
+const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
+  hashrate: "TIME_SERIES_METRIC_HASHRATE",
+  temperature: "TIME_SERIES_METRIC_TEMPERATURE",
+  power: "TIME_SERIES_METRIC_POWER",
+};
+
+const durationMs = (duration: string | undefined) => {
+  if (!duration) return undefined;
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
+  if (!match) return undefined;
+  return (Number(match[1] ?? 0) * 3_600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+};
+
+const bucketConfig = (
+  interval: string | undefined,
+): { size: TelemetryServiceQueryTimeSeriesParams["bucketSize"]; intervalMs: number } => {
+  switch (durationMs(interval)) {
+    case 60_000:
+      return { size: "BUCKET_SIZE_1M", intervalMs: 60_000 };
+    case 5 * 60_000:
+      return { size: "BUCKET_SIZE_5M", intervalMs: 5 * 60_000 };
+    case 15 * 60_000:
+    case 30 * 60_000:
+      return { size: "BUCKET_SIZE_15M", intervalMs: 15 * 60_000 };
+    case 60 * 60_000:
+      return { size: "BUCKET_SIZE_1H", intervalMs: 60 * 60_000 };
+    case 24 * 60 * 60_000:
+      return { size: "BUCKET_SIZE_1D", intervalMs: 24 * 60 * 60_000 };
+    default:
+      throw new Error(`Unsupported CT1 time-series interval: ${interval ?? "missing"}`);
+  }
+};
+
+const unsupported = (capability: string): never => {
+  throw new Error(`${capability} is not supported by the CT1 MDK v2 API`);
+};
+
+const seriesFields = (fields: readonly string[], level: string) => {
+  const requested = new Set<ContainerSeriesField>();
+  for (const field of fields) {
+    if (field === "hashrate" || field === "temperature" || field === "power") {
+      requested.add(field);
+    } else if (field === "efficiency") {
+      requested.add("hashrate");
+      requested.add("power");
+    } else {
+      throw new Error(`Unsupported CT1 ${level} time-series field: ${field}`);
+    }
+  }
+  return requested;
+};
+
+const toWireModuleId = (value: string) => {
+  const marker = ":module:";
+  const markerIndex = value.lastIndexOf(marker);
+  return markerIndex === -1 ? value : value.slice(markerIndex + marker.length);
+};
+
+const toWirePerformanceMode = (value: MiningTargetUpdate["performanceMode"]) =>
+  value === "maximumHashrate"
+    ? V2PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE
+    : value === "efficiency"
+      ? V2PerformanceMode.PERFORMANCE_MODE_EFFICIENCY
+      : undefined;
+
+const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefined => {
+  if (value === undefined) return undefined;
+  const algorithm = value as V2PLLAlgorithm;
+  if (Object.values(V2PLLAlgorithm).includes(algorithm)) return algorithm;
+  throw new Error(`Unknown CT1 PLL algorithm: ${value}`);
+};
+
+const mapWithConcurrency = async <T, R>(values: T[], limit: number, map: (value: T) => Promise<R>): Promise<R[]> => {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      results[index] = await map(values[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
+  return results;
+};
+
+export class MdkV2Ct1Adapter implements MinerAdapter {
+  private deviceId: string;
+
+  constructor(
+    private readonly client: MdkV2Client,
+    match: AdapterProbeMatch = {},
+  ) {
+    this.deviceId = match.deviceId ?? "ct1";
+  }
+
+  decorate(params: AdapterRequestOptions = {}): AdapterRequestOptions {
+    return { ...params, headers: { "X-Frigate-Actor": ACTOR, ...params.headers } };
+  }
+
+  async getSystemInfo(params: AdapterRequestOptions = {}) {
+    const { data: wire } = await this.client.systemServiceGetSystemInfo(this.decorate(params));
+    this.deviceId = wire.info?.id ?? this.deviceId;
+    return toCanonicalSystemInfo(wire);
+  }
+
+  async getNetworkInfo(params: AdapterRequestOptions = {}) {
+    const response = await this.client.systemServiceGetSystemInfo(this.decorate(params));
+    return toCanonicalNetworkInfo(response.data);
+  }
+
+  async getSystemStatus(params: AdapterRequestOptions = {}) {
+    const response = await this.client.systemServiceGetSystemStatus(this.decorate(params));
+    return toCanonicalLifecycle(response.data);
+  }
+
+  async getSystemTag(params: AdapterRequestOptions = {}) {
+    const { data: wire } = await this.client.systemServiceGetSystemInfo(this.decorate(params));
+    return wire.info?.hostname ?? wire.info?.id ?? "";
+  }
+
+  async setSystemTag() {
+    unsupported("System tags");
+  }
+
+  async getMiningStatus(params: AdapterRequestOptions = {}) {
+    const { data: wire } = await this.client.miningServiceGetMiningStatus(this.decorate(params));
+    return toCanonicalOperationalStatus(wire, ct1ContainerId(this.deviceId));
+  }
+
+  async getErrors() {
+    return [];
+  }
+
+  async getPools(params: AdapterRequestOptions = {}) {
+    const decorated = this.decorate(params);
+    const [pools, diagnostics] = await Promise.all([
+      this.client.poolServiceListPools(decorated),
+      this.client.poolServiceGetPoolDiagnostics(decorated),
+    ]);
+    return toCanonicalPools(pools.data, diagnostics.data);
+  }
+
+  private async containerState(deviceId: string, params: AdapterRequestOptions) {
+    const decorated = this.decorate(params);
+    const [map, status, telemetry] = await Promise.all([
+      this.client.hashboardServiceGetContainerMap(decorated),
+      this.client.miningServiceGetMiningStatus(decorated),
+      this.client.telemetryServiceGetContainerHealth(decorated),
+    ]);
+    return toCanonicalContainer(map.data, status.data, telemetry.data, deviceId);
+  }
+
+  async getMiningTarget(params: AdapterRequestOptions = {}): Promise<MiningTarget> {
+    const response = await this.client.miningServiceGetTargetPower(this.decorate(params));
+    return toCanonicalMiningTarget(response.data);
+  }
+
+  async updateMiningTarget(update: MiningTargetUpdate, params: AdapterRequestOptions = {}) {
+    const valueWatts = update.valueWatts;
+    if (valueWatts === undefined) throw new Error("A CT1 mining target requires a power value");
+    await this.client.miningServiceSetTargetPower(
+      {
+        watts: valueWatts,
+        performanceMode: toWirePerformanceMode(update.performanceMode),
+        balanceBays: update.balanceBays,
+        hashOnDisconnect: update.hashOnDisconnect,
+      },
+      this.decorate(params),
+    );
+    return this.getMiningTarget(params);
+  }
+
+  async setScopedPowerTarget(
+    scope: MiningScope,
+    watts: number,
+    pllAlgorithm?: string,
+    params: AdapterRequestOptions = {},
+  ) {
+    await this.client.miningServiceSetPowerTargetScoped(
+      { scope, watts, pllAlgorithm: toWirePllAlgorithm(pllAlgorithm) },
+      this.decorate(params),
+    );
+  }
+
+  async clearScopedPowerTarget(scope: MiningScope, params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceClearPowerTargetScoped({ scope }, this.decorate(params));
+  }
+
+  async startScopedMining(scope: MiningScope, params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceStartMiningScoped({ scope }, this.decorate(params));
+  }
+
+  async stopScopedMining(scope: MiningScope, params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceStopMiningScoped({ scope }, this.decorate(params));
+  }
+
+  async setModuleFixedVoltage(moduleId: string, millivolts: number, params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceSetModuleFixedVoltage(
+      { moduleId: toWireModuleId(moduleId) },
+      { millivolts },
+      this.decorate(params),
+    );
+  }
+
+  async clearModuleFixedVoltage(moduleId: string, params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceClearModuleFixedVoltage(
+      { moduleId: toWireModuleId(moduleId) },
+      this.decorate(params),
+    );
+  }
+
+  async startModuleRunIn(moduleId: string, request: ModuleRunInRequest, params: AdapterRequestOptions = {}) {
+    const { taskId, ...config } = request;
+    const response = await this.client.runInServiceStartModuleRunIn(
+      { moduleId: toWireModuleId(moduleId), taskId },
+      config,
+      this.decorate(params),
+    );
+    return {
+      taskId: response.data.taskId,
+      moduleId: response.data.moduleId,
+      status: response.data.status,
+      voltageLeaderMac: response.data.voltageLeaderMac,
+    };
+  }
+
+  async getHardware(
+    context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
+    params: AdapterRequestOptions = {},
+  ) {
+    return this.containerState(this.deviceId || context.deviceId, params);
+  }
+
+  async getHashboards(params: AdapterRequestOptions = {}) {
+    const response = await this.client.hashboardServiceGetContainerMap(this.decorate(params));
+    return toCanonicalHashboards(response.data);
+  }
+
+  async getHashboardStatus(identifiers: string[], params: AdapterRequestOptions = {}): Promise<HashboardStatus[]> {
+    const decorated = this.decorate(params);
+    return mapWithConcurrency(identifiers, HASHBOARD_CONCURRENCY, async (identifier) =>
+      toCanonicalHashboardStatus(
+        identifier,
+        (await this.client.hashboardServiceGetHashboardAsiCs({ identifier }, decorated)).data,
+      ),
+    );
+  }
+
+  async login() {
+    return unsupported("Password login");
+  }
+
+  async refreshAccessToken() {
+    return unsupported("Bearer-token refresh");
+  }
+
+  async getSystemLogs(
+    _query: { lines: number; source?: SystemLogSource },
+    _params: AdapterRequestOptions = {},
+  ): Promise<SystemLogs | undefined> {
+    return undefined;
+  }
+
+  async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
+    if (!levels.length || levels.some((level) => level !== "miner")) {
+      return (await this.containerState(this.deviceId, params)).telemetry;
+    }
+    const decorated = this.decorate(params);
+    const [status, telemetry] = await Promise.all([
+      this.client.miningServiceGetMiningStatus(decorated),
+      this.client.telemetryServiceGetContainerHealth(decorated),
+    ]);
+    return toCanonicalContainerTelemetry(status.data, telemetry.data, this.deviceId);
+  }
+
+  async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
+    const aggregation = request.aggregation ?? "mean";
+    if (!["mean", "avg", "min", "max"].includes(aggregation)) {
+      throw new Error(`Unsupported CT1 time-series aggregation: ${aggregation}`);
+    }
+    const containerFields = new Set<ContainerSeriesField>();
+    const hashboardLevels: { fields: Set<ContainerSeriesField>; indexes: number[] }[] = [];
+    for (const level of request.levels) {
+      if (level.type === "miner") {
+        for (const field of seriesFields(level.fields, level.type)) containerFields.add(field);
+      } else if (level.type === "hashboard") {
+        if (level.indexes === undefined) {
+          throw new Error("CT1 hashboard time-series queries require explicit zero-based indexes");
+        }
+        hashboardLevels.push({ fields: seriesFields(level.fields, level.type), indexes: level.indexes });
+      } else {
+        unsupported(`${level.type} time-series telemetry`);
+      }
+    }
+
+    const startMs = Date.parse(request.startTime);
+    if (Number.isNaN(startMs)) throw new Error(`Invalid CT1 time-series start time: ${request.startTime}`);
+    const windowMs = durationMs(request.duration);
+    if (request.duration && windowMs === undefined) {
+      throw new Error(`Invalid CT1 time-series duration: ${request.duration}`);
+    }
+    const end = request.endTime ?? (windowMs === undefined ? undefined : new Date(startMs + windowMs).toISOString());
+    const bucket = bucketConfig(request.interval);
+    const decorated = this.decorate(params);
+    const queryFields = async (fields: Set<ContainerSeriesField>, identifier?: string) =>
+      Object.fromEntries(
+        await Promise.all(
+          [...fields].map(async (field) => {
+            const response = await this.client.telemetryServiceQueryTimeSeries(
+              {
+                metric: SERIES_METRICS[field],
+                "range.start": request.startTime,
+                "range.end": end,
+                bucketSize: bucket.size,
+                identifier,
+              },
+              decorated,
+            );
+            return [field, response.data] as const;
+          }),
+        ),
+      );
+    const containerResponses = await queryFields(containerFields);
+    let hashboardResponses: {
+      hashboardId: ReturnType<typeof getHashboardId>;
+      responses: Awaited<ReturnType<typeof queryFields>>;
+    }[] = [];
+    if (hashboardLevels.length) {
+      const map = await this.client.hashboardServiceGetContainerMap(decorated);
+      const selected = toCanonicalHashboards(map.data).flatMap((board, index) => {
+        const fields = new Set<ContainerSeriesField>();
+        for (const level of hashboardLevels) {
+          if (level.indexes.includes(index)) {
+            for (const field of level.fields) fields.add(field);
+          }
+        }
+        return fields.size ? [{ identifier: board.serial, hashboardId: getHashboardId(board.serial), fields }] : [];
+      });
+      hashboardResponses = await mapWithConcurrency(selected, HASHBOARD_CONCURRENCY, async (board) => ({
+        hashboardId: board.hashboardId,
+        responses: await queryFields(board.fields, board.identifier),
+      }));
+    }
+    return toCanonicalContainerTimeSeries(
+      containerResponses,
+      this.deviceId,
+      bucket.intervalMs,
+      aggregation as "mean" | "avg" | "min" | "max",
+      hashboardResponses,
+    );
+  }
+
+  async getCoolingStatus(params: AdapterRequestOptions = {}) {
+    const response = await this.client.telemetryServiceGetContainerHealth(this.decorate(params));
+    return { mode: "unknown" as CoolingMode, fans: toCanonicalContainerFans(response.data, this.deviceId) };
+  }
+
+  async setCoolingMode() {
+    unsupported("Cooling control");
+  }
+
+  async startMining(params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceStartMining(this.decorate(params));
+  }
+
+  async stopMining(params: AdapterRequestOptions = {}) {
+    await this.client.miningServiceStopMining(this.decorate(params));
+  }
+
+  async rebootSystem() {
+    unsupported("System reboot");
+  }
+
+  async startFirmwareUpdate() {
+    unsupported("Firmware updates");
+  }
+
+  async checkForFirmwareUpdate() {
+    // The boot shell checks on every supported miner. CT1 has no equivalent
+    // endpoint, so this capability is an intentional no-op.
+  }
+
+  async locateSystem() {
+    unsupported("Locate");
+  }
+
+  async createPools(_pools: PoolInfo[]) {
+    unsupported("Pool editing");
+  }
+
+  async editPool(_poolId: number, _pool: PoolInfo) {
+    unsupported("Pool editing");
+  }
+
+  async testPoolConnection(_pool: PoolInfo) {
+    unsupported("Pool connection tests");
+  }
+
+  async setPassword() {
+    unsupported("Password management");
+  }
+
+  async changePassword() {
+    unsupported("Password management");
+  }
+}

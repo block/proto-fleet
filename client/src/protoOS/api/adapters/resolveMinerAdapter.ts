@@ -12,16 +12,28 @@ export const resolveMinerAdapter = async (
   // inconclusive ("unreachable") rather than a confirmed "unsupported" miner —
   // a transient failure may have masked a match, so the caller can re-probe.
   let probeErrored = false;
+  const responses = new Map<string, Promise<unknown>>();
+  const failedSupportedProbePaths = new Set<string>();
 
   for (const definition of definitions) {
     try {
       // Keep request, parseResponse, and create in one try: a parse or
       // construct throw is a probe failure, not a well-formed non-match.
-      const body = await request(definition.probe.path, signal);
+      let response = responses.get(definition.probe.path);
+      if (!response) {
+        response = request(definition.probe.path, signal);
+        responses.set(definition.probe.path, response);
+      }
+      const body = await response;
       const match = definition.probe.parseResponse(body);
       if (!match) continue;
 
       if (definition.support === "probe-only") {
+        // A catch-all definition that shares a response with a supported
+        // definition must not turn that definition's parse/create failure into
+        // a terminal unsupported result. Continue probing other API versions;
+        // if none match, the failed supported probe resolves to unreachable.
+        if (failedSupportedProbePaths.has(definition.probe.path)) continue;
         return { status: "unsupported", adapterId: definition.id, adapter: undefined };
       }
 
@@ -29,6 +41,7 @@ export const resolveMinerAdapter = async (
     } catch (error) {
       if (signal.aborted) throw error;
       probeErrored = true;
+      if (definition.support === "supported") failedSupportedProbePaths.add(definition.probe.path);
       continue;
     }
   }

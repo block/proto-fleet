@@ -28,6 +28,27 @@ export interface AdapterProbeMatch {
   reportedVersion?: string;
 }
 
+export interface MiningScope {
+  identifiers?: string[];
+  modules?: Array<{ tank: number; module: number }>;
+}
+
+export interface ModuleRunInRequest {
+  taskId?: string;
+  duration?: string;
+  sampleInterval?: string;
+  cooldownDuration?: string;
+  boardPowerTargetWatts?: number;
+  stopMiningOnFinish?: boolean;
+}
+
+export interface ModuleRunInResult {
+  taskId?: string;
+  moduleId?: string;
+  status?: string;
+  voltageLeaderMac?: string;
+}
+
 interface MinerAdapterDefinitionBase<Match extends AdapterProbeMatch = AdapterProbeMatch> {
   id: MinerAdapterId;
   displayName: string;
@@ -74,8 +95,11 @@ export interface SystemLogs {
 /** One ASIC's latest telemetry sample, in canonical units. */
 export interface AsicTelemetrySample {
   asicId: string;
+  hashrate?: Measurement;
+  temperature?: Measurement;
   voltage?: Measurement;
   frequency?: Measurement;
+  passRate?: Measurement;
 }
 
 /**
@@ -148,6 +172,22 @@ export interface MinerAdapter {
   getPools(params?: AdapterRequestOptions): Promise<PoolInfo[]>;
   getMiningTarget(params?: AdapterRequestOptions): Promise<MiningTarget>;
   updateMiningTarget(update: MiningTargetUpdate, params?: AdapterRequestOptions): Promise<MiningTarget>;
+  setScopedPowerTarget?(
+    scope: MiningScope,
+    watts: number,
+    pllAlgorithm?: string,
+    params?: AdapterRequestOptions,
+  ): Promise<void>;
+  clearScopedPowerTarget?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
+  startScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
+  stopScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
+  setModuleFixedVoltage?(moduleId: string, millivolts: number, params?: AdapterRequestOptions): Promise<void>;
+  clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<void>;
+  startModuleRunIn?(
+    moduleId: string,
+    request: ModuleRunInRequest,
+    params?: AdapterRequestOptions,
+  ): Promise<ModuleRunInResult>;
   getHardware(
     context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
     params?: AdapterRequestOptions,

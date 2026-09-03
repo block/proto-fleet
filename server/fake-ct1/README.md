@@ -16,8 +16,9 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 - **96 modules × 3 hashboards = 288 boards** (default: 2 tanks × 48 modules × 3 slots)
 - Per-board hydro telemetry (hashrate, temperatures, voltage, power)
 - **312 ASICs per board** with layout coordinates
-- Plant/PUE container telemetry
-- Stateful scoped mining writes (power targets, start/stop, fixed voltage)
+- Plant/PUE, fan, power-distribution, and power-feed telemetry
+- Bucketed aggregate time-series telemetry
+- Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)
 
 State is held in memory and mutated by the write endpoints; telemetry reads
 apply a small random variation so values look realistic.
@@ -31,11 +32,15 @@ apply a small random variation so values look realistic.
 | GET | `/api/v2/container/map` | full Tank→Module→Slot→Hashboard tree |
 | GET | `/api/v2/mining/status` | aggregate hashrate/power/efficiency + per-state counts |
 | POST | `/api/v2/mining/start` · `/stop` | container-wide mining intent |
-| GET | `/api/v2/telemetry/container` | plant (PUE), tank, phase telemetry |
+| GET/PUT | `/api/v2/mining/target-power` | read/set miner-wide per-board power target |
+| GET | `/api/v2/pools` · `/pools/diagnostics` | configured pool and live connection state |
+| GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
+| GET | `/api/v2/telemetry/timeseries` | bucketed aggregate or identifier-scoped hashrate, power, or temperature |
 | GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
 | POST | `/api/v2/mining/scoped/power` · `/power/clear` | set/clear per-board power target |
 | POST | `/api/v2/mining/scoped/start` · `/stop` | scoped board lifecycle |
 | PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage |
+| POST | `/api/v2/modules/{moduleId}/run-in` | start a simulated synchronized module run-in |
 | GET | `/health` | liveness |
 
 **Scopes.** The scoped write endpoints accept a `scope` of `identifiers`

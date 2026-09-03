@@ -5,8 +5,7 @@ import type { TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
-import { usePoolsInfo } from "@/protoOS/store";
-import { useDuration, useSetDuration } from "@/protoOS/store";
+import { useDuration, useMinerStore, usePoolsInfo, useSetDuration } from "@/protoOS/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -14,25 +13,22 @@ const KpiLayout = () => {
   const poolsInfo = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  const isContainer = useMinerStore((state) => state.hardware.topology?.kind === "container");
   const { pathname } = useLocation();
 
   // Get latest miner level telemetry fo tabnav summary
   useTelemetry({ level: ["miner"] });
 
   // Memoize levels to prevent recreating on every render
-  const levels = useMemo<TimeSeriesLevel[]>(
-    () => [
-      {
-        type: "miner" as const,
-        fields: ["hashrate", "power", "efficiency", "temperature"],
-      },
-      {
-        type: "hashboard" as const,
-        fields: ["hashrate", "power", "efficiency", "temperature"],
-      },
-    ],
-    [],
-  );
+  const levels = useMemo<TimeSeriesLevel[]>(() => {
+    const miner: TimeSeriesLevel = {
+      type: "miner",
+      fields: ["hashrate", "power", "efficiency", "temperature"],
+    };
+    return isContainer
+      ? [miner]
+      : [miner, { type: "hashboard", fields: ["hashrate", "power", "efficiency", "temperature"] }];
+  }, [isContainer]);
 
   // Fetch all time series data here for hashrate/eff/power/temperature in one request
   // Used by multiple KPI tabs

@@ -264,6 +264,12 @@ export interface FanHardware {
   name?: string;
 }
 
+export interface PlantHardware {
+  ref: PlantComponentRef;
+  kind: "plant" | "phase" | "distribution" | "powerFeed";
+  name: string;
+}
+
 export interface HardwareState {
   resource: ResourceState;
   topology?: Topology;
@@ -272,6 +278,7 @@ export interface HardwareState {
   asics: Map<AsicId, AsicHardware>;
   psus: Map<ComponentId, PsuHardware>;
   fans: Map<ComponentId, FanHardware>;
+  plant: Map<ComponentId, PlantHardware>;
 }
 
 export interface LevelTelemetry {
@@ -323,6 +330,7 @@ export interface AsicTelemetry {
   temperature?: MetricTelemetry;
   voltage?: MetricTelemetry;
   frequency?: MetricTelemetry;
+  passRate?: MetricTelemetry;
 }
 
 export interface PsuTelemetry {
@@ -340,11 +348,39 @@ export interface PsuTelemetry {
 
 export interface FanTelemetry {
   componentId: ComponentId;
+  power?: MetricTelemetry;
   rpm?: MetricTelemetry;
   speedPercent?: MetricTelemetry;
   minimumRpm?: MetricTelemetry;
   maximumRpm?: MetricTelemetry;
   health?: HealthState;
+}
+
+export interface PlantTelemetry {
+  componentId: ComponentId;
+  operatingState?: string;
+  powered?: boolean;
+  health?: HealthState;
+  phase?: string;
+  activeFeedCount?: number;
+  inletTemperature?: MetricTelemetry;
+  outletTemperature?: MetricTelemetry;
+  ambientTemperature?: MetricTelemetry;
+  totalPower?: MetricTelemetry;
+  heatRejectionPower?: MetricTelemetry;
+  facilityPower?: MetricTelemetry;
+  powerFactor?: MetricTelemetry;
+  pue?: MetricTelemetry;
+  flowRate?: MetricTelemetry;
+  voltage?: MetricTelemetry;
+  current?: MetricTelemetry;
+  voltageAb?: MetricTelemetry;
+  voltageBc?: MetricTelemetry;
+  voltageCa?: MetricTelemetry;
+  currentA?: MetricTelemetry;
+  currentB?: MetricTelemetry;
+  currentC?: MetricTelemetry;
+  activeEnergy?: MetricTelemetry;
 }
 
 export type CoolingMode = "unknown" | "off" | "automatic" | "manual";
@@ -356,6 +392,7 @@ export interface TelemetryState {
   asics: Map<AsicId, AsicTelemetry>;
   psus: Map<ComponentId, PsuTelemetry>;
   fans: Map<ComponentId, FanTelemetry>;
+  plant: Map<ComponentId, PlantTelemetry>;
   coolingModeByOwner: Map<EntityKey, CoolingMode>;
   asicLoadByHashboard: Map<HashboardId, ResourceState>;
 }
@@ -551,6 +588,8 @@ export const ROOT_MODULE_ID = "module:root" as ModuleId;
 export const ROOT_MODULE_KEY = "module:root" as EntityKey;
 
 export const asDeviceId = (value: string) => value as DeviceId;
+export const asContainerId = (value: string) => value as ContainerId;
+export const asTankId = (value: string) => value as TankId;
 export const asModuleId = (value: string) => value as ModuleId;
 export const asComponentId = (value: string) => value as ComponentId;
 export const asHashboardId = (value: string) => value as HashboardId;

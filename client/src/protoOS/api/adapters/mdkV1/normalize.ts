@@ -485,7 +485,7 @@ export const toCanonicalHardware = (
           hashboards: hashboardNodes,
         };
 
-  return { resource: ready(), topology, controlBoards, hashboards, asics, psus, fans };
+  return { resource: ready(), topology, controlBoards, hashboards, asics, psus, fans, plant: new Map() };
 };
 
 export const toCanonicalHardwareTelemetry = (wire: HardwareInfoHardwareinfo): TelemetryState => {

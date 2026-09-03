@@ -7,15 +7,13 @@ import { usePoll } from "@/shared/hooks/usePoll";
 
 const mockGetHashboardStatus = vi.fn();
 
-const { mockGetHashboard, mockAddHashboard, mockGetAsic, mockLinkAsicToHashboard, mockBatchAddAsics, mockSetState } =
-  vi.hoisted(() => ({
-    mockGetHashboard: vi.fn(),
-    mockAddHashboard: vi.fn(),
-    mockGetAsic: vi.fn(),
-    mockLinkAsicToHashboard: vi.fn(),
-    mockBatchAddAsics: vi.fn(),
-    mockSetState: vi.fn(),
-  }));
+const { mockGetHashboard, mockBatchAddHashboards, mockGetAsic, mockBatchAddAsics, mockSetState } = vi.hoisted(() => ({
+  mockGetHashboard: vi.fn(),
+  mockBatchAddHashboards: vi.fn(),
+  mockGetAsic: vi.fn(),
+  mockBatchAddAsics: vi.fn(),
+  mockSetState: vi.fn(),
+}));
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
@@ -30,9 +28,8 @@ vi.mock("@/protoOS/store", () => ({
     getState: () => ({
       hardware: {
         getHashboard: mockGetHashboard,
-        addHashboard: mockAddHashboard,
+        batchAddHashboards: mockBatchAddHashboards,
         getAsic: mockGetAsic,
-        linkAsicToHashboard: mockLinkAsicToHashboard,
         batchAddAsics: mockBatchAddAsics,
       },
       telemetry: {
@@ -126,9 +123,9 @@ describe("useHashboardStatus", () => {
         column: 3,
       }),
     ]);
-    // linkAsicToHashboard is a no-op when the entry pre-existed (the hashboard
-    // is updated separately with the full asicIds list).
-    expect(mockLinkAsicToHashboard).not.toHaveBeenCalled();
+    expect(mockBatchAddHashboards).toHaveBeenCalledWith([
+      expect.objectContaining({ serial: "HB-1", asicIds: ["serial:HB-1:asic:0"] }),
+    ]);
   });
 
   test("preserves the device-local index when creating ASIC hardware", async () => {
@@ -205,5 +202,6 @@ describe("useHashboardStatus", () => {
     const asic = asics.get(asAsicId("serial:HB-1:asic:0"));
     expect(asic?.voltage?.latest).toEqual({ value: 0.3, units: "V" });
     expect(asic?.frequency?.latest).toEqual({ value: 650, units: "MHz" });
+    expect(mockSetState).toHaveBeenCalledTimes(1);
   });
 });

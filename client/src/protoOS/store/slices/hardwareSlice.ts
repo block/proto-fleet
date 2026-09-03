@@ -48,6 +48,7 @@ export interface HardwareSlice extends HardwareState {
   getControlBoard: () => ControlBoardHardwareData | null;
   setHashboards: (hashboards: HashboardHardwareData[]) => void;
   addHashboard: (hashboard: HashboardHardwareData) => void;
+  batchAddHashboards: (hashboards: HashboardHardwareData[]) => void;
   getHashboard: (serial: string) => HashboardHardwareData | undefined;
   getHashboardBySlot: (slot: number) => HashboardHardwareData | undefined;
   getHashboardsByBay: (bay: number) => HashboardHardwareData[];
@@ -100,6 +101,9 @@ const ensureTopology = (state: HardwareSlice) => {
 const nodeForSerial = (state: HardwareSlice, serial: string) =>
   state.topology ? [...state.topology.hashboards.values()].find((node) => node.identity.value === serial) : undefined;
 
+const hashboardIdForSerial = (state: HardwareSlice, serial: string) =>
+  nodeForSerial(state, serial)?.id ?? getHashboardId(serial);
+
 const hashboardView = (state: HardwareSlice, serial: string): HashboardHardwareData | undefined => {
   const node = nodeForSerial(state, serial);
   const hardware = node ? state.hashboards.get(node.id) : state.hashboards.get(getHashboardId(serial));
@@ -139,11 +143,12 @@ const hashboardView = (state: HardwareSlice, serial: string): HashboardHardwareD
 };
 
 const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => {
-  const id = getHashboardId(input.serial);
+  const existingNode = nodeForSerial(state, input.serial);
+  const id = existingNode?.id ?? getHashboardId(input.serial);
   const existing = state.hashboards.get(id);
   state.hashboards.set(id, {
-    ref: { id, kind: "hashboard", owner },
-    identity: { kind: "serial", value: input.serial },
+    ref: existing?.ref ?? { id, kind: "hashboard", owner },
+    identity: existing?.identity ?? { kind: "serial", value: input.serial },
     boardModel: input.board ?? existing?.boardModel,
     apiVersion: input.apiVersion ?? existing?.apiVersion,
     chipId: input.chipId ?? existing?.chipId,
@@ -157,9 +162,10 @@ const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => 
   const topology = ensureTopology(state);
   const prior = topology.hashboards.get(id);
   topology.hashboards.set(id, {
+    ...prior,
     id,
-    identity: { kind: "serial", value: input.serial },
-    moduleId: ROOT_MODULE_ID,
+    identity: prior?.identity ?? { kind: "serial", value: input.serial },
+    moduleId: prior?.moduleId ?? ROOT_MODULE_ID,
     asicIds: (input.asicIds ?? prior?.asicIds ?? []).map(asAsicId),
     location: {
       slot: input.slot ?? prior?.location?.slot,
@@ -167,23 +173,26 @@ const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => 
       port: input.port ?? prior?.location?.port,
     },
   });
-  const module = topology.modules.get(ROOT_MODULE_ID);
+  const module = topology.modules.get(prior?.moduleId ?? ROOT_MODULE_ID);
   if (module && !module.hashboardIds.includes(id)) module.hashboardIds.push(id);
 };
 
-const asicView = (asic: AsicHardware): AsicHardwareData => ({
+const asicView = (state: HardwareSlice, asic: AsicHardware): AsicHardwareData => ({
   id: String(asic.ref.id),
-  hashboardSerial: String(asic.hashboardId).replace(/^serial:/, ""),
+  hashboardSerial:
+    state.topology?.hashboards.get(asic.hashboardId)?.identity.value ??
+    String(asic.hashboardId).replace(/^(?:serial|mac):/, ""),
   index: asic.index,
   row: asic.row,
   column: asic.column,
 });
 
-const upsertAsic = (state: HardwareSlice, item: AsicHardwareData) => {
+const upsertAsic = (state: HardwareSlice, item: AsicHardwareData, hashboardIds?: Map<string, HashboardId>) => {
   const id = asAsicId(item.id);
+  const hashboardId = hashboardIds?.get(item.hashboardSerial) ?? hashboardIdForSerial(state, item.hashboardSerial);
   state.asics.set(id, {
-    ref: { id, kind: "asic", owner },
-    hashboardId: getHashboardId(item.hashboardSerial),
+    ref: { id, kind: "asic", owner: { kind: "hashboard", id: hashboardId } },
+    hashboardId,
     index: item.index,
     row: item.row,
     column: item.column,
@@ -225,6 +234,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   asics: new Map(),
   psus: new Map(),
   fans: new Map(),
+  plant: new Map(),
 
   reset: () =>
     set((state) => {
@@ -236,6 +246,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
         asics: new Map(),
         psus: new Map(),
         fans: new Map(),
+        plant: new Map(),
       });
     }),
   replaceHardware: (hardware) => {
@@ -328,6 +339,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
       items.forEach((item) => upsertHashboard(state.hardware, item));
     }),
   addHashboard: (item) => set((state) => upsertHashboard(state.hardware, item)),
+  batchAddHashboards: (items) => set((state) => items.forEach((item) => upsertHashboard(state.hardware, item))),
   getHashboard: (serial) => hashboardView(get().hardware, serial),
   getHashboardBySlot: (slot) => {
     const state = get().hardware;
@@ -360,26 +372,41 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
       items.forEach((item) => upsertAsic(state.hardware, item));
     }),
   addAsic: (item) => set((state) => upsertAsic(state.hardware, item)),
-  batchAddAsics: (items) => set((state) => items.forEach((item) => upsertAsic(state.hardware, item))),
+  batchAddAsics: (items) =>
+    set((state) => {
+      const hashboardIds = new Map(
+        [...(state.hardware.topology?.hashboards.values() ?? [])].map((node) => [node.identity.value, node.id]),
+      );
+      items.forEach((item) => upsertAsic(state.hardware, item, hashboardIds));
+    }),
   getAsic: (id) => {
-    const asic = get().hardware.asics.get(asAsicId(id));
-    return asic ? asicView(asic) : undefined;
+    const state = get().hardware;
+    const asic = state.asics.get(asAsicId(id));
+    return asic ? asicView(state, asic) : undefined;
   },
-  getAsicsByHashboard: (serial) =>
-    [...get().hardware.asics.values()].filter((asic) => asic.hashboardId === getHashboardId(serial)).map(asicView),
+  getAsicsByHashboard: (serial) => {
+    const state = get().hardware;
+    const hashboardId = hashboardIdForSerial(state, serial);
+    return [...state.asics.values()]
+      .filter((asic) => asic.hashboardId === hashboardId)
+      .map((asic) => asicView(state, asic));
+  },
   getAsicPosition: (id) => {
     const asic = get().hardware.asics.get(asAsicId(id));
     return asic ? { row: asic.row, column: asic.column } : undefined;
   },
-  getAsicRowsByHashboard: (serial) =>
-    [
+  getAsicRowsByHashboard: (serial) => {
+    const state = get().hardware;
+    const hashboardId = hashboardIdForSerial(state, serial);
+    return [
       ...new Set(
-        [...get().hardware.asics.values()]
-          .filter((asic) => asic.hashboardId === getHashboardId(serial))
+        [...state.asics.values()]
+          .filter((asic) => asic.hashboardId === hashboardId)
           .map((asic) => asic.row)
           .filter((row): row is number => row !== undefined),
       ),
-    ].sort((a, b) => a - b),
+    ].sort((a, b) => a - b);
+  },
   linkAsicToHashboard: (asicId, serial) =>
     set((state) => {
       const node = nodeForSerial(state.hardware, serial);
