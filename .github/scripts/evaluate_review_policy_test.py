@@ -593,6 +593,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "codex-security-review-benchmark",
                         "codex-security-review-sharded-benchmark",
                         "codex-security-review-terra-benchmark",
+                        "codex-security-review-extended-timeout-benchmark",
                     ]
                 }
             },
@@ -600,14 +601,14 @@ class ReviewPolicyTest(unittest.TestCase):
         selector = find_step(workflow, "select-cases", "select")
         self.assertEqual(
             selector["env"]["BENCHMARK_PROFILE"],
-            "${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || 'sol' }}",
+            "${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'sol-extended-timeout' || 'sol' }}",
         )
         self.assertIn(
             "github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh'",
             selector["env"]["REASONING_EFFORT"],
         )
         self.assertIn(
-            "github.event.action == 'codex-security-review-terra-benchmark') && 'unified-40' || 'all'",
+            "github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'unified-40' || 'all'",
             selector["env"]["CONTEXT_VARIANT"],
         )
         self.assertEqual(
@@ -616,9 +617,13 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         unsharded_events = (
             "github.event.action == 'codex-security-review-benchmark' || "
-            "github.event.action == 'codex-security-review-terra-benchmark'"
+            "github.event.action == 'codex-security-review-terra-benchmark' || "
+            "github.event.action == 'codex-security-review-extended-timeout-benchmark'"
         )
-        self.assertEqual(job["if"], f"${{{{ {unsharded_events} }}}}")
+        self.assertEqual(
+            job["if"],
+            f"${{{{ needs.select-cases.result == 'success' && ({unsharded_events}) }}}}",
+        )
         self.assertIn(unsharded_events, workflow["jobs"]["benchmark-finalize"]["if"])
         self.assertNotIn("workflow_dispatch:", workflow_text)
         self.assertNotIn("${{ inputs", workflow_text)
@@ -627,7 +632,10 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertFalse(job["strategy"]["fail-fast"])
         self.assertEqual(job["strategy"]["max-parallel"], 2)
-        self.assertEqual(codex["timeout-minutes"], 12)
+        self.assertEqual(
+            codex["timeout-minutes"],
+            "${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}",
+        )
         self.assertTrue(codex["continue-on-error"])
         self.assertIn("!cancelled()", benchmark_writer["if"])
         self.assertEqual(
@@ -691,6 +699,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 "service_tier": "${{ steps.select.outputs.service_tier }}",
                 "verbosity": "${{ steps.select.outputs.verbosity }}",
                 "codex_args": "${{ steps.select.outputs.codex_args }}",
+                "timeout_minutes": "${{ steps.select.outputs.timeout_minutes }}",
                 "prompt_profile": "${{ steps.select.outputs.prompt_profile }}",
                 "repeat": "${{ steps.select.outputs.repeat }}",
             },
@@ -716,6 +725,7 @@ class ReviewPolicyTest(unittest.TestCase):
             benchmark_profile="sol",
             reasoning_effort="xhigh",
             prompt_profile="baseline",
+            repeat="initial",
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 target = Path(tmp) / ".github" / BENCHMARK_CORPUS_PATH.name
@@ -732,7 +742,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "CONTEXT_VARIANT": variant_name,
                         "REASONING_EFFORT": reasoning_effort,
                         "PROMPT_PROFILE": prompt_profile,
-                        "REPEAT": "initial",
+                        "REPEAT": repeat,
                         "GITHUB_OUTPUT": str(output),
                     },
                     tmp,
@@ -751,6 +761,7 @@ class ReviewPolicyTest(unittest.TestCase):
             json.loads(outputs["codex_args"]),
             ["-c", "model_reasoning_effort=xhigh"],
         )
+        self.assertEqual(outputs["timeout_minutes"], "12")
         self.assertEqual(outputs["prompt_profile"], "baseline")
         self.assertEqual(outputs["repeat"], "initial")
         self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
@@ -801,6 +812,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(outputs["reasoning_effort"], "high")
         self.assertEqual(outputs["service_tier"], "default")
         self.assertEqual(outputs["verbosity"], "low")
+        self.assertEqual(outputs["timeout_minutes"], "12")
         self.assertEqual(
             json.loads(outputs["codex_args"]),
             [
@@ -825,6 +837,46 @@ class ReviewPolicyTest(unittest.TestCase):
                     benchmark_profile="terra-high-default-low",
                     reasoning_effort=effort,
                     prompt_profile=prompt,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(rejected, result.stderr)
+                self.assertEqual(emitted, "")
+
+        result, emitted = select(
+            "adjudicated",
+            "unified-40",
+            benchmark_profile="sol-extended-timeout",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
+        include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual(len(include), len(adjudicated))
+        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
+        self.assertEqual(outputs["model"], "gpt-5.6-sol")
+        self.assertEqual(outputs["reasoning_effort"], "xhigh")
+        self.assertEqual(outputs["service_tier"], "unspecified")
+        self.assertEqual(outputs["verbosity"], "unspecified")
+        self.assertEqual(outputs["timeout_minutes"], "14")
+        self.assertEqual(
+            json.loads(outputs["codex_args"]),
+            ["-c", "model_reasoning_effort=xhigh"],
+        )
+
+        for corpus, variant, effort, prompt, repeat, rejected in (
+            ("large-pr", "unified-40", "xhigh", "baseline", "initial", "large-pr"),
+            ("adjudicated", "compact", "xhigh", "baseline", "initial", "compact"),
+            ("adjudicated", "unified-40", "high", "baseline", "initial", "high"),
+            ("adjudicated", "unified-40", "xhigh", "bounded", "initial", "bounded"),
+            ("adjudicated", "unified-40", "xhigh", "baseline", "repeat-1", "repeat-1"),
+        ):
+            with self.subTest(extended_timeout_rejected=rejected):
+                result, emitted = select(
+                    corpus,
+                    variant,
+                    benchmark_profile="sol-extended-timeout",
+                    reasoning_effort=effort,
+                    prompt_profile=prompt,
+                    repeat=repeat,
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(rejected, result.stderr)
@@ -905,9 +957,12 @@ class ReviewPolicyTest(unittest.TestCase):
             production_codex["timeout-minutes"],
             int(production_job["env"]["CODEX_TIMEOUT_MINUTES"]),
         )
+        selected_timeout = "${{ needs.select-cases.outputs.timeout_minutes }}"
+        dynamic_timeout = "${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}"
+        self.assertEqual(benchmark_codex["timeout-minutes"], dynamic_timeout)
+        self.assertEqual(benchmark_job["timeout-minutes"], dynamic_timeout)
         self.assertEqual(
-            benchmark_codex["timeout-minutes"],
-            int(benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"]),
+            benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"], selected_timeout
         )
         self.assertEqual(
             production_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
@@ -922,8 +977,7 @@ class ReviewPolicyTest(unittest.TestCase):
             "300",
         )
         self.assertEqual(
-            benchmark_finalizer["env"]["CODEX_TIMEOUT_MINUTES"],
-            benchmark_job["env"]["CODEX_TIMEOUT_MINUTES"],
+            benchmark_finalizer["env"]["CODEX_TIMEOUT_MINUTES"], selected_timeout
         )
         self.assertEqual(
             benchmark_finalizer["env"]["CODEX_CANCELLATION_CLEANUP_SECONDS"],
@@ -932,7 +986,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertLessEqual(
             production_codex["timeout-minutes"], production_job["timeout-minutes"]
         )
-        self.assertLessEqual(
+        self.assertEqual(
             benchmark_codex["timeout-minutes"], benchmark_job["timeout-minutes"]
         )
 
@@ -1047,7 +1101,10 @@ class ReviewPolicyTest(unittest.TestCase):
         review_job = workflow["jobs"]["benchmark-review"]
         finalizer = workflow["jobs"]["benchmark-finalize"]
 
-        self.assertEqual(review_job["timeout-minutes"], 12)
+        self.assertEqual(
+            review_job["timeout-minutes"],
+            "${{ fromJSON(needs.select-cases.outputs.timeout_minutes) }}",
+        )
         self.assertEqual(finalizer["needs"], ["select-cases", "benchmark-review"])
         self.assertIn("always()", finalizer["if"])
         self.assertEqual(
@@ -1083,24 +1140,39 @@ class ReviewPolicyTest(unittest.TestCase):
             ],
         }
         inspect_cases = [
-            ("budget-timeout", timeout_job, "budget-timeout"),
+            ("budget-timeout", timeout_job, "12", "budget-timeout"),
             (
                 "early-cancellation",
                 {**timeout_job, "completed_at": "2026-08-26T00:05:00Z"},
+                "12",
                 "unexpected-cancellation",
             ),
             (
                 "cancellation-plus-cleanup",
                 {**timeout_job, "completed_at": "2026-08-26T00:12:00Z"},
+                "12",
                 "unexpected-cancellation",
             ),
             (
                 "setup-cancellation",
                 {**timeout_job, "steps": successful_steps[:1]},
+                "12",
+                "unexpected-cancellation",
+            ),
+            (
+                "extended-timeout-budget-plus-cleanup",
+                {**timeout_job, "completed_at": "2026-08-26T00:19:00Z"},
+                "14",
+                "budget-timeout",
+            ),
+            (
+                "extended-timeout-insufficient-evidence",
+                {**timeout_job, "completed_at": "2026-08-26T00:18:59Z"},
+                "14",
                 "unexpected-cancellation",
             ),
         ]
-        for name, job, expected_classification in inspect_cases:
+        for name, job, timeout_minutes, expected_classification in inspect_cases:
             with self.subTest(inspect=name), tempfile.TemporaryDirectory() as tmp:
                 completed, output = run_github_script(
                     inspect_script,
@@ -1108,7 +1180,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         "jobs": [job],
                         "artifacts": [],
                         "agent_job_name": timeout_job["name"],
-                        "timeout_minutes": "12",
+                        "timeout_minutes": timeout_minutes,
                     },
                     tmp,
                 )
@@ -1234,7 +1306,15 @@ class ReviewPolicyTest(unittest.TestCase):
             group,
         )
         self.assertIn(
-            "github.event.action == 'codex-security-review-sharded-benchmark' && 'xhigh'",
+            "github.event.action == 'codex-security-review-sharded-benchmark' ||",
+            group,
+        )
+        self.assertIn(
+            "github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'xhigh'",
+            group,
+        )
+        self.assertIn(
+            "github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'initial'",
             group,
         )
 
