@@ -21,6 +21,7 @@ printf '%s\n' "$*" >>"$CALLS"
 printf 'fleetnode:%s\n' "$*" >>"$TRACE"
 case " $* " in
   *" status "*)
+    printf 'server_url:            %s\n' "${MOCK_STATE_SERVER_URL:-https://fleet.example.com}"
     printf 'fleet_node_id:         %s\n' "${MOCK_FLEET_NODE_ID:-42}"
     printf 'api_key_present:       %s\n' "${MOCK_API_KEY_PRESENT:-false}"
     ;;
@@ -57,7 +58,7 @@ systemctl() {
 reset_test() {
   rm -f "$CALLS" "$SYSTEMCTL_CALLS" "$TRACE"
   rm -rf "$STATE_DIR"
-  unset MOCK_API_KEY_PRESENT MOCK_ENROLL_EXIT MOCK_FLEET_NODE_ID MOCK_REFRESH_EXIT MOCK_SYSTEMCTL_FAIL_ONCE
+  unset MOCK_API_KEY_PRESENT MOCK_ENROLL_EXIT MOCK_FLEET_NODE_ID MOCK_REFRESH_EXIT MOCK_STATE_SERVER_URL MOCK_SYSTEMCTL_FAIL_ONCE
 }
 
 assert_line() {
@@ -105,7 +106,7 @@ mkdir -p "$STATE_DIR"
 touch "$STATE_PATH"
 MOCK_API_KEY_PRESENT=false
 export MOCK_API_KEY_PRESENT
-main --server-url=https://fleet.example.com
+main --server-url https://fleet.example.com
 assert_line "$CALLS" "--state-dir $STATE_DIR status"
 assert_line "$CALLS" "--state-dir $STATE_DIR refresh"
 assert_no_line "$CALLS" " enroll "
@@ -117,7 +118,11 @@ mkdir -p "$STATE_DIR"
 touch "$STATE_PATH"
 MOCK_API_KEY_PRESENT=true
 export MOCK_API_KEY_PRESENT
-main --server-url=https://fleet.example.com
+complete_output=$(main --server-url=https://fleet.example.com)
+[[ "$complete_output" == *"already enrolled (fleet_node_id=42); enabling fleet-node.service"* ]] || {
+  echo "complete-state notice omitted the fleet node ID" >&2
+  exit 1
+}
 assert_line "$CALLS" "--state-dir $STATE_DIR status"
 assert_no_line "$CALLS" " enroll "
 assert_no_line "$CALLS" " refresh "
@@ -150,7 +155,53 @@ touch "$STATE_PATH"
 main --server-url=https://fleet.example.com --force
 assert_line "$CALLS" "--state-dir $STATE_DIR enroll --server-url=https://fleet.example.com --force"
 assert_no_line "$CALLS" " status"
+assert_line "$SYSTEMCTL_CALLS" "stop fleet-node.service"
 assert_line "$SYSTEMCTL_CALLS" "enable --now fleet-node.service"
+assert_sequence \
+  "systemctl:stop fleet-node.service" \
+  "fleetnode:--state-dir $STATE_DIR enroll --server-url=https://fleet.example.com --force"
+
+# A failed stop prevents forced enrollment from racing the running service.
+reset_test
+mkdir -p "$STATE_DIR"
+touch "$STATE_PATH"
+MOCK_SYSTEMCTL_FAIL_ONCE=1
+export MOCK_SYSTEMCTL_FAIL_ONCE
+if main --server-url=https://fleet.example.com --force; then
+  echo "forced enrollment continued after service stop failed" >&2
+  exit 1
+fi
+assert_line "$SYSTEMCTL_CALLS" "stop fleet-node.service"
+[[ ! -e "$CALLS" ]] || { echo "failed service stop ran fleetnode" >&2; exit 1; }
+assert_no_line "$SYSTEMCTL_CALLS" "enable --now"
+
+# Existing state must match the requested server before refresh or activation.
+reset_test
+mkdir -p "$STATE_DIR"
+touch "$STATE_PATH"
+MOCK_API_KEY_PRESENT=false
+MOCK_STATE_SERVER_URL=https://old-fleet.example.com
+export MOCK_API_KEY_PRESENT MOCK_STATE_SERVER_URL
+if mismatch_output=$(main --server-url=https://new-fleet.example.com 2>&1); then
+  echo "mismatched server URL unexpectedly succeeded" >&2
+  exit 1
+fi
+[[ "$mismatch_output" == *"server_url=https://old-fleet.example.com"* ]] || {
+  echo "server mismatch omitted the existing URL" >&2
+  exit 1
+}
+[[ "$mismatch_output" == *"server_url=https://new-fleet.example.com"* ]] || {
+  echo "server mismatch omitted the requested URL" >&2
+  exit 1
+}
+[[ "$mismatch_output" == *"pass --force"* ]] || {
+  echo "server mismatch omitted force recovery guidance" >&2
+  exit 1
+}
+assert_line "$CALLS" "--state-dir $STATE_DIR status"
+assert_no_line "$CALLS" " enroll "
+assert_no_line "$CALLS" " refresh "
+[[ ! -e "$SYSTEMCTL_CALLS" ]] || { echo "server mismatch called systemctl" >&2; exit 1; }
 
 # Failed enrollment and refresh attempts must not activate the service.
 reset_test
