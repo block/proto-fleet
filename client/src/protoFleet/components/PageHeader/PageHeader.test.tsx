@@ -9,6 +9,7 @@ import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
+import { activeRigRollout } from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannels.fixtures";
 import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
@@ -244,6 +245,55 @@ describe("PageHeader", () => {
     expect(setupButton).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
     expect(setupLabel).toHaveClass("truncate");
     expect(screen.queryByTestId("phone-header-widget-row")).not.toBeInTheDocument();
+  });
+
+  it("keeps alerts inline and gives the other six widgets space when upgrades and rollouts coexist", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          activeAlertsPillData={createActiveAlertsPillData({ groups: [{ key: "miner|offline" } as ActiveAlertGroup] })}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+            targetMetricsAvailable: true,
+          }}
+          fleetNodeUpgradePill={{ nodeCount: 1, onClick: vi.fn() }}
+          rolloutPillData={{ activeRollouts: [activeRigRollout], hasVisiblePill: true }}
+          schedulePillData={createSchedulePillData({
+            hasVisibleSchedules: true,
+            pillSchedule: createPillSchedule("Night reboot"),
+          })}
+          updatePill={{ version: "v1.3.0", onClick: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    const inlineWidgets = screen.getByTestId("page-header-inline-widgets");
+    expect(within(inlineWidgets).getByText("Active alerts pill (1)")).toBeVisible();
+    const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
+    const widgetContents = [
+      within(mobileWidgets).getByRole("button", { name: "Open node settings for 1 Fleet Node requiring an upgrade" }),
+      within(mobileWidgets).getByText("Curtailment pill"),
+      within(mobileWidgets).getByText("Night reboot"),
+      within(mobileWidgets).getByRole("button", { name: "View ongoing firmware updates" }),
+      within(mobileWidgets).getByRole("button", { name: "Open update settings for v1.3.0" }),
+      within(mobileWidgets).getByRole("button", { name: "Continue setup" }),
+    ];
+    expect(mobileWidgets.children).toHaveLength(6);
+    widgetContents.forEach((widget, index) => {
+      expect(widget).toBeVisible();
+      if (index > 0) {
+        expect(
+          widgetContents[index - 1].compareDocumentPosition(widget) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+    });
+    expect(screen.getByTestId("phone-header-widget-row")).toHaveClass("h-[240px]");
   });
 
   it("places the update pill to the left of Continue setup on desktop", () => {
