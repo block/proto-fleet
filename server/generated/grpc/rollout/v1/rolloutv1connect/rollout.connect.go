@@ -46,6 +46,9 @@ const (
 	// RolloutServiceListReleaseChannelMinersProcedure is the fully-qualified name of the
 	// RolloutService's ListReleaseChannelMiners RPC.
 	RolloutServiceListReleaseChannelMinersProcedure = "/rollout.v1.RolloutService/ListReleaseChannelMiners"
+	// RolloutServiceListReleaseChannelMembershipConflictsProcedure is the fully-qualified name of the
+	// RolloutService's ListReleaseChannelMembershipConflicts RPC.
+	RolloutServiceListReleaseChannelMembershipConflictsProcedure = "/rollout.v1.RolloutService/ListReleaseChannelMembershipConflicts"
 	// RolloutServiceCreateReleaseChannelProcedure is the fully-qualified name of the RolloutService's
 	// CreateReleaseChannel RPC.
 	RolloutServiceCreateReleaseChannelProcedure = "/rollout.v1.RolloutService/CreateReleaseChannel"
@@ -106,6 +109,11 @@ type RolloutServiceClient interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
+	// Lists flat miner/channel relations excluded from membership because
+	// multiple channels tie at the miner's highest matching selector
+	// specificity. Results include every channel in each tie unless filtered
+	// by channel id, with bounded cursor pagination.
+	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -196,6 +204,12 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listReleaseChannelMembershipConflicts: connect.NewClient[v1.ListReleaseChannelMembershipConflictsRequest, v1.ListReleaseChannelMembershipConflictsResponse](
+			httpClient,
+			baseURL+RolloutServiceListReleaseChannelMembershipConflictsProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		createReleaseChannel: connect.NewClient[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse](
 			httpClient,
 			baseURL+RolloutServiceCreateReleaseChannelProcedure,
@@ -275,24 +289,25 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // rolloutServiceClient implements RolloutServiceClient.
 type rolloutServiceClient struct {
-	listReleaseChannels            *connect.Client[v1.ListReleaseChannelsRequest, v1.ListReleaseChannelsResponse]
-	getReleaseChannel              *connect.Client[v1.GetReleaseChannelRequest, v1.GetReleaseChannelResponse]
-	listReleaseChannelModelGroups  *connect.Client[v1.ListReleaseChannelModelGroupsRequest, v1.ListReleaseChannelModelGroupsResponse]
-	listReleaseChannelMiners       *connect.Client[v1.ListReleaseChannelMinersRequest, v1.ListReleaseChannelMinersResponse]
-	createReleaseChannel           *connect.Client[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse]
-	updateReleaseChannel           *connect.Client[v1.UpdateReleaseChannelRequest, v1.UpdateReleaseChannelResponse]
-	deleteReleaseChannel           *connect.Client[v1.DeleteReleaseChannelRequest, v1.DeleteReleaseChannelResponse]
-	previewReleaseChannelScope     *connect.Client[v1.PreviewReleaseChannelScopeRequest, v1.PreviewReleaseChannelScopeResponse]
-	applyReleaseChannelFirmware    *connect.Client[v1.ApplyReleaseChannelFirmwareRequest, v1.ApplyReleaseChannelFirmwareResponse]
-	rollbackReleaseChannelFirmware *connect.Client[v1.RollbackReleaseChannelFirmwareRequest, v1.RollbackReleaseChannelFirmwareResponse]
-	listRollouts                   *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
-	getRollout                     *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
-	listRolloutDevices             *connect.Client[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse]
-	continueRollout                *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
-	pauseRollout                   *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
-	resumeRollout                  *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
-	cancelRollout                  *connect.Client[v1.CancelRolloutRequest, v1.CancelRolloutResponse]
-	retryFailedRolloutDevices      *connect.Client[v1.RetryFailedRolloutDevicesRequest, v1.RetryFailedRolloutDevicesResponse]
+	listReleaseChannels                   *connect.Client[v1.ListReleaseChannelsRequest, v1.ListReleaseChannelsResponse]
+	getReleaseChannel                     *connect.Client[v1.GetReleaseChannelRequest, v1.GetReleaseChannelResponse]
+	listReleaseChannelModelGroups         *connect.Client[v1.ListReleaseChannelModelGroupsRequest, v1.ListReleaseChannelModelGroupsResponse]
+	listReleaseChannelMiners              *connect.Client[v1.ListReleaseChannelMinersRequest, v1.ListReleaseChannelMinersResponse]
+	listReleaseChannelMembershipConflicts *connect.Client[v1.ListReleaseChannelMembershipConflictsRequest, v1.ListReleaseChannelMembershipConflictsResponse]
+	createReleaseChannel                  *connect.Client[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse]
+	updateReleaseChannel                  *connect.Client[v1.UpdateReleaseChannelRequest, v1.UpdateReleaseChannelResponse]
+	deleteReleaseChannel                  *connect.Client[v1.DeleteReleaseChannelRequest, v1.DeleteReleaseChannelResponse]
+	previewReleaseChannelScope            *connect.Client[v1.PreviewReleaseChannelScopeRequest, v1.PreviewReleaseChannelScopeResponse]
+	applyReleaseChannelFirmware           *connect.Client[v1.ApplyReleaseChannelFirmwareRequest, v1.ApplyReleaseChannelFirmwareResponse]
+	rollbackReleaseChannelFirmware        *connect.Client[v1.RollbackReleaseChannelFirmwareRequest, v1.RollbackReleaseChannelFirmwareResponse]
+	listRollouts                          *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
+	getRollout                            *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
+	listRolloutDevices                    *connect.Client[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse]
+	continueRollout                       *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
+	pauseRollout                          *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
+	resumeRollout                         *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
+	cancelRollout                         *connect.Client[v1.CancelRolloutRequest, v1.CancelRolloutResponse]
+	retryFailedRolloutDevices             *connect.Client[v1.RetryFailedRolloutDevicesRequest, v1.RetryFailedRolloutDevicesResponse]
 }
 
 // ListReleaseChannels calls rollout.v1.RolloutService.ListReleaseChannels.
@@ -313,6 +328,12 @@ func (c *rolloutServiceClient) ListReleaseChannelModelGroups(ctx context.Context
 // ListReleaseChannelMiners calls rollout.v1.RolloutService.ListReleaseChannelMiners.
 func (c *rolloutServiceClient) ListReleaseChannelMiners(ctx context.Context, req *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error) {
 	return c.listReleaseChannelMiners.CallUnary(ctx, req)
+}
+
+// ListReleaseChannelMembershipConflicts calls
+// rollout.v1.RolloutService.ListReleaseChannelMembershipConflicts.
+func (c *rolloutServiceClient) ListReleaseChannelMembershipConflicts(ctx context.Context, req *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error) {
+	return c.listReleaseChannelMembershipConflicts.CallUnary(ctx, req)
 }
 
 // CreateReleaseChannel calls rollout.v1.RolloutService.CreateReleaseChannel.
@@ -401,6 +422,11 @@ type RolloutServiceHandler interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
+	// Lists flat miner/channel relations excluded from membership because
+	// multiple channels tie at the miner's highest matching selector
+	// specificity. Results include every channel in each tie unless filtered
+	// by channel id, with bounded cursor pagination.
+	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -484,6 +510,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceListReleaseChannelMinersHandler := connect.NewUnaryHandler(
 		RolloutServiceListReleaseChannelMinersProcedure,
 		svc.ListReleaseChannelMiners,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	rolloutServiceListReleaseChannelMembershipConflictsHandler := connect.NewUnaryHandler(
+		RolloutServiceListReleaseChannelMembershipConflictsProcedure,
+		svc.ListReleaseChannelMembershipConflicts,
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
@@ -571,6 +603,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListReleaseChannelModelGroupsHandler.ServeHTTP(w, r)
 		case RolloutServiceListReleaseChannelMinersProcedure:
 			rolloutServiceListReleaseChannelMinersHandler.ServeHTTP(w, r)
+		case RolloutServiceListReleaseChannelMembershipConflictsProcedure:
+			rolloutServiceListReleaseChannelMembershipConflictsHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateReleaseChannelProcedure:
 			rolloutServiceCreateReleaseChannelHandler.ServeHTTP(w, r)
 		case RolloutServiceUpdateReleaseChannelProcedure:
@@ -622,6 +656,10 @@ func (UnimplementedRolloutServiceHandler) ListReleaseChannelModelGroups(context.
 
 func (UnimplementedRolloutServiceHandler) ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelMiners is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelMembershipConflicts is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error) {

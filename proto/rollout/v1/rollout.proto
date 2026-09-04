@@ -21,7 +21,8 @@ import "google/protobuf/timestamp.proto";
 // channel with the unique highest-specificity match (miner, group, rack,
 // building, site) wins and reports the miner as conflicted. If multiple
 // channels tie at the highest specificity, the miner belongs to none until
-// the conflict is removed.
+// the conflict is removed. Query excluded miners with
+// ListReleaseChannelMembershipConflicts.
 //
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
@@ -49,6 +50,14 @@ service RolloutService {
     // Lists the miners currently resolved into a channel, optionally filtered
     // by manufacturer and model, with bounded cursor pagination.
     rpc ListReleaseChannelMiners(ListReleaseChannelMinersRequest) returns (ListReleaseChannelMinersResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists flat miner/channel relations excluded from membership because
+    // multiple channels tie at the miner's highest matching selector
+    // specificity. Results include every channel in each tie unless filtered
+    // by channel id, with bounded cursor pagination.
+    rpc ListReleaseChannelMembershipConflicts(ListReleaseChannelMembershipConflictsRequest) returns (ListReleaseChannelMembershipConflictsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
@@ -256,8 +265,8 @@ message ReleaseChannelModelGroup {
         expression: "this.reported_version_count >= this.reported_versions.size()"
     };
 
-    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
-    string model = 2 [(buf.validate.field).string.max_len = 255];
+    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Empty when no firmware is assigned to this manufacturer/model pair.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
@@ -284,30 +293,44 @@ message ReleaseChannelModelGroup {
 message ReleaseChannelMiner {
     int64 device_id = 1;
     string device_identifier = 2;
-    string manufacturer = 3;
-    string model = 4;
+    string manufacturer = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware version the miner currently reports.
     string firmware_version = 5;
-    // Set when another channel's scope also covers this miner; this channel
-    // won because its selector is more specific.
+    // Set only when this channel is the unique highest-specificity match and
+    // another channel's less-specific selector also covers this miner.
     bool conflicted = 6;
+}
+
+// Selector specificity, ordered from most specific to least specific.
+enum ReleaseChannelSelectorSpecificity {
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_UNSPECIFIED = 0;
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER = 1;
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_GROUP = 2;
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_RACK = 3;
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_BUILDING = 4;
+    RELEASE_CHANNEL_SELECTOR_SPECIFICITY_SITE = 5;
+}
+
+// One excluded miner/channel relation in an equal-specificity membership tie.
+// A miner tying multiple channels produces one record for each tied channel.
+message ReleaseChannelMembershipConflict {
+    int64 device_id = 1;
+    string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
+    string manufacturer = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    int64 channel_id = 5;
+    string channel_name = 6 [(buf.validate.field).string.max_len = 100];
+    ReleaseChannelSelectorSpecificity selector_specificity = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
 }
 
 // Desired firmware for one manufacturer/model pair within a channel.
 message FirmwareAssignment {
-    option (buf.validate.message).cel = {
-        id: "manufacturer_non_empty_after_trim"
-        message: "manufacturer must not be empty after trimming whitespace"
-        expression: "this.manufacturer.trim() != ''"
-    };
-    option (buf.validate.message).cel = {
-        id: "model_non_empty_after_trim"
-        message: "model must not be empty after trimming whitespace"
-        expression: "this.model.trim() != ''"
-    };
-
-    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware file to enforce for this manufacturer/model pair; empty clears
     // the assignment.
     string firmware_file_id = 3;
@@ -454,8 +477,8 @@ message Rollout {
     int64 id = 1;
     int64 channel_id = 2;
     string channel_name = 3;
-    string manufacturer = 4;
-    string model = 5;
+    string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string firmware_file_id = 6;
     string firmware_version = 7;
     RolloutStatus status = 8;
@@ -563,8 +586,8 @@ message ListReleaseChannelModelGroupsResponse {
 message ListReleaseChannelMinersRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Empty filters return every manufacturer/model pair in the channel.
-    string manufacturer = 2 [(buf.validate.field).string.max_len = 255];
-    string model = 3 [(buf.validate.field).string.max_len = 255];
+    string manufacturer = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
     // Maximum miners to return. 0 uses the server default of 100.
     int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     // Cursor returned by a previous call; leave empty for the first page.
@@ -575,6 +598,24 @@ message ListReleaseChannelMinersResponse {
     repeated ReleaseChannelMiner miners = 1;
     // Cursor for the next page; empty when there are no more miners.
     string cursor = 2;
+}
+
+message ListReleaseChannelMembershipConflictsRequest {
+    // Only relations for this channel are returned. 0 returns all conflicts
+    // in the organization.
+    int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
+    // Maximum conflict records to return. 0 uses the server default of 100.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    // Cursor returned by a previous call; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListReleaseChannelMembershipConflictsResponse {
+    // Flat records keep the page bounded when one miner ties many channels.
+    // Clients may group records by device_id.
+    repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
+    // Cursor for the next page; empty when there are no more conflicts.
+    string cursor = 2 [(buf.validate.field).string.max_len = 100];
 }
 
 message CreateReleaseChannelRequest {
@@ -621,8 +662,8 @@ message ReleaseChannelScopeConflict {
 }
 
 message ReleaseChannelScopeModelCount {
-    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
-    string model = 2 [(buf.validate.field).string.max_len = 255];
+    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     int32 miner_count = 3;
 }
 
@@ -656,13 +697,13 @@ message ApplyReleaseChannelFirmwareRequest {
     option (buf.validate.message).cel = {
         id: "assignments_unique_by_manufacturer_model"
         message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.trim().lowerAscii().size()) + ':' + a.manufacturer.trim().lowerAscii() + a.model.trim().lowerAscii()).unique()"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.lowerAscii().size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
     };
 
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Desired assignments. Manufacturer/model pairs omitted here keep their
-    // current assignment. Assignment target identity trims surrounding
-    // whitespace and compares ASCII letters case-insensitively.
+    // current assignment. Assignment target identities must be printable ASCII
+    // without surrounding spaces and compare ASCII letters case-insensitively.
     repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated = {
         min_items: 1
         max_items: 100
