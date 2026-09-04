@@ -47,11 +47,10 @@ create_release() {
   fi
 
   local plugin
-  for plugin in proto-plugin antminer-plugin virtual-plugin asicrs-plugin; do
+  for plugin in proto-plugin antminer-plugin asicrs-plugin; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$release_dir/$archive_root/plugins/$plugin"
     chmod 0755 "$release_dir/$archive_root/plugins/$plugin"
   done
-  printf '{}\n' > "$release_dir/$archive_root/plugins/virtual-plugin.json"
   printf 'plugin: {}\nminers: {}\n' > "$release_dir/$archive_root/plugins/asicrs-config.yaml"
   if [[ -n "$extra_entry" ]]; then
     printf '#!/usr/bin/env bash\nexit 0\n' > "$release_dir/$archive_root/$extra_entry"
@@ -335,6 +334,11 @@ start_installer() {
   STARTED_INSTALLER_PID=$!
 }
 
+if FAKE_SYSTEMCTL_FAIL_SHOW=1 run_installer v1.0.0 > "$TEST_DIR/no-systemd.out" 2>&1; then
+  fail "installer accepted a host without a live systemd manager"
+fi
+assert_file_contains "$TEST_DIR/no-systemd.out" "requires a running systemd system manager"
+
 : > "$SYSTEMCTL_LOG"
 : > "$SUDO_LOG"
 : > "$ACCOUNT_LOG"
@@ -370,6 +374,7 @@ assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "--retry-delay 2"
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "--retry-connrefused"
 
 [[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "Fleet Node binary was not installed"
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode/plugins/virtual-plugin" ]] || fail "customer package installed the virtual test plugin"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
 [[ -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "systemd unit was not installed"
 assert_file_contains "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "Environment=PATH=$LINUX_SERVICE_PATH"

@@ -267,19 +267,6 @@ jobs:
           go build -v -o server/fleetnode ./server/cmd/fleetnode
           go build -o server/proto-plugin ./plugin/proto
           go build -o server/antminer-plugin ./plugin/antminer
-          go build -o server/virtual-plugin ./plugin/virtual
-          cp plugin/virtual/config.json server/virtual-plugin.json
-
-          for binary in fleetnode proto-plugin antminer-plugin virtual-plugin; do
-            if ! readelf -h "server/$binary" >/dev/null; then
-              echo "::error::Unable to inspect Fleet Node binary $binary"
-              exit 1
-            fi
-            if readelf -l "server/$binary" | grep INTERP >/dev/null || readelf -d "server/$binary" | grep NEEDED >/dev/null; then
-              echo "::error::Fleet Node binary $binary must be statically linked"
-              exit 1
-            fi
-          done
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -293,6 +280,20 @@ jobs:
           cp /tmp/asicrs/asicrs-plugin server/asicrs-plugin
           cp /tmp/asicrs/asicrs-config.yaml server/asicrs-config.yaml
 
+      - name: Validate Fleet Node executables
+        run: |
+          for binary in fleetnode proto-plugin antminer-plugin asicrs-plugin; do
+            path="server/$binary"
+            if ! readelf -h "$path" >/dev/null; then
+              echo "::error::Unable to inspect Fleet Node executable $binary"
+              exit 1
+            fi
+            if readelf -l "$path" | grep INTERP >/dev/null || readelf -d "$path" | grep NEEDED >/dev/null; then
+              echo "::error::Fleet Node executable $binary must be statically linked"
+              exit 1
+            fi
+          done
+
       - name: Package Fleet Node
         working-directory: ./server
         run: |
@@ -304,15 +305,20 @@ jobs:
           install -m 0644 ../deployment-files/fleetnode/fleet-node.service "$package_dir/fleet-node.service"
           install -m 0755 proto-plugin "$package_dir/plugins/proto-plugin"
           install -m 0755 antminer-plugin "$package_dir/plugins/antminer-plugin"
-          install -m 0755 virtual-plugin "$package_dir/plugins/virtual-plugin"
-          install -m 0644 virtual-plugin.json "$package_dir/plugins/virtual-plugin.json"
           install -m 0755 asicrs-plugin "$package_dir/plugins/asicrs-plugin"
           install -m 0644 asicrs-config.yaml "$package_dir/plugins/asicrs-config.yaml"
           printf 'version: %s\n' "$VERSION" > "$package_dir/version.txt"
 
           tar -czf "$archive" "$package_dir"
           sha256sum "$archive" > "$archive.sha256"
-          sha256sum -c "$archive.sha256"
+
+      - name: Qualify Fleet Node package on systemd
+        env:
+          PACKAGE_DIR: ${{ github.workspace }}/server
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes nmap
+          deployment-files/fleetnode/tests/qualify-package.sh "$VERSION" "$PACKAGE_DIR"
 
       - name: Upload Fleet Node artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
