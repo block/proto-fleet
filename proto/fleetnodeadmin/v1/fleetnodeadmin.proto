@@ -58,6 +58,9 @@ message FleetNodeSummary {
     // Present only while this node is awaiting confirmation for a specific
     // pending enrollment.
     optional int64 pending_enrollment_id = 7 [(buf.validate.field).int64.gt = 0];
+    // True only while this node has an active control connection that cannot
+    // process the server's current commands.
+    bool command_protocol_upgrade_required = 8;
 }
 
 message ConfirmFleetNodeRequest {

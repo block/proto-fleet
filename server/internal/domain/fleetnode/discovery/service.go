@@ -42,7 +42,7 @@ type nodeLister interface {
 // makes the coupling explicit and lets tests inject a fake without a Registry.
 type nodeRegistry interface {
 	ConnectedFleetNodeIDs() []int64
-	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
+	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
 }
 
 // Service runs discovery commands against connected fleet nodes.
@@ -100,7 +100,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
-	return control.RunCommand(ctx, s.registry, fleetNodeID, cmd, buildReportScope(normalized), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	return control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(normalized), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
 				if sendErr := onBatch(ev.Batch); sendErr != nil {

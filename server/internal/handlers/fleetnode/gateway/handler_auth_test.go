@@ -95,10 +95,18 @@ func TestCompleteAuthHandshakeDisconnectsReplacedSessionStream(t *testing.T) {
 		t.Fatal("replaced session's ControlStream remains connected")
 	}
 	require.Empty(t, registry.ConnectedFleetNodeIDs())
-	newStream, err := registry.RegisterAuthenticated(fleetNodeID, auth.SessionFingerprint("replacement-token"))
+	newStream, err := registry.RegisterAuthenticated(
+		fleetNodeID,
+		auth.SessionFingerprint("replacement-token"),
+		pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 	require.NoError(t, err)
 	newStream.Unregister()
-	_, err = registry.RegisterAuthenticated(fleetNodeID, auth.SessionFingerprint("old-token"))
+	_, err = registry.RegisterAuthenticated(
+		fleetNodeID,
+		auth.SessionFingerprint("old-token"),
+		pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 	require.Error(t, err)
 }
 
@@ -159,9 +167,17 @@ func TestCompleteAuthHandshakeSerializesSessionPersistenceAndFence(t *testing.T)
 	require.NoError(t, <-secondDone)
 	require.Equal(t, "new-token", authService.CurrentToken())
 
-	currentStream, err := registry.RegisterAuthenticated(42, auth.SessionFingerprint(authService.CurrentToken()))
+	currentStream, err := registry.RegisterAuthenticated(
+		42,
+		auth.SessionFingerprint(authService.CurrentToken()),
+		pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 	require.NoError(t, err)
 	currentStream.Unregister()
-	_, err = registry.RegisterAuthenticated(42, auth.SessionFingerprint("old-token"))
+	_, err = registry.RegisterAuthenticated(
+		42,
+		auth.SessionFingerprint("old-token"),
+		pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 	require.Error(t, err)
 }

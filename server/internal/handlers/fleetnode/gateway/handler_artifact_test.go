@@ -97,7 +97,7 @@ func startAckOnlyCommandWithArtifacts(t *testing.T, h *controlHarness, commandID
 	stream := h.registry.Register(h.fleetNodeID)
 	done := make(chan error, 1)
 	go func() {
-		_, err := h.registry.SendCommandWithArtifacts(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: commandID}, artifacts)
+		_, err := h.registry.SendCommandWithArtifacts(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: commandID}, artifacts)
 		done <- err
 	}()
 	select {

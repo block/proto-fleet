@@ -12,13 +12,15 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	first := r.Register(7)
-	session, err := r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "in-flight"}, nil, ReportKindDiscovery, nil)
+	assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, first.conn.maxCommandProtocolVersion)
+	session, err := r.Send(context.Background(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "in-flight"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	<-first.Outgoing
 
@@ -44,8 +46,125 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 
 	// Assert: prior Unregister is a safe no-op (doesn't clobber new stream)
 	first.Unregister()
-	_, err = r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "after-evict"}, nil, ReportKindDiscovery, nil)
+	_, err = r.Send(context.Background(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "after-evict"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
+}
+
+func TestRegistry_ReRegisterReplacesCommandProtocolVersion(t *testing.T) {
+	r := NewRegistry()
+	legacy, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+	assert.True(t, r.CommandProtocolUpgradeRequired(7))
+	assert.Equal(
+		t,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		legacy.conn.maxCommandProtocolVersion,
+	)
+
+	current, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
+	require.NoError(t, err)
+	defer current.Unregister()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
+	assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, current.conn.maxCommandProtocolVersion)
+
+	select {
+	case <-legacy.Done:
+	case <-time.After(time.Second):
+		t.Fatal("prior stream was not evicted after command protocol version changed")
+	}
+}
+
+func TestRegistry_CommandProtocolUpgradeRequiredNeedsActiveConnection(t *testing.T) {
+	r := NewRegistry()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
+
+	stream, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+	assert.True(t, r.CommandProtocolUpgradeRequired(7))
+
+	stream.Unregister()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
+}
+
+func TestRegistry_RejectsUnsupportedCommandProtocolBeforeDispatch(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	t.Run("report-bearing", func(t *testing.T) {
+		session, sendErr := r.Send(
+			context.Background(),
+			7,
+			gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+			&gatewaypb.ControlCommand{CommandId: "report"},
+			nil,
+			ReportKindDiscovery,
+			nil,
+		)
+		require.Nil(t, session)
+		assert.True(t, fleeterror.IsFailedPreconditionError(sendErr))
+		assert.ErrorContains(t, sendErr, "version 0")
+		assert.ErrorContains(t, sendErr, "requires version 1")
+		assert.ErrorContains(t, sendErr, "upgrade Fleet Node")
+	})
+
+	t.Run("ack-only", func(t *testing.T) {
+		ack, sendErr := r.SendCommand(
+			context.Background(),
+			7,
+			gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+			&gatewaypb.ControlCommand{CommandId: "ack"},
+		)
+		require.Nil(t, ack)
+		assert.True(t, fleeterror.IsFailedPreconditionError(sendErr))
+	})
+
+	r.mu.Lock()
+	assert.Empty(t, r.conns[7].cmds)
+	r.mu.Unlock()
+	assert.Equal(t, []int64{7}, r.ConnectedFleetNodeIDs())
+	select {
+	case command := <-stream.Outgoing:
+		t.Fatalf("unsupported command was enqueued: %s", command.GetCommandId())
+	default:
+	}
+}
+
+func TestRegistry_AllowsUnknownHigherCommandProtocolVersion(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion(2))
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	session, err := r.Send(
+		context.Background(),
+		7,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		&gatewaypb.ControlCommand{CommandId: "report"},
+		nil,
+		ReportKindDiscovery,
+		nil,
+	)
+	require.NoError(t, err)
+	defer session.Close()
+	assert.Equal(t, "report", (<-stream.Outgoing).GetCommandId())
 }
 
 func TestRegistry_DelayedRegistrationRejectsInvalidatedSession(t *testing.T) {
@@ -73,7 +192,11 @@ func TestRegistry_DelayedRegistrationRejectsInvalidatedSession(t *testing.T) {
 			// The old session authenticated before invalidation, but does not
 			// register until its delayed Hello arrives afterward.
 			test.invalidate(r)
-			stream, err := r.RegisterAuthenticated(7, "old-session")
+			stream, err := r.RegisterAuthenticated(
+				7,
+				"old-session",
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+			)
 
 			require.ErrorIs(t, err, errSessionInvalidated)
 			require.Nil(t, stream)
@@ -86,7 +209,11 @@ func TestRegistry_ReplacedSessionAllowsCurrentCredential(t *testing.T) {
 	r := NewRegistry()
 	r.ReplaceSession(7, "new-session")
 
-	stream, err := r.RegisterAuthenticated(7, "new-session")
+	stream, err := r.RegisterAuthenticated(
+		7,
+		"new-session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	)
 
 	require.NoError(t, err)
 	defer stream.Unregister()
@@ -97,7 +224,7 @@ func TestRegistry_SendWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
 	r := NewRegistry()
 
 	// Act
-	_, err := r.Send(context.Background(), 9, &gatewaypb.ControlCommand{CommandId: "x"}, nil, ReportKindDiscovery, nil)
+	_, err := r.Send(context.Background(), 9, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "x"}, nil, ReportKindDiscovery, nil)
 
 	// Assert
 	assert.True(t, errors.Is(err, ErrNoActiveStream))
@@ -110,7 +237,7 @@ func TestRegistry_SendDeliversCommandAndRoutesAck(t *testing.T) {
 	defer s.Unregister()
 
 	// Act
-	session, err := r.Send(context.Background(), 42, &gatewaypb.ControlCommand{CommandId: "cmd-1", Payload: []byte("p")}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 42, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "cmd-1", Payload: []byte("p")}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 
@@ -144,7 +271,7 @@ func TestRegistry_TerminalAckDeliveredWhenEventBufferFull(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(1)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	require.Equal(t, "discover", recvCommandID(t, s))
@@ -183,7 +310,7 @@ func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(1)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	require.Equal(t, "discover", recvCommandID(t, s))
@@ -191,7 +318,7 @@ func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 	// Act: an ack-only command dispatches concurrently rather than being rejected.
 	results := make(chan cmdResult, 1)
 	go func() {
-		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		ack, sendErr := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 		results <- cmdResult{ack: ack, err: sendErr}
 	}()
 	require.Equal(t, "m1", recvCommandID(t, s)) // dispatched ⇒ registered
@@ -206,7 +333,7 @@ func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 
 func TestRegistry_SendCommandWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
 	// Act
-	_, err := NewRegistry().SendCommand(context.Background(), 9, &gatewaypb.ControlCommand{CommandId: "x"})
+	_, err := NewRegistry().SendCommand(context.Background(), 9, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "x"})
 
 	// Assert
 	assert.ErrorIs(t, err, ErrNoActiveStream)
@@ -218,7 +345,7 @@ func TestRegistry_SendCommandUnblocksOnDisconnect(t *testing.T) {
 	s := r.Register(1)
 	results := make(chan cmdResult, 1)
 	go func() {
-		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		ack, sendErr := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 		results <- cmdResult{ack: ack, err: sendErr}
 	}()
 	require.Equal(t, "m1", recvCommandID(t, s))
@@ -240,7 +367,7 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	results := make(chan cmdResult, 1)
 	go func() {
-		ack, sendErr := r.SendCommand(ctx, 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		ack, sendErr := r.SendCommand(ctx, 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 		results <- cmdResult{ack: ack, err: sendErr}
 	}()
 	require.Equal(t, "m1", recvCommandID(t, s))
@@ -252,7 +379,7 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	res := recvResult(t, results)
 	require.Error(t, res.err)
 	assert.Nil(t, res.ack)
-	_, err := r.SendCommand(canceledCtx(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+	_, err := r.SendCommand(canceledCtx(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 	require.Error(t, err) // not errDuplicateCommandID; the slot was freed
 	assert.False(t, errors.Is(err, ErrNoActiveStream))
 }
@@ -264,7 +391,7 @@ func TestRegistry_AckRoutesByKind(t *testing.T) {
 	defer s.Unregister()
 	results := make(chan cmdResult, 1)
 	go func() {
-		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "mk"})
+		ack, sendErr := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "mk"})
 		results <- cmdResult{ack: ack, err: sendErr}
 	}()
 	require.Equal(t, "mk", recvCommandID(t, s))
@@ -289,11 +416,11 @@ func TestRegistry_SendCommandAckPayloadRoutesToMatchingCommand(t *testing.T) {
 	first := make(chan cmdResult, 1)
 	second := make(chan cmdResult, 1)
 	go func() {
-		ack, err := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "first"})
+		ack, err := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "first"})
 		first <- cmdResult{ack: ack, err: err}
 	}()
 	go func() {
-		ack, err := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "second"})
+		ack, err := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "second"})
 		second <- cmdResult{ack: ack, err: err}
 	}()
 	require.ElementsMatch(t, []string{"first", "second"}, []string{recvCommandID(t, s), recvCommandID(t, s)})
@@ -342,7 +469,7 @@ func TestRegistry_SendCommandWithArtifactResultsReturnsCompletedUploadRefs(t *te
 	}
 	results := make(chan artifactCmdResult, 1)
 	go func() {
-		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
+		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
 		results <- artifactCmdResult{ack: ack, refs: refs, err: err}
 	}()
 	require.Equal(t, "logs", recvCommandID(t, s))
@@ -377,7 +504,7 @@ func TestRegistry_SendCommandWithArtifactResultsRejectsOKAckWithoutCompletedUplo
 	}
 	results := make(chan artifactCmdResult, 1)
 	go func() {
-		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
+		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
 		results <- artifactCmdResult{ack: ack, refs: refs, err: err}
 	}()
 	require.Equal(t, "logs", recvCommandID(t, s))
@@ -395,12 +522,12 @@ func TestRegistry_TeardownClosesAllInFlightCommands(t *testing.T) {
 	// Arrange: a discovery and an ack-only command are both in flight.
 	r := NewRegistry()
 	s := r.Register(1)
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	require.Equal(t, "discover", recvCommandID(t, s))
 	results := make(chan cmdResult, 1)
 	go func() {
-		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "mk"})
+		ack, sendErr := r.SendCommand(context.Background(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "mk"})
 		results <- cmdResult{ack: ack, err: sendErr}
 	}()
 	require.Equal(t, "mk", recvCommandID(t, s))
@@ -420,7 +547,7 @@ func TestRegistry_AdmitReportEnforcesQuota(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(77)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 77, &gatewaypb.ControlCommand{CommandId: "scan"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 77, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "scan"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-s.Outgoing
@@ -440,11 +567,11 @@ func TestRegistry_AdmitReportRejectsCrossKind(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(5)
 	defer s.Unregister()
-	discSession, err := r.Send(context.Background(), 5, &gatewaypb.ControlCommand{CommandId: "disc"}, nil, ReportKindDiscovery, nil)
+	discSession, err := r.Send(context.Background(), 5, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "disc"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer discSession.Close()
 	<-s.Outgoing
-	pairSession, err := r.Send(context.Background(), 5, &gatewaypb.ControlCommand{CommandId: "pair"}, nil, ReportKindPair, nil)
+	pairSession, err := r.Send(context.Background(), 5, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "pair"}, nil, ReportKindPair, nil)
 	require.NoError(t, err)
 	defer pairSession.Close()
 	<-s.Outgoing
@@ -460,7 +587,7 @@ func TestRegistry_AdmitReportRejectsCrossKind(t *testing.T) {
 func sendPair(t *testing.T, r *Registry, fleetNodeID int64, commandID string, pair *PairMeta) (*Session, *Stream) {
 	t.Helper()
 	s := r.Register(fleetNodeID)
-	session, err := r.Send(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, nil, ReportKindPair, pair)
+	session, err := r.Send(context.Background(), fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: commandID}, nil, ReportKindPair, pair)
 	require.NoError(t, err)
 	<-s.Outgoing
 	return session, s
@@ -494,7 +621,7 @@ func TestRegistry_AdmitAndScopePairResults_RejectsEmptyAndKind(t *testing.T) {
 	session, s := sendPair(t, r, 4, "p", pair)
 	defer s.Unregister()
 	defer session.Close()
-	discSession, err := r.Send(context.Background(), 4, &gatewaypb.ControlCommand{CommandId: "d"}, nil, ReportKindDiscovery, nil)
+	discSession, err := r.Send(context.Background(), 4, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "d"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer discSession.Close()
 	<-s.Outgoing
@@ -564,7 +691,7 @@ func TestRegistry_UnregisterSignalsInFlightCommandDone(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	s := r.Register(99)
-	session, err := r.Send(context.Background(), 99, &gatewaypb.ControlCommand{CommandId: "drop"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 99, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "drop"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	<-s.Outgoing
 
@@ -597,7 +724,7 @@ func TestPublish_DropsWhenChannelFullWithoutBlocking(t *testing.T) {
 	s := r.Register(11)
 	defer s.Unregister()
 
-	session, err := r.Send(context.Background(), 11, &gatewaypb.ControlCommand{CommandId: "flood"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(context.Background(), 11, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "flood"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-s.Outgoing
@@ -651,7 +778,7 @@ func TestPublish_RaceWithCleanup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range iters {
-			session, sendErr := r.Send(context.Background(), 101, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil, ReportKindDiscovery, nil)
+			session, sendErr := r.Send(context.Background(), 101, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil, ReportKindDiscovery, nil)
 			if sendErr != nil {
 				// Send only fails here if the connection was evicted mid-call; fine, race continues.
 				continue
@@ -725,7 +852,7 @@ func TestSend_RaceWithReRegister(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := range iters * 4 {
-			session, sendErr := r.Send(context.Background(), 202, &gatewaypb.ControlCommand{
+			session, sendErr := r.Send(context.Background(), 202, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
 				CommandId: cmdID(i),
 			}, nil, ReportKindDiscovery, nil)
 			if sendErr == nil {
@@ -887,7 +1014,7 @@ func TestAdmitCommandArtifactTransferReturnsCommandDone(t *testing.T) {
 	stream := r.Register(fleetNodeID)
 	done := make(chan error, 1)
 	go func() {
-		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
+		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
 		done <- err
 	}()
 	select {
@@ -1036,7 +1163,7 @@ func TestCompleteCommandArtifactUploadReportsMissingCommand(t *testing.T) {
 	stream := r.Register(fleetNodeID)
 	done := make(chan error, 1)
 	go func() {
-		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
+		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
 		done <- err
 	}()
 	select {

@@ -120,6 +120,23 @@ func TestRunOnNode_NoActiveStreamReturnsFailedPrecondition(t *testing.T) {
 	assert.Equal(t, connect.CodeFailedPrecondition, fe.ConnectError().Code())
 }
 
+func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
+	reg := control.NewRegistry()
+	stream, err := reg.RegisterAuthenticated(7, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	svc := NewService(reg, stubLister{})
+
+	err = svc.RunOnNode(context.Background(), 7, ipListReq([]string{"10.0.0.5"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
+
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("legacy node received discovery command %q", cmd.GetCommandId())
+	default:
+	}
+}
+
 func TestConfirmedConnectedNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
 	// Arrange: 1 = confirmed+connected, 2 = confirmed+disconnected, 3 = pending+connected.
 	reg := control.NewRegistry()

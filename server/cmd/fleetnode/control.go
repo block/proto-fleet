@@ -211,7 +211,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		}
 	}()
 
-	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -331,7 +333,7 @@ func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State
 func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	env := &pb.AgentCommand{}
 	if err := proto.Unmarshal(payload, env); err != nil {
-		return nil, fmt.Errorf("decode AgentCommand: %w", err)
+		return nil, fmt.Errorf("decode server-to-node command envelope: %w", err)
 	}
 	return env, nil
 }
@@ -364,7 +366,11 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	case *pb.AgentCommand_Telemetry:
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
+		if len(env.ProtoReflect().GetUnknown()) > 0 {
+			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
+			return
+		}
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "server-to-node command envelope has no recognized command type", logger)
 	}
 }
 
