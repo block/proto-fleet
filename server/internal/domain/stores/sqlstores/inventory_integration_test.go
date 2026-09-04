@@ -98,6 +98,26 @@ func TestInventorySiteLockSerializesConcurrentSoftDelete(t *testing.T) {
 	assert.Equal(t, int64(1), rows)
 }
 
+func TestInventorySiteTransferMapsDuplicateNameToAlreadyExists(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLInventoryStore(db)
+	orgID := insertInventoryTestOrg(t, db, "transfer-duplicate")
+	siteID := insertInventoryTestSite(t, db, orgID, "Transfer Site")
+
+	_, err := store.Create(ctx, inventorymodels.CreateParams{
+		OrgID: orgID, Name: "Fan", Type: "cooling", SiteID: &siteID,
+	})
+	require.NoError(t, err)
+	unassigned, err := store.Create(ctx, inventorymodels.CreateParams{
+		OrgID: orgID, Name: "Fan", Type: "cooling",
+	})
+	require.NoError(t, err)
+
+	_, err = store.Update(ctx, inventorymodels.UpdateParams{OrgID: orgID, ID: unassigned.ID, SiteID: &siteID})
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "duplicate transfer should be actionable: %v", err)
+}
+
 func TestInventoryStoreListFiltersCursorInsightsAndSitePicker(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()

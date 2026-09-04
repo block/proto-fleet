@@ -110,6 +110,9 @@ func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdatePara
 		OrgID:        params.OrgID,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, fleeterror.NewAlreadyExistsError("an inventory part with this name already exists at the destination site")
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to update inventory part: %v", err)
 	}
 	if rows == 0 {

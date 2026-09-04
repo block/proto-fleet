@@ -4554,8 +4554,8 @@ func (q *retryingQuerier) ListRecentlyResolvedCurtailedDevicesByScope(ctx contex
 	return result, err
 }
 
-func (q *retryingQuerier) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error) {
-	var result []ListRepairTicketCommentsRow
+func (q *retryingQuerier) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]RepairTicketComment, error) {
+	var result []RepairTicketComment
 	err := q.retrier.RetryQuery(ctx, "ListRepairTicketComments", func() error {
 		callResult, callErr := q.next.ListRepairTicketComments(ctx, arg)
 		if callErr == nil {

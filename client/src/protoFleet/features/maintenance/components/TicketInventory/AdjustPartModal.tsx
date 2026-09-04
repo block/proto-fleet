@@ -11,9 +11,9 @@ interface Props {
   onDismiss: () => void;
   onSubmit: (value: {
     id: bigint;
-    onHand: number;
-    reorderPoint: number;
-    binLocation: string;
+    onHand?: number;
+    reorderPoint?: number;
+    binLocation?: string;
     siteId?: bigint;
     reason: AdjustmentReason;
   }) => Promise<boolean>;
@@ -33,21 +33,27 @@ const AdjustPartModal = ({ part, sites, onDismiss, onSubmit }: Props) => {
   const [reason, setReason] = useState(AdjustmentReason.UNSPECIFIED);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const parsedOnHand = Number(onHand);
+  const parsedReorder = Number(reorder);
+  const siteChanged = Boolean(siteId && siteId !== part.siteId);
+  const hasChanges =
+    parsedOnHand !== part.onHand || parsedReorder !== part.reorderPoint || bin !== part.binLocation || siteChanged;
   const valid =
-    Number.isInteger(Number(onHand)) &&
-    Number(onHand) >= 0 &&
-    Number.isInteger(Number(reorder)) &&
-    Number(reorder) >= 0 &&
+    Number.isInteger(parsedOnHand) &&
+    parsedOnHand >= 0 &&
+    Number.isInteger(parsedReorder) &&
+    parsedReorder >= 0 &&
+    hasChanges &&
     reason !== AdjustmentReason.UNSPECIFIED;
   const save = async () => {
     if (!valid) return;
     setBusy(true);
     const ok = await onSubmit({
       id: BigInt(part.id),
-      onHand: Number(onHand),
-      reorderPoint: Number(reorder),
-      binLocation: bin,
-      ...(siteId && siteId !== part.siteId ? { siteId: BigInt(siteId) } : {}),
+      ...(parsedOnHand !== part.onHand ? { onHand: parsedOnHand } : {}),
+      ...(parsedReorder !== part.reorderPoint ? { reorderPoint: parsedReorder } : {}),
+      ...(bin !== part.binLocation ? { binLocation: bin } : {}),
+      ...(siteChanged ? { siteId: BigInt(siteId) } : {}),
       reason,
     });
     setBusy(false);

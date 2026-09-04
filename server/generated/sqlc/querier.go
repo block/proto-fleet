@@ -1142,7 +1142,7 @@ type Querier interface {
 	// Scoped cooldown lookup: enumerate the request's live candidate devices first,
 	// then probe terminal target history by device identifier.
 	ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByScopeParams) ([]string, error)
-	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
+	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]RepairTicketComment, error)
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)

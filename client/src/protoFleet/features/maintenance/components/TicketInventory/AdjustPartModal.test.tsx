@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import AdjustPartModal from "./AdjustPartModal";
+import { AdjustmentReason } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 const part = {
   id: "1",
   name: "Fan",
@@ -40,5 +41,9 @@ it("requires a reason and submits integer quantities", async () => {
   await user.click(screen.getByRole("button", { name: "Reason" }));
   await user.click(screen.getByText("Cycle count"));
   await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(submit).toHaveBeenCalledWith(expect.objectContaining({ id: 1n, onHand: 5, reorderPoint: 2, siteId: 3n }));
+  expect(submit).toHaveBeenCalledWith({
+    id: 1n,
+    siteId: 3n,
+    reason: AdjustmentReason.CYCLE_COUNT,
+  });
 });

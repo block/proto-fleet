@@ -329,7 +329,7 @@ func TestMaintenanceStoreBulkIDsAreExactAndCommentDeletionIsAuthorOnly(t *testin
 	comments, err := store.ListTicketComments(ctx, orgID, one.ID)
 	require.NoError(t, err)
 	require.Len(t, comments, 1)
-	assert.Equal(t, "maint-renamed-author", comments[0].UserName, "comment labels are hydrated from the live user")
+	assert.Equal(t, "maint-author", comments[0].UserName, "comment history preserves the recorded author name")
 
 	var inventoryPartID int64
 	require.NoError(t, db.QueryRowContext(ctx, `

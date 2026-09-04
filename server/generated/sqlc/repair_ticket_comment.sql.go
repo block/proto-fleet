@@ -17,12 +17,11 @@ WITH inserted AS (
     SELECT $1, $2, $3, u.username, $4
     FROM "user" u
     WHERE u.id = $3 AND u.deleted_at IS NULL
-    RETURNING id, org_id, ticket_id, user_id, text, created_at, deleted_at
+    RETURNING id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at
 )
-SELECT i.id, i.org_id, i.ticket_id, i.user_id, u.username AS user_name,
+SELECT i.id, i.org_id, i.ticket_id, i.user_id, i.user_name,
        i.text, i.created_at, i.deleted_at
 FROM inserted i
-JOIN "user" u ON u.id = i.user_id
 `
 
 type CreateRepairTicketCommentParams struct {
@@ -90,10 +89,9 @@ func (q *Queries) GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg G
 }
 
 const listRepairTicketComments = `-- name: ListRepairTicketComments :many
-SELECT c.id, c.org_id, c.ticket_id, c.user_id, u.username AS user_name,
+SELECT c.id, c.org_id, c.ticket_id, c.user_id, c.user_name,
        c.text, c.created_at, c.deleted_at
 FROM repair_ticket_comment c
-JOIN "user" u ON u.id = c.user_id
 WHERE c.org_id = $1 AND c.ticket_id = $2
   AND c.deleted_at IS NULL
 ORDER BY c.created_at ASC, c.id ASC
@@ -104,26 +102,15 @@ type ListRepairTicketCommentsParams struct {
 	TicketID int64
 }
 
-type ListRepairTicketCommentsRow struct {
-	ID        int64
-	OrgID     int64
-	TicketID  int64
-	UserID    int64
-	UserName  string
-	Text      string
-	CreatedAt time.Time
-	DeletedAt sql.NullTime
-}
-
-func (q *Queries) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error) {
+func (q *Queries) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]RepairTicketComment, error) {
 	rows, err := q.query(ctx, q.listRepairTicketCommentsStmt, listRepairTicketComments, arg.OrgID, arg.TicketID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListRepairTicketCommentsRow
+	var items []RepairTicketComment
 	for rows.Next() {
-		var i ListRepairTicketCommentsRow
+		var i RepairTicketComment
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
