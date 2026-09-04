@@ -7,6 +7,9 @@ import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/D
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import ActiveUpdatesMonitor, {
+  type MonitorRequest,
+} from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -365,8 +368,12 @@ const firmwareTabs = [
   { key: TAB_RELEASE_CHANNELS, title: "Release channels" },
 ];
 
-// Mount channel polling only while this tab has a consumer.
-const ReleaseChannelsSection = () => {
+// The active tab lives in the `tab` search param so other surfaces can
+// deep-link straight to the release channels view. Channels and updates are
+// polled here, above the tabs, so one poll can feed every surface on the page.
+const Firmware = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -380,8 +387,32 @@ const ReleaseChannelsSection = () => {
       .finally(() => setIsRetrying(false));
   };
 
+  // Channel an update's "Manage" action asked to open; remounts the channels
+  // tab so it starts on that channel.
+  const [manageRequest, setManageRequest] = useState<{ channelId: bigint; seq: number } | null>(null);
+  // Update detail / rollback the history modal asked the monitor to open.
+  const [monitorRequest, setMonitorRequest] = useState<MonitorRequest | null>(null);
+
+  const showChannels = () => setSearchParams({ tab: RELEASE_CHANNELS_TAB_PARAM }, { replace: true });
+
   return (
-    <>
+    <div className="flex flex-col gap-6">
+      <SegmentedControl
+        // SegmentedControl is uncontrolled; remount it when navigation
+        // (rather than a click) changes the URL-derived tab.
+        key={activeTab}
+        className="self-start"
+        segments={firmwareTabs}
+        initialSegmentKey={activeTab}
+        onSelect={(key) => {
+          if (key === TAB_RELEASE_CHANNELS) {
+            showChannels();
+          } else {
+            setManageRequest(null);
+            setSearchParams({}, { replace: true });
+          }
+        }}
+      />
       {channelsApi.error ? (
         <div role="alert" aria-busy={isRetrying}>
           <Callout
@@ -401,30 +432,26 @@ const ReleaseChannelsSection = () => {
           />
         </div>
       ) : null}
-      <ReleaseChannelsTab api={channelsApi} />
-    </>
-  );
-};
-
-// Keep the active tab in the URL so other surfaces can deep-link here.
-const Firmware = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
-
-  return (
-    <div className="flex flex-col gap-6">
-      <SegmentedControl
-        // SegmentedControl is uncontrolled; remount it when navigation
-        // (rather than a click) changes the URL-derived tab.
-        key={activeTab}
-        className="self-start"
-        segments={firmwareTabs}
-        initialSegmentKey={activeTab}
-        onSelect={(key) => {
-          setSearchParams(key === TAB_RELEASE_CHANNELS ? { tab: RELEASE_CHANNELS_TAB_PARAM } : {}, { replace: true });
+      <ActiveUpdatesMonitor
+        api={channelsApi}
+        request={monitorRequest}
+        onRequestHandled={() => setMonitorRequest(null)}
+        onManageChannel={(channelId) => {
+          setManageRequest((current) => ({ channelId, seq: (current?.seq ?? 0) + 1 }));
+          showChannels();
         }}
       />
-      {activeTab === TAB_RELEASE_CHANNELS ? <ReleaseChannelsSection /> : <FirmwareFilesSection />}
+      {activeTab === TAB_RELEASE_CHANNELS ? (
+        <ReleaseChannelsTab
+          key={manageRequest ? `manage-${manageRequest.seq}` : "channels"}
+          api={channelsApi}
+          initialManagedChannelId={manageRequest?.channelId ?? null}
+          onViewRollout={(rollout) => setMonitorRequest({ kind: "view", rolloutId: rollout.id })}
+          onRollbackRollout={(rollout) => setMonitorRequest({ kind: "rollback", rolloutId: rollout.id })}
+        />
+      ) : (
+        <FirmwareFilesSection />
+      )}
     </div>
   );
 };

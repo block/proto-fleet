@@ -19,6 +19,7 @@ import {
 } from "./ReleaseChannels.fixtures";
 import {
   activeRolloutForGroup,
+  activeUpdateSummary,
   channelAssignmentKey,
   channelUpdateStatus,
   deviceCounts,
@@ -365,6 +366,13 @@ describe("device counts and progress", () => {
       expect(scopeCounts(rollout)).toEqual(deviceCounts(devices));
     },
   );
+
+  it("summarizes an active update for banners and the header pill", () => {
+    expect(activeUpdateSummary(activeRigRollout)).toBe("2 of 6 miners updated");
+    expect(activeUpdateSummary(gatedRigRollout)).toBe("2 of 6 miners updated, Pilot batch review");
+    expect(activeUpdateSummary(batchedRigRollout)).toBe("3 of 6 miners updated, 1 failed, Batch review");
+    expect(activeUpdateSummary(pausedRigRollout)).toBe("2 of 6 miners updated, Paused");
+  });
 
   it("flags rollouts that need a human", () => {
     expect(rolloutNeedsAttention(gatedRigRollout)).toBe(true);

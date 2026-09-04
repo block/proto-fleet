@@ -217,6 +217,7 @@ interface ReleaseChannelManageViewProps {
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onDelete?: (channel: ChannelView) => void;
+  onShowHistory?: (channel: ChannelView) => void;
   onApply: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[] | void>;
   writeLock?: { isLocked: boolean; tryAcquire: () => boolean; release: () => void };
 }
@@ -236,6 +237,7 @@ const ReleaseChannelManageView = ({
   listRolloutDevices,
   onSave,
   onDelete,
+  onShowHistory,
   onApply,
   writeLock,
 }: ReleaseChannelManageViewProps) => {
@@ -557,6 +559,15 @@ const ReleaseChannelManageView = ({
           ) : null}
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
+          {channel && onShowHistory ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="History"
+              onClick={() => onShowHistory(channel)}
+              testId="channel-history"
+            />
+          ) : null}
           {channel && onDelete ? (
             <Button
               variant={variants.danger}

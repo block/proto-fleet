@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import ChannelHistoryModal from "./ChannelHistoryModal";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import { useChannelHistory } from "./useChannelHistory";
 import { useRefreshingRead } from "./useRefreshingRead";
+import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import type { ReleaseChannelsApi } from "@/protoFleet/api/useReleaseChannels";
@@ -39,9 +41,18 @@ interface ReleaseChannelsTabProps {
   // Channel to open in the manage view on mount (e.g. from an update's
   // "Manage" action).
   initialManagedChannelId?: bigint | null;
+  // History actions are handled by the active-updates monitor above the
+  // tabs, which owns the update detail and the rollback confirmation.
+  onViewRollout: (rollout: Rollout) => void;
+  onRollbackRollout: (rollout: Rollout) => void;
 }
 
-const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChannelsTabProps) => {
+const ReleaseChannelsTab = ({
+  api,
+  initialManagedChannelId = null,
+  onViewRollout,
+  onRollbackRollout,
+}: ReleaseChannelsTabProps) => {
   const {
     channels,
     rollouts,
@@ -147,6 +158,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
     setIsWriting(false);
   }, []);
   const writeLock = { isLocked: isWriting, tryAcquire: tryAcquireWrite, release: releaseWrite };
+  const [historyChannelId, setHistoryChannelId] = useState<bigint | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -207,6 +219,8 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
       setView(pendingCreate ? { kind: "manage", channelId: pendingCreate.id } : { kind: "create" });
     }
   };
+  // Resolved fresh on every poll so rollback eligibility tracks assignments.
+  const historyChannel = historyChannelId !== null ? channels.find((c) => c.id === historyChannelId) : undefined;
   const historyChannelIds =
     !hasLoaded || view.kind === "create" || awaitingCreatedChannel
       ? []
@@ -335,6 +349,7 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           onDelete={(channel) => {
             if (!writeInFlightRef.current) setChannelToDelete(channel);
           }}
+          onShowHistory={(channel) => setHistoryChannelId(channel.id)}
           onApply={applyFirmware}
         />
       ) : awaitingCreatedChannel ? (
@@ -371,6 +386,22 @@ const ReleaseChannelsTab = ({ api, initialManagedChannelId = null }: ReleaseChan
           }}
         />
       )}
+
+      {historyChannel ? (
+        <ChannelHistoryModal
+          channel={historyChannel}
+          rollouts={rollouts.filter((rollout) => rollout.channelId === historyChannel.id)}
+          onView={(rollout) => {
+            setHistoryChannelId(null);
+            onViewRollout(rollout);
+          }}
+          onRollback={(rollout) => {
+            setHistoryChannelId(null);
+            onRollbackRollout(rollout);
+          }}
+          onClose={() => setHistoryChannelId(null)}
+        />
+      ) : null}
 
       <Dialog
         open={channelToDelete !== null}
