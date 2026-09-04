@@ -1468,6 +1468,8 @@ type Querier interface {
 	// with new membership. The reconciler validates selector shape before calling.
 	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
 	ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error)
+	// Assignment writes call this inside their transaction. Shared locks on the
+	// membership and user serialize with membership removal and user deactivation.
 	ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error)
 	ResolveMaintenanceLocationContext(ctx context.Context, arg ResolveMaintenanceLocationContextParams) (ResolveMaintenanceLocationContextRow, error)
 	ResolveMaintenanceMinerContext(ctx context.Context, arg ResolveMaintenanceMinerContextParams) (ResolveMaintenanceMinerContextRow, error)

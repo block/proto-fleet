@@ -111,6 +111,8 @@ type ResolveMaintenanceAssigneeRow struct {
 	RoleName string
 }
 
+// Assignment writes call this inside their transaction. Shared locks on the
+// membership and user serialize with membership removal and user deactivation.
 func (q *Queries) ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error) {
 	row := q.queryRow(ctx, q.resolveMaintenanceAssigneeStmt, resolveMaintenanceAssignee, arg.OrgID, arg.UserID)
 	var i ResolveMaintenanceAssigneeRow
