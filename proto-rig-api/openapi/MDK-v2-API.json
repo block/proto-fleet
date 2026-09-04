@@ -15,6 +15,9 @@
       "description": "Authentication, session management, and password operations."
     },
     {
+      "name": "LocalCapabilitiesService"
+    },
+    {
       "name": "Diagnostics",
       "description": "Read-only database schema and query diagnostics."
     },
@@ -47,6 +50,12 @@
       "description": "Device, hashboard, power-feed, and container plant-control data."
     },
     {
+      "name": "ServerUpdateService"
+    },
+    {
+      "name": "FrigateUpdateMaintenanceService"
+    },
+    {
       "name": "System",
       "description": "System info, hardware details, firmware, networking, SSH, cooling, and device management."
     },
@@ -55,16 +64,15 @@
       "description": "Real-time health streaming for hashboards, ASICs, containers, and device metrics."
     },
     {
+      "name": "FlotillaTunnelService"
+    },
+    {
+      "name": "Manufacturing",
+      "description": "Operator-only hashboard adoption and firmware self-tests."
+    },
+    {
       "name": "Operational policy",
       "description": "Allowlisted live Frigate guardrail and recovery policy."
-    },
-    {
-      "name": "CT1",
-      "description": "CT1 product-specific endpoints."
-    },
-    {
-      "name": "R2",
-      "description": "R2 product-specific endpoints."
     }
   ],
   "consumes": [
@@ -422,8 +430,7 @@
           }
         },
         "tags": [
-          "Hashboards",
-          "CT1"
+          "Hashboards"
         ]
       }
     },
@@ -446,8 +453,7 @@
           }
         },
         "tags": [
-          "Diagnostics",
-          "CT1"
+          "Diagnostics"
         ]
       }
     },
@@ -480,8 +486,7 @@
           }
         ],
         "tags": [
-          "Diagnostics",
-          "CT1"
+          "Diagnostics"
         ]
       }
     },
@@ -514,8 +519,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -538,8 +542,7 @@
           }
         },
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -572,8 +575,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -604,8 +606,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -636,8 +637,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -676,8 +676,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -700,8 +699,7 @@
           }
         },
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -724,8 +722,7 @@
           }
         },
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -758,8 +755,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -790,8 +786,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -830,8 +825,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -870,8 +864,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -904,8 +897,7 @@
           }
         ],
         "tags": [
-          "Feed Mapping",
-          "CT1"
+          "Feed Mapping"
         ]
       }
     },
@@ -928,8 +920,7 @@
           }
         },
         "tags": [
-          "Firmware",
-          "CT1"
+          "Firmware"
         ]
       },
       "put": {
@@ -960,8 +951,7 @@
           }
         ],
         "tags": [
-          "Firmware",
-          "CT1"
+          "Firmware"
         ]
       }
     },
@@ -984,8 +974,7 @@
           }
         },
         "tags": [
-          "Firmware",
-          "CT1"
+          "Firmware"
         ]
       }
     },
@@ -1018,8 +1007,7 @@
           }
         ],
         "tags": [
-          "Firmware",
-          "CT1"
+          "Firmware"
         ]
       }
     },
@@ -1214,8 +1202,7 @@
           }
         ],
         "tags": [
-          "Hashboards",
-          "CT1"
+          "Hashboards"
         ]
       }
     },
@@ -1403,8 +1390,164 @@
           }
         ],
         "tags": [
-          "Run-In",
-          "CT1"
+          "Run-In"
+        ]
+      }
+    },
+    "/api/v2/manufacturing/boards": {
+      "get": {
+        "operationId": "ManufacturingService_ListManufacturingBoards",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2ListManufacturingBoardsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Manufacturing"
+        ]
+      }
+    },
+    "/api/v2/manufacturing/boards/{identifier}/adopt": {
+      "post": {
+        "operationId": "ManufacturingService_AdoptManufacturingBoard",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2AdoptManufacturingBoardResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ManufacturingServiceAdoptManufacturingBoardBody"
+            }
+          }
+        ],
+        "tags": [
+          "Manufacturing"
+        ]
+      }
+    },
+    "/api/v2/manufacturing/self-tests": {
+      "get": {
+        "operationId": "ManufacturingService_ListManufacturingSelfTests",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2ListManufacturingSelfTestsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Manufacturing"
+        ]
+      },
+      "post": {
+        "operationId": "ManufacturingService_StartManufacturingSelfTest",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2StartManufacturingSelfTestResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v2StartManufacturingSelfTestRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Manufacturing"
+        ]
+      }
+    },
+    "/api/v2/manufacturing/self-tests/{testId}": {
+      "get": {
+        "operationId": "ManufacturingService_GetManufacturingSelfTest",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2GetManufacturingSelfTestResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "testId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Manufacturing"
         ]
       }
     },
@@ -1427,8 +1570,7 @@
           }
         },
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       },
       "post": {
@@ -1459,8 +1601,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1483,8 +1624,7 @@
           }
         },
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1515,8 +1655,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       },
       "put": {
@@ -1553,8 +1692,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1587,8 +1725,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1621,8 +1758,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1655,8 +1791,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1689,8 +1824,7 @@
           }
         ],
         "tags": [
-          "Mining",
-          "CT1"
+          "Mining"
         ]
       }
     },
@@ -1969,8 +2103,7 @@
           }
         ],
         "tags": [
-          "Run-In",
-          "CT1"
+          "Run-In"
         ]
       }
     },
@@ -1992,8 +2125,7 @@
           }
         },
         "tags": [
-          "Operational policy",
-          "CT1"
+          "Operational policy"
         ]
       },
       "put": {
@@ -2023,8 +2155,7 @@
           }
         ],
         "tags": [
-          "Operational policy",
-          "CT1"
+          "Operational policy"
         ]
       }
     },
@@ -2268,8 +2399,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2302,8 +2432,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2326,8 +2455,7 @@
           }
         },
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2367,8 +2495,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2401,8 +2528,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2435,8 +2561,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2476,8 +2601,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2523,8 +2647,7 @@
           }
         },
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2564,8 +2687,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2604,8 +2726,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2645,8 +2766,7 @@
           }
         ],
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2692,8 +2812,7 @@
           }
         },
         "tags": [
-          "Power",
-          "CT1"
+          "Power"
         ]
       }
     },
@@ -2725,8 +2844,7 @@
           }
         ],
         "tags": [
-          "Run-In",
-          "CT1"
+          "Run-In"
         ]
       }
     },
@@ -2764,8 +2882,7 @@
           }
         ],
         "tags": [
-          "Run-In",
-          "CT1"
+          "Run-In"
         ]
       }
     },
@@ -2803,8 +2920,7 @@
           }
         ],
         "tags": [
-          "Run-In",
-          "CT1"
+          "Run-In"
         ]
       }
     },
@@ -2905,8 +3021,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       },
       "put": {
@@ -2937,8 +3052,7 @@
           }
         ],
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -2971,8 +3085,7 @@
           }
         ],
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -2995,8 +3108,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3075,8 +3187,7 @@
           }
         ],
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3160,8 +3271,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       },
       "put": {
@@ -3192,8 +3302,7 @@
           }
         ],
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3270,8 +3379,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3294,8 +3402,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       },
       "put": {
@@ -3326,8 +3433,7 @@
           }
         ],
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3427,8 +3533,7 @@
           }
         },
         "tags": [
-          "System",
-          "R2"
+          "System"
         ]
       }
     },
@@ -3451,8 +3556,7 @@
           }
         },
         "tags": [
-          "Hashboards",
-          "CT1"
+          "Hashboards"
         ]
       },
       "put": {
@@ -3483,8 +3587,7 @@
           }
         ],
         "tags": [
-          "Hashboards",
-          "CT1"
+          "Hashboards"
         ]
       }
     },
@@ -3507,8 +3610,7 @@
           }
         },
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -3589,8 +3691,7 @@
           }
         ],
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -3648,8 +3749,7 @@
           }
         ],
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -3681,8 +3781,7 @@
           }
         },
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -3887,8 +3986,7 @@
           }
         ],
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -3968,8 +4066,7 @@
           }
         ],
         "tags": [
-          "Telemetry",
-          "CT1"
+          "Telemetry"
         ]
       }
     },
@@ -4169,57 +4266,6 @@
           "Telemetry"
         ]
       }
-    },
-    "/api/v2/run-in/{taskId}/results.sqlite": {
-      "get": {
-        "summary": "DownloadHashboardRunInResults downloads the final compressed SQLite result artifact for a run-in task.",
-        "description": "Downloads the completed run-in result as a gzip-compressed SQLite database. Newly completed artifacts are published atomically after finalization and compression succeed; stored legacy SQLite artifacts remain readable.",
-        "operationId": "RunInService_DownloadHashboardRunInResults",
-        "produces": [
-          "application/gzip"
-        ],
-        "responses": {
-          "200": {
-            "description": "A gzip-compressed SQLite run-in result artifact.",
-            "schema": {
-              "type": "file"
-            },
-            "headers": {
-              "Content-Disposition": {
-                "type": "string",
-                "description": "Attachment filename in the form \"<task_id>.sqlite.gz\" for new artifacts, or the stored legacy filename."
-              },
-              "Content-Encoding": {
-                "type": "string",
-                "description": "Always identity; the response body is already a gzip file."
-              }
-            }
-          },
-          "404": {
-            "description": "The task or result artifact does not exist."
-          },
-          "409": {
-            "description": "The result artifact is not ready yet."
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "taskId",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "Run-In"
-        ]
-      }
     }
   },
   "definitions": {
@@ -4248,6 +4294,9 @@
           "format": "int64"
         }
       }
+    },
+    "ManufacturingServiceAdoptManufacturingBoardBody": {
+      "type": "object"
     },
     "MiningServiceSetModuleFixedVoltageBody": {
       "type": "object",
@@ -4371,7 +4420,7 @@
         }
       },
       "additionalProperties": {},
-      "description": "`Any` contains an arbitrary serialized protocol buffer message along with a\nURL that describes the type of the serialized message.\n\nProtobuf library provides support to pack/unpack Any values in the form\nof utility functions or additional generated methods of the Any type.\n\nExample 1: Pack and unpack a message in C++.\n\n    Foo foo = ...;\n    Any any;\n    any.PackFrom(foo);\n    ...\n    if (any.UnpackTo(&foo)) {\n      ...\n    }\n\nExample 2: Pack and unpack a message in Java.\n\n    Foo foo = ...;\n    Any any = Any.pack(foo);\n    ...\n    if (any.is(Foo.class)) {\n      foo = any.unpack(Foo.class);\n    }\n    // or ...\n    if (any.isSameTypeAs(Foo.getDefaultInstance())) {\n      foo = any.unpack(Foo.getDefaultInstance());\n    }\n\n Example 3: Pack and unpack a message in Python.\n\n    foo = Foo(...)\n    any = Any()\n    any.Pack(foo)\n    ...\n    if any.Is(Foo.DESCRIPTOR):\n      any.Unpack(foo)\n      ...\n\n Example 4: Pack and unpack a message in Go\n\n     foo := &pb.Foo{...}\n     any, err := anypb.New(foo)\n     if err != nil {\n       ...\n     }\n     ...\n     foo := &pb.Foo{}\n     if err := any.UnmarshalTo(foo); err != nil {\n       ...\n     }\n\nThe pack methods provided by protobuf library will by default use\n'type.googleapis.com/full.type.name' as the type URL and the unpack\nmethods only use the fully qualified type name after the last '/'\nin the type URL, for example \"foo.bar.com/x/y.z\" will yield type\nname \"y.z\".\n\nJSON\n====\nThe JSON representation of an `Any` value uses the regular\nrepresentation of the deserialized, embedded message, with an\nadditional field `@type` which contains the type URL. Example:\n\n    package google.profile;\n    message Person {\n      string first_name = 1;\n      string last_name = 2;\n    }\n\n    {\n      \"@type\": \"type.googleapis.com/google.profile.Person\",\n      \"firstName\": <string>,\n      \"lastName\": <string>\n    }\n\nIf the embedded message type is well-known and has a custom JSON\nrepresentation, that representation will be embedded adding a field\n`value` which holds the custom JSON in addition to the `@type`\nfield. Example (for message [google.protobuf.Duration][]):\n\n    {\n      \"@type\": \"type.googleapis.com/google.protobuf.Duration\",\n      \"value\": \"1.212s\"\n    }"
+      "description": "`Any` contains an arbitrary serialized protocol buffer message along with a\nURL that describes the type of the serialized message.\n\nProtobuf library provides support to pack/unpack Any values in the form\nof utility functions or additional generated methods of the Any type.\n\nExample 1: Pack and unpack a message in C++.\n\n    Foo foo = ...;\n    Any any;\n    any.PackFrom(foo);\n    ...\n    if (any.UnpackTo(\u0026foo)) {\n      ...\n    }\n\nExample 2: Pack and unpack a message in Java.\n\n    Foo foo = ...;\n    Any any = Any.pack(foo);\n    ...\n    if (any.is(Foo.class)) {\n      foo = any.unpack(Foo.class);\n    }\n    // or ...\n    if (any.isSameTypeAs(Foo.getDefaultInstance())) {\n      foo = any.unpack(Foo.getDefaultInstance());\n    }\n\n Example 3: Pack and unpack a message in Python.\n\n    foo = Foo(...)\n    any = Any()\n    any.Pack(foo)\n    ...\n    if any.Is(Foo.DESCRIPTOR):\n      any.Unpack(foo)\n      ...\n\n Example 4: Pack and unpack a message in Go\n\n     foo := \u0026pb.Foo{...}\n     any, err := anypb.New(foo)\n     if err != nil {\n       ...\n     }\n     ...\n     foo := \u0026pb.Foo{}\n     if err := any.UnmarshalTo(foo); err != nil {\n       ...\n     }\n\nThe pack methods provided by protobuf library will by default use\n'type.googleapis.com/full.type.name' as the type URL and the unpack\nmethods only use the fully qualified type name after the last '/'\nin the type URL, for example \"foo.bar.com/x/y.z\" will yield type\nname \"y.z\".\n\nJSON\n====\nThe JSON representation of an `Any` value uses the regular\nrepresentation of the deserialized, embedded message, with an\nadditional field `@type` which contains the type URL. Example:\n\n    package google.profile;\n    message Person {\n      string first_name = 1;\n      string last_name = 2;\n    }\n\n    {\n      \"@type\": \"type.googleapis.com/google.profile.Person\",\n      \"firstName\": \u003cstring\u003e,\n      \"lastName\": \u003cstring\u003e\n    }\n\nIf the embedded message type is well-known and has a custom JSON\nrepresentation, that representation will be embedded adding a field\n`value` which holds the custom JSON in addition to the `@type`\nfield. Example (for message [google.protobuf.Duration][]):\n\n    {\n      \"@type\": \"type.googleapis.com/google.protobuf.Duration\",\n      \"value\": \"1.212s\"\n    }"
     },
     "rpcStatus": {
       "type": "object",
@@ -4402,7 +4451,7 @@
         "index": {
           "type": "integer",
           "format": "int32",
-          "description": "index is the zero-based ASIC position on the hashboard."
+          "description": "index is the zero-based physical ASIC position on the hashboard."
         },
         "voltageMv": {
           "type": "integer",
@@ -4428,6 +4477,15 @@
           "type": "integer",
           "format": "int32",
           "description": "hashrate_ghs10 is the hashrate in GH/s * 10 (e.g. 125 = 12.5 GH/s)."
+        },
+        "thermalQuarantined": {
+          "type": "boolean",
+          "description": "ThermalQuarantined is present when firmware supplied a valid thermal-\nthrottle snapshot covering this ASIC. Absence means not reported."
+        },
+        "compactIndex": {
+          "type": "integer",
+          "format": "int32",
+          "description": "compact_index is the original zero-based CT1 firmware identity. It is\nabsent when the producer cannot map this sample to a physical position."
         }
       },
       "description": "ASIC represents per-ASIC health data on a hashboard."
@@ -4530,6 +4588,21 @@
       "properties": {
         "alert": {
           "$ref": "#/definitions/v2Alert"
+        }
+      }
+    },
+    "v2AdoptManufacturingBoardResponse": {
+      "type": "object",
+      "properties": {
+        "macAddress": {
+          "type": "string"
+        },
+        "adoptedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "adoptedBy": {
+          "type": "string"
         }
       }
     },
@@ -4668,7 +4741,7 @@
         },
         "source": {
           "type": "string",
-          "description": "Source is \"grpc:<addr>\", \"rest:<addr>\", or \"system\"."
+          "description": "Source is \"grpc:\u003caddr\u003e\", \"rest:\u003caddr\u003e\", or \"system\"."
         },
         "node": {
           "type": "string",
@@ -6371,7 +6444,8 @@
         },
         "miningTimeMs": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "mining_time_ms is the legacy state-based counter retained for older\nclients. It can include READY or MINING intervals with zero hashrate."
         },
         "poweredOnTimeMs": {
           "type": "string",
@@ -6389,6 +6463,29 @@
           "type": "integer",
           "format": "int64",
           "description": "slot is the current optional one-based R2 chassis slot."
+        },
+        "observedUptime": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2HashboardObservedUptimeWindow"
+          },
+          "description": "observed_uptime contains only complete-age windows with substantiated\nobservation time. Telemetry gaps longer than 90 seconds are excluded from\nboth powered and observed time."
+        },
+        "hashingTimeMs": {
+          "type": "string",
+          "format": "uint64",
+          "description": "hashing_time_ms is the corrected time the board produced positive finite\nhashrate in an operational READY or MINING state. Presence distinguishes\nit from the legacy counter returned by older servers. It includes run-in\nand internal work that does not use an external pool."
+        },
+        "hashingObservedSince": {
+          "type": "string",
+          "format": "date-time",
+          "description": "hashing_observed_since marks the corrected counter epoch."
+        },
+        "bestEffortHashingTimeMs": {
+          "type": "string",
+          "format": "uint64",
+          "description": "best_effort_hashing_time_ms is the portion of hashing_time_ms inferred by\nan explicit operator repair from pre-cutover rows without HA writer\nidentity. The remainder is owner-authoritative."
         }
       },
       "description": "GetHashboardLifetimeResponse contains service-observed lifetime runtime.\nA nil first_observed_at means the selected board has not yet supplied a\npersisted health sample."
@@ -6433,6 +6530,14 @@
       "properties": {
         "state": {
           "$ref": "#/definitions/v2OperationalPolicyState"
+        }
+      }
+    },
+    "v2GetManufacturingSelfTestResponse": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "$ref": "#/definitions/v2ManufacturingSelfTest"
         }
       }
     },
@@ -6933,6 +7038,23 @@
       },
       "description": "HashboardASICLayout describes the physical ASIC layout for a hashboard."
     },
+    "v2HashboardASICThermalThrottleHealth": {
+      "type": "object",
+      "properties": {
+        "asicCount": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "quarantinedAsicIds": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "description": "HashboardASICThermalThrottleHealth is one firmware-reported FMargin\nthermal-throttle snapshot. quarantined_asic_ids are compact firmware ASIC\nidentities and must be joined through ASIC.compact_index before display."
+    },
     "v2HashboardErrorCause": {
       "type": "string",
       "enum": [
@@ -6962,11 +7084,13 @@
         "HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING",
         "HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT",
         "HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP",
+        "HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING",
         "HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION",
+        "HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE",
         "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR"
       ],
       "default": "HASHBOARD_ERROR_CAUSE_UNSPECIFIED",
-      "description": "HashboardErrorCause identifies a firmware-reported hashboard error cause."
+      "description": "HashboardErrorCause identifies a firmware-reported or Frigate-derived\nhashboard error or warning cause.\n\n - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware\ndoes not emit this value in its errors or warnings arrays."
     },
     "v2HashboardEvent": {
       "type": "object",
@@ -7016,6 +7140,11 @@
         "detail": {
           "type": "string",
           "description": "human-readable summary."
+        },
+        "stack": {
+          "type": "integer",
+          "format": "int64",
+          "description": "raw zero-based firmware stack index, when reported."
         }
       },
       "description": "HashboardEvent is a single entry in a hashboard's event history."
@@ -7124,6 +7253,9 @@
           "type": "number",
           "format": "double",
           "description": "Mean ASIC Fbest headroom in MHz, present only after firmware FMargin has\nproduced a valid sample for the current controller run."
+        },
+        "asicThermalThrottle": {
+          "$ref": "#/definitions/v2HashboardASICThermalThrottleHealth"
         }
       },
       "description": "HashboardHealth contains real-time health metrics for a hashboard."
@@ -7140,9 +7272,14 @@
         },
         "asic": {
           "$ref": "#/definitions/v2HashboardASICErrorState"
+        },
+        "stack": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Stack is the raw zero-based firmware stack index for stack-scoped errors."
         }
       },
-      "description": "HashboardHealthError is a firmware-reported error or warning."
+      "description": "HashboardHealthError is a firmware-reported or Frigate-derived error or\nwarning."
     },
     "v2HashboardHistoricalIdentityEvidence": {
       "type": "object",
@@ -7198,6 +7335,23 @@
       },
       "description": "HashboardLocation describes the physical position of a hashboard."
     },
+    "v2HashboardObservedUptimeWindow": {
+      "type": "object",
+      "properties": {
+        "windowDays": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "poweredTimeMs": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "observedTimeMs": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
     "v2HashboardPerformanceTuningAlgorithm": {
       "type": "string",
       "enum": [
@@ -7209,7 +7363,8 @@
         "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN",
         "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING",
         "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED",
-        "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE"
+        "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+        "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE"
       ],
       "default": "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_UNSPECIFIED",
       "description": "HashboardPerformanceTuningAlgorithm is the performance tuning algorithm\ncurrently selected by the hashboard firmware. Presence on HashboardHealth\ndistinguishes a reported NONE value from legacy health telemetry."
@@ -7801,6 +7956,33 @@
         }
       }
     },
+    "v2ListManufacturingBoardsResponse": {
+      "type": "object",
+      "properties": {
+        "requireAdoption": {
+          "type": "boolean"
+        },
+        "boards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingBoard"
+          }
+        }
+      }
+    },
+    "v2ListManufacturingSelfTestsResponse": {
+      "type": "object",
+      "properties": {
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingSelfTest"
+          }
+        }
+      }
+    },
     "v2ListModuleVoltageSettingsResponse": {
       "type": "object",
       "properties": {
@@ -8048,6 +8230,280 @@
         },
         "recoveryOffDuration": {
           "$ref": "#/definitions/v2ManagedDuration"
+        }
+      }
+    },
+    "v2ManufacturingASICResult": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "stack": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "stackIndex": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "x": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "enumerated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v2ManufacturingBISTReading": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "asicVdd": {
+          "type": "number",
+          "format": "float"
+        },
+        "vddio": {
+          "type": "number",
+          "format": "float"
+        },
+        "vddh": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "v2ManufacturingBoard": {
+      "type": "object",
+      "properties": {
+        "macAddress": {
+          "type": "string"
+        },
+        "miningState": {
+          "$ref": "#/definitions/v2MiningState"
+        },
+        "adopted": {
+          "type": "boolean"
+        },
+        "adoptedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "adoptedBy": {
+          "type": "string"
+        },
+        "reserved": {
+          "type": "boolean"
+        },
+        "flashing": {
+          "type": "boolean"
+        },
+        "isolated": {
+          "type": "boolean"
+        },
+        "selfTesting": {
+          "type": "boolean"
+        },
+        "activeTestId": {
+          "type": "string"
+        },
+        "latestTest": {
+          "$ref": "#/definitions/v2ManufacturingSelfTestSummary"
+        }
+      }
+    },
+    "v2ManufacturingSelfTest": {
+      "type": "object",
+      "properties": {
+        "testId": {
+          "type": "string"
+        },
+        "macAddress": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/v2ManufacturingSelfTestState"
+        },
+        "verdict": {
+          "$ref": "#/definitions/v2ManufacturingSelfTestVerdict"
+        },
+        "actor": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "profileVersion": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "failureReasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bist": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingBISTReading"
+          }
+        },
+        "currentBeforeBalance": {
+          "type": "number",
+          "format": "float"
+        },
+        "currentAfterBalance": {
+          "type": "number",
+          "format": "float"
+        },
+        "currentDelta": {
+          "type": "number",
+          "format": "float"
+        },
+        "minimumCurrentDelta": {
+          "type": "number",
+          "format": "float"
+        },
+        "topology": {
+          "type": "string"
+        },
+        "stacks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingStackResult"
+          }
+        },
+        "asics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingASICResult"
+          }
+        },
+        "reachedRunning": {
+          "type": "boolean"
+        },
+        "pvtReady": {
+          "type": "boolean"
+        },
+        "shutdownComplete": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "log": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v2ManufacturingSelfTestLogEntry"
+          }
+        }
+      }
+    },
+    "v2ManufacturingSelfTestLogEntry": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "v2ManufacturingSelfTestState": {
+      "type": "string",
+      "enum": [
+        "MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED",
+        "MANUFACTURING_SELF_TEST_STATE_QUEUED",
+        "MANUFACTURING_SELF_TEST_STATE_RUNNING",
+        "MANUFACTURING_SELF_TEST_STATE_COMPLETED",
+        "MANUFACTURING_SELF_TEST_STATE_ERROR"
+      ],
+      "default": "MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED"
+    },
+    "v2ManufacturingSelfTestSummary": {
+      "type": "object",
+      "properties": {
+        "testId": {
+          "type": "string"
+        },
+        "macAddress": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/v2ManufacturingSelfTestState"
+        },
+        "verdict": {
+          "$ref": "#/definitions/v2ManufacturingSelfTestVerdict"
+        },
+        "actor": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "profileVersion": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "description": "ManufacturingSelfTestSummary keeps inventory polling bounded; complete\nevidence is returned by GetManufacturingSelfTest."
+    },
+    "v2ManufacturingSelfTestVerdict": {
+      "type": "string",
+      "enum": [
+        "MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED",
+        "MANUFACTURING_SELF_TEST_VERDICT_PASS",
+        "MANUFACTURING_SELF_TEST_VERDICT_FAIL",
+        "MANUFACTURING_SELF_TEST_VERDICT_UNSUPPORTED"
+      ],
+      "default": "MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED"
+    },
+    "v2ManufacturingStackResult": {
+      "type": "object",
+      "properties": {
+        "stack": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "expectedAsicCount": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "enumeratedAsicCount": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "matched": {
+          "type": "boolean"
         }
       }
     },
@@ -8336,7 +8792,8 @@
         "PLL_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE",
         "PLL_ALGORITHM_FMARGIN",
         "PLL_ALGORITHM_DEBUG_FUZZING",
-        "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE"
+        "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+        "PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE"
       ],
       "default": "PLL_ALGORITHM_UNSPECIFIED",
       "description": "PLLAlgorithm selects firmware PLL tuning used with a power-target point."
@@ -10604,6 +11061,26 @@
         }
       }
     },
+    "v2StartManufacturingSelfTestRequest": {
+      "type": "object",
+      "properties": {
+        "identifier": {
+          "type": "string"
+        },
+        "localOnly": {
+          "type": "boolean",
+          "description": "local_only is reserved for trusted HA peer delegation."
+        }
+      }
+    },
+    "v2StartManufacturingSelfTestResponse": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "$ref": "#/definitions/v2ManufacturingSelfTest"
+        }
+      }
+    },
     "v2StartMiningResponse": {
       "type": "object"
     },
@@ -11140,7 +11617,8 @@
         "TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE_BALANCE",
         "TUNING_ALGORITHM_FMARGIN",
         "TUNING_ALGORITHM_DEBUG",
-        "TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE"
+        "TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+        "TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE"
       ],
       "default": "TUNING_ALGORITHM_UNSPECIFIED",
       "description": "TuningAlgorithm names the canonical mining tuning algorithm shared by all\nproducts. Implementations map these semantic values to their native tuning\nengine without exposing product-specific enum fields on the MDK API."

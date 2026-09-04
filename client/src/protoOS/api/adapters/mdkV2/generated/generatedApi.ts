@@ -152,6 +152,22 @@ export interface MQTTSourceConnectionConfigBroker {
   port?: number;
 }
 
+export type ManufacturingServiceAdoptManufacturingBoardBody = object;
+
+export interface ManufacturingServiceAdoptManufacturingBoardParams {
+  identifier: string;
+}
+
+export interface ManufacturingServiceGetManufacturingSelfTestParams {
+  testId: string;
+}
+
+export interface ManufacturingServiceListManufacturingSelfTestsParams {
+  identifier?: string;
+  /** @format int32 */
+  limit?: number;
+}
+
 /** Tag represents a key-value metadata tag. */
 export interface MdkV2Tag {
   key?: string;
@@ -465,10 +481,6 @@ export interface RunInServiceCancelHashboardRunInParams {
   taskId: string;
 }
 
-export interface RunInServiceDownloadHashboardRunInResultsParams {
-  taskId: string;
-}
-
 export interface RunInServiceGetHashboardRunInStatusParams {
   /** Blank preserves the legacy local-only lookup during rolling deployment. */
   serverId?: string;
@@ -735,12 +747,18 @@ export interface V2ASIC {
    */
   hashrateGhs10?: number;
   /**
+   * compact_index is the original zero-based CT1 firmware identity. It is
+   * absent when the producer cannot map this sample to a physical position.
+   * @format int32
+   */
+  compactIndex?: number;
+  /**
    * frequency_mhz is the ASIC clock frequency in megahertz.
    * @format int32
    */
   frequencyMhz?: number;
   /**
-   * index is the zero-based ASIC position on the hashboard.
+   * index is the zero-based physical ASIC position on the hashboard.
    * @format int32
    */
   index?: number;
@@ -754,6 +772,11 @@ export interface V2ASIC {
    * @format int32
    */
   temperatureDc?: number;
+  /**
+   * ThermalQuarantined is present when firmware supplied a valid thermal-
+   * throttle snapshot covering this ASIC. Absence means not reported.
+   */
+  thermalQuarantined?: boolean;
   /**
    * voltage_mv is the ASIC voltage in millivolts.
    * @format int32
@@ -819,6 +842,13 @@ export interface V2ASICStopCriteria {
 export interface V2AcknowledgeAlertResponse {
   /** Alert represents a system alert. */
   alert?: V2Alert;
+}
+
+export interface V2AdoptManufacturingBoardResponse {
+  /** @format date-time */
+  adoptedAt?: string;
+  adoptedBy?: string;
+  macAddress?: string;
 }
 
 /** Alert represents a system alert. */
@@ -1925,12 +1955,42 @@ export interface V2GetHashboardEventsResponse {
  * persisted health sample.
  */
 export interface V2GetHashboardLifetimeResponse {
+  /**
+   * best_effort_hashing_time_ms is the portion of hashing_time_ms inferred by
+   * an explicit operator repair from pre-cutover rows without HA writer
+   * identity. The remainder is owner-authoritative.
+   * @format uint64
+   */
+  bestEffortHashingTimeMs?: string;
   /** @format date-time */
   firstObservedAt?: string;
+  /**
+   * hashing_observed_since marks the corrected counter epoch.
+   * @format date-time
+   */
+  hashingObservedSince?: string;
+  /**
+   * hashing_time_ms is the corrected time the board produced positive finite
+   * hashrate in an operational READY or MINING state. Presence distinguishes
+   * it from the legacy counter returned by older servers. It includes run-in
+   * and internal work that does not use an external pool.
+   * @format uint64
+   */
+  hashingTimeMs?: string;
   /** mac_address is the legacy CT1 identity and is empty for R2. */
   macAddress?: string;
-  /** @format uint64 */
+  /**
+   * mining_time_ms is the legacy state-based counter retained for older
+   * clients. It can include READY or MINING intervals with zero hashrate.
+   * @format uint64
+   */
   miningTimeMs?: string;
+  /**
+   * observed_uptime contains only complete-age windows with substantiated
+   * observation time. Telemetry gaps longer than 90 seconds are excluded from
+   * both powered and observed time.
+   */
+  observedUptime?: V2HashboardObservedUptimeWindow[];
   /** @format uint64 */
   poweredOnTimeMs?: string;
   /** serial is the stable R2 identity. */
@@ -1964,6 +2024,10 @@ export interface V2GetLogsResponse {
 
 export interface V2GetManagedOperationalPolicyResponse {
   state?: V2OperationalPolicyState;
+}
+
+export interface V2GetManufacturingSelfTestResponse {
+  test?: V2ManufacturingSelfTest;
 }
 
 /** GetMiningStatusResponse contains aggregate mining status. */
@@ -2325,7 +2389,22 @@ export interface V2HashboardASICLayout {
 }
 
 /**
- * HashboardErrorCause identifies a firmware-reported hashboard error cause.
+ * HashboardASICThermalThrottleHealth is one firmware-reported FMargin
+ * thermal-throttle snapshot. quarantined_asic_ids are compact firmware ASIC
+ * identities and must be joined through ASIC.compact_index before display.
+ */
+export interface V2HashboardASICThermalThrottleHealth {
+  /** @format int64 */
+  asicCount?: number;
+  quarantinedAsicIds?: number[];
+}
+
+/**
+ * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+ * hashboard error or warning cause.
+ *
+ *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+ * does not emit this value in its errors or warnings arrays.
  * @default "HASHBOARD_ERROR_CAUSE_UNSPECIFIED"
  */
 export enum V2HashboardErrorCause {
@@ -2355,7 +2434,9 @@ export enum V2HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING = "HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING",
   HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT = "HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT",
   HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP = "HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP",
+  HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = "HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING",
   HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = "HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION",
+  HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = "HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE",
   HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR",
 }
 
@@ -2384,6 +2465,11 @@ export interface V2HashboardEvent {
    */
   lastSeen?: string;
   /**
+   * raw zero-based firmware stack index, when reported.
+   * @format int64
+   */
+  stack?: number;
+  /**
    * For aggregated cause events, first-seen time.
    * @format date-time
    */
@@ -2409,6 +2495,12 @@ export enum V2HashboardEventType {
 
 /** HashboardHealth contains real-time health metrics for a hashboard. */
 export interface V2HashboardHealth {
+  /**
+   * HashboardASICThermalThrottleHealth is one firmware-reported FMargin
+   * thermal-throttle snapshot. quarantined_asic_ids are compact firmware ASIC
+   * identities and must be joined through ASIC.compact_index before display.
+   */
+  asicThermalThrottle?: V2HashboardASICThermalThrottleHealth;
   /**
    * average_asic_temperature_c is absent when the source cannot distinguish
    * ASIC temperature from other board sensors.
@@ -2467,14 +2559,28 @@ export interface V2HashboardHealth {
   warnings?: V2HashboardHealthError[];
 }
 
-/** HashboardHealthError is a firmware-reported error or warning. */
+/**
+ * HashboardHealthError is a firmware-reported or Frigate-derived error or
+ * warning.
+ */
 export interface V2HashboardHealthError {
   /** HashboardASICErrorState contains ASIC-specific detail for an error. */
   asic?: V2HashboardASICErrorState;
-  /** HashboardErrorCause identifies a firmware-reported hashboard error cause. */
+  /**
+   * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+   * hashboard error or warning cause.
+   *
+   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+   * does not emit this value in its errors or warnings arrays.
+   */
   cause?: V2HashboardErrorCause;
   /** @format int64 */
   firmwareTimestamp?: number;
+  /**
+   * Stack is the raw zero-based firmware stack index for stack-scoped errors.
+   * @format int64
+   */
+  stack?: number;
 }
 
 /**
@@ -2526,6 +2632,15 @@ export interface V2HashboardLocation {
   tank?: number;
 }
 
+export interface V2HashboardObservedUptimeWindow {
+  /** @format uint64 */
+  observedTimeMs?: string;
+  /** @format uint64 */
+  poweredTimeMs?: string;
+  /** @format int64 */
+  windowDays?: number;
+}
+
 /**
  * HashboardPerformanceTuningAlgorithm is the performance tuning algorithm
  * currently selected by the hashboard firmware. Presence on HashboardHealth
@@ -2542,6 +2657,7 @@ export enum V2HashboardPerformanceTuningAlgorithm {
   HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING",
   HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED",
   HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE",
 }
 
 /**
@@ -2593,7 +2709,13 @@ export interface V2HashboardPower {
 
 /** HashboardRecovery is the shared HA-safe automatic READY retry state. */
 export interface V2HashboardRecovery {
-  /** HashboardErrorCause identifies a firmware-reported hashboard error cause. */
+  /**
+   * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+   * hashboard error or warning cause.
+   *
+   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+   * does not emit this value in its errors or warnings arrays.
+   */
   cause?: V2HashboardErrorCause;
   controllerServerId?: string;
   exhausted?: boolean;
@@ -2937,6 +3059,15 @@ export interface V2ListIsolationResponse {
   boards?: V2IsolatedBoard[];
 }
 
+export interface V2ListManufacturingBoardsResponse {
+  boards?: V2ManufacturingBoard[];
+  requireAdoption?: boolean;
+}
+
+export interface V2ListManufacturingSelfTestsResponse {
+  tests?: V2ManufacturingSelfTest[];
+}
+
 export interface V2ListModuleVoltageSettingsResponse {
   settings?: V2ModuleVoltageSetting[];
 }
@@ -3053,6 +3184,135 @@ export interface V2ManagedOperationalPolicy {
   recoveryHoldoff?: V2ManagedDuration;
   recoveryOffDuration?: V2ManagedDuration;
   safetyMargin?: V2ManagedDouble;
+}
+
+export interface V2ManufacturingASICResult {
+  enumerated?: boolean;
+  /** @format int64 */
+  index?: number;
+  /** @format int64 */
+  stack?: number;
+  /** @format int64 */
+  stackIndex?: number;
+  /** @format int64 */
+  x?: number;
+  /** @format int64 */
+  y?: number;
+}
+
+export interface V2ManufacturingBISTReading {
+  /** @format float */
+  asicVdd?: number;
+  /** @format int64 */
+  domain?: number;
+  /** @format float */
+  vddh?: number;
+  /** @format float */
+  vddio?: number;
+}
+
+export interface V2ManufacturingBoard {
+  activeTestId?: string;
+  adopted?: boolean;
+  /** @format date-time */
+  adoptedAt?: string;
+  adoptedBy?: string;
+  flashing?: boolean;
+  isolated?: boolean;
+  /**
+   * ManufacturingSelfTestSummary keeps inventory polling bounded; complete
+   * evidence is returned by GetManufacturingSelfTest.
+   */
+  latestTest?: V2ManufacturingSelfTestSummary;
+  macAddress?: string;
+  /** MiningState represents the operational state of a hashboard. */
+  miningState?: V2MiningState;
+  reserved?: boolean;
+  selfTesting?: boolean;
+}
+
+export interface V2ManufacturingSelfTest {
+  actor?: string;
+  asics?: V2ManufacturingASICResult[];
+  bist?: V2ManufacturingBISTReading[];
+  /** @format date-time */
+  completedAt?: string;
+  /** @format float */
+  currentAfterBalance?: number;
+  /** @format float */
+  currentBeforeBalance?: number;
+  /** @format float */
+  currentDelta?: number;
+  error?: string;
+  failureReasons?: string[];
+  log?: V2ManufacturingSelfTestLogEntry[];
+  macAddress?: string;
+  /** @format float */
+  minimumCurrentDelta?: number;
+  /** @format int64 */
+  profileVersion?: number;
+  pvtReady?: boolean;
+  reachedRunning?: boolean;
+  shutdownComplete?: boolean;
+  stacks?: V2ManufacturingStackResult[];
+  /** @format date-time */
+  startedAt?: string;
+  state?: V2ManufacturingSelfTestState;
+  testId?: string;
+  topology?: string;
+  verdict?: V2ManufacturingSelfTestVerdict;
+}
+
+export interface V2ManufacturingSelfTestLogEntry {
+  /** @format date-time */
+  at?: string;
+  message?: string;
+}
+
+/** @default "MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED" */
+export enum V2ManufacturingSelfTestState {
+  MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED = "MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED",
+  MANUFACTURING_SELF_TEST_STATE_QUEUED = "MANUFACTURING_SELF_TEST_STATE_QUEUED",
+  MANUFACTURING_SELF_TEST_STATE_RUNNING = "MANUFACTURING_SELF_TEST_STATE_RUNNING",
+  MANUFACTURING_SELF_TEST_STATE_COMPLETED = "MANUFACTURING_SELF_TEST_STATE_COMPLETED",
+  MANUFACTURING_SELF_TEST_STATE_ERROR = "MANUFACTURING_SELF_TEST_STATE_ERROR",
+}
+
+/**
+ * ManufacturingSelfTestSummary keeps inventory polling bounded; complete
+ * evidence is returned by GetManufacturingSelfTest.
+ */
+export interface V2ManufacturingSelfTestSummary {
+  actor?: string;
+  /** @format date-time */
+  completedAt?: string;
+  error?: string;
+  macAddress?: string;
+  /** @format int64 */
+  profileVersion?: number;
+  /** @format date-time */
+  startedAt?: string;
+  state?: V2ManufacturingSelfTestState;
+  testId?: string;
+  verdict?: V2ManufacturingSelfTestVerdict;
+}
+
+/** @default "MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED" */
+export enum V2ManufacturingSelfTestVerdict {
+  MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED = "MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED",
+  MANUFACTURING_SELF_TEST_VERDICT_PASS = "MANUFACTURING_SELF_TEST_VERDICT_PASS",
+  MANUFACTURING_SELF_TEST_VERDICT_FAIL = "MANUFACTURING_SELF_TEST_VERDICT_FAIL",
+  MANUFACTURING_SELF_TEST_VERDICT_UNSUPPORTED = "MANUFACTURING_SELF_TEST_VERDICT_UNSUPPORTED",
+}
+
+export interface V2ManufacturingStackResult {
+  /** @format int64 */
+  enumeratedAsicCount?: number;
+  /** @format int64 */
+  expectedAsicCount?: number;
+  matched?: boolean;
+  /** @format int64 */
+  stack?: number;
 }
 
 /**
@@ -3249,6 +3509,7 @@ export enum V2PLLAlgorithm {
   PLL_ALGORITHM_FMARGIN = "PLL_ALGORITHM_FMARGIN",
   PLL_ALGORITHM_DEBUG_FUZZING = "PLL_ALGORITHM_DEBUG_FUZZING",
   PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+  PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = "PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE",
 }
 
 /** PageRequest specifies pagination parameters. */
@@ -4642,6 +4903,16 @@ export interface V2StartHashboardRunInResponse {
   taskId?: string;
 }
 
+export interface V2StartManufacturingSelfTestRequest {
+  identifier?: string;
+  /** local_only is reserved for trusted HA peer delegation. */
+  localOnly?: boolean;
+}
+
+export interface V2StartManufacturingSelfTestResponse {
+  test?: V2ManufacturingSelfTest;
+}
+
 export type V2StartMiningResponse = object;
 
 export interface V2StartMiningScopedRequest {
@@ -4987,6 +5258,7 @@ export enum V2TuningAlgorithm {
   TUNING_ALGORITHM_FMARGIN = "TUNING_ALGORITHM_FMARGIN",
   TUNING_ALGORITHM_DEBUG = "TUNING_ALGORITHM_DEBUG",
   TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+  TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = "TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE",
 }
 
 /** TuningSweep configures fixed-voltage points crossed with either fixed-frequency or power-target/PLL-algorithm points. */
@@ -5516,7 +5788,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Hashboards, CT1
+     * @tags Hashboards
      * @name HashboardServiceGetContainerMap
      * @summary GetContainerMap returns the full physical layout of a CT1 container.
      * @request GET:/api/v2/container/map
@@ -5532,7 +5804,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Diagnostics, CT1
+     * @tags Diagnostics
      * @name DiagnosticsServiceDescribeReadOnlyDatabase
      * @summary DescribeReadOnlyDatabase lists the database objects available to the dedicated diagnostics reader role.
      * @request GET:/api/v2/diagnostics/database
@@ -5548,7 +5820,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Diagnostics, CT1
+     * @tags Diagnostics
      * @name DiagnosticsServiceQueryReadOnlySql
      * @summary QueryReadOnlySQL runs exactly one bounded SELECT statement through the dedicated diagnostics reader role.
      * @request POST:/api/v2/diagnostics/database/query
@@ -5569,7 +5841,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetFeedMappingReport
      * @summary GetFeedMappingReport returns the currently stored feed mapping report.
      * @request GET:/api/v2/feed-mapping
@@ -5589,7 +5861,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetActiveFeedMappingRun
      * @summary GetActiveFeedMappingRun returns the active feed mapping run, if one is running.
      * @request GET:/api/v2/feed-mapping/active-run
@@ -5605,7 +5877,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceStartFeedMappingRun
      * @summary StartFeedMappingRun starts a feed mapping run.
      * @request POST:/api/v2/feed-mapping/runs
@@ -5626,7 +5898,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetFeedMappingRun
      * @summary GetFeedMappingRun returns one feed mapping run snapshot.
      * @request GET:/api/v2/feed-mapping/runs/{runId}
@@ -5645,7 +5917,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceListFeedMappingRunEvents
      * @summary ListFeedMappingRunEvents returns buffered events for a feed mapping run.
      * @request GET:/api/v2/feed-mapping/runs/{runId}/events
@@ -5664,7 +5936,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceCancelFeedMappingRun
      * @summary CancelFeedMappingRun cancels an active feed mapping run and restores feeds when configured.
      * @request POST:/api/v2/feed-mapping/runs/{runId}:cancel
@@ -5686,7 +5958,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetActiveSoftFeedMappingRun
      * @summary GetActiveSoftFeedMappingRun returns the active soft mapping run, if one is running.
      * @request GET:/api/v2/feed-mapping/soft-active-run
@@ -5704,7 +5976,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetSoftFeedMappingReport
      * @summary GetSoftFeedMappingReport returns the most recent soft mapping run, if one exists.
      * @request GET:/api/v2/feed-mapping/soft-report
@@ -5720,7 +5992,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceStartSoftFeedMappingRun
      * @summary StartSoftFeedMappingRun verifies board-to-feed mappings by perturbing one mining board at a time.
      * @request POST:/api/v2/feed-mapping/soft-runs
@@ -5741,7 +6013,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceGetSoftFeedMappingRun
      * @summary GetSoftFeedMappingRun returns one soft mapping run snapshot.
      * @request GET:/api/v2/feed-mapping/soft-runs/{runId}
@@ -5760,7 +6032,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceApplySoftFeedMappingRun
      * @summary ApplySoftFeedMappingRun applies high-confidence changed/added mappings from a completed soft run.
      * @request POST:/api/v2/feed-mapping/soft-runs/{runId}:apply
@@ -5782,7 +6054,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServiceCancelSoftFeedMappingRun
      * @summary CancelSoftFeedMappingRun cancels an active soft mapping run and restores the current board when possible.
      * @request POST:/api/v2/feed-mapping/soft-runs/{runId}:cancel
@@ -5804,7 +6076,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Feed Mapping, CT1
+     * @tags Feed Mapping
      * @name FeedMappingServicePlanFeedMappingRun
      * @summary PlanFeedMappingRun validates and previews a feed mapping run.
      * @request POST:/api/v2/feed-mapping:plan
@@ -5826,7 +6098,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Firmware, CT1
+     * @tags Firmware
      * @name FirmwareServiceGetFirmwarePolicy
      * @summary GetFirmwarePolicy returns the container's desired exact firmware target.
      * @request GET:/api/v2/firmware/policy
@@ -5842,7 +6114,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Firmware, CT1
+     * @tags Firmware
      * @name FirmwareServiceSetFirmwarePolicy
      * @summary SetFirmwarePolicy revision-fences a hot policy replacement or disable.
      * @request PUT:/api/v2/firmware/policy
@@ -5863,7 +6135,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Firmware, CT1
+     * @tags Firmware
      * @name FirmwareServiceListFirmwarePolicyBoards
      * @summary ListFirmwarePolicyBoards returns retained compliance and retry state.
      * @request GET:/api/v2/firmware/policy/boards
@@ -5879,7 +6151,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Firmware, CT1
+     * @tags Firmware
      * @name FirmwareServiceRetryFirmwarePolicyBoards
      * @summary RetryFirmwarePolicyBoards resets terminal policy failures for a scope.
      * @request POST:/api/v2/firmware/policy/retry
@@ -5997,7 +6269,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Hashboards, CT1
+     * @tags Hashboards
      * @name HashboardServiceSetIdentifyLed
      * @summary SetIdentifyLED records the desired identification LED state for a board or module. The HA node that owns each board applies the command to firmware.
      * @request POST:/api/v2/hashboards/identify-led
@@ -6095,7 +6367,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Run-In, CT1
+     * @tags Run-In
      * @name RunInServiceStartHashboardRunIn
      * @summary StartHashboardRunIn starts a factory run-in task for one hashboard.
      * @request POST:/api/v2/hashboards/{identifier}/run-in
@@ -6118,7 +6390,100 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Manufacturing
+     * @name ManufacturingServiceListManufacturingBoards
+     * @request GET:/api/v2/manufacturing/boards
+     */
+    manufacturingServiceListManufacturingBoards: (params: RequestParams = {}) =>
+      this.request<V2ListManufacturingBoardsResponse, RpcStatus>({
+        path: `/api/v2/manufacturing/boards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Manufacturing
+     * @name ManufacturingServiceAdoptManufacturingBoard
+     * @request POST:/api/v2/manufacturing/boards/{identifier}/adopt
+     */
+    manufacturingServiceAdoptManufacturingBoard: (
+      { identifier }: ManufacturingServiceAdoptManufacturingBoardParams,
+      body: ManufacturingServiceAdoptManufacturingBoardBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2AdoptManufacturingBoardResponse, RpcStatus>({
+        path: `/api/v2/manufacturing/boards/${identifier}/adopt`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Manufacturing
+     * @name ManufacturingServiceListManufacturingSelfTests
+     * @request GET:/api/v2/manufacturing/self-tests
+     */
+    manufacturingServiceListManufacturingSelfTests: (
+      query: ManufacturingServiceListManufacturingSelfTestsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListManufacturingSelfTestsResponse, RpcStatus>({
+        path: `/api/v2/manufacturing/self-tests`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Manufacturing
+     * @name ManufacturingServiceStartManufacturingSelfTest
+     * @request POST:/api/v2/manufacturing/self-tests
+     */
+    manufacturingServiceStartManufacturingSelfTest: (
+      body: V2StartManufacturingSelfTestRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartManufacturingSelfTestResponse, RpcStatus>({
+        path: `/api/v2/manufacturing/self-tests`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Manufacturing
+     * @name ManufacturingServiceGetManufacturingSelfTest
+     * @request GET:/api/v2/manufacturing/self-tests/{testId}
+     */
+    manufacturingServiceGetManufacturingSelfTest: (
+      { testId }: ManufacturingServiceGetManufacturingSelfTestParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetManufacturingSelfTestResponse, RpcStatus>({
+        path: `/api/v2/manufacturing/self-tests/${testId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
      * @name MiningServiceListIsolation
      * @summary ListIsolation returns the current set of isolated hashboards.
      * @request GET:/api/v2/mining/isolation
@@ -6134,7 +6499,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceSetIsolation
      * @summary SetIsolation marks or clears isolation for an explicit set of hashboards. Isolated boards are excluded from cluster start/stop and from the mining-intent reconciler. On clear, the server re-aligns the boards to the current cluster mining intent.
      * @request POST:/api/v2/mining/isolation
@@ -6155,7 +6520,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceListModuleVoltageSettings
      * @summary ListModuleVoltageSettings returns durable fixed/AUTO settings and the firmware-supported voltage range for every known module ID.
      * @request GET:/api/v2/mining/modules/voltage
@@ -6171,7 +6536,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceClearModuleFixedVoltage
      * @summary ClearModuleFixedVoltage persists and applies automatic voltage tuning for one module.
      * @request DELETE:/api/v2/mining/modules/{moduleId}/voltage/fixed
@@ -6190,7 +6555,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceSetModuleFixedVoltage
      * @summary SetModuleFixedVoltage persists and applies one module-wide fixed voltage.
      * @request PUT:/api/v2/mining/modules/{moduleId}/voltage/fixed
@@ -6212,7 +6577,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceSetPowerTargetScoped
      * @summary SetPowerTargetScoped sets a manual per-board power target on an explicit set of ISOLATED hashboards. Isolation is required so the fleet power reconciler does not fight the manual target; it is validated per board.
      * @request POST:/api/v2/mining/scoped/power
@@ -6233,7 +6598,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceClearPowerTargetScoped
      * @summary ClearPowerTargetScoped removes manual per-board power targets from an explicit set of isolated hashboards, restoring automatic tuning.
      * @request POST:/api/v2/mining/scoped/power/clear
@@ -6254,7 +6619,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceStartMiningScoped
      * @summary StartMiningScoped begins mining for an explicit set of hashboards. Isolated boards are eligible (this is how operators drive them). Cluster intent is not changed.
      * @request POST:/api/v2/mining/scoped/start
@@ -6275,7 +6640,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Mining, CT1
+     * @tags Mining
      * @name MiningServiceStopMiningScoped
      * @summary StopMiningScoped halts mining for an explicit set of hashboards. Cluster intent is not changed.
      * @request POST:/api/v2/mining/scoped/stop
@@ -6455,7 +6820,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Run-In, CT1
+     * @tags Run-In
      * @name RunInServiceStartModuleRunIn
      * @summary StartModuleRunIn starts one synchronized tuning sweep across the connected hashboards in a PSU module.
      * @request POST:/api/v2/modules/{moduleId}/run-in
@@ -6478,7 +6843,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Operational policy, CT1
+     * @tags Operational policy
      * @name OperationalPolicyServiceGetManagedOperationalPolicy
      * @request GET:/api/v2/operational-policy
      */
@@ -6495,7 +6860,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Operational policy, CT1
+     * @tags Operational policy
      * @name OperationalPolicyServiceApplyManagedOperationalPolicy
      * @request PUT:/api/v2/operational-policy
      */
@@ -6647,7 +7012,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceMuteContainerAlarm
      * @summary MuteContainerAlarm pulses the container controller's alarm mute. CT1 only.
      * @request POST:/api/v2/power/container/alarm/mute
@@ -6668,7 +7033,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceResetContainerAlarm
      * @summary ResetContainerAlarm pulses the container controller's alarm reset. CT1 only.
      * @request POST:/api/v2/power/container/alarm/reset
@@ -6689,7 +7054,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceGetContainerControls
      * @summary GetContainerControls returns the tank/container plant controls (boolean switches) and analog setpoints exposed by the container backend, with their current states where the backend can read them back. Backends without control support report supported=false with empty lists. CT1 only.
      * @request GET:/api/v2/power/container/controls
@@ -6705,7 +7070,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceSetContainerControl
      * @summary SetContainerControl switches one boolean tank/container control (tank_led_light, coolant_pump, dry_cooler, dry_cooler_auto, air_conditioner_1, or air_conditioner_2) and echoes the state written. The PLC is authoritative for plant protection and command acceptance. CT1 only.
      * @request POST:/api/v2/power/container/controls/{name}
@@ -6727,7 +7092,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceRunDryCoolerFanReverse
      * @summary RunDryCoolerFanReverse applies a retained 3-10 whole-minute duration, starts the PLC-owned procedure, and returns after terminal completion. The operation never exposes or writes a manual stop command. CT1 only.
      * @request POST:/api/v2/power/container/dry-cooler/fan-reverse
@@ -6748,7 +7113,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceSetMainCircuitBreakerState
      * @summary SetMainCircuitBreakerState requests an idempotent closed/open target and returns the controller's authoritative closed-state readback. CT1 only.
      * @request POST:/api/v2/power/container/main-circuit-breaker
@@ -6769,7 +7134,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceSetContainerSetpoint
      * @summary SetContainerSetpoint writes one analog tank/container setpoint and echoes the applied value. Temperature setpoints are Celsius. Frigate validates only the finite float32 wire representation; the PLC owns operational limits and final command acceptance. CT1 only.
      * @request POST:/api/v2/power/container/setpoints/{name}
@@ -6807,7 +7172,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceListPowerFeeds
      * @summary ListPowerFeeds returns power-feed state and optional electrical telemetry.
      * @request GET:/api/v2/power/feeds
@@ -6823,7 +7188,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceClearPowerFeedOverride
      * @summary ClearPowerFeedOverride removes the process-local operator marker from one power feed without changing its backend target or physical state. CT1 only.
      * @request POST:/api/v2/power/feeds/{powerFeedId}/override/clear
@@ -6845,7 +7210,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceSetPowerFeedState
      * @summary SetPowerFeedState enables or disables one container power feed.
      * @request POST:/api/v2/power/feeds/{powerFeedId}/state
@@ -6867,7 +7232,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceCyclePowerFeed
      * @summary CyclePowerFeed disables one enabled container power feed, holds it off for 30 seconds, and restores it as one durable Frigate-owned operation. The restore survives disconnects, restart, and HA handoff. CT1 only.
      * @request POST:/api/v2/power/feeds/{powerFeedId}:cycle
@@ -6905,7 +7270,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Power, CT1
+     * @tags Power
      * @name PowerServiceGetActivePowerRecoveryCycle
      * @summary GetActivePowerRecoveryCycle returns the singleton durable outlet restore obligation, whether initiated by an operator or automatic recovery.
      * @request GET:/api/v2/power/recovery/active
@@ -6921,7 +7286,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Run-In, CT1
+     * @tags Run-In
      * @name RunInServiceListHashboardRunInTasks
      * @summary ListHashboardRunInTasks lists active and completed run-in tasks.
      * @request GET:/api/v2/run-in
@@ -6941,7 +7306,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Run-In, CT1
+     * @tags Run-In
      * @name RunInServiceGetHashboardRunInStatus
      * @summary GetHashboardRunInStatus returns the current status for a run-in task.
      * @request GET:/api/v2/run-in/{taskId}
@@ -6961,7 +7326,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Run-In, CT1
+     * @tags Run-In
      * @name RunInServiceCancelHashboardRunIn
      * @summary CancelHashboardRunIn requests cancellation for a run-in task.
      * @request POST:/api/v2/run-in/{taskId}/cancel
@@ -7001,7 +7366,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceGetCoolingConfig
      * @summary GetCoolingConfig returns the cooling configuration.
      * @request GET:/api/v2/system/cooling
@@ -7017,7 +7382,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceSetCoolingConfig
      * @summary SetCoolingConfig updates the cooling configuration.
      * @request PUT:/api/v2/system/cooling
@@ -7038,7 +7403,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceApplyFirmwareUpdate
      * @summary ApplyFirmwareUpdate applies a firmware update.
      * @request POST:/api/v2/system/firmware/apply
@@ -7059,7 +7424,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceCheckFirmwareUpdate
      * @summary CheckFirmwareUpdate checks for available firmware updates.
      * @request GET:/api/v2/system/firmware/check
@@ -7107,7 +7472,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceLocateDevice
      * @summary LocateDevice activates the device locator LED.
      * @request POST:/api/v2/system/locate
@@ -7164,7 +7529,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceGetNetworkConfig
      * @summary GetNetworkConfig returns the network configuration.
      * @request GET:/api/v2/system/network
@@ -7180,7 +7545,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceSetNetworkConfig
      * @summary SetNetworkConfig updates the network configuration.
      * @request PUT:/api/v2/system/network
@@ -7236,7 +7601,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceReboot
      * @summary Reboot reboots the device.
      * @request POST:/api/v2/system/reboot
@@ -7252,7 +7617,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceGetSshConfig
      * @summary GetSSHConfig returns the SSH configuration.
      * @request GET:/api/v2/system/ssh
@@ -7268,7 +7633,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceSetSshConfig
      * @summary SetSSHConfig updates the SSH configuration.
      * @request PUT:/api/v2/system/ssh
@@ -7342,7 +7707,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags System, R2
+     * @tags System
      * @name SystemServiceGetUnlockStatus
      * @summary GetUnlockStatus returns the device unlock status.
      * @request GET:/api/v2/system/unlock
@@ -7358,7 +7723,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Hashboards, CT1
+     * @tags Hashboards
      * @name HashboardServiceListUnitTags
      * @summary ListUnitTags returns operator tags for modules, hashboards, and container power feeds.
      * @request GET:/api/v2/tags
@@ -7374,7 +7739,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Hashboards, CT1
+     * @tags Hashboards
      * @name HashboardServiceSetUnitTag
      * @summary SetUnitTag upserts an operator tag for a module (keyed by module ID), a hashboard (keyed by MAC address), or a container power feed (keyed by backend feed ID). An empty tag deletes the entry.
      * @request PUT:/api/v2/tags
@@ -7395,7 +7760,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceGetContainerHealth
      * @summary GetContainerHealth returns a point-in-time plant and power-feed snapshot.
      * @request GET:/api/v2/telemetry/container
@@ -7411,7 +7776,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceListContainerPlantAlarmEpisodes
      * @summary ListContainerPlantAlarmEpisodes reconstructs active and cleared PLC alarm intervals from the durable transition journal.
      * @request GET:/api/v2/telemetry/container/alarms
@@ -7431,7 +7796,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceListContainerPlantEvents
      * @summary ListContainerPlantEvents returns durable control, setpoint, alarm, fault, power-feed, and observed-state transitions.
      * @request GET:/api/v2/telemetry/container/events
@@ -7451,7 +7816,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceStreamContainerHealth
      * @summary StreamContainerHealth streams container plant and power-feed telemetry.
      * @request GET:/api/v2/telemetry/container/stream
@@ -7605,7 +7970,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceQueryProductionHistory
      * @summary QueryProductionHistory returns indefinitely retained hourly or daily production summaries. An optional identifier selects one CT1 board; otherwise the result is the container aggregate.
      * @request GET:/api/v2/telemetry/production/history
@@ -7625,7 +7990,7 @@ export class Api<
     /**
      * No description
      *
-     * @tags Telemetry, CT1
+     * @tags Telemetry
      * @name TelemetryServiceQueryShareQualityHistory
      * @summary QueryShareQualityHistory returns indefinitely retained share-quality summaries without scanning raw nonces and work IDs.
      * @request GET:/api/v2/telemetry/shares/history
@@ -7679,24 +8044,6 @@ export class Api<
         method: "GET",
         query: query,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Downloads the completed run-in result as a gzip-compressed SQLite database. Newly completed artifacts are published atomically after finalization and compression succeed; stored legacy SQLite artifacts remain readable.
-     *
-     * @tags Run-In
-     * @name RunInServiceDownloadHashboardRunInResults
-     * @summary DownloadHashboardRunInResults downloads the final compressed SQLite result artifact for a run-in task.
-     * @request GET:/api/v2/run-in/{taskId}/results.sqlite
-     */
-    runInServiceDownloadHashboardRunInResults: (
-      { taskId }: RunInServiceDownloadHashboardRunInResultsParams,
-      params: RequestParams = {},
-    ) =>
-      this.request<Blob, void | RpcStatus>({
-        path: `/api/v2/run-in/${taskId}/results.sqlite`,
-        method: "GET",
         ...params,
       }),
   };

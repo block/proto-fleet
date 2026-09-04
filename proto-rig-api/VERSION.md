@@ -18,9 +18,9 @@ simulator are updated with these OpenAPI changes.
 
 - Repository: Frigate (private)
   - Source path: `proto/mdk/v2/`
-  - OpenAPI generation config: `proto/buf.gen.openapiv2.yaml`
-  - Commit SHA: not recorded in the initial vendored snapshot
-  - Extraction Date: 2026-09-03
+  - OpenAPI generation config: `proto/buf.gen.openapi.yaml`
+  - Commit SHA: 5225b5fa64f8d81d95329dcd5bbd6b9c70005198
+  - Extraction Date: 2026-09-04
 
 This snapshot contains Frigate's generated MDK v2 OpenAPI document for the
 protobuf-first `/api/v2/...` REST/JSON gateway. ProtoOS consumes the vendored
@@ -59,7 +59,7 @@ To update the MDK v2 API specification:
 1. Clone or access the Frigate repository
 2. Checkout the desired commit/tag
 3. Generate the OpenAPI document from Frigate's protobuf definitions using its
-   `proto/buf.gen.openapiv2.yaml` configuration
+   `proto/buf.gen.openapi.yaml` configuration
 4. Copy the generated MDK v2 OpenAPI document to `openapi/MDK-v2-API.json`
 5. Update this VERSION.md with the new commit SHA and dates
 6. Regenerate the dependent generated code:
