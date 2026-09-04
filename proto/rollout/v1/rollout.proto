@@ -239,6 +239,12 @@ message ReleaseChannelSummary {
 // Summary for one manufacturer/model pair in a channel, including its member
 // count and firmware assignment.
 message ReleaseChannelModelGroup {
+    option (buf.validate.message).cel = {
+        id: "reported_version_count_covers_returned_versions"
+        message: "reported_version_count must be at least the number of reported_versions"
+        expression: "this.reported_version_count >= this.reported_versions.size()"
+    };
+
     string manufacturer = 1;
     string model = 2;
     // Empty when no firmware is assigned to this manufacturer/model pair.
@@ -250,9 +256,17 @@ message ReleaseChannelModelGroup {
     // Members currently reporting the assigned firmware version; 0 when no
     // firmware is assigned.
     int32 on_target_count = 7;
-    // Distinct firmware versions members currently report, sorted. Lets a
-    // client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing miners.
-    repeated string reported_versions = 8;
+    // The first 10 sorted distinct firmware versions members currently report.
+    // Lets a client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing
+    // miners.
+    repeated string reported_versions = 8 [(buf.validate.field).repeated = {
+        max_items: 10
+        unique: true
+        items: { string: {max_len: 255} }
+    }];
+    // Total distinct reported versions before reported_versions is truncated.
+    // A value greater than the length of reported_versions means truncation.
+    int32 reported_version_count = 9;
 }
 
 // A miner resolved into a release channel.
@@ -584,10 +598,19 @@ message PreviewReleaseChannelScopeResponse {
 }
 
 message ApplyReleaseChannelFirmwareRequest {
+    option (buf.validate.message).cel = {
+        id: "assignments_unique_by_manufacturer_model"
+        message: "assignments must contain at most one entry per manufacturer/model pair"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer + a.model).unique()"
+    };
+
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Desired assignments. Manufacturer/model pairs omitted here keep their
     // current assignment.
-    repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated.min_items = 1];
+    repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+    }];
 }
 
 message ApplyReleaseChannelFirmwareResponse {

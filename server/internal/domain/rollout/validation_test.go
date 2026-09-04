@@ -1,6 +1,8 @@
 package rollout_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"buf.build/go/protovalidate"
@@ -116,6 +118,165 @@ func TestFirmwareAssignmentValidation(t *testing.T) {
 			t.Parallel()
 
 			err := protovalidate.Validate(test.assignment)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
+	t.Parallel()
+
+	oversizedAssignments := make([]*rolloutv1.FirmwareAssignment, 101)
+	for index := range oversizedAssignments {
+		oversizedAssignments[index] = &rolloutv1.FirmwareAssignment{
+			Manufacturer:   "Bitmain",
+			Model:          fmt.Sprintf("model-%d", index),
+			FirmwareFileId: "firmware",
+		}
+	}
+
+	tests := []struct {
+		name    string
+		request *rolloutv1.ApplyReleaseChannelFirmwareRequest
+		wantErr bool
+	}{
+		{
+			name: "duplicate manufacturer and model pair is rejected",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-b"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "same model under different manufacturers is accepted",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
+					{Manufacturer: "MicroBT", Model: "S21", FirmwareFileId: "firmware-b"},
+				},
+			},
+		},
+		{
+			name: "different models under one manufacturer are accepted",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
+					{Manufacturer: "Bitmain", Model: "S19", FirmwareFileId: "firmware-b"},
+				},
+			},
+		},
+		{
+			name: "length-prefixed composite keys do not collide",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "A", Model: "BC", FirmwareFileId: "firmware-a"},
+					{Manufacturer: "AB", Model: "C", FirmwareFileId: "firmware-b"},
+				},
+			},
+		},
+		{
+			name: "assignment count is bounded",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId:   1,
+				Assignments: oversizedAssignments,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.request)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
+	t.Parallel()
+
+	boundedVersions := []string{
+		"1.0.0",
+		"1.1.0",
+		"1.2.0",
+		"1.3.0",
+		"1.4.0",
+		"1.5.0",
+		"1.6.0",
+		"1.7.0",
+		"1.8.0",
+		"1.9.0",
+	}
+	oversizedVersions := append(append([]string{}, boundedVersions...), "2.0.0")
+
+	tests := []struct {
+		name       string
+		modelGroup *rolloutv1.ReleaseChannelModelGroup
+		wantErr    bool
+	}{
+		{
+			name: "bounded truncated list is valid",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				ReportedVersions:     boundedVersions,
+				ReportedVersionCount: 12,
+			},
+		},
+		{
+			name: "oversized list is rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				ReportedVersions:     oversizedVersions,
+				ReportedVersionCount: 11,
+			},
+			wantErr: true,
+		},
+		{
+			name: "count below returned list length is rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				ReportedVersions:     []string{"1.0.0", "2.0.0"},
+				ReportedVersionCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "duplicate versions are rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				ReportedVersions:     []string{"1.0.0", "1.0.0"},
+				ReportedVersionCount: 2,
+			},
+			wantErr: true,
+		},
+		{
+			name: "oversized version is rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				ReportedVersions:     []string{strings.Repeat("v", 256)},
+				ReportedVersionCount: 1,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.modelGroup)
 			if test.wantErr {
 				require.Error(t, err)
 				return
