@@ -351,6 +351,15 @@ func TestRolloutPaginationValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "channel model groups accept maximum cursor length",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1, Cursor: strings.Repeat("c", 1024)},
+		},
+		{
+			name:    "channel model groups reject oversized cursor",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1, Cursor: strings.Repeat("c", 1025)},
+			wantErr: true,
+		},
+		{
 			name:    "membership conflicts accept organization-wide default page",
 			request: &rolloutv1.ListReleaseChannelMembershipConflictsRequest{},
 		},
@@ -535,6 +544,12 @@ func TestListReleaseChannelModelGroupsResponseValidation(t *testing.T) {
 	}))
 	require.Error(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
 		ModelGroups: modelGroups,
+	}))
+	require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+		Cursor: strings.Repeat("c", 1024),
+	}))
+	require.Error(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+		Cursor: strings.Repeat("c", 1025),
 	}))
 }
 
