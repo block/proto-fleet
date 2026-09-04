@@ -1,60 +1,74 @@
-import { useCallback, useState } from "react";
-
+import { useEffect, useState } from "react";
+import { RepairLocation, TicketResolution } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { useInventoryApi } from "@/protoFleet/api/inventory";
+import type { PartSelection } from "@/protoFleet/api/maintenance";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
 interface CompletionFormProps {
   isMinerTicket?: boolean;
-  onSubmit: () => void;
+  siteId: string | null;
+  onSubmit: (value: {
+    resolution: TicketResolution;
+    repairLocation: RepairLocation;
+    notes: string;
+    partsSelection: PartSelection[];
+  }) => Promise<boolean>;
   onCancel: () => void;
 }
-
 const RESOLUTION_OPTIONS = [
-  { value: "repaired", label: "Repaired" },
-  { value: "replaced", label: "Replaced" },
-  { value: "deferred", label: "Deferred" },
-  { value: "unrepairable", label: "Unrepairable" },
-  { value: "no_action", label: "No action needed" },
+  { value: String(TicketResolution.REPAIRED), label: "Repaired" },
+  { value: String(TicketResolution.REPLACED), label: "Replaced" },
+  { value: String(TicketResolution.DEFERRED), label: "Deferred" },
+  { value: String(TicketResolution.UNREPAIRABLE), label: "Unrepairable" },
+  { value: String(TicketResolution.NO_ACTION_NEEDED), label: "No action needed" },
 ];
-
 const LOCATION_OPTIONS = [
-  { value: "on_rack", label: "On-rack" },
-  { value: "repair_bench", label: "Repair bench" },
+  { value: String(RepairLocation.ON_RACK), label: "On-rack" },
+  { value: String(RepairLocation.REPAIR_BENCH), label: "Repair bench" },
 ];
-
-const PARTS_OPTIONS = [
-  { value: "fan_filter", label: "Fan Filter (120mm)" },
-  { value: "hashboard_s21", label: "Hashboard S21" },
-  { value: "apw12_psu", label: "APW12 PSU" },
-  { value: "control_board_s21", label: "Control Board S21" },
-  { value: "thermal_paste", label: "Thermal Paste (tube)" },
-  { value: "heatsink_s21", label: "Heatsink S21" },
-];
-
-const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: CompletionFormProps) => {
-  const [resolution, setResolution] = useState("repaired");
-  const [repairLocation, setRepairLocation] = useState("on_rack");
-  const [partsUsed, setPartsUsed] = useState("");
-  const [, setNotes] = useState("");
-
-  const handleSubmit = useCallback(() => {
-    onSubmit();
-  }, [onSubmit]);
-
-  const submitText = (() => {
-    switch (resolution) {
-      case "deferred":
-        return "Defer ticket";
-      case "unrepairable":
-        return "Mark unrepairable";
-      case "no_action":
-        return "Close ticket";
-      default:
-        return "Complete repair";
-    }
-  })();
-
+const CompletionForm = ({ isMinerTicket = true, siteId, onSubmit, onCancel }: CompletionFormProps) => {
+  const { listPartsBySite } = useInventoryApi();
+  const [resolution, setResolution] = useState(TicketResolution.REPAIRED);
+  const [repairLocation, setRepairLocation] = useState(RepairLocation.ON_RACK);
+  const [parts, setParts] = useState<Array<{ id: bigint; name: string; available: number }>>([]);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!siteId) return;
+    const controller = new AbortController();
+    queueMicrotask(
+      () =>
+        void listPartsBySite({
+          siteId: BigInt(siteId),
+          signal: controller.signal,
+          onSuccess: (items) =>
+            setParts(items.map((item) => ({ id: item.id, name: item.name, available: item.onHand - item.allocated }))),
+          onError: setError,
+        }),
+    );
+    return () => controller.abort();
+  }, [listPartsBySite, siteId]);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const selection = parts.flatMap((part) =>
+      (quantities[part.id.toString()] ?? 0) > 0
+        ? [{ inventoryPartId: part.id, partName: part.name, quantity: quantities[part.id.toString()] }]
+        : [],
+    );
+    const ok = await onSubmit({
+      resolution,
+      repairLocation: isMinerTicket ? repairLocation : RepairLocation.UNSPECIFIED,
+      notes,
+      partsSelection: selection,
+    });
+    setBusy(false);
+    if (!ok) setError("Unable to complete repair");
+  };
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
@@ -62,41 +76,65 @@ const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: Completion
           id="resolution"
           label="Mark as"
           options={RESOLUTION_OPTIONS}
-          value={resolution}
-          onChange={setResolution}
+          value={String(resolution)}
+          onChange={(v) => setResolution(Number(v) as TicketResolution)}
           forceBelow
         />
-        {isMinerTicket ? (
+        {isMinerTicket && (resolution === TicketResolution.REPAIRED || resolution === TicketResolution.REPLACED) ? (
           <Select
             id="repair-location"
             label="Repair location"
             options={LOCATION_OPTIONS}
-            value={repairLocation}
-            onChange={setRepairLocation}
+            value={String(repairLocation)}
+            onChange={(v) => setRepairLocation(Number(v) as RepairLocation)}
             forceBelow
           />
         ) : (
           <div />
         )}
       </div>
-
-      <Select
-        id="parts-used"
-        label="Parts used"
-        options={PARTS_OPTIONS}
-        value={partsUsed}
-        onChange={setPartsUsed}
-        forceBelow
-      />
-
-      <Textarea id="completion-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={3} />
-
-      <div className="flex justify-end gap-3 pt-1">
+      {parts.length ? (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-300">Parts used</legend>
+          {parts.map((part) => (
+            <label key={part.id.toString()} className="flex items-center justify-between gap-3">
+              <span>
+                {part.name} ({part.available} available)
+              </span>
+              <input
+                aria-label={`${part.name} quantity`}
+                type="number"
+                min={0}
+                max={part.available}
+                value={quantities[part.id.toString()] ?? 0}
+                onChange={(e) =>
+                  setQuantities((old) => ({
+                    ...old,
+                    [part.id.toString()]: Math.min(
+                      part.available,
+                      Math.max(0, Number.parseInt(e.target.value || "0", 10)),
+                    ),
+                  }))
+                }
+                className="w-20 rounded border p-2"
+              />
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      <Textarea id="completion-notes" label="Notes (optional)" onChange={setNotes} rows={3} />
+      {error ? <div role="alert">{error}</div> : null}
+      <div className="flex justify-end gap-3">
         <Button text="Cancel" variant={variants.secondary} size={buttonSizes.compact} onClick={onCancel} />
-        <Button text={submitText} variant={variants.primary} size={buttonSizes.compact} onClick={handleSubmit} />
+        <Button
+          text="Complete repair"
+          variant={variants.primary}
+          size={buttonSizes.compact}
+          onClick={() => void submit()}
+          loading={busy}
+        />
       </div>
     </div>
   );
 };
-
 export default CompletionForm;
