@@ -91,6 +91,75 @@ JOIN device d ON d.org_id = ce.org_id
             )
             AND NOT (ce.scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
         )
+        OR (
+            ce.scope_type = 'mixed'
+            AND jsonb_typeof(ce.scope_jsonb->'building_ids') = 'array'
+            AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(ce.scope_jsonb->'building_ids') AS selected_building(building_id)
+                JOIN building b
+                  ON b.id = selected_building.building_id::BIGINT
+                 AND b.org_id = ce.org_id
+                 AND b.deleted_at IS NULL
+                WHERE d.building_id = b.id
+                   OR EXISTS (
+                       SELECT 1
+                       FROM device_set_membership dsm
+                       JOIN device_set ds
+                         ON ds.id = dsm.device_set_id
+                        AND ds.org_id = dsm.org_id
+                        AND ds.type = 'rack'
+                        AND ds.deleted_at IS NULL
+                       JOIN device_set_rack dsr
+                         ON dsr.device_set_id = ds.id
+                        AND dsr.org_id = ds.org_id
+                       WHERE dsm.org_id = ce.org_id
+                         AND dsm.device_id = d.id
+                         AND dsm.device_set_type = 'rack'
+                         AND dsr.building_id = b.id
+                   )
+            )
+        )
+        OR (
+            ce.scope_type = 'mixed'
+            AND jsonb_typeof(ce.scope_jsonb->'rack_ids') = 'array'
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'rack'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = ce.org_id
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'rack'
+                  AND dsm.device_set_id IN (
+                      SELECT selected_rack.rack_id::BIGINT
+                      FROM jsonb_array_elements_text(ce.scope_jsonb->'rack_ids') AS selected_rack(rack_id)
+                  )
+            )
+        )
+        OR (
+            ce.scope_type = 'mixed'
+            AND jsonb_typeof(ce.scope_jsonb->'group_ids') = 'array'
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'group'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = ce.org_id
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'group'
+                  AND dsm.device_set_id IN (
+                      SELECT selected_group.group_id::BIGINT
+                      FROM jsonb_array_elements_text(ce.scope_jsonb->'group_ids') AS selected_group(group_id)
+                  )
+            )
+        )
     )
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
@@ -129,6 +198,148 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released');
 
+-- name: ListEarlierCurtailmentReservationDevices :many
+-- Returns requested devices owned by an older concrete target or logical
+-- closed-loop scope. Admission holds the org scope lock while reading this
+-- list and claiming targets, so persisted event order decides ownership.
+WITH current_event AS MATERIALIZED (
+    SELECT curtailment_event.id, curtailment_event.org_id
+    FROM curtailment_event
+    WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+      AND curtailment_event.state IN ('pending', 'active', 'restoring')
+),
+candidate_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier, d.site_id, d.building_id, d.org_id
+    FROM device d
+    JOIN current_event current ON current.org_id = d.org_id
+    WHERE d.deleted_at IS NULL
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::TEXT[])
+)
+SELECT candidate.device_identifier
+FROM candidate_devices candidate
+JOIN current_event current ON TRUE
+WHERE EXISTS (
+    SELECT 1
+    FROM curtailment_event older
+    WHERE older.org_id = current.org_id
+      AND older.id < current.id
+      AND older.state IN ('pending', 'active', 'restoring')
+      AND (
+        EXISTS (
+            SELECT 1
+            FROM curtailment_target target
+            WHERE target.curtailment_event_id = older.id
+              AND target.device_identifier = candidate.device_identifier
+              AND target.state NOT IN ('resolved', 'restore_failed', 'released')
+        )
+        OR (
+          older.mode = 'FULL_FLEET'
+          AND older.loop_type = 'closed'
+          AND NOT (
+            older.force_include_all_paired_miners
+            AND older.state = 'restoring'
+            AND EXISTS (
+              SELECT 1
+              FROM curtailment_target released_target
+              WHERE released_target.curtailment_event_id = older.id
+                AND released_target.device_identifier = candidate.device_identifier
+                AND released_target.state = 'released'
+            )
+          )
+          AND (
+            older.scope_type = 'whole_org'
+            OR (
+              older.scope_type = 'site'
+              AND candidate.site_id = (older.scope_jsonb->>'site_id')::BIGINT
+            )
+            OR (
+              older.scope_type = 'mixed'
+              AND candidate.site_id IN (
+                  SELECT selected_site.site_id::BIGINT
+                  FROM jsonb_array_elements_text(
+                      CASE WHEN jsonb_typeof(older.scope_jsonb->'site_ids') = 'array'
+                        THEN older.scope_jsonb->'site_ids'
+                        ELSE '[]'::jsonb
+                      END
+                  ) AS selected_site(site_id)
+              )
+              AND NOT (older.scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
+            )
+            OR (
+              older.scope_type = 'mixed'
+              AND jsonb_typeof(older.scope_jsonb->'building_ids') = 'array'
+              AND EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(older.scope_jsonb->'building_ids') AS selected_building(building_id)
+                  JOIN building b
+                    ON b.id = selected_building.building_id::BIGINT
+                   AND b.org_id = older.org_id
+                   AND b.deleted_at IS NULL
+                  WHERE candidate.building_id = b.id
+                     OR EXISTS (
+                         SELECT 1
+                         FROM device_set_membership dsm
+                         JOIN device_set ds
+                           ON ds.id = dsm.device_set_id
+                          AND ds.org_id = dsm.org_id
+                          AND ds.type = 'rack'
+                          AND ds.deleted_at IS NULL
+                         JOIN device_set_rack dsr
+                           ON dsr.device_set_id = ds.id
+                          AND dsr.org_id = ds.org_id
+                         WHERE dsm.org_id = older.org_id
+                           AND dsm.device_id = candidate.id
+                           AND dsm.device_set_type = 'rack'
+                           AND dsr.building_id = b.id
+                     )
+              )
+            )
+            OR (
+              older.scope_type = 'mixed'
+              AND jsonb_typeof(older.scope_jsonb->'rack_ids') = 'array'
+              AND EXISTS (
+                  SELECT 1
+                  FROM device_set_membership dsm
+                  JOIN device_set ds
+                    ON ds.id = dsm.device_set_id
+                   AND ds.org_id = dsm.org_id
+                   AND ds.type = 'rack'
+                   AND ds.deleted_at IS NULL
+                  WHERE dsm.org_id = older.org_id
+                    AND dsm.device_id = candidate.id
+                    AND dsm.device_set_type = 'rack'
+                    AND dsm.device_set_id IN (
+                        SELECT selected_rack.rack_id::BIGINT
+                        FROM jsonb_array_elements_text(older.scope_jsonb->'rack_ids') AS selected_rack(rack_id)
+                    )
+              )
+            )
+            OR (
+              older.scope_type = 'mixed'
+              AND jsonb_typeof(older.scope_jsonb->'group_ids') = 'array'
+              AND EXISTS (
+                  SELECT 1
+                  FROM device_set_membership dsm
+                  JOIN device_set ds
+                    ON ds.id = dsm.device_set_id
+                   AND ds.org_id = dsm.org_id
+                   AND ds.type = 'group'
+                   AND ds.deleted_at IS NULL
+                  WHERE dsm.org_id = older.org_id
+                    AND dsm.device_id = candidate.id
+                    AND dsm.device_set_type = 'group'
+                    AND dsm.device_set_id IN (
+                        SELECT selected_group.group_id::BIGINT
+                        FROM jsonb_array_elements_text(older.scope_jsonb->'group_ids') AS selected_group(group_id)
+                    )
+              )
+            )
+          )
+        )
+      )
+)
+ORDER BY candidate.device_identifier;
+
 -- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
 -- Restored/failed targets the selector excludes (unless priority=EMERGENCY,
 -- Go-side bypass): a target restored mid-stagger stays protected while its
@@ -138,6 +349,7 @@ SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
+    AND (sqlc.arg('exclude_event_id')::BIGINT = 0 OR ce.id <> sqlc.arg('exclude_event_id')::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
@@ -163,6 +375,7 @@ FROM scoped_devices sd
 JOIN curtailment_target ct ON ct.device_identifier = sd.device_identifier
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
+    AND (sqlc.arg('exclude_event_id')::BIGINT = 0 OR ce.id <> sqlc.arg('exclude_event_id')::BIGINT)
     AND ct.state IN ('resolved', 'restore_failed')
     AND (
         ce.state IN ('pending', 'active', 'restoring')
@@ -742,18 +955,55 @@ WHERE sqlc.arg('cooldown_sec')::INT <= 0
             AND (
                 cooldown_event.state IN ('pending', 'active', 'restoring')
                 OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::INT * INTERVAL '1 second')
-            )
+      )
     );
+
+-- name: ListEarlierCurtailmentTopologyReservationScopes :many
+-- Returns topology selector envelopes for older logical reservations. Dynamic
+-- admission locks these resources before locking candidate devices and
+-- re-reading ListEarlierCurtailmentReservationDevices, so membership changes
+-- cannot commit between reservation classification and target claim.
+SELECT older.scope_jsonb
+FROM curtailment_event older
+WHERE older.org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.arg('curtailment_event_id')::BIGINT = 0
+      OR older.id < sqlc.arg('curtailment_event_id')::BIGINT
+  )
+  AND older.state IN ('pending', 'active', 'restoring')
+  AND older.mode = 'FULL_FLEET'
+  AND older.loop_type = 'closed'
+  AND older.scope_type = 'mixed'
+  AND older.scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids']
+ORDER BY older.id;
 
 -- name: LockCurtailmentScopeForWrite :exec
 -- Serialize hierarchy start checks by org so conflict detection and event
 -- insertion happen under one database-backed critical section.
 SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || sqlc.arg('org_id')::text, 0));
 
+-- name: LockCurtailmentEventScopeForWrite :exec
+-- Admission already has the event ID; derive its organization before taking
+-- the same lock used by Start conflict detection.
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || org_id::TEXT, 0))
+FROM curtailment_event
+WHERE id = sqlc.arg('curtailment_event_id');
+
+-- name: LockCurtailmentAdmissionEventForWrite :one
+-- Keep the current event and its immutable selector in the same transaction
+-- as dynamic membership fencing and target admission.
+SELECT org_id, scope_jsonb
+FROM curtailment_event
+WHERE id = sqlc.arg('curtailment_event_id')
+  AND state IN ('pending', 'active')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
+FOR UPDATE;
+
 -- name: CountCurtailmentScopeConflicts :one
--- Hierarchy for currently supported closed-loop scopes: org > site.
--- A new whole-org event conflicts with existing whole-org, site, or site-only mixed events.
--- A new site or site-only mixed event conflicts with existing whole-org or overlapping site ownership.
+-- Serializes logical FULL_FLEET scope ownership. Whole-org conflicts with every
+-- hierarchy watcher; site selectors conflict on overlap; topology selectors
+-- conflict with whole-org and overlapping IDs of the same terminal type.
 SELECT count(*)::BIGINT
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
@@ -769,19 +1019,24 @@ WHERE org_id = sqlc.arg('org_id')
         scope_type IN ('whole_org', 'site')
         OR (
           scope_type = 'mixed'
-          AND jsonb_array_length(
-            CASE WHEN jsonb_typeof(scope_jsonb->'site_ids') = 'array'
-              THEN scope_jsonb->'site_ids'
-              ELSE '[]'::jsonb
-            END
-          ) > 0
-          AND jsonb_array_length(
-            CASE WHEN jsonb_typeof(scope_jsonb->'device_identifiers') = 'array'
-              THEN scope_jsonb->'device_identifiers'
-              ELSE '[]'::jsonb
-            END
-          ) = 0
-          AND NOT (scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
+          AND (
+            scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids']
+            OR (
+              jsonb_array_length(
+                CASE WHEN jsonb_typeof(scope_jsonb->'site_ids') = 'array'
+                  THEN scope_jsonb->'site_ids'
+                  ELSE '[]'::jsonb
+                END
+              ) > 0
+              AND jsonb_array_length(
+                CASE WHEN jsonb_typeof(scope_jsonb->'device_identifiers') = 'array'
+                  THEN scope_jsonb->'device_identifiers'
+                  ELSE '[]'::jsonb
+                END
+              ) = 0
+              AND NOT (scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
+            )
+          )
         )
       )
     )
@@ -815,6 +1070,68 @@ WHERE org_id = sqlc.arg('org_id')
         )
       )
     )
+    OR (
+      sqlc.arg('scope_type')::TEXT = 'mixed'
+      AND (
+        (
+          cardinality(sqlc.arg('building_ids')::BIGINT[]) > 0
+          AND (
+            scope_type = 'whole_org'
+            OR (
+              scope_type = 'mixed'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(
+                  CASE WHEN jsonb_typeof(scope_jsonb->'building_ids') = 'array'
+                    THEN scope_jsonb->'building_ids'
+                    ELSE '[]'::jsonb
+                  END
+                ) AS existing_building_id(building_id)
+                WHERE existing_building_id.building_id::BIGINT = ANY(sqlc.arg('building_ids')::BIGINT[])
+              )
+            )
+          )
+        )
+        OR (
+          cardinality(sqlc.arg('rack_ids')::BIGINT[]) > 0
+          AND (
+            scope_type = 'whole_org'
+            OR (
+              scope_type = 'mixed'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(
+                  CASE WHEN jsonb_typeof(scope_jsonb->'rack_ids') = 'array'
+                    THEN scope_jsonb->'rack_ids'
+                    ELSE '[]'::jsonb
+                  END
+                ) AS existing_rack_id(rack_id)
+                WHERE existing_rack_id.rack_id::BIGINT = ANY(sqlc.arg('rack_ids')::BIGINT[])
+              )
+            )
+          )
+        )
+        OR (
+          cardinality(sqlc.arg('group_ids')::BIGINT[]) > 0
+          AND (
+            scope_type = 'whole_org'
+            OR (
+              scope_type = 'mixed'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(
+                  CASE WHEN jsonb_typeof(scope_jsonb->'group_ids') = 'array'
+                    THEN scope_jsonb->'group_ids'
+                    ELSE '[]'::jsonb
+                  END
+                ) AS existing_group_id(group_id)
+                WHERE existing_group_id.group_id::BIGINT = ANY(sqlc.arg('group_ids')::BIGINT[])
+              )
+            )
+          )
+        )
+      )
+    )
   );
 
 -- name: ClaimClosedLoopFullFleetTargets :many
@@ -833,54 +1150,112 @@ WITH locked_event AS MATERIALIZED (
       AND curtailment_event.mode = 'FULL_FLEET'
       AND curtailment_event.loop_type = 'closed'
     FOR UPDATE
+),
+reopened AS (
+    UPDATE curtailment_target target
+    SET state                 = 'dispatching',
+        desired_state         = t.desired_state,
+        last_error            = t.last_error,
+        baseline_power_w      = t.baseline_power_w,
+        selector_rationale_jsonb = t.selector_rationale_jsonb,
+        released_at           = NULL,
+        retry_count           = 0,
+        last_dispatched_at    = NULL,
+        last_batch_uuid       = NULL,
+        confirmed_at          = NULL,
+        curtail_state         = 'dispatching',
+        curtail_dispatched_at = NULL,
+        curtail_batch_uuid    = NULL,
+        curtail_completed_at  = NULL,
+        curtail_retry_count   = 0,
+        curtail_failure_count = 0,
+        curtail_last_error    = t.last_error,
+        restore_state         = NULL,
+        restore_started_at    = NULL,
+        restore_dispatched_at = NULL,
+        restore_batch_uuid    = NULL,
+        restore_completed_at  = NULL,
+        restore_retry_count   = 0,
+        restore_failure_count = 0,
+        restore_last_error    = NULL
+    FROM locked_event
+    JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+        device_identifier         TEXT,
+        target_type               TEXT,
+        state                     TEXT,
+        desired_state             TEXT,
+        last_error                TEXT,
+        baseline_power_w          NUMERIC(12,3),
+        selector_rationale_jsonb  JSONB
+    ) ON TRUE
+    WHERE target.curtailment_event_id = locked_event.id
+      AND target.device_identifier = t.device_identifier
+      AND target.state IN ('resolved', 'restore_failed', 'released')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM curtailment_target other_target
+          JOIN curtailment_event other_event
+            ON other_event.id = other_target.curtailment_event_id
+          WHERE other_target.device_identifier = t.device_identifier
+            AND other_target.curtailment_event_id <> locked_event.id
+            AND other_event.state IN ('pending', 'active', 'restoring')
+            AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
+      )
+    RETURNING target.*
+),
+inserted AS (
+    INSERT INTO curtailment_target (
+        curtailment_event_id,
+        device_identifier,
+        target_type,
+        state,
+        desired_state,
+        last_error,
+        curtail_state,
+        curtail_last_error,
+        baseline_power_w,
+        selector_rationale_jsonb
+    )
+    SELECT
+        locked_event.id,
+        t.device_identifier,
+        t.target_type,
+        'dispatching',
+        t.desired_state,
+        t.last_error,
+        'dispatching',
+        t.last_error,
+        t.baseline_power_w,
+        t.selector_rationale_jsonb
+    FROM locked_event
+    JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+        device_identifier         TEXT,
+        target_type               TEXT,
+        state                     TEXT,
+        desired_state             TEXT,
+        last_error                TEXT,
+        baseline_power_w          NUMERIC(12,3),
+        selector_rationale_jsonb  JSONB
+    ) ON TRUE
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM curtailment_target existing
+        WHERE existing.curtailment_event_id = locked_event.id
+          AND existing.device_identifier = t.device_identifier
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING curtailment_target.*
 )
-INSERT INTO curtailment_target (
-    curtailment_event_id,
-    device_identifier,
-    target_type,
-    state,
-    desired_state,
-    last_error,
-    curtail_state,
-    curtail_last_error,
-    baseline_power_w,
-    selector_rationale_jsonb
-)
-SELECT
-    locked_event.id,
-    t.device_identifier,
-    t.target_type,
-    'dispatching',
-    t.desired_state,
-    t.last_error,
-    'dispatching',
-    t.last_error,
-    t.baseline_power_w,
-    t.selector_rationale_jsonb
-FROM locked_event
-JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
-    device_identifier         TEXT,
-    target_type               TEXT,
-    state                     TEXT,
-    desired_state             TEXT,
-    last_error                TEXT,
-    baseline_power_w          NUMERIC(12,3),
-    selector_rationale_jsonb  JSONB
-) ON TRUE
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM curtailment_target existing
-    WHERE existing.curtailment_event_id = locked_event.id
-      AND existing.device_identifier = t.device_identifier
-)
-ON CONFLICT DO NOTHING
-RETURNING curtailment_target.*;
+SELECT * FROM reopened
+UNION ALL
+SELECT * FROM inserted;
 
 -- name: ClaimAllPairedPolicyTargets :one
 -- Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 -- policy state (pending or unavailable) instead of immediately claiming them
--- as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
--- other same-event rows and cross-event conflicts are no-ops.
+-- as DISPATCHING. Same-event RELEASED, topology-restored RESOLVED, or failed
+-- restore rows may be reopened; other same-event rows and cross-event
+-- conflicts are no-ops.
 WITH locked_event AS MATERIALIZED (
     SELECT
         curtailment_event.id,
@@ -910,7 +1285,15 @@ reopened AS (
         curtail_completed_at  = NULL,
         curtail_retry_count   = 0,
         curtail_failure_count = 0,
-        curtail_last_error    = t.last_error
+        curtail_last_error    = t.last_error,
+        restore_state         = NULL,
+        restore_started_at    = NULL,
+        restore_dispatched_at = NULL,
+        restore_batch_uuid    = NULL,
+        restore_completed_at  = NULL,
+        restore_retry_count   = 0,
+        restore_failure_count = 0,
+        restore_last_error    = NULL
     FROM locked_event
     JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
         device_identifier         TEXT,
@@ -923,7 +1306,7 @@ reopened AS (
     ) ON TRUE
     WHERE target.curtailment_event_id = locked_event.id
       AND target.device_identifier = t.device_identifier
-      AND target.state = 'released'
+      AND target.state IN ('released', 'resolved', 'restore_failed')
       AND NOT EXISTS (
           SELECT 1
           FROM curtailment_target other_target
@@ -984,13 +1367,15 @@ SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGI
 -- name: BulkRefreshAllPairedTargetReadiness :many
 -- Per-tick readiness refresh for all-paired policy rows, batched into one
 -- statement so a mass readiness flip (fleet-wide recovery or outage) does not
--- issue one UPDATE round trip per device inside the shared tick budget.
+-- issue one UPDATE round trip per device inside the shared tick budget. The
+-- same transition parks topology restore obligations while uncommandable and
+-- requeues them after commandability returns.
 --
 -- Guards mirror UpdateCurtailmentTargetState for this transition class:
 -- the parent event is locked and must still be in the caller's expected
--- state, and each row must still be a refreshable policy row
--- (desired_state='curtailed', state pending/unavailable). Rows that advanced
--- concurrently (dispatch claim, Stop reset, release) are skipped; the next
+-- state, and each row must still be a refreshable policy row: pending or
+-- unavailable for curtail, plus restore_failed for topology restore parking.
+-- Rows that advanced concurrently (dispatch claim, Stop reset, release) are skipped; the next
 -- tick re-reads them. RETURNING reports exactly which rows applied so the
 -- reconciler mirrors only those — a skipped row must not be treated as
 -- promoted and dispatched against stale state. Empty last_error is the
@@ -1003,37 +1388,108 @@ SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGI
 -- degrade to the hash-only fallback forever. An existing baseline is never
 -- overwritten; readiness flaps must not capture asleep-power as baseline.
 WITH locked_event AS MATERIALIZED (
-    SELECT id
+    SELECT curtailment_event.id
     FROM curtailment_event
-    WHERE id = sqlc.arg('curtailment_event_id')
-      AND state IN ('pending', 'active')
-      AND state = sqlc.arg('expected_event_state')::TEXT
+    WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+      AND curtailment_event.state IN ('pending', 'active', 'restoring')
+      AND curtailment_event.state = sqlc.arg('expected_event_state')::TEXT
     FOR UPDATE
 )
 UPDATE curtailment_target AS target
 SET state              = t.state,
     last_error         = NULLIF(t.last_error, ''),
-    baseline_power_w   = COALESCE(target.baseline_power_w, t.baseline_power_w),
-    curtail_state      = t.state,
+    retry_count        = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN 0
+        ELSE target.retry_count
+    END,
+    last_dispatched_at = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN NULL
+        ELSE target.last_dispatched_at
+    END,
+    last_batch_uuid    = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN NULL
+        ELSE target.last_batch_uuid
+    END,
+    confirmed_at       = CASE
+        WHEN target.desired_state = 'active' THEN NULL
+        ELSE target.confirmed_at
+    END,
+    baseline_power_w   = CASE
+        WHEN target.desired_state = 'curtailed' THEN COALESCE(target.baseline_power_w, t.baseline_power_w)
+        ELSE target.baseline_power_w
+    END,
+    curtail_state      = CASE
+        WHEN target.desired_state = 'curtailed' THEN t.state
+        ELSE target.curtail_state
+    END,
     curtail_failure_count = CASE
-        WHEN NULLIF(t.last_error, '') IS NOT NULL THEN target.curtail_failure_count + 1
+        WHEN target.desired_state = 'curtailed' AND NULLIF(t.last_error, '') IS NOT NULL
+        THEN target.curtail_failure_count + 1
         ELSE target.curtail_failure_count
     END,
     curtail_last_error = CASE
-        WHEN NULLIF(t.last_error, '') IS NOT NULL THEN t.last_error
+        WHEN target.desired_state = 'curtailed' AND NULLIF(t.last_error, '') IS NOT NULL THEN t.last_error
         ELSE target.curtail_last_error
+    END,
+    restore_state = CASE
+        WHEN target.desired_state = 'active' THEN t.state
+        ELSE target.restore_state
+    END,
+    restore_started_at = CASE
+        WHEN target.desired_state = 'active' THEN COALESCE(target.restore_started_at, CURRENT_TIMESTAMP)
+        ELSE target.restore_started_at
+    END,
+    restore_dispatched_at = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN NULL
+        ELSE target.restore_dispatched_at
+    END,
+    restore_batch_uuid = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN NULL
+        ELSE target.restore_batch_uuid
+    END,
+    restore_completed_at = CASE
+        WHEN target.desired_state = 'active' THEN NULL
+        ELSE target.restore_completed_at
+    END,
+    restore_retry_count = CASE
+        WHEN target.desired_state = 'active' AND t.state = 'pending' THEN 0
+        ELSE target.restore_retry_count
+    END,
+    restore_last_error = CASE
+        WHEN target.desired_state = 'active' THEN NULLIF(t.last_error, '')
+        ELSE target.restore_last_error
     END
 FROM locked_event
 JOIN jsonb_to_recordset(sqlc.arg('updates_jsonb')::JSONB) AS t(
-    device_identifier TEXT,
-    state             TEXT,
-    last_error        TEXT,
-    baseline_power_w  NUMERIC(12,3)
+    device_identifier      TEXT,
+    expected_state         TEXT,
+    expected_desired_state TEXT,
+    state                  TEXT,
+    last_error             TEXT,
+    baseline_power_w       NUMERIC(12,3)
 ) ON TRUE
 WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = t.device_identifier
-  AND target.desired_state = 'curtailed'
-  AND target.state IN ('pending', 'unavailable')
+  AND target.state = t.expected_state
+  AND target.desired_state = t.expected_desired_state
+  AND (
+      target.state <> 'restore_failed'
+      OR NOT EXISTS (
+          SELECT 1
+          FROM curtailment_target other_target
+          JOIN curtailment_event other_event
+            ON other_event.id = other_target.curtailment_event_id
+          WHERE other_target.device_identifier = target.device_identifier
+            AND other_target.curtailment_event_id <> target.curtailment_event_id
+            AND other_event.state IN ('pending', 'active', 'restoring')
+            AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
+      )
+  )
+  AND (
+      (target.desired_state = 'curtailed' AND target.state IN ('pending', 'unavailable'))
+      OR
+      (target.desired_state = 'active' AND target.state IN ('pending', 'unavailable', 'restore_failed'))
+  )
   AND t.state IN ('pending', 'unavailable')
 RETURNING target.device_identifier;
 
@@ -1208,10 +1664,128 @@ SET desired_state      = 'active',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
--- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
--- All-paired policy targets that never received a Curtail command do not need
--- Uncurtail. Release them before the restore reset so graceful Stop does not
--- enqueue no-op restore work for offline/auth-needed miners.
+-- name: BeginCurtailmentTopologyTargetRestore :execrows
+-- A topology watcher remains active while departed targets restore. Targets
+-- with no possible Curtail attempt release immediately; every other target
+-- enters the normal restore queue conservatively.
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = sqlc.arg('curtailment_event_id')
+      AND state = sqlc.arg('expected_event_state')::TEXT
+      AND state IN ('pending', 'active')
+    FOR UPDATE
+)
+UPDATE curtailment_target target
+SET desired_state = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN target.desired_state
+        ELSE 'active'
+    END,
+    state = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN 'released'
+        ELSE 'pending'
+    END,
+    retry_count = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid = NULL,
+    confirmed_at = NULL,
+    last_error = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN COALESCE(target.last_error, 'released after leaving topology scope before Curtail dispatch')
+        ELSE NULL
+    END,
+    curtail_state = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN 'released'
+        ELSE target.curtail_state
+    END,
+    curtail_completed_at = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN COALESCE(target.curtail_completed_at, CURRENT_TIMESTAMP)
+        ELSE target.curtail_completed_at
+    END,
+    restore_state = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN target.restore_state
+        ELSE 'pending'
+    END,
+    restore_started_at = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN target.restore_started_at
+        ELSE CURRENT_TIMESTAMP
+    END,
+    restore_dispatched_at = NULL,
+    restore_batch_uuid = NULL,
+    restore_completed_at = NULL,
+    restore_retry_count = 0,
+    restore_failure_count = 0,
+    restore_last_error = NULL
+FROM locked_event
+WHERE target.curtailment_event_id = locked_event.id
+  AND target.device_identifier = ANY(sqlc.arg('device_identifiers')::TEXT[])
+  AND target.desired_state = 'curtailed'
+  AND target.state NOT IN ('resolved', 'restore_failed', 'released');
+
+-- name: LockCurtailmentTargetPairingStatusesForWrite :many
+-- Pairing status participates in all-paired topology membership. Lock these
+-- device rows first, including devices that do not have a pairing row yet,
+-- then any existing pairing rows. Pairing inserts take the same device lock,
+-- so the later candidate read cannot classify a first-time pairing from a
+-- stale pre-insert snapshot.
+WITH locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM device d
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::TEXT[])
+    ORDER BY d.device_identifier
+    FOR UPDATE OF d
+),
+locked_pairings AS MATERIALIZED (
+    SELECT dp.device_id, dp.pairing_status
+    FROM device_pairing dp
+    JOIN locked_devices d ON d.id = dp.device_id
+    ORDER BY d.device_identifier
+    FOR UPDATE OF dp
+)
+SELECT d.device_identifier, COALESCE(p.pairing_status::TEXT, 'UNPAIRED'::TEXT)::TEXT AS pairing_status
+FROM locked_devices d
+LEFT JOIN locked_pairings p ON p.device_id = d.id
+ORDER BY d.device_identifier;
+
+-- name: ReleaseUndispatchedTargetsForRestore :execrows
+-- Targets that never received a Curtail command do not need Uncurtail. Release
+-- them before the restore reset so graceful Stop does not enqueue commands
+-- that could wake miners this event never curtailed.
 --
 -- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
 -- dispatch attempt/failure bumps retry_count and every successful enqueue
@@ -1234,7 +1808,13 @@ SET state              = 'released',
     curtail_last_error = COALESCE(curtail_last_error, last_error, 'released without restore: no curtail command dispatched')
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND desired_state = 'curtailed'
-  AND state IN ('pending', 'unavailable')
+  AND (
+      state IN ('pending', 'unavailable')
+      OR (
+          state = 'dispatching'
+          AND device_identifier = ANY(sqlc.arg('known_unsent_device_identifiers')::TEXT[])
+      )
+  )
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
@@ -1690,7 +2270,68 @@ WHERE d.org_id = sqlc.arg('org_id')
   )
 ORDER BY d.id
 LIMIT 10001
-FOR UPDATE;
+-- Topology writes still conflict with this lock, while command queue inserts
+-- can take the foreign-key KEY SHARE lock on device without self-deadlocking.
+FOR NO KEY UPDATE;
+
+-- name: ListCurtailmentTopologyMemberDeviceIdentifiersByOrg :many
+-- Restore reads the live member IDs after locking the selector resources, then
+-- locks these IDs together with departed restore candidates in one canonical
+-- device order. Keeping this read non-locking avoids taking current-member rows
+-- before lower-ID departed rows and deadlocking with bulk placement writes.
+SELECT d.device_identifier
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = sqlc.arg('org_id')
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY(sqlc.arg('group_ids')::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001;
 
 -- name: LockCurtailmentGroupsForWrite :many
 -- Serializes group membership changes with topology target/envelope writes.
@@ -1801,3 +2442,155 @@ SELECT 0 AS selector_id,
        m.device_id AS member_device_id
 FROM members m
 ORDER BY selector_id, member_device_id;
+
+-- name: ResolveCurtailmentTopologyDispatch :one
+-- Returns authorization coverage for the full live selector plus membership
+-- only for the devices in the pending dispatch batch. Both are derived by one
+-- statement snapshot so a concurrent placement change cannot mix old coverage
+-- with new membership. The reconciler validates selector shape before calling.
+WITH selected_resources AS MATERIALIZED (
+    SELECT 'building'::TEXT AS selector_type,
+           b.id AS selector_id,
+           b.site_id AS resource_site_id,
+           NULL::BIGINT AS building_id,
+           NULL::BIGINT AS building_site_id
+    FROM building b
+    WHERE b.org_id = sqlc.arg('org_id')
+      AND b.deleted_at IS NULL
+      AND b.id = ANY(sqlc.arg('building_ids')::BIGINT[])
+
+    UNION ALL
+
+    SELECT 'rack'::TEXT AS selector_type,
+           ds.id AS selector_id,
+           dsr.site_id AS resource_site_id,
+           dsr.building_id,
+           b.site_id AS building_site_id
+    FROM device_set ds
+    JOIN device_set_rack dsr
+      ON dsr.device_set_id = ds.id
+     AND dsr.org_id = ds.org_id
+    LEFT JOIN building b
+      ON b.id = dsr.building_id
+     AND b.org_id = dsr.org_id
+     AND b.deleted_at IS NULL
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'rack'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+
+    UNION ALL
+
+    SELECT 'group'::TEXT AS selector_type,
+           ds.id AS selector_id,
+           NULL::BIGINT AS resource_site_id,
+           NULL::BIGINT AS building_id,
+           NULL::BIGINT AS building_site_id
+    FROM device_set ds
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'group'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('group_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT
+           d.id AS device_id,
+           d.device_identifier,
+           d.site_id
+    FROM selected_resources sr
+    JOIN device d
+      ON d.org_id = sqlc.arg('org_id')
+     AND d.deleted_at IS NULL
+     AND (
+          (sr.selector_type = 'building' AND (
+              d.building_id = sr.selector_id
+              OR EXISTS (
+                  SELECT 1
+                  FROM device_set_membership dsm
+                  JOIN device_set ds
+                    ON ds.id = dsm.device_set_id
+                   AND ds.org_id = dsm.org_id
+                   AND ds.type = 'rack'
+                   AND ds.deleted_at IS NULL
+                  JOIN device_set_rack dsr
+                    ON dsr.device_set_id = ds.id
+                   AND dsr.org_id = ds.org_id
+                  WHERE dsm.org_id = sqlc.arg('org_id')
+                    AND dsm.device_id = d.id
+                    AND dsm.device_set_type = 'rack'
+                    AND dsr.building_id = sr.selector_id
+              )
+          ))
+          OR (sr.selector_type IN ('rack', 'group') AND EXISTS (
+              SELECT 1
+              FROM device_set_membership dsm
+              WHERE dsm.org_id = sqlc.arg('org_id')
+                AND dsm.device_id = d.id
+                AND dsm.device_set_type::TEXT = sr.selector_type
+                AND dsm.device_set_id = sr.selector_id
+          ))
+     )
+    ORDER BY d.id
+    LIMIT 10001
+), selector_rollup AS (
+    SELECT
+        COALESCE(array_agg(sr.selector_id ORDER BY sr.selector_id), '{}')::BIGINT[] AS existing_selector_ids,
+        COALESCE(
+            array_agg(DISTINCT sr.resource_site_id ORDER BY sr.resource_site_id)
+                FILTER (WHERE sr.resource_site_id IS NOT NULL),
+            '{}'
+        )::BIGINT[] AS selected_resource_site_ids,
+        COALESCE(bool_or(sr.selector_type <> 'group' AND sr.resource_site_id IS NULL), FALSE)::BOOLEAN AS has_unassigned_resource,
+        COALESCE(
+            array_agg(sr.selector_id ORDER BY sr.selector_id)
+                FILTER (WHERE sr.selector_type = 'rack'
+                        AND sr.building_id IS NOT NULL
+                        AND sr.resource_site_id IS NOT NULL
+                        AND sr.building_site_id IS NOT NULL
+                        AND sr.resource_site_id <> sr.building_site_id),
+            '{}'
+        )::BIGINT[] AS mismatched_rack_ids,
+        COALESCE(
+            array_agg(sr.selector_id ORDER BY sr.selector_id)
+                FILTER (WHERE sr.selector_type = 'group'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM device_set_membership dsm
+                            JOIN device d
+                              ON d.id = dsm.device_id
+                             AND d.org_id = dsm.org_id
+                             AND d.deleted_at IS NULL
+                            WHERE dsm.org_id = sqlc.arg('org_id')
+                              AND dsm.device_set_type = 'group'
+                              AND dsm.device_set_id = sr.selector_id
+                        )),
+            '{}'
+        )::BIGINT[] AS empty_group_ids
+    FROM selected_resources sr
+), member_rollup AS (
+    SELECT
+        COUNT(DISTINCT m.device_id)::BIGINT AS member_count,
+        COALESCE(
+            array_agg(DISTINCT m.site_id ORDER BY m.site_id)
+                FILTER (WHERE m.site_id IS NOT NULL),
+            '{}'
+        )::BIGINT[] AS current_member_site_ids,
+        COALESCE(bool_or(m.device_id IS NOT NULL AND m.site_id IS NULL), FALSE)::BOOLEAN AS has_unassigned_member,
+        COALESCE(
+            array_agg(DISTINCT m.device_identifier ORDER BY m.device_identifier)
+                FILTER (WHERE m.device_identifier = ANY(sqlc.arg('dispatch_device_identifiers')::TEXT[])),
+            '{}'
+        )::TEXT[] AS dispatch_member_device_identifiers
+    FROM members m
+)
+SELECT
+    sr.existing_selector_ids,
+    sr.selected_resource_site_ids,
+    sr.has_unassigned_resource,
+    sr.mismatched_rack_ids,
+    sr.empty_group_ids,
+    mr.member_count,
+    mr.current_member_site_ids,
+    mr.has_unassigned_member,
+    mr.dispatch_member_device_identifiers
+FROM selector_rollup sr
+CROSS JOIN member_rollup mr;

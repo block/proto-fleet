@@ -135,7 +135,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 			return nil
 		}
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
-			return err
+			return operatorActionRequired(err)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			// Old server: drop to heartbeat-only instead of looping forever.

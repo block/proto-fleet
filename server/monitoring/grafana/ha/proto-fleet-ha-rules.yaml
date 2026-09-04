@@ -46,9 +46,9 @@ groups:
         # samples still return one row per live org through the LEFT JOIN.
         noDataState: OK
         execErrState: Error
-        # Notify on the first failed readiness sample. Fleet's 30s collector
-        # remains the debounce boundary, avoiding extra status-probe load.
-        for: 0s
+        # Require one minute of continuous degradation so transient failures
+        # from Fleet's 30s readiness sampler do not flap notifications.
+        for: 1m
         labels:
           proto_fleet_rule_uid: protofleet-ha-readiness
           proto_fleet_scope: shared
@@ -61,3 +61,45 @@ groups:
             One or more database, DCS, Fleet runtime, version, writer, or VIP
             readiness checks are degraded. Run `sudo fleet-ha status` on a
             database host for the current reason codes.
+
+      - uid: protofleet-fleet-node-unavailable
+        title: Fleet Node Unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    org_id::text AS organization_id,
+                    id::text AS fleet_node_id,
+                    1 AS value
+                FROM fleet_node
+                WHERE enrollment_status = 'CONFIRMED'
+                  AND deleted_at IS NULL
+                  AND last_seen_at IS NOT NULL
+                  AND last_seen_at < NOW() - INTERVAL '2 minutes'
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        execErrState: Error
+        # The list changes after four missed heartbeats; alert after three more minutes.
+        for: 3m
+        labels:
+          proto_fleet_rule_uid: protofleet-fleet-node-unavailable
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-ha
+          template: fleet-node-unavailable
+        annotations:
+          summary: "A Fleet Node is unavailable."
+          description: "A Fleet Node has not checked in for at least five minutes. Miners assigned to it are unavailable."

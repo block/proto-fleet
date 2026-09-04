@@ -3,6 +3,14 @@
 
 apiVersion: 1
 
+# Grafana keeps file-provisioned rules after they disappear from a groups list,
+# so retired defaults need explicit tombstones for existing installations.
+deleteRules:
+  - orgId: 1
+    uid: protofleet-device-hashrate-low
+  - orgId: 1
+    uid: protofleet-curtailment-fan-restore-fail
+
 groups:
   - orgId: 1
     name: proto-fleet-defaults
@@ -57,8 +65,8 @@ groups:
             Device {{ $labels.device_id }} (org {{ $labels.organization_id }})
             has been reporting fleet_device_online=0 for at least five minutes.
 
-      - uid: protofleet-device-hashrate-low
-        title: Device Hashrate Low
+      - uid: protofleet-fleet-node-unavailable
+        title: Fleet Node Unavailable
         condition: B
         data:
           - refId: A
@@ -70,16 +78,15 @@ groups:
               refId: A
               format: table
               rawSql: |
-                -- fleet_device_hashing is observed/expected hashrate (see metrics contract); the 0.75 threshold lives here so it can be retuned without redeploying fleet-api.
                 SELECT
-                    organization_id,
-                    device_id,
+                    org_id::text AS organization_id,
+                    id::text AS fleet_node_id,
                     1 AS value
-                FROM notification_metric_sample
-                WHERE metric = 'fleet_device_hashing'
-                  AND time > NOW() - INTERVAL '10 minutes'
-                GROUP BY organization_id, device_id
-                HAVING last(value, time) < 0.75
+                FROM fleet_node
+                WHERE enrollment_status = 'CONFIRMED'
+                  AND deleted_at IS NULL
+                  AND last_seen_at IS NOT NULL
+                  AND last_seen_at < NOW() - INTERVAL '2 minutes'
           - refId: B
             datasourceUid: __expr__
             model:
@@ -87,23 +94,18 @@ groups:
               type: math
               expression: $A
         noDataState: OK
-        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
         execErrState: Error
-        # Longer than offline's 5m: hashrate dips transiently on pool reconnects and board resets, so a wider window avoids flapping.
-        for: 10m
+        # The list changes after four missed heartbeats; alert after three more minutes.
+        for: 3m
         labels:
-          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
-          proto_fleet_rule_uid: protofleet-device-hashrate-low
-          # proto_fleet_scope=shared makes the rule visible to every org; a pause stays org-scoped so one org never affects another.
+          proto_fleet_rule_uid: protofleet-fleet-node-unavailable
           proto_fleet_scope: shared
-          severity: warning
+          severity: critical
           rule_group: proto-fleet-defaults
-          template: hashrate
+          template: fleet-node-unavailable
         annotations:
-          summary: "Device hashrate has fallen below expected for at least ten minutes."
-          description: |
-            Device {{ $labels.device_id }} (org {{ $labels.organization_id }})
-            has been hashing below its expected rate for at least ten minutes.
+          summary: "A Fleet Node is unavailable."
+          description: "A Fleet Node has not checked in for at least five minutes. Miners assigned to it are unavailable."
 
       - uid: protofleet-device-temperature-high
         title: Device Temperature High
@@ -139,7 +141,7 @@ groups:
                 -- Sized against the metrics writer's fixed 55s gauge heartbeat: this window must comfortably exceed heartbeat + poll spacing + flush. Do not tighten below 3 minutes without revisiting that cadence.
                 WHERE last_sample_time > NOW() - INTERVAL '3 minutes'
                 GROUP BY organization_id, device_id
-                HAVING max(latest_temp) > 90
+                HAVING max(latest_temp) >= 90
           - refId: B
             datasourceUid: __expr__
             model:
@@ -161,10 +163,10 @@ groups:
           rule_group: proto-fleet-defaults
           template: temperature
         annotations:
-          summary: "Max sensor temperature for device is above 90C for ten minutes."
+          summary: "Max sensor temperature for device is at or above 90°C for ten minutes."
           description: |
             Maximum sensor temperature for device {{ $labels.device_id }}
-            has been above 90C for at least ten minutes.
+            has been at or above 90°C for at least ten minutes.
 
       - uid: protofleet-telemetry-poll-failure-rate
         title: Telemetry Poll Failure Rate High
@@ -339,71 +341,6 @@ groups:
             has no subscribed MQTT broker connection, so curtailment signals
             cannot be received and miners can no longer be automatically
             curtailed or restored.
-
-      - uid: protofleet-curtailment-fan-restore-fail
-        title: Curtailment Fan Restore Failed
-        condition: B
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: protofleet-timescaledb
-            model:
-              refId: A
-              format: table
-              rawSql: |
-                SELECT
-                    org_id::TEXT AS organization_id,
-                    event_uuid::TEXT AS kind,
-                    1 AS value
-                FROM (
-                    SELECT
-                        org_id,
-                        event_uuid,
-                        fan_last_error,
-                        fan_restore_delay_sec,
-                        COALESCE(
-                            CASE
-                                WHEN fan_on_sent_at IS NOT NULL
-                                  AND fan_airflow_reopened_at IS NOT NULL
-                                  AND fan_airflow_reopened_at >= fan_on_sent_at
-                                THEN fan_airflow_reopened_at
-                            END,
-                            fan_on_sent_at,
-                            fan_airflow_reopened_at
-                        ) AS fan_restore_alert_started_at
-                    FROM curtailment_event
-                ) AS fan_event
-                WHERE fan_last_error IS NOT NULL
-                  AND fan_restore_alert_started_at IS NOT NULL
-                  AND fan_restore_alert_started_at
-                      + make_interval(secs => fan_restore_delay_sec) <= NOW()
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              refId: B
-              type: math
-              expression: $A
-        noDataState: OK
-        execErrState: Error
-        for: 0s
-        labels:
-          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
-          proto_fleet_rule_uid: protofleet-curtailment-fan-restore-fail
-          proto_fleet_scope: shared
-          severity: critical
-          rule_group: proto-fleet-curtailment
-          template: curtailment-fan-restore
-        annotations:
-          summary: "Facility fan restore failed before miners resumed."
-          description: |
-            Curtailment event {{ $labels.kind }} (org {{ $labels.organization_id }})
-            reached its miner-restore gate while one or more facility fan ON
-            commands were still failing. Miner restoration is fail-open; verify
-            airflow and the commissioned fan-control path immediately. This
-            alert remains active after the event ends until a successful fan ON
-            command clears the failure.
 
   - orgId: 1
     name: proto-fleet-self

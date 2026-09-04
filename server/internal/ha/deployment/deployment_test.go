@@ -126,7 +126,7 @@ func TestGenerateSecrets(t *testing.T) {
 		if err := verifyEndpointCertificate(filepath.Join(dir, "fleet-client.crt"), testVirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s Fleet client certificate: %v", node, err)
 		}
-		if err := validateFleetEnvironment(filepath.Join(dir, fleetEnvironmentFile)); err != nil {
+		if _, err := loadValidatedFleetApplicationProfile(filepath.Join(dir, fleetEnvironmentFile)); err != nil {
 			t.Errorf("validate %s Fleet environment: %v", node, err)
 		}
 	}
@@ -298,6 +298,34 @@ func TestPreflight(t *testing.T) {
 		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
 			t.Fatalf("preflight(occupied Fleet port %d) error = %v", port, err)
 		}
+	}
+	listeners = ""
+	fleetEnvironmentPath := filepath.Join(generated, "ha-a", fleetEnvironmentFile)
+	fleetEnvironment, err := os.ReadFile(fleetEnvironmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetEnvironment = append(fleetEnvironment, []byte("DD_API_KEY=test-key\nENABLE_TRACING=true\n")...)
+	if err := os.WriteFile(fleetEnvironmentPath, fleetEnvironment, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, port := range []int{haTracingHostPort, haTracingHealthHostPort} {
+		listeners = fmt.Sprintf("LISTEN 0 4096 127.0.0.1:%d 0.0.0.0:*\n", port)
+		firewallApplied = false
+		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
+			t.Fatalf("preflight(occupied tracing port %d) error = %v", port, err)
+		}
+		if firewallApplied {
+			t.Fatal("preflight applied the firewall after finding an occupied tracing port")
+		}
+	}
+	fleetEnvironment = append(fleetEnvironment, []byte("ENABLE_BETA_ALERTS=false\n")...)
+	if err := os.WriteFile(fleetEnvironmentPath, fleetEnvironment, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listeners = "LISTEN 0 4096 127.0.0.1:3030 0.0.0.0:*\n"
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err != nil {
+		t.Fatalf("preflight(alerts disabled with occupied Grafana port) error = %v", err)
 	}
 	listeners = ""
 

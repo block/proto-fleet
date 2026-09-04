@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { RefObject, useCallback, useRef, useState } from "react";
 import Footer from "@/protoFleet/components/Footer";
 import { Alert, Logo } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -26,6 +26,7 @@ export const UpdatePasswordForm = ({
   const [score, setScore] = useState(0);
   const [validationError, setValidationError] = useState("");
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
+  const newPasswordInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const handlePasswordChange = (value: string) => {
     setNewPassword(value);
@@ -84,7 +85,13 @@ export const UpdatePasswordForm = ({
 
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Input id="newPassword" label="New password" type="password" onChange={handlePasswordChange} />
+                  <Input
+                    id="newPassword"
+                    label="New password"
+                    type="password"
+                    onChange={handlePasswordChange}
+                    inputRef={newPasswordInputRef}
+                  />
                   <div className="flex items-center justify-between gap-5">
                     <div>
                       <div className="text-200 text-text-primary-50">Password strength</div>
@@ -103,7 +110,10 @@ export const UpdatePasswordForm = ({
 
               {showWeakPasswordWarning && !isSubmitting ? (
                 <WeakPasswordWarning
-                  onReturn={() => setShowWeakPasswordWarning(false)}
+                  onReturn={() => {
+                    setShowWeakPasswordWarning(false);
+                    newPasswordInputRef.current?.focus();
+                  }}
                   onContinue={() => handleSubmit(true)}
                 />
               ) : null}

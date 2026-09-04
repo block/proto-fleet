@@ -568,6 +568,74 @@ func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
 	}
 }
 
+func TestDispatchRestoreBatchDoesNotOverwriteConcurrentStateAdvance(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	event := &models.Event{
+		ID:        81,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "m1",
+		State:              models.TargetStatePending,
+		DesiredState:       models.DesiredStateActive,
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if params.State == models.TargetStateDispatching {
+			target.State = models.TargetStateResolved
+		}
+		return nil
+	}
+	r := newReconcilerForTest(store, dispatcher)
+
+	r.dispatchRestoreBatch(t.Context(), event, []*models.Target{target})
+
+	assert.Equal(t, models.TargetStateResolved, target.State)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+	params := store.updateTargetParams[target.DeviceIdentifier]
+	require.NotNil(t, params.ExpectedState)
+	assert.Equal(t, models.TargetStatePending, *params.ExpectedState)
+}
+
+func TestRecordRestoreDispatchFailuresDoesNotOverwriteConcurrentStateAdvance(t *testing.T) {
+	store, event := topologyAdmissionTestFixture(topologyAdmissionTestBuildingScope)
+	event.ForceIncludeAllPairedMiners = true
+	driver := "antminer"
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "m1",
+		State:              models.TargetStateDispatching,
+		DesiredState:       models.DesiredStateActive,
+	}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: target.DeviceIdentifier,
+		DriverName:       &driver,
+		DeviceStatus:     "INACTIVE",
+		PairingStatus:    "PAIRED",
+	}}
+	store.listCandidatesHook = func() {
+		target.State = models.TargetStateDispatched
+	}
+	r := newReconcilerForTest(store, &fakeDispatcher{})
+
+	r.recordRestoreDispatchFailures(t.Context(), event, []restoreDispatchFailure{{
+		target: target,
+		reason: "queue down",
+	}})
+
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Zero(t, target.RetryCount)
+	params := store.updateTargetParams[target.DeviceIdentifier]
+	require.NotNil(t, params.ExpectedState)
+	assert.Equal(t, models.TargetStateDispatching, *params.ExpectedState)
+}
+
 // A non-race-loss pre-write failure drops one target from the batch
 // (remaining devices proceed) and burns one retry slot so persistent
 // failures escalate to RESTORE_FAILED instead of cycling.

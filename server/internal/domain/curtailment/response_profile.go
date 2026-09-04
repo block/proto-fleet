@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/google/uuid"
 )
 
 const (
@@ -71,6 +72,27 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
 	return s.store.GetResponseProfile(ctx, orgID, profileID)
+}
+
+// ValidateAutomationScope strictly resolves topology selectors before an
+// automation binding or execution is accepted. Get intentionally returns
+// persisted profiles even when their selected topology was later deleted, so
+// callers that can execute a profile must opt into this live validation.
+func (s *ResponseProfileService) ValidateAutomationScope(ctx context.Context, profile *models.ResponseProfile) error {
+	if s == nil || s.store == nil {
+		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		return err
+	}
+	if !IsTopologyScope(scope) {
+		return nil
+	}
+	return s.validateResponseProfileScope(ctx, profile.OrgID, scope)
 }
 
 func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error) {
@@ -140,11 +162,11 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if req.Profile.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
+	if req.Profile.Revision == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_revision must be set")
+	}
 	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req, true)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.validateTopologyProfileAutomationBinding(ctx, profile); err != nil {
 		return nil, err
 	}
 	return s.store.UpdateResponseProfile(
@@ -158,35 +180,13 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	)
 }
 
-func (s *ResponseProfileService) validateTopologyProfileAutomationBinding(
-	ctx context.Context,
-	profile models.ResponseProfile,
-) error {
-	scope, err := ResponseProfileScope(profile)
-	if err != nil {
-		return err
-	}
-	if !hasTopologySelectors(scope) {
-		return nil
-	}
-	count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return nil
-	}
-	return fleeterror.NewFailedPreconditionError(
-		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
-	)
-}
-
 func (s *ResponseProfileService) Delete(
 	ctx context.Context,
 	orgID,
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedAuthorizationEnvelopeJSON []byte,
 	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	if s == nil || s.store == nil {
@@ -213,6 +213,7 @@ func (s *ResponseProfileService) Delete(
 		profileID,
 		expectedSiteID,
 		expectedScopeJSON,
+		expectedAuthorizationEnvelopeJSON,
 		expectedFacilityFanSettings,
 	)
 }

@@ -9,17 +9,18 @@ import (
 	"unicode/utf8"
 )
 
-// Slack limits: section text ≤3000, ≤50 blocks per message.
+// Slack limits: section text ≤3000, top-level fallback text should stay ≤4000, ≤50 blocks per message.
 const (
-	slackSectionMaxRunes = 2900
+	slackSectionMaxRunes  = 2900
+	slackFallbackMaxRunes = 4000
 	// Cap alert sections so the title and overflow line stay under Slack's 50-block limit.
 	slackMaxAlertSections = 40
 	// Keep the instance name from crowding the alert counts out of the truncated title.
 	slackInstanceMaxRunes = 50
 )
 
-// The title's dot carries the batch's worst severity, worst first. An unrecognized or missing severity ranks
-// with the worst: rules can carry any severity label, and a colour is a weak reason to under-signal one.
+// Each alert line carries its own severity. An unrecognized or missing severity uses the critical dot:
+// rules can carry any severity label, and a colour is a weak reason to under-signal one.
 var slackSeverityDots = []struct{ severity, dot string }{
 	{"critical", "🔴"},
 	{"warning", "🟡"},
@@ -27,36 +28,43 @@ var slackSeverityDots = []struct{ severity, dot string }{
 }
 
 // renderSlack builds a Block Kit message that carries no alerting-engine internals. Alerts are rolled up per
-// rule, so a fleet-wide outage is a handful of sections with miner counts rather than thousands of miner lines.
-func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceIdentity) map[string]any {
+// rule, so a fleet-wide outage is a handful of sections with device counts rather than thousands of device lines.
+func renderSlack(publicURL string, alerts []Alert, _ map[string]DeviceIdentity) map[string]any {
 	firing, resolved := partitionAlerts(alerts)
 	firingGroups := groupAlerts(firing)
 	resolvedGroups := groupAlerts(resolved)
-	firingDevices := distinctDevices(firing)
 	plain, linked := instanceLabels(publicURL)
-	// The fallback carries the same title without the link markup, which clients that don't render blocks
-	// would show verbatim.
-	title := slackTitle(plain, firingGroups, firingDevices)
 
-	blocks := []map[string]any{mrkdwnSection("*" + slackTitle(linked, firingGroups, firingDevices) + "*")}
+	// Keep product and instance context in a neutral header. Severity belongs to each alert line so a
+	// mixed batch is not represented by one umbrella icon.
+	blocks := []map[string]any{mrkdwnSection("*" + linked + "*")}
+	fallbackLines := []string{plain}
 	remaining := slackMaxAlertSections
 	appendGroups := func(groups []alertGroup, resolved bool) {
 		for _, g := range groups {
 			if remaining <= 0 {
 				return
 			}
-			blocks = append(blocks, mrkdwnSection(groupLine(g, identities, resolved)))
+			line := groupLine(g, resolved)
+			blocks = append(blocks, mrkdwnSection(line))
+			fallbackLines = append(fallbackLines, line)
 			remaining--
 		}
 	}
+	// A notification batch is one Alertmanager group, not a fleet-wide state snapshot. Retain each resolved
+	// condition instead of turning a resolution-only group into a global all-clear.
 	appendGroups(firingGroups, false)
 	appendGroups(resolvedGroups, true)
 	if overflow := len(firingGroups) + len(resolvedGroups) - slackMaxAlertSections; overflow > 0 {
-		blocks = append(blocks, mrkdwnSection(fmt.Sprintf("_…and %d more — open Proto Fleet for the full list._", overflow)))
+		line := fmt.Sprintf("_…and %d more — open Proto Fleet for the full list._", overflow)
+		blocks = append(blocks, mrkdwnSection(line))
+		fallbackLines = append(fallbackLines, line)
 	}
 
-	// The top-level text is the notification/preview fallback for clients that don't render blocks.
-	return map[string]any{"text": title, "blocks": blocks}
+	// The top-level text is the notification/preview fallback for clients that don't render blocks. Include
+	// every rendered line rather than reducing the preview to generic alert state.
+	fallback := truncate(strings.Join(fallbackLines, "\n"), slackFallbackMaxRunes)
+	return map[string]any{"text": fallback, "blocks": blocks}
 }
 
 // instanceLabels names the sending fleet: several instances can post to one channel, and nothing else in the
@@ -75,81 +83,186 @@ func instanceLabels(publicURL string) (plain, linked string) {
 		fmt.Sprintf("%s (<%s|%s>)", product, publicURL, escapeMrkdwn(host))
 }
 
-// severityDot picks the dot for the worst severity firing, so a batch of warnings doesn't read as an outage.
-func severityDot(firing []alertGroup) string {
-	worst := len(slackSeverityDots) - 1
-	for _, g := range firing {
-		worst = min(worst, severityRank(g.Severity))
-	}
-	return slackSeverityDots[worst].dot
-}
-
-func severityRank(severity string) int {
+func severityDot(severity string) string {
 	severity = strings.TrimSpace(severity)
-	for i, s := range slackSeverityDots {
+	for _, s := range slackSeverityDots {
 		if strings.EqualFold(severity, s.severity) {
-			return i
+			return s.dot
 		}
 	}
-	return 0
+	return slackSeverityDots[0].dot
 }
 
-func slackTitle(instance string, firing []alertGroup, firingDevices int) string {
-	if len(firing) == 0 {
-		return "✅ " + instance + " — alerts resolved"
-	}
-	base := fmt.Sprintf("%s %s — %d alert%s firing", severityDot(firing), instance, len(firing), plural(len(firing)))
-	// Fleet- and source-scoped alerts have no miners to count; don't claim "on 0 miners".
-	if firingDevices == 0 {
-		return base
-	}
-	return fmt.Sprintf("%s on %d miner%s", base, firingDevices, plural(firingDevices))
-}
-
-// groupLine renders one rule's rollup for Slack: the alert, its blast radius, and enough miner names to act on.
-// Labels are escaped here, not in the rollup, so a non-Slack renderer formats the same group its own way.
-func groupLine(g alertGroup, identities map[string]DeviceIdentity, resolved bool) string {
-	var b strings.Builder
+// groupLine renders one rule's rollup as natural language. It intentionally omits individual device
+// identifiers: one fleet-wide event can cover thousands of devices, and the linked app holds the drill-in.
+func groupLine(g alertGroup, resolved bool) string {
 	if resolved {
-		b.WriteString("*Resolved: " + escapeMrkdwn(g.Name) + "*")
-	} else {
-		b.WriteString("*" + escapeMrkdwn(g.Name) + "*")
+		return "✅ " + escapeMrkdwn(resolvedGroupCopy(g))
 	}
-	if !resolved && g.Severity != "" {
-		b.WriteString(" _(" + escapeMrkdwn(g.Severity) + ")_")
+	dot := severityDot(g.Severity)
+	if g.DeviceCount > 0 {
+		return dot + " " + escapeMrkdwn(activeDeviceGroupCopy(g))
 	}
-	switch {
-	case g.DeviceCount == 0:
-		// No miners to name, but a rule that fires on another dimension (per curtailment source, per host)
-		// still has one instance per affected thing; say how many so none of them go unreported.
-		if g.InstanceCount > 1 {
-			b.WriteString(fmt.Sprintf(" — %d instances", g.InstanceCount))
+	return devicelessGroupLine(dot, g)
+}
+
+func activeDeviceGroupCopy(g alertGroup) string {
+	summary := firstSummary(g)
+	count := fmt.Sprintf("%d device%s", g.DeviceCount, plural(g.DeviceCount))
+	switch RuleTemplate(g.Template) {
+	case RuleTemplateOffline:
+		if rest, ok := strings.CutPrefix(summary, "Device is offline"); ok {
+			return customRuleDeviceCopy(g, count+" unreachable"+rest)
 		}
-	case g.DeviceCount == 1:
-		// A single miner reads better named inline than as "1 miner" plus a list of one.
-		b.WriteString(" — " + deviceLabel(g.SampleDeviceIDs[0], identities))
+	case RuleTemplateHashrate:
+		for _, prefix := range []string{"Device hashrate has fallen below ", "Device hashrate is below "} {
+			if rest, ok := strings.CutPrefix(summary, prefix); ok {
+				return customRuleDeviceCopy(g, count+" hashing below "+rest)
+			}
+		}
+	case RuleTemplateTemperature:
+		if rest, ok := strings.CutPrefix(summary, "Max sensor temperature for device is "); ok {
+			return customRuleDeviceCopy(g, count+" with sensor temperatures "+rest)
+		}
+	case RuleTemplatePool,
+		RuleTemplateCommandFailure,
+		RuleTemplateTelemetryPoll,
+		RuleTemplateMQTTCurtailment,
+		RuleTemplateMQTTDisconnected,
+		RuleTemplateCurtailmentFanRestore,
+		RuleTemplateMetricIngest,
+		RuleTemplateHAReadiness,
+		RuleTemplateFleetNodeUnavailable:
+		// These templates are device-less today or have no specialized device copy.
 	default:
-		b.WriteString(fmt.Sprintf(" — %d miners", g.DeviceCount))
-		labels := make([]string, 0, len(g.SampleDeviceIDs))
-		for _, id := range g.SampleDeviceIDs {
-			labels = append(labels, deviceLabel(id, identities))
-		}
-		b.WriteString("\n" + strings.Join(labels, ", "))
-		if more := g.DeviceCount - len(g.SampleDeviceIDs); more > 0 {
-			b.WriteString(fmt.Sprintf(" and %d more", more))
-		}
+		// Other and future templates use their rule-provided summary below.
 	}
-	// Miner-backed resolutions are identifiable from their miner labels and stay terse. Device-less alerts
-	// often identify their source or host only in the summary, so retain those summaries on resolution.
-	if !resolved || g.DeviceCount == 0 {
-		for _, summary := range g.Summaries {
-			b.WriteString("\n" + escapeMrkdwn(summary))
-		}
-		if more := g.SummaryCount - len(g.Summaries); more > 0 {
-			b.WriteString(fmt.Sprintf("\n_…and %d more_", more))
-		}
+	if summary != "" {
+		return customRuleDeviceCopy(g, summary+" ("+count+" affected)")
 	}
-	return b.String()
+	return fmt.Sprintf("%s affecting %s", g.Name, count)
+}
+
+// Custom rule names carry the operator's scope or intent (for example, which site the rule watches).
+// Provisioned rules keep the shorter condition-only copy because their names add no new context.
+func customRuleDeviceCopy(g alertGroup, condition string) string {
+	if !strings.HasPrefix(g.RuleGroup, "proto-fleet-user-") {
+		return condition
+	}
+	return sentenceText(g.Name) + ": " + condition
+}
+
+func resolvedGroupCopy(g alertGroup) string {
+	if g.DeviceCount > 0 {
+		count := fmt.Sprintf("%d device%s", g.DeviceCount, plural(g.DeviceCount))
+		switch RuleTemplate(g.Template) {
+		case RuleTemplateOffline:
+			return customRuleDeviceCopy(g, count+" reachable again")
+		case RuleTemplateHashrate:
+			return customRuleDeviceCopy(g, count+" hashing above alert threshold again")
+		case RuleTemplateTemperature:
+			return customRuleDeviceCopy(g, count+" below temperature threshold again")
+		case RuleTemplatePool,
+			RuleTemplateCommandFailure,
+			RuleTemplateTelemetryPoll,
+			RuleTemplateMQTTCurtailment,
+			RuleTemplateMQTTDisconnected,
+			RuleTemplateCurtailmentFanRestore,
+			RuleTemplateMetricIngest,
+			RuleTemplateHAReadiness,
+			RuleTemplateFleetNodeUnavailable:
+			// Use the generic rule wording below for templates without device recovery copy.
+		default:
+			// Unknown templates use the same generic rule wording.
+		}
+		return fmt.Sprintf("%s resolved for %s", sentenceText(g.Name), count)
+	}
+	switch RuleTemplate(g.Template) {
+	case RuleTemplateTelemetryPoll:
+		return "Telemetry polling recovered"
+	case RuleTemplateMQTTCurtailment:
+		if source, ok := strings.CutPrefix(firstSummary(g), "Miners are curtailed by "); ok && source != "" {
+			return "Curtailment by " + source + " ended"
+		}
+		return sentenceText(g.Name) + " resolved"
+	case RuleTemplateMQTTDisconnected:
+		return resolvedMQTTDisconnectedCopy(g)
+	case RuleTemplateCurtailmentFanRestore:
+		return fmt.Sprintf("Fan control restored for %d curtailment event%s", g.InstanceCount, plural(g.InstanceCount))
+	case RuleTemplateMetricIngest:
+		return "Metric ingest resumed"
+	case RuleTemplateHAReadiness:
+		return "HA ready to fail over"
+	case RuleTemplateFleetNodeUnavailable:
+		return "Fleet Node connection restored"
+	case RuleTemplateOffline, RuleTemplateHashrate, RuleTemplateTemperature,
+		RuleTemplatePool, RuleTemplateCommandFailure:
+		// Device-backed templates without a device label use the generic instance wording below.
+	default:
+		// Unknown templates use the same generic instance wording.
+	}
+	if g.InstanceCount > 1 {
+		return fmt.Sprintf("%s resolved for %d instances", sentenceText(g.Name), g.InstanceCount)
+	}
+	return sentenceText(g.Name) + " resolved"
+}
+
+func resolvedMQTTDisconnectedCopy(g alertGroup) string {
+	fallback := fmt.Sprintf("%d curtailment source%s reachable again", g.InstanceCount, plural(g.InstanceCount))
+	if len(g.Summaries) == 0 {
+		return fallback
+	}
+	lines := make([]string, 0, len(g.Summaries)+1)
+	for _, summary := range g.Summaries {
+		source, ok := strings.CutPrefix(sentenceText(summary), "Curtailment source ")
+		if !ok {
+			return fallback
+		}
+		source, ok = strings.CutSuffix(source, " is unreachable; cannot curtail")
+		if !ok || source == "" {
+			return fallback
+		}
+		lines = append(lines, "Curtailment source "+source+" reachable again")
+	}
+	if more := g.SummaryCount - len(g.Summaries); more > 0 {
+		lines = append(lines, fmt.Sprintf("…and %d more curtailment source%s reachable again", more, plural(more)))
+	}
+	return strings.Join(lines, "\n✅ ")
+}
+
+func devicelessGroupLine(dot string, g alertGroup) string {
+	if len(g.Summaries) == 0 {
+		if g.InstanceCount > 1 {
+			return fmt.Sprintf("%s %d instances affected by %s", dot, g.InstanceCount, escapeMrkdwn(g.Name))
+		}
+		return dot + " " + escapeMrkdwn(sentenceText(g.Name))
+	}
+	if len(g.Summaries) == 1 && g.InstanceCount > 1 {
+		affected := fmt.Sprintf("%d instance%s", g.InstanceCount, plural(g.InstanceCount))
+		if RuleTemplate(g.Template) == RuleTemplateCurtailmentFanRestore {
+			affected = fmt.Sprintf("%d curtailment event%s", g.InstanceCount, plural(g.InstanceCount))
+		}
+		return fmt.Sprintf("%s %s (%s affected)", dot, escapeMrkdwn(sentenceText(g.Summaries[0])), affected)
+	}
+	lines := make([]string, 0, len(g.Summaries)+1)
+	for _, summary := range g.Summaries {
+		lines = append(lines, dot+" "+escapeMrkdwn(sentenceText(summary)))
+	}
+	if more := g.SummaryCount - len(g.Summaries); more > 0 {
+		lines = append(lines, fmt.Sprintf("_…and %d more_", more))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstSummary(g alertGroup) string {
+	if len(g.Summaries) == 0 {
+		return ""
+	}
+	return sentenceText(g.Summaries[0])
+}
+
+func sentenceText(s string) string {
+	return strings.TrimSuffix(strings.TrimSpace(s), ".")
 }
 
 // escapeMrkdwn neutralizes the mrkdwn chars that let user-controlled text escape its own field: the link syntax,
@@ -171,49 +284,51 @@ func mrkdwnSection(text string) map[string]any {
 	}
 }
 
-// Miners named inline per alert before the "+N more" tail; the app holds the full list.
-const groupSampleDevices = 3
-
 // Distinct summaries named inline before the "+N more" tail, for rules that interpolate the alert instance.
 const groupSampleSummaries = 3
 
-// alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it, so
-// it carries device ids rather than display labels: each medium formats and escapes them its own way.
+// alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it.
 type alertGroup struct {
+	Identity  string
+	RuleUID   string
 	Name      string
 	RuleGroup string
 	Severity  string
+	Template  string
 	// Distinct instance summaries, capped at groupSampleSummaries; SummaryCount is how many there were. Most
 	// rules render summary from the rule, so a group has one; the ones that interpolate the firing instance
 	// ("Curtailment source maestro-b is unreachable") have one per instance, and no single one describes them.
 	Summaries    []string
 	SummaryCount int
 	// Instances in the group, which exceeds DeviceCount only when a rule fires on a non-device dimension.
-	InstanceCount   int
-	DeviceCount     int
-	SampleDeviceIDs []string
+	InstanceCount int
+	DeviceCount   int
 	// Dedupe sets behind DeviceCount and SummaryCount, released once the group is materialized.
 	devices   map[string]bool
 	summaries map[string]bool
 }
 
-// groupAlerts rolls a batch up per firing rule (identified by alertname + rule group, matching the API's
-// active rollup), widest blast radius first.
+// groupAlerts rolls a batch up per firing rule, widest blast radius first. RuleUID is authoritative;
+// copy-defining fields separate legacy alerts that predate rule identity propagation.
 func groupAlerts(alerts []Alert) []alertGroup {
-	type groupKey struct{ name, ruleGroup string }
+	type groupKey struct{ name, ruleGroup, identity string }
 	byKey := map[groupKey]*alertGroup{}
 	for _, a := range alerts {
 		name := a.Labels["alertname"]
 		if name == "" {
 			name = "Alert"
 		}
-		key := groupKey{name, a.Labels[ruleLabelRuleGroup]}
+		identity := alertGroupIdentity(a)
+		key := groupKey{name, a.Labels[ruleLabelRuleGroup], identity}
 		g := byKey[key]
 		if g == nil {
 			g = &alertGroup{
+				Identity:  identity,
+				RuleUID:   alertRuleUID(a),
 				Name:      name,
 				RuleGroup: a.Labels[ruleLabelRuleGroup],
 				Severity:  a.Labels["severity"],
+				Template:  a.Labels[ruleLabelTemplate],
 				devices:   map[string]bool{},
 				summaries: map[string]bool{},
 			}
@@ -232,9 +347,6 @@ func groupAlerts(alerts []Alert) []alertGroup {
 			continue
 		}
 		g.devices[id] = true
-		if len(g.SampleDeviceIDs) < groupSampleDevices {
-			g.SampleDeviceIDs = append(g.SampleDeviceIDs, id)
-		}
 	}
 	out := make([]alertGroup, 0, len(byKey))
 	for _, g := range byKey {
@@ -248,50 +360,37 @@ func groupAlerts(alerts []Alert) []alertGroup {
 			cmp.Compare(b.DeviceCount, a.DeviceCount),
 			strings.Compare(a.Name, b.Name),
 			strings.Compare(a.RuleGroup, b.RuleGroup),
+			strings.Compare(a.Identity, b.Identity),
 		)
 	})
 	return out
 }
 
-// distinctDevices counts the miners a batch covers in total, for the "N alerts on M miners" headline.
-func distinctDevices(alerts []Alert) int {
-	seen := map[string]bool{}
-	for _, a := range alerts {
-		if id := a.Labels["device_id"]; id != "" {
-			seen[id] = true
-		}
+// alertGroupIdentity keeps distinct rules separate even when user-selected names collide. Current alerts carry
+// RuleUID; legacy/unattributed alerts fall back to stable rule-level fields. Summary is intentionally excluded:
+// some rules interpolate the alert instance there and still need all of their instances rolled up together.
+func alertGroupIdentity(a Alert) string {
+	if uid := alertRuleUID(a); uid != "" {
+		return "uid:" + uid
 	}
-	return len(seen)
+	return strings.Join([]string{
+		"legacy",
+		a.Labels[ruleLabelTemplate],
+		a.Labels["severity"],
+	}, "\x00")
 }
 
-// macCode renders a MAC as inline code, which is both how an identifier reads best and the only mrkdwn context
-// where Slack leaves `:shortcode:` alone — a colon-separated MAC otherwise interpolates `:ab:` as 🆎.
-func macCode(mac string) string {
-	if mac == "" {
-		return ""
+func alertRuleUID(a Alert) string {
+	if uid := strings.TrimSpace(a.RuleUID); uid != "" {
+		return uid
 	}
-	return "`" + escapeMrkdwn(mac) + "`"
-}
-
-func deviceLabel(id string, identities map[string]DeviceIdentity) string {
-	ident := identities[id]
-	name := escapeMrkdwn(strings.TrimSpace(ident.Name))
-	mac := macCode(ident.MAC)
-	switch {
-	case name != "" && mac != "":
-		return fmt.Sprintf("%s (%s)", name, mac)
-	case name != "":
-		return name
-	case mac != "":
-		return mac
-	default:
-		return escapeMrkdwn(id)
-	}
+	return strings.TrimSpace(a.Labels[ruleLabelRuleUID])
 }
 
 // webhookAlert is the clean, Grafana-free shape delivered to generic webhook channels.
 type webhookAlert struct {
 	Status     string `json:"status"`
+	RuleUID    string `json:"rule_uid,omitempty"`
 	AlertName  string `json:"alert_name"`
 	Severity   string `json:"severity,omitempty"`
 	Summary    string `json:"summary,omitempty"`
@@ -304,6 +403,7 @@ type webhookAlert struct {
 // a consumer that only wants "what is firing and how bad" reads the groups and ignores the instance arrays.
 type webhookAlertGroup struct {
 	AlertName string `json:"alert_name"`
+	RuleUID   string `json:"rule_uid,omitempty"`
 	Severity  string `json:"severity,omitempty"`
 	RuleGroup string `json:"rule_group,omitempty"`
 	// One of the group's distinct summaries; the per-instance arrays carry every instance's own.
@@ -321,6 +421,7 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 			ident := identities[id]
 			out = append(out, webhookAlert{
 				Status:     a.Status,
+				RuleUID:    alertRuleUID(a),
 				AlertName:  a.Labels["alertname"],
 				Severity:   a.Labels["severity"],
 				Summary:    a.Annotations["summary"],
@@ -341,6 +442,7 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 			}
 			out = append(out, webhookAlertGroup{
 				AlertName:   g.Name,
+				RuleUID:     g.RuleUID,
 				Severity:    g.Severity,
 				RuleGroup:   g.RuleGroup,
 				Summary:     summary,

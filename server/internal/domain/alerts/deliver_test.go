@@ -79,7 +79,9 @@ func TestDeliverSlackChannel(t *testing.T) {
 	require.Len(t, *got, 1)
 	body := string((*got)[0].body)
 	assert.Contains(t, body, "blocks")
-	assert.Contains(t, body, "miner-01 (`aa:bb`)")
+	assert.Contains(t, body, "Device Offline summary (1 device affected)")
+	assert.NotContains(t, body, "miner-01")
+	assert.NotContains(t, body, "dev-a")
 	assert.NotContains(t, body, "grafana")
 	assert.Empty(t, (*got)[0].auth, "slack webhook posts carry no bearer")
 }
@@ -146,8 +148,8 @@ func TestDeliverFansOutPerOrg(t *testing.T) {
 
 	assert.Len(t, *gotA, 1)
 	assert.Len(t, *gotB, 1)
-	assert.Contains(t, string((*gotA)[0].body), "*A*")
-	assert.Contains(t, string((*gotB)[0].body), "*B*")
+	assert.Contains(t, string((*gotA)[0].body), "A summary (1 device affected)")
+	assert.Contains(t, string((*gotB)[0].body), "B summary (1 device affected)")
 }
 
 func TestDeliverSkipsPrivateDestinationUnderPolicy(t *testing.T) {
@@ -421,7 +423,8 @@ func TestDeliverAllScopeWindowPreservesResolutions(t *testing.T) {
 	require.Len(t, *got, 1)
 	body := string((*got)[0].body)
 	assert.NotContains(t, body, "Firing Rule")
-	assert.Contains(t, body, "Resolved Rule", "resolutions close alerts delivered before the window")
+	assert.Contains(t, body, "Resolved Rule resolved", "resolutions still close alerts delivered before the window")
+	assert.NotContains(t, body, "All alerts resolved", "resolution-only notifications stay condition-specific")
 }
 
 func TestDeliverWindowMutesOnlyListedChannels(t *testing.T) {
@@ -463,18 +466,19 @@ func TestDeliverRuleScopedWindowPreservesMutedRuleResolution(t *testing.T) {
 	d, store, windows, crypto := newMutingDeliverer(t)
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 	seedWindow(windows, 7, []string{"rule-a"}, nil, 0)
-	resolved := firingRuleAlert("7", "dev-b", "Resolved Muted Rule", "rule-a")
+	resolved := firingRuleAlert("7", "dev-b", "Muted Rule", "rule-a")
 	resolved.Status = "resolved"
 
 	d.Deliver(context.Background(), []Alert{
-		firingRuleAlert("7", "dev-a", "Firing Muted Rule", "rule-a"),
+		firingRuleAlert("7", "dev-a", "Muted Rule", "rule-a"),
 		resolved,
 	})
 
 	require.Len(t, *got, 1)
 	body := string((*got)[0].body)
-	assert.NotContains(t, body, "Firing Muted Rule")
-	assert.Contains(t, body, "Resolved Muted Rule")
+	assert.NotContains(t, body, "Muted Rule summary", "the maintenance-muted firing copy stays hidden")
+	assert.Contains(t, body, "Muted Rule resolved for 1 device")
+	assert.NotContains(t, body, "All alerts resolved")
 }
 
 func TestDeliverIgnoresExpiredAndFutureWindows(t *testing.T) {

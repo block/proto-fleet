@@ -78,6 +78,13 @@ func (s *startStubStore) ListCandidates(_ context.Context, _ interfaces.ListCand
 	return s.candidates, nil
 }
 
+func (s *startStubStore) ResolveCurtailmentTopologyScope(
+	context.Context,
+	interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	return interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}, nil
+}
+
 func (s *startStubStore) InsertEventWithTargets(
 	_ context.Context,
 	event models.InsertEventParams,
@@ -95,6 +102,7 @@ func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
@@ -102,6 +110,8 @@ func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *startStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by handler Start tests")
@@ -109,6 +119,7 @@ func (s *startStubStore) ClaimAllPairedPolicyTargets(
 
 func (s *startStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
@@ -146,7 +157,7 @@ func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, ke
 	// Default to "no prior match" so Start tests that pass an idempotency
 	// key fall through to the normal insert path. Replay-specific tests
 	// override with a field on the stub.
-	return s.replayByKey[key], nil
+	return ensureTestEventAuthorizationEnvelope(s.replayByKey[key], nil, false), nil
 }
 func (s *startStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
 	// Default to "no prior match" so Start tests that pass an external
@@ -209,7 +220,7 @@ func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurta
 func (s *startStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by handler Start tests")
 }
-func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *startStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, interfaces.BeginRecurtailTransitionParams) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by handler Start tests")
 }
 
@@ -237,8 +248,9 @@ func miner(id, status, pairing string, powerW float64, hashRateHS float64, effJH
 // the operational controls the service requires.
 func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 	return &pb.StartCurtailmentRequest{
-		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		ExecutionSchemaVersion: curtailmentExecutionSchemaVersionCurrent,
+		Scope:                  &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		Mode:                   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		// UNSPECIFIED maps to LEAST_EFFICIENT_FIRST in the translator; the
 		// proto-named constant passes through as `s.String()` and is rejected
 		// by the validator (existing pre-Start behavior preserved).
@@ -251,6 +263,89 @@ func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 		MaxDurationSeconds: 7200,
 		Reason:             "operator handler test",
 	}
+}
+
+func TestHandler_StartCurtailmentRejectsStaleResponseProfileRevision(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{{
+		ID:               201,
+		OrgID:            1,
+		Revision:         uuid.MustParse(handlerResponseProfileTestRevision),
+		ProfileName:      "Standard shed",
+		Mode:             models.ModeFixedKw,
+		RestoreBatchSize: 50,
+	}}
+	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
+
+	_, err := h.StartCurtailment(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "stale-profile-start"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "changed before execution")
+}
+
+func TestHandler_StartCurtailmentRejectsValuesOutsideResponseProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	profile := fixedKWWholeOrgExecutionProfile(1, 201, 5)
+	profile.RestoreBatchSize = 50
+	store.profiles = []*models.ResponseProfile{profile}
+	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+	req.RestoreBatchSize = 25
+
+	_, err := h.StartCurtailment(
+		testSessionCtxWithAssignments(
+			t,
+			&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "mismatched-profile-start"},
+			testOrgAssignment(authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "values do not match")
+}
+
+func TestHandler_StartCurtailmentUsesSavedProfileCurtailBatching(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40)}
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 5)}
+	h := NewHandlerWithResponseProfiles(
+		curtailment.NewService(store),
+		curtailment.NewResponseProfileService(profileStore),
+	)
+	req := validStartRequestBuilder()
+	req.ResponseProfileId = 201
+	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
+
+	_, err := h.StartCurtailment(
+		startSessionCtxWithPerms(t, 1, "OPERATOR", authz.PermCurtailmentManage),
+		connect.NewRequest(req),
+	)
+
+	require.NoError(t, err)
+	assert.Nil(t, store.lastEvent.CurtailBatchSize)
+	assert.Zero(t, store.lastEvent.CurtailBatchIntervalSec)
 }
 
 func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {
@@ -359,6 +454,93 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	// echoed in the Start response. Two selected candidates with no caller
 	// preference means immediate restore of the full pending set.
 	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
+}
+
+func TestHandler_StartCurtailment_FrozenTopologyScope(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scopes    []*pb.CurtailmentScope
+		wantScope string
+	}{
+		{
+			name: "building",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Building{
+				Building: &pb.ScopeBuilding{BuildingId: 7},
+			}}},
+			wantScope: `{"building_ids":[7],"scope_schema_version":1}`,
+		},
+		{
+			name: "rack",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Rack{
+				Rack: &pb.ScopeRack{RackId: 8},
+			}}},
+			wantScope: `{"rack_ids":[8],"scope_schema_version":1}`,
+		},
+		{
+			name: "group",
+			scopes: []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Group{
+				Group: &pb.ScopeGroup{GroupId: 9},
+			}}},
+			wantScope: `{"group_ids":[9],"scope_schema_version":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newStartStubStore()
+			store.candidates = []*models.Candidate{
+				miner(tc.name+"-miner", "ACTIVE", "PAIRED", 3000, 100, 40),
+			}
+			h := NewHandler(curtailment.NewService(store))
+			ctx := startSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
+			req := validStartRequestBuilder()
+			req.Scope = nil
+			req.Scopes = tc.scopes
+			req.ScopeSchemaVersion = curtailment.ScopeSchemaVersionCurrent
+			req.ModeParams = &pb.StartCurtailmentRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2},
+			}
+
+			resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+			require.NoError(t, err)
+			require.NotNil(t, resp.Msg.Event)
+			assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING, resp.Msg.Event.State)
+			assert.JSONEq(t, tc.wantScope, string(store.lastEvent.ScopeJSON))
+			require.Len(t, store.lastTargets, 1)
+			assert.Equal(t, tc.name+"-miner", store.lastTargets[0].DeviceIdentifier)
+		})
+	}
+}
+
+func TestHandler_StartCurtailment_FrozenTopologyScopeRequiresOrgWideManage(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	h := NewHandler(curtailment.NewService(store))
+	req := validStartRequestBuilder()
+	req.Scope = nil
+	req.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Building{
+		Building: &pb.ScopeBuilding{BuildingId: 7},
+	}}}
+	req.ScopeSchemaVersion = curtailment.ScopeSchemaVersionCurrent
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-topology-site-only",
+	}, testSiteAssignment(42, authz.PermCurtailmentManage))
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Zero(t, store.lastEvent.OrgID, "org-wide gate must fail before persistence")
 }
 
 func TestHandler_StartCurtailment_AllPairedPolicyReturnsBoundedTargetRollup(t *testing.T) {
@@ -765,6 +947,65 @@ func TestHandler_StartCurtailment_IdempotentReplayRequiresPersistedEventPermissi
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 	assert.Empty(t, store.lastTargets, "replay denial must not persist a second event")
+}
+
+func TestHandler_StartCurtailment_IdempotentReplayUsesPersistedEnvelopeBeforeLiveScopeAndFanChecks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		requestSite = int64(7)
+		replaySite  = int64(8)
+		fanID       = int64(31)
+	)
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"retry-key": {
+			ID:        7,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			Mode:      models.ModeFixedKw,
+			Strategy:  models.StrategyLeastEfficientFirst,
+			Level:     models.LevelFull,
+			Priority:  models.PriorityNormal,
+			ScopeType: models.ScopeTypeSite,
+			ScopeJSON: siteScopeJSON(t, replaySite),
+			AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+				[]int64{replaySite}, nil, false, nil, false,
+			),
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 60,
+			Reason:                  "original persisted reason",
+			CreatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:         9,
+		},
+	}
+	profileStore := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(
+		curtailment.NewService(store),
+		curtailment.NewResponseProfileService(profileStore),
+	)
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-replay-before-live-auth",
+	}, testSiteAssignment(replaySite, authz.PermCurtailmentManage))
+	req := validStartRequestBuilder()
+	req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: requestSite}}
+	req.FacilityFanDeviceIds = []int64{fanID}
+	req.IdempotencyKey = "retry-key"
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
+	assert.Zero(t, profileStore.infrastructureDeviceListCalls, "replay must not resolve fans from the retry body")
+	assert.Empty(t, store.lastTargets, "replay must not execute the live selector")
 }
 
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit

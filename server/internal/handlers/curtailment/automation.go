@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -61,10 +62,8 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	if err != nil {
 		return nil, err
 	}
-	siteAllowed := make(map[int64]bool)
+	permissionCache := newResourceContextPermissionCache()
 	facilityFanSiteAllowed := make(map[int64]bool)
-	orgWideAllowed := false
-	orgWideChecked := false
 	for _, rule := range rules {
 		requirements, err := h.automationRuleProfileResourceContextRequirements(ctx, info.OrganizationID, rule, deviceSites)
 		if err != nil {
@@ -74,9 +73,7 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 			ctx,
 			authz.PermCurtailmentManage,
 			requirements,
-			siteAllowed,
-			&orgWideAllowed,
-			&orgWideChecked,
+			&permissionCache,
 		)
 		if err != nil {
 			return nil, err
@@ -132,10 +129,18 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
+	expectedProfileRevision, err := parseResponseProfileExecutionRevision(
+		req.Msg.GetResponseProfileId(),
+		req.Msg.GetExpectedResponseProfileRevision(),
+	)
+	if err != nil {
+		return nil, err
+	}
 	rule := automationRuleFromCreateRequest(info.OrganizationID, req.Msg)
 	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
+		ExpectedResponseProfileRevision:    expectedProfileRevision,
 		ExpectedResponseProfileFanSettings: responseProfileFanSettings(profile),
 	})
 	if err != nil {
@@ -159,10 +164,18 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
+	expectedProfileRevision, err := parseResponseProfileExecutionRevision(
+		req.Msg.GetResponseProfileId(),
+		req.Msg.GetExpectedResponseProfileRevision(),
+	)
+	if err != nil {
+		return nil, err
+	}
 	rule := automationRuleFromUpdateRequest(info.OrganizationID, req.Msg)
 	updated, err := h.automation.Update(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
+		ExpectedResponseProfileRevision:    expectedProfileRevision,
 		ExpectedResponseProfileFanSettings: responseProfileFanSettings(profile),
 	})
 	if err != nil {
@@ -179,22 +192,33 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 	if h.automation == nil {
 		return nil, errCurtailmentNotImplemented("SetCurtailmentAutomationRuleEnabled")
 	}
-	_, profile, err := h.getAutomationRuleWithAuthorizedProfile(ctx, info.OrganizationID, req.Msg.GetRuleId())
+	rule, profile, err := h.getAutomationRuleWithAuthorizedProfile(ctx, info.OrganizationID, req.Msg.GetRuleId())
 	if err != nil {
 		return nil, err
 	}
-	rule, err := h.automation.SetEnabled(
+	expectedProfileRevision := uuid.Nil
+	if req.Msg.GetEnabled() {
+		expectedProfileRevision, err = parseResponseProfileExecutionRevision(
+			rule.ResponseProfileID,
+			req.Msg.GetExpectedResponseProfileRevision(),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	updatedRule, err := h.automation.SetEnabled(
 		ctx,
 		info.OrganizationID,
 		req.Msg.GetRuleId(),
 		req.Msg.GetEnabled(),
+		expectedProfileRevision,
 		canUseAdminControls(info),
 		responseProfileFanSettings(profile),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.SetCurtailmentAutomationRuleEnabledResponse{Rule: toAutomationRuleProto(rule)}), nil
+	return connect.NewResponse(&pb.SetCurtailmentAutomationRuleEnabledResponse{Rule: toAutomationRuleProto(updatedRule)}), nil
 }
 
 func (h *Handler) DeleteCurtailmentAutomationRule(ctx context.Context, req *connect.Request[pb.DeleteCurtailmentAutomationRuleRequest]) (*connect.Response[pb.DeleteCurtailmentAutomationRuleResponse], error) {

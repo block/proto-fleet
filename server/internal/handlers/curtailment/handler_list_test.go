@@ -62,9 +62,20 @@ func (s *listStubStore) ListEvents(_ context.Context, params interfaces.ListEven
 		return nil, "", s.err
 	}
 	if s.eventsByPageToken != nil {
-		return s.eventsByPageToken[params.PageToken], s.nextByPageToken[params.PageToken], nil
+		return s.withAuthorizationEnvelopes(s.eventsByPageToken[params.PageToken]), s.nextByPageToken[params.PageToken], nil
 	}
-	return s.events, s.nextPageToken, nil
+	return s.withAuthorizationEnvelopes(s.events), s.nextPageToken, nil
+}
+
+func (s *listStubStore) withAuthorizationEnvelopes(events []*models.Event) []*models.Event {
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		sites, hasCoverage := s.targetSiteIDsByUUID[event.EventUUID]
+		ensureTestEventAuthorizationEnvelope(event, sites, hasCoverage && !s.incompleteTargetSite[event.EventUUID])
+	}
+	return events
 }
 
 func (s *listStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -96,6 +107,7 @@ func (s *listStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by List handler tests")
@@ -103,12 +115,15 @@ func (s *listStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *listStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by List handler tests")
 }
 func (s *listStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
@@ -125,7 +140,8 @@ func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID
 	if !ok {
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 	}
-	return ev, nil
+	sites, hasCoverage := s.targetSiteIDsByUUID[eventUUID]
+	return ensureTestEventAuthorizationEnvelope(ev, sites, hasCoverage && !s.incompleteTargetSite[eventUUID]), nil
 }
 func (s *listStubStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.lastGetOrgID = orgID
@@ -137,10 +153,11 @@ func (s *listStubStore) GetEventDetailByUUID(ctx context.Context, orgID int64, e
 	if !ok {
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 	}
-	return ev, nil
+	sites, hasCoverage := s.targetSiteIDsByUUID[eventUUID]
+	return ensureTestEventAuthorizationEnvelope(ev, sites, hasCoverage && !s.incompleteTargetSite[eventUUID]), nil
 }
 func (s *listStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
-	return s.activeEvents, nil
+	return s.withAuthorizationEnvelopes(s.activeEvents), nil
 }
 func (s *listStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	if s.targetsByUUID == nil {
@@ -225,7 +242,7 @@ func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, event
 func (s *listStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by List handler tests")
 }
-func (s *listStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *listStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, interfaces.BeginRecurtailTransitionParams) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by List handler tests")
 }
 func (s *listStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -414,7 +431,7 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 // aggregates target counts across every site — including sites the caller's
 // read grant is narrowed away from — so the rollup requires unnarrowed
 // org-wide read. Site-scoped events at permitted sites keep their rollups.
-func TestHandler_ListActiveCurtailments_OmitsWholeOrgRollupForNarrowedRead(t *testing.T) {
+func TestHandler_ListActiveCurtailments_FiltersWholeOrgEventsForNarrowedRead(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID       = int64(42)
@@ -470,14 +487,10 @@ func TestHandler_ListActiveCurtailments_OmitsWholeOrgRollupForNarrowedRead(t *te
 
 	resp, err := h.ListActiveCurtailments(narrowedCtx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 	require.NoError(t, err)
-	require.Len(t, resp.Msg.Events, 2)
-	assert.Equal(t, wholeOrgUUID.String(), resp.Msg.Events[0].EventUuid,
-		"whole-org events stay visible so narrowed operators learn their sites are curtailed")
-	assert.Nil(t, resp.Msg.Events[0].TargetRollup,
-		"whole-org rollup aggregates narrowed sites; it must not ship without org-wide read")
-	require.NotNil(t, resp.Msg.Events[1].TargetRollup,
-		"site-scoped rollups at permitted sites are unaffected by narrowing elsewhere")
-	assert.Equal(t, int32(3), resp.Msg.Events[1].TargetRollup.Total)
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, allowedSiteUUID.String(), resp.Msg.Events[0].EventUuid)
+	require.NotNil(t, resp.Msg.Events[0].TargetRollup)
+	assert.Equal(t, int32(3), resp.Msg.Events[0].TargetRollup.Total)
 
 	orgWideCtx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -564,9 +577,8 @@ func TestHandler_ListActiveCurtailments_FiltersSiteScopedEvents(t *testing.T) {
 	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 	require.NoError(t, err)
 
-	require.Len(t, resp.Msg.Events, 2)
-	assert.Equal(t, orgScopedUUID.String(), resp.Msg.Events[0].EventUuid)
-	assert.Equal(t, allowedSiteUUID.String(), resp.Msg.Events[1].EventUuid)
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, allowedSiteUUID.String(), resp.Msg.Events[0].EventUuid)
 }
 
 func TestHandler_ListCurtailmentEvents_FiltersSiteScopedEventsAcrossPages(t *testing.T) {
@@ -664,7 +676,7 @@ func TestHandler_ListCurtailmentEvents_CapsPermissionFilteringScan(t *testing.T)
 	assert.Equal(t, []string{"", "page-2", "page-3"}, store.listPageTokens)
 }
 
-func TestHandler_ListCurtailmentEvents_FiltersEventsByFacilityFanSite(t *testing.T) {
+func TestHandler_ListCurtailmentEvents_FiltersEventsByPersistedFacilityFanSite(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID       = int64(42)
@@ -683,6 +695,9 @@ func TestHandler_ListCurtailmentEvents_FiltersEventsByFacilityFanSite(t *testing
 				ScopeType:            models.ScopeTypeSite,
 				ScopeJSON:            siteScopeJSON(t, allowedSite),
 				FacilityFanDeviceIDs: []int64{firstFanID},
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					[]int64{allowedSite}, nil, false, []int64{deniedSite}, false,
+				),
 			},
 			{
 				ID:                   4,
@@ -692,6 +707,9 @@ func TestHandler_ListCurtailmentEvents_FiltersEventsByFacilityFanSite(t *testing
 				ScopeType:            models.ScopeTypeSite,
 				ScopeJSON:            siteScopeJSON(t, allowedSite),
 				FacilityFanDeviceIDs: []int64{secondFanID},
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					[]int64{allowedSite}, nil, false, []int64{deniedSite}, false,
+				),
 			},
 		},
 	}
@@ -721,7 +739,106 @@ func TestHandler_ListCurtailmentEvents_FiltersEventsByFacilityFanSite(t *testing
 	require.NoError(t, err)
 
 	assert.Empty(t, resp.Msg.Events)
-	assert.Equal(t, 1, profileStore.infrastructureDeviceListCalls, "fan sites should be resolved once per event page")
+	assert.Zero(t, profileStore.infrastructureDeviceListCalls, "persisted envelopes must not re-resolve facility fans")
+}
+
+func TestHandler_ListCurtailmentEvents_FailsClosedForMalformedPersistedEnvelope(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := &listStubStore{events: []*models.Event{{
+		ID:                        5,
+		EventUUID:                 uuid.New(),
+		OrgID:                     orgID,
+		State:                     models.EventStateCompleted,
+		ScopeType:                 models.ScopeTypeSite,
+		AuthorizationEnvelopeJSON: []byte(`{"schema_version":`),
+	}}}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ListCurtailmentEvents(
+		sessionCtx(orgID),
+		connect.NewRequest(&pb.ListCurtailmentEventsRequest{}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
+func TestHandler_ListCurtailmentEvents_RequiresIndependentFacilityFanSiteRead(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID     = int64(42)
+		minerSite = int64(7)
+		fanSite   = int64(8)
+	)
+
+	for _, test := range []struct {
+		name              string
+		fanScopeUnbounded bool
+		assignments       []authz.Assignment
+		wantEvents        int
+	}{
+		{
+			name: "bounded fan site without site read is filtered",
+			assignments: []authz.Assignment{
+				testSiteAssignment(minerSite, authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermCurtailmentRead),
+			},
+		},
+		{
+			name: "bounded fan site with site read is visible",
+			assignments: []authz.Assignment{
+				testSiteAssignment(minerSite, authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermCurtailmentRead, authz.PermSiteRead),
+			},
+			wantEvents: 1,
+		},
+		{
+			name:              "unbounded fan scope requires org-wide site read",
+			fanScopeUnbounded: true,
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermSiteRead),
+			},
+		},
+		{
+			name:              "unbounded fan scope with org-wide site read is visible",
+			fanScopeUnbounded: true,
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentRead, authz.PermSiteRead),
+			},
+			wantEvents: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			event := &models.Event{
+				ID:        5,
+				EventUUID: uuid.New(),
+				OrgID:     orgID,
+				State:     models.EventStateCompleted,
+				ScopeType: models.ScopeTypeSite,
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					[]int64{minerSite}, nil, false, []int64{fanSite}, test.fanScopeUnbounded,
+				),
+			}
+			store := &listStubStore{events: []*models.Event{event}}
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, test.assignments...)
+
+			resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+
+			require.NoError(t, err)
+			assert.Len(t, resp.Msg.Events, test.wantEvents)
+		})
+	}
 }
 
 func TestHandler_ListCurtailmentEvents_UsesPersistedFacilityFanSiteSnapshot(t *testing.T) {
@@ -747,7 +864,8 @@ func TestHandler_ListCurtailmentEvents_UsesPersistedFacilityFanSiteSnapshot(t *t
 		OrganizationID: orgID,
 		UserID:         9,
 		Role:           "OPERATOR",
-	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead))
+	}, testOrgAssignment(authz.PermCurtailmentRead, authz.PermSiteRead),
+		testSiteAssignment(allowedSite, authz.PermCurtailmentRead, authz.PermSiteRead))
 
 	resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 
@@ -776,14 +894,14 @@ func TestHandler_ListCurtailmentEvents_MissingFacilityFanRequiresOrgWideRead(t *
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := sessionCtx(orgID)
+			ctx := sessionCtxWithPerms(orgID, authz.PermCurtailmentRead, authz.PermSiteRead)
 			if !test.orgWide {
 				ctx = testSessionCtxWithAssignments(t, &session.Info{
 					AuthMethod:     session.AuthMethodSession,
 					OrganizationID: orgID,
 					UserID:         9,
 					Role:           "OPERATOR",
-				}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(narrowedSite))
+				}, testOrgAssignment(authz.PermCurtailmentRead, authz.PermSiteRead), testSiteAssignment(narrowedSite))
 			}
 			store := &listStubStore{events: []*models.Event{{
 				ID:                   5,
@@ -802,7 +920,7 @@ func TestHandler_ListCurtailmentEvents_MissingFacilityFanRequiresOrgWideRead(t *
 			resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 			require.NoError(t, err)
 			assert.Len(t, resp.Msg.Events, test.wantEvents)
-			assert.Equal(t, 1, profileStore.infrastructureDeviceListCalls)
+			assert.Zero(t, profileStore.infrastructureDeviceListCalls)
 		})
 	}
 }
@@ -1041,6 +1159,9 @@ func TestHandler_ListCurtailmentEvents_UsesTargetlessDeviceScopeJSON(t *testing.
 				ScopeType: models.ScopeTypeDeviceList,
 				ScopeJSON: []byte(`{"device_identifiers":["allowed-miner"]}`),
 				Reason:    "targetless allowed device scope",
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					nil, []int64{allowedSite}, false, nil, false,
+				),
 			},
 			{
 				ID:        2,
@@ -1050,6 +1171,9 @@ func TestHandler_ListCurtailmentEvents_UsesTargetlessDeviceScopeJSON(t *testing.
 				ScopeType: models.ScopeTypeDeviceList,
 				ScopeJSON: []byte(`{"device_identifiers":["denied-miner"]}`),
 				Reason:    "targetless denied device scope",
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					nil, []int64{deniedSite}, false, nil, false,
+				),
 			},
 		},
 		targetSiteIDsByUUID: map[uuid.UUID][]int64{},
@@ -1075,6 +1199,13 @@ func TestHandler_ListCurtailmentEvents_UsesTargetlessDeviceScopeJSON(t *testing.
 
 	require.Len(t, resp.Msg.Events, 1)
 	assert.Equal(t, allowedUUID.String(), resp.Msg.Events[0].EventUuid)
+	coverage := resp.Msg.Events[0].GetTargetSiteCoverage()
+	require.NotNil(t, coverage)
+	assert.True(t, coverage.GetComplete())
+	assert.Zero(t, coverage.GetTargetCount())
+	assert.Equal(t, 1, store.coverageBatchCalls)
+	assert.Equal(t, []uuid.UUID{allowedUUID}, store.lastCoverageBatch)
+	assert.Zero(t, profileStore.infrastructureDeviceListCalls)
 }
 
 func TestHandler_GetCurtailmentEvent_AllowsTargetlessDeviceListScope(t *testing.T) {
@@ -1339,7 +1470,7 @@ func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T)
 	}{
 		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0},
 		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, 0},
-		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, connect.CodePermissionDenied},
+		{"site-only permission allows matching read", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, 0},
 		{"site narrowing without read denies read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

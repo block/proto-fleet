@@ -201,6 +201,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "standard-shed",
     label: "Standard shed",
+    revision: "33333333-3333-4333-8333-333333333333",
     values: {
       curtailmentMode: "fixedKwReduction",
       scopeType: "explicitMiners",
@@ -209,6 +210,9 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       deviceSetIds: [],
       deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       targetKw: "50",
+      toleranceKw: "5",
+      priority: "emergency",
+      postEventCooldownSec: "900",
       curtailBatchSize: "20",
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
@@ -219,6 +223,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "emergency-shed",
     label: "Emergency shed",
+    revision: "44444444-4444-4444-8444-444444444444",
     values: {
       curtailmentMode: "fullFleet",
       targetKw: "",
@@ -235,6 +240,7 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "standard-shed",
     label: "Standard shed",
+    revision: responseProfiles[0].revision,
     values: {
       ...responseProfiles[0].values,
       scopeType: "wholeOrg",
@@ -251,6 +257,7 @@ const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     id: "austin-shed",
     label: "Austin site shed",
+    revision: "55555555-5555-4555-8555-555555555555",
     values: {
       ...responseProfiles[0].values,
       scopeType: "site",
@@ -508,8 +515,41 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "customPlan",
+        responseProfileRevision: undefined,
         curtailBatchSize: "20",
         curtailBatchIntervalSec: "60",
+      }),
+    );
+  });
+
+  it("preserves the saved profile binding after confirming an unchanged all-paired run", async () => {
+    const user = userEvent.setup();
+    const savedProfile: CurtailmentResponseProfileOption = {
+      ...wholeFleetResponseProfiles[0],
+      values: {
+        ...wholeFleetResponseProfiles[0].values,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        forceIncludeAllPairedMiners: true,
+      },
+    };
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: [savedProfile],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Force include" }));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
+    await confirmCurtailment(user);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: savedProfile.id,
+        responseProfileRevision: savedProfile.revision,
+        forceIncludeAllPairedMiners: true,
       }),
     );
   });
@@ -575,16 +615,20 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "standard-shed",
+        responseProfileRevision: responseProfiles[0].revision,
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
+        toleranceKw: "5",
+        priority: "emergency",
+        postEventCooldownSec: "900",
       }),
     );
   });
 
-  it("rehydrates a topology-scoped response profile without widening or running its terminal scope", async () => {
+  it("rehydrates and runs a fixed-kW topology-scoped response profile without widening its terminal scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -609,17 +653,26 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(
       screen.getByText(
-        "This topology target can be previewed, but it cannot be run until topology execution is enabled.",
+        "This will curtail miners in 2 buildings immediately. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
-    expect(onSubmit).not.toHaveBeenCalled();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+      }),
+    );
   });
 
-  it("saves a topology-scoped response profile while keeping its test action disabled", async () => {
+  it("saves and tests a fixed-kW topology-scoped response profile", async () => {
     const user = userEvent.setup();
+    const onTestCurtailment = vi.fn();
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       initialValues: {
@@ -628,18 +681,51 @@ describe("CurtailmentStartModal", () => {
         buildingTargetIds: ["7", "8"],
         includeMaintenance: false,
       },
-      onTestCurtailment: vi.fn(),
+      onTestCurtailment,
     });
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(
       screen.getByText(
-        "This topology target can be previewed and saved. Running it will be available when topology execution is enabled.",
+        "This will save the profile, then trigger curtailment for miners in 2 buildings. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onTestCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+    );
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+    );
+  });
+
+  it("runs topology-following full-fleet curtailment", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        ...configuredValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    expect(
+      screen.getByText("Choose a site-to-miner path and any infrastructure included in this curtailment."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),

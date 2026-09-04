@@ -136,7 +136,7 @@ func TestAppendFilterSQL_StatusFilter(t *testing.T) {
 
 	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
-	assert.Contains(t, sb.String(), "device_status.status::text")
+	assert.Contains(t, sb.String(), "effective_status.status")
 	assert.Len(t, resultArgs, 3) // initial + statusValues + orgID
 	assert.Equal(t, 4, resultArgNum)
 }
@@ -158,10 +158,10 @@ func TestAppendFilterSQL_StatusFilterWithNeedsAttention(t *testing.T) {
 	sql := sb.String()
 	assert.Contains(t, sql, "AUTHENTICATION_NEEDED")
 	assert.Contains(t, sql, "errors")
-	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status != 'OFFLINE'")
-	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status NOT IN")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status NOT IN")
 	// Errors branch excludes NULL paired-like miners (they remain bucketed as offline).
-	assert.Contains(t, sql, "NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
+	assert.Contains(t, sql, "NOT (effective_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 	assert.Len(t, resultArgs, 4) // initial + statusValues + orgID + orgID
 	assert.Equal(t, 5, resultArgNum)
 }
@@ -180,7 +180,7 @@ func TestAppendFilterSQL_StatusFilterWithOfflineIncludesNull(t *testing.T) {
 	appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
-	assert.Contains(t, sql, "device_status.status IS NULL")
+	assert.Contains(t, sql, "effective_status.status IS NULL")
 	// Narrowed to paired-like statuses (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
 	assert.Contains(t, sql, "device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')")
 	assert.NotContains(t, sql, "pairing_status != 'AUTHENTICATION_NEEDED'")
@@ -200,6 +200,21 @@ func TestAppendFilterSQL_StatusFilterActiveDoesNotIncludeNull(t *testing.T) {
 
 	sql := sb.String()
 	assert.NotContains(t, sql, "device_status.status IS NULL")
+}
+
+func TestAppendFilterSQL_StatusFilterUsesEffectiveFleetNodeStatus(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"OFFLINE"},
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "effective_status.status")
+	assert.Contains(t, sql, "= ANY($2::text[])")
+	assert.NotContains(t, sql, "device_status.status::text = ANY")
 }
 
 func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
@@ -223,7 +238,7 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 	assert.Contains(t, sb.String(), "pairing_status")
 	assert.Contains(t, sb.String(), "discovered_device.model")
 	assert.Contains(t, sb.String(), "discovered_device.manufacturer")
-	assert.Contains(t, sb.String(), "device_status.status")
+	assert.Contains(t, sb.String(), "effective_status.status")
 	assert.Len(t, resultArgs, 6) // initial + pairing + model + manufacturer + status + orgID
 	assert.Equal(t, 7, resultArgNum)
 }
@@ -1031,7 +1046,7 @@ func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "latest_metrics.hash_rate_hs / 1e12 > $2")
-	assert.Contains(t, sql, "device_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
 }
@@ -1124,7 +1139,7 @@ func TestAppendFilterSQL_NoNumericRange_DoesNotExcludeOffline(t *testing.T) {
 
 	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
 
-	assert.NotContains(t, sb.String(), "device_status.status != 'OFFLINE'")
+	assert.NotContains(t, sb.String(), "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
 }
 
 func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {

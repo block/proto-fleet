@@ -7,7 +7,7 @@ global: &global
   - .github/actions/**
   - .github/workflows/**
   - .github/*.{yml,yaml}
-  - .github/copilot-instructions.md
+  - .github/skills/**
   - bin/**
   - hermit-packages/**
   - just/**
@@ -19,6 +19,7 @@ global: &global
 
 deployment_config:
   - *global
+  - deployment-files/fleetnode/**
   - deployment-files/ha/**
   - deployment-files/profiles/**
   - deployment-files/tests/**

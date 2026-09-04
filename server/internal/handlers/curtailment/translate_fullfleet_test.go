@@ -168,6 +168,57 @@ func TestToStartResponse_MultiSiteFullFleetReturnsActiveTargetlessEvent(t *testi
 	assert.Nil(t, event.GetEndedAt())
 }
 
+func TestToStartResponse_TopologyFullFleetReturnsActiveTargetlessEvent(t *testing.T) {
+	t.Parallel()
+
+	for _, selected := range [][]curtailment.SelectedDevice{
+		nil,
+		{{DeviceIdentifier: "miner-a", PowerW: 3000}},
+	} {
+		plan := &curtailment.Plan{Selected: selected}
+		req := &pb.StartCurtailmentRequest{
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_Building{Building: &pb.ScopeBuilding{BuildingId: 7}},
+			}},
+		}
+
+		event := toStartResponse(plan, req).GetEvent()
+		require.NotNil(t, event)
+		assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+		assert.Empty(t, event.GetTargets())
+		assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
+	}
+}
+
+func TestToStartResponse_AllPairedTopologyFullFleetUsesBoundedTargetRollup(t *testing.T) {
+	t.Parallel()
+
+	plan := &curtailment.Plan{
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "online", PowerW: 3000},
+			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
+		},
+		PolicyTargetCount:      2,
+		UnavailableTargetCount: 1,
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scopes: []*pb.CurtailmentScope{{
+			Scope: &pb.CurtailmentScope_Group{Group: &pb.ScopeGroup{GroupId: 9}},
+		}},
+		ForceIncludeAllPairedMiners: true,
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(1), event.GetTargetRollup().GetPending())
+	assert.Equal(t, int32(1), event.GetTargetRollup().GetUnavailable())
+	assert.Equal(t, int32(2), event.GetTargetRollup().GetTotal())
+}
+
 func TestToStartResponse_AllPairedFullFleetUsesBoundedTargetRollup(t *testing.T) {
 	t.Parallel()
 
@@ -224,6 +275,27 @@ func TestToStartResponse_AllPairedAllUnavailableReturnsPending(t *testing.T) {
 	assert.Equal(t, int32(0), event.GetTargetRollup().GetPending())
 	assert.Equal(t, int32(2), event.GetTargetRollup().GetUnavailable())
 	assert.Equal(t, int32(2), event.GetTargetRollup().GetTotal())
+}
+
+func TestToStartResponse_EmptyAllPairedTopologyReturnsPending(t *testing.T) {
+	t.Parallel()
+
+	plan := &curtailment.Plan{}
+	req := &pb.StartCurtailmentRequest{
+		Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scopes: []*pb.CurtailmentScope{{
+			Scope: &pb.CurtailmentScope_Building{Building: &pb.ScopeBuilding{BuildingId: 7}},
+		}},
+		ForceIncludeAllPairedMiners: true,
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING, event.GetState())
+	assert.Nil(t, event.GetStartedAt())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
 }
 
 func TestToPreviewResponse_AllPairedUsesBoundedCounts(t *testing.T) {

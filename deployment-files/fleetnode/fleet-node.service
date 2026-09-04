@@ -1,0 +1,36 @@
+[Unit]
+Description=Proto Fleet Node
+Documentation=https://github.com/block/proto-fleet
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=fleetnode
+Group=fleetnode
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/etc/fleetnode/fleetnode.env
+ExecStart=/usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /opt/fleetnode/fleetnode --state-dir /var/lib/fleetnode run
+Restart=on-failure
+RestartSec=5s
+RestartPreventExitStatus=78
+TimeoutStartSec=300s
+TimeoutStopSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/fleetnode /etc/fleetnode
+ReadWritePaths=/var/lib/fleetnode
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

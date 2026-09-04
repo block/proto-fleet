@@ -548,7 +548,7 @@ message PreviewCurtailmentPlanRequest {
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 28 [(buf.validate.field).uint32 = {lte: 86400}];
 
-    // Admin-only FULL_FLEET override (whole-org or site scopes only). When
+    // Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
     // set, the event targets all paired-like miners in scope and holds
     // unavailable miners until they become commandable.
     //
@@ -562,6 +562,22 @@ message PreviewCurtailmentPlanRequest {
     // New topology selectors require version 1. Zero keeps current site/miner
     // callers valid while the server-first rollout is in progress.
     uint32 scope_schema_version = 31 [(buf.validate.field).uint32.lte = 1];
+
+    // Set together when previewing values copied from a saved response profile.
+    int64 response_profile_id = 32 [(buf.validate.field).int64.gte = 0];
+    string expected_response_profile_revision = 33 [(buf.validate.field).string.max_len = 36];
+
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 34 [(buf.validate.field).uint32.const = 1];
+
+    option (buf.validate.message).cel = {
+        id: "response_profile_revision_pair"
+        message: "response_profile_id and expected_response_profile_revision must be set together"
+        expression: "(this.response_profile_id > 0) == (this.expected_response_profile_revision != '')"
+    };
 
     reserved 11 to 23;
 }
@@ -688,7 +704,7 @@ message StartCurtailmentRequest {
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 29 [(buf.validate.field).uint32 = {lte: 86400}];
 
-    // Admin-only FULL_FLEET override (whole-org or site scopes only). When
+    // Admin-only FULL_FLEET override (whole-org, site, building, rack, or group scopes only). When
     // set, the event targets all paired-like miners in scope and holds
     // unavailable miners until they become commandable.
     //
@@ -713,6 +729,23 @@ message StartCurtailmentRequest {
     // New topology selectors require version 1. Zero keeps current site/miner
     // callers valid while the server-first rollout is in progress.
     uint32 scope_schema_version = 41 [(buf.validate.field).uint32.lte = 1];
+
+    // Set together when starting values copied from a saved response profile.
+    // The server locks this revision in the event-create transaction.
+    int64 response_profile_id = 42 [(buf.validate.field).int64.gte = 0];
+    string expected_response_profile_revision = 43 [(buf.validate.field).string.max_len = 36];
+
+    // Required execution-contract version. Version 1 understands response
+    // profile revision binding; zero identifies a pre-versioned client and is
+    // rejected so an already-open stale tab cannot execute copied profile
+    // values as an unbound custom plan.
+    uint32 execution_schema_version = 44 [(buf.validate.field).uint32.const = 1];
+
+    option (buf.validate.message).cel = {
+        id: "response_profile_revision_pair"
+        message: "response_profile_id and expected_response_profile_revision must be set together"
+        expression: "(this.response_profile_id > 0) == (this.expected_response_profile_revision != '')"
+    };
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
@@ -1148,6 +1181,10 @@ message CurtailmentResponseProfile {
     // profile. Zero identifies the pre-versioned site/miner contract.
     uint32 scope_schema_version = 24 [(buf.validate.field).uint32.lte = 1];
 
+    // Opaque execution revision. It changes whenever execution-affecting
+    // profile values change and must be supplied by derived mutations.
+    string revision = 25;
+
     google.protobuf.Timestamp created_at = 20;
     google.protobuf.Timestamp updated_at = 21;
 }
@@ -1321,6 +1358,7 @@ message UpdateCurtailmentResponseProfileRequest {
     // True replaces all three settings; empty IDs and zero delays clear them.
     bool replace_facility_fan_settings = 24;
     uint32 scope_schema_version = 25 [(buf.validate.field).uint32.lte = 1];
+    string expected_revision = 26 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
 }
 
 message UpdateCurtailmentResponseProfileResponse {
@@ -1390,6 +1428,7 @@ message CreateCurtailmentAutomationRuleRequest {
     int64 mqtt_source_id = 3 [(buf.validate.field).int64.gt = 0];
     int64 response_profile_id = 4 [(buf.validate.field).int64.gt = 0];
     optional bool enabled = 5;
+    string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
 }
 
 message CreateCurtailmentAutomationRuleResponse {
@@ -1402,6 +1441,7 @@ message UpdateCurtailmentAutomationRuleRequest {
     CurtailmentAutomationTriggerType trigger_type = 3 [(buf.validate.field).enum.defined_only = true];
     int64 mqtt_source_id = 4 [(buf.validate.field).int64.gt = 0];
     int64 response_profile_id = 5 [(buf.validate.field).int64.gt = 0];
+    string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
 }
 
 message UpdateCurtailmentAutomationRuleResponse {
@@ -1411,6 +1451,13 @@ message UpdateCurtailmentAutomationRuleResponse {
 message SetCurtailmentAutomationRuleEnabledRequest {
     int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
     bool enabled = 2;
+    string expected_response_profile_revision = 3 [(buf.validate.field).string.max_len = 36];
+
+    option (buf.validate.message).cel = {
+        id: "enabled_automation_profile_revision"
+        message: "expected_response_profile_revision must be set when enabling an automation rule"
+        expression: "!this.enabled || this.expected_response_profile_revision != ''"
+    };
 }
 
 message SetCurtailmentAutomationRuleEnabledResponse {

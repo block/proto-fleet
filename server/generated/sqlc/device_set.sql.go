@@ -29,6 +29,7 @@ CROSS JOIN locked_device_set ds
 WHERE d.device_identifier = ANY($3::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL
+ORDER BY d.id
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier
 `

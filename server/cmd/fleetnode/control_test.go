@@ -410,6 +410,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+	requireOperatorActionExit(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
@@ -716,13 +717,30 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	}
 }
 
-func newControlClient(t *testing.T, fake *controlFakeGateway) gatewayClient {
+// newControlClient serves fake over h2c. Optional wrap middlewares are applied
+// server-side around the connect handler, outermost last.
+func newControlClient(t *testing.T, fake *controlFakeGateway, wrap ...func(http.Handler) http.Handler) gatewayClient {
 	t.Helper()
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
+	for _, w := range wrap {
+		h = w(h)
+	}
 	mux.Handle(path, h)
 	srv := testutil.NewH2CServer(t, mux)
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
+}
+
+// dropGRPCDeadline strips Grpc-Timeout so the fake handler's context never
+// expires on its own. connect-go copies the client context deadline into that
+// header, so without this the server would close the stream at the same
+// instant the client's credential context expires and race the client-side
+// errControlSessionExpired cause with a plain EOF.
+func dropGRPCDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("Grpc-Timeout")
+		next.ServeHTTP(w, r)
+	})
 }
 
 type reconnectControlGateway struct {

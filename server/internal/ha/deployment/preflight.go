@@ -26,8 +26,7 @@ type hostEnvironment struct {
 	applyFirewall     func(context.Context, NodeConfig, string) error
 }
 
-// ValidateHost verifies the immutable host inputs before installation changes the machine.
-func ValidateHost(ctx context.Context, envPath string) (NodeConfig, error) {
+func validateInstallHost(ctx context.Context, envPath string) (NodeConfig, fleetApplicationProfile, error) {
 	host := hostEnvironment{
 		goos:              runtime.GOOS,
 		localIPs:          localAddresses,
@@ -50,7 +49,7 @@ func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeC
 }
 
 func preflight(ctx context.Context, envPath, firewallTemplatePath string, host hostEnvironment) (NodeConfig, error) {
-	config, err := validateHost(ctx, envPath, host, true)
+	config, _, err := validateHost(ctx, envPath, host, true)
 	if err != nil {
 		return NodeConfig{}, err
 	}
@@ -60,24 +59,25 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	return config, nil
 }
 
-func validateHost(ctx context.Context, envPath string, host hostEnvironment, probeVirtualIP bool) (NodeConfig, error) {
+func validateHost(ctx context.Context, envPath string, host hostEnvironment, probeVirtualIP bool) (NodeConfig, fleetApplicationProfile, error) {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
-		return NodeConfig{}, err
+		return NodeConfig{}, nil, err
 	}
-	if err := validateHostConfiguration(ctx, config, host, probeVirtualIP); err != nil {
-		return NodeConfig{}, err
+	if err := validateNodeConfig(config); err != nil {
+		return NodeConfig{}, nil, fmt.Errorf("HA preflight failed: %w", err)
 	}
-	if err := validateSecrets(config); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+	profile, err := validateSecrets(config)
+	if err != nil {
+		return NodeConfig{}, nil, fmt.Errorf("HA preflight failed: %w", err)
 	}
-	return config, nil
+	if err := validateHostEnvironment(ctx, config, host, probeVirtualIP, profile); err != nil {
+		return NodeConfig{}, nil, err
+	}
+	return config, profile, nil
 }
 
-func validateHostConfiguration(ctx context.Context, config NodeConfig, host hostEnvironment, probeVirtualIP bool) error {
-	if err := validateNodeConfig(config); err != nil {
-		return fmt.Errorf("HA preflight failed: %w", err)
-	}
+func validateHostEnvironment(ctx context.Context, config NodeConfig, host hostEnvironment, probeVirtualIP bool, profile fleetApplicationProfile) error {
 	if host.goos != "linux" {
 		return errors.New("HA preflight failed: the HA profile requires Linux host networking")
 	}
@@ -146,13 +146,19 @@ func validateHostConfiguration(ctx context.Context, config NodeConfig, host host
 			}
 		}
 	}
+	ports := []int{2379, 2380}
+	if config.isDatabaseNode() {
+		ports = append(ports, 80, 443, 4000, 5432, 8008)
+		if profile.enabled("ENABLE_BETA_ALERTS") {
+			ports = append(ports, 3030)
+		}
+		if profile.enabled("ENABLE_TRACING") {
+			ports = append(ports, haTracingHostPort, haTracingHealthHostPort)
+		}
+	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
 		return fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
-	}
-	ports := []int{2379, 2380}
-	if config.isDatabaseNode() {
-		ports = append(ports, 80, 443, 3030, 4000, 5432, 8008)
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
@@ -232,16 +238,16 @@ func validateNodeConfig(config NodeConfig) error {
 	return nil
 }
 
-func validateSecrets(config NodeConfig) error {
+func validateSecrets(config NodeConfig) (fleetApplicationProfile, error) {
 	dirInfo, err := os.Lstat(config.SecretsDir)
 	if err != nil || !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("secrets directory must be a non-symlink directory: %s", config.SecretsDir)
+		return nil, fmt.Errorf("secrets directory must be a non-symlink directory: %s", config.SecretsDir)
 	}
 	if err := requireCurrentOwner(dirInfo, "secrets directory"); err != nil {
-		return err
+		return nil, err
 	}
 	if dirInfo.Mode().Perm()&0o022 != 0 {
-		return errors.New("secrets directory must not be group/world writable")
+		return nil, errors.New("secrets directory must not be group/world writable")
 	}
 
 	publicFiles := []string{"service-ca.crt", "etcd-server.crt", "etcd-peer.crt", "etcd-jwt.pub"}
@@ -255,58 +261,60 @@ func validateSecrets(config NodeConfig) error {
 	for _, name := range publicFiles {
 		info, err := secureFileInfo(filepath.Join(config.SecretsDir, name), 0)
 		if err != nil {
-			return fmt.Errorf("required identity file %s: %w", name, err)
+			return nil, fmt.Errorf("required identity file %s: %w", name, err)
 		}
 		if err := requireCurrentOwner(info, name); err != nil {
-			return err
+			return nil, err
 		}
 		if info.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("%s must not be group/world writable", name)
+			return nil, fmt.Errorf("%s must not be group/world writable", name)
 		}
 	}
 	for _, name := range keyFiles {
 		info, err := secureFileInfo(filepath.Join(config.SecretsDir, name), 0)
 		if err != nil {
-			return fmt.Errorf("required identity file %s: %w", name, err)
+			return nil, fmt.Errorf("required identity file %s: %w", name, err)
 		}
 		if err := requireCurrentOwner(info, name); err != nil {
-			return err
+			return nil, err
 		}
 		if info.Mode().Perm() != 0o600 {
-			return fmt.Errorf("%s must have mode 0600", name)
+			return nil, fmt.Errorf("%s must have mode 0600", name)
 		}
 	}
 	if _, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile)); err != nil {
-		return fmt.Errorf("required password file %s: %w", fleetEtcdPasswordFile, err)
+		return nil, fmt.Errorf("required password file %s: %w", fleetEtcdPasswordFile, err)
 	}
+	var profile fleetApplicationProfile
 	if config.isDatabaseNode() {
-		if err := validateFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile)); err != nil {
-			return fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
+		profile, err = loadValidatedFleetApplicationProfile(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
+		if err != nil {
+			return nil, fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
 		}
 		for _, name := range databasePasswordFiles {
 			if _, err := readPassword(filepath.Join(config.SecretsDir, name)); err != nil {
-				return fmt.Errorf("required password file %s: %w", name, err)
+				return nil, fmt.Errorf("required password file %s: %w", name, err)
 			}
 		}
 	}
 
-	return nil
+	return profile, nil
 }
 
-func validateFleetEnvironment(path string) error {
+func loadValidatedFleetApplicationProfile(path string) (fleetApplicationProfile, error) {
 	values, err := loadFleetEnvironment(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if values["DB_DSN"] == "" {
-		return errors.New("DB_DSN is required")
+		return nil, errors.New("DB_DSN is required")
 	}
 	if len(values["AUTH_CLIENT_SECRET_KEY"]) < 32 {
-		return errors.New("AUTH_CLIENT_SECRET_KEY must contain at least 32 characters")
+		return nil, errors.New("AUTH_CLIENT_SECRET_KEY must contain at least 32 characters")
 	}
 	masterKey, err := base64.StdEncoding.DecodeString(values["ENCRYPT_SERVICE_MASTER_KEY"])
 	if err != nil || len(masterKey) != 32 {
-		return errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
+		return nil, errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
 	}
 	for _, key := range []string{
 		"GRAFANA_ADMIN_PASSWORD",
@@ -315,10 +323,20 @@ func validateFleetEnvironment(path string) error {
 		"FLEET_ALERTS_WEBHOOK_TOKEN",
 	} {
 		if len(values[key]) < 32 {
-			return fmt.Errorf("%s must contain at least 32 characters", key)
+			return nil, fmt.Errorf("%s must contain at least 32 characters", key)
 		}
 	}
-	return nil
+	return fleetApplicationProfileFromValues(values, true)
+}
+
+var fleetSecretEnvironmentKeys = []string{
+	"AUTH_CLIENT_SECRET_KEY",
+	"DB_DSN",
+	"ENCRYPT_SERVICE_MASTER_KEY",
+	"FLEET_ALERTS_WEBHOOK_TOKEN",
+	"GRAFANA_ADMIN_PASSWORD",
+	"GRAFANA_DB_PASSWORD",
+	"GRAFANA_SECRET_KEY",
 }
 
 func loadFleetEnvironment(path string) (map[string]string, error) {
@@ -336,20 +354,19 @@ func loadFleetEnvironment(path string) (map[string]string, error) {
 	}
 	defer file.Close()
 
-	allowed := map[string]struct{}{
-		"AUTH_CLIENT_SECRET_KEY": {}, "ENCRYPT_SERVICE_MASTER_KEY": {}, "DB_DSN": {},
-		"GRAFANA_ADMIN_PASSWORD": {}, "GRAFANA_DB_PASSWORD": {}, "GRAFANA_SECRET_KEY": {},
-		"FLEET_ALERTS_WEBHOOK_TOKEN": {},
-	}
-	values := make(map[string]string, len(allowed))
-	scanner := bufio.NewScanner(file)
+	return parseFleetEnvironment(file)
+}
+
+func parseFleetEnvironment(reader io.Reader) (map[string]string, error) {
+	values := make(map[string]string, len(fleetSecretEnvironmentKeys)+len(fleetDeploymentEnvironmentKeys))
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		match := envLine.FindStringSubmatch(scanner.Text())
 		if match == nil {
 			return nil, errors.New("contains a malformed entry")
 		}
 		key := match[1]
-		if _, ok := allowed[key]; !ok {
+		if !slices.Contains(fleetSecretEnvironmentKeys, key) && !slices.Contains(fleetDeploymentEnvironmentKeys, key) {
 			return nil, fmt.Errorf("contains unknown key: %s", key)
 		}
 		if _, duplicate := values[key]; duplicate {

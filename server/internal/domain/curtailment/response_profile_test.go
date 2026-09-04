@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
+
+var responseProfileTestRevision = uuid.MustParse("11111111-1111-4111-8111-111111111111")
 
 func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	t.Parallel()
@@ -194,6 +197,7 @@ func TestResponseProfileService_UpdateGrandfathersShrinkingLegacyFacilityFanList
 	profile, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			ID:                      101,
+			Revision:                responseProfileTestRevision,
 			OrgID:                   42,
 			ProfileName:             "Legacy fan set",
 			Mode:                    models.ModeFullFleet,
@@ -227,6 +231,7 @@ func TestResponseProfileService_UpdateRejectsChangingLegacyFacilityFanListAboveL
 	_, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			ID:                      101,
+			Revision:                responseProfileTestRevision,
 			OrgID:                   42,
 			ProfileName:             "Changed legacy fan set",
 			Mode:                    models.ModeFullFleet,
@@ -580,6 +585,7 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	profile, err := svc.Update(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			ID:                      101,
+			Revision:                responseProfileTestRevision,
 			OrgID:                   42,
 			ProfileName:             "Standard shed",
 			Mode:                    models.ModeFixedKw,
@@ -598,6 +604,23 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	assert.Equal(t, int32(0), store.updated.RestoreBatchSize)
 }
 
+func TestResponseProfileService_UpdateRequiresRevision(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:          101,
+			OrgID:       42,
+			ProfileName: "Stale profile",
+			Mode:        models.ModeFullFleet,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "expected_revision must be set")
+}
+
 func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomationRules(t *testing.T) {
 	t.Parallel()
 
@@ -609,6 +632,7 @@ func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomation
 	_, err := svc.Update(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			ID:                      101,
+			Revision:                responseProfileTestRevision,
 			OrgID:                   42,
 			ProfileName:             "Automated shed",
 			Mode:                    models.ModeFullFleet,
@@ -624,16 +648,17 @@ func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomation
 	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
 }
 
-func TestResponseProfileService_UpdateRejectsTopologyScopeWhenProfileHasAutomationRules(t *testing.T) {
+func TestResponseProfileService_UpdateAllowsTopologyScopeWhenProfileHasAutomationRules(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
 	store := newResponseProfileFakeStore()
 	store.automationRuleCount = 1
 
-	_, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
+	updated, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			ID:          101,
+			Revision:    responseProfileTestRevision,
 			OrgID:       42,
 			ProfileName: "Automated building shed",
 			Mode:        models.ModeFixedKw,
@@ -642,10 +667,9 @@ func TestResponseProfileService_UpdateRejectsTopologyScopeWhenProfileHasAutomati
 		},
 	})
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
-	assert.Nil(t, store.updated)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(updated.ScopeJSON))
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
@@ -866,7 +890,7 @@ func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
 	store.automationRuleCount = 1
 	svc := NewResponseProfileService(store)
 
-	err := svc.Delete(t.Context(), 42, 101, nil, nil, models.ResponseProfileFanSettings{})
+	err := svc.Delete(t.Context(), 42, 101, nil, nil, nil, models.ResponseProfileFanSettings{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -956,7 +980,7 @@ func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, prof
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64, []byte, models.ResponseProfileFanSettings) error {
+func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64, []byte, []byte, models.ResponseProfileFanSettings) error {
 	s.deleteCalls++
 	return nil
 }

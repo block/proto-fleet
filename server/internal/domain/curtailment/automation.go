@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
@@ -69,6 +72,7 @@ func NewAutomationService(cfg AutomationServiceConfig) (*AutomationService, erro
 type SaveAutomationRuleRequest struct {
 	Rule                               models.AutomationRule
 	CanUseAdminControls                bool
+	ExpectedResponseProfileRevision    uuid.UUID
 	ExpectedResponseProfileFanSettings models.ResponseProfileFanSettings
 }
 
@@ -103,6 +107,7 @@ func (s *AutomationService) Create(ctx context.Context, req SaveAutomationRuleRe
 		ctx,
 		req.Rule,
 		req.CanUseAdminControls,
+		req.ExpectedResponseProfileRevision,
 		req.ExpectedResponseProfileFanSettings,
 	)
 	if err != nil {
@@ -122,6 +127,7 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 		ctx,
 		req.Rule,
 		req.CanUseAdminControls,
+		req.ExpectedResponseProfileRevision,
 		req.ExpectedResponseProfileFanSettings,
 	)
 	if err != nil {
@@ -142,6 +148,7 @@ func (s *AutomationService) SetEnabled(
 	orgID int64,
 	ruleID int64,
 	enabled bool,
+	expectedResponseProfileRevision uuid.UUID,
 	canUseAdminControls bool,
 	expectedFanSettings models.ResponseProfileFanSettings,
 ) (*models.AutomationRule, error) {
@@ -160,7 +167,13 @@ func (s *AutomationService) SetEnabled(
 	}
 	if enabled {
 		var err error
-		expectedFanSettings, err = s.ensureProfileCanBeAutomated(ctx, rule, canUseAdminControls, expectedFanSettings)
+		expectedFanSettings, err = s.ensureProfileCanBeAutomated(
+			ctx,
+			rule,
+			expectedResponseProfileRevision,
+			canUseAdminControls,
+			expectedFanSettings,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +183,14 @@ func (s *AutomationService) SetEnabled(
 			return nil, err
 		}
 	}
-	return s.store.SetAutomationRuleEnabled(ctx, orgID, ruleID, enabled, expectedFanSettings)
+	return s.store.SetAutomationRuleEnabled(
+		ctx,
+		orgID,
+		ruleID,
+		enabled,
+		expectedResponseProfileRevision,
+		expectedFanSettings,
+	)
 }
 
 func (s *AutomationService) Delete(ctx context.Context, orgID, ruleID int64) error {
@@ -303,17 +323,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		case event.State.IsTerminal():
 			// Stale terminal state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
-			if eventMaxDurationElapsed(event, s.clock()) {
-				return nil
-			}
-			recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{
-				OrgID:     rule.OrgID,
-				EventUUID: event.EventUUID,
-			})
-			if err != nil {
-				return err
-			}
-			return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, recurtailed.EventUUID, at)
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source, event, at)
 		default:
 			return nil
 		}
@@ -322,6 +332,9 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {
 		return err
+	}
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
 	}
 	startReq, err := startRequestFromAutomationProfile(rule, profile, signal)
 	if err != nil {
@@ -341,6 +354,22 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		startReq.AllowUnbounded = true
 		startReq.MaxDurationSeconds = nil
 	}
+	replayEvent, err := s.curtailment.LookupStartReplay(ctx, startReq)
+	if err != nil {
+		return err
+	}
+	if replayEvent != nil {
+		if err := validateAutomationReplayEvent(replayEvent, rule); err != nil {
+			return err
+		}
+		if replayEvent.State == models.EventStateRestoring {
+			return s.recurtailAutomationEvent(ctx, rule, signal.Source, replayEvent, at)
+		}
+		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
+	}
+	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
+		return err
+	}
 	plan, err := s.curtailment.Start(ctx, startReq)
 	if err != nil {
 		return err
@@ -352,7 +381,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return fleeterror.NewInternalError("automation response profile start did not return an event UUID")
 	}
 	if plan.ReplayEvent != nil {
-		if err := validateAutomationReplayEvent(plan.ReplayEvent, rule, profile); err != nil {
+		if err := validateAutomationReplayEvent(plan.ReplayEvent, rule); err != nil {
 			return err
 		}
 	}
@@ -369,6 +398,34 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return err
 	}
 	return nil
+}
+
+func (s *AutomationService) recurtailAutomationEvent(
+	ctx context.Context,
+	rule *models.AutomationRule,
+	mqttSource mqttingest.SourceConfig,
+	event *models.Event,
+	at time.Time,
+) error {
+	if eventMaxDurationElapsed(event, s.clock()) {
+		return nil
+	}
+	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
+		return err
+	}
+	recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{
+		OrgID:                   rule.OrgID,
+		EventUUID:               event.EventUUID,
+		ResponseProfileID:       rule.ResponseProfileID,
+		ResponseProfileRevision: rule.ResponseProfileRevision,
+		AutomationRuleID:        rule.ID,
+		AutomationMQTTSourceID:  mqttSource.ID,
+		AutomationServiceUserID: mqttSource.ServiceUserID,
+	})
+	if err != nil {
+		return err
+	}
+	return s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSource.ID, recurtailed.EventUUID, at)
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {
@@ -435,6 +492,7 @@ func (s *AutomationService) validateAndNormalize(
 	ctx context.Context,
 	rule models.AutomationRule,
 	canUseAdminControls bool,
+	expectedResponseProfileRevision uuid.UUID,
 	expectedFanSettings models.ResponseProfileFanSettings,
 ) (models.AutomationRule, models.ResponseProfileFanSettings, error) {
 	rule.RuleName = strings.TrimSpace(rule.RuleName)
@@ -456,6 +514,11 @@ func (s *AutomationService) validateAndNormalize(
 	if rule.ResponseProfileID <= 0 {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("response_profile_id must be set")
 	}
+	if expectedResponseProfileRevision == uuid.Nil {
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError(
+			"expected_response_profile_revision must be set",
+		)
+	}
 	if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, mqttSourceLookupError(err)
 	}
@@ -463,7 +526,20 @@ func (s *AutomationService) validateAndNormalize(
 	if err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if profile == nil {
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	if profile.Revision == uuid.Nil {
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile revision is missing; reload and retry",
+		)
+	}
+	if profile.Revision != expectedResponseProfileRevision {
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile changed before automation rule save; retry",
+		)
+	}
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -471,23 +547,43 @@ func (s *AutomationService) validateAndNormalize(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
+	rule.ResponseProfileRevision = expectedResponseProfileRevision
 	return rule, expectedFanSettings, nil
 }
 
 func (s *AutomationService) ensureProfileCanBeAutomated(
 	ctx context.Context,
 	rule *models.AutomationRule,
+	expectedResponseProfileRevision uuid.UUID,
 	canUseAdminControls bool,
 	expectedFanSettings models.ResponseProfileFanSettings,
 ) (models.ResponseProfileFanSettings, error) {
 	if rule == nil {
 		return models.ResponseProfileFanSettings{}, nil
 	}
+	if expectedResponseProfileRevision == uuid.Nil {
+		return models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError(
+			"expected_response_profile_revision must be set when enabling an automation rule",
+		)
+	}
 	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {
 		return models.ResponseProfileFanSettings{}, err
 	}
-	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+	if profile == nil {
+		return models.ResponseProfileFanSettings{}, fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	if profile.Revision == uuid.Nil {
+		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile revision is missing; reload and retry",
+		)
+	}
+	if profile.Revision != expectedResponseProfileRevision {
+		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile changed before automation rule save; retry",
+		)
+	}
+	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
 		return models.ResponseProfileFanSettings{}, err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
@@ -498,18 +594,47 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 	return expectedFanSettings, nil
 }
 
-func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
+func (s *AutomationService) currentBoundAutomationProfile(
+	ctx context.Context,
+	rule *models.AutomationRule,
+) (*models.ResponseProfile, error) {
+	if rule == nil {
+		return nil, validateBoundAutomationProfile(nil, nil)
+	}
+	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBoundAutomationProfile(rule, profile); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func validateBoundAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile) error {
+	if rule == nil || rule.ResponseProfileRevision == uuid.Nil {
+		return fleeterror.NewFailedPreconditionError(
+			"automation response profile revision is missing; rebind_required",
+		)
+	}
+	if profile == nil || profile.Revision != rule.ResponseProfileRevision {
+		return fleeterror.NewFailedPreconditionError(
+			"automation response profile changed; rebind_required",
+		)
+	}
+	return nil
+}
+
+func (s *AutomationService) validateAutomationProfileBinding(
+	ctx context.Context,
+	profile *models.ResponseProfile,
+	canUseAdminControls bool,
+) error {
 	if profile == nil {
 		return nil
 	}
-	scope, err := ResponseProfileScope(*profile)
-	if err != nil {
+	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
 		return err
-	}
-	if hasTopologySelectors(scope) {
-		return fleeterror.NewFailedPreconditionError(
-			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
-		)
 	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil
@@ -611,6 +736,10 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		FacilityFanDeviceIDs:      append([]int64(nil), profile.FacilityFanDeviceIDs...),
 		FanOffDelaySec:            profile.FanOffDelaySec,
 		FanRestoreDelaySec:        profile.FanRestoreDelaySec,
+		ResponseProfileID:         profile.ID,
+		ResponseProfileRevision:   rule.ResponseProfileRevision,
+		AutomationRuleID:          rule.ID,
+		AutomationMQTTSourceID:    signal.Source.ID,
 		IdempotencyKey:            &idempotencyKey,
 		ExternalSource:            stringPtr(automationExternalSource),
 		ExternalReference:         &externalReference,
@@ -628,24 +757,24 @@ func automationRuleEventReference(ruleID int64) (externalReference, idempotencyK
 	return externalReference, automationRuleIdempotencyPrefix + externalReference
 }
 
-func validateAutomationReplayEvent(event *models.Event, rule *models.AutomationRule, profile *models.ResponseProfile) error {
+func validateAutomationReplayEvent(event *models.Event, rule *models.AutomationRule) error {
 	if err := validateAutomationReplayOwnership(event, rule, nil); err != nil {
 		return err
 	}
-	if profile == nil || event == nil {
+	if event == nil {
 		return nil
 	}
-	if event.Mode != profile.Mode ||
-		event.Strategy != profile.Strategy ||
-		event.Level != profile.Level ||
-		event.Priority != profile.Priority ||
-		!sameInt32Ptr(event.CurtailBatchSize, profile.CurtailBatchSize) ||
-		event.CurtailBatchIntervalSec != profile.CurtailBatchIntervalSec ||
-		event.RestoreBatchSize != profile.RestoreBatchSize ||
-		event.RestoreBatchIntervalSec != profile.RestoreBatchIntervalSec ||
-		event.FanOffDelaySec != profile.FanOffDelaySec ||
-		event.FanRestoreDelaySec != profile.FanRestoreDelaySec ||
-		!slices.Equal(event.FacilityFanDeviceIDs, profile.FacilityFanDeviceIDs) {
+	var binding struct {
+		ResponseProfileID       int64  `json:"response_profile_id"`
+		ResponseProfileRevision string `json:"response_profile_revision"`
+	}
+	if err := json.Unmarshal(event.DecisionSnapshotJSON, &binding); err != nil {
+		return fleeterror.NewInternalErrorf("failed to parse automation replay profile binding: %v", err)
+	}
+	boundRevision, err := uuid.Parse(binding.ResponseProfileRevision)
+	if err != nil ||
+		binding.ResponseProfileID != rule.ResponseProfileID ||
+		boundRevision != rule.ResponseProfileRevision {
 		return fleeterror.NewFailedPreconditionError(
 			"automation idempotency replay resolved to an event that no longer matches the automation rule profile",
 		)
@@ -653,26 +782,25 @@ func validateAutomationReplayEvent(event *models.Event, rule *models.AutomationR
 	return nil
 }
 
-func sameInt32Ptr(a, b *int32) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
-
 func validateAutomationReplayOwnership(event *models.Event, rule *models.AutomationRule, err error) error {
 	if err != nil || event == nil {
 		return err
 	}
-	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
-	if event.OrgID != rule.OrgID ||
+	return ValidateAutomationEventOwnership(event, rule.OrgID, rule.ID)
+}
+
+// ValidateAutomationEventOwnership verifies that a persisted event carries
+// every immutable ownership marker for the expected automation rule.
+func ValidateAutomationEventOwnership(event *models.Event, orgID, ruleID int64) error {
+	externalReference, idempotencyKey := automationRuleEventReference(ruleID)
+	if event == nil || event.OrgID != orgID ||
 		event.SourceActorType != models.SourceActorAutomation ||
 		event.ExternalSource == nil || *event.ExternalSource != automationExternalSource ||
 		event.ExternalReference == nil || *event.ExternalReference != externalReference ||
 		event.IdempotencyKey == nil || *event.IdempotencyKey != idempotencyKey ||
 		event.SourceActorID == nil || *event.SourceActorID != externalReference {
 		return fleeterror.NewFailedPreconditionError(
-			"automation idempotency replay resolved to an event not owned by this automation rule",
+			"curtailment event is not owned by this automation rule",
 		)
 	}
 	return nil

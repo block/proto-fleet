@@ -100,6 +100,15 @@ func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q sqlc
 	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
+// WithTransactionNoRetryNoResult runs action exactly once. Use it only when
+// action performs an external side effect that cannot safely be replayed.
+func WithTransactionNoRetryNoResult(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, opts ...*sql.TxOptions) error {
+	_, err := executeTransaction(ctx, db, func(q sqlc.Querier) (struct{}, error) {
+		return struct{}{}, action(q)
+	}, firstTxOpts(opts))
+	return err
+}
+
 // WithTransactionTimeout bounds the complete operation, including retries, and
 // applies the same limit inside each transaction.
 func WithTransactionTimeout[T any](ctx context.Context, db *sql.DB, timeout time.Duration, action func(q sqlc.Querier) (T, error)) (T, error) {

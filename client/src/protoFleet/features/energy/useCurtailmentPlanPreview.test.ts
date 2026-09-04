@@ -48,6 +48,7 @@ const baseValues: CurtailmentFormValues = {
   targetKw: "40",
   toleranceKw: "",
   priority: "normal",
+  postEventCooldownSec: "",
   minDurationSec: "300",
   maxDurationSec: "1800",
   curtailBatchSize: "2",
@@ -112,6 +113,9 @@ describe("useCurtailmentPlanPreview", () => {
 
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
+    expect(wholeFleetRequest?.responseProfileId).toBe(0n);
+    expect(wholeFleetRequest?.expectedResponseProfileRevision).toBe("");
+    expect(wholeFleetRequest?.executionSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(wholeFleetRequest?.scopeSchemaVersion).toBe(1);
     expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);
@@ -195,6 +199,20 @@ describe("useCurtailmentPlanPreview", () => {
     expect(buildingRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["building", "building"]);
   });
 
+  it("binds saved response-profile previews to their loaded revision", () => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      postEventCooldownSec: "900",
+    });
+
+    expect(request?.responseProfileId).toBe(27n);
+    expect(request?.expectedResponseProfileRevision).toBe("33333333-3333-4333-8333-333333333333");
+    expect(request?.postEventCooldownSec).toBe(900);
+    expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, responseProfileId: "27" })).toBeUndefined();
+  });
+
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {
     const request = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -212,6 +230,22 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.includeMaintenance).toBe(false);
     expect(request?.forceIncludeMaintenance).toBe(false);
     expect(request?.forceIncludeAllPairedMiners).toBe(false);
+  });
+
+  it("preserves independent maintenance inclusion when previewing a saved full-fleet profile", () => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: false,
+    });
+
+    expect(request?.forceIncludeAllPairedMiners).toBe(false);
+    expect(request?.includeMaintenance).toBe(true);
+    expect(request?.forceIncludeMaintenance).toBe(true);
   });
 
   it("sends all-paired targeting only for full-fleet preview requests", () => {
@@ -257,6 +291,8 @@ describe("useCurtailmentPlanPreview", () => {
 
     const topologyScopedRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
       curtailmentMode: "fullFleet",
       targetKw: "",
       scopeType: "building",
@@ -264,9 +300,30 @@ describe("useCurtailmentPlanPreview", () => {
       includeMaintenance: false,
       forceIncludeAllPairedMiners: true,
     });
-    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
+    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(true);
     expect(topologyScopedRequest?.includeMaintenance).toBe(false);
     expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(false);
+  });
+
+  it.each([
+    { scopeType: "building" as const, field: "buildingTargetIds" as const },
+    { scopeType: "rack" as const, field: "rackTargetIds" as const },
+    { scopeType: "group" as const, field: "groupTargetIds" as const },
+  ])("previews all-paired execution for $scopeType profiles", ({ scopeType, field }) => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      responseProfileId: "27",
+      responseProfileRevision: "33333333-3333-4333-8333-333333333333",
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType,
+      [field]: ["7"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request?.forceIncludeAllPairedMiners).toBe(true);
+    expect(request?.includeMaintenance).toBe(true);
+    expect(request?.forceIncludeMaintenance).toBe(true);
   });
 
   it("does not build a request until target and scope are valid", () => {

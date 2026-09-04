@@ -1,7 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import {
   type CurtailmentAutomationRule,
   CurtailmentAutomationRuleSchema,
@@ -9,7 +11,10 @@ import {
   CurtailmentAutomationTriggerType,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
-import type { AutomationRuleFormValues } from "@/protoFleet/features/settings/components/Curtailment/types";
+import type {
+  AutomationRuleFormValues,
+  ResponseProfile,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const {
   mockCreateCurtailmentAutomationRule,
@@ -47,6 +52,7 @@ const formValues: AutomationRuleFormValues = {
   name: "ERCOT ERS obligation",
   sourceId: "11",
   responseProfileId: "21",
+  responseProfileRevision: "11111111-1111-4111-8111-111111111111",
 };
 
 function apiRule(overrides: Partial<CurtailmentAutomationRule> = {}): CurtailmentAutomationRule {
@@ -114,6 +120,7 @@ describe("useCurtailmentAutomationRules", () => {
         triggerType: CurtailmentAutomationTriggerType.MQTT,
         mqttSourceId: 11n,
         responseProfileId: 21n,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
         enabled: true,
       }),
     );
@@ -129,6 +136,7 @@ describe("useCurtailmentAutomationRules", () => {
         triggerType: CurtailmentAutomationTriggerType.MQTT,
         mqttSourceId: 11n,
         responseProfileId: 21n,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
       }),
     );
   });
@@ -147,6 +155,21 @@ describe("useCurtailmentAutomationRules", () => {
       expect.objectContaining({
         ruleId: 7n,
         enabled: false,
+        expectedResponseProfileRevision: "",
+      }),
+    );
+
+    mockSetCurtailmentAutomationRuleEnabled.mockResolvedValueOnce({ rule: apiRule({ enabled: true }) });
+
+    await act(async () => {
+      await result.current.setAutomationRuleEnabled("7", true, formValues.responseProfileRevision);
+    });
+
+    expect(mockSetCurtailmentAutomationRuleEnabled).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ruleId: 7n,
+        enabled: true,
+        expectedResponseProfileRevision: formValues.responseProfileRevision,
       }),
     );
 
@@ -159,6 +182,48 @@ describe("useCurtailmentAutomationRules", () => {
         ruleId: 7n,
       }),
     );
+  });
+
+  it("refreshes response profiles after a stale revision prevents saving or enabling a rule", async () => {
+    const latestProfile = {
+      id: "21",
+      revision: "22222222-2222-4222-8222-222222222222",
+    } as ResponseProfile;
+    const refreshResponseProfiles = vi.fn().mockResolvedValue([latestProfile]);
+    const createConflict = () =>
+      new ConnectError(
+        "curtailment response profile changed before automation rule save; retry",
+        Code.FailedPrecondition,
+      );
+    mockCreateCurtailmentAutomationRule.mockRejectedValueOnce(createConflict());
+    mockUpdateCurtailmentAutomationRule.mockRejectedValueOnce(createConflict());
+    mockSetCurtailmentAutomationRuleEnabled.mockRejectedValueOnce(createConflict());
+
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false, { refreshResponseProfiles }));
+
+    const operations = [
+      () => result.current.createAutomationRule(formValues),
+      () => result.current.updateAutomationRule("7", formValues),
+      () => result.current.setAutomationRuleEnabled("7", true, formValues.responseProfileRevision),
+    ];
+
+    for (const operation of operations) {
+      let caughtError: unknown;
+      await act(async () => {
+        try {
+          await operation();
+        } catch (error) {
+          caughtError = error;
+        }
+      });
+
+      expect(caughtError).toBeInstanceOf(AutomationResponseProfileRevisionConflictError);
+      expect(
+        (caughtError as AutomationResponseProfileRevisionConflictError).latestResponseProfileRevisionById.get("21"),
+      ).toBe(latestProfile.revision);
+    }
+
+    expect(refreshResponseProfiles).toHaveBeenCalledTimes(3);
   });
 
   it("rejects invalid source and response profile IDs before creating a CRUD request", async () => {

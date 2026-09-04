@@ -493,10 +493,12 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
 		Return([]sqlc.ListMinerStateSnapshotsRow{{
-			DeviceIdentifier: deviceID,
-			PairingStatus:    "PAIRED",
-			SerialNumber:     sql.NullString{String: serial, Valid: true},
-			Model:            sql.NullString{String: "S21 XP", Valid: true},
+			DeviceIdentifier:     deviceID,
+			PairingStatus:        "PAIRED",
+			SerialNumber:         sql.NullString{String: serial, Valid: true},
+			Model:                sql.NullString{String: "S21 XP", Valid: true},
+			DeviceStatus:         sqlc.NullDeviceStatusEnum{DeviceStatusEnum: sqlc.DeviceStatusEnumACTIVE, Valid: true},
+			FleetNodeUnavailable: true,
 		}}, "", int64(1), nil)
 	// Paired snapshot triggers hydration; return empty placement data.
 	collectionStore.EXPECT().
@@ -520,6 +522,8 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
 	assert.Equal(t, serial, resp.Snapshot.SerialNumber)
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Snapshot.PairingStatus)
+	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_OFFLINE, resp.Snapshot.DeviceStatus)
+	assert.Equal(t, pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE, resp.Snapshot.OfflineReason)
 }
 
 func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {

@@ -19,6 +19,7 @@ import {
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  DeviceOfflineReason,
   DeviceStatus,
   type MinerStateSnapshot,
   PairingStatus,
@@ -76,6 +77,7 @@ const baseMeasurements = {
   ],
   workerName: "worker-base",
   rackPosition: "",
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
 };
 
 // ============================================================================
@@ -121,6 +123,7 @@ export const offlineMiner: MinerStateSnapshot = {
   powerUsage: [],
   temperature: [],
   deviceStatus: DeviceStatus.OFFLINE,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
@@ -151,6 +154,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   powerUsage: [],
   temperature: baseMeasurements.temperature,
   deviceStatus: DeviceStatus.INACTIVE,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
@@ -180,6 +184,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
   powerUsage: [],
   temperature: [],
   deviceStatus: DeviceStatus.ERROR,
+  offlineReason: DeviceOfflineReason.UNSPECIFIED,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,

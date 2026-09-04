@@ -57,6 +57,9 @@ func newUpdateStubStore(state models.EventState) *updateStubStore {
 			RestoreBatchSize:        10,
 			RestoreBatchIntervalSec: 120,
 			Reason:                  "initial reason",
+			AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+				nil, nil, true, nil, false,
+			),
 		},
 	}
 }
@@ -145,6 +148,7 @@ func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
@@ -152,12 +156,15 @@ func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *updateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
 }
 func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
@@ -185,7 +192,7 @@ func (s *updateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UU
 func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by Update handler tests")
 }
-func (s *updateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *updateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, interfaces.BeginRecurtailTransitionParams) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by Update handler tests")
 }
 func (s *updateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -354,7 +361,7 @@ func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing
 	}{
 		{"org permission without site narrowing allows update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
 		{"matching site narrowing allows update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
-		{"site-only permission denies update", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site-only permission allows matching update", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
 		{"site narrowing without manage denies update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -362,6 +369,9 @@ func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing
 			store := newUpdateStubStore(models.EventStateActive)
 			store.event.ScopeType = models.ScopeTypeSite
 			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			store.event.AuthorizationEnvelopeJSON = testAuthorizationEnvelopeJSON(
+				[]int64{allowedSite}, nil, false, nil, false,
+			)
 			h := NewHandler(domainCurtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
