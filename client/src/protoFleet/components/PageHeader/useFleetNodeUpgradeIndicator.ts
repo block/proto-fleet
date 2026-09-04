@@ -31,10 +31,10 @@ export function useFleetNodeUpgradeIndicator({
     try {
       const nodes = await listFleetNodes();
       if (requestId === latestRequestId.current) {
-        setResult({
-          nodeCount: nodes.filter((node) => node.commandProtocolUpgradeRequired).length,
-          pollEpoch,
-        });
+        const nodeCount = nodes.filter((node) => node.commandProtocolUpgradeRequired).length;
+        setResult((current) =>
+          current?.pollEpoch === pollEpoch && current.nodeCount === nodeCount ? current : { nodeCount, pollEpoch },
+        );
       }
     } catch {
       // Keep the shell quiet when a background refresh fails. The Nodes page
