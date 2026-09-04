@@ -181,7 +181,9 @@ message ReleaseChannelScope {
 // How a rollout distributes the update across its targets.
 enum RolloutMethod {
     ROLLOUT_METHOD_UNSPECIFIED = 0;
-    // Single batch: every mismatched miner is updated at once.
+    // One ungated REST stage for every mismatched miner, with no batching,
+    // waits, or review gates. This does not guarantee simultaneous command
+    // dispatch; max_concurrent_offline may throttle dispatch.
     ROLLOUT_METHOD_ALL_AT_ONCE = 1;
     // Multiple batches of batch_size, optionally reviewed after each one;
     // late joiners follow once the batches are done.
@@ -214,8 +216,8 @@ message RolloutAutomationThresholds {
     optional int32 max_new_errors = 4 [(buf.validate.field).int32 = {gte: 0}];
 }
 
-// How updates started in a channel are paced. Stored on the channel and
-// copied onto each rollout when it starts.
+// How updates started in a channel are staged and dispatched. Stored on the
+// channel and copied onto each rollout when it starts.
 message RolloutBehavior {
     option (buf.validate.message).cel = {
         id: "batch_size_required_for_batched"
@@ -250,8 +252,9 @@ message RolloutBehavior {
     // auto-continue, so post-update telemetry has settled.
     int32 stabilization_seconds = 8 [(buf.validate.field).int32 = {gte: 0}];
     RolloutAutomationThresholds thresholds = 9;
-    // Never have more than this many miners mid-update at once; 0 means no
-    // limit.
+    // Safety override across every rollout method, including ALL_AT_ONCE.
+    // When nonzero, command dispatch is throttled so the number of miners
+    // mid-update never exceeds this value; 0 means unlimited.
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
 }
 
@@ -284,9 +287,11 @@ message ReleaseChannelSummary {
     int32 model_group_count = 9;
 }
 
-// Summary for one manufacturer/model pair in a channel, including its member
-// count and firmware assignment. Empty manufacturer or model means the
-// identity of unassigned members is unknown.
+// Summary for one observed manufacturer/model pair in a channel, including
+// its member count and firmware assignment. Observed identities up to 255
+// characters are returned verbatim and may contain non-ASCII, whitespace, or
+// control characters; an empty manufacturer or model means the identity is
+// unknown.
 message ReleaseChannelModelGroup {
     option (buf.validate.message).cel = {
         id: "reported_version_count_covers_returned_versions"
@@ -295,12 +300,12 @@ message ReleaseChannelModelGroup {
     };
     option (buf.validate.message).cel = {
         id: "firmware_assignment_requires_target_identity"
-        message: "assigned firmware requires manufacturer, model, and firmware_version"
-        expression: "this.firmware_file_id == '' || (this.manufacturer != '' && this.model != '' && this.firmware_version != '')"
+        message: "assigned firmware requires canonical manufacturer/model target keys and firmware_version"
+        expression: "this.firmware_file_id == '' || (this.manufacturer.matches('^[!-~](?:[ -~]*[!-~])?$') && this.model.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_version != '')"
     };
 
-    string manufacturer = 1 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
     // Empty when no firmware is assigned to this manufacturer/model pair. A
     // nonempty current assignment protects the artifact from deletion.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
@@ -324,13 +329,15 @@ message ReleaseChannelModelGroup {
     int32 reported_version_count = 9;
 }
 
-// A miner resolved into a release channel. Empty manufacturer or model means
-// the miner's reported hardware identity is unknown.
+// A miner resolved into a release channel. Observed identities up to 255
+// characters are returned verbatim and may contain non-ASCII, whitespace, or
+// control characters; an empty manufacturer or model means the miner's
+// identity is unknown.
 message ReleaseChannelMiner {
     int64 device_id = 1;
     string device_identifier = 2;
-    string manufacturer = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 4 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
+    string model = 4 [(buf.validate.field).string.max_len = 255];
     // Firmware version the miner currently reports.
     string firmware_version = 5;
     // Set when this channel is the unique highest-specificity match and at
@@ -364,13 +371,14 @@ enum ReleaseChannelConflictResolution {
 // highest-specificity match produces one WINNER and one LOSER for each
 // lower-specificity match. A highest-specificity tie produces one EXCLUDED_TIE
 // for each tied channel and one LOSER for each lower-specificity match.
-// Empty manufacturer or model means the miner's reported hardware identity is
-// unknown.
+// Observed identities up to 255 characters are returned verbatim and may
+// contain non-ASCII, whitespace, or control characters; an empty manufacturer
+// or model means the miner's identity is unknown.
 message ReleaseChannelMembershipConflict {
     int64 device_id = 1;
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
-    string manufacturer = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 4 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
+    string model = 4 [(buf.validate.field).string.max_len = 255];
     int64 channel_id = 5;
     string channel_name = 6 [(buf.validate.field).string.max_len = 100];
     ReleaseChannelSelectorSpecificity selector_specificity = 7 [(buf.validate.field).enum = {
@@ -412,8 +420,10 @@ enum RolloutStatus {
     // The rollout is enforcing its firmware version.
     ROLLOUT_STATUS_ACTIVE = 1;
     // Every targeted miner settled successfully under the operational
-    // criteria: assigned version, back online, and hashing if it was hashing
-    // at baseline. Aggregate telemetry deltas do not affect this status.
+    // criteria: assigned version, back online, and hashing when
+    // baseline_hashing is true or has_baseline is false. A miner with a
+    // baseline that was not hashing does not need to be hashing. Aggregate
+    // telemetry deltas do not affect this status.
     ROLLOUT_STATUS_COMPLETED = 2;
     // Every targeted miner settled, but some failed.
     ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
@@ -434,7 +444,8 @@ enum RolloutCancelReason {
     ROLLOUT_CANCEL_REASON_CLEARED = 4;
 }
 
-// Progress of a staged rollout. ALL_AT_ONCE rollouts are always in REST.
+// Progress of a staged rollout. ALL_AT_ONCE rollouts remain in one ungated
+// REST stage; REST does not imply simultaneous command dispatch.
 enum RolloutStage {
     ROLLOUT_STAGE_UNSPECIFIED = 0;
     // Updating the current batch only.
@@ -445,7 +456,8 @@ enum RolloutStage {
     // The current batch is done; waiting wait_between_batches_seconds
     // before the next one starts.
     ROLLOUT_STAGE_WAITING = 3;
-    // Updating all remaining targets.
+    // Updating all remaining targets with no further waits or review gates.
+    // Command dispatch may still be throttled by max_concurrent_offline.
     ROLLOUT_STAGE_REST = 4;
 }
 
@@ -476,8 +488,10 @@ enum RolloutDevicePhase {
     ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
     // The first attempt did not take; the update was re-sent.
     ROLLOUT_DEVICE_PHASE_RETRYING = 3;
-    // Reports the target version, is online, and is hashing if it was hashing
-    // at baseline. Per-device telemetry deltas do not affect this phase.
+    // Reports the target version, is online, and is hashing when
+    // baseline_hashing is true or has_baseline is false. A miner with a
+    // baseline that was not hashing does not need to be hashing. Per-device
+    // telemetry deltas do not affect this phase.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, or the rollout was canceled before this miner
     // updated. Not retried until RetryFailedRolloutDevices.
@@ -609,8 +623,11 @@ message RolloutDevice {
     string status = 7;
     bool online = 8;
     bool hashing = 9;
-    // False for late joiners with no baseline snapshot.
+    // False for late joiners with no baseline snapshot; those miners must be
+    // currently hashing to reach DONE.
     bool has_baseline = 10;
+    // Whether the miner was hashing at baseline. When has_baseline is true,
+    // this controls whether current hashing is required to reach DONE.
     bool baseline_hashing = 11;
     int32 open_errors = 12;
     int32 baseline_open_errors = 13;
@@ -664,9 +681,11 @@ message ListReleaseChannelModelGroupsResponse {
 
 message ListReleaseChannelMinersRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
-    // Empty filters return every manufacturer/model pair in the channel.
-    string manufacturer = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    // Filters accept observed identities verbatim up to 255 characters,
+    // including non-ASCII, whitespace, and control characters. Empty filters
+    // return every manufacturer/model pair in the channel.
+    string manufacturer = 2 [(buf.validate.field).string.max_len = 255];
+    string model = 3 [(buf.validate.field).string.max_len = 255];
     // Maximum miners to return. 0 uses the server default of 100.
     int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     // Cursor returned by a previous call; leave empty for the first page.
@@ -740,11 +759,13 @@ message ReleaseChannelScopeConflict {
     int32 miner_count = 3;
 }
 
-// Aggregate count for one observed hardware identity. Empty manufacturer or
-// model means the reported hardware identity is unknown.
+// Aggregate count for one observed hardware identity. Observed identities up
+// to 255 characters are returned verbatim and may contain non-ASCII,
+// whitespace, or control characters; an empty manufacturer or model means the
+// identity is unknown.
 message ReleaseChannelScopeModelCount {
-    string manufacturer = 1 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
     int32 miner_count = 3;
 }
 
