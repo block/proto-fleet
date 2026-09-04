@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { RepairLocation, TicketResolution } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useInventoryApi } from "@/protoFleet/api/inventory";
 import type { PartSelection } from "@/protoFleet/api/maintenance";
+import type { PartUsageItem } from "@/protoFleet/features/maintenance/types";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
@@ -9,6 +10,7 @@ import Textarea from "@/shared/components/Textarea";
 interface CompletionFormProps {
   isMinerTicket?: boolean;
   siteId: string | null;
+  initialParts?: PartUsageItem[];
   onSubmit: (value: {
     resolution: TicketResolution;
     repairLocation: RepairLocation;
@@ -28,12 +30,21 @@ const LOCATION_OPTIONS = [
   { value: String(RepairLocation.ON_RACK), label: "On-rack" },
   { value: String(RepairLocation.REPAIR_BENCH), label: "Repair bench" },
 ];
-const CompletionForm = ({ isMinerTicket = true, siteId, onSubmit, onCancel }: CompletionFormProps) => {
+const EMPTY_INITIAL_PARTS: PartUsageItem[] = [];
+const CompletionForm = ({
+  isMinerTicket = true,
+  siteId,
+  initialParts = EMPTY_INITIAL_PARTS,
+  onSubmit,
+  onCancel,
+}: CompletionFormProps) => {
   const { listPartsBySite } = useInventoryApi();
   const [resolution, setResolution] = useState(TicketResolution.REPAIRED);
   const [repairLocation, setRepairLocation] = useState(RepairLocation.ON_RACK);
   const [parts, setParts] = useState<Array<{ id: bigint; name: string; available: number }>>([]);
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
+    Object.fromEntries(initialParts.map((part) => [part.inventoryPartId, part.quantity])),
+  );
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,12 +57,21 @@ const CompletionForm = ({ isMinerTicket = true, siteId, onSubmit, onCancel }: Co
           siteId: BigInt(siteId),
           signal: controller.signal,
           onSuccess: (items) =>
-            setParts(items.map((item) => ({ id: item.id, name: item.name, available: item.onHand - item.allocated }))),
+            setParts(
+              items.map((item) => ({
+                id: item.id,
+                name: item.name,
+                available:
+                  item.onHand -
+                  item.allocated +
+                  (initialParts.find((part) => part.inventoryPartId === item.id.toString())?.quantity ?? 0),
+              })),
+            ),
           onError: setError,
         }),
     );
     return () => controller.abort();
-  }, [listPartsBySite, siteId]);
+  }, [initialParts, listPartsBySite, siteId]);
   const submit = async () => {
     setBusy(true);
     setError(null);

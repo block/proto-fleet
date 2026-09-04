@@ -74,7 +74,6 @@ type UpdateParams struct {
 	ReorderPoint *int32
 	BinLocation  *string
 	Reason       AdjustmentReason
-	Notes        *string
 }
 
 // ListFilter selects which inventory parts to return.

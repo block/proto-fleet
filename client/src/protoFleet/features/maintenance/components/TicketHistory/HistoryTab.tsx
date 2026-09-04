@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
-import { SortDirection, TicketSortField } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import {
+  SortDirection,
+  TicketResolution,
+  TicketSortField,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -29,6 +33,13 @@ const colTitles: ColTitles<Columns> = {
   resolution: "Resolution",
   completedAt: "Completed",
   assignee: "Technician",
+};
+const resolutionLabels: Partial<Record<TicketResolution, string>> = {
+  [TicketResolution.REPAIRED]: "Repaired",
+  [TicketResolution.REPLACED]: "Replaced",
+  [TicketResolution.DEFERRED]: "Deferred",
+  [TicketResolution.UNREPAIRABLE]: "Unrepairable",
+  [TicketResolution.NO_ACTION_NEEDED]: "No action needed",
 };
 const HistoryTab = () => {
   const { listCompleted } = useMaintenanceApi();
@@ -67,7 +78,7 @@ const HistoryTab = () => {
                     component: summary.ticket.component,
                     diagnosis: summary.ticket.diagnosis,
                     minerIdentifier: summary.ticket.minerIdentifier ?? null,
-                    resolution: summary.ticket.resolution.toString(),
+                    resolution: resolutionLabels[summary.ticket.resolution] ?? "Unknown",
                     assigneeName: summary.ticket.assigneeName || null,
                     completedAt: summary.ticket.completedAt
                       ? new Date(Number(summary.ticket.completedAt.seconds) * 1000).toLocaleString()

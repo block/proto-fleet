@@ -132,6 +132,9 @@ enum AdjustmentReason {
 }
 
 message UpdateInventoryPartRequest {
+    reserved 6;
+    reserved "notes";
+
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
 
     optional int32  on_hand       = 2 [(buf.validate.field).int32.gte = 0];
@@ -139,7 +142,6 @@ message UpdateInventoryPartRequest {
     optional string bin_location  = 4 [(buf.validate.field).string.max_len = 64];
 
     AdjustmentReason reason = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-    string           notes  = 6 [(buf.validate.field).string.max_len = 4096];
 }
 
 message UpdateInventoryPartResponse {

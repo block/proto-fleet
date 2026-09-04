@@ -390,6 +390,9 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 	if newStatus == models.TicketStatusCompleted {
 		return 0, fleeterror.NewInvalidArgumentError("use bulk close to complete tickets")
 	}
+	if newStatus == models.TicketStatusSentToVendor {
+		return 0, fleeterror.NewInvalidArgumentError("tickets must be sent to a vendor individually with RMA details")
+	}
 
 	ids, err := normalizeBulkIDs(ticketIDs)
 	if err != nil {
@@ -454,6 +457,9 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 				return err
 			}
 		}
+		if err := s.requireMutableTickets(txCtx, orgID, ids); err != nil {
+			return err
+		}
 		rows, err := s.store.BulkAssignTickets(txCtx, orgID, ids, assigneeUserID)
 		if err != nil {
 			return err
@@ -497,6 +503,9 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 
 	var affected int64
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if err := s.requireMutableTickets(txCtx, orgID, ids); err != nil {
+			return err
+		}
 		rows, err := s.store.BulkMarkUrgent(txCtx, orgID, ids)
 		if err != nil {
 			return err
@@ -549,25 +558,26 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			if err != nil {
 				return err
 			}
-			if ticket.Status != models.TicketStatusCompleted && !statusTransitionAllowed(ticket.Status, models.TicketStatusCompleted) {
+			if ticket.Status == models.TicketStatusCompleted {
+				continue
+			}
+			if !statusTransitionAllowed(ticket.Status, models.TicketStatusCompleted) {
 				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot be completed", id)
 			}
 			if err := validateCompletion(ticket.Category, params.Resolution, params.RepairLocation); err != nil {
 				return err
 			}
-			if ticket.Status != models.TicketStatusCompleted {
-				parts, err := s.store.ListTicketParts(txCtx, params.OrgID, id)
-				if err != nil {
+			parts, err := s.store.ListTicketParts(txCtx, params.OrgID, id)
+			if err != nil {
+				return err
+			}
+			for _, part := range activeParts(parts) {
+				if err := s.inventory.ConsumeReserved(txCtx, params.OrgID, part.InventoryPartID, part.Quantity); err != nil {
 					return err
 				}
-				for _, part := range activeParts(parts) {
-					if err := s.inventory.ConsumeReserved(txCtx, params.OrgID, part.InventoryPartID, part.Quantity); err != nil {
-						return err
-					}
-				}
-				if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, id); err != nil {
-					return err
-				}
+			}
+			if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, id); err != nil {
+				return err
 			}
 			if ticket.Category == models.TicketCategoryMiner {
 				minerIDs = append(minerIDs, id)
@@ -769,6 +779,19 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 	if err != nil {
 		return nil, err
 	}
+	for index := range next {
+		part, err := s.inventory.GetForUpdate(ctx, ticket.OrgID, next[index].InventoryPartID)
+		if err != nil {
+			return nil, err
+		}
+		if ticket.SiteID == nil || part.SiteID == nil || *ticket.SiteID != *part.SiteID {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"inventory part %d is not stocked at the ticket site",
+				next[index].InventoryPartID,
+			)
+		}
+		next[index].PartName = part.Name
+	}
 	currentByID := partsByID(current)
 	nextByID := partsByID(next)
 	ids := make([]int64, 0, len(currentByID)+len(nextByID))
@@ -805,6 +828,19 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 		}
 	}
 	return next, nil
+}
+
+func (s *Service) requireMutableTickets(ctx context.Context, orgID int64, ids []int64) error {
+	for _, id := range ids {
+		ticket, err := s.store.GetRepairTicketForUpdate(ctx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if ticket.Status == models.TicketStatusCompleted {
+			return fleeterror.NewFailedPreconditionErrorf("completed ticket %d is terminal", id)
+		}
+	}
+	return nil
 }
 
 func normalizeBulkIDs(ids []int64) ([]int64, error) {

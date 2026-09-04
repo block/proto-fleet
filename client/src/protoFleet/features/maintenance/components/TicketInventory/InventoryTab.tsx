@@ -61,6 +61,17 @@ const InventoryTab = () => {
         : [],
     [canManage],
   );
+  const mutationControls = canManage ? (
+    <div className="flex gap-2">
+      <Button text="Add part" variant={variants.secondary} size={buttonSizes.compact} onClick={() => setCreate(true)} />
+      <Button
+        text="Import CSV"
+        variant={variants.secondary}
+        size={buttonSizes.compact}
+        onClick={() => setImporting(true)}
+      />
+    </div>
+  ) : undefined;
   if (inventory.loading && !inventory.data.length) return <div role="status">Loading inventory…</div>;
   if (inventory.error && !inventory.data.length) return <div role="alert">{inventory.error}</div>;
   return (
@@ -104,27 +115,13 @@ const InventoryTab = () => {
           stickyFirstColumn={false}
           total={inventory.data.length}
           itemName={{ singular: "part", plural: "parts" }}
-          headerControls={
-            canManage ? (
-              <div className="flex gap-2">
-                <Button
-                  text="Add part"
-                  variant={variants.secondary}
-                  size={buttonSizes.compact}
-                  onClick={() => setCreate(true)}
-                />
-                <Button
-                  text="Import CSV"
-                  variant={variants.secondary}
-                  size={buttonSizes.compact}
-                  onClick={() => setImporting(true)}
-                />
-              </div>
-            ) : undefined
-          }
+          headerControls={mutationControls}
         />
       ) : (
-        <div>No inventory parts</div>
+        <div className="flex items-center justify-between">
+          <span>No inventory parts</span>
+          {mutationControls}
+        </div>
       )}
       {inventory.nextPageToken ? (
         <Button text="Load more" variant={variants.secondary} onClick={() => void inventory.loadMore()} />

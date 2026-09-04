@@ -5,7 +5,6 @@ import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
-import Textarea from "@/shared/components/Textarea";
 interface Props {
   part: InventoryPartItem;
   onDismiss: () => void;
@@ -15,7 +14,6 @@ interface Props {
     reorderPoint: number;
     binLocation: string;
     reason: AdjustmentReason;
-    notes: string;
   }) => Promise<boolean>;
 }
 const reasons = [
@@ -30,7 +28,6 @@ const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
   const [reorder, setReorder] = useState(String(part.reorderPoint));
   const [bin, setBin] = useState(part.binLocation);
   const [reason, setReason] = useState(AdjustmentReason.UNSPECIFIED);
-  const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const valid =
@@ -48,7 +45,6 @@ const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
       reorderPoint: Number(reorder),
       binLocation: bin,
       reason,
-      notes,
     });
     setBusy(false);
     if (ok) onDismiss();
@@ -82,7 +78,6 @@ const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
           value={String(reason)}
           onChange={(value) => setReason(Number(value) as AdjustmentReason)}
         />
-        <Textarea id="adjust-notes" label="Notes" onChange={setNotes} rows={2} />
         {error ? <div role="alert">{error}</div> : null}
       </div>
     </Modal>

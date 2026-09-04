@@ -46,12 +46,10 @@ describe("useInventoryApi", () => {
     clients.importInventoryCsv.mockResolvedValue({ rows: [], validCount: 2, errorCount: 0 });
     const bytes = new Uint8Array([1, 2]);
     const { result } = renderHook(() => useInventoryApi());
-    await act(() =>
-      result.current.updatePart({ id: 2n, onHand: 10, reason: AdjustmentReason.CYCLE_COUNT, notes: "count" }),
-    );
+    await act(() => result.current.updatePart({ id: 2n, onHand: 10, reason: AdjustmentReason.CYCLE_COUNT }));
     await act(() => result.current.importCsv({ csvData: bytes }));
     expect(clients.updateInventoryPart).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 2n, onHand: 10, reason: AdjustmentReason.CYCLE_COUNT, notes: "count" }),
+      expect.objectContaining({ id: 2n, onHand: 10, reason: AdjustmentReason.CYCLE_COUNT }),
       expect.anything(),
     );
     expect(clients.importInventoryCsv).toHaveBeenCalledWith({ csvData: bytes }, expect.anything());

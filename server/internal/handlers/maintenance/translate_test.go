@@ -20,6 +20,16 @@ func TestToUpdateParamsPreservesPartsSelectionPresence(t *testing.T) {
 	assert.Empty(t, *withEmpty.PartsSelection)
 }
 
+func TestToUpdateParamsAcceptsNoActionNeededResolution(t *testing.T) {
+	params, err := toUpdateParams(&pb.UpdateRepairTicketRequest{
+		Id:         1,
+		Resolution: pb.TicketResolution_TICKET_RESOLUTION_NO_ACTION_NEEDED.Enum(),
+	}, 42)
+	require.NoError(t, err)
+	require.NotNil(t, params.Resolution)
+	assert.Equal(t, models.TicketResolutionNoActionNeeded, *params.Resolution)
+}
+
 func TestToListFilterRangeChecksSortAndIncludesOverdue(t *testing.T) {
 	filter, err := toListFilter(&pb.ListRepairTicketsRequest{Filter: &pb.TicketFilter{OverdueOnly: true}, SortField: pb.TicketSortField_TICKET_SORT_FIELD_CREATED_AT, SortDirection: pb.SortDirection_SORT_DIRECTION_DESC}, 42)
 	require.NoError(t, err)

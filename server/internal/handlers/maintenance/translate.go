@@ -114,7 +114,7 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 		params.WarrantyStatus = &v
 	}
 	if req.Resolution != nil {
-		raw, err := checkedEnumValue(int32(req.GetResolution()), 0, 4, "resolution")
+		raw, err := checkedEnumValue(int32(req.GetResolution()), 0, 5, "resolution")
 		if err != nil {
 			return models.UpdateParams{}, err
 		}

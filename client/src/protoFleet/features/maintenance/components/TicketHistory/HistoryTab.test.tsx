@@ -31,6 +31,7 @@ vi.mock("../TicketDetail/TicketDetailModal", () => ({ default: () => null }));
 it("loads completed ticket history without an export control", async () => {
   render(<HistoryTab />);
   await waitFor(() => expect(screen.getByText("TK-2")).toBeInTheDocument());
+  expect(screen.getByText("Repaired")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Export CSV/i })).not.toBeInTheDocument();
   expect(listCompleted).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 50 }));
 });

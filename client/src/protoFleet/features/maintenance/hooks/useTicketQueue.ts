@@ -6,7 +6,7 @@ import { SortDirection, TicketSortField } from "@/protoFleet/api/generated/maint
 import { type BulkTicketMutation, useMaintenanceApi } from "@/protoFleet/api/maintenance";
 
 export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
-  const { listTickets, getStats, bulkUpdate: sendBulkUpdate } = useMaintenanceApi();
+  const { listTickets, getStats, bulkUpdate: sendBulkUpdate, updateTicket } = useMaintenanceApi();
   const [data, setData] = useState<TicketItem[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +82,22 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
     setNextPageToken("");
     setFilterState(value);
   }, []);
+  const setUrgent = useCallback(
+    async (ticketId: string, urgent: boolean) => {
+      let ok = false;
+      await updateTicket({
+        id: BigInt(ticketId),
+        urgent,
+        onSuccess: () => {
+          ok = true;
+        },
+        onError: setError,
+      });
+      if (ok) await load();
+      return ok;
+    },
+    [load, updateTicket],
+  );
   const bulkUpdate = useCallback(
     async (ticketIds: string[], mutation: BulkTicketMutation, clearAssignee = false) => {
       let ok = false;
@@ -117,6 +133,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
     },
     refresh: () => load(),
     loadMore: () => load(true),
+    setUrgent,
     bulkUpdate,
   };
 };

@@ -50,6 +50,16 @@ it("renders live insights and mutation controls", () => {
   expect(screen.getByRole("button", { name: "Import CSV" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Export/ })).not.toBeInTheDocument();
 });
+it("renders mutation controls when inventory is empty", () => {
+  const parts = inventory.data;
+  inventory.data = [];
+  render(<InventoryTab />);
+  expect(screen.getByText("No inventory parts")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add part" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Import CSV" })).toBeInTheDocument();
+  inventory.data = parts;
+});
+
 it("hides mutation controls from read-only users", () => {
   state.canManage = false;
   render(<InventoryTab />);

@@ -78,10 +78,6 @@ func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) (models.Upd
 		v := req.GetBinLocation()
 		out.BinLocation = &v
 	}
-	if req.GetNotes() != "" {
-		v := req.GetNotes()
-		out.Notes = &v
-	}
 	return out, nil
 }
 

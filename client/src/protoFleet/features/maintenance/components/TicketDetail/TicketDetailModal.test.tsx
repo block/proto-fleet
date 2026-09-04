@@ -1,11 +1,12 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import TicketDetailModal from "./TicketDetailModal";
+import type { TicketDetail } from "@/protoFleet/features/maintenance/types";
 const update = vi.fn();
 const addComment = vi.fn();
 const removeComment = vi.fn();
-const ticket = {
+const ticket: TicketDetail = {
   id: "1",
   ticketNumber: "TK-1",
   category: "miner",
@@ -57,6 +58,14 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => (
 }));
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => true }));
 describe("TicketDetailModal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ticket.status = "in_progress";
+    ticket.rmaVendor = null;
+    ticket.rmaTracking = null;
+    ticket.rmaEta = null;
+  });
+
   it("renders server-backed detail and author-aware comments", () => {
     render(
       <MemoryRouter>
@@ -77,6 +86,33 @@ describe("TicketDetailModal", () => {
       </MemoryRouter>,
     );
     expect(screen.queryByRole("button", { name: "Complete repair" })).not.toBeInTheDocument();
-    ticket.status = "in_progress";
+  });
+
+  it("notifies the queue after a successful detail mutation", async () => {
+    update.mockResolvedValueOnce(true);
+    const onMutationSuccess = vi.fn();
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} onMutationSuccess={onMutationSuccess} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Update status" }));
+    fireEvent.click(screen.getByText("Open"));
+    await waitFor(() => expect(onMutationSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("renders persisted RMA details after reopening a vendor ticket", () => {
+    ticket.status = "sent_to_vendor";
+    ticket.rmaVendor = "Repair Co";
+    ticket.rmaTracking = "TRACK-1";
+    ticket.rmaEta = new Date("2026-09-10T00:00:00Z");
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("RMA Details")).toBeInTheDocument();
+    expect(screen.getByText("Vendor: Repair Co")).toBeInTheDocument();
+    expect(screen.getByText("Tracking #: TRACK-1")).toBeInTheDocument();
   });
 });

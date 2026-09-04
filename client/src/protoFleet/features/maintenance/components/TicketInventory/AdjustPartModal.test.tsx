@@ -23,6 +23,7 @@ it("requires a reason and submits integer quantities", async () => {
   const user = userEvent.setup();
   const submit = vi.fn(async () => true);
   render(<AdjustPartModal part={part} onDismiss={vi.fn()} onSubmit={submit} />);
+  expect(screen.queryByLabelText("Notes")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Reason" }));
   await user.click(screen.getByText("Cycle count"));

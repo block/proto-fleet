@@ -117,7 +117,7 @@ func TestInventoryCsvRejectsDuplicateSiteAndName(t *testing.T) {
 	assert.Contains(t, rows[1].Error, "duplicate")
 }
 
-func TestUpdatePartAuditsBeforeAndAfterWithoutNotes(t *testing.T) {
+func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
 	transactor := mocks.NewMockTransactor(ctrl)
@@ -128,10 +128,9 @@ func TestUpdatePartAuditsBeforeAndAfterWithoutNotes(t *testing.T) {
 
 	onHand := int32(8)
 	reorderPoint := int32(3)
-	notes := "sensitive technician note"
 	params := models.UpdateParams{
 		OrgID: orgID, ID: partID, OnHand: &onHand, ReorderPoint: &reorderPoint,
-		Reason: models.AdjustmentReasonCycleCount, Notes: &notes,
+		Reason: models.AdjustmentReasonCycleCount,
 	}
 	oldPart := &models.InventoryPart{ID: partID, OrgID: orgID, Name: "Fan", OnHand: 10, Allocated: 2, ReorderPoint: 1}
 	newPart := &models.InventoryPart{ID: partID, OrgID: orgID, Name: "Fan", OnHand: 8, Allocated: 2, ReorderPoint: 3}
@@ -154,7 +153,6 @@ func TestUpdatePartAuditsBeforeAndAfterWithoutNotes(t *testing.T) {
 			assert.Equal(t, int32(1), event.Metadata["old_reorder_point"])
 			assert.Equal(t, int32(3), event.Metadata["new_reorder_point"])
 			assert.Equal(t, int16(models.AdjustmentReasonCycleCount), event.Metadata["adjustment_reason"])
-			assert.NotContains(t, event.Metadata, "notes")
 			return nil
 		},
 	)

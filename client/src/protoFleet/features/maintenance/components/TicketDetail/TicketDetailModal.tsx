@@ -6,6 +6,7 @@ import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
 import TicketComments from "./TicketComments";
 import { TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import type { UpdateTicketProps } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
 import { useHasPermission } from "@/protoFleet/store";
@@ -18,6 +19,7 @@ import Row from "@/shared/components/Row";
 interface TicketDetailModalProps {
   ticketId: string;
   onDismiss: () => void;
+  onMutationSuccess?: () => void;
   ticketIds?: string[];
 }
 const statusLabels: Partial<Record<TicketStatus, string>> = {
@@ -46,7 +48,12 @@ const allowed = (status: string): TicketStatus[] =>
           TicketStatus.COMPLETED,
         ].filter((value) => value !== enumForStatus[status as keyof typeof enumForStatus]);
 
-const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: TicketDetailModalProps) => {
+const TicketDetailModal = ({
+  ticketId,
+  onDismiss,
+  onMutationSuccess,
+  ticketIds = [ticketId],
+}: TicketDetailModalProps) => {
   const navigate = useNavigate();
   const canManage = useHasPermission("maintenance:manage");
   const [currentId, setCurrentId] = useState(ticketId);
@@ -61,6 +68,11 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
   const [eta, setEta] = useState("");
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
+  const updateTicket = async (input: Omit<UpdateTicketProps, "id">) => {
+    const updated = await detail.update(input);
+    if (updated) onMutationSuccess?.();
+    return updated;
+  };
   const buttons =
     canManage && ticket?.status !== "completed"
       ? [
@@ -106,7 +118,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
                       <Row
                         compact
                         onClick={() => {
-                          void detail.update({ clearAssignee: true });
+                          void updateTicket({ clearAssignee: true });
                           setAssignOpen(false);
                         }}
                       >
@@ -119,7 +131,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
                       <Row
                         compact
                         onClick={() => {
-                          void detail.update({ assigneeUserId: BigInt(item.id) });
+                          void updateTicket({ assigneeUserId: BigInt(item.id) });
                           setAssignOpen(false);
                         }}
                       >
@@ -137,7 +149,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
                         compact
                         onClick={() => {
                           if (value === TicketStatus.SENT_TO_VENDOR) setRma(true);
-                          else void detail.update({ status: value });
+                          else void updateTicket({ status: value });
                           setStatusOpen(false);
                         }}
                       >
@@ -178,10 +190,12 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
             </div>
             {completing ? (
               <CompletionForm
+                key={ticket.id}
                 isMinerTicket={ticket.category === "miner"}
                 siteId={ticket.siteId}
+                initialParts={ticket.partsUsed}
                 onCancel={() => setCompleting(false)}
-                onSubmit={(value) => detail.update({ status: TicketStatus.COMPLETED, ...value })}
+                onSubmit={(value) => updateTicket({ status: TicketStatus.COMPLETED, ...value })}
               />
             ) : null}
           </div>
@@ -200,14 +214,23 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds = [ticketId] }: Tick
                 variant={variants.primary}
                 disabled={!vendor.trim()}
                 onClick={() =>
-                  void detail.update({
+                  void updateTicket({
                     status: TicketStatus.SENT_TO_VENDOR,
                     rmaVendor: vendor,
                     rmaTracking: tracking,
                     rmaEta: eta ? new Date(eta) : undefined,
+                  }).then((updated) => {
+                    if (updated) setRma(false);
                   })
                 }
               />
+            </div>
+          ) : ticket.status === "sent_to_vendor" ? (
+            <div className="flex flex-col gap-2 rounded-xl bg-surface-5 p-4">
+              <span className="text-emphasis-300 font-medium">RMA Details</span>
+              <span>Vendor: {ticket.rmaVendor ?? "—"}</span>
+              <span>Tracking #: {ticket.rmaTracking ?? "—"}</span>
+              <span>ETA: {ticket.rmaEta?.toLocaleDateString() ?? "—"}</span>
             </div>
           ) : null}
           {ticket.category === "miner" && ticket.minerIdentifier ? (

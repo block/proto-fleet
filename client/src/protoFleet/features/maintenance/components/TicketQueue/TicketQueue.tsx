@@ -215,7 +215,10 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
             { title: "Assign or update", actionHandler: (t) => setDetailTicketId(t.id) },
             {
               title: (t) => (t.urgent ? "Remove urgent" : "Mark urgent"),
-              actionHandler: (t) => void queue.bulkUpdate([t.id], { case: "markUrgent", value: !t.urgent }),
+              actionHandler: (t) =>
+                void (t.urgent
+                  ? queue.setUrgent(t.id, false)
+                  : queue.bulkUpdate([t.id], { case: "markUrgent", value: true })),
             },
             {
               title: "Close ticket",
@@ -347,6 +350,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           ticketId={detailTicketId}
           ticketIds={queue.data.map((t) => t.id)}
           onDismiss={() => setDetailTicketId(null)}
+          onMutationSuccess={() => void queue.refresh()}
         />
       ) : null}
       {showCreateModal ? (
