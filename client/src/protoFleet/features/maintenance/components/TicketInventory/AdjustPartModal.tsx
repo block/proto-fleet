@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { InventoryPartItem } from "../../types";
+import type { InventoryPartItem, SiteOption } from "../../types";
 import { AdjustmentReason } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
@@ -7,12 +7,14 @@ import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 interface Props {
   part: InventoryPartItem;
+  sites: SiteOption[];
   onDismiss: () => void;
   onSubmit: (value: {
     id: bigint;
     onHand: number;
     reorderPoint: number;
     binLocation: string;
+    siteId?: bigint;
     reason: AdjustmentReason;
   }) => Promise<boolean>;
 }
@@ -23,10 +25,11 @@ const reasons = [
   { value: String(AdjustmentReason.RETURNED_FROM_REPAIR), label: "Returned from repair" },
   { value: String(AdjustmentReason.OTHER), label: "Other" },
 ];
-const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
+const AdjustPartModal = ({ part, sites, onDismiss, onSubmit }: Props) => {
   const [onHand, setOnHand] = useState(String(part.onHand));
   const [reorder, setReorder] = useState(String(part.reorderPoint));
   const [bin, setBin] = useState(part.binLocation);
+  const [siteId, setSiteId] = useState(part.siteId ?? "");
   const [reason, setReason] = useState(AdjustmentReason.UNSPECIFIED);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +47,7 @@ const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
       onHand: Number(onHand),
       reorderPoint: Number(reorder),
       binLocation: bin,
+      ...(siteId && siteId !== part.siteId ? { siteId: BigInt(siteId) } : {}),
       reason,
     });
     setBusy(false);
@@ -67,7 +71,16 @@ const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
       ]}
     >
       <div className="flex flex-col gap-4">
-        <Input id="adjust-site" label="Site" initValue={part.siteName ?? ""} readOnly />
+        <Select
+          id="adjust-site"
+          label="Site"
+          options={[
+            ...(siteId ? [] : [{ value: "", label: "No site" }]),
+            ...sites.map((site) => ({ value: site.id, label: site.name })),
+          ]}
+          value={siteId}
+          onChange={setSiteId}
+        />
         <Input id="adjust-bin" label="Bin location" initValue={bin} onChange={setBin} />
         <Input id="adjust-on-hand" label="On hand" initValue={onHand} onChange={setOnHand} type="number" />
         <Input id="adjust-reorder" label="Reorder point" initValue={reorder} onChange={setReorder} type="number" />

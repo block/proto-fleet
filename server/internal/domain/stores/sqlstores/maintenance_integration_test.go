@@ -108,6 +108,33 @@ func TestMaintenanceBuildingLockSerializesConcurrentSoftDelete(t *testing.T) {
 	assert.Equal(t, int64(1), rows)
 }
 
+func TestMaintenanceAssigneeResolutionSerializesConcurrentDeactivation(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceReferenceStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	orgID := insertMaintenanceTestOrg(t, db, "assignee-lock")
+	userID := insertMaintenanceTestUser(t, db, orgID, "locked-maintenance-assignee")
+
+	err := transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		_, err := store.ResolveAssignee(txCtx, orgID, userID)
+		require.NoError(t, err)
+
+		deleteCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, deleteErr := db.ExecContext(deleteCtx, `UPDATE "user" SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
+		require.Error(t, deleteErr, "deactivation must wait for the maintenance assignee lock")
+		return nil
+	})
+	require.NoError(t, err)
+
+	result, err := db.ExecContext(ctx, `UPDATE "user" SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
+	require.NoError(t, err)
+	rows, err := result.RowsAffected()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
+}
+
 func TestMaintenanceStoreConcurrentTicketNumbers(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	store := sqlstores.NewSQLMaintenanceStore(db)

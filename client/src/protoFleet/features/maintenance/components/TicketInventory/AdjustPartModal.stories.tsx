@@ -8,6 +8,10 @@ const meta = {
   title: "Proto Fleet/Maintenance/Adjust inventory",
   component: AdjustPartModal,
   args: {
+    sites: [
+      { id: "1", name: "Denver" },
+      { id: "2", name: "Repair Depot" },
+    ],
     onDismiss: action("dismiss inventory adjustment"),
     onSubmit: async (value) => {
       action("save inventory adjustment")(value);
@@ -18,7 +22,7 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Review stock count, reorder point, bin location, adjustment reason, and audit-note inputs.",
+        component: "Review site, stock count, reorder point, bin location, and adjustment reason inputs.",
       },
     },
   },

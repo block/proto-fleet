@@ -97,6 +97,7 @@ JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
 LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = $1 AND uo.user_id = $2
   AND uo.deleted_at IS NULL
+FOR SHARE OF uo, u
 `
 
 type ResolveMaintenanceAssigneeParams struct {

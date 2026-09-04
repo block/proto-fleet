@@ -78,6 +78,10 @@ func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) (models.Upd
 		v := req.GetBinLocation()
 		out.BinLocation = &v
 	}
+	if req.SiteId != nil {
+		v := req.GetSiteId()
+		out.SiteID = &v
+	}
 	return out, nil
 }
 

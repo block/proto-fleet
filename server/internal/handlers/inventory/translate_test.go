@@ -11,10 +11,13 @@ import (
 
 func TestToUpdateParamsRangeChecksEnumAndPreservesPresence(t *testing.T) {
 	onHand := int32(0)
-	params, err := toUpdateParams(&pb.UpdateInventoryPartRequest{Id: 7, OnHand: &onHand, Reason: pb.AdjustmentReason_ADJUSTMENT_REASON_CYCLE_COUNT}, 42)
+	siteID := int64(9)
+	params, err := toUpdateParams(&pb.UpdateInventoryPartRequest{Id: 7, OnHand: &onHand, SiteId: &siteID, Reason: pb.AdjustmentReason_ADJUSTMENT_REASON_CYCLE_COUNT}, 42)
 	require.NoError(t, err)
 	require.NotNil(t, params.OnHand)
 	assert.Zero(t, *params.OnHand)
+	require.NotNil(t, params.SiteID)
+	assert.Equal(t, siteID, *params.SiteID)
 	assert.Equal(t, models.AdjustmentReasonCycleCount, params.Reason)
 
 	_, err = toUpdateParams(&pb.UpdateInventoryPartRequest{Reason: pb.AdjustmentReason(99)}, 42)

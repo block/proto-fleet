@@ -65,12 +65,15 @@ WHERE (sqlc.narg('site_id')::bigint IS NULL OR s.id IS NOT NULL)
   AND (sqlc.narg('site_id')::bigint IS NULL OR sqlc.narg('building_id')::bigint IS NULL OR b.site_id = s.id);
 
 -- name: ResolveMaintenanceAssignee :one
+-- Assignment writes call this inside their transaction. Shared locks on the
+-- membership and user serialize with membership removal and user deactivation.
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
 JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
 LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = sqlc.arg('org_id') AND uo.user_id = sqlc.arg('user_id')
-  AND uo.deleted_at IS NULL;
+  AND uo.deleted_at IS NULL
+FOR SHARE OF uo, u;
 
 -- name: ListMaintenanceAssignees :many
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name

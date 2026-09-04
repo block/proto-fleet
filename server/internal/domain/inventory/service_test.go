@@ -73,6 +73,56 @@ func TestCreatePartLocksAssignedSiteInTheCreateTransaction(t *testing.T) {
 	assert.Equal(t, int64(7), part.ID)
 }
 
+func TestUpdatePartCanAssignPreviouslyUnassignedStockToASite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	service := NewService(store, transactor, nil)
+	siteID := int64(11)
+	params := models.UpdateParams{
+		OrgID: 42, ID: 7, SiteID: &siteID, Reason: models.AdjustmentReasonCycleCount,
+	}
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
+	)
+	store.EXPECT().LockSites(gomock.Any(), int64(42), []int64{siteID}).Return(nil)
+	store.EXPECT().GetForUpdate(gomock.Any(), int64(42), int64(7)).Return(
+		&models.InventoryPart{ID: 7, OrgID: 42, Name: "Fan", Allocated: 0}, nil,
+	)
+	store.EXPECT().Update(gomock.Any(), params).Return(
+		&models.InventoryPart{ID: 7, OrgID: 42, Name: "Fan", SiteID: &siteID}, nil,
+	)
+
+	part, err := service.UpdatePart(t.Context(), params)
+	require.NoError(t, err)
+	require.NotNil(t, part.SiteID)
+	assert.Equal(t, siteID, *part.SiteID)
+}
+
+func TestUpdatePartRejectsSiteTransferWhileStockIsAllocated(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	service := NewService(store, transactor, nil)
+	oldSiteID := int64(10)
+	newSiteID := int64(11)
+	params := models.UpdateParams{
+		OrgID: 42, ID: 7, SiteID: &newSiteID, Reason: models.AdjustmentReasonCycleCount,
+	}
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
+	)
+	store.EXPECT().LockSites(gomock.Any(), int64(42), []int64{newSiteID}).Return(nil)
+	store.EXPECT().GetForUpdate(gomock.Any(), int64(42), int64(7)).Return(
+		&models.InventoryPart{ID: 7, OrgID: 42, SiteID: &oldSiteID, Name: "Fan", Allocated: 1}, nil,
+	)
+
+	_, err := service.UpdatePart(t.Context(), params)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "allocated stock must not move between sites: %v", err)
+}
+
 func TestInventoryParseCsvPreviewResolvesSitesAndReportsErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)

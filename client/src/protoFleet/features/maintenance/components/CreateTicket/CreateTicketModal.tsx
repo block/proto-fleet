@@ -3,6 +3,7 @@ import MinerTicketPicker from "./MinerTicketPicker";
 import { TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
+import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -29,6 +30,7 @@ type Category = "miner" | "infrastructure";
 
 const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalProps) => {
   const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const canReadMiners = useHasPermission("miner:read");
   const { createTicket } = useMaintenanceApi();
   const options = useMaintenanceOptions();
   const defaultSite =
@@ -129,10 +131,12 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
           </div>
           {category === "miner" ? (
             <div>
-              <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} disabled />
-              <button type="button" className="mt-2 text-300 underline" onClick={() => setPickerOpen(true)}>
-                Select miner
-              </button>
+              <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} onChange={setMinerIdentifier} />
+              {canReadMiners ? (
+                <button type="button" className="mt-2 text-300 underline" onClick={() => setPickerOpen(true)}>
+                  Select miner
+                </button>
+              ) : null}
             </div>
           ) : (
             <Select id="site" label="Site" options={siteOptions} value={siteId} onChange={setSiteId} forceBelow />
@@ -153,7 +157,7 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
           {error ? <div role="alert">{error}</div> : null}
         </div>
       </Modal>
-      {pickerOpen ? (
+      {pickerOpen && canReadMiners ? (
         <MinerTicketPicker
           selected={minerIdentifier}
           onDismiss={() => setPickerOpen(false)}

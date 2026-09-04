@@ -82,6 +82,7 @@ type UpdateParams struct {
 	OnHand       *int32
 	ReorderPoint *int32
 	BinLocation  *string
+	SiteID       *int64
 	Reason       AdjustmentReason
 }
 

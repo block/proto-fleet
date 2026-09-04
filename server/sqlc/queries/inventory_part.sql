@@ -98,11 +98,15 @@ UPDATE inventory_part
 SET on_hand       = COALESCE(sqlc.narg('on_hand'), on_hand),
     reorder_point = COALESCE(sqlc.narg('reorder_point'), reorder_point),
     bin_location  = COALESCE(sqlc.narg('bin_location'), bin_location),
+    site_id       = COALESCE(sqlc.narg('site_id'), site_id),
     updated_at    = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
-  AND COALESCE(sqlc.narg('on_hand'), on_hand) >= allocated;
+  AND COALESCE(sqlc.narg('on_hand'), on_hand) >= allocated
+  AND (sqlc.narg('site_id')::bigint IS NULL
+       OR site_id IS NOT DISTINCT FROM sqlc.narg('site_id')::bigint
+       OR allocated = 0);
 
 -- name: SoftDeleteInventoryPart :execrows
 UPDATE inventory_part

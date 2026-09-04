@@ -22,11 +22,23 @@ const part = {
 it("requires a reason and submits integer quantities", async () => {
   const user = userEvent.setup();
   const submit = vi.fn(async () => true);
-  render(<AdjustPartModal part={part} onDismiss={vi.fn()} onSubmit={submit} />);
+  render(
+    <AdjustPartModal
+      part={part}
+      sites={[
+        { id: "2", name: "Denver" },
+        { id: "3", name: "Repair Depot" },
+      ]}
+      onDismiss={vi.fn()}
+      onSubmit={submit}
+    />,
+  );
   expect(screen.queryByLabelText("Notes")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Site" }));
+  await user.click(screen.getByText("Repair Depot"));
   await user.click(screen.getByRole("button", { name: "Reason" }));
   await user.click(screen.getByText("Cycle count"));
   await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(submit).toHaveBeenCalledWith(expect.objectContaining({ id: 1n, onHand: 5, reorderPoint: 2 }));
+  expect(submit).toHaveBeenCalledWith(expect.objectContaining({ id: 1n, onHand: 5, reorderPoint: 2, siteId: 3n }));
 });

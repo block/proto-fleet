@@ -180,7 +180,7 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 	if params.ReorderPoint != nil && *params.ReorderPoint < 0 {
 		return nil, fleeterror.NewInvalidArgumentError("reorder_point must be >= 0")
 	}
-	if params.OnHand == nil && params.ReorderPoint == nil && params.BinLocation == nil {
+	if params.OnHand == nil && params.ReorderPoint == nil && params.BinLocation == nil && params.SiteID == nil {
 		return nil, fleeterror.NewInvalidArgumentError("at least one inventory field must be updated")
 	}
 	if s.transactor == nil {
@@ -189,6 +189,11 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 
 	var before, after *models.InventoryPart
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if params.SiteID != nil {
+			if err := s.store.LockSites(txCtx, params.OrgID, []int64{*params.SiteID}); err != nil {
+				return err
+			}
+		}
 		var err error
 		before, err = s.store.GetForUpdate(txCtx, params.OrgID, params.ID)
 		if err != nil {
@@ -196,6 +201,9 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 		}
 		if params.OnHand != nil && *params.OnHand < before.Allocated {
 			return fleeterror.NewFailedPreconditionError("on_hand cannot be less than allocated stock")
+		}
+		if params.SiteID != nil && !sameOptionalID(before.SiteID, params.SiteID) && before.Allocated > 0 {
+			return fleeterror.NewFailedPreconditionError("site cannot be changed while stock is allocated")
 		}
 		after, err = s.store.Update(txCtx, params)
 		return err
@@ -210,7 +218,6 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventPartUpdated,
 			OrganizationID: &orgID,
-			SiteID:         after.SiteID,
 			Description:    fmt.Sprintf("Updated inventory part %q (id=%d)", after.Name, after.ID),
 			Metadata: map[string]any{
 				"part_id":           after.ID,
@@ -222,8 +229,11 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 				"new_allocated":     after.Allocated,
 				"old_reorder_point": before.ReorderPoint,
 				"new_reorder_point": after.ReorderPoint,
+				"old_site_id":       before.SiteID,
+				"new_site_id":       after.SiteID,
 			},
 		}
+		event.ApplySiteScope(activitymodels.ResolveSiteScope([]*int64{before.SiteID, after.SiteID}))
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
@@ -482,6 +492,10 @@ func valueOrZero(value *int64) int64 {
 		return 0
 	}
 	return *value
+}
+
+func sameOptionalID(left, right *int64) bool {
+	return valueOrZero(left) == valueOrZero(right)
 }
 
 // buildColumnIndex maps header names to their positional index.

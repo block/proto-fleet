@@ -105,6 +105,7 @@ func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdatePara
 		OnHand:       ptrToNullInt32(params.OnHand),
 		ReorderPoint: ptrToNullInt32(params.ReorderPoint),
 		BinLocation:  ptrToNullString(params.BinLocation),
+		SiteID:       ptrToNullInt64(params.SiteID),
 		ID:           params.ID,
 		OrgID:        params.OrgID,
 	})
@@ -115,7 +116,7 @@ func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdatePara
 		if _, getErr := s.Get(ctx, params.OrgID, params.ID); getErr != nil {
 			return nil, getErr
 		}
-		return nil, fleeterror.NewFailedPreconditionError("on_hand cannot be less than allocated stock")
+		return nil, fleeterror.NewFailedPreconditionError("inventory update conflicts with allocated stock")
 	}
 	return s.Get(ctx, params.OrgID, params.ID)
 }

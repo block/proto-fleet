@@ -175,7 +175,14 @@ const InventoryTab = () => {
         onNext={() => void inventory.nextPage()}
       />
 
-      {adjust ? <AdjustPartModal part={adjust} onDismiss={() => setAdjust(null)} onSubmit={inventory.adjust} /> : null}
+      {adjust ? (
+        <AdjustPartModal
+          part={adjust}
+          sites={options.sites}
+          onDismiss={() => setAdjust(null)}
+          onSubmit={inventory.adjust}
+        />
+      ) : null}
       {remove ? (
         <DeletePartModal
           partName={remove.name}

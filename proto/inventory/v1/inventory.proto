@@ -19,9 +19,9 @@ service InventoryService {
     // CreateInventoryPart inserts a new part record.
     rpc CreateInventoryPart(CreateInventoryPartRequest) returns (CreateInventoryPartResponse);
 
-    // UpdateInventoryPart adjusts stock levels, reorder point, or bin
-    // location. Used for manual adjustments (cycle count, received
-    // shipment, damaged/scrapped).
+    // UpdateInventoryPart adjusts stock levels, reorder point, bin
+    // location, or site assignment. Used for manual adjustments (cycle
+    // count, received shipment, damaged/scrapped, and stock transfer).
     rpc UpdateInventoryPart(UpdateInventoryPartRequest) returns (UpdateInventoryPartResponse);
 
     // DeleteInventoryPart soft-deletes a part record.
@@ -142,6 +142,8 @@ message UpdateInventoryPartRequest {
     optional int32  on_hand       = 2 [(buf.validate.field).int32.gte = 0];
     optional int32  reorder_point = 3 [(buf.validate.field).int32.gte = 0];
     optional string bin_location  = 4 [(buf.validate.field).string.max_len = 64];
+    // Assigns or transfers the part to a live site. Omission preserves its current site.
+    optional int64  site_id       = 7 [(buf.validate.field).int64.gt = 0];
 
     AdjustmentReason reason = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
 }

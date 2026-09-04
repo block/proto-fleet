@@ -135,6 +135,7 @@ export const useInventoryApi = () => {
       onHand,
       reorderPoint,
       binLocation,
+      siteId,
       reason = AdjustmentReason.UNSPECIFIED,
       signal,
       onSuccess,
@@ -145,12 +146,13 @@ export const useInventoryApi = () => {
       onHand?: number;
       reorderPoint?: number;
       binLocation?: string;
+      siteId?: bigint;
       reason?: AdjustmentReason;
     }) => {
       try {
         if (signal?.aborted) return;
         const response = await inventoryClient.updateInventoryPart(
-          { id, onHand, reorderPoint, binLocation, reason },
+          { id, onHand, reorderPoint, binLocation, siteId, reason },
           { signal },
         );
         if (!signal?.aborted) onSuccess?.(response.part);

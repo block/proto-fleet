@@ -72,9 +72,9 @@ type InventoryServiceClient interface {
 	GetInventoryPart(context.Context, *connect.Request[v1.GetInventoryPartRequest]) (*connect.Response[v1.GetInventoryPartResponse], error)
 	// CreateInventoryPart inserts a new part record.
 	CreateInventoryPart(context.Context, *connect.Request[v1.CreateInventoryPartRequest]) (*connect.Response[v1.CreateInventoryPartResponse], error)
-	// UpdateInventoryPart adjusts stock levels, reorder point, or bin
-	// location. Used for manual adjustments (cycle count, received
-	// shipment, damaged/scrapped).
+	// UpdateInventoryPart adjusts stock levels, reorder point, bin
+	// location, or site assignment. Used for manual adjustments (cycle
+	// count, received shipment, damaged/scrapped, and stock transfer).
 	UpdateInventoryPart(context.Context, *connect.Request[v1.UpdateInventoryPartRequest]) (*connect.Response[v1.UpdateInventoryPartResponse], error)
 	// DeleteInventoryPart soft-deletes a part record.
 	DeleteInventoryPart(context.Context, *connect.Request[v1.DeleteInventoryPartRequest]) (*connect.Response[v1.DeleteInventoryPartResponse], error)
@@ -216,9 +216,9 @@ type InventoryServiceHandler interface {
 	GetInventoryPart(context.Context, *connect.Request[v1.GetInventoryPartRequest]) (*connect.Response[v1.GetInventoryPartResponse], error)
 	// CreateInventoryPart inserts a new part record.
 	CreateInventoryPart(context.Context, *connect.Request[v1.CreateInventoryPartRequest]) (*connect.Response[v1.CreateInventoryPartResponse], error)
-	// UpdateInventoryPart adjusts stock levels, reorder point, or bin
-	// location. Used for manual adjustments (cycle count, received
-	// shipment, damaged/scrapped).
+	// UpdateInventoryPart adjusts stock levels, reorder point, bin
+	// location, or site assignment. Used for manual adjustments (cycle
+	// count, received shipment, damaged/scrapped, and stock transfer).
 	UpdateInventoryPart(context.Context, *connect.Request[v1.UpdateInventoryPartRequest]) (*connect.Response[v1.UpdateInventoryPartResponse], error)
 	// DeleteInventoryPart soft-deletes a part record.
 	DeleteInventoryPart(context.Context, *connect.Request[v1.DeleteInventoryPartRequest]) (*connect.Response[v1.DeleteInventoryPartResponse], error)

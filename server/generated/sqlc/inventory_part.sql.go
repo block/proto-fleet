@@ -590,17 +590,22 @@ UPDATE inventory_part
 SET on_hand       = COALESCE($1, on_hand),
     reorder_point = COALESCE($2, reorder_point),
     bin_location  = COALESCE($3, bin_location),
+    site_id       = COALESCE($4, site_id),
     updated_at    = CURRENT_TIMESTAMP
-WHERE id = $4
-  AND org_id = $5
+WHERE id = $5
+  AND org_id = $6
   AND deleted_at IS NULL
   AND COALESCE($1, on_hand) >= allocated
+  AND ($4::bigint IS NULL
+       OR site_id IS NOT DISTINCT FROM $4::bigint
+       OR allocated = 0)
 `
 
 type UpdateInventoryPartParams struct {
 	OnHand       sql.NullInt32
 	ReorderPoint sql.NullInt32
 	BinLocation  sql.NullString
+	SiteID       sql.NullInt64
 	ID           int64
 	OrgID        int64
 }
@@ -610,6 +615,7 @@ func (q *Queries) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPa
 		arg.OnHand,
 		arg.ReorderPoint,
 		arg.BinLocation,
+		arg.SiteID,
 		arg.ID,
 		arg.OrgID,
 	)

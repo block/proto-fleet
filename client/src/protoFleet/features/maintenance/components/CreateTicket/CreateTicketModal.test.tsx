@@ -6,7 +6,11 @@ import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const createTicket = vi.fn();
+let canReadMiners = true;
 vi.mock("@/protoFleet/api/maintenance", () => ({ useMaintenanceApi: () => ({ createTicket }) }));
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (permission: string) => permission !== "miner:read" || canReadMiners,
+}));
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
   useMaintenanceOptions: () => ({
     sites: [{ id: "8", name: "Denver" }],
@@ -22,6 +26,7 @@ const renderModal = (onSuccess = vi.fn()) => render(<CreateTicketModal onDismiss
 describe("CreateTicketModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    canReadMiners = true;
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
     });
@@ -42,6 +47,23 @@ describe("CreateTicketModal", () => {
     );
     expect(success).toHaveBeenCalled();
   });
+  it("allows a maintenance-only manager to enter a miner identifier", async () => {
+    canReadMiners = false;
+    const user = userEvent.setup();
+    renderModal();
+
+    const input = screen.getByRole("textbox", { name: "Miner ID" });
+    expect(input).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Select miner" })).not.toBeInTheDocument();
+    await user.type(input, "known-miner-42");
+    await user.click(screen.getByRole("button", { name: "Component" }));
+    await user.click(screen.getByText("Fan"));
+    await user.type(screen.getByRole("textbox", { name: "Issue description" }), "Broken fan");
+    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+
+    expect(createTicket).toHaveBeenCalledWith(expect.objectContaining({ minerIdentifier: "known-miner-42" }));
+  });
+
   it("uses live site IDs for infrastructure tickets", async () => {
     const user = userEvent.setup();
     renderModal();
