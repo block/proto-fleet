@@ -294,6 +294,17 @@ message ReleaseChannelMiner {
 
 // Desired firmware for one manufacturer/model pair within a channel.
 message FirmwareAssignment {
+    option (buf.validate.message).cel = {
+        id: "manufacturer_non_empty_after_trim"
+        message: "manufacturer must not be empty after trimming whitespace"
+        expression: "this.manufacturer.trim() != ''"
+    };
+    option (buf.validate.message).cel = {
+        id: "model_non_empty_after_trim"
+        message: "model must not be empty after trimming whitespace"
+        expression: "this.model.trim() != ''"
+    };
+
     string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     // Firmware file to enforce for this manufacturer/model pair; empty clears

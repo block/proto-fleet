@@ -111,6 +111,22 @@ func TestFirmwareAssignmentValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "whitespace-only manufacturer is rejected",
+			assignment: &rolloutv1.FirmwareAssignment{
+				Manufacturer: " \t\n",
+				Model:        "S21",
+			},
+			wantErr: true,
+		},
+		{
+			name: "whitespace-only model is rejected",
+			assignment: &rolloutv1.FirmwareAssignment{
+				Manufacturer: "Bitmain",
+				Model:        " \t\n",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
