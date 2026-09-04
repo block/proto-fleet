@@ -118,8 +118,14 @@ service RolloutService {
     rpc CancelRollout(CancelRolloutRequest) returns (CancelRolloutResponse);
 
     // Re-queues the miners that failed (or were canceled) in a rollout. An
-    // active rollout retries them in place; a finished rollout gets a new
-    // all-at-once rollout for them.
+    // active rollout retries them in place. A finished rollout starts a new
+    // all-at-once rollout only when its manufacturer/model target and firmware
+    // file still equal the channel's current assignment.
+    //
+    // Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
+    // retryable. A rollout canceled as CANCELED_REMAINING is retryable only
+    // while its target remains current. Otherwise this RPC fails with
+    // FAILED_PRECONDITION; it never implicitly retargets to different firmware.
     rpc RetryFailedRolloutDevices(RetryFailedRolloutDevicesRequest) returns (RetryFailedRolloutDevicesResponse);
 }
 
@@ -610,21 +616,40 @@ message PreviewReleaseChannelScopeRequest {
 // Miners another channel already covers that the previewed scope would take.
 message ReleaseChannelScopeConflict {
     int64 channel_id = 1;
-    string channel_name = 2;
+    string channel_name = 2 [(buf.validate.field).string.max_len = 100];
     int32 miner_count = 3;
 }
 
 message ReleaseChannelScopeModelCount {
-    string manufacturer = 1;
-    string model = 2;
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
     int32 miner_count = 3;
 }
 
 message PreviewReleaseChannelScopeResponse {
+    option (buf.validate.message).cel = {
+        id: "models_match_bounded_model_count"
+        message: "models must contain all entries up to the 100-item limit"
+        expression: "this.models.size() == (this.model_count < 100 ? this.model_count : 100)"
+    };
+    option (buf.validate.message).cel = {
+        id: "conflicts_match_bounded_conflict_count"
+        message: "conflicts must contain all entries up to the 100-item limit"
+        expression: "this.conflicts.size() == (this.conflict_count < 100 ? this.conflict_count : 100)"
+    };
+
     int32 miner_count = 1;
-    repeated ReleaseChannelScopeModelCount models = 2;
-    // Non-empty means the scope cannot be saved as is.
-    repeated ReleaseChannelScopeConflict conflicts = 3;
+    // The first 100 manufacturer/model pairs sorted by manufacturer then model.
+    repeated ReleaseChannelScopeModelCount models = 2 [(buf.validate.field).repeated.max_items = 100];
+    // The first 100 conflicts sorted by channel id. Non-empty means the scope
+    // cannot be saved as is.
+    repeated ReleaseChannelScopeConflict conflicts = 3 [(buf.validate.field).repeated.max_items = 100];
+    // Total manufacturer/model pairs before models is truncated. A value
+    // greater than the length of models means truncation.
+    int32 model_count = 4;
+    // Total conflicting channels before conflicts is truncated. A value
+    // greater than the length of conflicts means truncation.
+    int32 conflict_count = 5;
 }
 
 message ApplyReleaseChannelFirmwareRequest {
@@ -739,11 +764,15 @@ message CancelRolloutResponse {
 }
 
 message RetryFailedRolloutDevicesRequest {
+    // The rollout whose failed (or canceled) miners are retried. Its original
+    // target must satisfy the RetryFailedRolloutDevices preconditions; a stale
+    // target fails with FAILED_PRECONDITION rather than being retargeted.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
 message RetryFailedRolloutDevicesResponse {
     // The rollout now carrying the retried miners: the same rollout when it
-    // was still active, otherwise the new rollout started for them.
+    // was still active, otherwise a new all-at-once rollout with the eligible
+    // finished rollout's unchanged target.
     Rollout rollout = 1;
 }

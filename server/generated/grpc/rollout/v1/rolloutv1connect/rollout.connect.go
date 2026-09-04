@@ -151,8 +151,14 @@ type RolloutServiceClient interface {
 	// updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
-	// active rollout retries them in place; a finished rollout gets a new
-	// all-at-once rollout for them.
+	// active rollout retries them in place. A finished rollout starts a new
+	// all-at-once rollout only when its manufacturer/model target and firmware
+	// file still equal the channel's current assignment.
+	//
+	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
+	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
+	// while its target remains current. Otherwise this RPC fails with
+	// FAILED_PRECONDITION; it never implicitly retargets to different firmware.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
@@ -440,8 +446,14 @@ type RolloutServiceHandler interface {
 	// updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
-	// active rollout retries them in place; a finished rollout gets a new
-	// all-at-once rollout for them.
+	// active rollout retries them in place. A finished rollout starts a new
+	// all-at-once rollout only when its manufacturer/model target and firmware
+	// file still equal the channel's current assignment.
+	//
+	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
+	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
+	// while its target remains current. Otherwise this RPC fails with
+	// FAILED_PRECONDITION; it never implicitly retargets to different firmware.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 

@@ -432,6 +432,142 @@ func TestListReleaseChannelModelGroupsResponseValidation(t *testing.T) {
 	}))
 }
 
+func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	models := make([]*rolloutv1.ReleaseChannelScopeModelCount, 101)
+	conflicts := make([]*rolloutv1.ReleaseChannelScopeConflict, 101)
+	for index := range models {
+		models[index] = &rolloutv1.ReleaseChannelScopeModelCount{
+			Manufacturer: "manufacturer",
+			Model:        fmt.Sprintf("model-%d", index),
+		}
+		conflicts[index] = &rolloutv1.ReleaseChannelScopeConflict{
+			ChannelId:   int64(index + 1),
+			ChannelName: fmt.Sprintf("channel-%d", index),
+		}
+	}
+
+	tests := []struct {
+		name     string
+		response *rolloutv1.PreviewReleaseChannelScopeResponse
+		wantErr  bool
+	}{
+		{
+			name: "bounded truncated results are valid",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models:        models[:100],
+				Conflicts:     conflicts[:100],
+				ModelCount:    101,
+				ConflictCount: 101,
+			},
+		},
+		{
+			name: "complete results below the limit are valid",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models:        models[:2],
+				Conflicts:     conflicts[:2],
+				ModelCount:    2,
+				ConflictCount: 2,
+			},
+		},
+		{
+			name: "101 models are rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models:     models,
+				ModelCount: 101,
+			},
+			wantErr: true,
+		},
+		{
+			name: "101 conflicts are rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Conflicts:     conflicts,
+				ConflictCount: 101,
+			},
+			wantErr: true,
+		},
+		{
+			name: "model count below returned list length is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models:     models[:2],
+				ModelCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "conflict count below returned list length is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Conflicts:     conflicts[:2],
+				ConflictCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "underfilled model list is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models:     models[:1],
+				ModelCount: 2,
+			},
+			wantErr: true,
+		},
+		{
+			name: "underfilled conflict list is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Conflicts:     conflicts[:1],
+				ConflictCount: 2,
+			},
+			wantErr: true,
+		},
+		{
+			name: "oversized manufacturer is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models: []*rolloutv1.ReleaseChannelScopeModelCount{{
+					Manufacturer: strings.Repeat("m", 256),
+					Model:        "S21",
+				}},
+				ModelCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "oversized model is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Models: []*rolloutv1.ReleaseChannelScopeModelCount{{
+					Manufacturer: "Bitmain",
+					Model:        strings.Repeat("m", 256),
+				}},
+				ModelCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "oversized conflict channel name is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelScopeConflict{{
+					ChannelId:   1,
+					ChannelName: strings.Repeat("c", 101),
+				}},
+				ConflictCount: 1,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.response)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	t.Parallel()
 
