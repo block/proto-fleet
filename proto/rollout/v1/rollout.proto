@@ -82,7 +82,13 @@ service RolloutService {
 
     // Replaces per-manufacturer/model firmware assignments of a channel and
     // starts a rollout, paced by the channel's behavior, for every pair whose
-    // assignment changed and has mismatched members.
+    // assignment changed and has mismatched members. Every nonempty
+    // firmware_file_id must resolve to metadata with nonempty target
+    // manufacturer, target model, and firmware version; the metadata target
+    // must match the assignment's manufacturer and model. Otherwise the RPC
+    // fails with FAILED_PRECONDITION before changing any assignment or starting
+    // any rollout. An empty firmware_file_id remains valid and clears the
+    // assignment.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
     // Restores the firmware assignment that was in place immediately before
@@ -173,8 +179,8 @@ enum RolloutOrder {
     ROLLOUT_ORDER_RANDOM = 2;
 }
 
-// Limits a reviewed batch must satisfy for the rollout to continue without
-// an operator. An unset threshold is not checked.
+// Aggregate telemetry limits a reviewed batch must satisfy for the rollout
+// to continue without an operator. An unset threshold is not checked.
 message RolloutAutomationThresholds {
     // Largest acceptable aggregate hashrate drop versus baseline, percent.
     optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100}];
@@ -215,8 +221,9 @@ message RolloutBehavior {
     // BATCHED: hold at a review gate after every batch. The pilot method
     // always gates after the pilot.
     bool review_after_each_batch = 6;
-    // Release a gate automatically once the batch is verified, has no failed
-    // miners, meets the thresholds, and has held for stabilization_seconds.
+    // Release a gate automatically once the DONE count and failed-device
+    // checks pass, aggregate telemetry meets the configured thresholds, and
+    // stabilization_seconds has elapsed.
     bool auto_continue_on_healthy_telemetry = 7;
     // How long a verified batch must hold at the gate before it can
     // auto-continue, so post-update telemetry has settled.
@@ -331,8 +338,12 @@ message ReleaseChannelMembershipConflict {
 message FirmwareAssignment {
     string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    // Firmware file to enforce for this manufacturer/model pair; empty clears
-    // the assignment.
+    // Firmware file to enforce for this manufacturer/model pair. A nonempty id
+    // must resolve to metadata with nonempty target manufacturer, target model,
+    // and firmware version, and the metadata target must match this assignment.
+    // ApplyReleaseChannelFirmware rejects violations with FAILED_PRECONDITION
+    // before changing any assignment or starting any rollout. Empty clears the
+    // assignment.
     string firmware_file_id = 3;
 }
 
@@ -343,8 +354,9 @@ enum RolloutStatus {
     ROLLOUT_STATUS_UNSPECIFIED = 0;
     // The rollout is enforcing its firmware version.
     ROLLOUT_STATUS_ACTIVE = 1;
-    // Every targeted miner is on the assigned version, back online, and at
-    // least as healthy as before the update.
+    // Every targeted miner settled successfully under the operational
+    // criteria: assigned version, back online, and hashing if it was hashing
+    // at baseline. Aggregate telemetry deltas do not affect this status.
     ROLLOUT_STATUS_COMPLETED = 2;
     // Every targeted miner settled, but some failed.
     ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
@@ -371,7 +383,7 @@ enum RolloutStage {
     // Updating the current batch only.
     ROLLOUT_STAGE_BATCH = 1;
     // The current batch is done; holding for a review (manual continue, or
-    // automatic once the thresholds are met).
+    // automatic once the configured aggregate telemetry thresholds are met).
     ROLLOUT_STAGE_AWAITING_REVIEW = 2;
     // The current batch is done; waiting wait_between_batches_seconds
     // before the next one starts.
@@ -385,7 +397,7 @@ enum RolloutState {
     ROLLOUT_STATE_UNSPECIFIED = 0;
     ROLLOUT_STATE_IN_PROGRESS = 1;
     // At a gate that will auto-continue once the stabilization period
-    // elapses and telemetry holds.
+    // elapses and aggregate telemetry remains within configured thresholds.
     ROLLOUT_STATE_STABILIZING_TELEMETRY = 2;
     // At the gate after the pilot batch, waiting for an operator.
     ROLLOUT_STATE_PAUSED_AT_PILOT_GATE = 3;
@@ -407,8 +419,8 @@ enum RolloutDevicePhase {
     ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
     // The first attempt did not take; the update was re-sent.
     ROLLOUT_DEVICE_PHASE_RETRYING = 3;
-    // On the target version, back online, and at least as healthy as
-    // before the update.
+    // Reports the target version, is online, and is hashing if it was hashing
+    // at baseline. Per-device telemetry deltas do not affect this phase.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, or the rollout was canceled before this miner
     // updated. Not retried until RetryFailedRolloutDevices.
@@ -440,7 +452,8 @@ message RolloutDeviceCounts {
 // miner's own baseline.
 message RolloutEvidence {
     int32 devices_total = 1;
-    // Miners in the DONE phase.
+    // Miners in the DONE phase. Per-device telemetry deltas do not affect
+    // this count.
     int32 verified = 2;
     int32 online = 3;
     int32 hashing = 4;
@@ -456,8 +469,9 @@ message RolloutEvidence {
     double temperature_change_celsius = 9;
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10;
-    // Whether the evidence meets the rollout's auto-continue conditions
-    // (always false for rollouts without auto-continue).
+    // Whether the DONE count and failed-device checks pass, configured
+    // aggregate telemetry thresholds are met, and stabilization rules permit
+    // auto-continue. Always false for rollouts without auto-continue.
     bool ready_to_advance = 11;
     // Why the rollout is holding at the gate when it cannot auto-continue.
     string hold_reason = 12;

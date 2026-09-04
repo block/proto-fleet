@@ -129,7 +129,13 @@ type RolloutServiceClient interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members.
+	// assignment changed and has mismatched members. Every nonempty
+	// firmware_file_id must resolve to metadata with nonempty target
+	// manufacturer, target model, and firmware version; the metadata target
+	// must match the assignment's manufacturer and model. Otherwise the RPC
+	// fails with FAILED_PRECONDITION before changing any assignment or starting
+	// any rollout. An empty firmware_file_id remains valid and clears the
+	// assignment.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
@@ -442,7 +448,13 @@ type RolloutServiceHandler interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members.
+	// assignment changed and has mismatched members. Every nonempty
+	// firmware_file_id must resolve to metadata with nonempty target
+	// manufacturer, target model, and firmware version; the metadata target
+	// must match the assignment's manufacturer and model. Otherwise the RPC
+	// fails with FAILED_PRECONDITION before changing any assignment or starting
+	// any rollout. An empty firmware_file_id remains valid and clears the
+	// assignment.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's

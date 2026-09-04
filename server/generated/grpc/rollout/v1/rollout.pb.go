@@ -200,8 +200,9 @@ const (
 	RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED RolloutStatus = 0
 	// The rollout is enforcing its firmware version.
 	RolloutStatus_ROLLOUT_STATUS_ACTIVE RolloutStatus = 1
-	// Every targeted miner is on the assigned version, back online, and at
-	// least as healthy as before the update.
+	// Every targeted miner settled successfully under the operational
+	// criteria: assigned version, back online, and hashing if it was hashing
+	// at baseline. Aggregate telemetry deltas do not affect this status.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED RolloutStatus = 2
 	// Every targeted miner settled, but some failed.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES RolloutStatus = 3
@@ -322,7 +323,7 @@ const (
 	// Updating the current batch only.
 	RolloutStage_ROLLOUT_STAGE_BATCH RolloutStage = 1
 	// The current batch is done; holding for a review (manual continue, or
-	// automatic once the thresholds are met).
+	// automatic once the configured aggregate telemetry thresholds are met).
 	RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW RolloutStage = 2
 	// The current batch is done; waiting wait_between_batches_seconds
 	// before the next one starts.
@@ -383,7 +384,7 @@ const (
 	RolloutState_ROLLOUT_STATE_UNSPECIFIED RolloutState = 0
 	RolloutState_ROLLOUT_STATE_IN_PROGRESS RolloutState = 1
 	// At a gate that will auto-continue once the stabilization period
-	// elapses and telemetry holds.
+	// elapses and aggregate telemetry remains within configured thresholds.
 	RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY RolloutState = 2
 	// At the gate after the pilot batch, waiting for an operator.
 	RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE RolloutState = 3
@@ -460,8 +461,8 @@ const (
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_IN_PROGRESS RolloutDevicePhase = 2
 	// The first attempt did not take; the update was re-sent.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_RETRYING RolloutDevicePhase = 3
-	// On the target version, back online, and at least as healthy as
-	// before the update.
+	// Reports the target version, is online, and is hashing if it was hashing
+	// at baseline. Per-device telemetry deltas do not affect this phase.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_DONE RolloutDevicePhase = 4
 	// Attempts exhausted, or the rollout was canceled before this miner
 	// updated. Not retried until RetryFailedRolloutDevices.
@@ -598,8 +599,8 @@ func (x *ReleaseChannelScope) GetDeviceIdentifiers() []string {
 	return nil
 }
 
-// Limits a reviewed batch must satisfy for the rollout to continue without
-// an operator. An unset threshold is not checked.
+// Aggregate telemetry limits a reviewed batch must satisfy for the rollout
+// to continue without an operator. An unset threshold is not checked.
 type RolloutAutomationThresholds struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Largest acceptable aggregate hashrate drop versus baseline, percent.
@@ -691,8 +692,9 @@ type RolloutBehavior struct {
 	// BATCHED: hold at a review gate after every batch. The pilot method
 	// always gates after the pilot.
 	ReviewAfterEachBatch bool `protobuf:"varint,6,opt,name=review_after_each_batch,json=reviewAfterEachBatch,proto3" json:"review_after_each_batch,omitempty"`
-	// Release a gate automatically once the batch is verified, has no failed
-	// miners, meets the thresholds, and has held for stabilization_seconds.
+	// Release a gate automatically once the DONE count and failed-device
+	// checks pass, aggregate telemetry meets the configured thresholds, and
+	// stabilization_seconds has elapsed.
 	AutoContinueOnHealthyTelemetry bool `protobuf:"varint,7,opt,name=auto_continue_on_healthy_telemetry,json=autoContinueOnHealthyTelemetry,proto3" json:"auto_continue_on_healthy_telemetry,omitempty"`
 	// How long a verified batch must hold at the gate before it can
 	// auto-continue, so post-update telemetry has settled.
@@ -1325,8 +1327,12 @@ type FirmwareAssignment struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Manufacturer string                 `protobuf:"bytes,1,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
 	Model        string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	// Firmware file to enforce for this manufacturer/model pair; empty clears
-	// the assignment.
+	// Firmware file to enforce for this manufacturer/model pair. A nonempty id
+	// must resolve to metadata with nonempty target manufacturer, target model,
+	// and firmware version, and the metadata target must match this assignment.
+	// ApplyReleaseChannelFirmware rejects violations with FAILED_PRECONDITION
+	// before changing any assignment or starting any rollout. Empty clears the
+	// assignment.
 	FirmwareFileId string `protobuf:"bytes,3,opt,name=firmware_file_id,json=firmwareFileId,proto3" json:"firmware_file_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1529,7 +1535,8 @@ func (x *RolloutDeviceCounts) GetExcluded() int32 {
 type RolloutEvidence struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	DevicesTotal int32                  `protobuf:"varint,1,opt,name=devices_total,json=devicesTotal,proto3" json:"devices_total,omitempty"`
-	// Miners in the DONE phase.
+	// Miners in the DONE phase. Per-device telemetry deltas do not affect
+	// this count.
 	Verified int32 `protobuf:"varint,2,opt,name=verified,proto3" json:"verified,omitempty"`
 	Online   int32 `protobuf:"varint,3,opt,name=online,proto3" json:"online,omitempty"`
 	Hashing  int32 `protobuf:"varint,4,opt,name=hashing,proto3" json:"hashing,omitempty"`
@@ -1545,8 +1552,9 @@ type RolloutEvidence struct {
 	TemperatureChangeCelsius float64 `protobuf:"fixed64,9,opt,name=temperature_change_celsius,json=temperatureChangeCelsius,proto3" json:"temperature_change_celsius,omitempty"`
 	// Errors opened since baseline, summed over the batch (never below 0).
 	NewErrors int32 `protobuf:"varint,10,opt,name=new_errors,json=newErrors,proto3" json:"new_errors,omitempty"`
-	// Whether the evidence meets the rollout's auto-continue conditions
-	// (always false for rollouts without auto-continue).
+	// Whether the DONE count and failed-device checks pass, configured
+	// aggregate telemetry thresholds are met, and stabilization rules permit
+	// auto-continue. Always false for rollouts without auto-continue.
 	ReadyToAdvance bool `protobuf:"varint,11,opt,name=ready_to_advance,json=readyToAdvance,proto3" json:"ready_to_advance,omitempty"`
 	// Why the rollout is holding at the gate when it cannot auto-continue.
 	HoldReason string `protobuf:"bytes,12,opt,name=hold_reason,json=holdReason,proto3" json:"hold_reason,omitempty"`

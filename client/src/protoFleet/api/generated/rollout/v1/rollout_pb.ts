@@ -63,8 +63,8 @@ export const ReleaseChannelScopeSchema: GenMessage<ReleaseChannelScope> =
   messageDesc(file_rollout_v1_rollout, 0);
 
 /**
- * Limits a reviewed batch must satisfy for the rollout to continue without
- * an operator. An unset threshold is not checked.
+ * Aggregate telemetry limits a reviewed batch must satisfy for the rollout
+ * to continue without an operator. An unset threshold is not checked.
  *
  * @generated from message rollout.v1.RolloutAutomationThresholds
  */
@@ -159,8 +159,9 @@ export type RolloutBehavior = Message<"rollout.v1.RolloutBehavior"> & {
   reviewAfterEachBatch: boolean;
 
   /**
-   * Release a gate automatically once the batch is verified, has no failed
-   * miners, meets the thresholds, and has held for stabilization_seconds.
+   * Release a gate automatically once the DONE count and failed-device
+   * checks pass, aggregate telemetry meets the configured thresholds, and
+   * stabilization_seconds has elapsed.
    *
    * @generated from field: bool auto_continue_on_healthy_telemetry = 7;
    */
@@ -506,8 +507,12 @@ export type FirmwareAssignment = Message<"rollout.v1.FirmwareAssignment"> & {
   model: string;
 
   /**
-   * Firmware file to enforce for this manufacturer/model pair; empty clears
-   * the assignment.
+   * Firmware file to enforce for this manufacturer/model pair. A nonempty id
+   * must resolve to metadata with nonempty target manufacturer, target model,
+   * and firmware version, and the metadata target must match this assignment.
+   * ApplyReleaseChannelFirmware rejects violations with FAILED_PRECONDITION
+   * before changing any assignment or starting any rollout. Empty clears the
+   * assignment.
    *
    * @generated from field: string firmware_file_id = 3;
    */
@@ -608,7 +613,8 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
   devicesTotal: number;
 
   /**
-   * Miners in the DONE phase.
+   * Miners in the DONE phase. Per-device telemetry deltas do not affect
+   * this count.
    *
    * @generated from field: int32 verified = 2;
    */
@@ -666,8 +672,9 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
   newErrors: number;
 
   /**
-   * Whether the evidence meets the rollout's auto-continue conditions
-   * (always false for rollouts without auto-continue).
+   * Whether the DONE count and failed-device checks pass, configured
+   * aggregate telemetry thresholds are met, and stabilization rules permit
+   * auto-continue. Always false for rollouts without auto-continue.
    *
    * @generated from field: bool ready_to_advance = 11;
    */
@@ -2145,8 +2152,9 @@ export enum RolloutStatus {
   ACTIVE = 1,
 
   /**
-   * Every targeted miner is on the assigned version, back online, and at
-   * least as healthy as before the update.
+   * Every targeted miner settled successfully under the operational
+   * criteria: assigned version, back online, and hashing if it was hashing
+   * at baseline. Aggregate telemetry deltas do not affect this status.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED = 2;
    */
@@ -2239,7 +2247,7 @@ export enum RolloutStage {
 
   /**
    * The current batch is done; holding for a review (manual continue, or
-   * automatic once the thresholds are met).
+   * automatic once the configured aggregate telemetry thresholds are met).
    *
    * @generated from enum value: ROLLOUT_STAGE_AWAITING_REVIEW = 2;
    */
@@ -2284,7 +2292,7 @@ export enum RolloutState {
 
   /**
    * At a gate that will auto-continue once the stabilization period
-   * elapses and telemetry holds.
+   * elapses and aggregate telemetry remains within configured thresholds.
    *
    * @generated from enum value: ROLLOUT_STATE_STABILIZING_TELEMETRY = 2;
    */
@@ -2365,8 +2373,8 @@ export enum RolloutDevicePhase {
   RETRYING = 3,
 
   /**
-   * On the target version, back online, and at least as healthy as
-   * before the update.
+   * Reports the target version, is online, and is hashing if it was hashing
+   * at baseline. Per-device telemetry deltas do not affect this phase.
    *
    * @generated from enum value: ROLLOUT_DEVICE_PHASE_DONE = 4;
    */
@@ -2526,7 +2534,13 @@ export const RolloutService: GenService<{
   /**
    * Replaces per-manufacturer/model firmware assignments of a channel and
    * starts a rollout, paced by the channel's behavior, for every pair whose
-   * assignment changed and has mismatched members.
+   * assignment changed and has mismatched members. Every nonempty
+   * firmware_file_id must resolve to metadata with nonempty target
+   * manufacturer, target model, and firmware version; the metadata target
+   * must match the assignment's manufacturer and model. Otherwise the RPC
+   * fails with FAILED_PRECONDITION before changing any assignment or starting
+   * any rollout. An empty firmware_file_id remains valid and clears the
+   * assignment.
    *
    * @generated from rpc rollout.v1.RolloutService.ApplyReleaseChannelFirmware
    */
