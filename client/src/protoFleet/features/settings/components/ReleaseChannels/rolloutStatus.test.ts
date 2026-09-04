@@ -17,6 +17,7 @@ import {
   singleBatchBehavior,
 } from "./ReleaseChannels.fixtures";
 import {
+  activeUpdateSummary,
   channelUpdateStatus,
   deviceCounts,
   failedDevices,
@@ -117,6 +118,13 @@ describe("device counts and progress", () => {
     expect(scopeDevices(batchedRigRollout, devices).map((d) => d.deviceIdentifier)).toEqual(["rig-003", "rig-004"]);
     expect(failedDevices(devices).map((d) => d.deviceIdentifier)).toEqual(["rig-004"]);
     expect(scopeDevices(activeRigRollout, devices)).toHaveLength(6);
+  });
+
+  it("summarizes an active update for banners and the header pill", () => {
+    expect(activeUpdateSummary(activeRigRollout)).toBe("2 of 6 miners updated");
+    expect(activeUpdateSummary(gatedRigRollout)).toBe("2 of 6 miners updated, Pilot batch review");
+    expect(activeUpdateSummary(batchedRigRollout)).toBe("3 of 6 miners updated, 1 failed, Batch review");
+    expect(activeUpdateSummary(pausedRigRollout)).toBe("2 of 6 miners updated, Paused");
   });
 
   it("flags rollouts that need a human", () => {

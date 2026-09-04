@@ -313,6 +313,17 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
   return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
 }
 
+// "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
+// banners and the header pill.
+export function activeUpdateSummary(rollout: Rollout): string {
+  const counts = rolloutDeviceCounts(rollout);
+  const failed = failedCount(rollout);
+  const parts = [`${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated`];
+  if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
+  if (isPaused(rollout) || isAwaitingReview(rollout) || isBatchStage(rollout)) parts.push(rolloutStageLabel(rollout));
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // Channel and model status
 // ---------------------------------------------------------------------------
