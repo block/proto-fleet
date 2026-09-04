@@ -747,6 +747,41 @@ func TestFindFirmwareFileByChecksum_ReturnsTrueForExistingFile(t *testing.T) {
 	assert.Equal(t, fileID, foundID)
 }
 
+func TestResolveFirmwareArtifact_ReturnsChecksumAndMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	content := "assignable firmware content"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	artifact, err := svc.ResolveFirmwareArtifact(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, fileID, artifact.FileID)
+	assert.Equal(t, checksumOf(content), artifact.Checksum)
+	assert.Equal(t, testFirmwareMetadata(), artifact.Metadata)
+
+	_, err = svc.ResolveFirmwareArtifact("missing-file")
+	require.Error(t, err)
+}
+
+func TestFindFirmwareFileIDByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T) {
+	svc := setupService(t)
+
+	content := "re-uploadable firmware content"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	// Any uploaded payload with the checksum makes the artifact available,
+	// whatever its metadata says.
+	foundID, ok := svc.FindFirmwareFileIDByChecksum(checksumOf(content))
+	assert.True(t, ok)
+	assert.Equal(t, fileID, foundID)
+
+	require.NoError(t, svc.DeleteFirmwareFile(fileID))
+	_, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
+	assert.False(t, ok)
+}
+
 func TestFindFirmwareFileByChecksum_ReturnsFalseForUnknownChecksum(t *testing.T) {
 	svc := setupService(t)
 
