@@ -17,6 +17,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import type { ChannelView } from "@/protoFleet/api/useReleaseChannels";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -324,6 +325,17 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
   return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
 }
 
+// "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
+// banners and the header pill.
+export function activeUpdateSummary(rollout: Rollout): string {
+  const counts = rolloutDeviceCounts(rollout);
+  const failed = failedCount(rollout);
+  const parts = [`${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated`];
+  if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
+  if (isPaused(rollout) || isAwaitingReview(rollout) || isBatchStage(rollout)) parts.push(rolloutStageLabel(rollout));
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // Channel and model status
 // ---------------------------------------------------------------------------
@@ -438,6 +450,27 @@ export const pairLabel = (pair: { manufacturer: string; model: string }): string
 // meets the canonical "Proto Rig". Unknown identities never match anything.
 export const pairKey = (pair: { manufacturer: string; model: string }): string =>
   minerTargetKey(pair.manufacturer, pair.model) ?? `\u0000${pair.manufacturer}\u0000${pair.model}`;
+
+// The current assignment generation of a rollout's pair, from the polled
+// channels; undefined when the channel or group is not known (yet).
+export function pairGeneration(channels: ChannelView[], rollout: Rollout): bigint | undefined {
+  const channel = channels.find((c) => c.id === rollout.channelId);
+  const key = pairKey(rollout);
+  return channel?.modelGroups.find((group) => pairKey(group) === key)?.assignmentGeneration;
+}
+
+// Rollback reverses a rollout's assignment lineage while the rollout is
+// current: its generation is the pair's current one. An empty lineage
+// clears the assignment; a nonempty one restores the previous version.
+export function canRollBack(rollout: Rollout, currentGeneration: bigint | undefined): boolean {
+  return currentGeneration !== undefined && rollout.assignmentGeneration === currentGeneration;
+}
+
+export function rollbackLabel(rollout: Rollout): string {
+  return rollout.previousFirmwareVersion === ""
+    ? "Roll back and clear firmware"
+    : `Roll back to ${rollout.previousFirmwareVersion}`;
+}
 
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.firmwareVersion === "") return "—";
