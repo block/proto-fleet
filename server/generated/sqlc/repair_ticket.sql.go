@@ -13,42 +13,19 @@ import (
 	"github.com/lib/pq"
 )
 
-const avgTicketAgeHours = `-- name: AvgTicketAgeHours :one
-SELECT COALESCE(
-    AVG(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 3600),
-    0
-)::double precision AS avg_hours
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND status != 5
-`
-
-// Average age in hours for non-completed tickets.
-func (q *Queries) AvgTicketAgeHours(ctx context.Context, orgID int64) (float64, error) {
-	row := q.queryRow(ctx, q.avgTicketAgeHoursStmt, avgTicketAgeHours, orgID)
-	var avg_hours float64
-	err := row.Scan(&avg_hours)
-	return avg_hours, err
-}
-
 const bulkAssignTickets = `-- name: BulkAssignTickets :execrows
-UPDATE repair_ticket
-SET assignee_user_id = $1,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ANY($2::bigint[])
-  AND org_id = $3
-  AND deleted_at IS NULL
+UPDATE repair_ticket SET assignee_user_id = $1, updated_at = NOW()
+WHERE org_id = $2 AND id = ANY($3::bigint[]) AND deleted_at IS NULL
 `
 
 type BulkAssignTicketsParams struct {
 	AssigneeUserID sql.NullInt64
-	TicketIds      []int64
 	OrgID          int64
+	TicketIds      []int64
 }
 
 func (q *Queries) BulkAssignTickets(ctx context.Context, arg BulkAssignTicketsParams) (int64, error) {
-	result, err := q.exec(ctx, q.bulkAssignTicketsStmt, bulkAssignTickets, arg.AssigneeUserID, pq.Array(arg.TicketIds), arg.OrgID)
+	result, err := q.exec(ctx, q.bulkAssignTicketsStmt, bulkAssignTickets, arg.AssigneeUserID, arg.OrgID, pq.Array(arg.TicketIds))
 	if err != nil {
 		return 0, err
 	}
@@ -56,24 +33,18 @@ func (q *Queries) BulkAssignTickets(ctx context.Context, arg BulkAssignTicketsPa
 }
 
 const bulkCloseTickets = `-- name: BulkCloseTickets :execrows
-UPDATE repair_ticket
-SET status = 5,
-    resolution = $1,
-    repair_location = $2,
-    notes = $3,
-    completed_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ANY($4::bigint[])
-  AND org_id = $5
-  AND deleted_at IS NULL
+UPDATE repair_ticket SET
+    status = 5, resolution = $1, repair_location = $2,
+    notes = COALESCE($3, notes), completed_at = COALESCE(completed_at, NOW()), updated_at = NOW()
+WHERE org_id = $4 AND id = ANY($5::bigint[]) AND deleted_at IS NULL
 `
 
 type BulkCloseTicketsParams struct {
 	Resolution     int16
 	RepairLocation int16
 	Notes          sql.NullString
-	TicketIds      []int64
 	OrgID          int64
+	TicketIds      []int64
 }
 
 func (q *Queries) BulkCloseTickets(ctx context.Context, arg BulkCloseTicketsParams) (int64, error) {
@@ -81,8 +52,8 @@ func (q *Queries) BulkCloseTickets(ctx context.Context, arg BulkCloseTicketsPara
 		arg.Resolution,
 		arg.RepairLocation,
 		arg.Notes,
-		pq.Array(arg.TicketIds),
 		arg.OrgID,
+		pq.Array(arg.TicketIds),
 	)
 	if err != nil {
 		return 0, err
@@ -90,22 +61,18 @@ func (q *Queries) BulkCloseTickets(ctx context.Context, arg BulkCloseTicketsPara
 	return result.RowsAffected()
 }
 
-const bulkMarkUrgent = `-- name: BulkMarkUrgent :execrows
-UPDATE repair_ticket
-SET urgent = true,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ANY($1::bigint[])
-  AND org_id = $2
-  AND deleted_at IS NULL
+const bulkMarkTicketsUrgent = `-- name: BulkMarkTicketsUrgent :execrows
+UPDATE repair_ticket SET urgent = TRUE, updated_at = NOW()
+WHERE org_id = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL
 `
 
-type BulkMarkUrgentParams struct {
-	TicketIds []int64
+type BulkMarkTicketsUrgentParams struct {
 	OrgID     int64
+	TicketIds []int64
 }
 
-func (q *Queries) BulkMarkUrgent(ctx context.Context, arg BulkMarkUrgentParams) (int64, error) {
-	result, err := q.exec(ctx, q.bulkMarkUrgentStmt, bulkMarkUrgent, pq.Array(arg.TicketIds), arg.OrgID)
+func (q *Queries) BulkMarkTicketsUrgent(ctx context.Context, arg BulkMarkTicketsUrgentParams) (int64, error) {
+	result, err := q.exec(ctx, q.bulkMarkTicketsUrgentStmt, bulkMarkTicketsUrgent, arg.OrgID, pq.Array(arg.TicketIds))
 	if err != nil {
 		return 0, err
 	}
@@ -113,96 +80,84 @@ func (q *Queries) BulkMarkUrgent(ctx context.Context, arg BulkMarkUrgentParams) 
 }
 
 const bulkUpdateTicketStatus = `-- name: BulkUpdateTicketStatus :execrows
-UPDATE repair_ticket
-SET status = $1,
-    completed_at = CASE
-        WHEN $1::smallint = 5 THEN CURRENT_TIMESTAMP
-        ELSE completed_at
-    END,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ANY($2::bigint[])
-  AND org_id = $3
-  AND deleted_at IS NULL
+UPDATE repair_ticket SET status = $1, updated_at = NOW()
+WHERE org_id = $2 AND id = ANY($3::bigint[]) AND deleted_at IS NULL
 `
 
 type BulkUpdateTicketStatusParams struct {
-	NewStatus int16
-	TicketIds []int64
+	Status    int16
 	OrgID     int64
+	TicketIds []int64
 }
 
 func (q *Queries) BulkUpdateTicketStatus(ctx context.Context, arg BulkUpdateTicketStatusParams) (int64, error) {
-	result, err := q.exec(ctx, q.bulkUpdateTicketStatusStmt, bulkUpdateTicketStatus, arg.NewStatus, pq.Array(arg.TicketIds), arg.OrgID)
+	result, err := q.exec(ctx, q.bulkUpdateTicketStatusStmt, bulkUpdateTicketStatus, arg.Status, arg.OrgID, pq.Array(arg.TicketIds))
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const countOverdueTickets = `-- name: CountOverdueTickets :one
-SELECT COUNT(*)::int AS count
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND status != 5
-  AND created_at < CURRENT_TIMESTAMP - INTERVAL '72 hours'
+const countCompletedTickets = `-- name: CountCompletedTickets :one
+SELECT COUNT(*)::int FROM repair_ticket
+WHERE org_id = $1 AND deleted_at IS NULL AND status = 5
+  AND ($2::text IS NULL OR component = $2)
+  AND ($3::bigint IS NULL OR assignee_user_id = $3)
 `
 
-// Overdue = non-completed, older than 72 hours.
-func (q *Queries) CountOverdueTickets(ctx context.Context, orgID int64) (int32, error) {
-	row := q.queryRow(ctx, q.countOverdueTicketsStmt, countOverdueTickets, orgID)
-	var count int32
-	err := row.Scan(&count)
-	return count, err
+type CountCompletedTicketsParams struct {
+	OrgID           int64
+	ComponentFilter sql.NullString
+	AssigneeFilter  sql.NullInt64
+}
+
+func (q *Queries) CountCompletedTickets(ctx context.Context, arg CountCompletedTicketsParams) (int32, error) {
+	row := q.queryRow(ctx, q.countCompletedTicketsStmt, countCompletedTickets, arg.OrgID, arg.ComponentFilter, arg.AssigneeFilter)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const countRepairTickets = `-- name: CountRepairTickets :one
-SELECT COUNT(*)::int AS total_count
+SELECT COUNT(*)::int
 FROM repair_ticket rt
-WHERE rt.org_id = $1
-  AND rt.deleted_at IS NULL
-  AND ($2::smallint[] IS NULL
-       OR rt.status = ANY($2::smallint[]))
-  AND ($3::smallint[] IS NULL
-       OR rt.category = ANY($3::smallint[]))
-  AND ($4::bigint[] IS NULL
-       OR rt.site_id = ANY($4::bigint[]))
-  AND ($5::bigint[] IS NULL
-       OR rt.building_id = ANY($5::bigint[]))
-  AND ($6::bigint[] IS NULL
-       OR rt.rack_id = ANY($6::bigint[]))
-  AND ($7::text[] IS NULL
-       OR rt.group_label = ANY($7::text[]))
-  AND ($8::bigint IS NULL
-       OR rt.assignee_user_id = $8::bigint)
-  AND ($9::boolean IS NULL
-       OR $9::boolean = false
-       OR rt.urgent = true)
-  AND ($10::boolean IS NULL
-       OR $10::boolean = false
-       OR rt.status != 5)
-  AND ($11::text IS NULL
-       OR rt.ticket_number ILIKE '%' || $11::text || '%'
-       OR rt.component ILIKE '%' || $11::text || '%'
-       OR rt.diagnosis ILIKE '%' || $11::text || '%'
-       OR rt.miner_identifier ILIKE '%' || $11::text || '%')
+LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
+  AND ($2::smallint[] IS NULL OR rt.status = ANY($2::smallint[]))
+  AND ($3::smallint[] IS NULL OR rt.category = ANY($3::smallint[]))
+  AND ($4::bigint[] IS NULL OR rt.site_id = ANY($4::bigint[]))
+  AND ($5::bigint[] IS NULL OR rt.building_id = ANY($5::bigint[]))
+  AND ($6::bigint[] IS NULL OR rt.rack_id = ANY($6::bigint[]))
+  AND ($7::text[] IS NULL OR rt.group_label = ANY($7::text[]))
+  AND ($8::bigint IS NULL OR rt.assignee_user_id = $8)
+  AND (NOT $9::boolean OR rt.urgent)
+  AND (NOT $10::boolean OR rt.status <> 5)
+  AND (NOT $11::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
+  AND ($12::text = '' OR
+       rt.ticket_number ILIKE '%' || $12 || '%' OR
+       rt.component ILIKE '%' || $12 || '%' OR
+       COALESCE(rt.miner_identifier, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(rt.diagnosis, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(s.name, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(b.name, '') ILIKE '%' || $12 || '%')
 `
 
 type CountRepairTicketsParams struct {
-	OrgID                int64
-	FilterStatuses       []int16
-	FilterCategories     []int16
-	FilterSiteIds        []int64
-	FilterBuildingIds    []int64
-	FilterRackIds        []int64
-	FilterGroupLabels    []string
-	FilterAssigneeUserID sql.NullInt64
-	FilterUrgentOnly     sql.NullBool
-	ExcludeCompleted     sql.NullBool
-	SearchQuery          sql.NullString
+	OrgID                  int64
+	FilterStatuses         []int16
+	FilterCategories       []int16
+	FilterSiteIds          []int64
+	FilterBuildingIds      []int64
+	FilterRackIds          []int64
+	FilterGroupLabels      []string
+	FilterAssigneeUserID   sql.NullInt64
+	FilterUrgentOnly       bool
+	FilterExcludeCompleted bool
+	FilterOverdueOnly      bool
+	SearchQuery            string
 }
 
-// Returns the total count matching the same filters (for pagination).
 func (q *Queries) CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error) {
 	row := q.queryRow(ctx, q.countRepairTicketsStmt, countRepairTickets,
 		arg.OrgID,
@@ -214,112 +169,30 @@ func (q *Queries) CountRepairTickets(ctx context.Context, arg CountRepairTickets
 		pq.Array(arg.FilterGroupLabels),
 		arg.FilterAssigneeUserID,
 		arg.FilterUrgentOnly,
-		arg.ExcludeCompleted,
+		arg.FilterExcludeCompleted,
+		arg.FilterOverdueOnly,
 		arg.SearchQuery,
 	)
-	var total_count int32
-	err := row.Scan(&total_count)
-	return total_count, err
-}
-
-const countTicketsByStatus = `-- name: CountTicketsByStatus :many
-SELECT status, COUNT(*)::int AS count
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-GROUP BY status
-`
-
-type CountTicketsByStatusRow struct {
-	Status int16
-	Count  int32
-}
-
-// Returns per-status counts for the queue stats row and kanban headers.
-func (q *Queries) CountTicketsByStatus(ctx context.Context, orgID int64) ([]CountTicketsByStatusRow, error) {
-	rows, err := q.query(ctx, q.countTicketsByStatusStmt, countTicketsByStatus, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CountTicketsByStatusRow
-	for rows.Next() {
-		var i CountTicketsByStatusRow
-		if err := rows.Scan(&i.Status, &i.Count); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const countUnassignedTickets = `-- name: CountUnassignedTickets :one
-SELECT COUNT(*)::int AS count
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND assignee_user_id IS NULL
-  AND status != 5
-`
-
-func (q *Queries) CountUnassignedTickets(ctx context.Context, orgID int64) (int32, error) {
-	row := q.queryRow(ctx, q.countUnassignedTicketsStmt, countUnassignedTickets, orgID)
-	var count int32
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countUrgentTickets = `-- name: CountUrgentTickets :one
-SELECT COUNT(*)::int AS count
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND urgent = true
-  AND status != 5
-`
-
-func (q *Queries) CountUrgentTickets(ctx context.Context, orgID int64) (int32, error) {
-	row := q.queryRow(ctx, q.countUrgentTicketsStmt, countUrgentTickets, orgID)
-	var count int32
-	err := row.Scan(&count)
-	return count, err
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createRepairTicket = `-- name: CreateRepairTicket :one
 INSERT INTO repair_ticket (
-    org_id, ticket_number, category, status, urgent,
-    component, diagnosis, miner_identifier, alert_id,
-    assignee_user_id, warranty_status,
+    org_id, ticket_number, category, urgent, component, diagnosis,
+    miner_identifier, alert_id, assignee_user_id, warranty_status,
     site_id, building_id, zone, rack_id, rack_label, group_label,
     notes, daily_impact_usd
 ) VALUES (
-    $1,
-    $2,
-    $3,
-    1, -- OPEN
-    $4,
-    $5,
-    $6,
-    $7,
-    $8,
-    $9,
-    $10,
-    $11,
-    $12,
-    $13,
-    $14,
-    $15,
-    $16,
-    $17,
-    $18
+    $1, $2, $3, $4,
+    $5, $6, $7,
+    $8, $9, $10,
+    $11, $12, $13,
+    $14, $15, $16,
+    $17, $18
 )
-RETURNING id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, warranty_status, site_id, building_id, zone, rack_id, rack_label, group_label, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, completed_at, created_at, updated_at, deleted_at
+RETURNING id
 `
 
 type CreateRepairTicketParams struct {
@@ -343,7 +216,7 @@ type CreateRepairTicketParams struct {
 	DailyImpactUsd  sql.NullString
 }
 
-func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (RepairTicket, error) {
+func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (int64, error) {
 	row := q.queryRow(ctx, q.createRepairTicketStmt, createRepairTicket,
 		arg.OrgID,
 		arg.TicketNumber,
@@ -364,7 +237,163 @@ func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicket
 		arg.Notes,
 		arg.DailyImpactUsd,
 	)
-	var i RepairTicket
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getFilteredTicketStats = `-- name: GetFilteredTicketStats :one
+SELECT
+    COUNT(*) FILTER (WHERE rt.status = 1)::int AS open_count,
+    COUNT(*) FILTER (WHERE rt.status = 2)::int AS in_progress_count,
+    COUNT(*) FILTER (WHERE rt.status = 3)::int AS on_hold_count,
+    COUNT(*) FILTER (WHERE rt.status = 4)::int AS sent_to_vendor_count,
+    COUNT(*) FILTER (WHERE rt.status = 5)::int AS completed_count,
+    COUNT(*) FILTER (WHERE rt.status <> 5 AND rt.assignee_user_id IS NULL)::int AS unassigned_count,
+    COUNT(*) FILTER (WHERE rt.status <> 5 AND rt.urgent)::int AS urgent_count,
+    COUNT(*) FILTER (WHERE rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours')::int AS overdue_count,
+    COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - rt.created_at)) / 3600.0) FILTER (WHERE rt.status <> 5), 0)::float8 AS avg_age_hours
+FROM repair_ticket rt
+LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
+  AND ($2::smallint[] IS NULL OR rt.status = ANY($2::smallint[]))
+  AND ($3::smallint[] IS NULL OR rt.category = ANY($3::smallint[]))
+  AND ($4::bigint[] IS NULL OR rt.site_id = ANY($4::bigint[]))
+  AND ($5::bigint[] IS NULL OR rt.building_id = ANY($5::bigint[]))
+  AND ($6::bigint[] IS NULL OR rt.rack_id = ANY($6::bigint[]))
+  AND ($7::text[] IS NULL OR rt.group_label = ANY($7::text[]))
+  AND ($8::bigint IS NULL OR rt.assignee_user_id = $8)
+  AND (NOT $9::boolean OR rt.urgent)
+  AND (NOT $10::boolean OR rt.status <> 5)
+  AND (NOT $11::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
+  AND ($12::text = '' OR
+       rt.ticket_number ILIKE '%' || $12 || '%' OR
+       rt.component ILIKE '%' || $12 || '%' OR
+       COALESCE(rt.miner_identifier, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(rt.diagnosis, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(s.name, '') ILIKE '%' || $12 || '%' OR
+       COALESCE(b.name, '') ILIKE '%' || $12 || '%')
+`
+
+type GetFilteredTicketStatsParams struct {
+	OrgID                  int64
+	FilterStatuses         []int16
+	FilterCategories       []int16
+	FilterSiteIds          []int64
+	FilterBuildingIds      []int64
+	FilterRackIds          []int64
+	FilterGroupLabels      []string
+	FilterAssigneeUserID   sql.NullInt64
+	FilterUrgentOnly       bool
+	FilterExcludeCompleted bool
+	FilterOverdueOnly      bool
+	SearchQuery            string
+}
+
+type GetFilteredTicketStatsRow struct {
+	OpenCount         int32
+	InProgressCount   int32
+	OnHoldCount       int32
+	SentToVendorCount int32
+	CompletedCount    int32
+	UnassignedCount   int32
+	UrgentCount       int32
+	OverdueCount      int32
+	AvgAgeHours       float64
+}
+
+func (q *Queries) GetFilteredTicketStats(ctx context.Context, arg GetFilteredTicketStatsParams) (GetFilteredTicketStatsRow, error) {
+	row := q.queryRow(ctx, q.getFilteredTicketStatsStmt, getFilteredTicketStats,
+		arg.OrgID,
+		pq.Array(arg.FilterStatuses),
+		pq.Array(arg.FilterCategories),
+		pq.Array(arg.FilterSiteIds),
+		pq.Array(arg.FilterBuildingIds),
+		pq.Array(arg.FilterRackIds),
+		pq.Array(arg.FilterGroupLabels),
+		arg.FilterAssigneeUserID,
+		arg.FilterUrgentOnly,
+		arg.FilterExcludeCompleted,
+		arg.FilterOverdueOnly,
+		arg.SearchQuery,
+	)
+	var i GetFilteredTicketStatsRow
+	err := row.Scan(
+		&i.OpenCount,
+		&i.InProgressCount,
+		&i.OnHoldCount,
+		&i.SentToVendorCount,
+		&i.CompletedCount,
+		&i.UnassignedCount,
+		&i.UrgentCount,
+		&i.OverdueCount,
+		&i.AvgAgeHours,
+	)
+	return i, err
+}
+
+const getRepairTicket = `-- name: GetRepairTicket :one
+SELECT
+    rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
+    rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
+    rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
+    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
+    rt.site_id, COALESCE(s.name, '') AS site_name,
+    rt.building_id, COALESCE(b.name, '') AS building_name,
+    rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
+    rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at
+FROM repair_ticket rt
+LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+WHERE rt.id = $1 AND rt.org_id = $2 AND rt.deleted_at IS NULL
+`
+
+type GetRepairTicketParams struct {
+	ID    int64
+	OrgID int64
+}
+
+type GetRepairTicketRow struct {
+	ID              int64
+	OrgID           int64
+	TicketNumber    string
+	Category        int16
+	Status          int16
+	Urgent          bool
+	Component       string
+	Diagnosis       sql.NullString
+	MinerIdentifier sql.NullString
+	AlertID         sql.NullString
+	AssigneeUserID  sql.NullInt64
+	AssigneeName    string
+	WarrantyStatus  int16
+	Resolution      int16
+	RepairLocation  int16
+	Notes           sql.NullString
+	DailyImpactUsd  sql.NullString
+	RmaVendor       sql.NullString
+	RmaTracking     sql.NullString
+	RmaEta          sql.NullTime
+	SiteID          sql.NullInt64
+	SiteName        string
+	BuildingID      sql.NullInt64
+	BuildingName    string
+	Zone            sql.NullString
+	RackID          sql.NullInt64
+	RackLabel       sql.NullString
+	GroupLabel      sql.NullString
+	CompletedAt     sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       sql.NullTime
+}
+
+func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (GetRepairTicketRow, error) {
+	row := q.queryRow(ctx, q.getRepairTicketStmt, getRepairTicket, arg.ID, arg.OrgID)
+	var i GetRepairTicketRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -377,13 +406,8 @@ func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicket
 		&i.MinerIdentifier,
 		&i.AlertID,
 		&i.AssigneeUserID,
+		&i.AssigneeName,
 		&i.WarrantyStatus,
-		&i.SiteID,
-		&i.BuildingID,
-		&i.Zone,
-		&i.RackID,
-		&i.RackLabel,
-		&i.GroupLabel,
 		&i.Resolution,
 		&i.RepairLocation,
 		&i.Notes,
@@ -391,6 +415,14 @@ func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicket
 		&i.RmaVendor,
 		&i.RmaTracking,
 		&i.RmaEta,
+		&i.SiteID,
+		&i.SiteName,
+		&i.BuildingID,
+		&i.BuildingName,
+		&i.Zone,
+		&i.RackID,
+		&i.RackLabel,
+		&i.GroupLabel,
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -399,22 +431,68 @@ func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicket
 	return i, err
 }
 
-const getRepairTicket = `-- name: GetRepairTicket :one
-SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, warranty_status, site_id, building_id, zone, rack_id, rack_label, group_label, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, completed_at, created_at, updated_at, deleted_at
-FROM repair_ticket
-WHERE id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
+const getRepairTicketForUpdate = `-- name: GetRepairTicketForUpdate :one
+SELECT
+    rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
+    rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
+    rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
+    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
+    rt.site_id, COALESCE(s.name, '') AS site_name,
+    rt.building_id, COALESCE(b.name, '') AS building_name,
+    rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
+    rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at
+FROM repair_ticket rt
+LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+WHERE rt.id = $1 AND rt.org_id = $2 AND rt.deleted_at IS NULL
+FOR UPDATE OF rt
 `
 
-type GetRepairTicketParams struct {
+type GetRepairTicketForUpdateParams struct {
 	ID    int64
 	OrgID int64
 }
 
-func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (RepairTicket, error) {
-	row := q.queryRow(ctx, q.getRepairTicketStmt, getRepairTicket, arg.ID, arg.OrgID)
-	var i RepairTicket
+type GetRepairTicketForUpdateRow struct {
+	ID              int64
+	OrgID           int64
+	TicketNumber    string
+	Category        int16
+	Status          int16
+	Urgent          bool
+	Component       string
+	Diagnosis       sql.NullString
+	MinerIdentifier sql.NullString
+	AlertID         sql.NullString
+	AssigneeUserID  sql.NullInt64
+	AssigneeName    string
+	WarrantyStatus  int16
+	Resolution      int16
+	RepairLocation  int16
+	Notes           sql.NullString
+	DailyImpactUsd  sql.NullString
+	RmaVendor       sql.NullString
+	RmaTracking     sql.NullString
+	RmaEta          sql.NullTime
+	SiteID          sql.NullInt64
+	SiteName        string
+	BuildingID      sql.NullInt64
+	BuildingName    string
+	Zone            sql.NullString
+	RackID          sql.NullInt64
+	RackLabel       sql.NullString
+	GroupLabel      sql.NullString
+	CompletedAt     sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       sql.NullTime
+}
+
+func (q *Queries) GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error) {
+	row := q.queryRow(ctx, q.getRepairTicketForUpdateStmt, getRepairTicketForUpdate, arg.ID, arg.OrgID)
+	var i GetRepairTicketForUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -427,13 +505,8 @@ func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams
 		&i.MinerIdentifier,
 		&i.AlertID,
 		&i.AssigneeUserID,
+		&i.AssigneeName,
 		&i.WarrantyStatus,
-		&i.SiteID,
-		&i.BuildingID,
-		&i.Zone,
-		&i.RackID,
-		&i.RackLabel,
-		&i.GroupLabel,
 		&i.Resolution,
 		&i.RepairLocation,
 		&i.Notes,
@@ -441,6 +514,14 @@ func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams
 		&i.RmaVendor,
 		&i.RmaTracking,
 		&i.RmaEta,
+		&i.SiteID,
+		&i.SiteName,
+		&i.BuildingID,
+		&i.BuildingName,
+		&i.Zone,
+		&i.RackID,
+		&i.RackLabel,
+		&i.GroupLabel,
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -450,41 +531,59 @@ func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams
 }
 
 const listCompletedTickets = `-- name: ListCompletedTickets :many
-SELECT
-    rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent, rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id, rt.assignee_user_id, rt.warranty_status, rt.site_id, rt.building_id, rt.zone, rt.rack_id, rt.rack_label, rt.group_label, rt.resolution, rt.repair_location, rt.notes, rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta, rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at,
-    COALESCE(cc.comment_count, 0)::int AS comment_count,
-    COALESCE(pc.parts_count, 0)::int AS parts_count
-FROM repair_ticket rt
-LEFT JOIN (
-    SELECT ticket_id, COUNT(*)::int AS comment_count
-    FROM repair_ticket_comment
-    WHERE deleted_at IS NULL
-    GROUP BY ticket_id
-) cc ON cc.ticket_id = rt.id
-LEFT JOIN (
-    SELECT ticket_id, COUNT(*)::int AS parts_count
-    FROM repair_ticket_part
-    GROUP BY ticket_id
-) pc ON pc.ticket_id = rt.id
-WHERE rt.org_id = $1
-  AND rt.deleted_at IS NULL
-  AND rt.status = 5
-  AND ($2::text IS NULL
-       OR rt.component = $2::text)
-  AND ($3::bigint IS NULL
-       OR rt.assignee_user_id = $3::bigint)
-  AND ($4::bigint IS NULL
-       OR rt.id < $4::bigint)
-ORDER BY rt.id DESC
-LIMIT $5::int
+WITH completed AS (
+    SELECT
+        rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
+        rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
+        rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
+        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
+        rt.site_id, COALESCE(s.name, '') AS site_name,
+        rt.building_id, COALESCE(b.name, '') AS building_name,
+        rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
+        rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at,
+        (SELECT COUNT(*)::int FROM repair_ticket_comment c WHERE c.ticket_id = rt.id AND c.org_id = rt.org_id AND c.deleted_at IS NULL) AS comment_count,
+        (SELECT COUNT(*)::int FROM repair_ticket_part p WHERE p.ticket_id = rt.id AND p.org_id = rt.org_id) AS parts_count,
+        CASE $5::smallint
+            WHEN 1 THEN LOWER(rt.component)
+            WHEN 2 THEN LOWER(COALESCE(rt.miner_identifier, rt.component))
+            WHEN 3 THEN COALESCE(NULLIF(LOWER(CONCAT_WS(' / ', s.name, b.name, rt.zone, rt.rack_label, rt.group_label)), ''), '(unassigned)')
+            WHEN 4 THEN LPAD(rt.status::text, 3, '0')
+            ELSE TO_CHAR(rt.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        END AS sort_value
+    FROM repair_ticket rt
+    LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+    LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+    LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+    WHERE rt.org_id = $6 AND rt.deleted_at IS NULL AND rt.status = 5
+      AND ($7::text IS NULL OR rt.component = $7)
+      AND ($8::bigint IS NULL OR rt.assignee_user_id = $8)
+)
+SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM completed
+WHERE $1::text IS NULL
+   OR ($2::smallint = 1 AND
+       (sort_value COLLATE "C" > $1::text COLLATE "C" OR
+        (sort_value = $1 AND id > $3::bigint)))
+   OR ($2::smallint = 2 AND
+       (sort_value COLLATE "C" < $1::text COLLATE "C" OR
+        (sort_value = $1 AND id < $3::bigint)))
+ORDER BY
+    CASE WHEN $2::smallint = 1 THEN sort_value END COLLATE "C" ASC,
+    CASE WHEN $2::smallint = 1 THEN id END ASC,
+    CASE WHEN $2::smallint = 2 THEN sort_value END COLLATE "C" DESC,
+    CASE WHEN $2::smallint = 2 THEN id END DESC
+LIMIT $4
 `
 
 type ListCompletedTicketsParams struct {
-	OrgID                int64
-	FilterComponent      sql.NullString
-	FilterAssigneeUserID sql.NullInt64
-	CursorID             sql.NullInt64
-	LimitN               int32
+	CursorValue     sql.NullString
+	SortDirection   int16
+	CursorID        sql.NullInt64
+	LimitN          int32
+	SortField       int16
+	OrgID           int64
+	ComponentFilter sql.NullString
+	AssigneeFilter  sql.NullInt64
 }
 
 type ListCompletedTicketsRow struct {
@@ -499,13 +598,8 @@ type ListCompletedTicketsRow struct {
 	MinerIdentifier sql.NullString
 	AlertID         sql.NullString
 	AssigneeUserID  sql.NullInt64
+	AssigneeName    string
 	WarrantyStatus  int16
-	SiteID          sql.NullInt64
-	BuildingID      sql.NullInt64
-	Zone            sql.NullString
-	RackID          sql.NullInt64
-	RackLabel       sql.NullString
-	GroupLabel      sql.NullString
 	Resolution      int16
 	RepairLocation  int16
 	Notes           sql.NullString
@@ -513,22 +607,33 @@ type ListCompletedTicketsRow struct {
 	RmaVendor       sql.NullString
 	RmaTracking     sql.NullString
 	RmaEta          sql.NullTime
+	SiteID          sql.NullInt64
+	SiteName        string
+	BuildingID      sql.NullInt64
+	BuildingName    string
+	Zone            sql.NullString
+	RackID          sql.NullInt64
+	RackLabel       sql.NullString
+	GroupLabel      sql.NullString
 	CompletedAt     sql.NullTime
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       sql.NullTime
 	CommentCount    int32
 	PartsCount      int32
+	SortValue       interface{}
 }
 
-// History tab: completed tickets with optional component and assignee filters.
 func (q *Queries) ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error) {
 	rows, err := q.query(ctx, q.listCompletedTicketsStmt, listCompletedTickets,
-		arg.OrgID,
-		arg.FilterComponent,
-		arg.FilterAssigneeUserID,
+		arg.CursorValue,
+		arg.SortDirection,
 		arg.CursorID,
 		arg.LimitN,
+		arg.SortField,
+		arg.OrgID,
+		arg.ComponentFilter,
+		arg.AssigneeFilter,
 	)
 	if err != nil {
 		return nil, err
@@ -549,13 +654,8 @@ func (q *Queries) ListCompletedTickets(ctx context.Context, arg ListCompletedTic
 			&i.MinerIdentifier,
 			&i.AlertID,
 			&i.AssigneeUserID,
+			&i.AssigneeName,
 			&i.WarrantyStatus,
-			&i.SiteID,
-			&i.BuildingID,
-			&i.Zone,
-			&i.RackID,
-			&i.RackLabel,
-			&i.GroupLabel,
 			&i.Resolution,
 			&i.RepairLocation,
 			&i.Notes,
@@ -563,12 +663,21 @@ func (q *Queries) ListCompletedTickets(ctx context.Context, arg ListCompletedTic
 			&i.RmaVendor,
 			&i.RmaTracking,
 			&i.RmaEta,
+			&i.SiteID,
+			&i.SiteName,
+			&i.BuildingID,
+			&i.BuildingName,
+			&i.Zone,
+			&i.RackID,
+			&i.RackLabel,
+			&i.GroupLabel,
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.CommentCount,
 			&i.PartsCount,
+			&i.SortValue,
 		); err != nil {
 			return nil, err
 		}
@@ -584,69 +693,85 @@ func (q *Queries) ListCompletedTickets(ctx context.Context, arg ListCompletedTic
 }
 
 const listRepairTickets = `-- name: ListRepairTickets :many
-SELECT
-    rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent, rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id, rt.assignee_user_id, rt.warranty_status, rt.site_id, rt.building_id, rt.zone, rt.rack_id, rt.rack_label, rt.group_label, rt.resolution, rt.repair_location, rt.notes, rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta, rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at,
-    COALESCE(cc.comment_count, 0)::int AS comment_count,
-    COALESCE(pc.parts_count, 0)::int AS parts_count
-FROM repair_ticket rt
-LEFT JOIN (
-    SELECT ticket_id, COUNT(*)::int AS comment_count
-    FROM repair_ticket_comment
-    WHERE deleted_at IS NULL
-    GROUP BY ticket_id
-) cc ON cc.ticket_id = rt.id
-LEFT JOIN (
-    SELECT ticket_id, COUNT(*)::int AS parts_count
-    FROM repair_ticket_part
-    GROUP BY ticket_id
-) pc ON pc.ticket_id = rt.id
-WHERE rt.org_id = $1
-  AND rt.deleted_at IS NULL
-  AND ($2::smallint[] IS NULL
-       OR rt.status = ANY($2::smallint[]))
-  AND ($3::smallint[] IS NULL
-       OR rt.category = ANY($3::smallint[]))
-  AND ($4::bigint[] IS NULL
-       OR rt.site_id = ANY($4::bigint[]))
-  AND ($5::bigint[] IS NULL
-       OR rt.building_id = ANY($5::bigint[]))
-  AND ($6::bigint[] IS NULL
-       OR rt.rack_id = ANY($6::bigint[]))
-  AND ($7::text[] IS NULL
-       OR rt.group_label = ANY($7::text[]))
-  AND ($8::bigint IS NULL
-       OR rt.assignee_user_id = $8::bigint)
-  AND ($9::boolean IS NULL
-       OR $9::boolean = false
-       OR rt.urgent = true)
-  AND ($10::boolean IS NULL
-       OR $10::boolean = false
-       OR rt.status != 5)
-  AND ($11::text IS NULL
-       OR rt.ticket_number ILIKE '%' || $11::text || '%'
-       OR rt.component ILIKE '%' || $11::text || '%'
-       OR rt.diagnosis ILIKE '%' || $11::text || '%'
-       OR rt.miner_identifier ILIKE '%' || $11::text || '%')
-  AND ($12::bigint IS NULL
-       OR rt.id < $12::bigint)
-ORDER BY rt.id DESC
-LIMIT $13::int
+WITH filtered AS (
+    SELECT
+        rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
+        rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
+        rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
+        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
+        rt.site_id, COALESCE(s.name, '') AS site_name,
+        rt.building_id, COALESCE(b.name, '') AS building_name,
+        rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
+        rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at,
+        (SELECT COUNT(*)::int FROM repair_ticket_comment c
+         WHERE c.ticket_id = rt.id AND c.org_id = rt.org_id AND c.deleted_at IS NULL) AS comment_count,
+        (SELECT COUNT(*)::int FROM repair_ticket_part p
+         WHERE p.ticket_id = rt.id AND p.org_id = rt.org_id) AS parts_count,
+        CASE $5::smallint
+            WHEN 1 THEN LOWER(rt.component)
+            WHEN 2 THEN LOWER(COALESCE(rt.miner_identifier, rt.component))
+            WHEN 3 THEN COALESCE(NULLIF(LOWER(CONCAT_WS(' / ', s.name, b.name, rt.zone, rt.rack_label, rt.group_label)), ''), '(unassigned)')
+            WHEN 4 THEN LPAD(rt.status::text, 3, '0')
+            ELSE TO_CHAR(rt.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+        END AS sort_value
+    FROM repair_ticket rt
+    LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+    LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
+    LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
+    WHERE rt.org_id = $6 AND rt.deleted_at IS NULL
+      AND ($7::smallint[] IS NULL OR rt.status = ANY($7::smallint[]))
+      AND ($8::smallint[] IS NULL OR rt.category = ANY($8::smallint[]))
+      AND ($9::bigint[] IS NULL OR rt.site_id = ANY($9::bigint[]))
+      AND ($10::bigint[] IS NULL OR rt.building_id = ANY($10::bigint[]))
+      AND ($11::bigint[] IS NULL OR rt.rack_id = ANY($11::bigint[]))
+      AND ($12::text[] IS NULL OR rt.group_label = ANY($12::text[]))
+      AND ($13::bigint IS NULL OR rt.assignee_user_id = $13)
+      AND (NOT $14::boolean OR rt.urgent)
+      AND (NOT $15::boolean OR rt.status <> 5)
+      AND (NOT $16::boolean OR (rt.status <> 5 AND rt.created_at < NOW() - INTERVAL '72 hours'))
+      AND ($17::text = '' OR
+           rt.ticket_number ILIKE '%' || $17 || '%' OR
+           rt.component ILIKE '%' || $17 || '%' OR
+           COALESCE(rt.miner_identifier, '') ILIKE '%' || $17 || '%' OR
+           COALESCE(rt.diagnosis, '') ILIKE '%' || $17 || '%' OR
+           COALESCE(s.name, '') ILIKE '%' || $17 || '%' OR
+           COALESCE(b.name, '') ILIKE '%' || $17 || '%')
+)
+SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM filtered
+WHERE $1::text IS NULL
+   OR ($2::smallint = 1 AND
+       (sort_value COLLATE "C" > $1::text COLLATE "C" OR
+        (sort_value = $1 AND id > $3::bigint)))
+   OR ($2::smallint = 2 AND
+       (sort_value COLLATE "C" < $1::text COLLATE "C" OR
+        (sort_value = $1 AND id < $3::bigint)))
+ORDER BY
+    CASE WHEN $2::smallint = 1 THEN sort_value END COLLATE "C" ASC,
+    CASE WHEN $2::smallint = 1 THEN id END ASC,
+    CASE WHEN $2::smallint = 2 THEN sort_value END COLLATE "C" DESC,
+    CASE WHEN $2::smallint = 2 THEN id END DESC
+LIMIT $4
 `
 
 type ListRepairTicketsParams struct {
-	OrgID                int64
-	FilterStatuses       []int16
-	FilterCategories     []int16
-	FilterSiteIds        []int64
-	FilterBuildingIds    []int64
-	FilterRackIds        []int64
-	FilterGroupLabels    []string
-	FilterAssigneeUserID sql.NullInt64
-	FilterUrgentOnly     sql.NullBool
-	ExcludeCompleted     sql.NullBool
-	SearchQuery          sql.NullString
-	CursorID             sql.NullInt64
-	LimitN               int32
+	CursorValue            sql.NullString
+	SortDirection          int16
+	CursorID               sql.NullInt64
+	LimitN                 int32
+	SortField              int16
+	OrgID                  int64
+	FilterStatuses         []int16
+	FilterCategories       []int16
+	FilterSiteIds          []int64
+	FilterBuildingIds      []int64
+	FilterRackIds          []int64
+	FilterGroupLabels      []string
+	FilterAssigneeUserID   sql.NullInt64
+	FilterUrgentOnly       bool
+	FilterExcludeCompleted bool
+	FilterOverdueOnly      bool
+	SearchQuery            string
 }
 
 type ListRepairTicketsRow struct {
@@ -661,13 +786,8 @@ type ListRepairTicketsRow struct {
 	MinerIdentifier sql.NullString
 	AlertID         sql.NullString
 	AssigneeUserID  sql.NullInt64
+	AssigneeName    string
 	WarrantyStatus  int16
-	SiteID          sql.NullInt64
-	BuildingID      sql.NullInt64
-	Zone            sql.NullString
-	RackID          sql.NullInt64
-	RackLabel       sql.NullString
-	GroupLabel      sql.NullString
 	Resolution      int16
 	RepairLocation  int16
 	Notes           sql.NullString
@@ -675,20 +795,30 @@ type ListRepairTicketsRow struct {
 	RmaVendor       sql.NullString
 	RmaTracking     sql.NullString
 	RmaEta          sql.NullTime
+	SiteID          sql.NullInt64
+	SiteName        string
+	BuildingID      sql.NullInt64
+	BuildingName    string
+	Zone            sql.NullString
+	RackID          sql.NullInt64
+	RackLabel       sql.NullString
+	GroupLabel      sql.NullString
 	CompletedAt     sql.NullTime
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       sql.NullTime
 	CommentCount    int32
 	PartsCount      int32
+	SortValue       interface{}
 }
 
-// Returns tickets matching the supplied filters. All narg filters are
-// optional; when NULL, that dimension is not filtered. search_query
-// performs case-insensitive prefix/substring matching across key text
-// fields. Cursor pagination via (id) descending.
 func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error) {
 	rows, err := q.query(ctx, q.listRepairTicketsStmt, listRepairTickets,
+		arg.CursorValue,
+		arg.SortDirection,
+		arg.CursorID,
+		arg.LimitN,
+		arg.SortField,
 		arg.OrgID,
 		pq.Array(arg.FilterStatuses),
 		pq.Array(arg.FilterCategories),
@@ -698,10 +828,9 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 		pq.Array(arg.FilterGroupLabels),
 		arg.FilterAssigneeUserID,
 		arg.FilterUrgentOnly,
-		arg.ExcludeCompleted,
+		arg.FilterExcludeCompleted,
+		arg.FilterOverdueOnly,
 		arg.SearchQuery,
-		arg.CursorID,
-		arg.LimitN,
 	)
 	if err != nil {
 		return nil, err
@@ -722,13 +851,8 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 			&i.MinerIdentifier,
 			&i.AlertID,
 			&i.AssigneeUserID,
+			&i.AssigneeName,
 			&i.WarrantyStatus,
-			&i.SiteID,
-			&i.BuildingID,
-			&i.Zone,
-			&i.RackID,
-			&i.RackLabel,
-			&i.GroupLabel,
 			&i.Resolution,
 			&i.RepairLocation,
 			&i.Notes,
@@ -736,12 +860,21 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 			&i.RmaVendor,
 			&i.RmaTracking,
 			&i.RmaEta,
+			&i.SiteID,
+			&i.SiteName,
+			&i.BuildingID,
+			&i.BuildingName,
+			&i.Zone,
+			&i.RackID,
+			&i.RackLabel,
+			&i.GroupLabel,
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.CommentCount,
 			&i.PartsCount,
+			&i.SortValue,
 		); err != nil {
 			return nil, err
 		}
@@ -757,14 +890,9 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 }
 
 const listTicketsByMiner = `-- name: ListTicketsByMiner :many
-SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, warranty_status, site_id, building_id, zone, rack_id, rack_label, group_label, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, completed_at, created_at, updated_at, deleted_at
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND miner_identifier = $2
-ORDER BY
-    CASE WHEN status != 5 THEN 0 ELSE 1 END,
-    created_at DESC
+SELECT id FROM repair_ticket
+WHERE org_id = $1 AND miner_identifier = $2 AND deleted_at IS NULL
+ORDER BY CASE WHEN status = 5 THEN 1 ELSE 0 END, created_at DESC, id DESC
 `
 
 type ListTicketsByMinerParams struct {
@@ -772,50 +900,19 @@ type ListTicketsByMinerParams struct {
 	MinerIdentifier sql.NullString
 }
 
-// Miner detail section: tickets for a specific miner.
-func (q *Queries) ListTicketsByMiner(ctx context.Context, arg ListTicketsByMinerParams) ([]RepairTicket, error) {
+func (q *Queries) ListTicketsByMiner(ctx context.Context, arg ListTicketsByMinerParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.listTicketsByMinerStmt, listTicketsByMiner, arg.OrgID, arg.MinerIdentifier)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RepairTicket
+	var items []int64
 	for rows.Next() {
-		var i RepairTicket
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.TicketNumber,
-			&i.Category,
-			&i.Status,
-			&i.Urgent,
-			&i.Component,
-			&i.Diagnosis,
-			&i.MinerIdentifier,
-			&i.AlertID,
-			&i.AssigneeUserID,
-			&i.WarrantyStatus,
-			&i.SiteID,
-			&i.BuildingID,
-			&i.Zone,
-			&i.RackID,
-			&i.RackLabel,
-			&i.GroupLabel,
-			&i.Resolution,
-			&i.RepairLocation,
-			&i.Notes,
-			&i.DailyImpactUsd,
-			&i.RmaVendor,
-			&i.RmaTracking,
-			&i.RmaEta,
-			&i.CompletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-		); err != nil {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -827,13 +924,9 @@ func (q *Queries) ListTicketsByMiner(ctx context.Context, arg ListTicketsByMiner
 }
 
 const listTicketsByRack = `-- name: ListTicketsByRack :many
-SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, warranty_status, site_id, building_id, zone, rack_id, rack_label, group_label, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, completed_at, created_at, updated_at, deleted_at
-FROM repair_ticket
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND rack_id = $2
-  AND status != 5
-ORDER BY created_at DESC
+SELECT id FROM repair_ticket
+WHERE org_id = $1 AND rack_id = $2 AND status <> 5 AND deleted_at IS NULL
+ORDER BY created_at DESC, id DESC
 `
 
 type ListTicketsByRackParams struct {
@@ -841,50 +934,19 @@ type ListTicketsByRackParams struct {
 	RackID sql.NullInt64
 }
 
-// Rack detail section: non-completed tickets for miners in a rack.
-func (q *Queries) ListTicketsByRack(ctx context.Context, arg ListTicketsByRackParams) ([]RepairTicket, error) {
+func (q *Queries) ListTicketsByRack(ctx context.Context, arg ListTicketsByRackParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.listTicketsByRackStmt, listTicketsByRack, arg.OrgID, arg.RackID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RepairTicket
+	var items []int64
 	for rows.Next() {
-		var i RepairTicket
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.TicketNumber,
-			&i.Category,
-			&i.Status,
-			&i.Urgent,
-			&i.Component,
-			&i.Diagnosis,
-			&i.MinerIdentifier,
-			&i.AlertID,
-			&i.AssigneeUserID,
-			&i.WarrantyStatus,
-			&i.SiteID,
-			&i.BuildingID,
-			&i.Zone,
-			&i.RackID,
-			&i.RackLabel,
-			&i.GroupLabel,
-			&i.Resolution,
-			&i.RepairLocation,
-			&i.Notes,
-			&i.DailyImpactUsd,
-			&i.RmaVendor,
-			&i.RmaTracking,
-			&i.RmaEta,
-			&i.CompletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-		); err != nil {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -895,27 +957,59 @@ func (q *Queries) ListTicketsByRack(ctx context.Context, arg ListTicketsByRackPa
 	return items, nil
 }
 
-const nextTicketNumber = `-- name: NextTicketNumber :one
-SELECT COALESCE(MAX(id), 0) + 1 AS next_id
-FROM repair_ticket
-WHERE org_id = $1
+const lockRepairTicketsByIDs = `-- name: LockRepairTicketsByIDs :many
+SELECT id FROM repair_ticket
+WHERE org_id = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE
 `
 
-// Returns the next ticket number for the org. Runs inside a
-// transaction to prevent duplicates under concurrent inserts.
-func (q *Queries) NextTicketNumber(ctx context.Context, orgID int64) (int32, error) {
-	row := q.queryRow(ctx, q.nextTicketNumberStmt, nextTicketNumber, orgID)
-	var next_id int32
-	err := row.Scan(&next_id)
-	return next_id, err
+type LockRepairTicketsByIDsParams struct {
+	OrgID     int64
+	TicketIds []int64
+}
+
+func (q *Queries) LockRepairTicketsByIDs(ctx context.Context, arg LockRepairTicketsByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockRepairTicketsByIDsStmt, lockRepairTicketsByIDs, arg.OrgID, pq.Array(arg.TicketIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const nextRepairTicketNumber = `-- name: NextRepairTicketNumber :one
+INSERT INTO repair_ticket_counter (org_id, next_number)
+VALUES ($1, 2)
+ON CONFLICT (org_id) DO UPDATE
+SET next_number = repair_ticket_counter.next_number + 1
+RETURNING (next_number - 1)::bigint
+`
+
+func (q *Queries) NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error) {
+	row := q.queryRow(ctx, q.nextRepairTicketNumberStmt, nextRepairTicketNumber, orgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const softDeleteRepairTicket = `-- name: SoftDeleteRepairTicket :execrows
-UPDATE repair_ticket
-SET deleted_at = CURRENT_TIMESTAMP
-WHERE id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
+UPDATE repair_ticket SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
 `
 
 type SoftDeleteRepairTicketParams struct {
@@ -932,31 +1026,23 @@ func (q *Queries) SoftDeleteRepairTicket(ctx context.Context, arg SoftDeleteRepa
 }
 
 const updateRepairTicket = `-- name: UpdateRepairTicket :one
-UPDATE repair_ticket
-SET status           = COALESCE($1, status),
-    urgent           = COALESCE($2, urgent),
-    assignee_user_id = CASE
-        WHEN $3::boolean THEN NULL
-        ELSE COALESCE($4, assignee_user_id)
-    END,
-    component        = COALESCE($5, component),
-    diagnosis        = COALESCE($6, diagnosis),
-    warranty_status  = COALESCE($7, warranty_status),
-    resolution       = COALESCE($8, resolution),
-    repair_location  = COALESCE($9, repair_location),
-    notes            = COALESCE($10, notes),
-    rma_vendor       = COALESCE($11, rma_vendor),
-    rma_tracking     = COALESCE($12, rma_tracking),
-    rma_eta          = COALESCE($13, rma_eta),
-    completed_at     = CASE
-        WHEN $1::smallint = 5 THEN CURRENT_TIMESTAMP
-        ELSE completed_at
-    END,
-    updated_at       = CURRENT_TIMESTAMP
-WHERE id = $14
-  AND org_id = $15
-  AND deleted_at IS NULL
-RETURNING id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, warranty_status, site_id, building_id, zone, rack_id, rack_label, group_label, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, completed_at, created_at, updated_at, deleted_at
+UPDATE repair_ticket SET
+    status = COALESCE($1, status),
+    urgent = COALESCE($2, urgent),
+    assignee_user_id = CASE WHEN $3::boolean THEN NULL ELSE COALESCE($4, assignee_user_id) END,
+    component = COALESCE($5, component),
+    diagnosis = COALESCE($6, diagnosis),
+    warranty_status = COALESCE($7, warranty_status),
+    resolution = COALESCE($8, resolution),
+    repair_location = COALESCE($9, repair_location),
+    notes = COALESCE($10, notes),
+    rma_vendor = COALESCE($11, rma_vendor),
+    rma_tracking = COALESCE($12, rma_tracking),
+    rma_eta = COALESCE($13, rma_eta),
+    completed_at = CASE WHEN $1::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END,
+    updated_at = NOW()
+WHERE id = $14 AND org_id = $15 AND deleted_at IS NULL
+RETURNING id
 `
 
 type UpdateRepairTicketParams struct {
@@ -977,7 +1063,7 @@ type UpdateRepairTicketParams struct {
 	OrgID          int64
 }
 
-func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (RepairTicket, error) {
+func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (int64, error) {
 	row := q.queryRow(ctx, q.updateRepairTicketStmt, updateRepairTicket,
 		arg.Status,
 		arg.Urgent,
@@ -995,37 +1081,7 @@ func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicket
 		arg.ID,
 		arg.OrgID,
 	)
-	var i RepairTicket
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.TicketNumber,
-		&i.Category,
-		&i.Status,
-		&i.Urgent,
-		&i.Component,
-		&i.Diagnosis,
-		&i.MinerIdentifier,
-		&i.AlertID,
-		&i.AssigneeUserID,
-		&i.WarrantyStatus,
-		&i.SiteID,
-		&i.BuildingID,
-		&i.Zone,
-		&i.RackID,
-		&i.RackLabel,
-		&i.GroupLabel,
-		&i.Resolution,
-		&i.RepairLocation,
-		&i.Notes,
-		&i.DailyImpactUsd,
-		&i.RmaVendor,
-		&i.RmaTracking,
-		&i.RmaEta,
-		&i.CompletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
 )
 
-//go:generate go run go.uber.org/mock/mockgen -source=maintenance.go -destination=mocks/mock_maintenance_store.go -package=mocks MaintenanceStore
+//go:generate go run go.uber.org/mock/mockgen -source=maintenance.go -destination=mocks/mock_maintenance_store.go -package=mocks
 
 // MaintenanceStore is the persistence boundary for the maintenance
 // (repair ticketing) domain. All methods are org-scoped.
@@ -17,8 +17,8 @@ type MaintenanceStore interface {
 	// Ticket CRUD
 	// ---------------------------------------------------------------
 
-	// NextTicketNumber returns the next sequential ticket id for the
-	// org. Must be called inside a transaction to prevent duplicates.
+	// NextTicketNumber atomically returns the next per-organization sequence
+	// value. Callers still transact allocation with ticket creation to avoid gaps.
 	NextTicketNumber(ctx context.Context, orgID int64) (int64, error)
 
 	// CreateRepairTicket inserts a new repair_ticket row and returns
@@ -27,9 +27,10 @@ type MaintenanceStore interface {
 
 	// GetRepairTicket returns the live ticket or NotFound.
 	GetRepairTicket(ctx context.Context, orgID, id int64) (*models.RepairTicket, error)
+	GetRepairTicketForUpdate(ctx context.Context, orgID, id int64) (*models.RepairTicket, error)
 
 	// ListRepairTickets returns tickets matching the supplied filters,
-	// paginated by descending id cursor.
+	// paginated by an opaque stable sort-key plus ID cursor.
 	ListRepairTickets(ctx context.Context, filter models.ListFilter) ([]models.RepairTicketSummary, error)
 
 	// CountRepairTickets returns the total count matching the same
@@ -88,14 +89,17 @@ type MaintenanceStore interface {
 	// non-completed tickets.
 	AvgTicketAgeHours(ctx context.Context, orgID int64) (float64, error)
 
+	// GetTicketStats applies the same filters used by the queue.
+	GetTicketStats(ctx context.Context, filter models.ListFilter) (*models.TicketStats, error)
+
 	// ---------------------------------------------------------------
 	// History
 	// ---------------------------------------------------------------
 
 	// ListCompletedTickets returns completed tickets with optional
-	// component and assignee filters, paginated by descending
-	// completed_at.
+	// component and assignee filters with stable sort-key pagination.
 	ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error)
+	CountCompletedTickets(ctx context.Context, filter models.CompletedFilter) (int32, error)
 
 	// ---------------------------------------------------------------
 	// Miner / Rack scoped queries
@@ -115,7 +119,7 @@ type MaintenanceStore interface {
 
 	// CreateTicketComment inserts a new comment and returns the
 	// created row.
-	CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, userName, text string) (*models.TicketComment, error)
+	CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text string) (*models.TicketComment, error)
 
 	// ListTicketComments returns live comments for a ticket ordered
 	// by created_at ascending.
@@ -123,19 +127,31 @@ type MaintenanceStore interface {
 
 	// SoftDeleteTicketComment sets deleted_at on a comment. Returns
 	// rows affected (0 = not found).
-	SoftDeleteTicketComment(ctx context.Context, orgID, id int64) (int64, error)
+	SoftDeleteTicketComment(ctx context.Context, orgID, callerUserID, id int64) (int64, error)
 
 	// ---------------------------------------------------------------
 	// Parts
 	// ---------------------------------------------------------------
 
-	// SetTicketParts replaces all parts for a ticket (delete + insert
-	// in caller's transaction).
+	// SetTicketParts removes active reservations before replacement in the
+	// caller's transaction while retaining consumed history.
 	SetTicketParts(ctx context.Context, orgID, ticketID int64) error
 
 	// InsertTicketPart inserts a single part usage row.
-	InsertTicketPart(ctx context.Context, orgID, ticketID int64, partName string, quantity int32) error
+	InsertTicketPart(ctx context.Context, orgID, ticketID, inventoryPartID int64, partName string, quantity int32) error
+
+	// MarkTicketPartsConsumed marks active reservations as consumed.
+	MarkTicketPartsConsumed(ctx context.Context, orgID, ticketID int64) error
 
 	// ListTicketParts returns all parts for a ticket.
 	ListTicketParts(ctx context.Context, orgID, ticketID int64) ([]models.PartUsage, error)
+}
+
+// MaintenanceReferenceStore resolves live tenant-scoped references for ticket
+// validation and hydration.
+type MaintenanceReferenceStore interface {
+	ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error)
+	ResolveLocationContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (*models.AssetContext, error)
+	ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error)
+	ListAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error)
 }

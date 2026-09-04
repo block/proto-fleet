@@ -246,7 +246,7 @@ func (h *Handler) DeleteTicketComment(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	if err := h.service.DeleteComment(ctx, info.OrganizationID, req.Msg.GetId()); err != nil {
+	if err := h.service.DeleteComment(ctx, info.OrganizationID, info.UserID, req.Msg.GetId()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteTicketCommentResponse{}), nil

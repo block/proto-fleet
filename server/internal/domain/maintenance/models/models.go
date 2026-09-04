@@ -1,7 +1,12 @@
 // Package models holds the domain types for the maintenance (repair ticketing) domain.
 package models
 
-import "time"
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // TicketCategory mirrors the proto enum and the SMALLINT stored in
 // repair_ticket.category. Typed constant set so the domain layer is
@@ -57,6 +62,63 @@ const (
 	WarrantyStatusExpiringSoon  WarrantyStatus = 3
 )
 
+// TicketSortField identifies the stable value used to order ticket pages.
+type TicketSortField int16
+
+const (
+	TicketSortFieldUnspecified TicketSortField = 0
+	TicketSortFieldComponent   TicketSortField = 1
+	TicketSortFieldAsset       TicketSortField = 2
+	TicketSortFieldLocation    TicketSortField = 3
+	TicketSortFieldStatus      TicketSortField = 4
+	TicketSortFieldCreatedAt   TicketSortField = 5
+)
+
+// SortDirection controls whether the selected sort value increases or decreases.
+type SortDirection int16
+
+const (
+	SortDirectionUnspecified SortDirection = 0
+	SortDirectionAscending   SortDirection = 1
+	SortDirectionDescending  SortDirection = 2
+)
+
+// TicketCursor is serialized as opaque base64url JSON at the transport edge.
+// Value comes directly from the SQL sort expression; ID is the deterministic
+// tie-breaker when multiple rows share that value.
+type TicketCursor struct {
+	SortField     TicketSortField `json:"sort_field"`
+	SortDirection SortDirection   `json:"sort_direction"`
+	Value         string          `json:"value"`
+	ID            int64           `json:"id"`
+}
+
+func (c TicketCursor) Encode() (string, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("encode ticket cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func DecodeTicketCursor(token string) (TicketCursor, error) {
+	if len(token) == 0 || len(token) > 2048 {
+		return TicketCursor{}, fmt.Errorf("invalid ticket cursor length")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return TicketCursor{}, fmt.Errorf("decode ticket cursor: %w", err)
+	}
+	var cursor TicketCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return TicketCursor{}, fmt.Errorf("decode ticket cursor JSON: %w", err)
+	}
+	if cursor.ID <= 0 || cursor.Value == "" {
+		return TicketCursor{}, fmt.Errorf("invalid ticket cursor")
+	}
+	return cursor, nil
+}
+
 // RepairTicket is the canonical domain shape for a repair_ticket row.
 type RepairTicket struct {
 	ID              int64
@@ -70,6 +132,7 @@ type RepairTicket struct {
 	MinerIdentifier *string
 	AlertID         *string
 	AssigneeUserID  *int64
+	AssigneeName    string
 	WarrantyStatus  WarrantyStatus
 	Resolution      TicketResolution
 	RepairLocation  RepairLocation
@@ -98,25 +161,28 @@ type RepairTicketSummary struct {
 	RepairTicket
 	CommentCount int32
 	PartsCount   int32
+	Cursor       TicketCursor
 }
 
 // TicketComment is the domain shape for a repair_ticket_comment row.
 type TicketComment struct {
-	ID        int64
-	OrgID     int64
-	TicketID  int64
-	UserID    int64
-	UserName  string
-	Text      string
-	CreatedAt time.Time
-	DeletedAt *time.Time
+	ID               int64
+	OrgID            int64
+	TicketID         int64
+	UserID           int64
+	UserName         string
+	Text             string
+	AuthoredByCaller bool
+	CreatedAt        time.Time
+	DeletedAt        *time.Time
 }
 
-// PartUsage represents a single part consumed during a repair.
+// PartUsage represents a part reserved for or consumed by a repair.
 type PartUsage struct {
 	InventoryPartID int64
 	PartName        string
 	Quantity        int32
+	ConsumedAt      *time.Time
 }
 
 // TicketDetail is the full read model returned by GetRepairTicket,
@@ -196,7 +262,9 @@ type ListFilter struct {
 	ExcludeCompleted bool
 	OverdueOnly      bool
 	SearchQuery      string
-	CursorID         *int64
+	SortField        TicketSortField
+	SortDirection    SortDirection
+	Cursor           *TicketCursor
 	Limit            int32
 }
 
@@ -206,8 +274,30 @@ type CompletedFilter struct {
 	OrgID          int64
 	Component      *string
 	AssigneeUserID *int64
-	CursorID       *int64
+	SortField      TicketSortField
+	SortDirection  SortDirection
+	Cursor         *TicketCursor
 	Limit          int32
+}
+
+// Assignee is an active user with a live organization membership.
+type Assignee struct {
+	UserID   int64
+	Username string
+	RoleName string
+}
+
+// AssetContext is the authoritative location snapshot for a live miner.
+type AssetContext struct {
+	MinerIdentifier string
+	SiteID          *int64
+	SiteName        string
+	BuildingID      *int64
+	BuildingName    string
+	Zone            *string
+	RackID          *int64
+	RackLabel       *string
+	GroupLabel      *string
 }
 
 // TicketStats is the aggregate snapshot returned by GetTicketStats.

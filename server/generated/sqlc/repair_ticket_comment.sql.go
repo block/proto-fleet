@@ -7,38 +7,50 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
 
-const createTicketComment = `-- name: CreateTicketComment :one
-INSERT INTO repair_ticket_comment (
-    org_id, ticket_id, user_id, user_name, text
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
+const createRepairTicketComment = `-- name: CreateRepairTicketComment :one
+WITH inserted AS (
+    INSERT INTO repair_ticket_comment (org_id, ticket_id, user_id, user_name, text)
+    SELECT $1, $2, $3, u.username, $4
+    FROM "user" u
+    WHERE u.id = $3 AND u.deleted_at IS NULL
+    RETURNING id, org_id, ticket_id, user_id, text, created_at, deleted_at
 )
-RETURNING id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at
+SELECT i.id, i.org_id, i.ticket_id, i.user_id, u.username AS user_name,
+       i.text, i.created_at, i.deleted_at
+FROM inserted i
+JOIN "user" u ON u.id = i.user_id
 `
 
-type CreateTicketCommentParams struct {
+type CreateRepairTicketCommentParams struct {
 	OrgID    int64
 	TicketID int64
 	UserID   int64
-	UserName string
 	Text     string
 }
 
-func (q *Queries) CreateTicketComment(ctx context.Context, arg CreateTicketCommentParams) (RepairTicketComment, error) {
-	row := q.queryRow(ctx, q.createTicketCommentStmt, createTicketComment,
+type CreateRepairTicketCommentRow struct {
+	ID        int64
+	OrgID     int64
+	TicketID  int64
+	UserID    int64
+	UserName  string
+	Text      string
+	CreatedAt time.Time
+	DeletedAt sql.NullTime
+}
+
+func (q *Queries) CreateRepairTicketComment(ctx context.Context, arg CreateRepairTicketCommentParams) (CreateRepairTicketCommentRow, error) {
+	row := q.queryRow(ctx, q.createRepairTicketCommentStmt, createRepairTicketComment,
 		arg.OrgID,
 		arg.TicketID,
 		arg.UserID,
-		arg.UserName,
 		arg.Text,
 	)
-	var i RepairTicketComment
+	var i CreateRepairTicketCommentRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -52,29 +64,41 @@ func (q *Queries) CreateTicketComment(ctx context.Context, arg CreateTicketComme
 	return i, err
 }
 
-const listTicketComments = `-- name: ListTicketComments :many
-SELECT id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at
-FROM repair_ticket_comment
-WHERE ticket_id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
-ORDER BY created_at ASC
+const listRepairTicketComments = `-- name: ListRepairTicketComments :many
+SELECT c.id, c.org_id, c.ticket_id, c.user_id, u.username AS user_name,
+       c.text, c.created_at, c.deleted_at
+FROM repair_ticket_comment c
+JOIN "user" u ON u.id = c.user_id
+WHERE c.org_id = $1 AND c.ticket_id = $2
+  AND c.deleted_at IS NULL
+ORDER BY c.created_at ASC, c.id ASC
 `
 
-type ListTicketCommentsParams struct {
-	TicketID int64
+type ListRepairTicketCommentsParams struct {
 	OrgID    int64
+	TicketID int64
 }
 
-func (q *Queries) ListTicketComments(ctx context.Context, arg ListTicketCommentsParams) ([]RepairTicketComment, error) {
-	rows, err := q.query(ctx, q.listTicketCommentsStmt, listTicketComments, arg.TicketID, arg.OrgID)
+type ListRepairTicketCommentsRow struct {
+	ID        int64
+	OrgID     int64
+	TicketID  int64
+	UserID    int64
+	UserName  string
+	Text      string
+	CreatedAt time.Time
+	DeletedAt sql.NullTime
+}
+
+func (q *Queries) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error) {
+	rows, err := q.query(ctx, q.listRepairTicketCommentsStmt, listRepairTicketComments, arg.OrgID, arg.TicketID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RepairTicketComment
+	var items []ListRepairTicketCommentsRow
 	for rows.Next() {
-		var i RepairTicketComment
+		var i ListRepairTicketCommentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -98,21 +122,21 @@ func (q *Queries) ListTicketComments(ctx context.Context, arg ListTicketComments
 	return items, nil
 }
 
-const softDeleteTicketComment = `-- name: SoftDeleteTicketComment :execrows
+const softDeleteRepairTicketCommentByAuthor = `-- name: SoftDeleteRepairTicketCommentByAuthor :execrows
 UPDATE repair_ticket_comment
-SET deleted_at = CURRENT_TIMESTAMP
-WHERE id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
+SET deleted_at = NOW()
+WHERE id = $1 AND org_id = $2
+  AND user_id = $3 AND deleted_at IS NULL
 `
 
-type SoftDeleteTicketCommentParams struct {
-	ID    int64
-	OrgID int64
+type SoftDeleteRepairTicketCommentByAuthorParams struct {
+	ID           int64
+	OrgID        int64
+	CallerUserID int64
 }
 
-func (q *Queries) SoftDeleteTicketComment(ctx context.Context, arg SoftDeleteTicketCommentParams) (int64, error) {
-	result, err := q.exec(ctx, q.softDeleteTicketCommentStmt, softDeleteTicketComment, arg.ID, arg.OrgID)
+func (q *Queries) SoftDeleteRepairTicketCommentByAuthor(ctx context.Context, arg SoftDeleteRepairTicketCommentByAuthorParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteRepairTicketCommentByAuthorStmt, softDeleteRepairTicketCommentByAuthor, arg.ID, arg.OrgID, arg.CallerUserID)
 	if err != nil {
 		return 0, err
 	}

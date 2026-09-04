@@ -363,7 +363,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 					return err
 				}
 				for _, part := range params.PartsUsed {
-					if err := s.store.InsertTicketPart(txCtx, params.OrgID, ticketID, part.PartName, part.Quantity); err != nil {
+					if err := s.store.InsertTicketPart(txCtx, params.OrgID, ticketID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
 						return err
 					}
 				}
@@ -462,7 +462,7 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 		return nil, err
 	}
 
-	comment, err := s.store.CreateTicketComment(ctx, orgID, ticketID, userID, userName, text)
+	comment, err := s.store.CreateTicketComment(ctx, orgID, ticketID, userID, text)
 	if err != nil {
 		return nil, err
 	}
@@ -498,8 +498,8 @@ func (s *Service) ListTicketComments(ctx context.Context, orgID, ticketID int64)
 }
 
 // DeleteComment soft-deletes a comment.
-func (s *Service) DeleteComment(ctx context.Context, orgID, commentID int64) error {
-	rowsAffected, err := s.store.SoftDeleteTicketComment(ctx, orgID, commentID)
+func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commentID int64) error {
+	rowsAffected, err := s.store.SoftDeleteTicketComment(ctx, orgID, callerUserID, commentID)
 	if err != nil {
 		return err
 	}
@@ -562,7 +562,7 @@ func (s *Service) SetTicketParts(ctx context.Context, orgID, ticketID int64, par
 			return err
 		}
 		for _, part := range parts {
-			if err := s.store.InsertTicketPart(txCtx, orgID, ticketID, part.PartName, part.Quantity); err != nil {
+			if err := s.store.InsertTicketPart(txCtx, orgID, ticketID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
 				return err
 			}
 		}

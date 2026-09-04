@@ -74,8 +74,6 @@ type Querier interface {
 	// Soft-deleted rows are excluded from the indexes, so re-assigning
 	// after UnassignRole is allowed.
 	AssignRole(ctx context.Context, arg AssignRoleParams) (UserOrganizationRole, error)
-	// Average age in hours for non-completed tickets.
-	AvgTicketAgeHours(ctx context.Context, orgID int64) (float64, error)
 	// Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 	// concurrency control; the loser sees zero rows and the store re-reads
 	// to distinguish "already restoring" from "already terminal."
@@ -107,7 +105,7 @@ type Querier interface {
 	BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error)
 	// Multi-row insert via jsonb_to_recordset (per-row AFTER-INSERT trigger still fires); :execrows lets the caller verify the row count.
 	BulkInsertNotificationHistory(ctx context.Context, rowsJsonb json.RawMessage) (int64, error)
-	BulkMarkUrgent(ctx context.Context, arg BulkMarkUrgentParams) (int64, error)
+	BulkMarkTicketsUrgent(ctx context.Context, arg BulkMarkTicketsUrgentParams) (int64, error)
 	// Per-tick readiness refresh for all-paired policy rows, batched into one
 	// statement so a mass readiness flip (fleet-wide recovery or outage) does not
 	// issue one UPDATE round trip per device inside the shared tick budget. The
@@ -263,6 +261,7 @@ type Querier interface {
 	// which reuses ListActivityLogs).
 	CountActivityLogs(ctx context.Context, arg CountActivityLogsParams) (int64, error)
 	CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error)
+	CountCompletedTickets(ctx context.Context, arg CountCompletedTicketsParams) (int32, error)
 	// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
 	CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error)
@@ -301,8 +300,6 @@ type Querier interface {
 	// deactivated. Same liveness filters as above so a deactivated user
 	// never inflates the count.
 	CountOrgScopeSuperAdminsExcludingUser(ctx context.Context, arg CountOrgScopeSuperAdminsExcludingUserParams) (int64, error)
-	// Overdue = non-completed, older than 72 hours.
-	CountOverdueTickets(ctx context.Context, orgID int64) (int32, error)
 	CountQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) (int64, error)
 	CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error)
 	// Total live racks currently assigned to a building (placed or
@@ -311,17 +308,12 @@ type Querier interface {
 	// push the building over its aisles×racks_per_aisle grid. Matches
 	// ListBuildingRacks' filter so the count and the list agree.
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
-	// Returns the total count matching the same filters (for pagination).
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
-	// Returns per-status counts for the queue stats row and kanban headers.
-	CountTicketsByStatus(ctx context.Context, orgID int64) ([]CountTicketsByStatusRow, error)
-	CountUnassignedTickets(ctx context.Context, orgID int64) (int32, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
 	// expired history can never block a write.
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
-	CountUrgentTickets(ctx context.Context, orgID int64) (int32, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
 	// is non-null; the partial index surfaces collisions to the service
@@ -350,7 +342,8 @@ type Querier interface {
 	// composite-keyed; inherit it from device_set so the caller's org_id
 	// must match. site_id / building_id are NULL for unassigned racks.
 	CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error
-	CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (RepairTicket, error)
+	CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (int64, error)
+	CreateRepairTicketComment(ctx context.Context, arg CreateRepairTicketCommentParams) (CreateRepairTicketCommentRow, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error)
 	CreateScheduleTarget(ctx context.Context, arg CreateScheduleTargetParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
@@ -358,7 +351,6 @@ type Querier interface {
 	// deleted_at IS NULL surfaces name collisions as a unique-violation; the
 	// service layer maps that to AlreadyExists.
 	CreateSite(ctx context.Context, arg CreateSiteParams) (Site, error)
-	CreateTicketComment(ctx context.Context, arg CreateTicketCommentParams) (RepairTicketComment, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
 	CreateUserOrganization(ctx context.Context, arg CreateUserOrganizationParams) error
 	// AdminTerminate's Stop-first gate: true when any target still has an
@@ -367,6 +359,7 @@ type Querier interface {
 	// desired_state scope avoids blocking AdminTerminate on RESTORING events
 	// whose in-flight commands are Uncurtails.
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
+	DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error
 	DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
@@ -634,6 +627,7 @@ type Querier interface {
 	// Returns device IDs filtered by pairing status and optional device status.
 	// Used for bulk command operations.
 	GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error)
+	GetFilteredTicketStats(ctx context.Context, arg GetFilteredTicketStatsParams) (GetFilteredTicketStatsRow, error)
 	GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error)
 	GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error)
@@ -752,7 +746,8 @@ type Querier interface {
 	// No row means the org has never chosen a channel; the service layer maps
 	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
 	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
-	GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (RepairTicket, error)
+	GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (GetRepairTicketRow, error)
+	GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
 	// against a concurrent SoftDeleteCustomRole on the same role row:
@@ -848,7 +843,7 @@ type Querier interface {
 	// Batch insert for the notification_metric_sample hypertable populated by
 	// the in-process metrics provider on every flush.
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
-	InsertTicketPart(ctx context.Context, arg InsertTicketPartParams) error
+	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
@@ -950,7 +945,6 @@ type Querier interface {
 	// by the startup reconciler (which iterates orgs) and by the
 	// onboarding hook that seeds built-ins for a new org.
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
-	// History tab: completed tickets with optional component and assignee filters.
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)
@@ -1105,6 +1099,7 @@ type Querier interface {
 	// than rule state, so a source or rule disabled after the event started, or
 	// a crash before the active-event pointer was written, cannot hide it.
 	ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]ListMQTTSourcesWithActiveCurtailmentRow, error)
+	ListMaintenanceAssignees(ctx context.Context, orgID int64) ([]ListMaintenanceAssigneesRow, error)
 	// TYPE GENERATION STUB - This query is never executed.
 	// The actual list query uses a hand-written query builder in device.go
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
@@ -1142,10 +1137,8 @@ type Querier interface {
 	// Scoped cooldown lookup: enumerate the request's live candidate devices first,
 	// then probe terminal target history by device identifier.
 	ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByScopeParams) ([]string, error)
-	// Returns tickets matching the supplied filters. All narg filters are
-	// optional; when NULL, that dimension is not filtered. search_query
-	// performs case-insensitive prefix/substring matching across key text
-	// fields. Cursor pagination via (id) descending.
+	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
+	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
 	// Returns every permission key attached to the given role. Used by the
@@ -1185,12 +1178,8 @@ type Querier interface {
 	// create's duplicate check: uk_device_collection_org_type_label spans
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
-	ListTicketComments(ctx context.Context, arg ListTicketCommentsParams) ([]RepairTicketComment, error)
-	ListTicketParts(ctx context.Context, arg ListTicketPartsParams) ([]RepairTicketPart, error)
-	// Miner detail section: tickets for a specific miner.
-	ListTicketsByMiner(ctx context.Context, arg ListTicketsByMinerParams) ([]RepairTicket, error)
-	// Rack detail section: non-completed tickets for miners in a rack.
-	ListTicketsByRack(ctx context.Context, arg ListTicketsByRackParams) ([]RepairTicket, error)
+	ListTicketsByMiner(ctx context.Context, arg ListTicketsByMinerParams) ([]int64, error)
+	ListTicketsByRack(ctx context.Context, arg ListTicketsByRackParams) ([]int64, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
@@ -1331,6 +1320,7 @@ type Querier interface {
 	// on the nullable side of an outer join, and every live rack has a
 	// device_set_rack row by lifecycle invariant.
 	LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error)
+	LockRepairTicketsByIDs(ctx context.Context, arg LockRepairTicketsByIDsParams) ([]int64, error)
 	LockSchedulePriority(ctx context.Context, dollar_1 string) error
 	// Row-locks the site so concurrent DeleteSite can't soft-delete it
 	// between the existence check and the cascade write. Returns the
@@ -1339,10 +1329,9 @@ type Querier interface {
 	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
+	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
-	// Returns the next ticket number for the org. Runs inside a
-	// transaction to prevent duplicates under concurrent inserts.
-	NextTicketNumber(ctx context.Context, orgID int64) (int32, error)
+	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -1469,6 +1458,9 @@ type Querier interface {
 	// with new membership. The reconciler validates selector shape before calling.
 	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
 	ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error)
+	ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error)
+	ResolveMaintenanceLocationContext(ctx context.Context, arg ResolveMaintenanceLocationContextParams) (ResolveMaintenanceLocationContextRow, error)
+	ResolveMaintenanceMinerContext(ctx context.Context, arg ResolveMaintenanceMinerContextParams) (ResolveMaintenanceMinerContextRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
@@ -1522,9 +1514,6 @@ type Querier interface {
 	SetRackSlotPosition(ctx context.Context, arg SetRackSlotPositionParams) error
 	SetSchedulePriorities(ctx context.Context, arg SetSchedulePrioritiesParams) error
 	SetScheduleRunning(ctx context.Context, id int64) (int64, error)
-	// Replaces all parts for a ticket. Caller deletes existing then inserts.
-	// Used within a transaction managed by the service layer.
-	SetTicketParts(ctx context.Context, arg SetTicketPartsParams) error
 	SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live sites
 	// in the org. Caller diffs against the requested set to detect
@@ -1573,12 +1562,12 @@ type Querier interface {
 	SoftDeleteOrganization(ctx context.Context, id int64) error
 	SoftDeletePool(ctx context.Context, arg SoftDeletePoolParams) error
 	SoftDeleteRepairTicket(ctx context.Context, arg SoftDeleteRepairTicketParams) (int64, error)
+	SoftDeleteRepairTicketCommentByAuthor(ctx context.Context, arg SoftDeleteRepairTicketCommentByAuthorParams) (int64, error)
 	SoftDeleteRole(ctx context.Context, id int64) error
 	SoftDeleteSchedule(ctx context.Context, arg SoftDeleteScheduleParams) (int64, error)
 	// Caller is expected to also cascade-unassign attached devices/racks and
 	// soft-delete buildings in the same transaction (cascade — see plan J3).
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
-	SoftDeleteTicketComment(ctx context.Context, arg SoftDeleteTicketCommentParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
@@ -1781,7 +1770,7 @@ type Querier interface {
 	// would lose user-curated metadata. NULL (not '') preserves the
 	// collection_sort.go "zone NULLS LAST" semantics.
 	UpdateRackPlacementBulkForSite(ctx context.Context, arg UpdateRackPlacementBulkForSiteParams) error
-	UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (RepairTicket, error)
+	UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (int64, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (int64, error)
 	UpdateScheduleAfterRun(ctx context.Context, arg UpdateScheduleAfterRunParams) error

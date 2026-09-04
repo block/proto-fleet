@@ -7,61 +7,83 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
-const insertTicketPart = `-- name: InsertTicketPart :exec
-INSERT INTO repair_ticket_part (
-    org_id, ticket_id, part_name, quantity
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4
+const deleteActiveRepairTicketParts = `-- name: DeleteActiveRepairTicketParts :exec
+DELETE FROM repair_ticket_part
+WHERE org_id = $1 AND ticket_id = $2 AND consumed_at IS NULL
+`
+
+type DeleteActiveRepairTicketPartsParams struct {
+	OrgID    int64
+	TicketID int64
+}
+
+func (q *Queries) DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error {
+	_, err := q.exec(ctx, q.deleteActiveRepairTicketPartsStmt, deleteActiveRepairTicketParts, arg.OrgID, arg.TicketID)
+	return err
+}
+
+const insertRepairTicketPart = `-- name: InsertRepairTicketPart :exec
+INSERT INTO repair_ticket_part (org_id, ticket_id, inventory_part_id, part_name, quantity)
+VALUES (
+    $1, $2, $3,
+    $4, $5
 )
 `
 
-type InsertTicketPartParams struct {
-	OrgID    int64
-	TicketID int64
-	PartName string
-	Quantity int32
+type InsertRepairTicketPartParams struct {
+	OrgID           int64
+	TicketID        int64
+	InventoryPartID int64
+	PartName        string
+	Quantity        int32
 }
 
-func (q *Queries) InsertTicketPart(ctx context.Context, arg InsertTicketPartParams) error {
-	_, err := q.exec(ctx, q.insertTicketPartStmt, insertTicketPart,
+func (q *Queries) InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error {
+	_, err := q.exec(ctx, q.insertRepairTicketPartStmt, insertRepairTicketPart,
 		arg.OrgID,
 		arg.TicketID,
+		arg.InventoryPartID,
 		arg.PartName,
 		arg.Quantity,
 	)
 	return err
 }
 
-const listTicketParts = `-- name: ListTicketParts :many
-SELECT id, org_id, ticket_id, inventory_part_id, part_name, quantity, consumed_at
-FROM repair_ticket_part
-WHERE ticket_id = $1
-  AND org_id = $2
+const listRepairTicketParts = `-- name: ListRepairTicketParts :many
+SELECT p.inventory_part_id, COALESCE(i.name, p.part_name) AS part_name,
+       p.quantity, p.consumed_at
+FROM repair_ticket_part p
+LEFT JOIN inventory_part i
+  ON i.id = p.inventory_part_id AND i.org_id = p.org_id
+WHERE p.org_id = $1 AND p.ticket_id = $2
+ORDER BY p.id ASC
 `
 
-type ListTicketPartsParams struct {
-	TicketID int64
+type ListRepairTicketPartsParams struct {
 	OrgID    int64
+	TicketID int64
 }
 
-func (q *Queries) ListTicketParts(ctx context.Context, arg ListTicketPartsParams) ([]RepairTicketPart, error) {
-	rows, err := q.query(ctx, q.listTicketPartsStmt, listTicketParts, arg.TicketID, arg.OrgID)
+type ListRepairTicketPartsRow struct {
+	InventoryPartID int64
+	PartName        string
+	Quantity        int32
+	ConsumedAt      sql.NullTime
+}
+
+func (q *Queries) ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error) {
+	rows, err := q.query(ctx, q.listRepairTicketPartsStmt, listRepairTicketParts, arg.OrgID, arg.TicketID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RepairTicketPart
+	var items []ListRepairTicketPartsRow
 	for rows.Next() {
-		var i RepairTicketPart
+		var i ListRepairTicketPartsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.TicketID,
 			&i.InventoryPartID,
 			&i.PartName,
 			&i.Quantity,
@@ -80,20 +102,17 @@ func (q *Queries) ListTicketParts(ctx context.Context, arg ListTicketPartsParams
 	return items, nil
 }
 
-const setTicketParts = `-- name: SetTicketParts :exec
-DELETE FROM repair_ticket_part
-WHERE ticket_id = $1
-  AND org_id = $2
+const markRepairTicketPartsConsumed = `-- name: MarkRepairTicketPartsConsumed :exec
+UPDATE repair_ticket_part SET consumed_at = COALESCE(consumed_at, NOW())
+WHERE org_id = $1 AND ticket_id = $2 AND consumed_at IS NULL
 `
 
-type SetTicketPartsParams struct {
-	TicketID int64
+type MarkRepairTicketPartsConsumedParams struct {
 	OrgID    int64
+	TicketID int64
 }
 
-// Replaces all parts for a ticket. Caller deletes existing then inserts.
-// Used within a transaction managed by the service layer.
-func (q *Queries) SetTicketParts(ctx context.Context, arg SetTicketPartsParams) error {
-	_, err := q.exec(ctx, q.setTicketPartsStmt, setTicketParts, arg.TicketID, arg.OrgID)
+func (q *Queries) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
+	_, err := q.exec(ctx, q.markRepairTicketPartsConsumedStmt, markRepairTicketPartsConsumed, arg.OrgID, arg.TicketID)
 	return err
 }

@@ -1,8 +1,6 @@
 package maintenance
 
 import (
-	"strconv"
-
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/maintenance/v1"
@@ -152,11 +150,22 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 
 func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFilter, error) {
 	requestFilter := req.GetFilter()
+	sortField, err := checkedEnumValue(int32(req.GetSortField()), 0, 5, "sort_field")
+	if err != nil {
+		return models.ListFilter{}, err
+	}
+	sortDirection, err := checkedEnumValue(int32(req.GetSortDirection()), 0, 2, "sort_direction")
+	if err != nil {
+		return models.ListFilter{}, err
+	}
 	filter := models.ListFilter{
 		OrgID:            orgID,
 		UrgentOnly:       requestFilter.GetUrgentOnly(),
 		ExcludeCompleted: requestFilter.GetExcludeCompleted(),
+		OverdueOnly:      requestFilter.GetOverdueOnly(),
 		SearchQuery:      requestFilter.GetSearchQuery(),
+		SortField:        models.TicketSortField(sortField),
+		SortDirection:    models.SortDirection(sortDirection),
 		Limit:            req.GetPageSize(),
 	}
 	if len(requestFilter.GetStatuses()) > 0 {
@@ -188,19 +197,29 @@ func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFil
 		filter.AssigneeUserID = &v
 	}
 	if req.GetPageToken() != "" {
-		cursorID, err := parsePageToken(req.GetPageToken())
+		cursor, err := models.DecodeTicketCursor(req.GetPageToken())
 		if err != nil {
-			return models.ListFilter{}, err
+			return models.ListFilter{}, fleeterror.NewInvalidArgumentError("invalid page_token")
 		}
-		filter.CursorID = &cursorID
+		filter.Cursor = &cursor
 	}
 	return filter, nil
 }
 
 func toCompletedFilter(req *pb.ListCompletedTicketsRequest, orgID int64) (models.CompletedFilter, error) {
+	sortField, err := checkedEnumValue(int32(req.GetSortField()), 0, 5, "sort_field")
+	if err != nil {
+		return models.CompletedFilter{}, err
+	}
+	sortDirection, err := checkedEnumValue(int32(req.GetSortDirection()), 0, 2, "sort_direction")
+	if err != nil {
+		return models.CompletedFilter{}, err
+	}
 	filter := models.CompletedFilter{
-		OrgID: orgID,
-		Limit: req.GetPageSize(),
+		OrgID:         orgID,
+		SortField:     models.TicketSortField(sortField),
+		SortDirection: models.SortDirection(sortDirection),
+		Limit:         req.GetPageSize(),
 	}
 	if req.ComponentFilter != nil {
 		v := req.GetComponentFilter()
@@ -211,21 +230,13 @@ func toCompletedFilter(req *pb.ListCompletedTicketsRequest, orgID int64) (models
 		filter.AssigneeUserID = &v
 	}
 	if req.GetPageToken() != "" {
-		cursorID, err := parsePageToken(req.GetPageToken())
+		cursor, err := models.DecodeTicketCursor(req.GetPageToken())
 		if err != nil {
-			return models.CompletedFilter{}, err
+			return models.CompletedFilter{}, fleeterror.NewInvalidArgumentError("invalid page_token")
 		}
-		filter.CursorID = &cursorID
+		filter.Cursor = &cursor
 	}
 	return filter, nil
-}
-
-func parsePageToken(token string) (int64, error) {
-	cursorID, err := strconv.ParseInt(token, 10, 64)
-	if err != nil || cursorID <= 0 {
-		return 0, fleeterror.NewInvalidArgumentError("invalid page_token")
-	}
-	return cursorID, nil
 }
 
 func checkedEnumValue(value, minValue, maxValue int32, field string) (int16, error) {
@@ -272,6 +283,7 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		Status:         pb.TicketStatus(t.Status),
 		Urgent:         t.Urgent,
 		Component:      t.Component,
+		AssigneeName:   t.AssigneeName,
 		WarrantyStatus: pb.WarrantyStatus(t.WarrantyStatus),
 		Resolution:     pb.TicketResolution(t.Resolution),
 		RepairLocation: pb.RepairLocation(t.RepairLocation),
@@ -351,12 +363,13 @@ func toProtoComment(c *models.TicketComment) *pb.TicketComment {
 		return nil
 	}
 	return &pb.TicketComment{
-		Id:        c.ID,
-		TicketId:  c.TicketID,
-		UserId:    c.UserID,
-		UserName:  c.UserName,
-		Text:      c.Text,
-		CreatedAt: timestamppb.New(c.CreatedAt),
+		Id:               c.ID,
+		TicketId:         c.TicketID,
+		UserId:           c.UserID,
+		UserName:         c.UserName,
+		Text:             c.Text,
+		AuthoredByCaller: c.AuthoredByCaller,
+		CreatedAt:        timestamppb.New(c.CreatedAt),
 	}
 }
 
@@ -436,5 +449,9 @@ func nextPageToken(tickets []models.RepairTicketSummary) string {
 	if len(tickets) == 0 {
 		return ""
 	}
-	return strconv.FormatInt(tickets[len(tickets)-1].ID, 10)
+	token, err := tickets[len(tickets)-1].Cursor.Encode()
+	if err != nil {
+		return ""
+	}
+	return token
 }
