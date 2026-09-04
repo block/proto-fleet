@@ -56,9 +56,10 @@ const CompletionForm = ({
         void listPartsBySite({
           siteId: BigInt(siteId),
           signal: controller.signal,
-          onSuccess: (items) =>
-            setParts(
-              items.map((item) => ({
+          onSuccess: (items) => {
+            const listedIds = new Set(items.map((item) => item.id.toString()));
+            setParts([
+              ...items.map((item) => ({
                 id: item.id,
                 name: item.name,
                 available:
@@ -66,7 +67,15 @@ const CompletionForm = ({
                   item.allocated +
                   (initialParts.find((part) => part.inventoryPartId === item.id.toString())?.quantity ?? 0),
               })),
-            ),
+              ...initialParts
+                .filter((part) => !listedIds.has(part.inventoryPartId))
+                .map((part) => ({
+                  id: BigInt(part.inventoryPartId),
+                  name: part.partName,
+                  available: part.quantity,
+                })),
+            ]);
+          },
           onError: setError,
         }),
     );

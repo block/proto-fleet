@@ -74,8 +74,18 @@ describe("SitesProvider", () => {
     expect(screen.getByTestId("granted").textContent).toBe("true");
   });
 
-  it("skips the fetch entirely for callers without site:read", async () => {
-    hasPermissionMock.current = (key) => key !== "site:read";
+  it("fetches the site catalog for maintenance readers without site:read", async () => {
+    hasPermissionMock.current = (key) => key === "maintenance:read";
+
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("2"));
+    expect(listSitesMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("granted").textContent).toBe("true");
+  });
+
+  it("skips the fetch entirely for callers without site or maintenance read", async () => {
+    hasPermissionMock.current = () => false;
 
     renderProvider();
 

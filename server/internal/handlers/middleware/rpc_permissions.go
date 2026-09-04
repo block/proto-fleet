@@ -375,6 +375,8 @@ var ProcedurePermissions = map[string]string{
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
+	// ListSites also accepts maintenance:read inline because maintenance forms
+	// need site IDs and names; this entry records the endpoint's primary gate.
 	sitesv1connect.SiteServiceListSitesProcedure: authz.PermSiteRead,
 	// CreateSite optionally seeds buildings + racks + devices atomically (#559).
 	// This site:manage entry is the primary gate; when the caller opts into

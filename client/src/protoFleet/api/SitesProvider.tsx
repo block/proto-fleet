@@ -13,19 +13,21 @@ import { usePoll } from "@/shared/hooks/usePoll";
 // shell (AppLayout) above PageHeader and every routed page so the picker and
 // the page tables share one fetch + poll instead of each firing their own.
 export const SitesProvider = ({ children }: { children: ReactNode }) => {
-  // ListSites is server-gated on org-scoped site:read; skip the fetch entirely
-  // for non-readers so they don't get permission-denied toasts just by loading
-  // the shell.
+  // ListSites accepts site:read or maintenance:read because maintenance forms
+  // need the org site catalog. Skip the fetch for callers holding neither so
+  // they don't get permission-denied toasts just by loading the shell.
   const canReadSites = useHasPermission("site:read");
+  const canReadMaintenance = useHasPermission("maintenance:read");
+  const canAccessSiteCatalog = canReadSites || canReadMaintenance;
   const { listSites } = useSites();
   // Bumped by the site create / rename / delete flows; re-runs the poll effect
   // so a just-mutated site shows up without waiting for the next tick.
   const sitesRevision = useFleetStore((state) => state.ui.sitesRevision);
 
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canAccessSiteCatalog ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
   const [sitesLoaded, setSitesLoaded] = useState(false);
-  const [sitesSettled, setSitesSettled] = useState(!canReadSites);
+  const [sitesSettled, setSitesSettled] = useState(!canAccessSiteCatalog);
   const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
   // Tracks the in-flight ListSites request. A mutation fires both a direct
@@ -92,7 +94,7 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
     params: sitesRevision,
     poll: false,
     pollIntervalMs: POLL_INTERVAL_MS,
-    enabled: canReadSites,
+    enabled: canAccessSiteCatalog,
   });
 
   // Recurring refresh while a consumer has opted in. Deliberately does NOT lead
@@ -101,7 +103,7 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
   // would fire a second ListSites rollup on entry — the duplicate work this
   // refactor removes. The first poll lands one interval later.
   useEffect(() => {
-    if (!canReadSites || activePollers === 0) return undefined;
+    if (!canAccessSiteCatalog || activePollers === 0) return undefined;
     let alive = true;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const scheduleNext = () => {
@@ -116,7 +118,7 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
       alive = false;
       if (timeoutId !== null) clearTimeout(timeoutId);
     };
-  }, [canReadSites, activePollers, fetchSites]);
+  }, [canAccessSiteCatalog, activePollers, fetchSites]);
 
   const value = useMemo<SitesContextValue>(
     () => ({
@@ -125,11 +127,20 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
       sitesLoaded,
       sitesSettled,
       sitesPermissionDenied,
-      siteCatalogAccessGranted: canReadSites && sitesLoaded && !sitesPermissionDenied,
+      siteCatalogAccessGranted: canAccessSiteCatalog && sitesLoaded && !sitesPermissionDenied,
       refetchSites: fetchSites,
       registerSitesPoll,
     }),
-    [sites, sitesError, sitesLoaded, sitesSettled, sitesPermissionDenied, canReadSites, fetchSites, registerSitesPoll],
+    [
+      sites,
+      sitesError,
+      sitesLoaded,
+      sitesSettled,
+      sitesPermissionDenied,
+      canAccessSiteCatalog,
+      fetchSites,
+      registerSitesPoll,
+    ],
   );
 
   return <SitesContext.Provider value={value}>{children}</SitesContext.Provider>;

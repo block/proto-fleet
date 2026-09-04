@@ -32,7 +32,11 @@ func NewHandler(service *sites.Service) *Handler {
 }
 
 func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	info, err := middleware.RequireAnyPermission(
+		ctx,
+		[]string{authz.PermSiteRead, authz.PermMaintenanceRead},
+		authz.ResourceContext{},
+	)
 	if err != nil {
 		return nil, err
 	}

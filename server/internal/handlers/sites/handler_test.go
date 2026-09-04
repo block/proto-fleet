@@ -186,6 +186,16 @@ func TestHandler_sitePermissionsPassGate(t *testing.T) {
 	}
 }
 
+func TestHandler_ListSites_allowsMaintenanceReadWithoutSiteRead(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return(nil, nil)
+
+	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermMaintenanceRead)
+	_, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
+	assert.NoError(t, err)
+}
+
 func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
