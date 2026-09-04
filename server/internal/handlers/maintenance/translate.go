@@ -219,7 +219,7 @@ func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFil
 }
 
 func toCompletedFilter(req *pb.ListCompletedTicketsRequest, orgID int64) (models.CompletedFilter, error) {
-	sortField, err := checkedEnumValue(int32(req.GetSortField()), 0, 5, "sort_field")
+	sortField, err := checkedEnumValue(int32(req.GetSortField()), 0, 6, "sort_field")
 	if err != nil {
 		return models.CompletedFilter{}, err
 	}

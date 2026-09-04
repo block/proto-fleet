@@ -240,6 +240,7 @@ WITH completed AS (
             WHEN 2 THEN LOWER(COALESCE(rt.miner_identifier, rt.component))
             WHEN 3 THEN COALESCE(NULLIF(LOWER(CONCAT_WS(' / ', s.name, b.name, rt.zone, rt.rack_label, rt.group_label)), ''), '(unassigned)')
             WHEN 4 THEN LPAD(rt.status::text, 3, '0')
+            WHEN 6 THEN TO_CHAR(COALESCE(rt.completed_at, rt.updated_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
             ELSE TO_CHAR(rt.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
         END AS sort_value
     FROM repair_ticket rt

@@ -5,6 +5,7 @@ import type { InventoryFilter } from "@/protoFleet/api/generated/inventory/v1/in
 import { type InventoryCsvPreview, useInventoryApi } from "@/protoFleet/api/inventory";
 
 const PAGE_SIZE = 50;
+const POLL_INTERVAL_MS = 15_000;
 
 export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
   const { listParts, getInsights, createPart, updatePart, deletePart, importCsv, confirmImport } = useInventoryApi();
@@ -50,14 +51,18 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
               cursorHistoryRef.current = cursors;
             }
           },
-          onError: setError,
+          onError: (message) => {
+            if (request === sequence.current) setError(message);
+          },
         }),
         getInsights({
           signal: current.signal,
           onSuccess: (value) => {
             if (request === sequence.current && value) setInsights(toInventoryInsights(value));
           },
-          onError: setError,
+          onError: (message) => {
+            if (request === sequence.current) setError(message);
+          },
         }),
       ]);
       if (request === sequence.current) setLoading(false);
@@ -93,6 +98,28 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     () => load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]),
     [load],
   );
+
+  useEffect(() => {
+    let active = true;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        if (!active) return;
+        try {
+          await refreshCurrentPage();
+        } catch {
+          // RPC adapters report request failures through load's onError callbacks.
+        } finally {
+          if (active) scheduleNext();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+    scheduleNext();
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [refreshCurrentPage]);
 
   const create = useCallback(
     async (input: Parameters<typeof createPart>[0]) => {

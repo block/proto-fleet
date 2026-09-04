@@ -45,6 +45,23 @@ it("loads parts and insights", async () => {
   expect(result.current.insights?.partTypes).toEqual(["Cooling"]);
 });
 
+it("refreshes the current inventory page and insights while open", async () => {
+  vi.useFakeTimers();
+  try {
+    renderHook(() => useInventory());
+    await act(async () => undefined);
+    expect(listParts).toHaveBeenCalledTimes(1);
+    expect(getInsights).toHaveBeenCalledTimes(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(listParts).toHaveBeenCalledTimes(2);
+    expect(getInsights).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("replaces inventory rows when navigating cursor pages", async () => {
   const { result } = renderHook(() => useInventory());
   await waitFor(() => expect(result.current.loading).toBe(false));
@@ -91,6 +108,22 @@ it("submits combined site, type, and low-stock filters", async () => {
     ),
   );
 });
+it("ignores errors from an older filtered request", async () => {
+  const requests: Array<{ onError: (message: string) => void }> = [];
+  listParts.mockImplementation(({ onError }) => {
+    requests.push({ onError });
+    return new Promise(() => undefined);
+  });
+  const { result } = renderHook(() => useInventory());
+  await waitFor(() => expect(requests).toHaveLength(1));
+
+  act(() => result.current.setFilter({ lowStockOnly: true }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+  act(() => requests[0].onError("stale inventory failure"));
+
+  expect(result.current.error).toBeNull();
+});
+
 it("passes exact CSV bytes to preview", async () => {
   importCsv.mockImplementation(async ({ onSuccess }) => onSuccess({ rows: [], validCount: 1, errorCount: 0 }));
   const bytes = new Uint8Array([3]);

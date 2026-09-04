@@ -72,6 +72,7 @@ const (
 	TicketSortFieldLocation    TicketSortField = 3
 	TicketSortFieldStatus      TicketSortField = 4
 	TicketSortFieldCreatedAt   TicketSortField = 5
+	TicketSortFieldCompletedAt TicketSortField = 6
 )
 
 // SortDirection controls whether the selected sort value increases or decreases.

@@ -413,7 +413,7 @@ func normalizeCursor(field models.TicketSortField, direction models.SortDirectio
 	if direction == models.SortDirectionUnspecified {
 		direction = models.SortDirectionDescending
 	}
-	if field < models.TicketSortFieldComponent || field > models.TicketSortFieldCreatedAt || direction < models.SortDirectionAscending || direction > models.SortDirectionDescending {
+	if field < models.TicketSortFieldComponent || field > models.TicketSortFieldCompletedAt || direction < models.SortDirectionAscending || direction > models.SortDirectionDescending {
 		return 0, 0, nil, fleeterror.NewInvalidArgumentError("invalid ticket sort")
 	}
 	if cursor != nil && (cursor.SortField != field || cursor.SortDirection != direction || cursor.ID <= 0 || cursor.Value == "") {

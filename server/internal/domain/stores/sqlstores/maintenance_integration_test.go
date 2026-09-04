@@ -288,6 +288,50 @@ func TestMaintenanceStoreEverySortUsesIDAsStableTieBreaker(t *testing.T) {
 	}
 }
 
+func TestCompletedTicketsSortAndPaginateByCompletionTime(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	orgID := insertMaintenanceTestOrg(t, db, "completed-order")
+
+	create := func(component string) *maintenancemodels.RepairTicket {
+		t.Helper()
+		number, err := store.NextTicketNumber(ctx, orgID)
+		require.NoError(t, err)
+		ticket, err := store.CreateRepairTicket(ctx, maintenancemodels.CreateParams{
+			OrgID: orgID, Category: maintenancemodels.TicketCategoryInfrastructure,
+			Component: component,
+		}, fmt.Sprintf("TK-%04d", number))
+		require.NoError(t, err)
+		return ticket
+	}
+	completedMostRecently := create("Older creation")
+	completedEarlier := create("Newer creation")
+	_, err := db.ExecContext(ctx, `
+		UPDATE repair_ticket
+		SET status = 5,
+		    created_at = CASE id WHEN $1 THEN TIMESTAMPTZ '2024-01-01' ELSE TIMESTAMPTZ '2025-01-01' END,
+		    completed_at = CASE id WHEN $1 THEN TIMESTAMPTZ '2026-01-01' ELSE TIMESTAMPTZ '2025-06-01' END
+		WHERE id IN ($1, $2)
+	`, completedMostRecently.ID, completedEarlier.ID)
+	require.NoError(t, err)
+
+	firstPage, err := store.ListCompletedTickets(ctx, maintenancemodels.CompletedFilter{
+		OrgID: orgID, SortField: maintenancemodels.TicketSortFieldCompletedAt, SortDirection: maintenancemodels.SortDirectionDescending, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, firstPage, 1)
+	assert.Equal(t, completedMostRecently.ID, firstPage[0].ID)
+
+	cursor := firstPage[0].Cursor
+	secondPage, err := store.ListCompletedTickets(ctx, maintenancemodels.CompletedFilter{
+		OrgID: orgID, SortField: maintenancemodels.TicketSortFieldCompletedAt, SortDirection: maintenancemodels.SortDirectionDescending, Cursor: &cursor, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, secondPage, 1)
+	assert.Equal(t, completedEarlier.ID, secondPage[0].ID)
+}
+
 func TestMaintenanceStoreBulkIDsAreExactAndCommentDeletionIsAuthorOnly(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import HistoryTab from "./HistoryTab";
+import { SortDirection, TicketSortField } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 const listCompleted = vi.fn(async ({ pageToken, onSuccess, onFinally }) => {
   const secondPage = pageToken === "cursor-2";
   onSuccess({
@@ -34,7 +35,13 @@ it("loads completed ticket history without an export control", async () => {
   await waitFor(() => expect(screen.getByText("TK-2")).toBeInTheDocument());
   expect(screen.getByText("Repaired")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Export CSV/i })).not.toBeInTheDocument();
-  expect(listCompleted).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 50 }));
+  expect(listCompleted).toHaveBeenCalledWith(
+    expect.objectContaining({
+      pageSize: 50,
+      sortField: TicketSortField.COMPLETED_AT,
+      sortDirection: SortDirection.DESC,
+    }),
+  );
 });
 
 it("replaces completed tickets when moving between cursor pages", async () => {

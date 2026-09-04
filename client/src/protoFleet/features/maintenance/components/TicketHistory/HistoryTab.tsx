@@ -67,7 +67,7 @@ const HistoryTab = () => {
       await listCompleted({
         componentFilter: component || undefined,
         assigneeUserIdFilter: assignee ? BigInt(assignee) : undefined,
-        sortField: TicketSortField.CREATED_AT,
+        sortField: TicketSortField.COMPLETED_AT,
         sortDirection: SortDirection.DESC,
         pageSize: 50,
         pageToken,

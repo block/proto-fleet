@@ -40,6 +40,15 @@ func TestToListFilterRangeChecksSortAndIncludesOverdue(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestCompletedAtSortIsLimitedToCompletedTickets(t *testing.T) {
+	_, err := toListFilter(&pb.ListRepairTicketsRequest{SortField: pb.TicketSortField_TICKET_SORT_FIELD_COMPLETED_AT}, 42)
+	assert.Error(t, err)
+
+	filter, err := toCompletedFilter(&pb.ListCompletedTicketsRequest{SortField: pb.TicketSortField_TICKET_SORT_FIELD_COMPLETED_AT}, 42)
+	require.NoError(t, err)
+	assert.Equal(t, models.TicketSortFieldCompletedAt, filter.SortField)
+}
+
 func TestToListFilterAcceptsOmittedFilter(t *testing.T) {
 	filter, err := toListFilter(&pb.ListRepairTicketsRequest{}, 42)
 	require.NoError(t, err)
