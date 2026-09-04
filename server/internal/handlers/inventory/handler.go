@@ -99,7 +99,11 @@ func (h *Handler) UpdateInventoryPart(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	part, err := h.service.UpdatePart(ctx, toUpdateParams(req.Msg, info.OrganizationID))
+	params, err := toUpdateParams(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	part, err := h.service.UpdatePart(ctx, params)
 	if err != nil {
 		return nil, err
 	}

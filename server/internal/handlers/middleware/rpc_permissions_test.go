@@ -29,6 +29,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -95,6 +97,8 @@ var registeredServices = []struct {
 	{sitesv1connect.SiteServiceName, reflect.TypeOf((*sitesv1connect.SiteServiceHandler)(nil)).Elem()},
 	{telemetryv1connect.TelemetryServiceName, reflect.TypeOf((*telemetryv1connect.TelemetryServiceHandler)(nil)).Elem()},
 	{instancev1connect.InstanceUpdateServiceName, reflect.TypeOf((*instancev1connect.InstanceUpdateServiceHandler)(nil)).Elem()},
+	{maintenancev1connect.MaintenanceServiceName, reflect.TypeOf((*maintenancev1connect.MaintenanceServiceHandler)(nil)).Elem()},
+	{inventoryv1connect.InventoryServiceName, reflect.TypeOf((*inventoryv1connect.InventoryServiceHandler)(nil)).Elem()},
 }
 
 func allRegisteredProcedures() []string {

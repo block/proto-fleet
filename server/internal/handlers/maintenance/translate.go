@@ -445,7 +445,7 @@ func toListRepairTicketsResponse(tickets []models.RepairTicketSummary, totalCoun
 	}
 }
 
-func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary) *pb.ListCompletedTicketsResponse {
+func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32) *pb.ListCompletedTicketsResponse {
 	out := make([]*pb.RepairTicketSummary, 0, len(tickets))
 	for i := range tickets {
 		out = append(out, toProtoTicketSummary(&tickets[i]))
@@ -453,8 +453,16 @@ func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary) *pb.Li
 	return &pb.ListCompletedTicketsResponse{
 		Tickets:       out,
 		NextPageToken: nextPageToken(tickets),
-		TotalCount:    int32(len(tickets)), //nolint:gosec // page size is capped at 100
+		TotalCount:    totalCount,
 	}
+}
+
+func toProtoAssignees(assignees []models.Assignee) []*pb.Assignee {
+	out := make([]*pb.Assignee, 0, len(assignees))
+	for _, assignee := range assignees {
+		out = append(out, &pb.Assignee{UserId: assignee.UserID, Username: assignee.Username, RoleName: assignee.RoleName})
+	}
+	return out
 }
 
 func nextPageToken(tickets []models.RepairTicketSummary) string {

@@ -56,13 +56,15 @@ func toCreateParams(req *pb.CreateInventoryPartRequest, orgID int64) models.Crea
 	return out
 }
 
-func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) models.UpdateParams {
+func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) (models.UpdateParams, error) {
+	reason := int32(req.GetReason())
+	if reason < 1 || reason > 5 {
+		return models.UpdateParams{}, fleeterror.NewInvalidArgumentError("invalid adjustment reason")
+	}
 	out := models.UpdateParams{
-		ID:    req.GetId(),
-		OrgID: orgID,
-		// defined_only on the proto enum gates malformed values; this
-		// is a straight int32 → int16 cast.
-		Reason: models.AdjustmentReason(req.GetReason()), //nolint:gosec // enum is bounded by buf.validate defined_only; int32 → int16 cast is safe.
+		ID:     req.GetId(),
+		OrgID:  orgID,
+		Reason: models.AdjustmentReason(reason), //nolint:gosec // explicit range check above proves conversion safety
 	}
 	if req.OnHand != nil {
 		v := req.GetOnHand()
@@ -80,7 +82,7 @@ func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) models.Upda
 		v := req.GetNotes()
 		out.Notes = &v
 	}
-	return out
+	return out, nil
 }
 
 func toProtoPart(p *models.InventoryPart) *pb.InventoryPart {
@@ -154,8 +156,11 @@ func toImportCsvPreviewResponse(rows []models.CsvPreviewRow) *pb.ImportInventory
 	var errorCount int32
 	for _, row := range rows {
 		out = append(out, &pb.CsvPreviewRow{
+			RowNumber:    int32(row.RowNumber), //nolint:gosec // CSV import is capped at 500 rows
 			Name:         row.Name,
 			Type:         row.Type,
+			Manufacturer: row.Manufacturer,
+			PartNumber:   row.PartNumber,
 			SiteName:     row.SiteName,
 			OnHand:       row.OnHand,
 			ReorderPoint: row.ReorderPoint,

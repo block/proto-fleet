@@ -16,6 +16,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -56,6 +58,29 @@ var ProcedurePermissions = map[string]string{
 	activityv1connect.ActivityServiceListActivitiesProcedure:            authz.PermActivityRead,
 	activityv1connect.ActivityServiceExportActivitiesProcedure:          authz.PermActivityRead,
 	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: authz.PermActivityRead,
+
+	maintenancev1connect.MaintenanceServiceListRepairTicketsProcedure:       authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetRepairTicketProcedure:         authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListTicketCommentsProcedure:      authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListCompletedTicketsProcedure:    authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListAssigneesProcedure:           authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetTicketStatsProcedure:          authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceCreateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceUpdateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceDeleteRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceBulkUpdateRepairTicketsProcedure: authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceCreateTicketCommentProcedure:     authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceDeleteTicketCommentProcedure:     authz.PermMaintenanceManage,
+
+	inventoryv1connect.InventoryServiceListInventoryPartsProcedure:     authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryPartProcedure:       authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryInsightsProcedure:   authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceListPartsBySiteProcedure:        authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceCreateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceUpdateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceDeleteInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceImportInventoryCsvProcedure:     authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceConfirmInventoryImportProcedure: authz.PermMaintenanceManage,
 
 	// API key management — gated by RequirePermission(PermAPIKeyManage).
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,

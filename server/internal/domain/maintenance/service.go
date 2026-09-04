@@ -624,45 +624,8 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 
 // GetTicketStats aggregates multiple count queries into a single
 // TicketStats snapshot.
-func (s *Service) GetTicketStats(ctx context.Context, orgID int64) (*models.TicketStats, error) {
-	countByStatus, err := s.store.CountTicketsByStatus(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	unassigned, err := s.store.CountUnassignedTickets(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	urgent, err := s.store.CountUrgentTickets(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	overdue, err := s.store.CountOverdueTickets(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	avgAge, err := s.store.AvgTicketAgeHours(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert int16 keys from store to typed TicketStatus keys.
-	typedCounts := make(map[models.TicketStatus]int32, len(countByStatus))
-	for status, count := range countByStatus {
-		typedCounts[models.TicketStatus(status)] = count
-	}
-
-	return &models.TicketStats{
-		CountByStatus: typedCounts,
-		Unassigned:    unassigned,
-		Urgent:        urgent,
-		Overdue:       overdue,
-		AvgAgeHours:   avgAge,
-	}, nil
+func (s *Service) GetTicketStats(ctx context.Context, filter models.ListFilter) (*models.TicketStats, error) {
+	return s.store.GetTicketStats(ctx, filter)
 }
 
 // ---------------------------------------------------------------
@@ -753,9 +716,17 @@ func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commen
 // ---------------------------------------------------------------
 
 // ListCompletedTickets returns completed tickets for the history tab.
-func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error) {
+func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, int32, error) {
 	filter.Limit = clampLimit(filter.Limit)
-	return s.store.ListCompletedTickets(ctx, filter)
+	tickets, err := s.store.ListCompletedTickets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := s.store.CountCompletedTickets(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return tickets, total, nil
 }
 
 // ---------------------------------------------------------------

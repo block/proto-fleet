@@ -184,7 +184,11 @@ func (h *Handler) GetTicketStats(ctx context.Context, req *connect.Request[pb.Ge
 	if err != nil {
 		return nil, err
 	}
-	stats, err := h.service.GetTicketStats(ctx, info.OrganizationID)
+	filter, err := toListFilter(&pb.ListRepairTicketsRequest{Filter: req.Msg.GetFilter()}, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := h.service.GetTicketStats(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -259,9 +263,21 @@ func (h *Handler) ListCompletedTickets(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	tickets, err := h.service.ListCompletedTickets(ctx, filter)
+	tickets, total, err := h.service.ListCompletedTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListCompletedTicketsResponse(tickets)), nil
+	return connect.NewResponse(toListCompletedTicketsResponse(tickets, total)), nil
+}
+
+func (h *Handler) ListAssignees(ctx context.Context, _ *connect.Request[pb.ListAssigneesRequest]) (*connect.Response[pb.ListAssigneesResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	assignees, err := h.service.ListAssignees(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ListAssigneesResponse{Assignees: toProtoAssignees(assignees)}), nil
 }
