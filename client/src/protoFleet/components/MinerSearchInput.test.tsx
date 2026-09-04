@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import MinerSearchInput from "./MinerSearchInput";
@@ -27,6 +27,50 @@ const searchBox = () => screen.getByRole("textbox", { name: /search miners/i });
 describe("MinerSearchInput", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("collapses behind a search icon, expands with focus, and collapses again on empty blur", async () => {
+    render(<MinerSearchInput collapsible initialValue="" onQueryChange={vi.fn()} />);
+
+    const toggle = screen.getByRole("button", { name: "Search miners" });
+    expect(screen.queryByRole("textbox", { name: /search miners/i })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(searchBox()).toHaveFocus());
+
+    fireEvent.blur(searchBox());
+    expect(screen.queryByRole("textbox", { name: /search miners/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search miners" })).toBeInTheDocument();
+  });
+
+  it("collapses when the empty field's clear affordance is used", async () => {
+    render(<MinerSearchInput collapsible initialValue="" onQueryChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Search miners" }));
+    await waitFor(() => expect(searchBox()).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Search miners" }));
+
+    expect(screen.queryByRole("textbox", { name: /search miners/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps a non-empty search expanded when focus leaves", () => {
+    render(<MinerSearchInput collapsible initialValue="rack-7" onQueryChange={vi.fn()} />);
+
+    fireEvent.blur(searchBox());
+
+    expect(searchBox()).toHaveValue("rack-7");
+  });
+
+  it("clears an active query immediately and stays expanded for refinement", () => {
+    vi.useFakeTimers();
+    const onQueryChange = vi.fn();
+    render(<MinerSearchInput collapsible initialValue="rack-7" onQueryChange={onQueryChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Search miners" }));
+
+    expect(onQueryChange).toHaveBeenCalledExactlyOnceWith("");
+    expect(searchBox()).toHaveValue("");
+    expect(searchBox()).toHaveFocus();
   });
 
   it("keeps a trailing space through the round-trip so multi-word queries stay typable", () => {
@@ -110,14 +154,17 @@ describe("MinerSearchInput", () => {
   it("reports every keystroke synchronously, not just the first", () => {
     vi.useFakeTimers();
     const onQueryInput = vi.fn();
-    render(<MinerSearchInput initialValue="" onQueryChange={vi.fn()} onQueryInput={onQueryInput} />);
+    const onQueryChange = vi.fn();
+    render(<MinerSearchInput initialValue="" onQueryChange={onQueryChange} onQueryInput={onQueryInput} />);
 
     fireEvent.change(searchBox(), { target: { value: "r" } });
     fireEvent.change(searchBox(), { target: { value: "ra" } });
     fireEvent.change(searchBox(), { target: { value: "" } });
 
-    // Clearing has to report too, or the gate would stay latched shut.
+    // Clearing has to report too, or the gate would stay latched shut. It also
+    // clears the applied query synchronously instead of waiting for debounce.
     expect(onQueryInput.mock.calls.map(([q]) => q)).toEqual(["r", "ra", ""]);
+    expect(onQueryChange).toHaveBeenCalledExactlyOnceWith("");
   });
 
   it("cancels a pending query when an external value replaces it", () => {

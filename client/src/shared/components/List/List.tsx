@@ -173,6 +173,8 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
   headerControls?: ReactNode;
+  /** Controls rendered immediately before the filter pills. */
+  leadingHeaderControls?: ReactNode;
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
@@ -736,6 +738,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onServerFilter,
   filterSize = sizes.compact,
   headerControls,
+  leadingHeaderControls,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -1266,6 +1269,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
         isServerSide={isServerSideFiltering}
         headerControls={headerControls}
+        leadingHeaderControls={leadingHeaderControls}
         initialActiveFilters={initialActiveFilters}
       />
     ) : null;

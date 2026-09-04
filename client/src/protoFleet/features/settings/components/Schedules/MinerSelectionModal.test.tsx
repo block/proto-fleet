@@ -83,6 +83,17 @@ describe("MinerSelectionModal", () => {
     expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ scope }));
   });
 
+  it("keeps the selection-change handler stable across parent re-renders", () => {
+    const { rerender } = render(
+      <MinerSelectionModal open selectedMinerIds={["miner-1"]} onDismiss={vi.fn()} onSave={vi.fn()} />,
+    );
+    const firstHandler = mockMinerSelectionList.mock.lastCall?.[0].onSelectionChange;
+
+    rerender(<MinerSelectionModal open selectedMinerIds={["miner-1"]} onDismiss={vi.fn()} onSave={vi.fn()} />);
+
+    expect(mockMinerSelectionList.mock.lastCall?.[0].onSelectionChange).toBe(firstHandler);
+  });
+
   it("forwards drill-down ancestors as the initial miner filter", () => {
     const initialFilter = create(MinerListFilterSchema, { buildingIds: [11n], rackIds: [21n] });
     render(
