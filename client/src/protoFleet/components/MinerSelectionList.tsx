@@ -18,6 +18,7 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
+import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
@@ -221,7 +222,8 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.buildingIds.length > 0 ||
   filter.ipCidrs.length > 0 ||
   filter.ipRanges.length > 0 ||
-  filter.includeUnassigned;
+  filter.includeUnassigned ||
+  filter.searchQuery.trim().length > 0;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   deviceIdentifier: miner.deviceIdentifier,
@@ -366,6 +368,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // group). Site scope and eligibility are layered on top in the derived
     // `filter` below so applying a facet never drops those constraints.
     const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [searchQuery, setSearchQuery] = useState(baseFilter.searchQuery);
+    // What the search field currently shows, updated per keystroke. `searchQuery`
+    // lags it by the input's debounce, and select-all is gated on both: the
+    // applied query so the offer matches the listed rows, and the pending query
+    // so all-mode is disarmed the moment the operator starts narrowing.
+    const [pendingSearchQuery, setPendingSearchQuery] = useState(baseFilter.searchQuery);
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -397,6 +405,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // only triggers a refetch when the contents actually change.
     const filter = useMemo(() => {
       const merged = layerUserFilter(baseFilter, userFilter);
+      merged.searchQuery = searchQuery;
       // Site scope is the soft baseline; a user-selected Site facet
       // (userFilter.siteIds) is more specific and takes precedence.
       if (merged.siteIds.length === 0) {
@@ -461,6 +470,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       baseFilter,
       scopeSiteIds,
       scopeIncludeUnassigned,
+      searchQuery,
       showAssigned,
       eligibilityEnabled,
       eligRackId,
@@ -586,6 +596,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const canSelectAll =
       !singleSelect &&
       !(eligibilityEnabled && showAssigned) &&
+      filter.searchQuery.trim().length === 0 &&
+      pendingSearchQuery.trim().length === 0 &&
       (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
@@ -911,26 +923,31 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             filters={filters}
             onServerFilter={handleServerFilter}
             headerControls={
-              eligibilityEnabled ? (
-                // px-1 gives the toggle's hover scale-up room so it doesn't
-                // paint past the filter row's right edge and trigger horizontal
-                // scroll in the modal.
-                <div className="flex items-center gap-1 px-1">
-                  <Button
-                    variant={variants.textOnly}
-                    textOnlyUnderlineOnHover={false}
-                    ariaLabel="About “Show assigned miners”"
-                    prefixIcon={<Info className="text-text-primary-70" />}
-                    onClick={() => setShowAssignedInfo(true)}
-                  />
-                  <Switch
-                    label="Show assigned miners"
-                    ariaLabel="Show assigned miners"
-                    checked={showAssigned}
-                    setChecked={setShowAssigned}
-                  />
-                </div>
-              ) : undefined
+              <div className="flex items-center gap-2 px-1">
+                <MinerSearchInput
+                  id="miner-selection-search"
+                  initialValue={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  onQueryInput={setPendingSearchQuery}
+                />
+                {eligibilityEnabled ? (
+                  <>
+                    <Button
+                      variant={variants.textOnly}
+                      textOnlyUnderlineOnHover={false}
+                      ariaLabel="About “Show assigned miners”"
+                      prefixIcon={<Info className="text-text-primary-70" />}
+                      onClick={() => setShowAssignedInfo(true)}
+                    />
+                    <Switch
+                      label="Show assigned miners"
+                      ariaLabel="Show assigned miners"
+                      checked={showAssigned}
+                      setChecked={setShowAssigned}
+                    />
+                  </>
+                ) : null}
+              </div>
             }
             items={displayItems}
             itemKey="deviceIdentifier"

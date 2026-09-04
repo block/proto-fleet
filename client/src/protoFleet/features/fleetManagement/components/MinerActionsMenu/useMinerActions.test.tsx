@@ -2496,6 +2496,26 @@ describe("useMinerActions", () => {
       expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
     });
 
+    it("should show 'matching' message for 'all' selection mode with an active search", () => {
+      const activeFilter = createProto(MinerListFilterSchema, {
+        searchQuery: "worker-42",
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1" }],
+          selectionMode: "all",
+          totalCount: 12,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+      expect(deleteAction?.confirmation?.subtitle).toContain("12 matching miners");
+      expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
+    });
+
     it("should use correct plural for multiple unreachable Proto miners in mixed batch", () => {
       setStoreMiners([
         {

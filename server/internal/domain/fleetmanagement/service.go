@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/singleflight"
 
@@ -1082,6 +1083,14 @@ func parseFilter(
 		return filter, nil
 	}
 
+	filter.SearchQuery = strings.TrimSpace(pbFilter.SearchQuery)
+	// Rune count, not len(): the proto's string.max_len is a code-point bound, so
+	// a byte check would reject multibyte queries the contract accepts.
+	if utf8.RuneCountInString(filter.SearchQuery) > maxMinerSearchQueryLength {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"search_query exceeds maximum of %d characters", maxMinerSearchQueryLength)
+	}
+
 	if len(pbFilter.PairingStatuses) > 0 {
 		filter.PairingStatuses = pbFilter.PairingStatuses
 	}
@@ -1384,6 +1393,8 @@ func parseCIDR(idx int, raw string) (netip.Prefix, error) {
 // firmware versions or zones; arbitrarily large arrays from a misbehaving or
 // hostile client would balloon Postgres planner cost on `= ANY($N::text[])`.
 const maxFreeFormFilterValues = 1024
+
+const maxMinerSearchQueryLength = 255
 
 // convertErrorComponentType converts a proto ComponentType to domain ComponentType.
 func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {

@@ -376,12 +376,72 @@ describe("MinerSelectionList eligibility", () => {
     expect(titles).not.toContain("Building");
   });
 
-  it("renders the assignable-only toggle only when eligibility is provided", () => {
+  it("renders miner search for every list and the assignable-only toggle only with eligibility", () => {
     const { rerender } = render(<MinerSelectionList />);
-    expect(lastListProps()?.headerControls).toBeFalsy();
+    expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.queryByLabelText("Show assigned miners")).not.toBeInTheDocument();
 
     rerender(<MinerSelectionList eligibility={{ rackId: 1n }} />);
     expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.getByLabelText("Show assigned miners")).toBeInTheDocument();
+  });
+
+  it("debounces the search query before fetching", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(249);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("worker-42");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("withdraws select-all on the first keystroke, not when the debounce lands", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+      expect(screen.queryByText("Select all")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+
+      // The applied filter still reads as empty here. Gating select-all on it
+      // would leave a window where submitting all-mode targets the whole fleet
+      // while the field already shows a query.
+      expect(lastFleetFilter().searchQuery).toBe("");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops an existing all-selection as soon as the operator starts narrowing", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      fireEvent.click(screen.getByText("Select all"));
+      expect(screen.queryByText(/All \d+ miners selected/)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Search miners"), { target: { value: "worker-42" } });
+
+      expect(screen.queryByText(/All \d+ miners selected/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("applies eligibility server-side by default and drops it when 'Show assigned miners' is on", () => {

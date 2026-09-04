@@ -14,6 +14,7 @@ import (
 
 // minerFilterParams holds the parsed filter parameters for miner queries.
 type minerFilterParams struct {
+	searchQueryFilter         sql.NullString
 	statusFilter              sql.NullString
 	statusValues              []string
 	modelFilter               sql.NullString
@@ -80,6 +81,10 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 
 	if filter == nil {
 		return fp
+	}
+
+	if searchQuery := strings.TrimSpace(filter.SearchQuery); searchQuery != "" {
+		fp.searchQueryFilter = sql.NullString{String: minerSearchPattern(searchQuery), Valid: true}
 	}
 
 	// Status filter
@@ -215,6 +220,28 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	return fp
 }
 
+// requiresDynamicQuery reports whether any active filter dimension is
+// inexpressible in the static sqlc queries, forcing the dynamic builder.
+//
+// Every caller that pairs a count with a row set must consult this same
+// predicate: routing the rows dynamically while counting statically silently
+// drops the inexpressible dimensions from the count, so a total or a state
+// breakdown would describe a wider set than the rows beside it. Adding a filter
+// dimension to appendFilterSQL without adding it here reintroduces exactly that
+// divergence.
+func (fp minerFilterParams) requiresDynamicQuery() bool {
+	return fp.searchQueryFilter.Valid ||
+		len(fp.numericRanges) > 0 ||
+		fp.ipCIDRsFilter.Valid ||
+		len(fp.ipRangeStarts) > 0 ||
+		fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned ||
+		fp.buildingIDsFilter.Valid ||
+		fp.includeNoBuilding ||
+		fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack
+}
+
 // numericFieldColumn returns the SQL expression that yields a value in the
 // same display units the corresponding Measurement is emitted in by other
 // telemetry APIs. The column→display conversions mirror
@@ -239,8 +266,33 @@ func numericFieldColumn(f stores.NumericFilterField) string {
 	return ""
 }
 
+// minerSearchPattern turns a user-entered substring into a literal ILIKE
+// pattern. Escaping wildcards prevents a search for "%" or "_" from
+// unexpectedly matching every miner.
+func minerSearchPattern(query string) string {
+	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	return "%" + query + "%"
+}
+
 // appendFilterSQL appends filter conditions to the query builder and returns updated args.
 func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, fp minerFilterParams) ([]any, int) {
+	if fp.searchQueryFilter.Valid {
+		// The name branch reuses the sort expression so search-by-name and
+		// sort-by-name can never disagree about what a miner is called. It is
+		// passed as an argument rather than spliced into the format string so a
+		// literal % in the expression can never be read as a format verb.
+		fmt.Fprintf(sb, ` AND (
+			%s ILIKE $%d ESCAPE '\'
+			OR discovered_device.device_identifier ILIKE $%d ESCAPE '\'
+			OR device.serial_number ILIKE $%d ESCAPE '\'
+			OR device.mac_address ILIKE $%d ESCAPE '\'
+			OR discovered_device.ip_address ILIKE $%d ESCAPE '\'
+			OR device.worker_name ILIKE $%d ESCAPE '\'
+		)`, sortExpressions[stores.SortFieldName], argNum, argNum, argNum, argNum, argNum, argNum)
+		args = append(args, fp.searchQueryFilter.String)
+		argNum++
+	}
+
 	if fp.pairingStatusFilter.Valid {
 		fmt.Fprintf(sb, " AND (%s = ANY($%d::text[]))", pairingStatusExpr, argNum)
 		args = append(args, pq.Array(fp.pairingStatusValues))

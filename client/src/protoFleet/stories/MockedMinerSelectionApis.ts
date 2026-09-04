@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode, useEffect } from "react";
+import { createElement, Fragment, type ReactNode, useLayoutEffect } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient, deviceSetClient, fleetManagementClient } from "@/protoFleet/api/clients";
@@ -113,6 +113,19 @@ const mockMiners = [
 ];
 
 const mockMinerModels = Array.from(new Set(mockMiners.map((miner) => miner.model)));
+const matchesMinerSearch = (query: string, miner: (typeof mockMiners)[number]) => {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+
+  return [
+    miner.name,
+    miner.deviceIdentifier,
+    miner.serialNumber,
+    miner.macAddress,
+    miner.ipAddress,
+    miner.workerName,
+  ].some((value) => value.toLocaleLowerCase().includes(normalized));
+};
 const mockCurtailmentCandidates = mockMiners.map((miner, index) =>
   create(CurtailmentCandidateSchema, {
     deviceIdentifier: miner.deviceIdentifier,
@@ -123,7 +136,7 @@ const mockCurtailmentCandidates = mockMiners.map((miner, index) =>
 );
 
 export function MockedMinerSelectionApis({ children }: { children: ReactNode }) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     return installMockedMinerSelectionApis();
   }, []);
 
@@ -149,13 +162,15 @@ const installMockedMinerSelectionApis = createRefCountedStoryMock(() => {
     });
   };
 
-  mutableFleetManagementClient.listMinerStateSnapshots = async () =>
-    create(ListMinerStateSnapshotsResponseSchema, {
-      miners: mockMiners,
+  mutableFleetManagementClient.listMinerStateSnapshots = async (request) => {
+    const miners = mockMiners.filter((miner) => matchesMinerSearch(request.filter?.searchQuery ?? "", miner));
+    return create(ListMinerStateSnapshotsResponseSchema, {
+      miners,
       cursor: "",
-      totalMiners: mockMiners.length,
+      totalMiners: miners.length,
       models: mockMinerModels,
     });
+  };
 
   mutableCurtailmentClient.previewCurtailmentPlan = async (request) => {
     const fixedKw =
