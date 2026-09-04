@@ -125,10 +125,11 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     [applyFilters, filters],
   );
   const toggleMine = useCallback(() => {
+    if (!options.currentAssignee) return;
     const next = !myTicketsActive;
     setMyTicketsActive(next);
     applyFilters(filters, next);
-  }, [applyFilters, filters, myTicketsActive]);
+  }, [applyFilters, filters, myTicketsActive, options.currentAssignee]);
   const chipFilters = useMemo<FilterChipsBarFilter[]>(
     () => [
       {
@@ -313,6 +314,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         <Button
           variant={myTicketsActive ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
+          disabled={!options.currentAssignee}
           onClick={toggleMine}
         >
           My tickets

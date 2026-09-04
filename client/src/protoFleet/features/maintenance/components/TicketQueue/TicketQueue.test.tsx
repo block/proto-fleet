@@ -55,8 +55,19 @@ const queue = {
   resetPagination: vi.fn(),
 };
 vi.mock("@/protoFleet/features/maintenance/hooks/useTicketQueue", () => ({ useTicketQueue: () => queue }));
+let maintenanceOptions: {
+  sites: { id: string; name: string }[];
+  assignees: { id: string; username: string; roleName: string }[];
+  currentAssignee: { id: string; username: string; roleName: string } | null;
+  loading: boolean;
+} = {
+  sites: [{ id: "1", name: "Denver" }],
+  assignees: [],
+  currentAssignee: null,
+  loading: true,
+};
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
-  useMaintenanceOptions: () => ({ sites: [{ id: "1", name: "Denver" }], assignees: [], currentAssignee: null }),
+  useMaintenanceOptions: () => maintenanceOptions,
 }));
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => true }));
 vi.mock("../TicketDetail/TicketDetailModal", () => ({
@@ -72,6 +83,12 @@ describe("TicketQueue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queue.data[0].urgent = false;
+    maintenanceOptions = {
+      sites: [{ id: "1", name: "Denver" }],
+      assignees: [],
+      currentAssignee: null,
+      loading: true,
+    };
   });
 
   it("renders live active status lanes in board view", () => {
@@ -88,6 +105,34 @@ describe("TicketQueue", () => {
     expect(screen.getByText("On Hold (2)")).toBeInTheDocument();
     expect(screen.getByText("Sent to Vendor (1)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create ticket" })).toBeInTheDocument();
+  });
+
+  it("enables My tickets only after the current assignee resolves", () => {
+    const view = render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+    const myTickets = screen.getByRole("button", { name: "My tickets" });
+    expect(myTickets).toBeDisabled();
+    fireEvent.click(myTickets);
+    expect(queue.setFilter).not.toHaveBeenCalled();
+
+    maintenanceOptions = {
+      sites: [{ id: "1", name: "Denver" }],
+      assignees: [{ id: "42", username: "operator", roleName: "Technician" }],
+      currentAssignee: { id: "42", username: "operator", roleName: "Technician" },
+      loading: false,
+    };
+    view.rerender(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+
+    expect(myTickets).toBeEnabled();
+    fireEvent.click(myTickets);
+    expect(queue.setFilter).toHaveBeenLastCalledWith(expect.objectContaining({ assigneeUserId: 42n }));
   });
 
   it("uses a single-ticket update to remove urgent status", () => {
