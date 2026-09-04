@@ -58,6 +58,7 @@ func TestRegistry_ReRegisterReplacesCommandProtocolVersion(t *testing.T) {
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
 	)
 	require.NoError(t, err)
+	assert.True(t, r.CommandProtocolUpgradeRequired(7))
 	assert.Equal(
 		t,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
@@ -71,6 +72,7 @@ func TestRegistry_ReRegisterReplacesCommandProtocolVersion(t *testing.T) {
 	)
 	require.NoError(t, err)
 	defer current.Unregister()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
 	assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, current.conn.maxCommandProtocolVersion)
 
 	select {
@@ -78,6 +80,22 @@ func TestRegistry_ReRegisterReplacesCommandProtocolVersion(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("prior stream was not evicted after command protocol version changed")
 	}
+}
+
+func TestRegistry_CommandProtocolUpgradeRequiredNeedsActiveConnection(t *testing.T) {
+	r := NewRegistry()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
+
+	stream, err := r.RegisterAuthenticated(
+		7,
+		"session",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+	assert.True(t, r.CommandProtocolUpgradeRequired(7))
+
+	stream.Unregister()
+	assert.False(t, r.CommandProtocolUpgradeRequired(7))
 }
 
 func TestRegistry_RejectsUnsupportedCommandProtocolBeforeDispatch(t *testing.T) {

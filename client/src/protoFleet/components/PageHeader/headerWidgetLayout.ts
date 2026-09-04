@@ -1,6 +1,7 @@
 interface HeaderWidgetVisibility {
   hasDismissedSetup: boolean;
   hasVisibleAlertsPill: boolean;
+  hasVisibleFleetNodeUpgradePill?: boolean;
   hasVisibleUpdatePill?: boolean;
   hasVisibleCurtailmentPill: boolean;
   hasVisibleSchedules: boolean;
@@ -10,21 +11,25 @@ export const PHONE_HEADER_WIDGET_ROW_OFFSET_CLASS = "phone:top-[calc(theme(spaci
 export const PHONE_HEADER_WIDGET_STACK_TWO_OFFSET_CLASS = "phone:top-[calc(theme(spacing.1)*12+80px)]";
 export const PHONE_HEADER_WIDGET_STACK_THREE_OFFSET_CLASS = "phone:top-[calc(theme(spacing.1)*12+120px)]";
 export const PHONE_HEADER_WIDGET_STACK_FOUR_OFFSET_CLASS = "phone:top-[calc(theme(spacing.1)*12+160px)]";
+export const PHONE_HEADER_WIDGET_STACK_FIVE_OFFSET_CLASS = "phone:top-[calc(theme(spacing.1)*12+200px)]";
 export const PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS = "phone:top-[calc(theme(spacing.1)*12)]";
 export const PHONE_HEADER_WIDGET_ROW_HEIGHT_CLASS = "h-[40px]";
 export const PHONE_HEADER_WIDGET_STACK_TWO_HEIGHT_CLASS = "h-[80px]";
 export const PHONE_HEADER_WIDGET_STACK_THREE_HEIGHT_CLASS = "h-[120px]";
 export const PHONE_HEADER_WIDGET_STACK_FOUR_HEIGHT_CLASS = "h-[160px]";
+export const PHONE_HEADER_WIDGET_STACK_FIVE_HEIGHT_CLASS = "h-[200px]";
 
 export function getVisibleHeaderWidgetCount({
   hasDismissedSetup,
   hasVisibleAlertsPill,
+  hasVisibleFleetNodeUpgradePill = false,
   hasVisibleUpdatePill = false,
   hasVisibleCurtailmentPill,
   hasVisibleSchedules,
 }: HeaderWidgetVisibility): number {
   return (
     Number(hasVisibleAlertsPill) +
+    Number(hasVisibleFleetNodeUpgradePill) +
     Number(hasVisibleCurtailmentPill) +
     Number(hasVisibleSchedules) +
     Number(hasVisibleUpdatePill) +
@@ -55,7 +60,7 @@ export function getPhoneHeaderWidgetRowHeightClass(widgetCount: number, stackWid
   }
 
   if (widgetCount > 3) {
-    return PHONE_HEADER_WIDGET_STACK_FOUR_HEIGHT_CLASS;
+    return widgetCount > 4 ? PHONE_HEADER_WIDGET_STACK_FIVE_HEIGHT_CLASS : PHONE_HEADER_WIDGET_STACK_FOUR_HEIGHT_CLASS;
   }
 
   return widgetCount > 2 ? PHONE_HEADER_WIDGET_STACK_THREE_HEIGHT_CLASS : PHONE_HEADER_WIDGET_STACK_TWO_HEIGHT_CLASS;
@@ -71,7 +76,7 @@ export function getPhoneHeaderWidgetOffsetClass(widgetCount: number, stackWidget
   }
 
   if (widgetCount > 3) {
-    return PHONE_HEADER_WIDGET_STACK_FOUR_OFFSET_CLASS;
+    return widgetCount > 4 ? PHONE_HEADER_WIDGET_STACK_FIVE_OFFSET_CLASS : PHONE_HEADER_WIDGET_STACK_FOUR_OFFSET_CLASS;
   }
 
   return widgetCount > 2 ? PHONE_HEADER_WIDGET_STACK_THREE_OFFSET_CLASS : PHONE_HEADER_WIDGET_STACK_TWO_OFFSET_CLASS;

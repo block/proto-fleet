@@ -240,6 +240,16 @@ func (r *Registry) ConnectedFleetNodeIDs() []int64 {
 	return ids
 }
 
+// CommandProtocolUpgradeRequired reports whether an active connection is too
+// old to process the server's current commands. Disconnected nodes are handled
+// by their existing connection status instead.
+func (r *Registry) CommandProtocolUpgradeRequired(fleetNodeID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	return conn != nil && conn.maxCommandProtocolVersion < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+}
+
 // teardown closes connection.done and every in-flight command's done. Caller holds
 // Registry.mu and must then remove/replace the conn so teardown can't run twice.
 func teardown(conn *connection) {

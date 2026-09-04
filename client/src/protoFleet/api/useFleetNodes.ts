@@ -15,6 +15,7 @@ export interface FleetNodeItem {
   name: string;
   enrollmentStatus: FleetNodeEnrollmentStatus;
   identityFingerprint: string;
+  commandProtocolUpgradeRequired: boolean;
   createdAt: Date | null;
   lastSeenAt: Date | null;
 }
@@ -35,6 +36,7 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     name: summary.name,
     enrollmentStatus: summary.enrollmentStatus,
     identityFingerprint: summary.identityFingerprint,
+    commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,
     createdAt: toDate(summary.createdAt),
     lastSeenAt: toDate(summary.lastSeenAt),
   };

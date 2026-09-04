@@ -23,7 +23,7 @@ import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import { Menu } from "@/shared/assets/icons";
+import { Alert, Menu } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -31,6 +31,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 interface PageHeaderProps {
   activeAlertsPillData?: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
+  fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
@@ -42,6 +43,11 @@ export interface UpdatePillData {
   version: string;
 }
 
+export interface FleetNodeUpgradePillData {
+  nodeCount: number;
+  onClick: () => void;
+}
+
 interface HeaderWidgetsProps {
   activeAlertsPillData: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent: CurtailmentPillEvent | null;
@@ -49,6 +55,7 @@ interface HeaderWidgetsProps {
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
+  fleetNodeUpgradePill?: FleetNodeUpgradePillData | null;
   onContinueSetup: () => void;
   onSelectAlertGroup: (group: ActiveAlertGroup) => void;
   schedulePillData: UseSchedulePillDataResult;
@@ -65,7 +72,7 @@ const noActiveAlerts: UseActiveAlertsPillDataResult = {
   hasMore: false,
   hasVisiblePill: false,
 };
-type HeaderWidgetKind = "alerts" | "curtailment" | "schedule" | "update" | "setup";
+type HeaderWidgetKind = "alerts" | "fleetNodeUpgrade" | "curtailment" | "schedule" | "update" | "setup";
 
 function HeaderWidgets({
   activeAlertsPillData,
@@ -74,6 +81,7 @@ function HeaderWidgets({
   canReadCurtailment,
   className,
   dismissedSetup,
+  fleetNodeUpgradePill,
   onContinueSetup,
   onSelectAlertGroup,
   schedulePillData,
@@ -111,6 +119,25 @@ function HeaderWidgets({
                 onSelectGroup={onSelectAlertGroup}
               />
             );
+          case "fleetNodeUpgrade":
+            return fleetNodeUpgradePill ? (
+              <Button
+                key={widget}
+                ariaLabel={`Open node settings for ${fleetNodeUpgradePill.nodeCount} ${fleetNodeUpgradePill.nodeCount === 1 ? "Fleet Node" : "Fleet Nodes"} requiring an upgrade`}
+                className="max-w-full min-w-0 overflow-hidden"
+                prefixIcon={<Alert className="text-intent-critical-fill" />}
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={fleetNodeUpgradePill.onClick}
+                testId="fleet-node-upgrade-pill"
+              >
+                <span className="block min-w-0 truncate">
+                  {fleetNodeUpgradePill.nodeCount === 1
+                    ? "Fleet Node upgrade required"
+                    : `${fleetNodeUpgradePill.nodeCount} Fleet Nodes need upgrades`}
+                </span>
+              </Button>
+            ) : null;
           case "curtailment":
             return activeCurtailmentEvent && canReadCurtailment ? (
               <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
@@ -161,6 +188,7 @@ function HeaderWidgets({
 function PageHeader({
   activeAlertsPillData = noActiveAlerts,
   activeCurtailmentEvent = null,
+  fleetNodeUpgradePill = null,
   isMenuOpen,
   openMenu,
   schedulePillData,
@@ -197,16 +225,19 @@ function PageHeader({
     activeCurtailmentEvent,
     canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
+    fleetNodeUpgradePill,
     onContinueSetup: handleCompleteSetup,
     onSelectAlertGroup: setDrilledInAlertGroup,
     schedulePillData,
     updatePill,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleFleetNodeUpgradePill = fleetNodeUpgradePill !== null;
   const hasVisibleUpdatePill = updatePill !== null;
   // Alerts lead: only the first widget stays inline in the phone top bar, and a firing alert outranks the rest.
   const headerWidgetKinds: HeaderWidgetKind[] = [
     ...(activeAlertsPillData.hasVisiblePill ? (["alerts"] as const) : []),
+    ...(hasVisibleFleetNodeUpgradePill ? (["fleetNodeUpgrade"] as const) : []),
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
     ...(hasVisibleUpdatePill ? (["update"] as const) : []),
@@ -215,6 +246,7 @@ function PageHeader({
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
     hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
+    hasVisibleFleetNodeUpgradePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,

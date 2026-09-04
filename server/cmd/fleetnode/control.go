@@ -333,7 +333,7 @@ func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State
 func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	env := &pb.AgentCommand{}
 	if err := proto.Unmarshal(payload, env); err != nil {
-		return nil, fmt.Errorf("decode AgentCommand: %w", err)
+		return nil, fmt.Errorf("decode server-to-node command envelope: %w", err)
 	}
 	return env, nil
 }
@@ -370,7 +370,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
 			return
 		}
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "server-to-node command envelope has no recognized command type", logger)
 	}
 }
 

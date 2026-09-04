@@ -151,14 +151,14 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			rawPayload:    []byte{0xFF, 0xFE},
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "decode AgentCommand",
+			wantErrSubstr: "decode server-to-node command envelope",
 		},
 		{
-			name:          "envelope with no command kind",
+			name:          "envelope with no command type",
 			rawPayload:    []byte{}, // valid empty AgentCommand: no oneof arm set
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "no recognized command kind",
+			wantErrSubstr: "no recognized command type",
 		},
 		{
 			name:          "report upload failure",

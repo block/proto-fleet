@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -62,7 +63,7 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
@@ -122,6 +123,28 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	).Scan(&devID)
 	require.NoError(t, err)
 	return devID
+}
+
+func TestListFleetNodes_ReportsActiveLegacyCommandProtocol(t *testing.T) {
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
+	stream, err := h.registry.RegisterAuthenticated(
+		fleetNodeID,
+		"legacy",
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+	)
+	require.NoError(t, err)
+
+	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+
+	stream.Unregister()
+	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 1)
+	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
