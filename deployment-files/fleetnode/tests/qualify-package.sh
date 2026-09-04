@@ -53,6 +53,7 @@ for path in /opt/fleetnode /etc/fleetnode /var/lib/fleetnode /etc/systemd/system
 done
 getent passwd fleetnode >/dev/null 2>&1 && fail "runner already has a fleetnode account"
 
+sudo chmod go-w /opt
 CLEANUP_ALLOWED=1
 run_installer "$VERSION"
 sudo systemctl is-active --quiet fleet-node.service && fail "fresh install started the unenrolled service"
