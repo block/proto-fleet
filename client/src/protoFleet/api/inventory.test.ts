@@ -24,7 +24,7 @@ describe("useInventoryApi", () => {
     handleAuthErrors.mockImplementation(({ onError, error }) => onError?.(error));
   });
   it("maps filters and pagination", async () => {
-    clients.listInventoryParts.mockResolvedValue({ parts: [], nextPageToken: "next" });
+    clients.listInventoryParts.mockResolvedValue({ parts: [], nextPageToken: "next", totalCount: 42 });
     const onSuccess = vi.fn();
     const { result } = renderHook(() => useInventoryApi());
     await act(() =>
@@ -39,7 +39,7 @@ describe("useInventoryApi", () => {
       { filter: { siteIds: [8n], types: ["fan"], lowStockOnly: true }, pageSize: 20, pageToken: "cursor" },
       expect.anything(),
     );
-    expect(onSuccess).toHaveBeenCalledWith({ parts: [], nextPageToken: "next" });
+    expect(onSuccess).toHaveBeenCalledWith({ parts: [], nextPageToken: "next", totalCount: 42 });
   });
   it("maps adjustment values and CSV bytes", async () => {
     clients.updateInventoryPart.mockResolvedValue({});

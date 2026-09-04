@@ -10,7 +10,7 @@ import type { UpdateTicketProps } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
 import { useHasPermission } from "@/protoFleet/store";
-import { Fleet, Info } from "@/shared/assets/icons";
+import { ArrowLeftCompact, ArrowRight, Fleet, Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
@@ -267,23 +267,23 @@ const TicketDetailModal = ({
             <span>
               {index + 1} of {ticketIds.length} tickets
             </span>
-            <div>
+            <div className="flex gap-3">
               <Button
-                size={buttonSizes.textOnly}
-                variant={variants.textOnly}
+                size={buttonSizes.compact}
+                variant={variants.secondary}
+                ariaLabel="Previous ticket"
+                prefixIcon={<ArrowLeftCompact />}
                 onClick={() => setCurrentId(ticketIds[index - 1])}
                 disabled={index <= 0}
-              >
-                Previous
-              </Button>
+              />
               <Button
-                size={buttonSizes.textOnly}
-                variant={variants.textOnly}
+                size={buttonSizes.compact}
+                variant={variants.secondary}
+                ariaLabel="Next ticket"
+                prefixIcon={<ArrowRight />}
                 onClick={() => setCurrentId(ticketIds[index + 1])}
                 disabled={index < 0 || index >= ticketIds.length - 1}
-              >
-                Next
-              </Button>
+              />
             </div>
           </div>
         </div>

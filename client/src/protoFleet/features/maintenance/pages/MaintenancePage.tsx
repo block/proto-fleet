@@ -24,8 +24,8 @@ const MaintenancePage = ({ initialQueueView = "list" }: MaintenancePageProps) =>
         <h1 className="text-heading-300 text-text-primary">Maintenance</h1>
         <TabStrip activeId={activeTab} onSelect={handleTabSelect} ariaLabel="Maintenance sections">
           <TabStripItem id="queue" label="Queue" testId="maintenance-tab-queue" />
-          <TabStripItem id="history" label="History" testId="maintenance-tab-history" />
           <TabStripItem id="inventory" label="Inventory" testId="maintenance-tab-inventory" />
+          <TabStripItem id="history" label="History" testId="maintenance-tab-history" />
         </TabStrip>
       </div>
       <div className="min-h-0 flex-1 px-6 pt-6 laptop:px-10">

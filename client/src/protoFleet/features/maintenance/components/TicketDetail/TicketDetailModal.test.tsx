@@ -78,6 +78,22 @@ describe("TicketDetailModal", () => {
     expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Complete repair" })).toBeInTheDocument();
   });
+  it("uses compact accessible controls to navigate the visible ticket page", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" ticketIds={["0", "1", "2"]} onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    const previous = screen.getByRole("button", { name: "Previous ticket" });
+    const next = screen.getByRole("button", { name: "Next ticket" });
+    expect(previous).toBeEnabled();
+    expect(next).toBeEnabled();
+    expect(screen.queryByText("Previous")).not.toBeInTheDocument();
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
+    fireEvent.click(next);
+    expect(screen.getByText("3 of 3 tickets")).toBeInTheDocument();
+  });
+
   it("does not expose terminal mutation controls", () => {
     ticket.status = "completed";
     render(

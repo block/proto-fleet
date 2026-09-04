@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { toInventoryPart, toTicketItem } from "./mappers";
-import { InventoryPartSchema } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
+import { toInventoryInsights, toInventoryPart, toTicketItem } from "./mappers";
+import { InventoryInsightsSchema, InventoryPartSchema } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import {
   RepairTicketSchema,
   RepairTicketSummarySchema,
@@ -31,6 +31,10 @@ describe("maintenance mappers", () => {
   it("derives available and low-stock values", () => {
     const result = toInventoryPart(create(InventoryPartSchema, { id: 7n, onHand: 9, allocated: 4, reorderPoint: 5 }));
     expect(result).toMatchObject({ id: "7", available: 5, lowStock: true, siteId: null });
+  });
+  it("maps organization-wide inventory type facets", () => {
+    const result = toInventoryInsights(create(InventoryInsightsSchema, { partTypes: ["cable", "fan"] }));
+    expect(result.partTypes).toEqual(["cable", "fan"]);
   });
   it("rejects malformed summaries", () => {
     expect(() => toTicketItem(create(RepairTicketSummarySchema))).toThrow("missing its ticket");

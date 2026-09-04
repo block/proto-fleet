@@ -109,12 +109,16 @@ func TestInventoryStoreListFiltersCursorInsightsAndSitePicker(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{second.ID, third.ID}, inventoryPartIDs(lowStock))
 
-	fansAtA, err := store.List(ctx, inventorymodels.ListFilter{OrgID: orgID, SiteIDs: []int64{siteA}, Types: []string{"fan"}, Limit: 20})
+	fanFilter := inventorymodels.ListFilter{OrgID: orgID, SiteIDs: []int64{siteA}, Types: []string{"fan"}, Limit: 20}
+	fansAtA, err := store.List(ctx, fanFilter)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{first.ID, second.ID}, inventoryPartIDs(fansAtA))
 	for _, part := range fansAtA {
 		assert.Equal(t, "Site A", part.SiteName)
 	}
+	filteredCount, err := store.Count(ctx, fanFilter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), filteredCount)
 
 	availableAtA, err := store.ListPartsBySite(ctx, orgID, siteA)
 	require.NoError(t, err)
@@ -122,7 +126,10 @@ func TestInventoryStoreListFiltersCursorInsightsAndSitePicker(t *testing.T) {
 
 	insights, err := store.GetInsights(ctx, orgID)
 	require.NoError(t, err)
-	assert.Equal(t, &inventorymodels.InventoryInsights{TotalOnHand: 11, TotalAllocated: 0, LowStockCount: 2, SitesCount: 2}, insights)
+	assert.Equal(t, &inventorymodels.InventoryInsights{
+		TotalOnHand: 11, TotalAllocated: 0, LowStockCount: 2, SitesCount: 2,
+		PartTypes: []string{"cable", "fan"},
+	}, insights)
 }
 
 func TestInventoryStoreConcurrentReserveConsumeAndRelease(t *testing.T) {

@@ -49,6 +49,15 @@ type InventoryInsights struct {
 	TotalAllocated int32
 	LowStockCount  int32
 	SitesCount     int32
+	PartTypes      []string
+}
+
+// InventoryPage is one cursor page plus the filtered result count. A next
+// cursor is present only when another row exists beyond Parts.
+type InventoryPage struct {
+	Parts        []InventoryPart
+	TotalCount   int32
+	NextCursorID *int64
 }
 
 // CreateParams is the input shape for the inventory part create flow.

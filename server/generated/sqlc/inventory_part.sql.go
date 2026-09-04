@@ -39,6 +39,38 @@ func (q *Queries) ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeR
 	return result.RowsAffected()
 }
 
+const countInventoryParts = `-- name: CountInventoryParts :one
+SELECT COUNT(*)::int
+FROM inventory_part ip
+WHERE ip.org_id = $1
+  AND ip.deleted_at IS NULL
+  AND ($2::bigint[] IS NULL
+       OR ip.site_id = ANY($2::bigint[]))
+  AND ($3::text[] IS NULL
+       OR ip.type = ANY($3::text[]))
+  AND (NOT $4::boolean
+       OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
+`
+
+type CountInventoryPartsParams struct {
+	OrgID          int64
+	FilterSiteIds  []int64
+	FilterTypes    []string
+	FilterLowStock bool
+}
+
+func (q *Queries) CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error) {
+	row := q.queryRow(ctx, q.countInventoryPartsStmt, countInventoryParts,
+		arg.OrgID,
+		pq.Array(arg.FilterSiteIds),
+		pq.Array(arg.FilterTypes),
+		arg.FilterLowStock,
+	)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createInventoryPart = `-- name: CreateInventoryPart :one
 INSERT INTO inventory_part (
     org_id, name, type, manufacturer, part_number,
@@ -91,7 +123,8 @@ SELECT
     COALESCE(SUM(on_hand), 0)::int AS total_on_hand,
     COALESCE(SUM(allocated), 0)::int AS total_allocated,
     COUNT(*) FILTER (WHERE (on_hand - allocated) <= reorder_point)::int AS low_stock_count,
-    COUNT(DISTINCT site_id)::int AS sites_count
+    COUNT(DISTINCT site_id)::int AS sites_count,
+    COALESCE(array_agg(DISTINCT type ORDER BY type), '{}')::text[] AS part_types
 FROM inventory_part
 WHERE org_id = $1
   AND deleted_at IS NULL
@@ -102,6 +135,7 @@ type GetInventoryInsightsRow struct {
 	TotalAllocated int32
 	LowStockCount  int32
 	SitesCount     int32
+	PartTypes      []string
 }
 
 func (q *Queries) GetInventoryInsights(ctx context.Context, orgID int64) (GetInventoryInsightsRow, error) {
@@ -112,6 +146,7 @@ func (q *Queries) GetInventoryInsights(ctx context.Context, orgID int64) (GetInv
 		&i.TotalAllocated,
 		&i.LowStockCount,
 		&i.SitesCount,
+		pq.Array(&i.PartTypes),
 	)
 	return i, err
 }

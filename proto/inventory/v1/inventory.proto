@@ -68,6 +68,7 @@ message InventoryInsights {
     int32 total_allocated = 2;
     int32 low_stock_count = 3;
     int32 sites_count     = 4;
+    repeated string part_types = 5;
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ message ListInventoryPartsRequest {
 message ListInventoryPartsResponse {
     repeated InventoryPart parts           = 1;
     string                 next_page_token = 2;
+    int32                  total_count     = 3;
 }
 
 // GetInventoryPart

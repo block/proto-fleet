@@ -54,6 +54,37 @@ it("sets urgent false through the single-ticket update and refreshes", async () 
   expect(listTickets).toHaveBeenCalledTimes(2);
 });
 
+it("replaces rows when moving through cursor-backed list pages", async () => {
+  listTickets.mockImplementation(async ({ pageToken, onSuccess }) =>
+    onSuccess({
+      tickets: [
+        create(RepairTicketSummarySchema, {
+          ticket: create(RepairTicketSchema, { id: pageToken === "cursor-2" ? 2n : 1n }),
+        }),
+      ],
+      nextPageToken: pageToken ? "" : "cursor-2",
+      totalCount: 2,
+    }),
+  );
+  const { result } = renderHook(() => useTicketQueue());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(() => result.current.nextPage());
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["2"]);
+  expect(result.current.currentPage).toBe(1);
+  expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ pageToken: "cursor-2" }));
+
+  await act(() => result.current.previousPage());
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1"]);
+  expect(result.current.currentPage).toBe(0);
+  expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ pageToken: "" }));
+
+  await act(() => result.current.nextPage());
+  await act(() => result.current.resetPagination());
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1"]);
+  expect(result.current.currentPage).toBe(0);
+});
+
 it("aborts the active request on unmount", async () => {
   let signal: AbortSignal | undefined;
   listTickets.mockImplementation(({ signal: value }) => {

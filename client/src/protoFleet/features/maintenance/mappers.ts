@@ -150,4 +150,5 @@ export const toInventoryInsights = (value: InventoryInsights): InventoryInsights
   totalAllocated: value.totalAllocated,
   lowStockCount: value.lowStockCount,
   sitesCount: value.sitesCount,
+  partTypes: value.partTypes,
 });

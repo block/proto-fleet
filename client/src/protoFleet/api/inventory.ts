@@ -40,7 +40,7 @@ export const useInventoryApi = () => {
       onSuccess,
       onError,
       onFinally,
-    }: Callbacks<{ parts: InventoryPart[]; nextPageToken: string }> & {
+    }: Callbacks<{ parts: InventoryPart[]; nextPageToken: string; totalCount: number }> & {
       filter?: Partial<InventoryFilter>;
       pageSize?: number;
       pageToken?: string;
@@ -59,7 +59,12 @@ export const useInventoryApi = () => {
           },
           { signal },
         );
-        if (!signal?.aborted) onSuccess?.({ parts: response.parts, nextPageToken: response.nextPageToken });
+        if (!signal?.aborted)
+          onSuccess?.({
+            parts: response.parts,
+            nextPageToken: response.nextPageToken,
+            totalCount: response.totalCount,
+          });
       } catch (error) {
         report(error, signal, onError);
       } finally {

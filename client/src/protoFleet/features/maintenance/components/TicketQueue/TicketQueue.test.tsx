@@ -30,17 +30,29 @@ const queue = {
       updatedAt: null,
     },
   ],
-  stats: { overdueCount: 0 },
+  stats: {
+    openCount: 4,
+    inProgressCount: 3,
+    onHoldCount: 2,
+    sentToVendorCount: 1,
+    overdueCount: 0,
+    urgentCount: 0,
+  },
   loading: false,
   error: null,
   total: 1,
   nextPageToken: "",
+  currentPage: 0,
+  hasPreviousPage: false,
   setFilter: vi.fn(),
   setSort: vi.fn(),
   bulkUpdate: vi.fn(),
   setUrgent: vi.fn(),
   refresh: vi.fn(),
   loadMore: vi.fn(),
+  nextPage: vi.fn(),
+  previousPage: vi.fn(),
+  resetPagination: vi.fn(),
 };
 vi.mock("@/protoFleet/features/maintenance/hooks/useTicketQueue", () => ({ useTicketQueue: () => queue }));
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
@@ -71,6 +83,9 @@ describe("TicketQueue", () => {
     expect(screen.getByText(/^Open \(/)).toBeInTheDocument();
     expect(screen.getByText(/^In Progress \(/)).toBeInTheDocument();
     expect(screen.getByText(/^On Hold \(/)).toBeInTheDocument();
+    expect(screen.getByText("Open (4)")).toBeInTheDocument();
+    expect(screen.getByText("In Progress (3)")).toBeInTheDocument();
+    expect(screen.getByText("On Hold (2)")).toBeInTheDocument();
     expect(screen.getByText("Sent to Vendor (1)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create ticket" })).toBeInTheDocument();
   });
@@ -87,6 +102,23 @@ describe("TicketQueue", () => {
     expect(queue.setUrgent).toHaveBeenCalledWith("1", false);
     expect(queue.bulkUpdate).not.toHaveBeenCalledWith(["1"], { case: "markUrgent", value: false });
     queue.data[0].urgent = false;
+  });
+
+  it("paginates list mode and keeps progressive loading in board mode", () => {
+    queue.total = 51;
+    queue.nextPageToken = "cursor-2";
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Next page" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Board" }));
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+    queue.total = 1;
+    queue.nextPageToken = "";
   });
 
   it("refreshes the queue after a detail mutation", () => {

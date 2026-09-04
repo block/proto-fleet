@@ -9,6 +9,7 @@ it("exposes Queue, History, and Inventory tabs", async () => {
   const user = userEvent.setup();
   render(<MaintenancePage />);
   expect(screen.getByText("Queue content")).toBeInTheDocument();
+  expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Queue", "Inventory", "History"]);
   await user.click(screen.getByRole("button", { name: "Inventory" }));
   expect(screen.getByText("Inventory content")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();

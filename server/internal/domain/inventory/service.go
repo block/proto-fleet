@@ -116,15 +116,33 @@ func (s *Service) GetPart(ctx context.Context, orgID, id int64) (*models.Invento
 	return s.store.Get(ctx, orgID, id)
 }
 
-// ListParts returns the filtered parts list, cursor-paginated.
-func (s *Service) ListParts(ctx context.Context, filter models.ListFilter) ([]models.InventoryPart, error) {
+// ListParts returns one filtered cursor page and the total matching count.
+func (s *Service) ListParts(ctx context.Context, filter models.ListFilter) (*models.InventoryPage, error) {
 	if filter.Limit <= 0 {
 		filter.Limit = ListDefaultLimit
 	}
 	if filter.Limit > ListMaxLimit {
 		filter.Limit = ListMaxLimit
 	}
-	return s.store.List(ctx, filter)
+
+	totalCount, err := s.store.Count(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	pageSize := filter.Limit
+	filter.Limit++
+	parts, err := s.store.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	page := &models.InventoryPage{Parts: parts, TotalCount: totalCount}
+	if len(parts) > int(pageSize) {
+		page.Parts = parts[:pageSize]
+		cursor := page.Parts[len(page.Parts)-1].ID
+		page.NextCursorID = &cursor
+	}
+	return page, nil
 }
 
 // UpdatePart locks, validates, and mutates a part in one transaction.

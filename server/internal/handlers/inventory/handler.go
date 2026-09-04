@@ -35,11 +35,11 @@ func (h *Handler) ListInventoryParts(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListParts(ctx, filter)
+	page, err := h.service.ListParts(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListPartsResponse(rows)), nil
+	return connect.NewResponse(toListPartsResponse(page)), nil
 }
 
 func (h *Handler) GetInventoryPart(ctx context.Context, req *connect.Request[pb.GetInventoryPartRequest]) (*connect.Response[pb.GetInventoryPartResponse], error) {

@@ -828,6 +828,18 @@ func (q *retryingQuerier) CountInfrastructureDevicesBySite(ctx context.Context, 
 	return result, err
 }
 
+func (q *retryingQuerier) CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error) {
+	var result int32
+	err := q.retrier.RetryQuery(ctx, "CountInventoryParts", func() error {
+		callResult, callErr := q.next.CountInventoryParts(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
 	var result CountMinersByStateRow
 	err := q.retrier.RetryQuery(ctx, "CountMinersByState", func() error {

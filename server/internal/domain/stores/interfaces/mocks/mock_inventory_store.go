@@ -70,6 +70,21 @@ func (mr *MockInventoryStoreMockRecorder) ConsumeReserved(ctx, orgID, id, quanti
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeReserved", reflect.TypeOf((*MockInventoryStore)(nil).ConsumeReserved), ctx, orgID, id, quantity)
 }
 
+// Count mocks base method.
+func (m *MockInventoryStore) Count(ctx context.Context, filter models.ListFilter) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Count", ctx, filter)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Count indicates an expected call of Count.
+func (mr *MockInventoryStoreMockRecorder) Count(ctx, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockInventoryStore)(nil).Count), ctx, filter)
+}
+
 // Create mocks base method.
 func (m *MockInventoryStore) Create(ctx context.Context, params models.CreateParams) (*models.InventoryPart, error) {
 	m.ctrl.T.Helper()

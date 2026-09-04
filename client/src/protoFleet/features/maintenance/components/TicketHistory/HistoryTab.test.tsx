@@ -1,13 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import HistoryTab from "./HistoryTab";
-const listCompleted = vi.fn(async ({ onSuccess, onFinally }) => {
+const listCompleted = vi.fn(async ({ pageToken, onSuccess, onFinally }) => {
+  const secondPage = pageToken === "cursor-2";
   onSuccess({
     tickets: [
       {
         ticket: {
-          id: 2n,
-          ticketNumber: "TK-2",
+          id: secondPage ? 3n : 2n,
+          ticketNumber: secondPage ? "TK-3" : "TK-2",
           component: "Fan",
           diagnosis: "Fixed",
           minerIdentifier: "M2",
@@ -18,8 +19,8 @@ const listCompleted = vi.fn(async ({ onSuccess, onFinally }) => {
         },
       },
     ],
-    totalCount: 1,
-    nextPageToken: "",
+    totalCount: 2,
+    nextPageToken: secondPage ? "" : "cursor-2",
   });
   onFinally();
 });
@@ -34,4 +35,29 @@ it("loads completed ticket history without an export control", async () => {
   expect(screen.getByText("Repaired")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Export CSV/i })).not.toBeInTheDocument();
   expect(listCompleted).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 50 }));
+});
+
+it("replaces completed tickets when moving between cursor pages", async () => {
+  render(<HistoryTab />);
+  await waitFor(() => expect(screen.getByText("TK-2")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  await waitFor(() => expect(screen.getByText("TK-3")).toBeInTheDocument());
+  expect(screen.queryByText("TK-2")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeEnabled();
+});
+
+it("ignores completion callbacks from an older filtered request", async () => {
+  const requests: Array<{ onFinally: () => void }> = [];
+  listCompleted.mockImplementation(({ onFinally }) => {
+    requests.push({ onFinally });
+    return new Promise(() => undefined);
+  });
+  render(<HistoryTab />);
+  await waitFor(() => expect(requests).toHaveLength(1));
+
+  fireEvent.change(screen.getByLabelText("Component"), { target: { value: "Fan" } });
+  await waitFor(() => expect(requests).toHaveLength(2));
+  act(() => requests[0].onFinally());
+
+  expect(screen.getByRole("status")).toHaveTextContent("Loading history");
 });

@@ -18,6 +18,7 @@ type InventoryStore interface { //nolint:interfacebloat
 	Get(ctx context.Context, orgID, id int64) (*models.InventoryPart, error)
 	GetForUpdate(ctx context.Context, orgID, id int64) (*models.InventoryPart, error)
 	List(ctx context.Context, filter models.ListFilter) ([]models.InventoryPart, error)
+	Count(ctx context.Context, filter models.ListFilter) (int32, error)
 	Update(ctx context.Context, params models.UpdateParams) (*models.InventoryPart, error)
 	SoftDelete(ctx context.Context, orgID, id int64) (int64, error)
 	GetInsights(ctx context.Context, orgID int64) (*models.InventoryInsights, error)

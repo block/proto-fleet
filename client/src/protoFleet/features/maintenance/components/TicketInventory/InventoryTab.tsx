@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { InventoryPartItem } from "../../types";
+import ListPagination from "../ListPagination";
 import AdjustPartModal from "./AdjustPartModal";
 import CreatePartModal from "./CreatePartModal";
 import DeletePartModal from "./DeletePartModal";
@@ -8,10 +9,9 @@ import { useInventory } from "@/protoFleet/features/maintenance/hooks/useInvento
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useHasPermission } from "@/protoFleet/store";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
-import Checkbox from "@/shared/components/Checkbox";
 import List from "@/shared/components/List";
+import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
-import Select from "@/shared/components/Select";
 
 type Columns = "name" | "type" | "site" | "onHand" | "allocated" | "available" | "reorderPoint";
 const activeCols: Columns[] = ["name", "type", "site", "onHand", "allocated", "available", "reorderPoint"];
@@ -24,6 +24,7 @@ const colTitles: ColTitles<Columns> = {
   available: "Available",
   reorderPoint: "Reorder Pt",
 };
+
 const InventoryTab = () => {
   const canManage = useHasPermission("maintenance:manage");
   const inventory = useInventory();
@@ -32,25 +33,36 @@ const InventoryTab = () => {
   const [remove, setRemove] = useState<InventoryPartItem | null>(null);
   const [create, setCreate] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [siteId, setSiteId] = useState("");
-  const [low, setLow] = useState(false);
-  const apply = (site = siteId, lowOnly = low) =>
-    inventory.setFilter({ siteIds: site ? [BigInt(site)] : [], lowStockOnly: lowOnly });
+  const [siteIds, setSiteIds] = useState<string[]>([]);
+  const [types, setTypes] = useState<string[]>([]);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
+
+  const applyFilters = (sites = siteIds, partTypes = types, lowStock = lowStockOnly) => {
+    inventory.setFilter({
+      siteIds: sites.map(BigInt),
+      types: partTypes,
+      lowStockOnly: lowStock,
+    });
+  };
+
   const columns: ColConfig<InventoryPartItem, string, Columns> = useMemo(
     () => ({
-      name: { component: (p) => <span className="font-medium">{p.name}</span>, width: "w-60" },
-      type: { component: (p) => <span>{p.type}</span>, width: "w-28" },
-      site: { component: (p) => <span>{p.siteName ?? "Unassigned"}</span>, width: "w-28" },
-      onHand: { component: (p) => <span>{p.onHand}</span>, width: "w-20" },
-      allocated: { component: (p) => <span>{p.allocated}</span>, width: "w-20" },
+      name: { component: (part) => <span className="font-medium">{part.name}</span>, width: "w-60" },
+      type: { component: (part) => <span>{part.type}</span>, width: "w-28" },
+      site: { component: (part) => <span>{part.siteName ?? "Unassigned"}</span>, width: "w-28" },
+      onHand: { component: (part) => <span>{part.onHand}</span>, width: "w-20" },
+      allocated: { component: (part) => <span>{part.allocated}</span>, width: "w-20" },
       available: {
-        component: (p) => <span className={p.lowStock ? "font-medium text-text-critical" : ""}>{p.available}</span>,
+        component: (part) => (
+          <span className={part.lowStock ? "font-medium text-text-critical" : ""}>{part.available}</span>
+        ),
         width: "w-20",
       },
-      reorderPoint: { component: (p) => <span>{p.reorderPoint}</span>, width: "w-20" },
+      reorderPoint: { component: (part) => <span>{part.reorderPoint}</span>, width: "w-20" },
     }),
     [],
   );
+
   const actions: ListAction<InventoryPartItem>[] = useMemo(
     () =>
       canManage
@@ -61,49 +73,79 @@ const InventoryTab = () => {
         : [],
     [canManage],
   );
-  const mutationControls = canManage ? (
-    <div className="flex gap-2">
-      <Button text="Add part" variant={variants.secondary} size={buttonSizes.compact} onClick={() => setCreate(true)} />
-      <Button
-        text="Import CSV"
-        variant={variants.secondary}
-        size={buttonSizes.compact}
-        onClick={() => setImporting(true)}
-      />
-    </div>
-  ) : undefined;
+
   if (inventory.loading && !inventory.data.length) return <div role="status">Loading inventory…</div>;
   if (inventory.error && !inventory.data.length) return <div role="alert">{inventory.error}</div>;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-4">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-5 py-2 laptop:grid-cols-4">
         <Insight label="Total on hand" value={inventory.insights?.totalOnHand ?? 0} />
-        <Insight label="Allocated" value={inventory.insights?.totalAllocated ?? 0} />
-        <Insight label="Low stock" value={inventory.insights?.lowStockCount ?? 0} />
-        <Insight label="Sites" value={inventory.insights?.sitesCount ?? 0} />
-      </div>
-      <div className="flex items-end gap-3">
-        <Select
-          id="inventory-site"
-          label="Site"
-          value={siteId}
-          options={[{ value: "", label: "All sites" }, ...options.sites.map((s) => ({ value: s.id, label: s.name }))]}
-          onChange={(value) => {
-            setSiteId(value);
-            apply(value);
+        <Insight label="Allocated to repairs" value={inventory.insights?.totalAllocated ?? 0} />
+        <Insight
+          label="Low stock items"
+          value={inventory.insights?.lowStockCount ?? 0}
+          actionLabel="Show low stock items"
+          active={lowStockOnly}
+          onActivate={() => {
+            setLowStockOnly(true);
+            applyFilters(siteIds, types, true);
           }}
         />
-        <label className="flex items-center gap-2">
-          <Checkbox
-            checked={low}
-            onChange={(event) => {
-              setLow(event.target.checked);
-              apply(siteId, event.target.checked);
-            }}
-          />
-          Low stock
-        </label>
+        <Insight label="Sites" value={inventory.insights?.sitesCount ?? 0} />
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant={lowStockOnly ? variants.accent : variants.ghost}
+          size={buttonSizes.compact}
+          onClick={() => {
+            const next = !lowStockOnly;
+            setLowStockOnly(next);
+            applyFilters(siteIds, types, next);
+          }}
+        >
+          Low stock
+        </Button>
+        <DropdownFilter
+          title="Site"
+          pluralTitle="sites"
+          options={options.sites.map((site) => ({ id: site.id, label: site.name }))}
+          selectedOptions={siteIds}
+          showSelectAll={false}
+          onSelect={(selected) => {
+            setSiteIds(selected);
+            applyFilters(selected);
+          }}
+        />
+        <DropdownFilter
+          title="Type"
+          options={(inventory.insights?.partTypes ?? []).map((type) => ({ id: type, label: type }))}
+          selectedOptions={types}
+          showSelectAll={false}
+          onSelect={(selected) => {
+            setTypes(selected);
+            applyFilters(siteIds, selected);
+          }}
+        />
+        {canManage ? (
+          <div className="ml-auto flex gap-2 phone:ml-0 phone:w-full">
+            <Button
+              text="Add part"
+              variant={variants.secondary}
+              size={buttonSizes.compact}
+              onClick={() => setCreate(true)}
+            />
+            <Button
+              text="Import CSV"
+              variant={variants.secondary}
+              size={buttonSizes.compact}
+              onClick={() => setImporting(true)}
+            />
+          </div>
+        ) : null}
+      </div>
+
       {inventory.data.length ? (
         <List
           items={inventory.data}
@@ -113,19 +155,26 @@ const InventoryTab = () => {
           colConfig={columns}
           actions={actions}
           stickyFirstColumn={false}
-          total={inventory.data.length}
+          total={inventory.total}
+          hideTotal
           itemName={{ singular: "part", plural: "parts" }}
-          headerControls={mutationControls}
         />
       ) : (
-        <div className="flex items-center justify-between">
-          <span>No inventory parts</span>
-          {mutationControls}
-        </div>
+        <span>No inventory parts</span>
       )}
-      {inventory.nextPageToken ? (
-        <Button text="Load more" variant={variants.secondary} onClick={() => void inventory.loadMore()} />
-      ) : null}
+
+      <ListPagination
+        currentPage={inventory.currentPage}
+        pageSize={50}
+        visibleCount={inventory.data.length}
+        total={inventory.total}
+        itemName="parts"
+        hasNextPage={!!inventory.nextPageToken}
+        loading={inventory.loading}
+        onPrevious={() => void inventory.previousPage()}
+        onNext={() => void inventory.nextPage()}
+      />
+
       {adjust ? <AdjustPartModal part={adjust} onDismiss={() => setAdjust(null)} onSubmit={inventory.adjust} /> : null}
       {remove ? (
         <DeletePartModal
@@ -148,10 +197,35 @@ const InventoryTab = () => {
     </div>
   );
 };
-const Insight = ({ label, value }: { label: string; value: number }) => (
-  <div className="flex flex-1 flex-col rounded-xl border border-border-5 p-4">
-    <span>{label}</span>
-    <strong>{value}</strong>
-  </div>
-);
+
+interface InsightProps {
+  label: string;
+  value: number;
+  actionLabel?: string;
+  active?: boolean;
+  onActivate?: () => void;
+}
+
+const Insight = ({ label, value, actionLabel, active = false, onActivate }: InsightProps) => {
+  const content = (
+    <>
+      <span className="text-300 text-text-primary-50">{label}</span>
+      <strong className="text-heading-400 font-medium">{value}</strong>
+    </>
+  );
+  return onActivate ? (
+    <button
+      type="button"
+      className="flex flex-col items-start text-left"
+      aria-label={actionLabel}
+      aria-pressed={active}
+      onClick={onActivate}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="flex flex-col">{content}</div>
+  );
+};
+
 export default InventoryTab;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import {
   SortDirection,
@@ -7,7 +8,6 @@ import {
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
-import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -47,17 +47,21 @@ const HistoryTab = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [next, setNext] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [cursorHistory, setCursorHistory] = useState<string[]>([""]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [component, setComponent] = useState("");
   const [assignee, setAssignee] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const controller = useRef<AbortController | undefined>(undefined);
+  const sequence = useRef(0);
   const load = useCallback(
-    async (append = false) => {
+    async (page = 0, pageToken = "") => {
       controller.current?.abort();
       const current = new AbortController();
       controller.current = current;
+      const request = ++sequence.current;
       setLoading(true);
       setError(null);
       await listCompleted({
@@ -66,9 +70,10 @@ const HistoryTab = () => {
         sortField: TicketSortField.CREATED_AT,
         sortDirection: SortDirection.DESC,
         pageSize: 50,
-        pageToken: append ? next : "",
+        pageToken,
         signal: current.signal,
         onSuccess: (response) => {
+          if (request !== sequence.current) return;
           const mapped = response.tickets.flatMap((summary) =>
             summary.ticket
               ? [
@@ -89,20 +94,36 @@ const HistoryTab = () => {
                 ]
               : [],
           );
-          setItems((old) => (append ? [...old, ...mapped] : mapped));
+          setItems(mapped);
           setTotal(response.totalCount);
           setNext(response.nextPageToken);
+          setCurrentPage(page);
+          if (response.nextPageToken) {
+            setCursorHistory((old) => {
+              const cursors = [...old];
+              cursors[page + 1] = response.nextPageToken;
+              return cursors;
+            });
+          }
         },
-        onError: setError,
-        onFinally: () => setLoading(false),
+        onError: (message) => {
+          if (request === sequence.current) setError(message);
+        },
+        onFinally: () => {
+          if (request === sequence.current) setLoading(false);
+        },
       });
     },
-    [assignee, component, listCompleted, next],
+    [assignee, component, listCompleted],
   );
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active) void load();
+      if (!active) return;
+      setCurrentPage(0);
+      setCursorHistory([""]);
+      setNext("");
+      void load(0, "");
     });
     return () => {
       active = false;
@@ -168,18 +189,22 @@ const HistoryTab = () => {
           stickyFirstColumn={false}
           overflowContainer={false}
           total={total}
+          hideTotal
           itemName={{ singular: "completed ticket", plural: "completed tickets" }}
           onRowClick={(item) => setDetailId(item.id)}
         />
       )}
-      {next ? (
-        <Button
-          text="Load more"
-          variant={variants.secondary}
-          size={buttonSizes.compact}
-          onClick={() => void load(true)}
-        />
-      ) : null}
+      <ListPagination
+        currentPage={currentPage}
+        pageSize={50}
+        visibleCount={items.length}
+        total={total}
+        itemName="completed tickets"
+        hasNextPage={!!next}
+        loading={loading}
+        onPrevious={() => void load(currentPage - 1, cursorHistory[currentPage - 1])}
+        onNext={() => void load(currentPage + 1, cursorHistory[currentPage + 1] ?? next)}
+      />
       {detailId ? (
         <TicketDetailModal
           ticketId={detailId}

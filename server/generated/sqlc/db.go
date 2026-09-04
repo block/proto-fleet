@@ -237,6 +237,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, countInfrastructureDevicesBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountInfrastructureDevicesBySite: %w", err)
 	}
+	if q.countInventoryPartsStmt, err = db.PrepareContext(ctx, countInventoryParts); err != nil {
+		return nil, fmt.Errorf("error preparing query CountInventoryParts: %w", err)
+	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
@@ -2200,6 +2203,11 @@ func (q *Queries) Close() error {
 	if q.countInfrastructureDevicesBySiteStmt != nil {
 		if cerr := q.countInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countInfrastructureDevicesBySiteStmt: %w", cerr)
+		}
+	}
+	if q.countInventoryPartsStmt != nil {
+		if cerr := q.countInventoryPartsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countInventoryPartsStmt: %w", cerr)
 		}
 	}
 	if q.countMinersByStateStmt != nil {
@@ -4987,6 +4995,7 @@ type Queries struct {
 	countDevicesWithErrorsStmt                                   *sql.Stmt
 	countErrorsStmt                                              *sql.Stmt
 	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
+	countInventoryPartsStmt                                      *sql.Stmt
 	countMinersByStateStmt                                       *sql.Stmt
 	countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt                    *sql.Stmt
@@ -5599,6 +5608,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                              q.countErrorsStmt,
 		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
+		countInventoryPartsStmt:                                      q.countInventoryPartsStmt,
 		countMinersByStateStmt:                                       q.countMinersByStateStmt,
 		countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt: q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:                    q.countOrgScopeSuperAdminsExcludingUserStmt,

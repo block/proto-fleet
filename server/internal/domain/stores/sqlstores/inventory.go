@@ -87,6 +87,19 @@ func (s *SQLInventoryStore) List(ctx context.Context, filter models.ListFilter) 
 	return parts, nil
 }
 
+func (s *SQLInventoryStore) Count(ctx context.Context, filter models.ListFilter) (int32, error) {
+	count, err := s.GetQueries(ctx).CountInventoryParts(ctx, sqlc.CountInventoryPartsParams{
+		OrgID:          filter.OrgID,
+		FilterSiteIds:  inventoryNilIfEmpty(filter.SiteIDs),
+		FilterTypes:    inventoryNilIfEmpty(filter.Types),
+		FilterLowStock: filter.LowStockOnly,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count inventory parts: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdateParams) (*models.InventoryPart, error) {
 	rows, err := s.GetQueries(ctx).UpdateInventoryPart(ctx, sqlc.UpdateInventoryPartParams{
 		OnHand:       ptrToNullInt32(params.OnHand),
@@ -131,6 +144,7 @@ func (s *SQLInventoryStore) GetInsights(ctx context.Context, orgID int64) (*mode
 		TotalAllocated: row.TotalAllocated,
 		LowStockCount:  row.LowStockCount,
 		SitesCount:     row.SitesCount,
+		PartTypes:      row.PartTypes,
 	}, nil
 }
 

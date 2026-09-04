@@ -4,6 +4,7 @@ import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
+import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import {
   SortDirection,
@@ -234,8 +235,23 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     [canManage, queue],
   );
   const statusCounts = useMemo(
-    () => Object.fromEntries(STATUS_OPTIONS.map(({ id }) => [id, queue.data.filter((t) => t.status === id).length])),
-    [queue.data],
+    () => ({
+      open: queue.stats?.openCount ?? 0,
+      in_progress: queue.stats?.inProgressCount ?? 0,
+      on_hold: queue.stats?.onHoldCount ?? 0,
+      sent_to_vendor: queue.stats?.sentToVendorCount ?? 0,
+    }),
+    [queue.stats],
+  );
+  const handleViewMode = useCallback(
+    (key: string) => {
+      const next = key as TicketQueueViewMode;
+      if (next === viewMode) return;
+      setViewMode(next);
+      setSelectedTicketIds([]);
+      void queue.resetPagination();
+    },
+    [queue, viewMode],
   );
   const renderActionBar = useCallback(
     (selected: string[], clear: () => void, mode: SelectionMode) => (
@@ -292,7 +308,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
             { key: "kanban", title: "Board" },
           ]}
           initialSegmentKey={viewMode}
-          onSelect={(key) => setViewMode(key as TicketQueueViewMode)}
+          onSelect={handleViewMode}
         />
         <Button
           variant={myTicketsActive ? variants.accent : variants.ghost}
@@ -326,6 +342,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           stickyFirstColumn={false}
           overflowContainer={false}
           total={queue.total}
+          hideTotal
           itemName={{ singular: "ticket", plural: "tickets" }}
           sortableColumns={new Set<TicketColumns>(["issue", "asset", "location", "status"])}
           onSort={(field, direction) =>
@@ -337,7 +354,25 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       ) : (
         <TicketKanbanView tickets={queue.data} counts={statusCounts} onClick={(t) => setDetailTicketId(t.id)} />
       )}
-      {queue.nextPageToken ? (
+      {viewMode === "list" ? (
+        <ListPagination
+          currentPage={queue.currentPage}
+          pageSize={50}
+          visibleCount={queue.data.length}
+          total={queue.total}
+          itemName="tickets"
+          hasNextPage={!!queue.nextPageToken}
+          loading={queue.loading}
+          onPrevious={() => {
+            setSelectedTicketIds([]);
+            void queue.previousPage();
+          }}
+          onNext={() => {
+            setSelectedTicketIds([]);
+            void queue.nextPage();
+          }}
+        />
+      ) : queue.nextPageToken ? (
         <Button
           text="Load more"
           variant={variants.secondary}

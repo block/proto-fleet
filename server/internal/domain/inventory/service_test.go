@@ -16,6 +16,36 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestListPartsReturnsFilteredTotalAndOnlyEmitsCursorWhenAnotherPageExists(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	service := NewService(store, nil, nil)
+	filter := models.ListFilter{OrgID: 42, Types: []string{"fan"}, Limit: 2}
+
+	store.EXPECT().Count(gomock.Any(), filter).Return(int32(3), nil)
+	store.EXPECT().List(gomock.Any(), models.ListFilter{OrgID: 42, Types: []string{"fan"}, Limit: 3}).Return(
+		[]models.InventoryPart{{ID: 9}, {ID: 7}, {ID: 5}}, nil,
+	)
+
+	page, err := service.ListParts(t.Context(), filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), page.TotalCount)
+	require.Len(t, page.Parts, 2)
+	require.NotNil(t, page.NextCursorID)
+	assert.Equal(t, int64(7), *page.NextCursorID)
+
+	cursor := int64(7)
+	finalFilter := models.ListFilter{OrgID: 42, Types: []string{"fan"}, CursorID: &cursor, Limit: 2}
+	store.EXPECT().Count(gomock.Any(), finalFilter).Return(int32(3), nil)
+	store.EXPECT().List(gomock.Any(), models.ListFilter{OrgID: 42, Types: []string{"fan"}, CursorID: &cursor, Limit: 3}).Return(
+		[]models.InventoryPart{{ID: 5}}, nil,
+	)
+
+	finalPage, err := service.ListParts(t.Context(), finalFilter)
+	require.NoError(t, err)
+	assert.Nil(t, finalPage.NextCursorID)
+}
+
 func TestInventoryParseCsvPreviewResolvesSitesAndReportsErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)

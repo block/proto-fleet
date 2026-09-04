@@ -92,5 +92,6 @@ export type InventoryInsightsItem = {
   totalAllocated: number;
   lowStockCount: number;
   sitesCount: number;
+  partTypes: string[];
 };
 export type LoadState<T> = { data: T; loading: boolean; error: string | null };

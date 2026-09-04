@@ -103,7 +103,7 @@ export class MaintenancePage {
       mimeType: "text/csv",
       buffer: Buffer.from(csv),
     });
-    const confirm = this.page.getByRole("button", { name: "Import 1 parts" });
+    const confirm = this.page.getByRole("button", { name: "Import 1 part" });
     await expect(confirm).toBeEnabled();
     await confirm.click();
     await expect(this.page.getByText(partName, { exact: true })).toBeVisible();

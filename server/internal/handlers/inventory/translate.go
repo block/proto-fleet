@@ -112,14 +112,14 @@ func toProtoPart(p *models.InventoryPart) *pb.InventoryPart {
 	return out
 }
 
-func toListPartsResponse(rows []models.InventoryPart) *pb.ListInventoryPartsResponse {
-	out := make([]*pb.InventoryPart, 0, len(rows))
-	for i := range rows {
-		out = append(out, toProtoPart(&rows[i]))
+func toListPartsResponse(page *models.InventoryPage) *pb.ListInventoryPartsResponse {
+	out := make([]*pb.InventoryPart, 0, len(page.Parts))
+	for i := range page.Parts {
+		out = append(out, toProtoPart(&page.Parts[i]))
 	}
-	response := &pb.ListInventoryPartsResponse{Parts: out}
-	if len(rows) > 0 {
-		response.NextPageToken = strconv.FormatInt(rows[len(rows)-1].ID, 10)
+	response := &pb.ListInventoryPartsResponse{Parts: out, TotalCount: page.TotalCount}
+	if page.NextCursorID != nil {
+		response.NextPageToken = strconv.FormatInt(*page.NextCursorID, 10)
 	}
 	return response
 }
@@ -134,6 +134,7 @@ func toGetInsightsResponse(insights *models.InventoryInsights) *pb.GetInventoryI
 			TotalAllocated: insights.TotalAllocated,
 			LowStockCount:  insights.LowStockCount,
 			SitesCount:     insights.SitesCount,
+			PartTypes:      insights.PartTypes,
 		},
 	}
 }

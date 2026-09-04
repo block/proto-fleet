@@ -4,18 +4,25 @@ import type { InventoryInsightsItem, InventoryPartItem } from "../types";
 import type { InventoryFilter } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import { type InventoryCsvPreview, useInventoryApi } from "@/protoFleet/api/inventory";
 
+const PAGE_SIZE = 50;
+
 export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
   const { listParts, getInsights, createPart, updatePart, deletePart, importCsv, confirmImport } = useInventoryApi();
   const [data, setData] = useState<InventoryPartItem[]>([]);
   const [insights, setInsights] = useState<InventoryInsightsItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
   const [nextPageToken, setNextPageToken] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
   const [filter, setFilterState] = useState(initialFilter);
   const controller = useRef<AbortController | undefined>(undefined);
   const sequence = useRef(0);
+  const currentPageRef = useRef(0);
+  const cursorHistoryRef = useRef<string[]>([""]);
+
   const load = useCallback(
-    async (append = false) => {
+    async (page = 0, pageToken = "") => {
       controller.current?.abort();
       const current = new AbortController();
       controller.current = current;
@@ -25,45 +32,65 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
       await Promise.all([
         listParts({
           filter,
-          pageSize: 50,
-          pageToken: append ? nextPageToken : "",
+          pageSize: PAGE_SIZE,
+          pageToken,
           signal: current.signal,
           onSuccess: (value) => {
             if (request !== sequence.current) return;
-            const mapped = value.parts.map(toInventoryPart);
-            setData((old) => (append ? [...old, ...mapped] : mapped));
+            setData(value.parts.map(toInventoryPart));
+            setTotal(value.totalCount);
             setNextPageToken(value.nextPageToken);
+            setCurrentPage(page);
+            currentPageRef.current = page;
+            if (value.nextPageToken) {
+              const cursors = [...cursorHistoryRef.current];
+              cursors[page + 1] = value.nextPageToken;
+              cursorHistoryRef.current = cursors;
+            }
           },
           onError: setError,
         }),
-        append
-          ? Promise.resolve()
-          : getInsights({
-              signal: current.signal,
-              onSuccess: (value) => {
-                if (request === sequence.current && value) setInsights(toInventoryInsights(value));
-              },
-              onError: setError,
-            }),
+        getInsights({
+          signal: current.signal,
+          onSuccess: (value) => {
+            if (request === sequence.current && value) setInsights(toInventoryInsights(value));
+          },
+          onError: setError,
+        }),
       ]);
       if (request === sequence.current) setLoading(false);
     },
-    [filter, getInsights, listParts, nextPageToken],
+    [filter, getInsights, listParts],
   );
+
+  const resetPagination = useCallback(() => {
+    setCurrentPage(0);
+    currentPageRef.current = 0;
+    cursorHistoryRef.current = [""];
+    setNextPageToken("");
+    return load(0, "");
+  }, [load]);
+
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active) void load();
+      if (active) void resetPagination();
     });
     return () => {
       active = false;
       controller.current?.abort();
     };
-  }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetPagination]);
+
   const setFilter = useCallback((value: Partial<InventoryFilter>) => {
-    setNextPageToken("");
     setFilterState(value);
   }, []);
+
+  const refreshCurrentPage = useCallback(
+    () => load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]),
+    [load],
+  );
+
   const create = useCallback(
     async (input: Parameters<typeof createPart>[0]) => {
       let ok = false;
@@ -74,11 +101,12 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await load();
+      if (ok) await resetPagination();
       return ok;
     },
-    [createPart, load],
+    [createPart, resetPagination],
   );
+
   const adjust = useCallback(
     async (input: Parameters<typeof updatePart>[0]) => {
       let ok = false;
@@ -89,11 +117,12 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await load();
+      if (ok) await refreshCurrentPage();
       return ok;
     },
-    [load, updatePart],
+    [refreshCurrentPage, updatePart],
   );
+
   const remove = useCallback(
     async (id: string) => {
       let ok = false;
@@ -104,11 +133,12 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await load();
+      if (ok) await refreshCurrentPage();
       return ok;
     },
-    [deletePart, load],
+    [deletePart, refreshCurrentPage],
   );
+
   const previewCsv = useCallback(
     async (csvData: Uint8Array): Promise<InventoryCsvPreview | null> => {
       let preview: InventoryCsvPreview | null = null;
@@ -123,6 +153,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     },
     [importCsv],
   );
+
   const applyCsv = useCallback(
     async (csvData: Uint8Array) => {
       let count: number | null = null;
@@ -133,21 +164,32 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (count !== null) await load();
+      if (count !== null) await resetPagination();
       return count;
     },
-    [confirmImport, load],
+    [confirmImport, resetPagination],
   );
+
   return {
     data,
     insights,
     loading,
     error,
+    total,
     nextPageToken,
+    currentPage,
+    hasPreviousPage: currentPage > 0,
     filter,
     setFilter,
-    refresh: () => load(),
-    loadMore: () => load(true),
+    refresh: refreshCurrentPage,
+    nextPage: () => {
+      const token = cursorHistoryRef.current[currentPageRef.current + 1] ?? nextPageToken;
+      return token ? load(currentPageRef.current + 1, token) : Promise.resolve();
+    },
+    previousPage: () => {
+      const previous = currentPageRef.current - 1;
+      return previous >= 0 ? load(previous, cursorHistoryRef.current[previous]) : Promise.resolve();
+    },
     create,
     adjust,
     remove,

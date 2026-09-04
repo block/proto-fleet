@@ -21,6 +21,27 @@ func TestToUpdateParamsRangeChecksEnumAndPreservesPresence(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestListPartsResponseIncludesFilteredTotalAndOnlyRealNextPageToken(t *testing.T) {
+	cursor := int64(7)
+	response := toListPartsResponse(&models.InventoryPage{
+		Parts:        []models.InventoryPart{{ID: 9}, {ID: 7}},
+		TotalCount:   3,
+		NextCursorID: &cursor,
+	})
+	require.Len(t, response.Parts, 2)
+	assert.Equal(t, int32(3), response.TotalCount)
+	assert.Equal(t, "7", response.NextPageToken)
+
+	finalPage := toListPartsResponse(&models.InventoryPage{Parts: []models.InventoryPart{{ID: 5}}, TotalCount: 3})
+	assert.Empty(t, finalPage.NextPageToken)
+}
+
+func TestInventoryInsightsResponseIncludesPartTypeFacets(t *testing.T) {
+	response := toGetInsightsResponse(&models.InventoryInsights{PartTypes: []string{"cable", "fan"}})
+	require.NotNil(t, response.Insights)
+	assert.Equal(t, []string{"cable", "fan"}, response.Insights.PartTypes)
+}
+
 func TestImportPreviewIncludesEveryCsvColumn(t *testing.T) {
 	response := toImportCsvPreviewResponse([]models.CsvPreviewRow{{RowNumber: 3, Name: "Fan", Type: "cooling", Manufacturer: "Proto", PartNumber: "F-1", SiteName: "Mine", OnHand: 2, ReorderPoint: 1, BinLocation: "A1"}})
 	require.Len(t, response.Rows, 1)

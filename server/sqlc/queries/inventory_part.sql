@@ -70,6 +70,18 @@ WHERE ip.org_id = sqlc.arg('org_id')
 ORDER BY ip.id DESC
 LIMIT sqlc.arg('limit_n')::int;
 
+-- name: CountInventoryParts :one
+SELECT COUNT(*)::int
+FROM inventory_part ip
+WHERE ip.org_id = sqlc.arg('org_id')
+  AND ip.deleted_at IS NULL
+  AND (sqlc.narg('filter_site_ids')::bigint[] IS NULL
+       OR ip.site_id = ANY(sqlc.narg('filter_site_ids')::bigint[]))
+  AND (sqlc.narg('filter_types')::text[] IS NULL
+       OR ip.type = ANY(sqlc.narg('filter_types')::text[]))
+  AND (NOT sqlc.arg('filter_low_stock')::boolean
+       OR (ip.on_hand - ip.allocated) <= ip.reorder_point);
+
 -- name: UpdateInventoryPart :execrows
 UPDATE inventory_part
 SET on_hand       = COALESCE(sqlc.narg('on_hand'), on_hand),
@@ -95,7 +107,8 @@ SELECT
     COALESCE(SUM(on_hand), 0)::int AS total_on_hand,
     COALESCE(SUM(allocated), 0)::int AS total_allocated,
     COUNT(*) FILTER (WHERE (on_hand - allocated) <= reorder_point)::int AS low_stock_count,
-    COUNT(DISTINCT site_id)::int AS sites_count
+    COUNT(DISTINCT site_id)::int AS sites_count,
+    COALESCE(array_agg(DISTINCT type ORDER BY type), '{}')::text[] AS part_types
 FROM inventory_part
 WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
