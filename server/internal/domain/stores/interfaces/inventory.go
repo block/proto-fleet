@@ -11,7 +11,9 @@ import (
 // InventoryStore is the organization-scoped persistence boundary for parts
 // inventory. Every mutation uses an invariant predicate in SQL so concurrent
 // callers cannot oversubscribe or consume stock twice.
-type InventoryStore interface {
+// The cohesive boundary intentionally includes CRUD, stock transitions, and
+// import resolution so one transaction-bound implementation owns every stock invariant.
+type InventoryStore interface { //nolint:interfacebloat
 	Create(ctx context.Context, params models.CreateParams) (*models.InventoryPart, error)
 	Get(ctx context.Context, orgID, id int64) (*models.InventoryPart, error)
 	GetForUpdate(ctx context.Context, orgID, id int64) (*models.InventoryPart, error)

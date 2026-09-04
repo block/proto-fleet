@@ -204,7 +204,7 @@ func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFil
 	filter.BuildingIDs = requestFilter.GetBuildingIds()
 	filter.RackIDs = requestFilter.GetRackIds()
 	filter.GroupLabels = requestFilter.GetGroupLabels()
-	if requestFilter.AssigneeUserId != nil {
+	if requestFilter != nil && requestFilter.AssigneeUserId != nil {
 		v := requestFilter.GetAssigneeUserId()
 		filter.AssigneeUserID = &v
 	}

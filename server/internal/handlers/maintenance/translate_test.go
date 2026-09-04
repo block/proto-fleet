@@ -30,6 +30,13 @@ func TestToListFilterRangeChecksSortAndIncludesOverdue(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestToListFilterAcceptsOmittedFilter(t *testing.T) {
+	filter, err := toListFilter(&pb.ListRepairTicketsRequest{}, 42)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), filter.OrgID)
+	assert.Nil(t, filter.AssigneeUserID)
+}
+
 func TestToProtoAssigneesMapsHydratedLabels(t *testing.T) {
 	assignees := toProtoAssignees([]models.Assignee{{UserID: 7, Username: "tech", RoleName: "Field Tech"}})
 	require.Len(t, assignees, 1)
