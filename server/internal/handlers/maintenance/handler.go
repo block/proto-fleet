@@ -60,6 +60,7 @@ func (h *Handler) GetRepairTicket(ctx context.Context, req *connect.Request[pb.G
 	if err != nil {
 		return nil, err
 	}
+	markCallerComments(detail.Comments, info.UserID)
 	return connect.NewResponse(&pb.GetRepairTicketResponse{Detail: &pb.RepairTicketDetail{
 		Ticket:    toProtoTicket(&detail.Ticket),
 		Comments:  toProtoComments(detail.Comments),
@@ -95,20 +96,6 @@ func (h *Handler) UpdateRepairTicket(ctx context.Context, req *connect.Request[p
 	ticket, err := h.service.UpdateRepairTicket(ctx, params)
 	if err != nil {
 		return nil, err
-	}
-	if req.Msg.PartsSelection != nil {
-		selectedParts := req.Msg.GetPartsSelection().GetParts()
-		parts := make([]models.PartUsage, len(selectedParts))
-		for i, part := range selectedParts {
-			parts[i] = models.PartUsage{
-				InventoryPartID: part.GetInventoryPartId(),
-				PartName:        part.GetPartName(),
-				Quantity:        part.GetQuantity(),
-			}
-		}
-		if err := h.service.SetTicketParts(ctx, info.OrganizationID, req.Msg.GetId(), parts); err != nil {
-			return nil, err
-		}
 	}
 	return connect.NewResponse(&pb.UpdateRepairTicketResponse{
 		Ticket: toProtoTicket(ticket),
@@ -217,6 +204,7 @@ func (h *Handler) ListTicketComments(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
+	markCallerComments(comments, info.UserID)
 	return connect.NewResponse(&pb.ListTicketCommentsResponse{Comments: toProtoComments(comments)}), nil
 }
 
@@ -250,6 +238,12 @@ func (h *Handler) DeleteTicketComment(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteTicketCommentResponse{}), nil
+}
+
+func markCallerComments(comments []models.TicketComment, callerUserID int64) {
+	for i := range comments {
+		comments[i].AuthoredByCaller = comments[i].UserID == callerUserID
+	}
 }
 
 // ---------------------------------------------------------------

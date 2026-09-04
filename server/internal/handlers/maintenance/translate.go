@@ -145,6 +145,18 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 		t := req.GetRmaEta().AsTime()
 		params.RMAEta = &t
 	}
+	if req.PartsSelection != nil {
+		selected := req.GetPartsSelection().GetParts()
+		parts := make([]models.PartUsage, len(selected))
+		for i, part := range selected {
+			parts[i] = models.PartUsage{
+				InventoryPartID: part.GetInventoryPartId(),
+				PartName:        part.GetPartName(),
+				Quantity:        part.GetQuantity(),
+			}
+		}
+		params.PartsSelection = &parts
+	}
 	return params, nil
 }
 

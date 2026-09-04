@@ -6,6 +6,9 @@ package maintenance
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -33,6 +36,8 @@ const (
 // Service is the domain entry point for repair ticket operations.
 type Service struct {
 	store       interfaces.MaintenanceStore
+	refs        interfaces.MaintenanceReferenceStore
+	inventory   interfaces.InventoryStore
 	transactor  interfaces.Transactor
 	activitySvc *activity.Service
 }
@@ -43,11 +48,15 @@ type Service struct {
 // may be nil in tests or environments where activity logging is disabled.
 func NewService(
 	store interfaces.MaintenanceStore,
+	refs interfaces.MaintenanceReferenceStore,
+	inventory interfaces.InventoryStore,
 	transactor interfaces.Transactor,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		store:       store,
+		refs:        refs,
+		inventory:   inventory,
 		transactor:  transactor,
 		activitySvc: activitySvc,
 	}
@@ -71,19 +80,54 @@ func clampLimit(limit int32) int32 {
 // CreateRepairTicket generates a TK-XXXX ticket number and inserts the
 // ticket row inside a single transaction.
 func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreateParams) (*models.RepairTicket, error) {
+	params.Component = strings.TrimSpace(params.Component)
 	if params.Component == "" {
 		return nil, fleeterror.NewInvalidArgumentError("component is required")
+	}
+	if params.Category != models.TicketCategoryMiner && params.Category != models.TicketCategoryInfrastructure {
+		return nil, fleeterror.NewInvalidArgumentError("invalid ticket category")
 	}
 
 	var ticket *models.RepairTicket
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if params.AssigneeUserID != nil {
+			if _, err := s.refs.ResolveAssignee(txCtx, params.OrgID, *params.AssigneeUserID); err != nil {
+				return err
+			}
+		}
+		switch params.Category {
+		case models.TicketCategoryMiner:
+			if params.MinerIdentifier == nil || strings.TrimSpace(*params.MinerIdentifier) == "" {
+				return fleeterror.NewInvalidArgumentError("miner_identifier is required for miner tickets")
+			}
+			identifier := strings.TrimSpace(*params.MinerIdentifier)
+			asset, err := s.refs.ResolveMinerContext(txCtx, params.OrgID, identifier)
+			if err != nil {
+				return err
+			}
+			params.MinerIdentifier = &identifier
+			params.SiteID, params.BuildingID = asset.SiteID, asset.BuildingID
+			params.Zone, params.RackID = asset.Zone, asset.RackID
+			params.RackLabel, params.GroupLabel = asset.RackLabel, asset.GroupLabel
+		case models.TicketCategoryInfrastructure:
+			if params.SiteID == nil {
+				return fleeterror.NewInvalidArgumentError("site_id is required for infrastructure tickets")
+			}
+			location, err := s.refs.ResolveLocationContext(txCtx, params.OrgID, params.SiteID, params.BuildingID)
+			if err != nil {
+				return err
+			}
+			params.SiteID, params.BuildingID = location.SiteID, location.BuildingID
+			params.MinerIdentifier, params.RackID, params.RackLabel, params.GroupLabel = nil, nil, nil, nil
+		case models.TicketCategoryUnspecified:
+			return fleeterror.NewInvalidArgumentError("invalid ticket category")
+		}
+
 		nextID, err := s.store.NextTicketNumber(txCtx, params.OrgID)
 		if err != nil {
 			return err
 		}
-		ticketNumber := fmt.Sprintf("TK-%04d", nextID)
-
-		created, err := s.store.CreateRepairTicket(txCtx, params, ticketNumber)
+		created, err := s.store.CreateRepairTicket(txCtx, params, fmt.Sprintf("TK-%04d", nextID))
 		if err != nil {
 			return err
 		}
@@ -162,18 +206,102 @@ func (s *Service) ListRepairTickets(ctx context.Context, filter models.ListFilte
 	return tickets, totalCount, nil
 }
 
-// UpdateRepairTicket mutates the ticket's mutable fields. Validates
-// status transitions when a status change is requested.
+// UpdateRepairTicket validates lifecycle and reference policy and mutates the
+// ticket, reservations, and stock in one transaction.
 func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdateParams) (*models.RepairTicket, error) {
+	if params.Component != nil {
+		trimmed := strings.TrimSpace(*params.Component)
+		if trimmed == "" {
+			return nil, fleeterror.NewInvalidArgumentError("component must not be empty")
+		}
+		params.Component = &trimmed
+	}
+	if params.ClearAssignee && params.AssigneeUserID != nil {
+		return nil, fleeterror.NewInvalidArgumentError("assignee_user_id and clear_assignee cannot both be set")
+	}
 	if params.Status != nil {
 		if err := validateStatusTransition(*params.Status); err != nil {
 			return nil, err
 		}
 	}
 
-	ticket, err := s.store.UpdateRepairTicket(ctx, params)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		current, err := s.store.GetRepairTicketForUpdate(txCtx, params.OrgID, params.ID)
+		if err != nil {
+			return nil, err
+		}
+		targetStatus := current.Status
+		if params.Status != nil {
+			targetStatus = *params.Status
+		}
+		if current.Status == models.TicketStatusCompleted {
+			if targetStatus != models.TicketStatusCompleted {
+				return nil, fleeterror.NewFailedPreconditionError("completed tickets are terminal")
+			}
+			return current, nil
+		}
+		if !statusTransitionAllowed(current.Status, targetStatus) {
+			return nil, fleeterror.NewFailedPreconditionErrorf("ticket status transition %d to %d is not allowed", current.Status, targetStatus)
+		}
+		if params.Resolution != nil && (*params.Resolution < models.TicketResolutionRepaired || *params.Resolution > models.TicketResolutionNoActionNeeded) {
+			return nil, fleeterror.NewInvalidArgumentError("invalid ticket resolution")
+		}
+		if params.RepairLocation != nil && (*params.RepairLocation < models.RepairLocationUnspecified || *params.RepairLocation > models.RepairLocationRepairBench) {
+			return nil, fleeterror.NewInvalidArgumentError("invalid repair location")
+		}
+		if params.AssigneeUserID != nil {
+			if _, err := s.refs.ResolveAssignee(txCtx, params.OrgID, *params.AssigneeUserID); err != nil {
+				return nil, err
+			}
+		}
+		if targetStatus == models.TicketStatusSentToVendor {
+			vendor := current.RMAVendor
+			if params.RMAVendor != nil {
+				vendor = params.RMAVendor
+			}
+			if vendor == nil || strings.TrimSpace(*vendor) == "" {
+				return nil, fleeterror.NewInvalidArgumentError("rma_vendor is required when sending a ticket to a vendor")
+			}
+		}
+		if targetStatus == models.TicketStatusCompleted {
+			resolution := current.Resolution
+			if params.Resolution != nil {
+				resolution = *params.Resolution
+			}
+			location := current.RepairLocation
+			if params.RepairLocation != nil {
+				location = *params.RepairLocation
+			}
+			if err := validateCompletion(current.Category, resolution, location); err != nil {
+				return nil, err
+			}
+		}
+
+		var parts []models.PartUsage
+		if params.PartsSelection != nil || targetStatus == models.TicketStatusCompleted {
+			parts, err = s.reconcileParts(txCtx, current, params.PartsSelection)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if targetStatus == models.TicketStatusCompleted {
+			for _, part := range parts {
+				if err := s.inventory.ConsumeReserved(txCtx, params.OrgID, part.InventoryPartID, part.Quantity); err != nil {
+					return nil, err
+				}
+			}
+			if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, params.ID); err != nil {
+				return nil, err
+			}
+		}
+		return s.store.UpdateRepairTicket(txCtx, params)
+	})
 	if err != nil {
 		return nil, err
+	}
+	ticket, ok := result.(*models.RepairTicket)
+	if !ok {
+		return nil, fleeterror.NewInternalError("maintenance transaction returned an unexpected result")
 	}
 
 	// Activity log fires AFTER the write.
@@ -200,14 +328,33 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 	return ticket, nil
 }
 
-// DeleteRepairTicket soft-deletes the ticket.
+// DeleteRepairTicket releases active reservations and soft-deletes the ticket
+// in one transaction.
 func (s *Service) DeleteRepairTicket(ctx context.Context, orgID, id int64) error {
-	rowsAffected, err := s.store.SoftDeleteRepairTicket(ctx, orgID, id)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if _, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id); err != nil {
+			return err
+		}
+		parts, err := s.store.ListTicketParts(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		for _, part := range activeParts(parts) {
+			if err := s.inventory.Release(txCtx, orgID, part.InventoryPartID, part.Quantity); err != nil {
+				return err
+			}
+		}
+		rows, err := s.store.SoftDeleteRepairTicket(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return fleeterror.NewNotFoundErrorf("ticket %d not found", id)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if rowsAffected == 0 {
-		return fleeterror.NewNotFoundErrorf("ticket %d not found", id)
 	}
 
 	if s.activitySvc != nil {
@@ -240,8 +387,32 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 	if err := validateStatusTransition(newStatus); err != nil {
 		return 0, err
 	}
+	if newStatus == models.TicketStatusCompleted {
+		return 0, fleeterror.NewInvalidArgumentError("use bulk close to complete tickets")
+	}
 
-	affected, err := s.store.BulkUpdateTicketStatus(ctx, orgID, ticketIDs, int16(newStatus))
+	ids, err := normalizeBulkIDs(ticketIDs)
+	if err != nil {
+		return 0, err
+	}
+	var affected int64
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		for _, id := range ids {
+			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
+			if err != nil {
+				return err
+			}
+			if ticket.Status == models.TicketStatusCompleted || !statusTransitionAllowed(ticket.Status, newStatus) {
+				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot transition to status %d", id, newStatus)
+			}
+		}
+		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, ids, int16(newStatus))
+		if err != nil {
+			return err
+		}
+		affected = rows
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -271,11 +442,25 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 // BulkAssign sets the assignee on multiple tickets. Pass nil
 // assigneeUserID to unassign. Returns affected row count.
 func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64, assigneeUserID *int64) (int64, error) {
-	if len(ticketIDs) == 0 {
-		return 0, fleeterror.NewInvalidArgumentError("ticket_ids must not be empty")
+	ids, err := normalizeBulkIDs(ticketIDs)
+	if err != nil {
+		return 0, err
 	}
 
-	affected, err := s.store.BulkAssignTickets(ctx, orgID, ticketIDs, assigneeUserID)
+	var affected int64
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if assigneeUserID != nil {
+			if _, err := s.refs.ResolveAssignee(txCtx, orgID, *assigneeUserID); err != nil {
+				return err
+			}
+		}
+		rows, err := s.store.BulkAssignTickets(txCtx, orgID, ids, assigneeUserID)
+		if err != nil {
+			return err
+		}
+		affected = rows
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -305,11 +490,20 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 // BulkMarkUrgent flags multiple tickets as urgent. Returns affected row
 // count.
 func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []int64) (int64, error) {
-	if len(ticketIDs) == 0 {
-		return 0, fleeterror.NewInvalidArgumentError("ticket_ids must not be empty")
+	ids, err := normalizeBulkIDs(ticketIDs)
+	if err != nil {
+		return 0, err
 	}
 
-	affected, err := s.store.BulkMarkUrgent(ctx, orgID, ticketIDs)
+	var affected int64
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		rows, err := s.store.BulkMarkUrgent(txCtx, orgID, ids)
+		if err != nil {
+			return err
+		}
+		affected = rows
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -332,44 +526,69 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 	return affected, nil
 }
 
-// BulkClose closes multiple tickets with a shared resolution and repair
-// location, optionally recording parts used on each. Runs in a
-// transaction when parts are supplied.
+// BulkClose completes the exact selected ticket set and consumes each
+// ticket's existing reservations in one transaction.
 func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) (int64, error) {
-	if len(params.TicketIDs) == 0 {
-		return 0, fleeterror.NewInvalidArgumentError("ticket_ids must not be empty")
+	ids, err := normalizeBulkIDs(params.TicketIDs)
+	if err != nil {
+		return 0, err
+	}
+	if len(params.PartsUsed) > 0 {
+		return 0, fleeterror.NewInvalidArgumentError("bulk close cannot apply one parts list to multiple tickets")
+	}
+	if params.Resolution < models.TicketResolutionRepaired || params.Resolution > models.TicketResolutionNoActionNeeded {
+		return 0, fleeterror.NewInvalidArgumentError("resolution is required when completing tickets")
 	}
 
 	var affected int64
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		rows, err := s.store.BulkCloseTickets(
-			txCtx,
-			params.OrgID,
-			params.TicketIDs,
-			int16(params.Resolution),
-			int16(params.RepairLocation),
-			params.Notes,
-		)
-		if err != nil {
-			return err
-		}
-		affected = rows
-
-		// Record parts on every closed ticket.
-		if len(params.PartsUsed) > 0 {
-			for _, ticketID := range params.TicketIDs {
-				// Clear existing parts first.
-				if err := s.store.SetTicketParts(txCtx, params.OrgID, ticketID); err != nil {
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		minerIDs := make([]int64, 0, len(ids))
+		infrastructureIDs := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, params.OrgID, id)
+			if err != nil {
+				return err
+			}
+			if ticket.Status != models.TicketStatusCompleted && !statusTransitionAllowed(ticket.Status, models.TicketStatusCompleted) {
+				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot be completed", id)
+			}
+			if err := validateCompletion(ticket.Category, params.Resolution, params.RepairLocation); err != nil {
+				return err
+			}
+			if ticket.Status != models.TicketStatusCompleted {
+				parts, err := s.store.ListTicketParts(txCtx, params.OrgID, id)
+				if err != nil {
 					return err
 				}
-				for _, part := range params.PartsUsed {
-					if err := s.store.InsertTicketPart(txCtx, params.OrgID, ticketID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
+				for _, part := range activeParts(parts) {
+					if err := s.inventory.ConsumeReserved(txCtx, params.OrgID, part.InventoryPartID, part.Quantity); err != nil {
 						return err
 					}
 				}
+				if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, id); err != nil {
+					return err
+				}
+			}
+			if ticket.Category == models.TicketCategoryMiner {
+				minerIDs = append(minerIDs, id)
+			} else {
+				infrastructureIDs = append(infrastructureIDs, id)
 			}
 		}
-
+		if len(minerIDs) > 0 {
+			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, minerIDs, int16(params.Resolution), int16(params.RepairLocation), params.Notes)
+			if err != nil {
+				return err
+			}
+			affected += rows
+		}
+		if len(infrastructureIDs) > 0 {
+			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, infrastructureIDs, int16(params.Resolution), int16(models.RepairLocationUnspecified), params.Notes)
+			if err != nil {
+				return err
+			}
+			affected += rows
+		}
 		return nil
 	})
 	if err != nil {
@@ -453,8 +672,12 @@ func (s *Service) GetTicketStats(ctx context.Context, orgID int64) (*models.Tick
 // CreateComment adds a comment to a ticket. Validates the ticket exists
 // in the org before inserting.
 func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int64, userName, text string) (*models.TicketComment, error) {
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, fleeterror.NewInvalidArgumentError("comment text is required")
+	}
+	if utf8.RuneCountInString(text) > 4096 {
+		return nil, fleeterror.NewInvalidArgumentError("comment text must not exceed 4096 characters")
 	}
 
 	// Verify ticket exists in org.
@@ -466,6 +689,7 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 	if err != nil {
 		return nil, err
 	}
+	comment.AuthoredByCaller = true
 
 	if s.activitySvc != nil {
 		event := activitymodels.Event{
@@ -551,35 +775,167 @@ func (s *Service) ListTicketsByRack(ctx context.Context, orgID, rackID int64) ([
 	return s.store.ListTicketsByRack(ctx, orgID, rackID)
 }
 
-// ---------------------------------------------------------------
-// Parts (ticket-scoped, called from handler after update)
-// ---------------------------------------------------------------
-
-// SetTicketParts replaces all parts for a ticket with the supplied list.
-func (s *Service) SetTicketParts(ctx context.Context, orgID, ticketID int64, parts []models.PartUsage) error {
-	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.store.SetTicketParts(txCtx, orgID, ticketID); err != nil {
-			return err
-		}
-		for _, part := range parts {
-			if err := s.store.InsertTicketPart(txCtx, orgID, ticketID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+// ListAssignees returns every active user with a live membership in the
+// organization. Role-based routing is intentionally outside V1.
+func (s *Service) ListAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error) {
+	return s.refs.ListAssignees(ctx, orgID)
 }
 
 // ---------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------
 
-// validateStatusTransition rejects invalid status values. The full
-// state-machine enforcement can be expanded here; for now we only
-// reject the Unspecified sentinel.
+func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicket, requested *[]models.PartUsage) ([]models.PartUsage, error) {
+	existing, err := s.store.ListTicketParts(ctx, ticket.OrgID, ticket.ID)
+	if err != nil {
+		return nil, err
+	}
+	current := activeParts(existing)
+	if requested == nil {
+		return current, nil
+	}
+	next, err := normalizeParts(*requested)
+	if err != nil {
+		return nil, err
+	}
+	currentByID := partsByID(current)
+	nextByID := partsByID(next)
+	ids := make([]int64, 0, len(currentByID)+len(nextByID))
+	seen := make(map[int64]struct{}, len(currentByID)+len(nextByID))
+	for id := range currentByID {
+		seen[id] = struct{}{}
+	}
+	for id := range nextByID {
+		seen[id] = struct{}{}
+	}
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		delta := nextByID[id].Quantity - currentByID[id].Quantity
+		switch {
+		case delta > 0:
+			if err := s.inventory.Reserve(ctx, ticket.OrgID, id, delta); err != nil {
+				return nil, err
+			}
+		case delta < 0:
+			if err := s.inventory.Release(ctx, ticket.OrgID, id, -delta); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := s.store.SetTicketParts(ctx, ticket.OrgID, ticket.ID); err != nil {
+		return nil, err
+	}
+	for _, part := range next {
+		if err := s.store.InsertTicketPart(ctx, ticket.OrgID, ticket.ID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
+			return nil, err
+		}
+	}
+	return next, nil
+}
+
+func normalizeBulkIDs(ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("ticket_ids must not be empty")
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentError("ticket_ids must contain only positive IDs")
+		}
+		seen[id] = struct{}{}
+	}
+	result := make([]int64, 0, len(seen))
+	for id := range seen {
+		result = append(result, id)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result, nil
+}
+
+func normalizeParts(parts []models.PartUsage) ([]models.PartUsage, error) {
+	byID := make(map[int64]models.PartUsage, len(parts))
+	for _, part := range parts {
+		if part.InventoryPartID <= 0 || part.Quantity <= 0 {
+			return nil, fleeterror.NewInvalidArgumentError("part IDs and quantities must be greater than zero")
+		}
+		combined := int64(byID[part.InventoryPartID].Quantity) + int64(part.Quantity)
+		if combined > int64(1<<31-1) {
+			return nil, fleeterror.NewInvalidArgumentError("combined part quantity is too large")
+		}
+		current := byID[part.InventoryPartID]
+		if current.PartName == "" {
+			current.PartName = strings.TrimSpace(part.PartName)
+		}
+		current.InventoryPartID = part.InventoryPartID
+		current.Quantity = int32(combined) //nolint:gosec // explicit MaxInt32 bound above
+		byID[part.InventoryPartID] = current
+	}
+	ids := make([]int64, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	result := make([]models.PartUsage, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, byID[id])
+	}
+	return result, nil
+}
+
+func activeParts(parts []models.PartUsage) []models.PartUsage {
+	active := make([]models.PartUsage, 0, len(parts))
+	for _, part := range parts {
+		if part.ConsumedAt == nil {
+			active = append(active, part)
+		}
+	}
+	return active
+}
+
+func partsByID(parts []models.PartUsage) map[int64]models.PartUsage {
+	result := make(map[int64]models.PartUsage, len(parts))
+	for _, part := range parts {
+		result[part.InventoryPartID] = part
+	}
+	return result
+}
+
 func validateStatusTransition(status models.TicketStatus) error {
 	if status < models.TicketStatusOpen || status > models.TicketStatusCompleted {
 		return fleeterror.NewInvalidArgumentErrorf("invalid ticket status: %d", int16(status))
+	}
+	return nil
+}
+
+func statusTransitionAllowed(from, to models.TicketStatus) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case models.TicketStatusOpen:
+		return to == models.TicketStatusInProgress || to == models.TicketStatusOnHold || to == models.TicketStatusSentToVendor || to == models.TicketStatusCompleted
+	case models.TicketStatusInProgress:
+		return to == models.TicketStatusOpen || to == models.TicketStatusOnHold || to == models.TicketStatusSentToVendor || to == models.TicketStatusCompleted
+	case models.TicketStatusOnHold:
+		return to == models.TicketStatusOpen || to == models.TicketStatusInProgress || to == models.TicketStatusSentToVendor || to == models.TicketStatusCompleted
+	case models.TicketStatusSentToVendor:
+		return to == models.TicketStatusInProgress || to == models.TicketStatusCompleted
+	case models.TicketStatusCompleted, models.TicketStatusUnspecified:
+		return false
+	}
+	return false
+}
+
+func validateCompletion(category models.TicketCategory, resolution models.TicketResolution, location models.RepairLocation) error {
+	if resolution < models.TicketResolutionRepaired || resolution > models.TicketResolutionNoActionNeeded {
+		return fleeterror.NewInvalidArgumentError("resolution is required when completing a ticket")
+	}
+	if category == models.TicketCategoryMiner && (resolution == models.TicketResolutionRepaired || resolution == models.TicketResolutionReplaced) &&
+		location != models.RepairLocationOnRack && location != models.RepairLocationRepairBench {
+		return fleeterror.NewInvalidArgumentError("repair_location is required for repaired or replaced miner tickets")
 	}
 	return nil
 }
