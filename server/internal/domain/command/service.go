@@ -184,6 +184,10 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorRolloutEnforcement:
+		// Enforcement-driven commands are attributed to the user who assigned
+		// the firmware (the session's UserID) through the ActorUser default.
+		return ""
 	}
 	return ""
 }
