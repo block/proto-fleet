@@ -29,6 +29,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
       const request = ++sequence.current;
       setLoading(true);
       setError(null);
+      let loadedRowCount: number | null = null;
       await Promise.all([
         listParts({
           filter,
@@ -37,6 +38,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
           signal: current.signal,
           onSuccess: (value) => {
             if (request !== sequence.current) return;
+            loadedRowCount = value.parts.length;
             setData(value.parts.map(toInventoryPart));
             setTotal(value.totalCount);
             setNextPageToken(value.nextPageToken);
@@ -59,6 +61,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         }),
       ]);
       if (request === sequence.current) setLoading(false);
+      return loadedRowCount;
     },
     [filter, getInsights, listParts],
   );
@@ -133,10 +136,19 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await refreshCurrentPage();
+      if (ok) {
+        const page = currentPageRef.current;
+        const loadedRowCount = await refreshCurrentPage();
+        if (loadedRowCount === 0 && page > 0) {
+          const previous = page - 1;
+          const previousToken = cursorHistoryRef.current[previous];
+          cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
+          await load(previous, previousToken);
+        }
+      }
       return ok;
     },
-    [deletePart, refreshCurrentPage],
+    [deletePart, load, refreshCurrentPage],
   );
 
   const previewCsv = useCallback(

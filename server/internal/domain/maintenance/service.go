@@ -338,8 +338,11 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 // DeleteRepairTicket releases active reservations and soft-deletes the ticket
 // in one transaction.
 func (s *Service) DeleteRepairTicket(ctx context.Context, orgID, id int64) error {
+	var ticket *models.RepairTicket
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if _, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id); err != nil {
+		var err error
+		ticket, err = s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
+		if err != nil {
 			return err
 		}
 		parts, err := s.store.ListTicketParts(txCtx, orgID, id)
@@ -369,6 +372,7 @@ func (s *Service) DeleteRepairTicket(ctx context.Context, orgID, id int64) error
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventTicketDeleted,
 			OrganizationID: &orgID,
+			SiteID:         ticket.SiteID,
 			Description:    fmt.Sprintf("Deleted repair ticket %d", id),
 			Metadata: map[string]any{
 				"ticket_id": id,

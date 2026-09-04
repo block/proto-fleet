@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import {
   RepairTicketSchema,
@@ -34,6 +34,25 @@ beforeEach(() => {
       urgentCount: 0,
     }),
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it("polls the current queue page and stops polling after unmount", async () => {
+  vi.useFakeTimers();
+  const { result, unmount } = renderHook(() => useTicketQueue());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(result.current.loading).toBe(false);
+  expect(listTickets).toHaveBeenCalledTimes(1);
+
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(listTickets).toHaveBeenCalledTimes(2);
+
+  unmount();
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(listTickets).toHaveBeenCalledTimes(2);
 });
 
 it("loads tickets and refreshes after a successful mutation", async () => {

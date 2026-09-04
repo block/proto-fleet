@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	inventorymodels "github.com/block/proto-fleet/server/internal/domain/inventory/models"
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
@@ -183,14 +185,21 @@ func TestDeleteActiveTicketReleasesReservations(t *testing.T) {
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	inventory := mocks.NewMockInventoryStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
-	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, activity.NewService(activityStore))
+	siteID := int64(11)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 	gomock.InOrder(
-		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3}, nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3, SiteID: &siteID}, nil),
 		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return([]models.PartUsage{{InventoryPartID: 7, Quantity: 2}}, nil),
 		inventory.EXPECT().Release(gomock.Any(), int64(2), int64(7), int32(2)).Return(nil),
 		tickets.EXPECT().SoftDeleteRepairTicket(gomock.Any(), int64(2), int64(3)).Return(int64(1), nil),
 	)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		require.NotNil(t, event.SiteID)
+		assert.Equal(t, siteID, *event.SiteID)
+		return nil
+	})
 	require.NoError(t, service.DeleteRepairTicket(t.Context(), 2, 3))
 }
 

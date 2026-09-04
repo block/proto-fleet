@@ -6,6 +6,7 @@ import { SortDirection, TicketSortField } from "@/protoFleet/api/generated/maint
 import { type BulkTicketMutation, useMaintenanceApi } from "@/protoFleet/api/maintenance";
 
 const PAGE_SIZE = 50;
+const POLL_INTERVAL_MS = 15_000;
 
 export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
   const { listTickets, getStats, bulkUpdate: sendBulkUpdate, updateTicket } = useMaintenanceApi();
@@ -100,6 +101,28 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       controller.current?.abort();
     };
   }, [resetPagination]);
+
+  useEffect(() => {
+    let active = true;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        if (!active) return;
+        try {
+          await load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+        } catch {
+          // RPC adapters report request failures through load's onError callbacks.
+        } finally {
+          if (active) scheduleNext();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+    scheduleNext();
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [load]);
 
   const setFilter = useCallback((value: Partial<TicketFilter>) => {
     setFilterState(value);

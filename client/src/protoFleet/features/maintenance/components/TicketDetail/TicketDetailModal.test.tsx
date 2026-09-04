@@ -101,6 +101,22 @@ describe("TicketDetailModal", () => {
     expect(screen.getByText("3 of 3 tickets")).toBeInTheDocument();
   });
 
+  it("clears the comment editor and draft when navigating to another ticket", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" ticketIds={["1", "2"]} onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "Wrong ticket draft" } });
+    expect(screen.getByDisplayValue("Wrong ticket draft")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+
+    expect(screen.queryByDisplayValue("Wrong ticket draft")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add comment" })).toBeInTheDocument();
+  });
+
   it("clears the completion editor when navigating to another ticket", () => {
     render(
       <MemoryRouter>

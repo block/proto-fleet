@@ -269,6 +269,7 @@ const TicketDetailModal = ({
             />
           ) : null}
           <TicketComments
+            key={currentId}
             ticketId={currentId}
             comments={ticket.comments}
             canManage={canManage}
