@@ -48,6 +48,27 @@ func (q *Queries) ListMaintenanceAssignees(ctx context.Context, orgID int64) ([]
 	return items, nil
 }
 
+const lockMaintenanceBuildingForTicket = `-- name: LockMaintenanceBuildingForTicket :one
+SELECT id
+FROM building
+WHERE org_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+FOR SHARE
+`
+
+type LockMaintenanceBuildingForTicketParams struct {
+	OrgID      int64
+	BuildingID int64
+}
+
+func (q *Queries) LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockMaintenanceBuildingForTicketStmt, lockMaintenanceBuildingForTicket, arg.OrgID, arg.BuildingID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockMaintenanceSiteForTicket = `-- name: LockMaintenanceSiteForTicket :one
 SELECT id
 FROM site

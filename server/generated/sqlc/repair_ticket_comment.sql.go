@@ -64,6 +64,31 @@ func (q *Queries) CreateRepairTicketComment(ctx context.Context, arg CreateRepai
 	return i, err
 }
 
+const getRepairTicketCommentSiteForUpdate = `-- name: GetRepairTicketCommentSiteForUpdate :one
+SELECT rt.site_id
+FROM repair_ticket_comment c
+JOIN repair_ticket rt
+  ON rt.id = c.ticket_id AND rt.org_id = c.org_id AND rt.deleted_at IS NULL
+WHERE c.id = $1
+  AND c.org_id = $2
+  AND c.user_id = $3
+  AND c.deleted_at IS NULL
+FOR UPDATE OF c, rt
+`
+
+type GetRepairTicketCommentSiteForUpdateParams struct {
+	ID           int64
+	OrgID        int64
+	CallerUserID int64
+}
+
+func (q *Queries) GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg GetRepairTicketCommentSiteForUpdateParams) (sql.NullInt64, error) {
+	row := q.queryRow(ctx, q.getRepairTicketCommentSiteForUpdateStmt, getRepairTicketCommentSiteForUpdate, arg.ID, arg.OrgID, arg.CallerUserID)
+	var site_id sql.NullInt64
+	err := row.Scan(&site_id)
+	return site_id, err
+}
+
 const listRepairTicketComments = `-- name: ListRepairTicketComments :many
 SELECT c.id, c.org_id, c.ticket_id, c.user_id, u.username AS user_name,
        c.text, c.created_at, c.deleted_at

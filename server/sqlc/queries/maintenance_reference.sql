@@ -6,6 +6,14 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 FOR SHARE;
 
+-- name: LockMaintenanceBuildingForTicket :one
+SELECT id
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND id = sqlc.arg('building_id')
+  AND deleted_at IS NULL
+FOR SHARE;
+
 -- name: ResolveMaintenanceMinerContext :one
 SELECT
     d.device_identifier AS miner_identifier,

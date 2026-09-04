@@ -311,6 +311,7 @@ type Querier interface {
 	// ListBuildingRacks' filter so the count and the list agree.
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
+	CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error)
 	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
@@ -750,6 +751,7 @@ type Querier interface {
 	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
 	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
 	GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (GetRepairTicketRow, error)
+	GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg GetRepairTicketCommentSiteForUpdateParams) (sql.NullInt64, error)
 	GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
@@ -1295,6 +1297,7 @@ type Querier interface {
 	// Inventory creation takes share locks in a deterministic order so a
 	// concurrent soft deletion cannot update deleted_at between validation and insert.
 	LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error)
+	LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error)
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).

@@ -32,6 +32,19 @@ func (s *SQLMaintenanceStore) LockSiteForTicket(ctx context.Context, orgID, site
 	return nil
 }
 
+func (s *SQLMaintenanceStore) LockBuildingForTicket(ctx context.Context, orgID, buildingID int64) error {
+	_, err := s.GetQueries(ctx).LockMaintenanceBuildingForTicket(ctx, sqlc.LockMaintenanceBuildingForTicketParams{
+		OrgID: orgID, BuildingID: buildingID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock maintenance building: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLMaintenanceStore) ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error) {
 	row, err := s.GetQueries(ctx).ResolveMaintenanceMinerContext(ctx, sqlc.ResolveMaintenanceMinerContextParams{
 		OrgID: orgID, MinerIdentifier: minerIdentifier,

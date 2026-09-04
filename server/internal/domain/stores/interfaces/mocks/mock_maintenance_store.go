@@ -266,6 +266,21 @@ func (mr *MockMaintenanceStoreMockRecorder) GetRepairTicketForUpdate(ctx, orgID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepairTicketForUpdate", reflect.TypeOf((*MockMaintenanceStore)(nil).GetRepairTicketForUpdate), ctx, orgID, id)
 }
 
+// GetTicketCommentSiteForUpdate mocks base method.
+func (m *MockMaintenanceStore) GetTicketCommentSiteForUpdate(ctx context.Context, orgID, callerUserID, id int64) (*int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTicketCommentSiteForUpdate", ctx, orgID, callerUserID, id)
+	ret0, _ := ret[0].(*int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTicketCommentSiteForUpdate indicates an expected call of GetTicketCommentSiteForUpdate.
+func (mr *MockMaintenanceStoreMockRecorder) GetTicketCommentSiteForUpdate(ctx, orgID, callerUserID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTicketCommentSiteForUpdate", reflect.TypeOf((*MockMaintenanceStore)(nil).GetTicketCommentSiteForUpdate), ctx, orgID, callerUserID, id)
+}
+
 // GetTicketStats mocks base method.
 func (m *MockMaintenanceStore) GetTicketStats(ctx context.Context, filter models.ListFilter) (*models.TicketStats, error) {
 	m.ctrl.T.Helper()
@@ -510,6 +525,20 @@ func (m *MockMaintenanceReferenceStore) ListAssignees(ctx context.Context, orgID
 func (mr *MockMaintenanceReferenceStoreMockRecorder) ListAssignees(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAssignees", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListAssignees), ctx, orgID)
+}
+
+// LockBuildingForTicket mocks base method.
+func (m *MockMaintenanceReferenceStore) LockBuildingForTicket(ctx context.Context, orgID, buildingID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockBuildingForTicket", ctx, orgID, buildingID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockBuildingForTicket indicates an expected call of LockBuildingForTicket.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) LockBuildingForTicket(ctx, orgID, buildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockBuildingForTicket", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockBuildingForTicket), ctx, orgID, buildingID)
 }
 
 // LockSiteForTicket mocks base method.

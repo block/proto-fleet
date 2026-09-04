@@ -104,6 +104,38 @@ it("replaces rows when moving through cursor-backed list pages", async () => {
   expect(result.current.currentPage).toBe(0);
 });
 
+it("returns to the previous page after bulk-closing the final visible rows", async () => {
+  let laterPageLoads = 0;
+  listTickets.mockImplementation(async ({ pageToken, onSuccess }) => {
+    if (pageToken === "cursor-2") laterPageLoads += 1;
+    const ticketId = pageToken === "cursor-2" && laterPageLoads === 1 ? 2n : pageToken ? undefined : 1n;
+    onSuccess({
+      tickets:
+        ticketId === undefined
+          ? []
+          : [create(RepairTicketSummarySchema, { ticket: create(RepairTicketSchema, { id: ticketId }) })],
+      nextPageToken: pageToken ? "" : "cursor-2",
+      totalCount: ticketId === undefined ? 1 : 2,
+    });
+  });
+  bulkUpdate.mockImplementation(async ({ onSuccess }) => onSuccess(1));
+  const { result } = renderHook(() => useTicketQueue());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(() => result.current.nextPage());
+  expect(result.current.currentPage).toBe(1);
+
+  await act(() =>
+    result.current.bulkUpdate(["2"], {
+      case: "bulkClose",
+      value: { resolution: 3, repairLocation: 0, notes: "" },
+    }),
+  );
+
+  expect(result.current.currentPage).toBe(0);
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1"]);
+  expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ pageToken: "" }));
+});
+
 it("aborts the active request on unmount", async () => {
   let signal: AbortSignal | undefined;
   listTickets.mockImplementation(({ signal: value }) => {

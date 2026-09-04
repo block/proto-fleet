@@ -125,6 +125,10 @@ type MaintenanceStore interface {
 	// by created_at ascending.
 	ListTicketComments(ctx context.Context, orgID, ticketID int64) ([]models.TicketComment, error)
 
+	// GetTicketCommentSiteForUpdate locks a live caller-authored comment and its
+	// live ticket, returning the ticket's site for activity scoping.
+	GetTicketCommentSiteForUpdate(ctx context.Context, orgID, callerUserID, id int64) (*int64, error)
+
 	// SoftDeleteTicketComment sets deleted_at on a comment. Returns
 	// rows affected (0 = not found).
 	SoftDeleteTicketComment(ctx context.Context, orgID, callerUserID, id int64) (int64, error)
@@ -150,9 +154,11 @@ type MaintenanceStore interface {
 // MaintenanceReferenceStore resolves live tenant-scoped references for ticket
 // validation and hydration.
 type MaintenanceReferenceStore interface {
-	// LockSiteForTicket takes a shared lock on a live site while a ticket is
-	// created so site deletion cannot race the new reference.
+	// LockSiteForTicket and LockBuildingForTicket take shared locks on live
+	// locations while a ticket is created so location deletion cannot race the
+	// new reference. Callers lock site before building.
 	LockSiteForTicket(ctx context.Context, orgID, siteID int64) error
+	LockBuildingForTicket(ctx context.Context, orgID, buildingID int64) error
 	ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error)
 	ResolveLocationContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (*models.AssetContext, error)
 	ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error)

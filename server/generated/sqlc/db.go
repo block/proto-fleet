@@ -264,6 +264,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRepairTicketsStmt, err = db.PrepareContext(ctx, countRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTickets: %w", err)
 	}
+	if q.countRepairTicketsByBuildingStmt, err = db.PrepareContext(ctx, countRepairTicketsByBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRepairTicketsByBuilding: %w", err)
+	}
 	if q.countRepairTicketsBySiteStmt, err = db.PrepareContext(ctx, countRepairTicketsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTicketsBySite: %w", err)
 	}
@@ -858,6 +861,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRepairTicketStmt, err = db.PrepareContext(ctx, getRepairTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicket: %w", err)
 	}
+	if q.getRepairTicketCommentSiteForUpdateStmt, err = db.PrepareContext(ctx, getRepairTicketCommentSiteForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentSiteForUpdate: %w", err)
+	}
 	if q.getRepairTicketForUpdateStmt, err = db.PrepareContext(ctx, getRepairTicketForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicketForUpdate: %w", err)
 	}
@@ -1328,6 +1334,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockInventorySitesStmt, err = db.PrepareContext(ctx, lockInventorySites); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInventorySites: %w", err)
+	}
+	if q.lockMaintenanceBuildingForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceBuildingForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceBuildingForTicket: %w", err)
 	}
 	if q.lockMaintenanceSiteForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceSiteForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceSiteForTicket: %w", err)
@@ -2260,6 +2269,11 @@ func (q *Queries) Close() error {
 	if q.countRepairTicketsStmt != nil {
 		if cerr := q.countRepairTicketsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRepairTicketsStmt: %w", cerr)
+		}
+	}
+	if q.countRepairTicketsByBuildingStmt != nil {
+		if cerr := q.countRepairTicketsByBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRepairTicketsByBuildingStmt: %w", cerr)
 		}
 	}
 	if q.countRepairTicketsBySiteStmt != nil {
@@ -3252,6 +3266,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRepairTicketStmt: %w", cerr)
 		}
 	}
+	if q.getRepairTicketCommentSiteForUpdateStmt != nil {
+		if cerr := q.getRepairTicketCommentSiteForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketCommentSiteForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getRepairTicketForUpdateStmt != nil {
 		if cerr := q.getRepairTicketForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRepairTicketForUpdateStmt: %w", cerr)
@@ -4035,6 +4054,11 @@ func (q *Queries) Close() error {
 	if q.lockInventorySitesStmt != nil {
 		if cerr := q.lockInventorySitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockInventorySitesStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceBuildingForTicketStmt != nil {
+		if cerr := q.lockMaintenanceBuildingForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceBuildingForTicketStmt: %w", cerr)
 		}
 	}
 	if q.lockMaintenanceSiteForTicketStmt != nil {
@@ -5036,6 +5060,7 @@ type Queries struct {
 	countRacksBySiteStmt                                         *sql.Stmt
 	countRacksInBuildingStmt                                     *sql.Stmt
 	countRepairTicketsStmt                                       *sql.Stmt
+	countRepairTicketsByBuildingStmt                             *sql.Stmt
 	countRepairTicketsBySiteStmt                                 *sql.Stmt
 	countResponseProfilesByInfrastructureDeviceStmt              *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt             *sql.Stmt
@@ -5234,6 +5259,7 @@ type Queries struct {
 	getRackSlotsStmt                                             *sql.Stmt
 	getReleaseChannelSettingStmt                                 *sql.Stmt
 	getRepairTicketStmt                                          *sql.Stmt
+	getRepairTicketCommentSiteForUpdateStmt                      *sql.Stmt
 	getRepairTicketForUpdateStmt                                 *sql.Stmt
 	getRoleByIDStmt                                              *sql.Stmt
 	getRoleByIDForUpdateStmt                                     *sql.Stmt
@@ -5391,6 +5417,7 @@ type Queries struct {
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
 	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
 	lockInventorySitesStmt                                       *sql.Stmt
+	lockMaintenanceBuildingForTicketStmt                         *sql.Stmt
 	lockMaintenanceSiteForTicketStmt                             *sql.Stmt
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
@@ -5653,6 +5680,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRacksBySiteStmt:                                         q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
 		countRepairTicketsStmt:                                       q.countRepairTicketsStmt,
+		countRepairTicketsByBuildingStmt:                             q.countRepairTicketsByBuildingStmt,
 		countRepairTicketsBySiteStmt:                                 q.countRepairTicketsBySiteStmt,
 		countResponseProfilesByInfrastructureDeviceStmt:              q.countResponseProfilesByInfrastructureDeviceStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:             q.countResponseProfilesByInfrastructureDevicesStmt,
@@ -5851,6 +5879,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackSlotsStmt:                                             q.getRackSlotsStmt,
 		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
 		getRepairTicketStmt:                                          q.getRepairTicketStmt,
+		getRepairTicketCommentSiteForUpdateStmt:                      q.getRepairTicketCommentSiteForUpdateStmt,
 		getRepairTicketForUpdateStmt:                                 q.getRepairTicketForUpdateStmt,
 		getRoleByIDStmt:                                              q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
@@ -6008,6 +6037,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
 		lockInventorySitesStmt:                                       q.lockInventorySitesStmt,
+		lockMaintenanceBuildingForTicketStmt:                         q.lockMaintenanceBuildingForTicketStmt,
 		lockMaintenanceSiteForTicketStmt:                             q.lockMaintenanceSiteForTicketStmt,
 		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,

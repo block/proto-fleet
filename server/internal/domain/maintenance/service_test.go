@@ -271,6 +271,7 @@ func TestCreateRepairTicketDerivesMinerContext(t *testing.T) {
 		refs.EXPECT().ResolveAssignee(txContextMatcher{}, int64(4), assigneeID).Return(&models.Assignee{UserID: assigneeID}, nil),
 		refs.EXPECT().ResolveMinerContext(txContextMatcher{}, int64(4), "miner-1").Return(&models.AssetContext{MinerIdentifier: "miner-1", SiteID: &siteID, BuildingID: &buildingID, Zone: &zone, RackID: &rackID, RackLabel: &rack, GroupLabel: &group}, nil),
 		refs.EXPECT().LockSiteForTicket(txContextMatcher{}, int64(4), siteID).Return(nil),
+		refs.EXPECT().LockBuildingForTicket(txContextMatcher{}, int64(4), buildingID).Return(nil),
 		tickets.EXPECT().NextTicketNumber(txContextMatcher{}, int64(4)).Return(int64(1), nil),
 		tickets.EXPECT().CreateRepairTicket(txContextMatcher{}, expected, "TK-0001").Return(&models.RepairTicket{ID: 1, OrgID: 4, Component: "Hashboard"}, nil),
 	)
@@ -297,16 +298,45 @@ func TestCreateCommentTrimsAndBoundsText(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
-	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+	siteID := int64(11)
 	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
-	tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&models.RepairTicket{ID: 3}, nil)
+	tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&models.RepairTicket{ID: 3, SiteID: &siteID}, nil)
 	tickets.EXPECT().CreateTicketComment(txContextMatcher{}, int64(2), int64(3), int64(4), "fixed it").Return(&models.TicketComment{ID: 5, Text: "fixed it"}, nil)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		require.NotNil(t, event.SiteID)
+		assert.Equal(t, siteID, *event.SiteID)
+		return nil
+	})
 	comment, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "  fixed it  ")
 	require.NoError(t, err)
 	assert.Equal(t, "fixed it", comment.Text)
 
 	_, err = service.CreateComment(t.Context(), 2, 3, 4, "tech", string(make([]rune, 4097)))
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestDeleteCommentScopesActivityToTicketSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+	siteID := int64(11)
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	gomock.InOrder(
+		tickets.EXPECT().GetTicketCommentSiteForUpdate(txContextMatcher{}, int64(2), int64(4), int64(5)).Return(&siteID, nil),
+		tickets.EXPECT().SoftDeleteTicketComment(txContextMatcher{}, int64(2), int64(4), int64(5)).Return(int64(1), nil),
+	)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		require.NotNil(t, event.SiteID)
+		assert.Equal(t, siteID, *event.SiteID)
+		return nil
+	})
+
+	require.NoError(t, service.DeleteComment(t.Context(), 2, 4, 5))
 }
 
 func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t *testing.T) {

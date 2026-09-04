@@ -33,6 +33,15 @@ const (
 	MaxListLimit     = int32(200)
 )
 
+type commentCreateResult struct {
+	comment *models.TicketComment
+	siteID  *int64
+}
+
+type commentDeleteResult struct {
+	siteID *int64
+}
+
 // Service is the domain entry point for repair ticket operations.
 type Service struct {
 	store       interfaces.MaintenanceStore
@@ -125,6 +134,11 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 
 		if params.SiteID != nil {
 			if err := s.refs.LockSiteForTicket(txCtx, params.OrgID, *params.SiteID); err != nil {
+				return err
+			}
+		}
+		if params.BuildingID != nil {
+			if err := s.refs.LockBuildingForTicket(txCtx, params.OrgID, *params.BuildingID); err != nil {
 				return err
 			}
 		}
@@ -676,18 +690,24 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 		return nil, fleeterror.NewInternalError("maintenance transactor is not configured")
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
-		if _, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, ticketID); err != nil {
+		ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, ticketID)
+		if err != nil {
 			return nil, err
 		}
-		return s.store.CreateTicketComment(txCtx, orgID, ticketID, userID, text)
+		comment, err := s.store.CreateTicketComment(txCtx, orgID, ticketID, userID, text)
+		if err != nil {
+			return nil, err
+		}
+		return &commentCreateResult{comment: comment, siteID: ticket.SiteID}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	comment, ok := result.(*models.TicketComment)
-	if !ok || comment == nil {
+	created, ok := result.(*commentCreateResult)
+	if !ok || created == nil || created.comment == nil {
 		return nil, fleeterror.NewInternalError("create comment transaction returned an invalid result")
 	}
+	comment := created.comment
 	comment.AuthoredByCaller = true
 
 	if s.activitySvc != nil {
@@ -695,6 +715,7 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventCommentCreated,
 			OrganizationID: &orgID,
+			SiteID:         created.siteID,
 			Description: fmt.Sprintf(
 				"Added comment on ticket %d by %s",
 				ticketID, userName,
@@ -722,12 +743,29 @@ func (s *Service) ListTicketComments(ctx context.Context, orgID, ticketID int64)
 
 // DeleteComment soft-deletes a comment.
 func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commentID int64) error {
-	rowsAffected, err := s.store.SoftDeleteTicketComment(ctx, orgID, callerUserID, commentID)
+	if s.transactor == nil {
+		return fleeterror.NewInternalError("maintenance transactor is not configured")
+	}
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		siteID, err := s.store.GetTicketCommentSiteForUpdate(txCtx, orgID, callerUserID, commentID)
+		if err != nil {
+			return nil, err
+		}
+		rowsAffected, err := s.store.SoftDeleteTicketComment(txCtx, orgID, callerUserID, commentID)
+		if err != nil {
+			return nil, err
+		}
+		if rowsAffected == 0 {
+			return nil, fleeterror.NewNotFoundErrorf("comment %d not found", commentID)
+		}
+		return &commentDeleteResult{siteID: siteID}, nil
+	})
 	if err != nil {
 		return err
 	}
-	if rowsAffected == 0 {
-		return fleeterror.NewNotFoundErrorf("comment %d not found", commentID)
+	deleted, ok := result.(*commentDeleteResult)
+	if !ok || deleted == nil {
+		return fleeterror.NewInternalError("delete comment transaction returned an invalid result")
 	}
 
 	if s.activitySvc != nil {
@@ -735,6 +773,7 @@ func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commen
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventCommentDeleted,
 			OrganizationID: &orgID,
+			SiteID:         deleted.siteID,
 			Description:    fmt.Sprintf("Deleted comment %d", commentID),
 			Metadata: map[string]any{
 				"comment_id": commentID,

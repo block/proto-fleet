@@ -33,6 +33,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       const request = ++sequence.current;
       setLoading(true);
       setError(null);
+      let loadedRowCount: number | null = null;
       await Promise.all([
         listTickets({
           filter,
@@ -44,6 +45,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
           onSuccess: (response) => {
             if (request !== sequence.current) return;
             const mapped = response.tickets.map(toTicketItem);
+            loadedRowCount = mapped.length;
             setData((old) => (append ? [...old, ...mapped] : mapped));
             setTotal(response.totalCount);
             setNextPageToken(response.nextPageToken);
@@ -79,6 +81,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
             }),
       ]);
       if (request === sequence.current) setLoading(false);
+      return loadedRowCount;
     },
     [filter, getStats, listTickets, sortDirection, sortField],
   );
@@ -157,7 +160,16 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+      if (ok) {
+        const page = currentPageRef.current;
+        const loadedRowCount = await load(page, cursorHistoryRef.current[page]);
+        if (loadedRowCount === 0 && page > 0) {
+          const previous = page - 1;
+          const previousToken = cursorHistoryRef.current[previous];
+          cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
+          await load(previous, previousToken);
+        }
+      }
       return ok;
     },
     [load, sendBulkUpdate],

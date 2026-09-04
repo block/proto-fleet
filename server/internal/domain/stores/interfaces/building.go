@@ -45,6 +45,10 @@ type BuildingStore interface {
 	// (UnassignRacksFromBuilding) in the same tx.
 	SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error)
 
+	// CountRepairTicketsByBuilding returns the number of live repair tickets
+	// attached to the building. Building deletion is blocked while non-zero.
+	CountRepairTicketsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error)
+
 	// UnassignRacksFromBuilding sets device_set_rack.building_id =
 	// NULL for every rack pointing at the building. Returns the
 	// count.

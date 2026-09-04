@@ -40,7 +40,13 @@ const BulkCloseModal = ({ ticketIds, includesMiner = false, onDismiss, onSubmit,
     const ok =
       (await onSubmit?.({
         case: "bulkClose",
-        value: { resolution, repairLocation: repairLocation ?? RepairLocation.UNSPECIFIED, notes },
+        value: {
+          resolution,
+          repairLocation: requiresLocation
+            ? (repairLocation ?? RepairLocation.UNSPECIFIED)
+            : RepairLocation.UNSPECIFIED,
+          notes,
+        },
       })) ?? true;
     setSubmitting(false);
     if (ok) onSuccess();

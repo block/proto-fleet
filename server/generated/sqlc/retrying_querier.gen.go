@@ -936,6 +936,18 @@ func (q *retryingQuerier) CountRepairTickets(ctx context.Context, arg CountRepai
 	return result, err
 }
 
+func (q *retryingQuerier) CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountRepairTicketsByBuilding", func() error {
+		callResult, callErr := q.next.CountRepairTicketsByBuilding(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountRepairTicketsBySite", func() error {
@@ -3216,6 +3228,18 @@ func (q *retryingQuerier) GetRepairTicket(ctx context.Context, arg GetRepairTick
 	return result, err
 }
 
+func (q *retryingQuerier) GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg GetRepairTicketCommentSiteForUpdateParams) (sql.NullInt64, error) {
+	var result sql.NullInt64
+	err := q.retrier.RetryQuery(ctx, "GetRepairTicketCommentSiteForUpdate", func() error {
+		callResult, callErr := q.next.GetRepairTicketCommentSiteForUpdate(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error) {
 	var result GetRepairTicketForUpdateRow
 	err := q.retrier.RetryQuery(ctx, "GetRepairTicketForUpdate", func() error {
@@ -5014,6 +5038,18 @@ func (q *retryingQuerier) LockInventorySites(ctx context.Context, arg LockInvent
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockInventorySites", func() error {
 		callResult, callErr := q.next.LockInventorySites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMaintenanceBuildingForTicket", func() error {
+		callResult, callErr := q.next.LockMaintenanceBuildingForTicket(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

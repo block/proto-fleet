@@ -337,6 +337,19 @@ func (s *SQLMaintenanceStore) ListTicketComments(ctx context.Context, orgID, tic
 	}
 	return out, nil
 }
+func (s *SQLMaintenanceStore) GetTicketCommentSiteForUpdate(ctx context.Context, orgID, callerUserID, id int64) (*int64, error) {
+	siteID, err := s.GetQueries(ctx).GetRepairTicketCommentSiteForUpdate(ctx, sqlc.GetRepairTicketCommentSiteForUpdateParams{
+		ID: id, OrgID: orgID, CallerUserID: callerUserID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("comment %d not found", id)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to lock repair ticket comment: %v", err)
+	}
+	return nullInt64ToPtr(siteID), nil
+}
+
 func (s *SQLMaintenanceStore) SoftDeleteTicketComment(ctx context.Context, orgID, callerUserID, id int64) (int64, error) {
 	rows, err := s.GetQueries(ctx).SoftDeleteRepairTicketCommentByAuthor(ctx, sqlc.SoftDeleteRepairTicketCommentByAuthorParams{ID: id, OrgID: orgID, CallerUserID: callerUserID})
 	if err != nil {

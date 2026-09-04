@@ -81,6 +81,33 @@ func TestMaintenanceSiteLockSerializesConcurrentSoftDelete(t *testing.T) {
 	assert.Equal(t, int64(1), rows)
 }
 
+func TestMaintenanceBuildingLockSerializesConcurrentSoftDelete(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	orgID := insertMaintenanceTestOrg(t, db, "building-lock")
+	siteID := insertMaintenanceTestSite(t, db, orgID, "Building Lock Site")
+	buildingID := insertMaintenanceTestBuilding(t, db, orgID, siteID, "Locked Ticket Building")
+
+	err := transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		require.NoError(t, store.LockBuildingForTicket(txCtx, orgID, buildingID))
+
+		deleteCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, deleteErr := db.ExecContext(deleteCtx, `UPDATE building SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, buildingID)
+		require.Error(t, deleteErr, "soft delete must wait for the maintenance building lock")
+		return nil
+	})
+	require.NoError(t, err)
+
+	result, err := db.ExecContext(ctx, `UPDATE building SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, buildingID)
+	require.NoError(t, err)
+	rows, err := result.RowsAffected()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
+}
+
 func TestMaintenanceStoreConcurrentTicketNumbers(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	store := sqlstores.NewSQLMaintenanceStore(db)
