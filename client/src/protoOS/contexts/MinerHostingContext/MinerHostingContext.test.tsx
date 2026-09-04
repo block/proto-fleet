@@ -36,7 +36,7 @@ describe("MinerHostingProvider adapter resolution", () => {
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(["/api/v2/system/info", "/api/v1/system"]);
   });
 
-  test("shows the temporary unsupported page when MDK v2 is detected", async () => {
+  test("exposes a ready adapter when a CT1 MDK v2 response is detected", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
@@ -47,16 +47,12 @@ describe("MinerHostingProvider adapter resolution", () => {
     );
 
     render(
-      <MinerHostingProvider closeButton={<button type="button">Back to fleet</button>}>
-        <div>Miner application</div>
+      <MinerHostingProvider>
+        <ContextState />
       </MinerHostingProvider>,
     );
 
-    expect(screen.getByText("Miner application")).toBeInTheDocument();
-    await screen.findByRole("heading", { name: "This miner isn't supported yet" });
-    expect(screen.getByText("MDK v2 was detected, but ProtoOS support is still being built.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Back to fleet" })).toBeInTheDocument();
-    expect(screen.queryByText("Miner application")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v2"));
   });
 
   test("shows a generic unsupported page when no registered probe matches", async () => {
@@ -102,8 +98,7 @@ describe("MinerHostingProvider adapter resolution", () => {
       </MinerHostingProvider>,
     );
 
-    await screen.findByRole("heading", { name: "This miner isn't supported yet" });
-    expect(screen.getByText("MDK v2 was detected, but ProtoOS support is still being built.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v2"));
     expect(firstProbeSignal?.aborted).toBe(true);
   });
 

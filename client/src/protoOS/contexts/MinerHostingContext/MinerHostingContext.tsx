@@ -3,8 +3,9 @@ import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerCh
 import { Api, RequestParams } from "@/protoOS/api/adapters/mdkV1";
 import { createMdkV1Definition } from "@/protoOS/api/adapters/mdkV1/definition";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
-// TODO: Make this a factory when MDK v2 has an adapter that needs the active transport.
-import { mdkV2Definition } from "@/protoOS/api/adapters/mdkV2/definition";
+import { Api as MdkV2Api } from "@/protoOS/api/adapters/mdkV2";
+import { createMdkV2Ct1Definition, mdkV2Definition } from "@/protoOS/api/adapters/mdkV2/definition";
+import { MdkV2Ct1Adapter } from "@/protoOS/api/adapters/mdkV2/MdkV2Ct1Adapter";
 import { resolveMinerAdapter } from "@/protoOS/api/adapters/resolveMinerAdapter";
 import type { AdapterResolution, MinerAdapter } from "@/protoOS/api/adapters/types";
 import UnsupportedMiner from "@/protoOS/components/UnsupportedMiner";
@@ -39,8 +40,11 @@ const directBearerSecurityWorker = (): RequestParams | void => {
   return { headers: { Authorization: `Bearer ${token}` } };
 };
 
+const normalizedBaseUrl = (baseUrl: string) =>
+  baseUrl.length ? (baseUrl.startsWith("/") ? baseUrl : `/${baseUrl}`) : "";
+
 const CreateApi = (baseUrl: string, mode: MinerHostingMode) => {
-  const url = baseUrl.length ? (baseUrl.startsWith("/") ? baseUrl : `/${baseUrl}`) : "";
+  const url = normalizedBaseUrl(baseUrl);
   const instance = new Api({
     baseUrl: url,
     securityWorker: mode === "direct" ? directBearerSecurityWorker : undefined,
@@ -118,9 +122,14 @@ export const MinerHostingProvider = ({
   // The provider carries the credential to the adapter: direct mode hands v1 the
   // store bearer to decorate with; fleet mode hands none (proxy owns auth).
   const credential = mode === "direct" ? directAccessToken : undefined;
+  const v2Client = useMemo(() => new MdkV2Api({ baseUrl: normalizedBaseUrl(baseUrl) }).api, [baseUrl]);
   const definitions = useMemo(
-    () => [mdkV2Definition, createMdkV1Definition(() => new MdkV1Adapter(api, credential))],
-    [api, credential],
+    () => [
+      createMdkV2Ct1Definition((match) => new MdkV2Ct1Adapter(v2Client, match)),
+      mdkV2Definition,
+      createMdkV1Definition(() => new MdkV1Adapter(api, credential)),
+    ],
+    [api, credential, v2Client],
   );
   const [resolved, setResolved] = useState<{ instance: typeof instance; resolution: AdapterResolution }>(() => ({
     instance,

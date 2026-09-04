@@ -132,6 +132,9 @@ func TestContainerMap(t *testing.T) {
 				if slot.Hashboard.ExpectedAsicCount != 312 {
 					t.Errorf("expectedAsicCount = %d, want 312", slot.Hashboard.ExpectedAsicCount)
 				}
+				if slot.Hashboard.Location.HashboardPosition < 1 || slot.Hashboard.Location.HashboardPosition > 3 {
+					t.Errorf("hashboardPosition = %d, want 1-3", slot.Hashboard.Location.HashboardPosition)
+				}
 				boards++
 			}
 		}
@@ -159,6 +162,37 @@ func TestMiningStatus(t *testing.T) {
 	}
 }
 
+func TestPools(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var pools listPoolsResponse
+	getJSON(t, srv, "/api/v2/pools", &pools)
+	if len(pools.Pools) != 1 {
+		t.Fatalf("pools = %d, want 1", len(pools.Pools))
+	}
+	if pools.Pools[0].URL != defaultActivePool || !pools.Pools[0].Enabled {
+		t.Errorf("pool = %+v, want enabled default pool", pools.Pools[0])
+	}
+
+	var diagnostics poolDiagnosticsResponse
+	getJSON(t, srv, "/api/v2/pools/diagnostics", &diagnostics)
+	if len(diagnostics.Pools) != 1 || diagnostics.Pools[0].ConnState != "POOL_CONN_STATE_ACTIVE" {
+		t.Errorf("diagnostics = %+v, want one active pool", diagnostics.Pools)
+	}
+	if diagnostics.ActivePoolID == nil || *diagnostics.ActivePoolID != 1 {
+		t.Errorf("activePoolId = %v, want 1", diagnostics.ActivePoolID)
+	}
+
+	postJSON(t, srv, "/api/v2/mining/stop", struct{}{}, nil)
+	var stopped poolDiagnosticsResponse
+	getJSON(t, srv, "/api/v2/pools/diagnostics", &stopped)
+	if stopped.ActivePoolID != nil {
+		t.Errorf("activePoolId = %v, want omitted while stopped", *stopped.ActivePoolID)
+	}
+	if len(stopped.Pools) != 1 || stopped.Pools[0].ConnState != "POOL_CONN_STATE_IDLE" || stopped.Pools[0].IsActive {
+		t.Errorf("diagnostics = %+v, want one idle pool", stopped.Pools)
+	}
+}
+
 func TestContainerTelemetryPUE(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var resp containerTelemetryResponse
@@ -171,6 +205,95 @@ func TestContainerTelemetryPUE(t *testing.T) {
 	}
 	if len(resp.Phases) != 3 {
 		t.Errorf("phases = %d, want 3", len(resp.Phases))
+	}
+	if len(resp.CoolingFans) == 0 || len(resp.PowerFeeds) == 0 || len(resp.PowerDistributions) == 0 {
+		t.Error("container telemetry should include fans, feeds, and power distributions")
+	}
+}
+
+func TestTargetPower(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var initial targetPowerResponse
+	getJSON(t, srv, "/api/v2/mining/target-power", &initial)
+	if initial.Watts != boardPowerTargetW {
+		t.Fatalf("initial watts = %f, want %f", initial.Watts, boardPowerTargetW)
+	}
+
+	setTarget := func(watts float64) {
+		t.Helper()
+		requestBody, err := json.Marshal(targetPowerRequest{Watts: watts, PerformanceMode: "PERFORMANCE_MODE_EFFICIENCY"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v2/mining/target-power", bytes.NewReader(requestBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("PUT target-power status = %d", resp.StatusCode)
+		}
+	}
+
+	setTarget(4800)
+
+	var updated targetPowerResponse
+	getJSON(t, srv, "/api/v2/mining/target-power", &updated)
+	if updated.Watts != 4800 {
+		t.Fatalf("updated watts = %f, want 4800", updated.Watts)
+	}
+
+	setTarget(boardPowerTargetMaxW + 1000)
+	getJSON(t, srv, "/api/v2/mining/target-power", &updated)
+	if updated.Watts != boardPowerTargetMaxW {
+		t.Fatalf("clamped watts = %f, want %f", updated.Watts, boardPowerTargetMaxW)
+	}
+
+	setTarget(1)
+	getJSON(t, srv, "/api/v2/mining/target-power", &updated)
+	if updated.Watts != boardPowerTargetMinW {
+		t.Fatalf("clamped watts = %f, want %f", updated.Watts, boardPowerTargetMinW)
+	}
+}
+
+func TestTimeSeries(t *testing.T) {
+	srv, state := newTestServer(t)
+	var response timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M", &response)
+	if len(response.Buckets) != 12 {
+		t.Fatalf("buckets = %d, want 12", len(response.Buckets))
+	}
+	if response.Unit != "TH/s" || response.Buckets[0].Avg <= 0 {
+		t.Fatalf("unexpected time-series response: unit=%q avg=%f", response.Unit, response.Buckets[0].Avg)
+	}
+
+	var fractionalTimestampResponse timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00.000Z&range.end=2026-09-02T12:00:00.000Z&bucketSize=BUCKET_SIZE_5M", &fractionalTimestampResponse)
+	if len(fractionalTimestampResponse.Buckets) != 12 {
+		t.Fatalf("fractional timestamp buckets = %d, want 12", len(fractionalTimestampResponse.Buckets))
+	}
+
+	var boardResponse timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M&identifier="+state.eachBoard()[0].MAC, &boardResponse)
+	if boardResponse.Buckets[0].Avg >= response.Buckets[0].Avg {
+		t.Fatalf("board average %f should be below container average %f", boardResponse.Buckets[0].Avg, response.Buckets[0].Avg)
+	}
+}
+
+func TestModuleRunIn(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var response moduleRunInResponse
+	status := postJSON(t, srv, "/api/v2/modules/T1-M01/run-in?taskId=test-task", moduleRunInConfig{Duration: "PT30M"}, &response)
+	if status != http.StatusOK {
+		t.Fatalf("run-in status = %d", status)
+	}
+	if response.TaskID != "test-task" || response.ModuleID != "T1-M01" || len(response.Boards) != 3 {
+		t.Fatalf("unexpected run-in response: %+v", response)
 	}
 }
 
@@ -340,9 +463,30 @@ func TestMiningStartStopGlobal(t *testing.T) {
 	if st.Status.ActiveBoards != 0 {
 		t.Errorf("activeBoards = %d, want 0 after stop", st.Status.ActiveBoards)
 	}
+	var telemetry containerTelemetryResponse
+	getJSON(t, srv, "/api/v2/telemetry/container", &telemetry)
+	feedIDs := make(map[string]struct{})
+	for _, board := range state.eachBoard() {
+		feedIDs[board.PowerFeedID] = struct{}{}
+	}
+	if len(telemetry.PowerFeeds) != len(feedIDs) {
+		t.Fatalf("powerFeeds = %d, want %d after stop", len(telemetry.PowerFeeds), len(feedIDs))
+	}
+	for _, feed := range telemetry.PowerFeeds {
+		if feed.Active || feed.PowerW != 0 || feed.CurrentA != 0 {
+			t.Errorf("stopped feed = %+v, want inactive with zero power and current", feed)
+		}
+	}
+	if len(telemetry.PowerDistributions) != 1 || telemetry.PowerDistributions[0].ActiveFeedCount != 0 {
+		t.Errorf("active feed count after stop = %+v, want 0", telemetry.PowerDistributions)
+	}
+	var history timeSeriesResponse
+	getJSON(t, srv, "/api/v2/telemetry/timeseries?metric=TIME_SERIES_METRIC_HASHRATE&range.start=2026-09-02T11:00:00Z&range.end=2026-09-02T12:00:00Z&bucketSize=BUCKET_SIZE_5M", &history)
+	if history.Unit != "TH/s" || len(history.Buckets) == 0 || history.Buckets[0].Avg != 0 {
+		t.Fatalf("stopped time series = %+v, want zero-valued TH/s buckets", history)
+	}
 
 	postJSON(t, srv, "/api/v2/mining/start", struct{}{}, nil)
-	_ = state
 	getJSON(t, srv, "/api/v2/system/status", &st)
 	if !st.Status.Mining || st.Status.ActiveBoards != 18 {
 		t.Errorf("after start: mining=%v active=%d", st.Status.Mining, st.Status.ActiveBoards)
@@ -481,7 +625,10 @@ func TestInt64FieldsEncodeAsStrings(t *testing.T) {
 	srv, state := newTestServer(t)
 
 	info := getRaw(t, srv, "/api/v2/system/info")
-	infoObj := info["info"].(map[string]any)
+	infoObj, ok := info["info"].(map[string]any)
+	if !ok {
+		t.Fatalf("info = %v (%T), want JSON object", info["info"], info["info"])
+	}
 	if _, ok := infoObj["uptimeSeconds"].(string); !ok {
 		t.Errorf("uptimeSeconds = %v (%T), want JSON string", infoObj["uptimeSeconds"], infoObj["uptimeSeconds"])
 	}
@@ -489,7 +636,10 @@ func TestInt64FieldsEncodeAsStrings(t *testing.T) {
 	moduleID := state.Modules[0].ModuleID
 	raw := putRaw(t, srv, "/api/v2/mining/modules/"+moduleID+"/voltage/fixed",
 		setModuleVoltageRequest{Millivolts: 14000})
-	setting := raw["setting"].(map[string]any)
+	setting, ok := raw["setting"].(map[string]any)
+	if !ok {
+		t.Fatalf("setting = %v (%T), want JSON object", raw["setting"], raw["setting"])
+	}
 	mv, ok := setting["fixedMillivolts"].(string)
 	if !ok {
 		t.Fatalf("fixedMillivolts = %v (%T), want JSON string", setting["fixedMillivolts"], setting["fixedMillivolts"])

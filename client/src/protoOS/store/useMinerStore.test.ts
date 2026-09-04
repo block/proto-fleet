@@ -142,6 +142,7 @@ describe("partial normalized store updates", () => {
       asics: new Map(),
       psus: new Map(current.psus),
       fans: new Map(current.fans),
+      plant: new Map(current.plant),
     });
 
     const refreshed = useMinerStore.getState().hardware;
@@ -159,6 +160,7 @@ describe("partial normalized store updates", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
       coolingModeByOwner: new Map(),
       asicLoadByHashboard: new Map(),
     });
@@ -170,6 +172,7 @@ describe("partial normalized store updates", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
       coolingModeByOwner: new Map(),
       asicLoadByHashboard: new Map(),
     });

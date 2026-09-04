@@ -1,11 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { createMdkV1Definition } from "./mdkV1/definition";
-import { mdkV2Definition } from "./mdkV2/definition";
+import { createMdkV2Ct1Definition, mdkV2Definition } from "./mdkV2/definition";
 import { resolveMinerAdapter } from "./resolveMinerAdapter";
 import type { MinerAdapter, MinerAdapterDefinition } from "./types";
 
 const v1Adapter = {} as MinerAdapter;
+const ct1Adapter = {} as MinerAdapter;
 
 describe("adapter probe response parsing", () => {
   test("recognizes the documented MDK v2 system-info response", () => {
@@ -26,6 +27,16 @@ describe("adapter probe response parsing", () => {
 
   test("rejects a v2 response without the documented info.version field", () => {
     expect(mdkV2Definition.probe.parseResponse({ info: { product: "CT1" } })).toBeUndefined();
+  });
+
+  test("recognizes CT1 only in the supported v2 definition", () => {
+    const definition = createMdkV2Ct1Definition(() => ct1Adapter);
+    expect(definition.probe.parseResponse({ info: { version: "v2", product: "ct1" } })).toEqual({
+      deviceId: undefined,
+      product: "ct1",
+      reportedVersion: "v2",
+    });
+    expect(definition.probe.parseResponse({ info: { version: "v2", product: "R2" } })).toBeUndefined();
   });
 
   test("recognizes the MDK v1 system-info envelope", () => {
@@ -56,19 +67,32 @@ describe("resolveMinerAdapter", () => {
     expect(result).toEqual({ status: "ready", adapterId: "mdk-v1", adapter: v1Adapter });
   });
 
-  test("returns the temporary unsupported state when MDK v2 is detected", async () => {
+  test("returns the CT1 adapter when the supported MDK v2 product is detected", async () => {
     const request = vi.fn().mockResolvedValue({
       info: { id: "container-1", version: "v2.0.0", product: "CT1" },
     });
 
     const result = await resolveMinerAdapter(
-      [mdkV2Definition, createMdkV1Definition(() => v1Adapter)],
+      [createMdkV2Ct1Definition(() => ct1Adapter), mdkV2Definition, createMdkV1Definition(() => v1Adapter)],
       request,
       new AbortController().signal,
     );
 
     expect(request).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ status: "unsupported", adapterId: "mdk-v2" });
+    expect(result).toEqual({ status: "ready", adapterId: "mdk-v2", adapter: ct1Adapter });
+  });
+
+  test("keeps non-CT1 MDK v2 products unsupported without repeating the shared probe", async () => {
+    const request = vi.fn().mockResolvedValue({ info: { version: "v2.0.0", product: "R2" } });
+
+    const result = await resolveMinerAdapter(
+      [createMdkV2Ct1Definition(() => ct1Adapter), mdkV2Definition, createMdkV1Definition(() => v1Adapter)],
+      request,
+      new AbortController().signal,
+    );
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ status: "unsupported", adapterId: "mdk-v2", adapter: undefined });
   });
 
   test("returns unsupported without an adapter id when no definition matches", async () => {
@@ -130,6 +154,25 @@ describe("resolveMinerAdapter", () => {
       new AbortController().signal,
     );
 
+    expect(result).toEqual({ status: "unreachable", adapterId: undefined, adapter: undefined });
+  });
+
+  test("does not let a shared probe-only fallback hide a supported adapter construction failure", async () => {
+    const request = vi.fn().mockResolvedValue({ info: { version: "v2.0.0", product: "CT1" } });
+
+    const result = await resolveMinerAdapter(
+      [
+        createMdkV2Ct1Definition(() => {
+          throw new Error("construct failure");
+        }),
+        mdkV2Definition,
+        createMdkV1Definition(() => v1Adapter),
+      ],
+      request,
+      new AbortController().signal,
+    );
+
+    expect(request.mock.calls.map(([path]) => path)).toEqual(["/api/v2/system/info", "/api/v1/system"]);
     expect(result).toEqual({ status: "unreachable", adapterId: undefined, adapter: undefined });
   });
 

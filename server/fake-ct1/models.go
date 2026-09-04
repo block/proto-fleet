@@ -80,6 +80,10 @@ type ContainerState struct {
 	IPAddress string
 	StartTime time.Time
 
+	PerformanceMode  string
+	BalanceBays      bool
+	HashOnDisconnect bool
+
 	Tanks   []*Tank
 	Modules []*Module // flattened, in tree order
 
@@ -149,15 +153,16 @@ type Hashboard struct {
 func NewContainerState(cfg ContainerConfig) *ContainerState {
 	now := time.Now()
 	s := &ContainerState{
-		Config:         cfg,
-		ServerID:       cfg.ServerID,
-		Version:        cfg.Version,
-		Hostname:       cfg.Hostname,
-		IPAddress:      "127.0.0.1",
-		StartTime:      now,
-		boardsByMAC:    make(map[string]*Hashboard),
-		boardsBySerial: make(map[string]*Hashboard),
-		modulesByID:    make(map[string]*Module),
+		Config:          cfg,
+		ServerID:        cfg.ServerID,
+		Version:         cfg.Version,
+		Hostname:        cfg.Hostname,
+		IPAddress:       "127.0.0.1",
+		StartTime:       now,
+		PerformanceMode: "PERFORMANCE_MODE_MAXIMUM_HASHRATE",
+		boardsByMAC:     make(map[string]*Hashboard),
+		boardsBySerial:  make(map[string]*Hashboard),
+		modulesByID:     make(map[string]*Module),
 	}
 
 	globalBoard := 0
@@ -166,7 +171,7 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 		for m := 1; m <= cfg.ModulesPerTank; m++ {
 			moduleID := fmt.Sprintf("T%d-M%02d", t, m)
 			module := &Module{ID: m, ModuleID: moduleID, TankID: t}
-			for sl := 0; sl < cfg.SlotsPerModule; sl++ {
+			for sl := range cfg.SlotsPerModule {
 				globalBoard++
 				board := newHashboard(cfg, t, m, moduleID, sl, globalBoard, now)
 				slot := &Slot{

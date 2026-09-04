@@ -18,12 +18,11 @@ const targets = [
     schema: path.resolve(__dirname, "../../proto-rig-api/openapi/MDK-API.json"),
     fileName: "generatedApi.ts",
   },
-  // Future v2 schema (#33) emits here once implemented:
-  // {
-  //   dialect: "mdkV2",
-  //   schema: path.resolve(__dirname, "../../proto-rig-api/openapi/MDK-v2-API.json"),
-  //   fileName: "generatedApi.ts",
-  // },
+  {
+    dialect: "mdkV2",
+    schema: path.resolve(__dirname, "../../proto-rig-api/openapi/MDK-v2-API.json"),
+    fileName: "generatedApi.ts",
+  },
 ];
 
 const generateTarget = async ({ dialect, schema, fileName }) => {

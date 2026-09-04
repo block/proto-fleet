@@ -28,6 +28,7 @@ const metricFields = [
   "maximumAsicTemperature",
   "voltage",
   "frequency",
+  "passRate",
   "inputVoltage",
   "inputCurrent",
   "inputPower",
@@ -41,6 +42,20 @@ const metricFields = [
   "speedPercent",
   "minimumRpm",
   "maximumRpm",
+  "totalPower",
+  "heatRejectionPower",
+  "facilityPower",
+  "powerFactor",
+  "pue",
+  "flowRate",
+  "current",
+  "voltageAb",
+  "voltageBc",
+  "voltageCa",
+  "currentA",
+  "currentB",
+  "currentC",
+  "activeEnergy",
 ] as const;
 
 // When `preferCurrent` is true the incoming snapshot is stale for this entity
@@ -131,6 +146,7 @@ const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") =
     ...state.asics.values(),
     ...state.psus.values(),
     ...state.fans.values(),
+    ...state.plant.values(),
   ];
   values.forEach((value) =>
     metricFields.forEach((field) => {
@@ -156,6 +172,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
       mergeMap(state.telemetry.psus, incoming.psus, gate("psu"));
       mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
+      mergeMap(state.telemetry.plant, incoming.plant, gate("plant"));
       incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));
       incoming.asicLoadByHashboard.forEach((value, key) => state.telemetry.asicLoadByHashboard.set(key, value));
     }),

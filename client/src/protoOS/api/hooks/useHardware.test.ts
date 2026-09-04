@@ -36,6 +36,7 @@ describe("useHardware", () => {
         asics: new Map(),
         psus: new Map(),
         fans: new Map(),
+        plant: new Map(),
       },
       telemetry: {
         resourceByScope: new Map(),
@@ -44,6 +45,7 @@ describe("useHardware", () => {
         asics: new Map(),
         psus: new Map(),
         fans: new Map(),
+        plant: new Map(),
         coolingModeByOwner: new Map(),
         asicLoadByHashboard: new Map(),
       },

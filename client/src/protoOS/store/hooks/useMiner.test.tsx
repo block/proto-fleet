@@ -25,6 +25,7 @@ describe("useMiner", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
       coolingModeByOwner: new Map(),
       asicLoadByHashboard: new Map(),
     });
@@ -211,6 +212,7 @@ describe("useMiner", () => {
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
+      plant: new Map(),
       coolingModeByOwner: new Map(),
       asicLoadByHashboard: new Map(),
     });

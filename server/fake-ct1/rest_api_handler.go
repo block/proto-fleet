@@ -37,11 +37,18 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Container topology and telemetry.
 	mux.HandleFunc("GET /api/v2/container/map", h.handleContainerMap)
 	mux.HandleFunc("GET /api/v2/telemetry/container", h.handleContainerTelemetry)
+	mux.HandleFunc("GET /api/v2/telemetry/timeseries", h.handleTimeSeries)
 
 	// Mining status and global lifecycle.
 	mux.HandleFunc("GET /api/v2/mining/status", h.handleMiningStatus)
 	mux.HandleFunc("POST /api/v2/mining/start", h.handleMiningStart)
 	mux.HandleFunc("POST /api/v2/mining/stop", h.handleMiningStop)
+	mux.HandleFunc("GET /api/v2/mining/target-power", h.handleTargetPower)
+	mux.HandleFunc("PUT /api/v2/mining/target-power", h.handleTargetPower)
+
+	// Pool configuration and runtime diagnostics.
+	mux.HandleFunc("GET /api/v2/pools", h.handlePools)
+	mux.HandleFunc("GET /api/v2/pools/diagnostics", h.handlePoolDiagnostics)
 
 	// Scoped mining writes.
 	mux.HandleFunc("POST /api/v2/mining/scoped/power", h.handleScopedPower)
@@ -53,6 +60,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
 	mux.HandleFunc("DELETE /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
 	mux.HandleFunc("GET /api/v2/hashboards/{identifier}/asics", h.handleHashboardAsics)
+	mux.HandleFunc("POST /api/v2/modules/{moduleId}/run-in", h.handleModuleRunIn)
 
 	// Unmatched paths (404) and wrong-method requests to matched paths (405)
 	// fall through to ServeMux's defaults; jsonErrorMiddleware rewrites those
@@ -149,8 +157,8 @@ type systemStatusResponse struct {
 type systemStatus struct {
 	Health                string `json:"health"`
 	Mining                bool   `json:"mining"`
-	ActiveBoards          int32  `json:"activeBoards"`
-	TotalBoards           int32  `json:"totalBoards"`
+	ActiveBoards          int    `json:"activeBoards"`
+	TotalBoards           int    `json:"totalBoards"`
 	ActivePool            string `json:"activePool"`
 	DatabaseConnected     bool   `json:"databaseConnected"`
 	ServerID              string `json:"serverId"`
@@ -168,12 +176,12 @@ type containerMap struct {
 }
 
 type tankDTO struct {
-	ID      int32       `json:"id"`
+	ID      int         `json:"id"`
 	Modules []moduleDTO `json:"modules"`
 }
 
 type moduleDTO struct {
-	ID    int32     `json:"id"`
+	ID    int       `json:"id"`
 	Slots []slotDTO `json:"slots"`
 }
 
@@ -206,11 +214,11 @@ type hashboardDTO struct {
 }
 
 type hashboardLoc struct {
-	Tank        int32    `json:"tank"`
-	Module      int32    `json:"module"`
-	BreakerID   string   `json:"breakerId"`
-	PowerFeedID string   `json:"powerFeedId"`
-	Slot        int64str `json:"slot"`
+	Tank              int      `json:"tank"`
+	Module            int      `json:"module"`
+	BreakerID         string   `json:"breakerId"`
+	PowerFeedID       string   `json:"powerFeedId"`
+	HashboardPosition int64str `json:"hashboardPosition"`
 }
 
 type hashboardHealth struct {
@@ -231,8 +239,8 @@ type miningStatusResponse struct {
 	Hashrate                     float64          `json:"hashrate"`
 	HashrateIdeal                float64          `json:"hashrateIdeal"`
 	Power                        float64          `json:"power"`
-	ActiveBoards                 int32            `json:"activeBoards"`
-	TotalBoards                  int32            `json:"totalBoards"`
+	ActiveBoards                 int              `json:"activeBoards"`
+	TotalBoards                  int              `json:"totalBoards"`
 	ActivePool                   string           `json:"activePool"`
 	UptimeSeconds                int64str         `json:"uptimeSeconds"`
 	Efficiency                   float64          `json:"efficiency"`
@@ -244,11 +252,117 @@ type miningStatusResponse struct {
 	AverageHashboardTemperatureC float64          `json:"averageHashboardTemperatureC"`
 }
 
+type poolDTO struct {
+	ID       int64str `json:"id"`
+	Name     string   `json:"name"`
+	URL      string   `json:"url"`
+	Username string   `json:"username"`
+	Priority int32    `json:"priority"`
+	Enabled  bool     `json:"enabled"`
+}
+
+type listPoolsResponse struct {
+	Pools []poolDTO `json:"pools"`
+}
+
+type poolDiagnostics struct {
+	PoolID     int64str `json:"poolId"`
+	PoolName   string   `json:"poolName"`
+	ConnState  string   `json:"connState"`
+	IsActive   bool     `json:"isActive"`
+	IsReady    bool     `json:"isReady"`
+	Difficulty float64  `json:"currentDifficulty"`
+}
+
+type poolDiagnosticsResponse struct {
+	ActivePoolID *int64str         `json:"activePoolId,omitempty"`
+	Pools        []poolDiagnostics `json:"pools"`
+	WeightedMode bool              `json:"weightedMode"`
+}
+
 type containerTelemetryResponse struct {
-	Tank      tankTelemetry  `json:"tank"`
-	Phases    []phaseTel     `json:"phases"`
-	Timestamp time.Time      `json:"timestamp"`
-	Plant     plantTelemetry `json:"plant"`
+	Tank               tankTelemetry       `json:"tank"`
+	Phases             []phaseTel          `json:"phases"`
+	Timestamp          time.Time           `json:"timestamp"`
+	Plant              plantTelemetry      `json:"plant"`
+	CoolingFans        []plantCoolingFan   `json:"coolingFans"`
+	PowerDistributions []powerDistribution `json:"powerDistributions"`
+	PowerFeeds         []powerFeed         `json:"powerFeeds"`
+}
+
+type plantCoolingFan struct {
+	ComponentID string  `json:"componentId"`
+	PowerW      float64 `json:"powerW"`
+	SpeedPct    float64 `json:"speedPercent"`
+	AlarmActive bool    `json:"alarmActive"`
+}
+
+type powerDistribution struct {
+	ComponentID     string  `json:"componentId"`
+	ActiveFeedCount int     `json:"activeFeedCount"`
+	ActivePowerW    float64 `json:"activePowerW"`
+}
+
+type powerFeed struct {
+	PowerFeedID string  `json:"powerFeedId"`
+	Active      bool    `json:"active"`
+	Faulted     bool    `json:"faulted"`
+	PowerW      float64 `json:"powerW"`
+	VoltageV    float64 `json:"voltageV"`
+	CurrentA    float64 `json:"currentA"`
+}
+
+type targetPowerResponse struct {
+	Watts            float64 `json:"watts"`
+	DefaultWatts     float64 `json:"defaultWatts,omitempty"`
+	MinimumWatts     float64 `json:"minimumWatts,omitempty"`
+	MaximumWatts     float64 `json:"maximumWatts,omitempty"`
+	PerformanceMode  string  `json:"performanceMode"`
+	BalanceBays      bool    `json:"balanceBays"`
+	HashOnDisconnect bool    `json:"hashOnDisconnect"`
+}
+
+type targetPowerRequest struct {
+	Watts            float64 `json:"watts"`
+	PerformanceMode  string  `json:"performanceMode"`
+	BalanceBays      bool    `json:"balanceBays"`
+	HashOnDisconnect bool    `json:"hashOnDisconnect"`
+}
+
+type timeSeriesBucket struct {
+	Time  time.Time `json:"time"`
+	Avg   float64   `json:"avg"`
+	Min   float64   `json:"min"`
+	Max   float64   `json:"max"`
+	Count int64str  `json:"count"`
+}
+
+type timeSeriesResponse struct {
+	Metric  string             `json:"metric"`
+	Unit    string             `json:"unit"`
+	Buckets []timeSeriesBucket `json:"buckets"`
+}
+
+type moduleRunInConfig struct {
+	Duration              string  `json:"duration"`
+	SampleInterval        string  `json:"sampleInterval"`
+	CooldownDuration      string  `json:"cooldownDuration"`
+	BoardPowerTargetWatts float64 `json:"boardPowerTargetWatts"`
+	StopMiningOnFinish    bool    `json:"stopMiningOnFinish"`
+}
+
+type moduleRunInResponse struct {
+	TaskID           string             `json:"taskId"`
+	ModuleID         string             `json:"moduleId"`
+	Status           string             `json:"status"`
+	VoltageLeaderMAC string             `json:"voltageLeaderMac"`
+	Boards           []moduleRunInBoard `json:"boards"`
+}
+
+type moduleRunInBoard struct {
+	MACAddress string `json:"macAddress"`
+	Serial     string `json:"serial"`
+	Status     string `json:"status"`
 }
 
 type tankTelemetry struct {
@@ -292,27 +406,27 @@ type asicsResponse struct {
 }
 
 type asicDTO struct {
-	Index         int32 `json:"index"`
-	VoltageMv     int32 `json:"voltageMv"`
-	TemperatureDc int32 `json:"temperatureDc"`
-	FrequencyMhz  int32 `json:"frequencyMhz"`
-	PassRateBp    int32 `json:"passRateBp"`
-	HashrateGhs10 int32 `json:"hashrateGhs10"`
+	Index         int `json:"index"`
+	VoltageMv     int `json:"voltageMv"`
+	TemperatureDc int `json:"temperatureDc"`
+	FrequencyMhz  int `json:"frequencyMhz"`
+	PassRateBp    int `json:"passRateBp"`
+	HashrateGhs10 int `json:"hashrateGhs10"`
 }
 
 type asicLayout struct {
-	StackCount    int32           `json:"stackCount"`
-	AsicsPerStack int32           `json:"asicsPerStack"`
-	TotalAsics    int32           `json:"totalAsics"`
+	StackCount    int             `json:"stackCount"`
+	AsicsPerStack int             `json:"asicsPerStack"`
+	TotalAsics    int             `json:"totalAsics"`
 	Entries       []asicLayoutEnt `json:"entries"`
 }
 
 type asicLayoutEnt struct {
-	Index      int32 `json:"index"`
-	StackID    int32 `json:"stackId"`
-	StackIndex int32 `json:"stackIndex"`
-	X          int32 `json:"x"`
-	Y          int32 `json:"y"`
+	Index      int `json:"index"`
+	StackID    int `json:"stackId"`
+	StackIndex int `json:"stackIndex"`
+	X          int `json:"x"`
+	Y          int `json:"y"`
 }
 
 // Scope selects boards by identifier (MAC/serial) and/or by module coordinate.
@@ -347,23 +461,28 @@ type boardResult struct {
 // rather than sharing one struct with omitempty — which would drop a legitimate
 // zero count and let every response carry all three keys.
 type setPowerScopedResponse struct {
-	BoardsUpdated int32         `json:"boardsUpdated"`
+	BoardsUpdated int           `json:"boardsUpdated"`
 	Results       []boardResult `json:"results"`
 }
 
 type clearPowerScopedResponse struct {
-	BoardsUpdated int32         `json:"boardsUpdated"`
+	BoardsUpdated int           `json:"boardsUpdated"`
 	Results       []boardResult `json:"results"`
 }
 
 type startScopedResponse struct {
-	BoardsStarted int32         `json:"boardsStarted"`
+	BoardsStarted int           `json:"boardsStarted"`
 	Results       []boardResult `json:"results"`
 }
 
 type stopScopedResponse struct {
-	BoardsStopped int32         `json:"boardsStopped"`
+	BoardsStopped int           `json:"boardsStopped"`
 	Results       []boardResult `json:"results"`
+}
+
+type errorResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 type setModuleVoltageRequest struct {
@@ -372,7 +491,7 @@ type setModuleVoltageRequest struct {
 
 type moduleVoltageResponse struct {
 	Setting       moduleVoltageSetting `json:"setting"`
-	BoardsUpdated int32                `json:"boardsUpdated"`
+	BoardsUpdated int                  `json:"boardsUpdated"`
 	Results       []boardResult        `json:"results"`
 }
 
@@ -381,7 +500,7 @@ type moduleVoltageSetting struct {
 	FixedMillivolts            int64str  `json:"fixedMillivolts"`
 	SupportedMinimumMillivolts int64str  `json:"supportedMinimumMillivolts"`
 	SupportedMaximumMillivolts int64str  `json:"supportedMaximumMillivolts"`
-	BoardCount                 int32     `json:"boardCount"`
+	BoardCount                 int       `json:"boardCount"`
 	Readiness                  string    `json:"readiness"`
 	ReadinessMessage           string    `json:"readinessMessage"`
 	UpdatedBy                  string    `json:"updatedBy"`
@@ -428,8 +547,8 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 	resp := systemStatusResponse{Status: systemStatus{
 		Health:                s.healthStatus(active, total),
 		Mining:                active > 0,
-		ActiveBoards:          int32(active),
-		TotalBoards:           int32(total),
+		ActiveBoards:          active,
+		TotalBoards:           total,
 		ActivePool:            defaultActivePool,
 		DatabaseConnected:     true,
 		ServerID:              s.ServerID,
@@ -446,9 +565,9 @@ func (h *RESTApiHandler) handleContainerMap(w http.ResponseWriter, r *http.Reque
 	s.mu.RLock()
 	cm := containerMap{}
 	for _, tank := range s.Tanks {
-		td := tankDTO{ID: int32(tank.ID)}
+		td := tankDTO{ID: tank.ID}
 		for _, module := range tank.Modules {
-			md := moduleDTO{ID: int32(module.ID)}
+			md := moduleDTO{ID: module.ID}
 			for _, slot := range module.Slots {
 				sd := slotDTO{
 					BreakerID:   slot.BreakerID,
@@ -501,8 +620,8 @@ func (h *RESTApiHandler) handleMiningStatus(w http.ResponseWriter, r *http.Reque
 		Hashrate:                     hashrate,
 		HashrateIdeal:                ideal,
 		Power:                        power,
-		ActiveBoards:                 int32(active),
-		TotalBoards:                  int32(total),
+		ActiveBoards:                 active,
+		TotalBoards:                  total,
 		ActivePool:                   defaultActivePool,
 		UptimeSeconds:                int64str(time.Since(s.StartTime).Seconds()),
 		Efficiency:                   efficiency,
@@ -539,14 +658,104 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
+func (h *RESTApiHandler) handlePools(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, listPoolsResponse{Pools: []poolDTO{{
+		ID:       1,
+		Name:     defaultPoolName,
+		URL:      defaultActivePool,
+		Username: defaultPoolUsername,
+		Priority: 0,
+		Enabled:  true,
+	}}})
+}
+
+func (h *RESTApiHandler) handlePoolDiagnostics(w http.ResponseWriter, r *http.Request) {
+	h.state.mu.RLock()
+	activeBoards, _ := h.state.boardCounts()
+	h.state.mu.RUnlock()
+	active := activeBoards > 0
+	state := "POOL_CONN_STATE_IDLE"
+	var activePoolID *int64str
+	if active {
+		state = "POOL_CONN_STATE_ACTIVE"
+		id := int64str(1)
+		activePoolID = &id
+	}
+	writeJSON(w, http.StatusOK, poolDiagnosticsResponse{
+		ActivePoolID: activePoolID,
+		Pools: []poolDiagnostics{{
+			PoolID:     1,
+			PoolName:   defaultPoolName,
+			ConnState:  state,
+			IsActive:   active,
+			IsReady:    true,
+			Difficulty: 2048,
+		}},
+	})
+}
+
+func (h *RESTApiHandler) handleTargetPower(w http.ResponseWriter, r *http.Request) {
+	var request targetPowerRequest
+	if r.Method == http.MethodPut && !decodeJSON(w, r, &request) {
+		return
+	}
+
+	s := h.state
+	s.mu.Lock()
+	boards := s.eachBoard()
+	if len(boards) == 0 {
+		s.mu.Unlock()
+		writeError(w, http.StatusConflict, "container has no hashboards")
+		return
+	}
+	if r.Method == http.MethodPut {
+		if request.Watts <= 0 {
+			s.mu.Unlock()
+			writeError(w, http.StatusBadRequest, "watts must be greater than zero")
+			return
+		}
+		for _, board := range boards {
+			board.PowerTargetW = math.Max(board.PowerTargetMinW, math.Min(board.PowerTargetMaxW, request.Watts))
+		}
+		s.PerformanceMode = request.PerformanceMode
+		s.BalanceBays = request.BalanceBays
+		s.HashOnDisconnect = request.HashOnDisconnect
+	}
+	current := boards[0].PowerTargetW
+	response := targetPowerResponse{
+		Watts:            current,
+		DefaultWatts:     boardPowerTargetW,
+		MinimumWatts:     boardPowerTargetMinW,
+		MaximumWatts:     boardPowerTargetMaxW,
+		PerformanceMode:  s.PerformanceMode,
+		BalanceBays:      s.BalanceBays,
+		HashOnDisconnect: s.HashOnDisconnect,
+	}
+	if response.PerformanceMode == "" {
+		response.PerformanceMode = "PERFORMANCE_MODE_MAXIMUM_HASHRATE"
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http.Request) {
 	s := h.state
 	s.mu.RLock()
 	var totalPower float64
 	active := 0
+	feedPower := make(map[string]float64)
 	for _, b := range s.eachBoard() {
+		if b.PowerFeedID != "" {
+			if _, exists := feedPower[b.PowerFeedID]; !exists {
+				feedPower[b.PowerFeedID] = 0
+			}
+		}
 		if b.isMining() {
-			totalPower += b.targetWatts()
+			power := b.targetWatts()
+			totalPower += power
+			if b.PowerFeedID != "" {
+				feedPower[b.PowerFeedID] += power
+			}
 			active++
 		}
 	}
@@ -567,6 +776,26 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 			PowerW:   w,
 			CurrentA: w / phaseV,
 			VoltageV: vary(phaseV),
+		})
+	}
+	feedIDs := make([]string, 0, len(feedPower))
+	for id := range feedPower {
+		feedIDs = append(feedIDs, id)
+	}
+	sort.Strings(feedIDs)
+	feeds := make([]powerFeed, 0, len(feedIDs))
+	activeFeedCount := 0
+	for _, id := range feedIDs {
+		power := feedPower[id]
+		if power > 0 {
+			activeFeedCount++
+		}
+		feeds = append(feeds, powerFeed{
+			PowerFeedID: id,
+			Active:      power > 0,
+			PowerW:      power,
+			VoltageV:    phaseV,
+			CurrentA:    power / phaseV,
 		})
 	}
 
@@ -599,9 +828,147 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 			PUE:                 pue,
 			FlowRateLpm:         vary(1200),
 		},
+		CoolingFans: []plantCoolingFan{
+			{ComponentID: "dry-cooler-fan-1", PowerW: vary(450), SpeedPct: vary(72)},
+			{ComponentID: "dry-cooler-fan-2", PowerW: vary(450), SpeedPct: vary(72)},
+		},
+		PowerDistributions: []powerDistribution{{
+			ComponentID:     "pdu-main",
+			ActiveFeedCount: activeFeedCount,
+			ActivePowerW:    totalPower,
+		}},
+		PowerFeeds: feeds,
 	}
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	metric := query.Get("metric")
+	start, err := time.Parse(time.RFC3339Nano, query.Get("range.start"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "range.start must be an RFC3339 timestamp")
+		return
+	}
+	end, err := time.Parse(time.RFC3339Nano, query.Get("range.end"))
+	if err != nil || !end.After(start) {
+		writeError(w, http.StatusBadRequest, "range.end must be after range.start")
+		return
+	}
+	bucketDurations := map[string]time.Duration{
+		"BUCKET_SIZE_1M":  time.Minute,
+		"BUCKET_SIZE_5M":  5 * time.Minute,
+		"BUCKET_SIZE_15M": 15 * time.Minute,
+		"BUCKET_SIZE_1H":  time.Hour,
+		"BUCKET_SIZE_1D":  24 * time.Hour,
+	}
+	bucketDuration := bucketDurations[query.Get("bucketSize")]
+	if bucketDuration == 0 {
+		writeError(w, http.StatusBadRequest, "unsupported bucketSize")
+		return
+	}
+	var unit string
+	switch metric {
+	case timeSeriesMetricHashrate:
+		unit = "TH/s"
+	case timeSeriesMetricPower:
+		unit = "W"
+	case timeSeriesMetricTemperature:
+		unit = "C"
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported metric")
+		return
+	}
+
+	s := h.state
+	s.mu.RLock()
+	boards := s.eachBoard()
+	if identifier := query.Get("identifier"); identifier != "" {
+		board := s.findBoard(identifier)
+		if board == nil {
+			s.mu.RUnlock()
+			writeError(w, http.StatusNotFound, fmt.Sprintf("unknown hashboard %q", identifier))
+			return
+		}
+		boards = []*Hashboard{board}
+	}
+	active := 0
+	var base float64
+	for _, board := range boards {
+		if !board.isMining() {
+			continue
+		}
+		active++
+		switch metric {
+		case timeSeriesMetricHashrate:
+			base += boardIdealHashrateTHS * 0.97
+		case timeSeriesMetricPower:
+			base += board.targetWatts()
+		case timeSeriesMetricTemperature:
+			base += asicTempC
+		}
+	}
+	s.mu.RUnlock()
+	if metric == timeSeriesMetricTemperature && active > 0 {
+		base /= float64(active)
+	}
+	maxBuckets := 300
+	buckets := make([]timeSeriesBucket, 0, min(int(end.Sub(start)/bucketDuration)+1, maxBuckets))
+	for at, index := start, 0; at.Before(end) && index < maxBuckets; at, index = at.Add(bucketDuration), index+1 {
+		value := base * (1 + 0.02*math.Sin(float64(index)/3))
+		buckets = append(buckets, timeSeriesBucket{
+			Time:  at,
+			Avg:   value,
+			Min:   value * 0.99,
+			Max:   value * 1.01,
+			Count: int64str(active),
+		})
+	}
+	writeJSON(w, http.StatusOK, timeSeriesResponse{Metric: metric, Unit: unit, Buckets: buckets})
+}
+
+func (h *RESTApiHandler) handleModuleRunIn(w http.ResponseWriter, r *http.Request) {
+	var config moduleRunInConfig
+	if !decodeJSON(w, r, &config) {
+		return
+	}
+	moduleID := r.PathValue("moduleId")
+	s := h.state
+	s.mu.RLock()
+	module := s.modulesByID[moduleID]
+	if module == nil {
+		s.mu.RUnlock()
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown module %q", moduleID))
+		return
+	}
+	boards := make([]moduleRunInBoard, 0, len(module.Slots))
+	leader := ""
+	for _, slot := range module.Slots {
+		if slot.Board == nil {
+			continue
+		}
+		if leader == "" {
+			leader = slot.Board.MAC
+		}
+		boards = append(boards, moduleRunInBoard{
+			MACAddress: slot.Board.MAC,
+			Serial:     slot.Board.Serial,
+			Status:     "RUN_IN_BOARD_STATUS_QUEUED",
+		})
+	}
+	s.mu.RUnlock()
+	taskID := r.URL.Query().Get("taskId")
+	if taskID == "" {
+		taskID = fmt.Sprintf("run-in-%d", time.Now().UnixNano())
+	}
+	writeJSON(w, http.StatusOK, moduleRunInResponse{
+		TaskID:           taskID,
+		ModuleID:         moduleID,
+		Status:           "HASHBOARD_RUN_IN_STATUS_QUEUED",
+		VoltageLeaderMAC: leader,
+		Boards:           boards,
+	})
 }
 
 // handleModuleFixedVoltage serves PUT/DELETE
@@ -680,7 +1047,7 @@ func (h *RESTApiHandler) handleScopedPower(w http.ResponseWriter, r *http.Reques
 		return true, ""
 	})
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, setPowerScopedResponse{BoardsUpdated: int32(countApplied(results)), Results: results})
+	writeJSON(w, http.StatusOK, setPowerScopedResponse{BoardsUpdated: countApplied(results), Results: results})
 }
 
 func (h *RESTApiHandler) handleScopedPowerClear(w http.ResponseWriter, r *http.Request) {
@@ -696,7 +1063,7 @@ func (h *RESTApiHandler) handleScopedPowerClear(w http.ResponseWriter, r *http.R
 		return true, ""
 	})
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, clearPowerScopedResponse{BoardsUpdated: int32(countApplied(results)), Results: results})
+	writeJSON(w, http.StatusOK, clearPowerScopedResponse{BoardsUpdated: countApplied(results), Results: results})
 }
 
 func (h *RESTApiHandler) handleScopedStart(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +1081,7 @@ func (h *RESTApiHandler) handleScopedStart(w http.ResponseWriter, r *http.Reques
 		return true, ""
 	})
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, startScopedResponse{BoardsStarted: int32(countApplied(results)), Results: results})
+	writeJSON(w, http.StatusOK, startScopedResponse{BoardsStarted: countApplied(results), Results: results})
 }
 
 func (h *RESTApiHandler) handleScopedStop(w http.ResponseWriter, r *http.Request) {
@@ -729,7 +1096,7 @@ func (h *RESTApiHandler) handleScopedStop(w http.ResponseWriter, r *http.Request
 		return true, ""
 	})
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, stopScopedResponse{BoardsStopped: int32(countApplied(results)), Results: results})
+	writeJSON(w, http.StatusOK, stopScopedResponse{BoardsStopped: countApplied(results), Results: results})
 }
 
 // ---------------------------------------------------------------------------
@@ -750,11 +1117,11 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 		HWRevision:  b.HWRevision,
 		MiningState: b.State,
 		Location: hashboardLoc{
-			Tank:        int32(b.TankID),
-			Module:      int32(b.ModuleNum),
-			BreakerID:   b.BreakerID,
-			PowerFeedID: b.PowerFeedID,
-			Slot:        int64str(b.SlotIndex),
+			Tank:              b.TankID,
+			Module:            b.ModuleNum,
+			BreakerID:         b.BreakerID,
+			PowerFeedID:       b.PowerFeedID,
+			HashboardPosition: int64str(b.SlotIndex + 1),
 		},
 		Health: hashboardHealth{
 			Hashrate:                hr,
@@ -796,38 +1163,38 @@ func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
 
 	asics := make([]asicDTO, 0, total)
 	entries := make([]asicLayoutEnt, 0, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		stackID := i / perStack
 		if stackID >= asicStackCount {
 			stackID = asicStackCount - 1
 		}
 		stackIndex := i % perStack
-		ghs10 := int32(0)
+		ghs10 := 0
 		if mining {
-			ghs10 = int32(vary(boardIdealHashrateTHS*1000/float64(total)) * 10)
+			ghs10 = int(vary(boardIdealHashrateTHS*1000/float64(total)) * 10)
 		}
 		asics = append(asics, asicDTO{
-			Index:         int32(i),
-			VoltageMv:     int32(vary(asicVoltageMv)),
-			TemperatureDc: int32(vary(asicTempC) * 10),
+			Index:         i,
+			VoltageMv:     int(vary(asicVoltageMv)),
+			TemperatureDc: int(vary(asicTempC) * 10),
 			FrequencyMhz:  asicFrequencyMHz,
 			PassRateBp:    asicPassRateBp,
 			HashrateGhs10: ghs10,
 		})
 		entries = append(entries, asicLayoutEnt{
-			Index:      int32(i),
-			StackID:    int32(stackID),
-			StackIndex: int32(stackIndex),
-			X:          int32(stackIndex),
-			Y:          int32(stackID),
+			Index:      i,
+			StackID:    stackID,
+			StackIndex: stackIndex,
+			X:          stackIndex,
+			Y:          stackID,
 		})
 	}
 	return asicsResponse{
 		Asics: asics,
 		Layout: asicLayout{
 			StackCount:    asicStackCount,
-			AsicsPerStack: int32(perStack),
-			TotalAsics:    int32(total),
+			AsicsPerStack: perStack,
+			TotalAsics:    total,
 			Entries:       entries,
 		},
 	}
@@ -851,12 +1218,12 @@ func (s *ContainerState) moduleVoltageResponse(m *Module) moduleVoltageResponse 
 			FixedMillivolts:            int64str(m.FixedMillivolts),
 			SupportedMinimumMillivolts: 12000,
 			SupportedMaximumMillivolts: 16000,
-			BoardCount:                 int32(len(results)),
+			BoardCount:                 len(results),
 			Readiness:                  readiness,
 			UpdatedBy:                  "fake-ct1",
 			UpdatedAt:                  time.Now(),
 		},
-		BoardsUpdated: int32(len(results)),
+		BoardsUpdated: len(results),
 		Results:       results,
 	}
 }
@@ -966,7 +1333,14 @@ func (s *ContainerState) applyToScope(sc scope, fn func(*Hashboard) (bool, strin
 // Small helpers
 // ---------------------------------------------------------------------------
 
-const defaultActivePool = "stratum+tcp://btc.example.com:3333"
+const (
+	defaultActivePool           = "stratum+tcp://btc.example.com:3333"
+	defaultPoolName             = "Primary"
+	defaultPoolUsername         = "fake-ct1"
+	timeSeriesMetricHashrate    = "TIME_SERIES_METRIC_HASHRATE"
+	timeSeriesMetricPower       = "TIME_SERIES_METRIC_POWER"
+	timeSeriesMetricTemperature = "TIME_SERIES_METRIC_TEMPERATURE"
+)
 
 func countApplied(results []boardResult) int {
 	n := 0
@@ -1020,7 +1394,9 @@ func (jw *jsonErrorWriter) WriteHeader(code int) {
 		if code == http.StatusMethodNotAllowed {
 			msg = "method not allowed"
 		}
-		_ = json.NewEncoder(jw.ResponseWriter).Encode(map[string]any{"code": code, "message": msg})
+		if err := json.NewEncoder(jw.ResponseWriter).Encode(errorResponse{Code: code, Message: msg}); err != nil {
+			return
+		}
 		return
 	}
 	jw.ResponseWriter.WriteHeader(code)
@@ -1031,7 +1407,11 @@ func (jw *jsonErrorWriter) Write(b []byte) (int, error) {
 		// Swallow ServeMux's plain-text body; we already wrote the JSON one.
 		return len(b), nil
 	}
-	return jw.ResponseWriter.Write(b)
+	n, err := jw.ResponseWriter.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("write response body: %w", err)
+	}
+	return n, nil
 }
 
 // decodeJSON reads a JSON request body into v, capping it at 1 MiB so a
@@ -1053,14 +1433,15 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		return
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"code":    status,
-		"message": message,
-	})
+	if err := json.NewEncoder(w).Encode(errorResponse{Code: status, Message: message}); err != nil {
+		return
+	}
 }

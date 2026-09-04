@@ -1,0 +1,7703 @@
+/* eslint-disable */
+/* tslint:disable */
+// @ts-nocheck
+/*
+ * ---------------------------------------------------------------
+ * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
+ * ##                                                           ##
+ * ## AUTHOR: acacode                                           ##
+ * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
+ * ---------------------------------------------------------------
+ */
+
+export interface AlertServiceAcknowledgeAlertParams {
+  /** @format int64 */
+  id: string;
+}
+
+export interface AlertServiceListAlertsParams {
+  /** @format int32 */
+  "page.pageSize"?: number;
+  "page.pageToken"?: string;
+  acknowledged?: boolean;
+  category?: string;
+  /** @default "SEVERITY_UNSPECIFIED" */
+  severity?:
+    | "SEVERITY_UNSPECIFIED"
+    | "SEVERITY_INFO"
+    | "SEVERITY_WARNING"
+    | "SEVERITY_ERROR"
+    | "SEVERITY_CRITICAL";
+}
+
+export interface AlertServiceStreamAlertsParams {
+  /** @default "SEVERITY_UNSPECIFIED" */
+  minSeverity?:
+    | "SEVERITY_UNSPECIFIED"
+    | "SEVERITY_INFO"
+    | "SEVERITY_WARNING"
+    | "SEVERITY_ERROR"
+    | "SEVERITY_CRITICAL";
+}
+
+export interface AuthServiceLogoutParams {
+  /**
+   * token optionally identifies the session for native gRPC callers. An empty
+   * value uses bearer authentication metadata. The REST binding does not map
+   * this field into a request body.
+   */
+  token?: string;
+}
+
+export interface FeedMappingServiceApplySoftFeedMappingRunBody {
+  confirmApply?: boolean;
+}
+
+export interface FeedMappingServiceApplySoftFeedMappingRunParams {
+  apply: string;
+  runId: string;
+}
+
+export type FeedMappingServiceCancelFeedMappingRunBody = object;
+
+export interface FeedMappingServiceCancelFeedMappingRunParams {
+  cancel: string;
+  runId: string;
+}
+
+export type FeedMappingServiceCancelSoftFeedMappingRunBody = object;
+
+export interface FeedMappingServiceCancelSoftFeedMappingRunParams {
+  cancel: string;
+  runId: string;
+}
+
+export interface FeedMappingServiceGetFeedMappingReportParams {
+  /**
+   * Maximum recent changes to include. The server defaults to 50 and caps at 200.
+   * @format int32
+   */
+  changeLimit?: number;
+}
+
+export interface FeedMappingServiceGetFeedMappingRunParams {
+  runId: string;
+}
+
+export interface FeedMappingServiceGetSoftFeedMappingRunParams {
+  runId: string;
+}
+
+export interface FeedMappingServiceListFeedMappingRunEventsParams {
+  runId: string;
+}
+
+export interface FeedMappingServicePlanFeedMappingRunParams {
+  plan: string;
+}
+
+export interface FirmwareServiceCancelFirmwareUpdateParams {
+  /**
+   * server_id optionally selects which Frigate node owns task_id. Empty means
+   * the connected node, preserving pre-cluster behavior.
+   */
+  serverId?: string;
+  taskId: string;
+}
+
+export interface FirmwareServiceGetFirmwareUpdateParams {
+  /**
+   * server_id optionally selects which Frigate node owns task_id. Empty means
+   * the connected node, preserving pre-cluster behavior.
+   */
+  serverId?: string;
+  taskId: string;
+}
+
+export interface FirmwareServiceListFirmwareUpdatesParams {
+  /**
+   * local_only is used by HA peers to avoid recursive fanout when aggregating
+   * cluster update lists. Ordinary clients leave it false.
+   */
+  localOnly?: boolean;
+}
+
+export interface HashboardServiceGetHashboardAsiCsParams {
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier: string;
+}
+
+export interface HashboardServiceGetHashboardAsicMetadataParams {
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier: string;
+}
+
+export interface HashboardServiceGetHashboardEventsParams {
+  /** @format date-time */
+  "window.end"?: string;
+  /** @format date-time */
+  "window.start"?: string;
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier: string;
+}
+
+export interface HashboardServiceGetHashboardParams {
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier: string;
+}
+
+export interface MQTTSourceConnectionConfigBroker {
+  host?: string;
+  /** @format int64 */
+  port?: number;
+}
+
+/** Tag represents a key-value metadata tag. */
+export interface MdkV2Tag {
+  key?: string;
+  value?: string;
+}
+
+export interface MiningServiceClearModuleFixedVoltageParams {
+  moduleId: string;
+}
+
+export interface MiningServiceSetModuleFixedVoltageBody {
+  /** @format int64 */
+  millivolts?: number;
+}
+
+export interface MiningServiceSetModuleFixedVoltageParams {
+  moduleId: string;
+}
+
+export interface PoolServiceDeletePoolParams {
+  /** @format int64 */
+  id: string;
+}
+
+export interface PoolServiceGetPoolParams {
+  /** @format int64 */
+  id: string;
+}
+
+export interface PoolServiceTestPoolConnectionParams {
+  /** @format int64 */
+  id: string;
+}
+
+export interface PoolServiceUpdatePoolBody {
+  /**
+   * password is the pool authentication password (write-only, never returned in
+   * responses). An EMPTY password preserves the stored credential; there is
+   * currently no way to clear a stored password via this API.
+   */
+  password?: string;
+  /**
+   * Pool represents a mining pool configuration.
+   * The password field is write-only and never included in responses.
+   */
+  pool?: {
+    /** @format date-time */
+    createdAt?: string;
+    enabled?: boolean;
+    name?: string;
+    /** @format int32 */
+    priority?: number;
+    /**
+     * share_weight enables weighted mining for this pool. It is a relative,
+     * positive weight; when absent the pool remains a priority failover target.
+     * @format double
+     */
+    shareWeight?: number;
+    url?: string;
+    username?: string;
+  };
+  /**
+   * update_mask selects which Pool fields to apply; unselected fields are
+   * backfilled from the stored record so a partial write (for example an
+   * enabled-only toggle) can never erase configuration. Valid paths: name,
+   * url, username, priority, enabled, share_weight (plus id, a no-op);
+   * unknown paths are refused. A masked share_weight is
+   * presence-authoritative: an absent value clears the stored weight. A pool
+   * name can never be cleared; an empty masked name preserves the stored one.
+   *
+   * Compatibility: an EMPTY mask keeps the legacy contract — all Pool fields
+   * are applied, and an absent share_weight preserves the stored weight. The
+   * historical single-path {"share_weight"} mask likewise applies the full
+   * record while treating share_weight absence as a clear, because deployed
+   * TUI clients send it that way with every update.
+   */
+  updateMask?: string;
+}
+
+export interface PoolServiceUpdatePoolParams {
+  /** @format int64 */
+  poolId: string;
+}
+
+/**
+ * ClearPowerFeedOverrideRequest clears one power feed's process-local operator
+ * marker.
+ */
+export type PowerServiceClearPowerFeedOverrideBody = object;
+
+export interface PowerServiceClearPowerFeedOverrideParams {
+  /**
+   * power_feed_id is the container power-feed identifier, e.g.
+   * "pdu-1-outlet-03"; bound from the path.
+   */
+  powerFeedId: string;
+}
+
+export type PowerServiceCyclePowerFeedBody = object;
+
+export interface PowerServiceCyclePowerFeedParams {
+  cycle: string;
+  /** power_feed_id is the enabled, non-faulted container power-feed identifier. */
+  powerFeedId: string;
+}
+
+/** SetContainerControlRequest switches one boolean container control. */
+export interface PowerServiceSetContainerControlBody {
+  /** enabled selects the target state: true starts/enables, false stops/disables. */
+  enabled?: boolean;
+  /**
+   * Deprecated compatibility bit for Frigate versions that enforced
+   * application-side plant safety policy. Current servers ignore it.
+   */
+  force?: boolean;
+}
+
+export interface PowerServiceSetContainerControlParams {
+  /** name is the control identifier; bound from the path. */
+  name: string;
+}
+
+/** SetContainerSetpointRequest writes one analog container setpoint. */
+export interface PowerServiceSetContainerSetpointBody {
+  /**
+   * Deprecated compatibility bit for Frigate versions that enforced
+   * application-side plant safety policy. Current servers ignore it.
+   */
+  force?: boolean;
+  /**
+   * value must be representable as a finite float32 PLC wire value. The PLC
+   * owns operational limits and final command acceptance.
+   * @format double
+   */
+  value?: number;
+}
+
+export interface PowerServiceSetContainerSetpointParams {
+  /** name is the setpoint identifier; bound from the path. */
+  name: string;
+}
+
+export interface PowerServiceSetPowerFeedStateBody {
+  disabled?: boolean;
+  /**
+   * Deprecated compatibility bit for Frigate versions that enforced
+   * application-side plant safety policy. Current servers ignore it.
+   */
+  force?: boolean;
+}
+
+export interface PowerServiceSetPowerFeedStateParams {
+  powerFeedId: string;
+}
+
+/**
+ * `Any` contains an arbitrary serialized protocol buffer message along with a
+ * URL that describes the type of the serialized message.
+ *
+ * Protobuf library provides support to pack/unpack Any values in the form
+ * of utility functions or additional generated methods of the Any type.
+ *
+ * Example 1: Pack and unpack a message in C++.
+ *
+ *     Foo foo = ...;
+ *     Any any;
+ *     any.PackFrom(foo);
+ *     ...
+ *     if (any.UnpackTo(&foo)) {
+ *       ...
+ *     }
+ *
+ * Example 2: Pack and unpack a message in Java.
+ *
+ *     Foo foo = ...;
+ *     Any any = Any.pack(foo);
+ *     ...
+ *     if (any.is(Foo.class)) {
+ *       foo = any.unpack(Foo.class);
+ *     }
+ *     // or ...
+ *     if (any.isSameTypeAs(Foo.getDefaultInstance())) {
+ *       foo = any.unpack(Foo.getDefaultInstance());
+ *     }
+ *
+ *  Example 3: Pack and unpack a message in Python.
+ *
+ *     foo = Foo(...)
+ *     any = Any()
+ *     any.Pack(foo)
+ *     ...
+ *     if any.Is(Foo.DESCRIPTOR):
+ *       any.Unpack(foo)
+ *       ...
+ *
+ *  Example 4: Pack and unpack a message in Go
+ *
+ *      foo := &pb.Foo{...}
+ *      any, err := anypb.New(foo)
+ *      if err != nil {
+ *        ...
+ *      }
+ *      ...
+ *      foo := &pb.Foo{}
+ *      if err := any.UnmarshalTo(foo); err != nil {
+ *        ...
+ *      }
+ *
+ * The pack methods provided by protobuf library will by default use
+ * 'type.googleapis.com/full.type.name' as the type URL and the unpack
+ * methods only use the fully qualified type name after the last '/'
+ * in the type URL, for example "foo.bar.com/x/y.z" will yield type
+ * name "y.z".
+ *
+ * JSON
+ * ====
+ * The JSON representation of an `Any` value uses the regular
+ * representation of the deserialized, embedded message, with an
+ * additional field `@type` which contains the type URL. Example:
+ *
+ *     package google.profile;
+ *     message Person {
+ *       string first_name = 1;
+ *       string last_name = 2;
+ *     }
+ *
+ *     {
+ *       "@type": "type.googleapis.com/google.profile.Person",
+ *       "firstName": <string>,
+ *       "lastName": <string>
+ *     }
+ *
+ * If the embedded message type is well-known and has a custom JSON
+ * representation, that representation will be embedded adding a field
+ * `value` which holds the custom JSON in addition to the `@type`
+ * field. Example (for message [google.protobuf.Duration][]):
+ *
+ *     {
+ *       "@type": "type.googleapis.com/google.protobuf.Duration",
+ *       "value": "1.212s"
+ *     }
+ */
+export interface ProtobufAny {
+  /**
+   * A URL/resource name that uniquely identifies the type of the serialized
+   * protocol buffer message. This string must contain at least
+   * one "/" character. The last segment of the URL's path must represent
+   * the fully qualified name of the type (as in
+   * `path/google.protobuf.Duration`). The name should be in a canonical form
+   * (e.g., leading "." is not accepted).
+   *
+   * In practice, teams usually precompile into the binary all types that they
+   * expect it to use in the context of Any. However, for URLs which use the
+   * scheme `http`, `https`, or no scheme, one can optionally set up a type
+   * server that maps type URLs to message definitions as follows:
+   *
+   * * If no scheme is provided, `https` is assumed.
+   * * An HTTP GET on the URL must yield a [google.protobuf.Type][]
+   *   value in binary format, or produce an error.
+   * * Applications are allowed to cache lookup results based on the
+   *   URL, or have them precompiled into a binary to avoid any
+   *   lookup. Therefore, binary compatibility needs to be preserved
+   *   on changes to types. (Use versioned type names to manage
+   *   breaking changes.)
+   *
+   * Note: this functionality is not currently available in the official
+   * protobuf release, and it is not used for type URLs beginning with
+   * type.googleapis.com. As of May 2023, there are no widely used type server
+   * implementations and no plans to implement one.
+   *
+   * Schemes other than `http`, `https` (or the empty scheme) might be
+   * used with implementation specific semantics.
+   */
+  "@type"?: string;
+  [key: string]: any;
+}
+
+/**
+ * The `Status` type defines a logical error model that is suitable for
+ * different programming environments, including REST APIs and RPC APIs. It is
+ * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+ * three pieces of data: error code, error message, and error details.
+ *
+ * You can find out more about this error model and how to work with it in the
+ * [API Design Guide](https://cloud.google.com/apis/design/errors).
+ */
+export interface RpcStatus {
+  /**
+   * The status code, which should be an enum value of
+   * [google.rpc.Code][google.rpc.Code].
+   * @format int32
+   */
+  code?: number;
+  /**
+   * A list of messages that carry the error details.  There is a common set of
+   * message types for APIs to use.
+   */
+  details?: ProtobufAny[];
+  /**
+   * A developer-facing error message, which should be in English. Any
+   * user-facing error message should be localized and sent in the
+   * [google.rpc.Status.details][google.rpc.Status.details] field, or localized
+   * by the client.
+   */
+  message?: string;
+}
+
+export interface RunInServiceCancelHashboardRunInParams {
+  /** Blank preserves the legacy local-only lookup during rolling deployment. */
+  serverId?: string;
+  taskId: string;
+}
+
+export interface RunInServiceDownloadHashboardRunInResultsParams {
+  taskId: string;
+}
+
+export interface RunInServiceGetHashboardRunInStatusParams {
+  /** Blank preserves the legacy local-only lookup during rolling deployment. */
+  serverId?: string;
+  taskId: string;
+}
+
+export interface RunInServiceListHashboardRunInTasksParams {
+  /** local_only prevents peer fanout loops on peer-internal reads. */
+  localOnly?: boolean;
+}
+
+export interface RunInServiceStartHashboardRunInParams {
+  identifier: string;
+  /** task_id is an optional caller-generated idempotency key for this task. */
+  taskId?: string;
+}
+
+export interface RunInServiceStartModuleRunInParams {
+  moduleId: string;
+  /** task_id is an optional caller-generated idempotency key for this task. */
+  taskId?: string;
+}
+
+export interface SystemServiceGetLogsParams {
+  component?: string;
+  /** @default "LOG_LEVEL_UNSPECIFIED" */
+  level?:
+    | "LOG_LEVEL_UNSPECIFIED"
+    | "LOG_LEVEL_DEBUG"
+    | "LOG_LEVEL_INFO"
+    | "LOG_LEVEL_WARNING"
+    | "LOG_LEVEL_ERROR";
+  /** @format int32 */
+  tail?: number;
+}
+
+export interface SystemServiceListAuditEventsParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  /** Exact-match filters; empty means no filter. */
+  action?: string;
+  actor?: string;
+  /**
+   * Maximum entries to return; 0 applies the server default (200), capped
+   * at 1000.
+   * @format int32
+   */
+  limit?: number;
+  result?: string;
+  source?: string;
+  target?: string;
+}
+
+export interface SystemServiceUpdatePsuFirmwareParams {
+  psuId: string;
+}
+
+export interface TelemetryServiceGetHashboardLifetimeParams {
+  identifier: string;
+}
+
+export interface TelemetryServiceGetShareQualityParams {
+  /**
+   * identifier is an optional CT1 MAC address or R2 serial number that
+   * restricts only the by_board breakdown. It does not filter by
+   * pool and is not a pool name.
+   */
+  identifier?: string;
+  /** @default "SHARE_QUALITY_WINDOW_UNSPECIFIED" */
+  window?:
+    | "SHARE_QUALITY_WINDOW_UNSPECIFIED"
+    | "SHARE_QUALITY_WINDOW_15M"
+    | "SHARE_QUALITY_WINDOW_1H"
+    | "SHARE_QUALITY_WINDOW_24H";
+}
+
+export interface TelemetryServiceListContainerPlantAlarmEpisodesParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  active?: boolean;
+  componentId?: string;
+  /** @format int64 */
+  limit?: number;
+  pageToken?: string;
+  severities?: (
+    | "SEVERITY_UNSPECIFIED"
+    | "SEVERITY_INFO"
+    | "SEVERITY_WARNING"
+    | "SEVERITY_ERROR"
+    | "SEVERITY_CRITICAL"
+  )[];
+}
+
+export interface TelemetryServiceListContainerPlantEventsParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  category?: string;
+  componentId?: string;
+  /** @format int64 */
+  limit?: number;
+}
+
+export interface TelemetryServiceQueryProductionHistoryParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  /** @default "BUCKET_SIZE_UNSPECIFIED" */
+  bucketSize?:
+    | "BUCKET_SIZE_UNSPECIFIED"
+    | "BUCKET_SIZE_1M"
+    | "BUCKET_SIZE_5M"
+    | "BUCKET_SIZE_15M"
+    | "BUCKET_SIZE_1H"
+    | "BUCKET_SIZE_1D";
+  identifier?: string;
+}
+
+export interface TelemetryServiceQueryShareQualityHistoryParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  /** @default "BUCKET_SIZE_UNSPECIFIED" */
+  bucketSize?:
+    | "BUCKET_SIZE_UNSPECIFIED"
+    | "BUCKET_SIZE_1M"
+    | "BUCKET_SIZE_5M"
+    | "BUCKET_SIZE_15M"
+    | "BUCKET_SIZE_1H"
+    | "BUCKET_SIZE_1D";
+  /** @default "SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED" */
+  grouping?:
+    | "SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED"
+    | "SHARE_QUALITY_HISTORY_GROUPING_TOTAL"
+    | "SHARE_QUALITY_HISTORY_GROUPING_BOARD"
+    | "SHARE_QUALITY_HISTORY_GROUPING_POOL";
+  identifier?: string;
+  /** @format int32 */
+  poolId?: number;
+}
+
+export interface TelemetryServiceQueryTimeSeriesParams {
+  /** @format date-time */
+  "range.end"?: string;
+  /** @format date-time */
+  "range.start"?: string;
+  /** @format int64 */
+  "temperatureSelector.boardSensorIndex"?: number;
+  /** @default "PSU_TEMPERATURE_SENSOR_UNSPECIFIED" */
+  "temperatureSelector.psuSensor"?:
+    | "PSU_TEMPERATURE_SENSOR_UNSPECIFIED"
+    | "PSU_TEMPERATURE_SENSOR_INLET"
+    | "PSU_TEMPERATURE_SENSOR_SR_HEATSINK"
+    | "PSU_TEMPERATURE_SENSOR_PFC_HEATSINK";
+  /** @default "BUCKET_SIZE_UNSPECIFIED" */
+  bucketSize?:
+    | "BUCKET_SIZE_UNSPECIFIED"
+    | "BUCKET_SIZE_1M"
+    | "BUCKET_SIZE_5M"
+    | "BUCKET_SIZE_15M"
+    | "BUCKET_SIZE_1H"
+    | "BUCKET_SIZE_1D";
+  /**
+   * identifier is a CT1 MAC address or R2 serial number for board metrics. It
+   * is the phase, distribution-unit, fan, or power-feed ID for component plant
+   * metrics.
+   */
+  identifier?: string;
+  /**
+   *  - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.
+   *  - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution
+   * unit, fan, or power feed.
+   *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
+   * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
+   * aggregate across every board sensor.
+   * @default "TIME_SERIES_METRIC_UNSPECIFIED"
+   */
+  metric?:
+    | "TIME_SERIES_METRIC_UNSPECIFIED"
+    | "TIME_SERIES_METRIC_HASHRATE"
+    | "TIME_SERIES_METRIC_POWER"
+    | "TIME_SERIES_METRIC_TEMPERATURE"
+    | "TIME_SERIES_METRIC_VOLTAGE"
+    | "TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_POWER"
+    | "TIME_SERIES_METRIC_PLANT_AMBIENT_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER"
+    | "TIME_SERIES_METRIC_PLANT_FACILITY_POWER"
+    | "TIME_SERIES_METRIC_PLANT_REACTIVE_POWER"
+    | "TIME_SERIES_METRIC_PLANT_APPARENT_POWER"
+    | "TIME_SERIES_METRIC_PLANT_ACTIVE_ENERGY"
+    | "TIME_SERIES_METRIC_PLANT_REACTIVE_ENERGY"
+    | "TIME_SERIES_METRIC_PLANT_APPARENT_ENERGY"
+    | "TIME_SERIES_METRIC_PLANT_POWER_FACTOR"
+    | "TIME_SERIES_METRIC_PLANT_PUE"
+    | "TIME_SERIES_METRIC_PLANT_DRY_COOLER_INLET_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_OUTLET_A_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_OUTLET_B_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_PUMP_OUTLET_PRESSURE"
+    | "TIME_SERIES_METRIC_PLANT_PUMP_INLET_PRESSURE"
+    | "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_INLET_PRESSURE"
+    | "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_OUTLET_PRESSURE"
+    | "TIME_SERIES_METRIC_PLANT_TANK_A_LIQUID_LEVEL"
+    | "TIME_SERIES_METRIC_PLANT_TANK_B_LIQUID_LEVEL"
+    | "TIME_SERIES_METRIC_PLANT_FLOW_RATE"
+    | "TIME_SERIES_METRIC_PLANT_AMBIENT_HUMIDITY"
+    | "TIME_SERIES_METRIC_PLANT_FILTER_PRESSURE_DIFFERENTIAL"
+    | "TIME_SERIES_METRIC_PLANT_PUMP_PRESSURE_DIFFERENTIAL"
+    | "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_PRESSURE_DIFFERENTIAL"
+    | "TIME_SERIES_METRIC_PLANT_COOLANT_PUMP_SPEED"
+    | "TIME_SERIES_METRIC_PLANT_PHASE_POWER"
+    | "TIME_SERIES_METRIC_PLANT_PHASE_CURRENT"
+    | "TIME_SERIES_METRIC_PLANT_PHASE_VOLTAGE"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_FEEDS"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_AB"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_BC"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_CA"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_A"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_B"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_C"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER"
+    | "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_ENERGY"
+    | "TIME_SERIES_METRIC_PLANT_FAN_POWER"
+    | "TIME_SERIES_METRIC_PLANT_FAN_SPEED"
+    | "TIME_SERIES_METRIC_POWER_FEED_POWER"
+    | "TIME_SERIES_METRIC_POWER_FEED_CURRENT"
+    | "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE"
+    | "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_AB"
+    | "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_BC"
+    | "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_CA"
+    | "TIME_SERIES_METRIC_POWER_FEED_CURRENT_A"
+    | "TIME_SERIES_METRIC_POWER_FEED_CURRENT_B"
+    | "TIME_SERIES_METRIC_POWER_FEED_CURRENT_C"
+    | "TIME_SERIES_METRIC_TEMPERATURE_SENSOR"
+    | "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY"
+    | "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE"
+    | "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY";
+}
+
+export interface TelemetryServiceStreamAsicHealthParams {
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier: string;
+}
+
+export interface TelemetryServiceStreamHashboardHealthParams {
+  /** identifier accepts a CT1 MAC address or R2 serial number. */
+  identifier?: string;
+}
+
+/** ASIC represents per-ASIC health data on a hashboard. */
+export interface V2ASIC {
+  /**
+   * hashrate_ghs10 is the hashrate in GH/s * 10 (e.g. 125 = 12.5 GH/s).
+   * @format int32
+   */
+  hashrateGhs10?: number;
+  /**
+   * frequency_mhz is the ASIC clock frequency in megahertz.
+   * @format int32
+   */
+  frequencyMhz?: number;
+  /**
+   * index is the zero-based ASIC position on the hashboard.
+   * @format int32
+   */
+  index?: number;
+  /**
+   * pass_rate_bp is the nonce pass rate in basis points (e.g. 9950 = 99.50%).
+   * @format int32
+   */
+  passRateBp?: number;
+  /**
+   * temperature_dc is the ASIC temperature in decicelsius (e.g. 725 = 72.5 C).
+   * @format int32
+   */
+  temperatureDc?: number;
+  /**
+   * voltage_mv is the ASIC voltage in millivolts.
+   * @format int32
+   */
+  voltageMv?: number;
+}
+
+/** ASICLayoutEntry maps an ASIC index to its physical hashboard position. */
+export interface V2ASICLayoutEntry {
+  /** @format int32 */
+  index?: number;
+  /** @format int32 */
+  stackId?: number;
+  /** @format int32 */
+  stackIndex?: number;
+  /** @format int32 */
+  x?: number;
+  /** @format int32 */
+  y?: number;
+}
+
+/**
+ * ASICMetadata is decoded, immutable eFuse identity and binning data for one
+ * ASIC. index uses the same zero-based physical index as ASIC and
+ * HashboardASICLayout.
+ */
+export interface V2ASICMetadata {
+  /** @format int64 */
+  binning?: number;
+  /** @format int64 */
+  binningVersion?: number;
+  /** @format int64 */
+  dieX?: number;
+  /** @format int64 */
+  dieY?: number;
+  /**
+   * grwvpl is the ASIC manufacturer part number.
+   * @format uint64
+   */
+  grwvpl?: string;
+  /** @format int32 */
+  index?: number;
+  lotId?: string;
+  /** valid is true when firmware successfully decoded this ASIC's eFuse data. */
+  valid?: boolean;
+  waferId?: string;
+}
+
+/** ASICStopCriteria applies to ASIC-level telemetry. */
+export interface V2ASICStopCriteria {
+  /** @format int32 */
+  expectedAsicCount?: number;
+  /** @format int32 */
+  maxFailingAsics?: number;
+  /** @format double */
+  maxTemperature?: number;
+  /** @format double */
+  minHashrate?: number;
+  /** @format double */
+  minPassRate?: number;
+}
+
+export interface V2AcknowledgeAlertResponse {
+  /** Alert represents a system alert. */
+  alert?: V2Alert;
+}
+
+/** Alert represents a system alert. */
+export interface V2Alert {
+  acknowledged?: boolean;
+  /** @format date-time */
+  acknowledgedAt?: string;
+  category?: string;
+  code?: string;
+  /** @format date-time */
+  createdAt?: string;
+  details?: string;
+  hashboardMac?: string;
+  /** @format int64 */
+  id?: string;
+  message?: string;
+  /**
+   * resource_id is the source's stable ID for non-hashboard sources. R2
+   * hashboards use serial instead.
+   */
+  resourceId?: string;
+  /** serial is the stable R2 hashboard identity and is empty for other sources. */
+  serial?: string;
+  /** Severity represents the severity level of an alert. */
+  severity?: V2Severity;
+  /**
+   * slot is one-based when the source has a physical chassis slot.
+   * @format int64
+   */
+  slot?: number;
+  /** AlertSourceKind identifies the typed resource class that emitted an alert. */
+  sourceKind?: V2AlertSourceKind;
+}
+
+/**
+ * AlertSourceKind identifies the typed resource class that emitted an alert.
+ * @default "ALERT_SOURCE_KIND_UNSPECIFIED"
+ */
+export enum V2AlertSourceKind {
+  ALERT_SOURCE_KIND_UNSPECIFIED = "ALERT_SOURCE_KIND_UNSPECIFIED",
+  ALERT_SOURCE_KIND_SYSTEM = "ALERT_SOURCE_KIND_SYSTEM",
+  ALERT_SOURCE_KIND_FAN = "ALERT_SOURCE_KIND_FAN",
+  ALERT_SOURCE_KIND_CONTROL_BOARD = "ALERT_SOURCE_KIND_CONTROL_BOARD",
+  ALERT_SOURCE_KIND_POWER_SUPPLY = "ALERT_SOURCE_KIND_POWER_SUPPLY",
+  ALERT_SOURCE_KIND_HASHBOARD = "ALERT_SOURCE_KIND_HASHBOARD",
+}
+
+export interface V2ApplyFirmwareUpdateRequest {
+  version?: string;
+}
+
+export interface V2ApplyFirmwareUpdateResponse {
+  accepted?: boolean;
+  message?: string;
+}
+
+export interface V2ApplyManagedOperationalPolicyRequest {
+  fingerprint?: string;
+  policy?: V2ManagedOperationalPolicy;
+  /** @format uint64 */
+  profileRevision?: string;
+}
+
+export interface V2ApplyManagedOperationalPolicyResponse {
+  state?: V2OperationalPolicyState;
+}
+
+export interface V2ApplySoftFeedMappingRunResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  run?: V2SoftFeedMappingRun;
+}
+
+/** AuditEvent is one recorded operator- or system-initiated action. */
+export interface V2AuditEvent {
+  /** Action is a dotted verb, e.g. "mining.stop". */
+  action?: string;
+  /** Actor is the client-supplied identity ("user@host") or subsystem name. */
+  actor?: string;
+  /** Structured JSON payload; empty when the action recorded no details. */
+  detailsJson?: string;
+  error?: string;
+  /** @format int64 */
+  id?: string;
+  /** Node is the server ID of the node that performed the action. */
+  node?: string;
+  /** Result is "ok" or "error". */
+  result?: string;
+  /** Source is "grpc:<addr>", "rest:<addr>", or "system". */
+  source?: string;
+  target?: string;
+  /** @format date-time */
+  time?: string;
+}
+
+/**
+ * AuthStatus contains local authentication posture rather than operational
+ * system health. Presence distinguishes an authoritative false value from an
+ * implementation that cannot report the field.
+ */
+export interface V2AuthStatus {
+  onboarded?: boolean;
+  passwordSet?: boolean;
+}
+
+/** BoardResult reports the per-board outcome of a scoped operation. */
+export interface V2BoardResult {
+  /** True if the operation reached this board. */
+  applied?: boolean;
+  macAddress?: string;
+  /** Reason when applied is false (not-managed/reserved/disconnected). */
+  message?: string;
+}
+
+/**
+ * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+ * selects whole container modules by tank/module. The selections union (OR); at
+ * least one is required.
+ */
+export interface V2BoardScope {
+  identifiers?: string[];
+  modules?: V2ModuleSelector[];
+}
+
+/** BoardTemperatureSensor is one board-level temperature sample with its physical identity. */
+export interface V2BoardTemperatureSensor {
+  /**
+   * index is the zero-based firmware sensor index.
+   * @format int32
+   */
+  index?: number;
+  /** BoardTemperatureSensorLocation identifies where a board temperature sensor is mounted. */
+  location?: V2BoardTemperatureSensorLocation;
+  /**
+   * temperature is the board temperature in degrees Celsius.
+   * @format double
+   */
+  temperature?: number;
+}
+
+/**
+ * BoardTemperatureSensorLocation identifies where a board temperature sensor is mounted.
+ * @default "BOARD_TEMPERATURE_SENSOR_LOCATION_UNSPECIFIED"
+ */
+export enum V2BoardTemperatureSensorLocation {
+  BOARD_TEMPERATURE_SENSOR_LOCATION_UNSPECIFIED = "BOARD_TEMPERATURE_SENSOR_LOCATION_UNSPECIFIED",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_POWER = "BOARD_TEMPERATURE_SENSOR_LOCATION_POWER",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_IN = "BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_IN",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_OUT = "BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_OUT",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_MCU = "BOARD_TEMPERATURE_SENSOR_LOCATION_MCU",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_FRONT = "BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_FRONT",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_REAR = "BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_REAR",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_PCBA = "BOARD_TEMPERATURE_SENSOR_LOCATION_PCBA",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CENTERLINE = "BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CENTERLINE",
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CORNER = "BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CORNER",
+}
+
+/**
+ * BucketSize represents the aggregation interval for time series queries.
+ * @default "BUCKET_SIZE_UNSPECIFIED"
+ */
+export enum V2BucketSize {
+  BUCKET_SIZE_UNSPECIFIED = "BUCKET_SIZE_UNSPECIFIED",
+  BUCKET_SIZE_1M = "BUCKET_SIZE_1M",
+  BUCKET_SIZE_5M = "BUCKET_SIZE_5M",
+  BUCKET_SIZE_15M = "BUCKET_SIZE_15M",
+  BUCKET_SIZE_1H = "BUCKET_SIZE_1H",
+  BUCKET_SIZE_1D = "BUCKET_SIZE_1D",
+}
+
+export interface V2CancelFeedMappingRunResponse {
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  run?: V2FeedMappingRun;
+}
+
+export interface V2CancelFirmwareUpdateResponse {
+  /** FirmwareUpdate is one firmware update job. */
+  update?: V2FirmwareUpdate;
+}
+
+export interface V2CancelHashboardRunInResponse {
+  /** HashboardRunInTask is a status snapshot for a run-in task. */
+  task?: V2HashboardRunInTask;
+}
+
+export interface V2CancelSoftFeedMappingRunResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  run?: V2SoftFeedMappingRun;
+}
+
+export interface V2ChangePasswordRequest {
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+export type V2ChangePasswordResponse = object;
+
+/** CheckFirmwareUpdateResponse contains firmware update availability details. */
+export interface V2CheckFirmwareUpdateResponse {
+  available?: boolean;
+  releaseNotesUrl?: string;
+  /** @format int64 */
+  sizeBytes?: string;
+  version?: string;
+}
+
+export interface V2ClearModuleFixedVoltageResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  results?: V2BoardResult[];
+  /**
+   * ModuleVoltageSetting is one durable module voltage setting. An absent
+   * fixed_millivolts field means firmware automatic voltage tuning.
+   */
+  setting?: V2ModuleVoltageSetting;
+}
+
+/**
+ * ClearPowerFeedOverrideResponse returns the unchanged power-feed state with
+ * its operator marker cleared.
+ */
+export interface V2ClearPowerFeedOverrideResponse {
+  /** PowerFeed contains one container power feed and optional telemetry. */
+  powerFeed?: V2PowerFeed;
+}
+
+export interface V2ClearPowerTargetScopedRequest {
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2ClearPowerTargetScopedResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  results?: V2BoardResult[];
+}
+
+/** ContainerControl is one boolean tank/container plant control. */
+export interface V2ContainerControl {
+  /**
+   * Deprecated application-side safety classification. Current servers always
+   * return false because the PLC owns plant safety interlocks.
+   */
+  coolingCritical?: boolean;
+  description?: string;
+  /**
+   * enabled is the control's current (or just-written) state. Only meaningful
+   * when state_known is true.
+   */
+  enabled?: boolean;
+  /**
+   * name is the backend control identifier, e.g. "coolant_pump" or
+   * "tank_led_light".
+   */
+  name?: string;
+  /**
+   * state_known is true when enabled reflects a state read back from the
+   * controller rather than an unknown default.
+   */
+  stateKnown?: boolean;
+}
+
+/** ContainerMap represents the full physical layout of a CT1 container. */
+export interface V2ContainerMap {
+  tanks?: V2Tank[];
+}
+
+export interface V2ContainerOperatingParameter {
+  boundary?: string;
+  code?: string;
+  unit?: string;
+  /** @format double */
+  value?: number;
+}
+
+export interface V2ContainerPlantAlarmEpisode {
+  active?: boolean;
+  alarmId?: string;
+  /** @format date-time */
+  clearedAt?: string;
+  componentId?: string;
+  firstSeenTruncated?: boolean;
+  name?: string;
+  /** @format int64 */
+  openingEventId?: string;
+  /** Severity represents the severity level of an alert. */
+  severity?: V2Severity;
+  /** @format date-time */
+  startedAt?: string;
+}
+
+/** ContainerPlantEvent is one durable discrete state transition. */
+export interface V2ContainerPlantEvent {
+  affectedComponentId?: string;
+  boolValue?: boolean;
+  category?: string;
+  componentId?: string;
+  /** @format int64 */
+  id?: string;
+  name?: string;
+  /** @format double */
+  numberValue?: number;
+  /** @format date-time */
+  observedAt?: string;
+  previousBoolValue?: boolean;
+  /** @format double */
+  previousNumberValue?: number;
+  previousTextValue?: string;
+  /** Severity represents the severity level of an alert. */
+  severity?: V2Severity;
+  textValue?: string;
+  unit?: string;
+}
+
+/** ContainerSetpoint is one writable analog tank/container setting. */
+export interface V2ContainerSetpoint {
+  /**
+   * Legacy presence marker. True means min and max contain documented range
+   * metadata; it does not imply application-side enforcement.
+   */
+  boundsKnown?: boolean;
+  description?: string;
+  /** @format double */
+  max?: number;
+  /**
+   * Documented PLC range metadata for operator display. Frigate does not use
+   * these values as an application-side write limit.
+   * @format double
+   */
+  min?: number;
+  /**
+   * name is the backend setting identifier, e.g. "coolant_pump_speed_hz" or
+   * "dry_cooler_auto_temp_c".
+   */
+  name?: string;
+  unit?: string;
+  /**
+   * value is the current (or just-applied) setpoint value.
+   * @format double
+   */
+  value?: number;
+}
+
+/** ControlBoardInfo contains stable control-board hardware identity. */
+export interface V2ControlBoardInfo {
+  boardModel?: string;
+  hardwareRevision?: string;
+  machineName?: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  socModel?: string;
+}
+
+/** CoolingConfig contains cooling system configuration. */
+export interface V2CoolingConfig {
+  /**
+   * FanMode represents the fan control strategy.
+   *
+   *  - FAN_MODE_OFF: OFF explicitly disables fans when platform cooling policy permits it.
+   */
+  fanMode?: V2FanMode;
+  /** @format int32 */
+  fanSpeedPercent?: number;
+  /** @format double */
+  targetTemperature?: number;
+}
+
+/** CoolingFanInfo contains one installed fan's immutable operating range. */
+export interface V2CoolingFanInfo {
+  /**
+   * fan_id is a required, nonzero device-local identity. It is unique within
+   * HardwareInfo.cooling_fans and joins this inventory entry to
+   * CoolingFanStatus.fan_id.
+   * @format int64
+   */
+  fanId: number;
+  /** @format int64 */
+  maximumRpm?: number;
+  /** @format int64 */
+  minimumRpm?: number;
+  name?: string;
+  /**
+   * slot is one-based when the platform reports a physical fan position.
+   * @format int64
+   */
+  slot?: number;
+}
+
+/** CoolingFanStatus contains one fan's observed operating state. */
+export interface V2CoolingFanStatus {
+  /**
+   * fan_id is a required, nonzero device-local identity. It is unique within
+   * GetCoolingConfigResponse.fans and must match a CoolingFanInfo.fan_id
+   * returned by GetHardwareInfo.
+   * @format int64
+   */
+  fanId: number;
+  /** @format int64 */
+  rpm?: number;
+  /**
+   * slot is one-based when the platform reports a physical fan position.
+   * @format int64
+   */
+  slot?: number;
+  /** @format int64 */
+  speedPercent?: number;
+}
+
+export interface V2CreatePoolRequest {
+  /** password is the pool authentication password (write-only, never returned in responses). */
+  password?: string;
+  /**
+   * Pool represents a mining pool configuration.
+   * The password field is write-only and never included in responses.
+   */
+  pool?: V2Pool;
+}
+
+export interface V2CreatePoolResponse {
+  /**
+   * Pool represents a mining pool configuration.
+   * The password field is write-only and never included in responses.
+   */
+  pool?: V2Pool;
+}
+
+export interface V2CyclePowerFeedResponse {
+  /** PowerFeed contains one container power feed and optional telemetry. */
+  powerFeed?: V2PowerFeed;
+}
+
+export type V2DeletePoolResponse = object;
+
+export interface V2DescribeReadOnlyDatabaseResponse {
+  tables?: V2ReadOnlyDatabaseTable[];
+}
+
+/** @default "DIAGNOSTICS_DATABASE_ROLE_UNSPECIFIED" */
+export enum V2DiagnosticsDatabaseRole {
+  DIAGNOSTICS_DATABASE_ROLE_UNSPECIFIED = "DIAGNOSTICS_DATABASE_ROLE_UNSPECIFIED",
+  DIAGNOSTICS_DATABASE_ROLE_PRIMARY = "DIAGNOSTICS_DATABASE_ROLE_PRIMARY",
+  DIAGNOSTICS_DATABASE_ROLE_STANDBY = "DIAGNOSTICS_DATABASE_ROLE_STANDBY",
+}
+
+/**
+ * DiagnosticsDatabaseRouting identifies whether a relation can be read from a
+ * physical standby without losing non-WAL-replicated data.
+ * @default "DIAGNOSTICS_DATABASE_ROUTING_UNSPECIFIED"
+ */
+export enum V2DiagnosticsDatabaseRouting {
+  DIAGNOSTICS_DATABASE_ROUTING_UNSPECIFIED = "DIAGNOSTICS_DATABASE_ROUTING_UNSPECIFIED",
+  DIAGNOSTICS_DATABASE_ROUTING_PRIMARY_ONLY = "DIAGNOSTICS_DATABASE_ROUTING_PRIMARY_ONLY",
+  DIAGNOSTICS_DATABASE_ROUTING_REPLICA_SAFE = "DIAGNOSTICS_DATABASE_ROUTING_REPLICA_SAFE",
+}
+
+export interface V2DiagnosticsDatabaseTarget {
+  instance?: string;
+  /** @format int64 */
+  lagBytes?: string;
+  role?: V2DiagnosticsDatabaseRole;
+  /**
+   * DiagnosticsDatabaseRouting identifies whether a relation can be read from a
+   * physical standby without losing non-WAL-replicated data.
+   */
+  routing?: V2DiagnosticsDatabaseRouting;
+}
+
+/** @default "DRY_COOLER_DIRECTION_MODE_UNSPECIFIED" */
+export enum V2DryCoolerDirectionMode {
+  DRY_COOLER_DIRECTION_MODE_UNSPECIFIED = "DRY_COOLER_DIRECTION_MODE_UNSPECIFIED",
+  DRY_COOLER_DIRECTION_MODE_FORWARD = "DRY_COOLER_DIRECTION_MODE_FORWARD",
+  DRY_COOLER_DIRECTION_MODE_REVERSE = "DRY_COOLER_DIRECTION_MODE_REVERSE",
+  DRY_COOLER_DIRECTION_MODE_UNKNOWN = "DRY_COOLER_DIRECTION_MODE_UNKNOWN",
+}
+
+/** @default "DRY_COOLER_FAN_REVERSE_STATE_UNSPECIFIED" */
+export enum V2DryCoolerFanReverseState {
+  DRY_COOLER_FAN_REVERSE_STATE_UNSPECIFIED = "DRY_COOLER_FAN_REVERSE_STATE_UNSPECIFIED",
+  DRY_COOLER_FAN_REVERSE_STATE_STOPPED = "DRY_COOLER_FAN_REVERSE_STATE_STOPPED",
+  DRY_COOLER_FAN_REVERSE_STATE_STARTING = "DRY_COOLER_FAN_REVERSE_STATE_STARTING",
+  DRY_COOLER_FAN_REVERSE_STATE_IN_PROGRESS = "DRY_COOLER_FAN_REVERSE_STATE_IN_PROGRESS",
+  DRY_COOLER_FAN_REVERSE_STATE_FINISHED = "DRY_COOLER_FAN_REVERSE_STATE_FINISHED",
+  DRY_COOLER_FAN_REVERSE_STATE_UNKNOWN = "DRY_COOLER_FAN_REVERSE_STATE_UNKNOWN",
+}
+
+export interface V2DryCoolerFanReverseStatus {
+  /** @format int64 */
+  durationMinutes?: number;
+  state?: V2DryCoolerFanReverseState;
+}
+
+export interface V2EffectiveOperationalPolicy {
+  /** @format double */
+  maxBoardWatts?: number;
+  /** @format double */
+  minBoardWatts?: number;
+  /** Legacy numeric values retained for mixed-version Flotilla deployments. */
+  recoveryCauses?: number[];
+  recoveryEnabled?: boolean;
+  recoveryErrorCauses?: V2HashboardErrorCause[];
+  recoveryHoldoff?: string;
+  recoveryOffDuration?: string;
+  /** Recovery scope is intentionally fixed and reported for operator clarity. */
+  recoveryScope?: string;
+  /** @format double */
+  safetyMargin?: number;
+}
+
+export interface V2EnableVoltageTuningResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+}
+
+/**
+ * FanMode represents the fan control strategy.
+ *
+ *  - FAN_MODE_OFF: OFF explicitly disables fans when platform cooling policy permits it.
+ * @default "FAN_MODE_UNSPECIFIED"
+ */
+export enum V2FanMode {
+  FAN_MODE_UNSPECIFIED = "FAN_MODE_UNSPECIFIED",
+  FAN_MODE_AUTO = "FAN_MODE_AUTO",
+  FAN_MODE_MANUAL = "FAN_MODE_MANUAL",
+  FAN_MODE_OFF = "FAN_MODE_OFF",
+}
+
+/** FeedMappingChange is one durable transition in the current feed map. */
+export interface V2FeedMappingChange {
+  /** @format date-time */
+  changedAt?: string;
+  feedId?: string;
+  macAddress?: string;
+  previousFeedId?: string;
+  runId?: string;
+  /** @format int64 */
+  sequence?: string;
+  serial?: string;
+  /** FeedMappingChangeType classifies a durable current-map transition. */
+  type?: V2FeedMappingChangeType;
+}
+
+/**
+ * FeedMappingChangeType classifies a durable current-map transition.
+ * @default "FEED_MAPPING_CHANGE_TYPE_UNSPECIFIED"
+ */
+export enum V2FeedMappingChangeType {
+  FEED_MAPPING_CHANGE_TYPE_UNSPECIFIED = "FEED_MAPPING_CHANGE_TYPE_UNSPECIFIED",
+  FEED_MAPPING_CHANGE_TYPE_ADDED = "FEED_MAPPING_CHANGE_TYPE_ADDED",
+  FEED_MAPPING_CHANGE_TYPE_REMOVED = "FEED_MAPPING_CHANGE_TYPE_REMOVED",
+  FEED_MAPPING_CHANGE_TYPE_MOVED = "FEED_MAPPING_CHANGE_TYPE_MOVED",
+}
+
+/** FeedMappingDetectedBoard identifies a board detected during feed mapping. */
+export interface V2FeedMappingDetectedBoard {
+  detectedBy?: string;
+  firmwareVersion?: string;
+  /** @format date-time */
+  firstSeenAt?: string;
+  hwRevision?: string;
+  /** @format date-time */
+  lastSeenAt?: string;
+  macAddress?: string;
+  previousFeedId?: string;
+  serial?: string;
+  /** @format date-time */
+  verifiedAt?: string;
+}
+
+/** FeedMappingFeedResult contains mapping results for one feed. */
+export interface V2FeedMappingFeedResult {
+  boards?: V2FeedMappingDetectedBoard[];
+  /** @format date-time */
+  completedAt?: string;
+  feedId?: string;
+  offlineTimedOut?: boolean;
+  /** @format date-time */
+  startedAt?: string;
+  /** FeedMappingFeedStatus is the lifecycle state for one feed in a run. */
+  status?: V2FeedMappingFeedStatus;
+  timedOut?: boolean;
+}
+
+/**
+ * FeedMappingFeedStatus is the lifecycle state for one feed in a run.
+ * @default "FEED_MAPPING_FEED_STATUS_UNSPECIFIED"
+ */
+export enum V2FeedMappingFeedStatus {
+  FEED_MAPPING_FEED_STATUS_UNSPECIFIED = "FEED_MAPPING_FEED_STATUS_UNSPECIFIED",
+  FEED_MAPPING_FEED_STATUS_PENDING = "FEED_MAPPING_FEED_STATUS_PENDING",
+  FEED_MAPPING_FEED_STATUS_RUNNING = "FEED_MAPPING_FEED_STATUS_RUNNING",
+  FEED_MAPPING_FEED_STATUS_COMPLETED = "FEED_MAPPING_FEED_STATUS_COMPLETED",
+  FEED_MAPPING_FEED_STATUS_TIMED_OUT = "FEED_MAPPING_FEED_STATUS_TIMED_OUT",
+}
+
+/** FeedMappingRun is a snapshot of a feed mapping run. */
+export interface V2FeedMappingRun {
+  /** @format date-time */
+  completedAt?: string;
+  currentFeedId?: string;
+  dryRun?: boolean;
+  error?: string;
+  feeds?: V2FeedMappingFeedResult[];
+  phase?: string;
+  restoreAllOn?: boolean;
+  runId?: string;
+  /** @format date-time */
+  startedAt?: string;
+  /** FeedMappingRunStatus is the lifecycle state of a feed mapping run. */
+  status?: V2FeedMappingRunStatus;
+  /** @format date-time */
+  updatedAt?: string;
+  warnings?: string[];
+}
+
+/** FeedMappingRunConfig configures feed mapping run behavior. */
+export interface V2FeedMappingRunConfig {
+  /** Required for mutating runs. */
+  confirmPowerCycle?: boolean;
+  /** Validate and return a plan without writing hardware state. */
+  dryRun?: boolean;
+  /**
+   * Optional early-completion count for each feed.
+   * @format int32
+   */
+  expectedBoardsPerFeed?: number;
+  /** Feed IDs to map. Empty means all configured power feeds for the active backend. */
+  feedIds?: string[];
+  /** Maximum time to wait for boards after enabling one feed. */
+  feedTimeout?: string;
+  /** Quiet window after disabling all feeds before mapping starts. */
+  isolationQuiet?: string;
+  /** Quiet window used to confirm mapped boards went offline after a feed is disabled. */
+  offlineQuiet?: string;
+  /** Grace period after the expected boards appear before accepting a feed. */
+  onlineSettle?: string;
+  /** Restore all isolation feeds to ON when the run completes. */
+  restoreAllOn?: boolean;
+}
+
+/** FeedMappingRunEvent is an event emitted during feed mapping runs. */
+export interface V2FeedMappingRunEvent {
+  feedId?: string;
+  macAddress?: string;
+  message?: string;
+  phase?: string;
+  /** @format int64 */
+  seq?: string;
+  severity?: string;
+  /** @format date-time */
+  time?: string;
+  type?: string;
+}
+
+/**
+ * FeedMappingRunStatus is the lifecycle state of a feed mapping run.
+ * @default "FEED_MAPPING_RUN_STATUS_UNSPECIFIED"
+ */
+export enum V2FeedMappingRunStatus {
+  FEED_MAPPING_RUN_STATUS_UNSPECIFIED = "FEED_MAPPING_RUN_STATUS_UNSPECIFIED",
+  FEED_MAPPING_RUN_STATUS_PLANNED = "FEED_MAPPING_RUN_STATUS_PLANNED",
+  FEED_MAPPING_RUN_STATUS_RUNNING = "FEED_MAPPING_RUN_STATUS_RUNNING",
+  FEED_MAPPING_RUN_STATUS_COMPLETED = "FEED_MAPPING_RUN_STATUS_COMPLETED",
+  FEED_MAPPING_RUN_STATUS_FAILED = "FEED_MAPPING_RUN_STATUS_FAILED",
+  FEED_MAPPING_RUN_STATUS_CANCELED = "FEED_MAPPING_RUN_STATUS_CANCELED",
+}
+
+/** FirmwareArtifactRef identifies one deployable firmware artifact. */
+export interface V2FirmwareArtifactRef {
+  /** @format int64 */
+  artifactId?: string;
+  artifactName?: string;
+  /** @format int64 */
+  assetId?: string;
+  assetName?: string;
+  /** Branch fields (source = BRANCH). */
+  branch?: string;
+  headSha?: string;
+  /**
+   * Pull-request fields (source = PR). artifact_id and artifact_name are
+   * shared with BRANCH refs.
+   * @format int32
+   */
+  prNumber?: number;
+  /** Release fields (source = RELEASE). */
+  releaseTag?: string;
+  /**
+   * FirmwareArtifactSource identifies where a firmware artifact comes from.
+   *
+   *  - FIRMWARE_ARTIFACT_SOURCE_UPLOAD: UPLOAD identifies content delivered by an operator client and cached by
+   * its content digest. RELEASE, PR, and BRANCH remain for source
+   * attribution/history.
+   *  - FIRMWARE_ARTIFACT_SOURCE_BRANCH: BRANCH identifies a workflow artifact built by a push to a branch
+   * (typically tip of main).
+   */
+  source?: V2FirmwareArtifactSource;
+  /** upload_id is the server-assigned content digest for an uploaded bundle. */
+  uploadId?: string;
+}
+
+/**
+ * FirmwareArtifactSource identifies where a firmware artifact comes from.
+ *
+ *  - FIRMWARE_ARTIFACT_SOURCE_UPLOAD: UPLOAD identifies content delivered by an operator client and cached by
+ * its content digest. RELEASE, PR, and BRANCH remain for source
+ * attribution/history.
+ *  - FIRMWARE_ARTIFACT_SOURCE_BRANCH: BRANCH identifies a workflow artifact built by a push to a branch
+ * (typically tip of main).
+ * @default "FIRMWARE_ARTIFACT_SOURCE_UNSPECIFIED"
+ */
+export enum V2FirmwareArtifactSource {
+  FIRMWARE_ARTIFACT_SOURCE_UNSPECIFIED = "FIRMWARE_ARTIFACT_SOURCE_UNSPECIFIED",
+  FIRMWARE_ARTIFACT_SOURCE_RELEASE = "FIRMWARE_ARTIFACT_SOURCE_RELEASE",
+  FIRMWARE_ARTIFACT_SOURCE_PR = "FIRMWARE_ARTIFACT_SOURCE_PR",
+  FIRMWARE_ARTIFACT_SOURCE_UPLOAD = "FIRMWARE_ARTIFACT_SOURCE_UPLOAD",
+  FIRMWARE_ARTIFACT_SOURCE_BRANCH = "FIRMWARE_ARTIFACT_SOURCE_BRANCH",
+}
+
+/**
+ * FirmwareImage is the decoded metadata of one firmware .bin inside an
+ * artifact.
+ */
+export interface V2FirmwareImage {
+  /** sha256 is the digest of the complete signed image file. */
+  sha256?: string;
+  build?: string;
+  /** @format date-time */
+  builtAt?: string;
+  /**
+   * compatible_hardware_revisions lists the board hardware revisions this
+   * image can flash, resolved server-side from hardware_revision with the
+   * same hbmeta family/metadata gates used by deployment preflight. Empty
+   * means the server did not resolve compatibility (older server or unknown
+   * revision string), not universal compatibility.
+   */
+  compatibleHardwareRevisions?: V2HardwareRev[];
+  gitBranch?: string;
+  gitId?: string;
+  hardwareRevision?: string;
+  /** hash is the exact embedded firmware identity reported after boot. */
+  hash?: string;
+  name?: string;
+  version?: string;
+}
+
+export interface V2FirmwarePolicy {
+  /** FirmwareArtifactRef identifies one deployable firmware artifact. */
+  artifact?: V2FirmwareArtifactRef;
+  artifactReady?: boolean;
+  build?: string;
+  enabled?: boolean;
+  failureMode?: V2FirmwarePolicyFailureMode;
+  /** @format uint64 */
+  generation?: string;
+  images?: V2FirmwareImage[];
+  /** @format int64 */
+  maxParallel?: number;
+  /** @format date-time */
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface V2FirmwarePolicyBoard {
+  /** @format int64 */
+  attempts?: number;
+  macAddress?: string;
+  message?: string;
+  /** @format date-time */
+  nextRetryAt?: string;
+  /** @format date-time */
+  observedAt?: string;
+  observedBuild?: string;
+  observedGitId?: string;
+  observedHash?: string;
+  observedVersion?: string;
+  /** @format uint64 */
+  policyGeneration?: string;
+  reason?: string;
+  status?: V2FirmwarePolicyBoardStatus;
+  taskId?: string;
+  /** @format date-time */
+  updatedAt?: string;
+}
+
+/** @default "FIRMWARE_POLICY_BOARD_STATUS_UNSPECIFIED" */
+export enum V2FirmwarePolicyBoardStatus {
+  FIRMWARE_POLICY_BOARD_STATUS_UNSPECIFIED = "FIRMWARE_POLICY_BOARD_STATUS_UNSPECIFIED",
+  FIRMWARE_POLICY_BOARD_STATUS_DISABLED = "FIRMWARE_POLICY_BOARD_STATUS_DISABLED",
+  FIRMWARE_POLICY_BOARD_STATUS_PENDING_IDENTITY = "FIRMWARE_POLICY_BOARD_STATUS_PENDING_IDENTITY",
+  FIRMWARE_POLICY_BOARD_STATUS_COMPLIANT = "FIRMWARE_POLICY_BOARD_STATUS_COMPLIANT",
+  FIRMWARE_POLICY_BOARD_STATUS_QUEUED = "FIRMWARE_POLICY_BOARD_STATUS_QUEUED",
+  FIRMWARE_POLICY_BOARD_STATUS_UPDATING = "FIRMWARE_POLICY_BOARD_STATUS_UPDATING",
+  FIRMWARE_POLICY_BOARD_STATUS_DEFERRED = "FIRMWARE_POLICY_BOARD_STATUS_DEFERRED",
+  FIRMWARE_POLICY_BOARD_STATUS_FAILED_HELD = "FIRMWARE_POLICY_BOARD_STATUS_FAILED_HELD",
+  FIRMWARE_POLICY_BOARD_STATUS_FAILED_ADMITTED = "FIRMWARE_POLICY_BOARD_STATUS_FAILED_ADMITTED",
+  FIRMWARE_POLICY_BOARD_STATUS_EXEMPT_ISOLATED = "FIRMWARE_POLICY_BOARD_STATUS_EXEMPT_ISOLATED",
+  FIRMWARE_POLICY_BOARD_STATUS_EXCLUDED_RUN_IN = "FIRMWARE_POLICY_BOARD_STATUS_EXCLUDED_RUN_IN",
+}
+
+/** @default "FIRMWARE_POLICY_FAILURE_MODE_UNSPECIFIED" */
+export enum V2FirmwarePolicyFailureMode {
+  FIRMWARE_POLICY_FAILURE_MODE_UNSPECIFIED = "FIRMWARE_POLICY_FAILURE_MODE_UNSPECIFIED",
+  FIRMWARE_POLICY_FAILURE_MODE_STRICT_HOLD = "FIRMWARE_POLICY_FAILURE_MODE_STRICT_HOLD",
+  FIRMWARE_POLICY_FAILURE_MODE_BEST_EFFORT = "FIRMWARE_POLICY_FAILURE_MODE_BEST_EFFORT",
+}
+
+/** FirmwareTargetSelector selects exactly one R2 board by its stable serial. */
+export interface V2FirmwareTargetSelector {
+  serialNumber?: string;
+}
+
+/**
+ * FirmwareTargetStatus is the lifecycle state of one board within a job.
+ * @default "FIRMWARE_TARGET_STATUS_UNSPECIFIED"
+ */
+export enum V2FirmwareTargetStatus {
+  FIRMWARE_TARGET_STATUS_UNSPECIFIED = "FIRMWARE_TARGET_STATUS_UNSPECIFIED",
+  FIRMWARE_TARGET_STATUS_QUEUED = "FIRMWARE_TARGET_STATUS_QUEUED",
+  FIRMWARE_TARGET_STATUS_STOPPING_MINING = "FIRMWARE_TARGET_STATUS_STOPPING_MINING",
+  FIRMWARE_TARGET_STATUS_PREFLIGHT = "FIRMWARE_TARGET_STATUS_PREFLIGHT",
+  FIRMWARE_TARGET_STATUS_FLASHING = "FIRMWARE_TARGET_STATUS_FLASHING",
+  FIRMWARE_TARGET_STATUS_REBOOTING = "FIRMWARE_TARGET_STATUS_REBOOTING",
+  FIRMWARE_TARGET_STATUS_VERIFYING = "FIRMWARE_TARGET_STATUS_VERIFYING",
+  FIRMWARE_TARGET_STATUS_RESTORING_MINING = "FIRMWARE_TARGET_STATUS_RESTORING_MINING",
+  FIRMWARE_TARGET_STATUS_SUCCEEDED = "FIRMWARE_TARGET_STATUS_SUCCEEDED",
+  FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE = "FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE",
+  FIRMWARE_TARGET_STATUS_FAILED = "FIRMWARE_TARGET_STATUS_FAILED",
+}
+
+/** FirmwareUpdate is one firmware update job. */
+export interface V2FirmwareUpdate {
+  /** FirmwareArtifactRef identifies one deployable firmware artifact. */
+  artifact?: V2FirmwareArtifactRef;
+  /** @format date-time */
+  completedAt?: string;
+  error?: string;
+  /**
+   * FirmwareUpdateOptions tune one update job. Proto3 zero values give the safe
+   * defaults: stop mining before flashing and restore it afterwards.
+   */
+  options?: V2FirmwareUpdateOptions;
+  /**
+   * server_id is the CT1 Frigate node that owns this update job. It is empty
+   * for R2, whose singleton device service already identifies the owner.
+   */
+  serverId?: string;
+  /** @format date-time */
+  startedAt?: string;
+  /** FirmwareUpdateStatus is the lifecycle state of an update job. */
+  status?: V2FirmwareUpdateStatus;
+  targets?: V2FirmwareUpdateTarget[];
+  taskId?: string;
+}
+
+/**
+ * FirmwareUpdateOptions tune one update job. Proto3 zero values give the safe
+ * defaults: stop mining before flashing and restore it afterwards.
+ */
+export interface V2FirmwareUpdateOptions {
+  /**
+   * build restricts image selection to one build type (e.g. "prod", "dev",
+   * "mfgtest") when an artifact carries several builds per hardware family.
+   * Empty requires the artifact to be unambiguous.
+   */
+  build?: string;
+  /** dry_run stops after preflight and reports what would happen. */
+  dryRun?: boolean;
+  /** force flashes even when the image version is not newer. */
+  force?: boolean;
+  /**
+   * max_parallel bounds concurrent flashes; 0 uses the server default.
+   * @format int64
+   */
+  maxParallel?: number;
+  /** skip_restore_mining leaves boards idle after a successful flash. */
+  skipRestoreMining?: boolean;
+  /**
+   * skip_stop_mining refuses boards that are not already idle instead of
+   * stopping them.
+   */
+  skipStopMining?: boolean;
+}
+
+/**
+ * FirmwareUpdateStatus is the lifecycle state of an update job.
+ * @default "FIRMWARE_UPDATE_STATUS_UNSPECIFIED"
+ */
+export enum V2FirmwareUpdateStatus {
+  FIRMWARE_UPDATE_STATUS_UNSPECIFIED = "FIRMWARE_UPDATE_STATUS_UNSPECIFIED",
+  FIRMWARE_UPDATE_STATUS_PENDING = "FIRMWARE_UPDATE_STATUS_PENDING",
+  FIRMWARE_UPDATE_STATUS_DOWNLOADING = "FIRMWARE_UPDATE_STATUS_DOWNLOADING",
+  FIRMWARE_UPDATE_STATUS_RUNNING = "FIRMWARE_UPDATE_STATUS_RUNNING",
+  FIRMWARE_UPDATE_STATUS_COMPLETED = "FIRMWARE_UPDATE_STATUS_COMPLETED",
+  FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS = "FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS",
+  FIRMWARE_UPDATE_STATUS_FAILED = "FIRMWARE_UPDATE_STATUS_FAILED",
+  FIRMWARE_UPDATE_STATUS_CANCELED = "FIRMWARE_UPDATE_STATUS_CANCELED",
+  FIRMWARE_UPDATE_STATUS_INTERRUPTED = "FIRMWARE_UPDATE_STATUS_INTERRUPTED",
+}
+
+/** FirmwareUpdateTarget reports per-board update state. */
+export interface V2FirmwareUpdateTarget {
+  fromVersion?: string;
+  /** mac_address is the CT1 board identity and must be empty for R2. */
+  macAddress?: string;
+  /** message carries free-form failure detail. */
+  message?: string;
+  /** phase details the DFU stage while flashing (preparing/writing/activating). */
+  phase?: string;
+  /** @format double */
+  progressPercent?: number;
+  /** reason is a stable failure classifier (e.g. dfu_write_failed). */
+  reason?: string;
+  /**
+   * serial is the stable R2 board identity. CT1 boards may also report it but
+   * retain mac_address as their identity.
+   */
+  serial?: string;
+  /**
+   * slot is the optional one-based R2 chassis observation.
+   * @format int64
+   */
+  slot?: number;
+  /** FirmwareTargetStatus is the lifecycle state of one board within a job. */
+  status?: V2FirmwareTargetStatus;
+  toVersion?: string;
+  /** @format date-time */
+  updatedAt?: string;
+}
+
+/** FrequencyRange defines requested ASIC PLL frequency sweep points in MHz. */
+export interface V2FrequencyRange {
+  /** @format int64 */
+  endFrequencyMhz?: number;
+  /** @format int64 */
+  startFrequencyMhz?: number;
+  /** @format int64 */
+  stepFrequencyMhz?: number;
+}
+
+export interface V2GetActiveFeedMappingRunResponse {
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  run?: V2FeedMappingRun;
+}
+
+export interface V2GetActivePowerRecoveryCycleResponse {
+  cycle?: V2PowerRecoveryCycle;
+}
+
+export interface V2GetActiveSoftFeedMappingRunResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  run?: V2SoftFeedMappingRun;
+}
+
+export interface V2GetAuthStatusResponse {
+  /**
+   * AuthStatus contains local authentication posture rather than operational
+   * system health. Presence distinguishes an authoritative false value from an
+   * implementation that cannot report the field.
+   */
+  status?: V2AuthStatus;
+}
+
+/** GetContainerControlsResponse lists the container plant controls and setpoints. */
+export interface V2GetContainerControlsResponse {
+  alarmMuteSupported?: boolean;
+  /**
+   * Alarm commands are separate capabilities because some controllers expose
+   * persistent plant controls without alarm reset or mute endpoints. Optional
+   * presence lets newer clients preserve alarm actions against older servers
+   * that predate these capability fields.
+   */
+  alarmResetSupported?: boolean;
+  controls?: V2ContainerControl[];
+  dryCoolerDirection?: V2DryCoolerDirectionMode;
+  dryCoolerFanReverse?: V2DryCoolerFanReverseStatus;
+  dryCoolerFanReverseSupported?: boolean;
+  mainCircuitBreakerClosed?: boolean;
+  /**
+   * main_circuit_breaker_supported advertises the dedicated open/close
+   * command. main_circuit_breaker_closed is authoritative PLC readback.
+   */
+  mainCircuitBreakerSupported?: boolean;
+  operatingParameters?: V2ContainerOperatingParameter[];
+  setpoints?: V2ContainerSetpoint[];
+  /**
+   * supported is false when the configured container backend has no plant
+   * controls (for example, ANEN); controls and setpoints are then empty.
+   */
+  supported?: boolean;
+}
+
+/** GetContainerHealthResponse contains a point-in-time container health snapshot. */
+export interface V2GetContainerHealthResponse {
+  alarms?: V2PlantAlarm[];
+  controls?: V2ContainerControl[];
+  coolingFans?: V2PlantCoolingFan[];
+  /** PlantCoolingFan contains one cooling fan's latest readings. */
+  dryCoolerDirection?: V2PlantCoolingFanDirection;
+  dryCoolerFanReverse?: V2DryCoolerFanReverseStatus;
+  faults?: V2PlantFault[];
+  operatingParameters?: V2PlantOperatingParameter[];
+  phases?: V2PhaseAggregate[];
+  /** PlantHealth contains normalized optional container-plant telemetry. */
+  plant?: V2PlantHealth;
+  powerDistributions?: V2PlantPowerDistribution[];
+  powerFeeds?: V2PowerFeed[];
+  setpoints?: V2ContainerSetpoint[];
+  /** @format date-time */
+  timestamp?: string;
+}
+
+export interface V2GetContainerMapResponse {
+  /** ContainerMap represents the full physical layout of a CT1 container. */
+  containerMap?: V2ContainerMap;
+}
+
+export interface V2GetCoolingConfigResponse {
+  /** CoolingConfig contains cooling system configuration. */
+  config?: V2CoolingConfig;
+  fans?: V2CoolingFanStatus[];
+}
+
+/** GetDevicePowerResponse contains aggregate device power consumption. */
+export interface V2GetDevicePowerResponse {
+  /** @format double */
+  avgVoltage?: number;
+  /** @format int32 */
+  boardCount?: number;
+  /** @format double */
+  efficiency?: number;
+  /** @format date-time */
+  timestamp?: string;
+  /** @format double */
+  totalAmps?: number;
+  /** @format double */
+  totalWatts?: number;
+}
+
+export interface V2GetFeedMappingReportResponse {
+  changes?: V2FeedMappingChange[];
+  /** True when more durable changes exist than were returned. */
+  changesTruncated?: boolean;
+  /** True when the current report succeeded but durable change history could not be read. */
+  changesUnavailable?: boolean;
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  report?: V2FeedMappingRun;
+}
+
+export interface V2GetFeedMappingRunResponse {
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  run?: V2FeedMappingRun;
+}
+
+export interface V2GetFirmwarePolicyResponse {
+  policy?: V2FirmwarePolicy;
+}
+
+export interface V2GetFirmwareUpdateResponse {
+  /** FirmwareUpdate is one firmware update job. */
+  update?: V2FirmwareUpdate;
+}
+
+export interface V2GetHardwareInfoResponse {
+  /** HardwareInfo contains hardware details. */
+  hardware?: V2HardwareInfo;
+}
+
+export interface V2GetHashboardASICMetadataResponse {
+  /** HashboardASICLayout describes the physical ASIC layout for a hashboard. */
+  layout?: V2HashboardASICLayout;
+  metadata?: V2ASICMetadata[];
+}
+
+export interface V2GetHashboardASICsResponse {
+  asics?: V2ASIC[];
+  /** HashboardASICLayout describes the physical ASIC layout for a hashboard. */
+  layout?: V2HashboardASICLayout;
+}
+
+export interface V2GetHashboardEventsResponse {
+  /**
+   * effective_window is the actual [start, end) window the server used after
+   * applying the default span and clamping, so clients know the real span
+   * covered by the returned events.
+   */
+  effectiveWindow?: V2TimeRange;
+  events?: V2HashboardEvent[];
+  /** mac_address is the legacy CT1 identity and is empty for R2. */
+  macAddress?: string;
+  /** serial is the stable R2 identity. */
+  serial?: string;
+  /**
+   * slot is the optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+}
+
+/**
+ * GetHashboardLifetimeResponse contains service-observed lifetime runtime.
+ * A nil first_observed_at means the selected board has not yet supplied a
+ * persisted health sample.
+ */
+export interface V2GetHashboardLifetimeResponse {
+  /** @format date-time */
+  firstObservedAt?: string;
+  /** mac_address is the legacy CT1 identity and is empty for R2. */
+  macAddress?: string;
+  /** @format uint64 */
+  miningTimeMs?: string;
+  /** @format uint64 */
+  poweredOnTimeMs?: string;
+  /** serial is the stable R2 identity. */
+  serial?: string;
+  /**
+   * slot is the current optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+}
+
+export interface V2GetHashboardResponse {
+  /** Hashboard represents a mining hashboard with its current state and health. */
+  hashboard?: V2Hashboard;
+}
+
+export interface V2GetHashboardRunInStatusResponse {
+  /** HashboardRunInTask is a status snapshot for a run-in task. */
+  task?: V2HashboardRunInTask;
+}
+
+/** GetLogsResponse contains a single log entry from the stream. */
+export interface V2GetLogsResponse {
+  component?: string;
+  /** LogLevel represents the severity level for log filtering. */
+  level?: V2LogLevel;
+  message?: string;
+  /** @format date-time */
+  timestamp?: string;
+}
+
+export interface V2GetManagedOperationalPolicyResponse {
+  state?: V2OperationalPolicyState;
+}
+
+/** GetMiningStatusResponse contains aggregate mining status. */
+export interface V2GetMiningStatusResponse {
+  /** @format int32 */
+  activeBoards?: number;
+  activePool?: string;
+  /** @format double */
+  averageAsicTemperatureC?: number;
+  /** @format double */
+  averageHashboardTemperatureC?: number;
+  boardsByState?: Record<string, number>;
+  /** @format double */
+  efficiency?: number;
+  /** @format double */
+  hashrate?: number;
+  /** @format double */
+  hashrateIdeal?: number;
+  mining?: boolean;
+  /**
+   * MiningOperatingState identifies the device-level mining outcome. This is
+   * intentionally separate from the per-hashboard MiningState state machine.
+   */
+  operatingState?: V2MiningOperatingState;
+  /** @format double */
+  power?: number;
+  /** @format double */
+  shareAcceptanceRate?: number;
+  /** @format int32 */
+  totalBoards?: number;
+  /** @format int64 */
+  uptimeSeconds?: string;
+}
+
+export interface V2GetNetworkConfigResponse {
+  /** NetworkConfig contains network interface configuration. */
+  config?: V2NetworkConfig;
+}
+
+/**
+ * GetPoolDiagnosticsResponse contains per-configured-enabled-pool runtime
+ * connection diagnostics reflecting this node's live pool connections. Only
+ * enabled pools are tracked, so disabled pools are absent.
+ */
+export interface V2GetPoolDiagnosticsResponse {
+  /**
+   * active_pool_id is the highest-priority active pool for compatibility;
+   * inspect each pool's is_active field when weighted_mode is true.
+   * @format int64
+   */
+  activePoolId?: string;
+  pools?: V2PoolConnectionDiagnostics[];
+  weightedMode?: boolean;
+}
+
+export interface V2GetPoolResponse {
+  /**
+   * Pool represents a mining pool configuration.
+   * The password field is write-only and never included in responses.
+   */
+  pool?: V2Pool;
+}
+
+export interface V2GetSSHConfigResponse {
+  /** SSHConfig contains SSH daemon configuration. */
+  config?: V2SSHConfig;
+}
+
+export interface V2GetShareQualityResponse {
+  byBoard?: V2ShareQualityStats[];
+  byPool?: V2ShareQualityStats[];
+  /**
+   * ShareQualityStats contains share acceptance metrics for a single grouping.
+   * key is the CT1 MAC address for by_board entries, the pool name for by_pool
+   * entries, and empty for the total aggregate. R2 by_board entries use serial.
+   */
+  total?: V2ShareQualityStats;
+  /** ShareQualityWindow selects the rolling window for share quality statistics. */
+  window?: V2ShareQualityWindow;
+}
+
+export interface V2GetSoftFeedMappingReportResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  report?: V2SoftFeedMappingRun;
+}
+
+export interface V2GetSoftFeedMappingRunResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  run?: V2SoftFeedMappingRun;
+}
+
+export interface V2GetSystemInfoResponse {
+  /** SystemInfo contains static system information. */
+  info?: V2SystemInfo;
+}
+
+export interface V2GetSystemStatusResponse {
+  /** SystemStatus contains current system status. */
+  status?: V2SystemStatus;
+}
+
+export interface V2GetTargetPowerResponse {
+  balanceBays?: boolean;
+  /** @format double */
+  defaultWatts?: number;
+  hashOnDisconnect?: boolean;
+  /** @format double */
+  maximumWatts?: number;
+  /** @format double */
+  minimumWatts?: number;
+  /**
+   * PerformanceMode selects whether the miner prioritizes maximum hashrate or
+   * efficiency within its power target. It is distinct from TuningAlgorithm.
+   */
+  performanceMode?: V2PerformanceMode;
+  /**
+   * watts is the current applied target.
+   * @format double
+   */
+  watts?: number;
+}
+
+/** GetTuningResponse reports the canonical tuning algorithm currently applied. */
+export interface V2GetTuningResponse {
+  /**
+   * TuningAlgorithm names the canonical mining tuning algorithm shared by all
+   * products. Implementations map these semantic values to their native tuning
+   * engine without exposing product-specific enum fields on the MDK API.
+   */
+  mode?: V2TuningAlgorithm;
+}
+
+export interface V2GetUnlockStatusResponse {
+  /** UnlockStatus contains the device unlock state. */
+  status?: V2UnlockStatus;
+}
+
+/**
+ * HARecoveryPhase identifies the highest-priority recovery work still in
+ * progress. Values are ordered by the runtime sequence, not by severity.
+ * @default "HA_RECOVERY_PHASE_UNSPECIFIED"
+ */
+export enum V2HARecoveryPhase {
+  HA_RECOVERY_PHASE_UNSPECIFIED = "HA_RECOVERY_PHASE_UNSPECIFIED",
+  HA_RECOVERY_PHASE_STEADY = "HA_RECOVERY_PHASE_STEADY",
+  HA_RECOVERY_PHASE_DATABASE = "HA_RECOVERY_PHASE_DATABASE",
+  HA_RECOVERY_PHASE_CONTROL_STATE = "HA_RECOVERY_PHASE_CONTROL_STATE",
+  HA_RECOVERY_PHASE_ASSIGNMENTS = "HA_RECOVERY_PHASE_ASSIGNMENTS",
+  HA_RECOVERY_PHASE_FLOTILLA_SYNC = "HA_RECOVERY_PHASE_FLOTILLA_SYNC",
+}
+
+/**
+ * HARecoveryState describes whether this Frigate process has returned to a
+ * trustworthy steady state after a Patroni primary transition.
+ * @default "HA_RECOVERY_STATE_UNSPECIFIED"
+ */
+export enum V2HARecoveryState {
+  HA_RECOVERY_STATE_UNSPECIFIED = "HA_RECOVERY_STATE_UNSPECIFIED",
+  HA_RECOVERY_STATE_STEADY = "HA_RECOVERY_STATE_STEADY",
+  HA_RECOVERY_STATE_RECONCILING = "HA_RECOVERY_STATE_RECONCILING",
+  HA_RECOVERY_STATE_DEGRADED = "HA_RECOVERY_STATE_DEGRADED",
+}
+
+/**
+ * HARecoveryStatus is bounded, machine-readable progress for one post-Patroni
+ * recovery episode. It is process-local status backed by shared assignment
+ * authority; it is not a durable workflow record.
+ */
+export interface V2HARecoveryStatus {
+  assignmentCounts?: Record<string, number>;
+  /** @format int64 */
+  deferredFullSyncs?: number;
+  detail?: string;
+  /** @format int64 */
+  expectedBoards?: number;
+  historyDeferred?: boolean;
+  /**
+   * HARecoveryPhase identifies the highest-priority recovery work still in
+   * progress. Values are ordered by the runtime sequence, not by severity.
+   */
+  phase?: V2HARecoveryPhase;
+  primaryInstance?: string;
+  /** @format int64 */
+  reconciledBoards?: number;
+  /** @format date-time */
+  startedAt?: string;
+  /**
+   * HARecoveryState describes whether this Frigate process has returned to a
+   * trustworthy steady state after a Patroni primary transition.
+   */
+  state?: V2HARecoveryState;
+  /** @format date-time */
+  updatedAt?: string;
+}
+
+/**
+ * HARole identifies this server's role in a high-availability cluster.
+ * @default "HA_ROLE_UNSPECIFIED"
+ */
+export enum V2HARole {
+  HA_ROLE_UNSPECIFIED = "HA_ROLE_UNSPECIFIED",
+  HA_ROLE_PRIMARY = "HA_ROLE_PRIMARY",
+  HA_ROLE_STANDBY = "HA_ROLE_STANDBY",
+  HA_ROLE_FENCED = "HA_ROLE_FENCED",
+}
+
+/** HardwareInfo contains hardware details. */
+export interface V2HardwareInfo {
+  /** ControlBoardInfo contains stable control-board hardware identity. */
+  controlBoard?: V2ControlBoardInfo;
+  coolingFans?: V2CoolingFanInfo[];
+  model?: string;
+  powerSupplies?: V2PowerSupplySummary[];
+  /** @format int32 */
+  psuCount?: number;
+  /**
+   * recorded_hashboards contains only static, display-only inventory evidence.
+   * An empty collection means there is no recorded evidence; it does not
+   * establish that the chassis currently contains no hashboards. Consumers
+   * must use HashboardService for current presence.
+   */
+  recordedHashboards?: V2RecordedHashboardInventory[];
+  /** @format int32 */
+  slotCount?: number;
+}
+
+/**
+ * HardwareRev mirrors the hashboard firmware hardware_revision enum
+ * (lib/hashboard/lib/protobuf/protos/hashboard_cmd.proto) value for value, so
+ * clients can compare it numerically against the advertised
+ * Hashboard.hw_revision string without re-implementing hbmeta's
+ * metadata-revision translation.
+ * @default "HARDWARE_REV_UNSPECIFIED"
+ */
+export enum V2HardwareRev {
+  HARDWARE_REV_UNSPECIFIED = "HARDWARE_REV_UNSPECIFIED",
+  HARDWARE_REV_B2_PROTO_1 = "HARDWARE_REV_B2_PROTO_1",
+  HARDWARE_REV_B2_EVT = "HARDWARE_REV_B2_EVT",
+  HARDWARE_REV_B3A_DEV = "HARDWARE_REV_B3A_DEV",
+  HARDWARE_REV_B3A_PROTO_1 = "HARDWARE_REV_B3A_PROTO_1",
+  HARDWARE_REV_B3B_PROTO_1 = "HARDWARE_REV_B3B_PROTO_1",
+  HARDWARE_REV_B3A_MP = "HARDWARE_REV_B3A_MP",
+  HARDWARE_REV_B3B_MP = "HARDWARE_REV_B3B_MP",
+  HARDWARE_REV_B4_192_PROTO_0 = "HARDWARE_REV_B4_192_PROTO_0",
+  HARDWARE_REV_B4_192_PROTO_1 = "HARDWARE_REV_B4_192_PROTO_1",
+  HARDWARE_REV_B4_128_PROTO_1 = "HARDWARE_REV_B4_128_PROTO_1",
+  HARDWARE_REV_B4_192_PROTO_2 = "HARDWARE_REV_B4_192_PROTO_2",
+  HARDWARE_REV_B4_128_PROTO_2 = "HARDWARE_REV_B4_128_PROTO_2",
+  HARDWARE_REV_F1_PROTO_1A = "HARDWARE_REV_F1_PROTO_1A",
+  HARDWARE_REV_F1_PROTO_1B = "HARDWARE_REV_F1_PROTO_1B",
+  HARDWARE_REV_F1_EVT = "HARDWARE_REV_F1_EVT",
+  HARDWARE_REV_F1_EVT2 = "HARDWARE_REV_F1_EVT2",
+}
+
+/** Hashboard represents a mining hashboard with its current state and health. */
+export interface V2Hashboard {
+  apiVersion?: string;
+  /**
+   * asic_bin is the complete board-level CP-bin summary decoded from ASIC
+   * eFuse GRWVPL values. It is one exact TUI-compatible name (for example
+   * "Z11" or "M04"), a catalogued V8 mixed-bin PCBA recipe label when its
+   * distinct-bin presence signature matches exactly (for example "3A08MX1"),
+   * "Mixed" for other complete valid mixtures, or empty when metadata is
+   * unavailable, incomplete, or invalid. Recipe labels do not verify bin
+   * multiplicity or placement.
+   */
+  asicBin?: string;
+  asicModel?: string;
+  chipId?: string;
+  /** @format int64 */
+  expectedAsicCount?: number;
+  /**
+   * Abbreviated commit hash extracted from the active firmware image's Git
+   * describe identifier, for example "1a2b3c4". Populated only for boards
+   * with a live local connection; empty when firmware metadata has not been read.
+   */
+  firmwareGitHash?: string;
+  /** Semantic hashboard firmware version advertised over L2, for example "1.2.3". */
+  firmwareVersion?: string;
+  /** HashboardHealth contains real-time health metrics for a hashboard. */
+  health?: V2HashboardHealth;
+  hwRevision?: string;
+  /**
+   * isolated is true when this board is excluded from cluster start/stop and the
+   * mining-intent reconciler. Set via MiningService.SetIsolation. Reflects only
+   * the serving node's process-local isolation set; it is always false for
+   * boards with source HASHBOARD_SOURCE_REMOTE even if the owning node has
+   * isolated them.
+   */
+  isolated?: boolean;
+  /** HashboardLocation describes the physical position of a hashboard. */
+  location?: V2HashboardLocation;
+  /**
+   * mac_address is the legacy CT1 board identity. It is empty for R2 and must
+   * never contain a synthesized address.
+   */
+  macAddress?: string;
+  /** MiningState represents the operational state of a hashboard. */
+  miningState?: V2MiningState;
+  /**
+   * Latest module ID as 16-character lowercase hex. Live advertisements take
+   * precedence, with the shared last-known identity used across restart/HA.
+   */
+  moduleId?: string;
+  /** @format int64 */
+  observedAsicCount?: number;
+  ownerServerId?: string;
+  /** @format double */
+  powerTargetMaxWatts?: number;
+  /**
+   * power_target_min_watts and power_target_max_watts are the latest valid
+   * per-board tuning limits advertised by locally connected firmware.
+   * @format double
+   */
+  powerTargetMinWatts?: number;
+  /** psu_identity is durable module-level enrichment keyed by module_id. */
+  psuIdentity?: V2PsuIdentity;
+  /**
+   * Power supply type reported by firmware health telemetry, for example
+   * "BOCO" or "WELLTIP". Populated only for boards with a live local
+   * connection; empty when the type has not been reported.
+   */
+  psuType?: string;
+  /**
+   * recovery is present while bounded automatic READY retries are active or
+   * exhausted for a protected MC3 firmware recovery episode.
+   */
+  recovery?: V2HashboardRecovery;
+  /**
+   * serial is the stable physical identity for R2 and must be populated. CT1
+   * retains its existing MAC identity and may also report a serial.
+   */
+  serial?: string;
+  /** HashboardSource describes where the board state in this response came from. */
+  source?: V2HashboardSource;
+}
+
+/** HashboardASICErrorState contains ASIC-specific detail for an error. */
+export interface V2HashboardASICErrorState {
+  /** @format int64 */
+  id?: number;
+  /** @format double */
+  temperature?: number;
+  /** @format double */
+  voltage?: number;
+  /** HashboardVoltageDomain identifies the ASIC voltage domain involved in an error. */
+  voltageDomain?: V2HashboardVoltageDomain;
+}
+
+/** HashboardASICLayout describes the physical ASIC layout for a hashboard. */
+export interface V2HashboardASICLayout {
+  /** @format int32 */
+  asicsPerStack?: number;
+  entries?: V2ASICLayoutEntry[];
+  /** @format int32 */
+  stackCount?: number;
+  /** @format int32 */
+  totalAsics?: number;
+}
+
+/**
+ * HashboardErrorCause identifies a firmware-reported hashboard error cause.
+ * @default "HASHBOARD_ERROR_CAUSE_UNSPECIFIED"
+ */
+export enum V2HashboardErrorCause {
+  HASHBOARD_ERROR_CAUSE_UNSPECIFIED = "HASHBOARD_ERROR_CAUSE_UNSPECIFIED",
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT = "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT",
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_VOLTAGE = "HASHBOARD_ERROR_CAUSE_BOARD_OVER_VOLTAGE",
+  HASHBOARD_ERROR_CAUSE_BOARD_UNDER_VOLTAGE = "HASHBOARD_ERROR_CAUSE_BOARD_UNDER_VOLTAGE",
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE = "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE",
+  HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY = "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY",
+  HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE = "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE",
+  HASHBOARD_ERROR_CAUSE_BOARD_EXCESSIVE_BUSBAR_VOLTAGE_DROP = "HASHBOARD_ERROR_CAUSE_BOARD_EXCESSIVE_BUSBAR_VOLTAGE_DROP",
+  HASHBOARD_ERROR_CAUSE_BLACKBOX_STORAGE_FAULT = "HASHBOARD_ERROR_CAUSE_BLACKBOX_STORAGE_FAULT",
+  HASHBOARD_ERROR_CAUSE_ASIC_OVER_VOLTAGE = "HASHBOARD_ERROR_CAUSE_ASIC_OVER_VOLTAGE",
+  HASHBOARD_ERROR_CAUSE_ASIC_UNDER_VOLTAGE = "HASHBOARD_ERROR_CAUSE_ASIC_UNDER_VOLTAGE",
+  HASHBOARD_ERROR_CAUSE_ASIC_OVER_TEMPERATURE = "HASHBOARD_ERROR_CAUSE_ASIC_OVER_TEMPERATURE",
+  HASHBOARD_ERROR_CAUSE_ASIC_UNDER_TEMPERATURE = "HASHBOARD_ERROR_CAUSE_ASIC_UNDER_TEMPERATURE",
+  HASHBOARD_ERROR_CAUSE_ASIC_ENUMERATION = "HASHBOARD_ERROR_CAUSE_ASIC_ENUMERATION",
+  HASHBOARD_ERROR_CAUSE_ASIC_ECC = "HASHBOARD_ERROR_CAUSE_ASIC_ECC",
+  HASHBOARD_ERROR_CAUSE_ASIC_CORNER_TEMPERATURE_DELTA = "HASHBOARD_ERROR_CAUSE_ASIC_CORNER_TEMPERATURE_DELTA",
+  HASHBOARD_ERROR_CAUSE_ASIC_LEADING_EDGE_TEMPERATURE_DELTA = "HASHBOARD_ERROR_CAUSE_ASIC_LEADING_EDGE_TEMPERATURE_DELTA",
+  HASHBOARD_ERROR_CAUSE_ASIC_TRAILING_EDGE_TEMPERATURE_DELTA = "HASHBOARD_ERROR_CAUSE_ASIC_TRAILING_EDGE_TEMPERATURE_DELTA",
+  HASHBOARD_ERROR_CAUSE_ASIC_HOTSPOT_TEMPERATURE_DELTA = "HASHBOARD_ERROR_CAUSE_ASIC_HOTSPOT_TEMPERATURE_DELTA",
+  HASHBOARD_ERROR_CAUSE_SOFTWARE_ERROR = "HASHBOARD_ERROR_CAUSE_SOFTWARE_ERROR",
+  HASHBOARD_ERROR_CAUSE_USB_ERROR = "HASHBOARD_ERROR_CAUSE_USB_ERROR",
+  HASHBOARD_ERROR_CAUSE_MC3_STARTUP_TIMEOUT = "HASHBOARD_ERROR_CAUSE_MC3_STARTUP_TIMEOUT",
+  HASHBOARD_ERROR_CAUSE_MC3_STARTUP_FAILED = "HASHBOARD_ERROR_CAUSE_MC3_STARTUP_FAILED",
+  HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING = "HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING",
+  HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT = "HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT",
+  HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP = "HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP",
+  HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = "HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION",
+  HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR",
+}
+
+/** HashboardEvent is a single entry in a hashboard's event history. */
+export interface V2HashboardEvent {
+  /** where present on the cause. */
+  asic?: V2HashboardASICErrorState;
+  /** error/warning/last-shutdown only. */
+  cause?: V2HashboardErrorCause;
+  /**
+   * occurrences within window (aggregated cause events).
+   * @format int32
+   */
+  count?: number;
+  /** human-readable summary. */
+  detail?: string;
+  /** state-change only. */
+  fromState?: V2MiningState;
+  /** isolation only. */
+  isolatedBy?: string;
+  /** isolation only. */
+  isolationReason?: string;
+  /**
+   * error/warning/last-shutdown only.
+   * @format date-time
+   */
+  lastSeen?: string;
+  /**
+   * For aggregated cause events, first-seen time.
+   * @format date-time
+   */
+  time?: string;
+  /** state-change only. */
+  toState?: V2MiningState;
+  /** HashboardEventType categorizes an entry in a hashboard event history. */
+  type?: V2HashboardEventType;
+}
+
+/**
+ * HashboardEventType categorizes an entry in a hashboard event history.
+ * @default "HASHBOARD_EVENT_TYPE_UNSPECIFIED"
+ */
+export enum V2HashboardEventType {
+  HASHBOARD_EVENT_TYPE_UNSPECIFIED = "HASHBOARD_EVENT_TYPE_UNSPECIFIED",
+  HASHBOARD_EVENT_TYPE_MINING_STATE_CHANGE = "HASHBOARD_EVENT_TYPE_MINING_STATE_CHANGE",
+  HASHBOARD_EVENT_TYPE_ERROR = "HASHBOARD_EVENT_TYPE_ERROR",
+  HASHBOARD_EVENT_TYPE_WARNING = "HASHBOARD_EVENT_TYPE_WARNING",
+  HASHBOARD_EVENT_TYPE_ISOLATION = "HASHBOARD_EVENT_TYPE_ISOLATION",
+  HASHBOARD_EVENT_TYPE_LAST_SHUTDOWN = "HASHBOARD_EVENT_TYPE_LAST_SHUTDOWN",
+}
+
+/** HashboardHealth contains real-time health metrics for a hashboard. */
+export interface V2HashboardHealth {
+  /**
+   * average_asic_temperature_c is absent when the source cannot distinguish
+   * ASIC temperature from other board sensors.
+   * @format double
+   */
+  averageAsicTemperatureC?: number;
+  /** @format double */
+  current?: number;
+  errors?: V2HashboardHealthError[];
+  /**
+   * Mean ASIC Fbest headroom in MHz, present only after firmware FMargin has
+   * produced a valid sample for the current controller run.
+   * @format double
+   */
+  fmarginMeanMhz?: number;
+  hashrailOk?: boolean;
+  /** @format double */
+  hashrate?: number;
+  /** @format double */
+  hashrateIdeal?: number;
+  /**
+   * Latched reason for the most recent mining shutdown. This is diagnostic
+   * history and must not be counted as an active error.
+   */
+  lastShutdownError?: V2HashboardHealthError;
+  /**
+   * HashboardPerformanceTuningAlgorithm is the performance tuning algorithm
+   * currently selected by the hashboard firmware. Presence on HashboardHealth
+   * distinguishes a reported NONE value from legacy health telemetry.
+   */
+  performanceTuningAlgorithm?: V2HashboardPerformanceTuningAlgorithm;
+  /** @format double */
+  power?: number;
+  /** PsuElectricalHealth contains one complete power-supply electrical snapshot. */
+  psuElectrical?: V2PsuElectricalHealth;
+  /** PsuThermalHealth contains the power supply's thermal telemetry. */
+  psuThermal?: V2PsuThermalHealth;
+  refclksOk?: boolean;
+  temperatureSensors?: V2BoardTemperatureSensor[];
+  temperatures?: number[];
+  /** @format date-time */
+  timestamp?: string;
+  /**
+   * Firmware RTOS uptime in milliseconds.
+   * @format uint64
+   */
+  uptime?: string;
+  /** @format double */
+  voltage?: number;
+  /**
+   * HashboardVoltageTuningState is the firmware-reported automatic PSU voltage
+   * tuning state. Presence on HashboardHealth distinguishes a reported DISABLED
+   * state from a board that has not supplied health telemetry yet.
+   */
+  voltageTuningState?: V2HashboardVoltageTuningState;
+  warnings?: V2HashboardHealthError[];
+}
+
+/** HashboardHealthError is a firmware-reported error or warning. */
+export interface V2HashboardHealthError {
+  /** HashboardASICErrorState contains ASIC-specific detail for an error. */
+  asic?: V2HashboardASICErrorState;
+  /** HashboardErrorCause identifies a firmware-reported hashboard error cause. */
+  cause?: V2HashboardErrorCause;
+  /** @format int64 */
+  firmwareTimestamp?: number;
+}
+
+/**
+ * HashboardHistoricalIdentityEvidence is the last valid occupied identity
+ * observed in one physical slot. It can be rendered while the current slot is
+ * UNKNOWN or EMPTY, but it is never current authority. After a board moves, the
+ * same serial_number can appear in more than one slot's history; board-catalog
+ * consumers should retain the newest observed_at.
+ */
+export interface V2HashboardHistoricalIdentityEvidence {
+  /** @format date-time */
+  observedAt?: string;
+  serialNumber?: string;
+}
+
+/**
+ * HashboardIdentifyLEDMode is the operator-requested identification LED mode.
+ * @default "HASHBOARD_IDENTIFY_LED_MODE_UNSPECIFIED"
+ */
+export enum V2HashboardIdentifyLEDMode {
+  HASHBOARD_IDENTIFY_LED_MODE_UNSPECIFIED = "HASHBOARD_IDENTIFY_LED_MODE_UNSPECIFIED",
+  HASHBOARD_IDENTIFY_LED_MODE_OFF = "HASHBOARD_IDENTIFY_LED_MODE_OFF",
+  HASHBOARD_IDENTIFY_LED_MODE_BLINK = "HASHBOARD_IDENTIFY_LED_MODE_BLINK",
+}
+
+/** HashboardLocation describes the physical position of a hashboard. */
+export interface V2HashboardLocation {
+  /**
+   * hashboard_position is the resolved one-based board position within a CT1
+   * module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+   * cannot place the board safely.
+   * @format int64
+   */
+  hashboardPosition?: number;
+  /**
+   * hashboard_position_source describes whether the resolved position came
+   * from firmware identity or the deterministic legacy MAC-order fallback.
+   */
+  hashboardPositionSource?: V2HashboardPositionSource;
+  /** @format int32 */
+  module?: number;
+  powerFeedId?: string;
+  /**
+   * slot is the optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+  /** @format int32 */
+  tank?: number;
+}
+
+/**
+ * HashboardPerformanceTuningAlgorithm is the performance tuning algorithm
+ * currently selected by the hashboard firmware. Presence on HashboardHealth
+ * distinguishes a reported NONE value from legacy health telemetry.
+ * @default "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_UNSPECIFIED"
+ */
+export enum V2HashboardPerformanceTuningAlgorithm {
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_UNSPECIFIED = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_UNSPECIFIED",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_NONE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_NONE",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_VOLTAGE_IMBALANCE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_VOLTAGE_IMBALANCE",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED",
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+}
+
+/**
+ * HashboardPositionSource identifies the evidence used to place a CT1 board
+ * within its three-board module.
+ * @default "HASHBOARD_POSITION_SOURCE_UNSPECIFIED"
+ */
+export enum V2HashboardPositionSource {
+  HASHBOARD_POSITION_SOURCE_UNSPECIFIED = "HASHBOARD_POSITION_SOURCE_UNSPECIFIED",
+  HASHBOARD_POSITION_SOURCE_FIRMWARE = "HASHBOARD_POSITION_SOURCE_FIRMWARE",
+  HASHBOARD_POSITION_SOURCE_MAC_ORDER = "HASHBOARD_POSITION_SOURCE_MAC_ORDER",
+}
+
+/** HashboardPower contains power consumption data for a single hashboard. */
+export interface V2HashboardPower {
+  /**
+   * current is board input current in amperes.
+   * @format double
+   */
+  current?: number;
+  /**
+   * hashrate is board hashrate in terahashes per second.
+   * @format double
+   */
+  hashrate?: number;
+  /**
+   * mac_address is the legacy CT1 board identity. It is empty for R2 and must
+   * never contain a synthesized address.
+   */
+  macAddress?: string;
+  /** serial is the stable R2 board identity. */
+  serial?: string;
+  /**
+   * slot is the optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+  /**
+   * voltage is board input voltage in volts.
+   * @format double
+   */
+  voltage?: number;
+  /**
+   * watts is instantaneous board power in watts.
+   * @format double
+   */
+  watts?: number;
+}
+
+/** HashboardRecovery is the shared HA-safe automatic READY retry state. */
+export interface V2HashboardRecovery {
+  /** HashboardErrorCause identifies a firmware-reported hashboard error cause. */
+  cause?: V2HashboardErrorCause;
+  controllerServerId?: string;
+  exhausted?: boolean;
+  /** @format int64 */
+  maxAttempts?: number;
+  /** @format date-time */
+  nextRetryAt?: string;
+  /** @format int64 */
+  retryCount?: number;
+}
+
+/** HashboardRunInConfig configures a single hashboard run-in task. */
+export interface V2HashboardRunInConfig {
+  /** RunInArtifactDetail controls the telemetry detail persisted in a result artifact. */
+  artifactDetail?: V2RunInArtifactDetail;
+  /** @format double */
+  boardPowerTargetWatts?: number;
+  cooldownDuration?: string;
+  duration?: string;
+  /** PerformanceSweep configures optional target-power sweep steps. */
+  performanceSweep?: V2PerformanceSweep;
+  sampleInterval?: string;
+  /** HashboardRunInStopCriteria configures failure criteria. */
+  stopCriteria?: V2HashboardRunInStopCriteria;
+  stopMiningOnFinish?: boolean;
+  /** TuningSweep configures fixed-voltage points crossed with either fixed-frequency or power-target/PLL-algorithm points. */
+  tuningSweep?: V2TuningSweep;
+}
+
+/**
+ * HashboardRunInStatus is the lifecycle state of a run-in task.
+ * @default "HASHBOARD_RUN_IN_STATUS_UNSPECIFIED"
+ */
+export enum V2HashboardRunInStatus {
+  HASHBOARD_RUN_IN_STATUS_UNSPECIFIED = "HASHBOARD_RUN_IN_STATUS_UNSPECIFIED",
+  HASHBOARD_RUN_IN_STATUS_QUEUED = "HASHBOARD_RUN_IN_STATUS_QUEUED",
+  HASHBOARD_RUN_IN_STATUS_RUNNING = "HASHBOARD_RUN_IN_STATUS_RUNNING",
+  HASHBOARD_RUN_IN_STATUS_COOLDOWN = "HASHBOARD_RUN_IN_STATUS_COOLDOWN",
+  HASHBOARD_RUN_IN_STATUS_COMPLETED = "HASHBOARD_RUN_IN_STATUS_COMPLETED",
+  HASHBOARD_RUN_IN_STATUS_COMPLETED_WITH_WARNINGS = "HASHBOARD_RUN_IN_STATUS_COMPLETED_WITH_WARNINGS",
+  HASHBOARD_RUN_IN_STATUS_FAILED = "HASHBOARD_RUN_IN_STATUS_FAILED",
+  HASHBOARD_RUN_IN_STATUS_CANCELED = "HASHBOARD_RUN_IN_STATUS_CANCELED",
+}
+
+/** HashboardRunInStopCriteria configures failure criteria. */
+export interface V2HashboardRunInStopCriteria {
+  /** ASICStopCriteria applies to ASIC-level telemetry. */
+  asic?: V2ASICStopCriteria;
+  /** HashboardStopCriteria applies to board-level telemetry. */
+  hashboard?: V2HashboardStopCriteria;
+}
+
+/** HashboardRunInTask is a status snapshot for a run-in task. */
+export interface V2HashboardRunInTask {
+  compressedSha256?: string;
+  /**
+   * Requested fixed PSU voltage for the active tuning-sweep point. Zero when
+   * the task is not currently executing a fixed-voltage point.
+   * @format int64
+   */
+  activeVoltageSetpointMillivolts?: number;
+  /** RunInArtifactDetail controls the telemetry detail persisted in a result artifact. */
+  artifactDetail?: V2RunInArtifactDetail;
+  /** @format date-time */
+  artifactFinalizedAt?: string;
+  artifactState?: string;
+  /** @format int32 */
+  artifactVersion?: number;
+  boards?: V2RunInTaskBoard[];
+  /** @format int64 */
+  compressedSize?: string;
+  /** @format date-time */
+  endedAt?: string;
+  finalFilename?: string;
+  macAddress?: string;
+  moduleId?: string;
+  originalIdentifier?: string;
+  reason?: string;
+  resultReady?: boolean;
+  /** @format date-time */
+  retentionExpiresAt?: string;
+  serial?: string;
+  serverId?: string;
+  /** @format date-time */
+  startedAt?: string;
+  /** HashboardRunInStatus is the lifecycle state of a run-in task. */
+  status?: V2HashboardRunInStatus;
+  taskId?: string;
+  /** @format int64 */
+  uncompressedSize?: string;
+  validationStage?: string;
+  validationState?: string;
+  voltageLeaderMac?: string;
+}
+
+/**
+ * HashboardSlotState distinguishes incomplete observations from confirmed
+ * empty and occupied chassis slots.
+ * @default "HASHBOARD_SLOT_STATE_UNSPECIFIED"
+ */
+export enum V2HashboardSlotState {
+  HASHBOARD_SLOT_STATE_UNSPECIFIED = "HASHBOARD_SLOT_STATE_UNSPECIFIED",
+  HASHBOARD_SLOT_STATE_UNKNOWN = "HASHBOARD_SLOT_STATE_UNKNOWN",
+  HASHBOARD_SLOT_STATE_EMPTY = "HASHBOARD_SLOT_STATE_EMPTY",
+  HASHBOARD_SLOT_STATE_OCCUPIED = "HASHBOARD_SLOT_STATE_OCCUPIED",
+}
+
+/**
+ * HashboardSource describes where the board state in this response came from.
+ * @default "HASHBOARD_SOURCE_UNSPECIFIED"
+ */
+export enum V2HashboardSource {
+  HASHBOARD_SOURCE_UNSPECIFIED = "HASHBOARD_SOURCE_UNSPECIFIED",
+  HASHBOARD_SOURCE_LOCAL = "HASHBOARD_SOURCE_LOCAL",
+  HASHBOARD_SOURCE_REMOTE = "HASHBOARD_SOURCE_REMOTE",
+  HASHBOARD_SOURCE_INVENTORY = "HASHBOARD_SOURCE_INVENTORY",
+}
+
+/** HashboardStopCriteria applies to board-level telemetry. */
+export interface V2HashboardStopCriteria {
+  /** @format double */
+  maxPower?: number;
+  /** @format double */
+  maxTemperature?: number;
+  /** @format double */
+  maxVoltage?: number;
+  /** @format double */
+  minHashrate?: number;
+  /** @format double */
+  minHashrateIdealRatio?: number;
+  /** @format double */
+  minVoltage?: number;
+  /**
+   * mining_dropout_duration is the continuous post-ramp zero-hash or
+   * non-operational window before the run fails. Zero defaults to 30 seconds.
+   */
+  miningDropoutDuration?: string;
+}
+
+/**
+ * HashboardTopology describes the bounded R2 chassis topology. The whole
+ * message is omitted for products without a fixed slot topology. capacity is
+ * the nonzero number of physical slots. generation changes whenever capacity,
+ * current slot state, or current serial identity changes; a last_known-only
+ * update does not change generation. complete is true only when slots contains
+ * exactly one EMPTY or OCCUPIED observation for every slot from 1 through
+ * capacity. Each OCCUPIED entry must match exactly one Hashboard in the same
+ * ListHashboardsResponse by serial, and its HashboardLocation.slot must agree.
+ * When complete is false, an unreported slot is UNKNOWN and must never be
+ * inferred to be EMPTY.
+ */
+export interface V2HashboardTopology {
+  /** @format int64 */
+  capacity?: number;
+  complete?: boolean;
+  /** @format uint64 */
+  generation?: string;
+  slots?: V2HashboardTopologySlot[];
+}
+
+/**
+ * HashboardTopologySlot is one one-based chassis slot observation. slot must be
+ * within [1, HashboardTopology.capacity], and a topology must not contain the
+ * same slot more than once. UNSPECIFIED is never valid in an emitted slot.
+ * OCCUPIED requires serial_number; UNKNOWN and EMPTY require it to be empty.
+ */
+export interface V2HashboardTopologySlot {
+  /**
+   * last_known is historical evidence only. It is emitted only for UNKNOWN or
+   * EMPTY slots because an OCCUPIED slot already carries current identity.
+   */
+  lastKnown?: V2HashboardHistoricalIdentityEvidence;
+  serialNumber?: string;
+  /** @format int64 */
+  slot?: number;
+  /**
+   * HashboardSlotState distinguishes incomplete observations from confirmed
+   * empty and occupied chassis slots.
+   */
+  state?: V2HashboardSlotState;
+}
+
+/**
+ * HashboardVoltageDomain identifies the ASIC voltage domain involved in an error.
+ * @default "HASHBOARD_VOLTAGE_DOMAIN_UNSPECIFIED"
+ */
+export enum V2HashboardVoltageDomain {
+  HASHBOARD_VOLTAGE_DOMAIN_UNSPECIFIED = "HASHBOARD_VOLTAGE_DOMAIN_UNSPECIFIED",
+  HASHBOARD_VOLTAGE_DOMAIN_VDD = "HASHBOARD_VOLTAGE_DOMAIN_VDD",
+  HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI3 = "HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI3",
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VDDI2 = "HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VDDI2",
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI2_VDDI1 = "HASHBOARD_VOLTAGE_DOMAIN_VDDI2_VDDI1",
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI1 = "HASHBOARD_VOLTAGE_DOMAIN_VDDI1",
+  HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI1 = "HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI1",
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VSS = "HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VSS",
+}
+
+/**
+ * HashboardVoltageTuningState is the firmware-reported automatic PSU voltage
+ * tuning state. Presence on HashboardHealth distinguishes a reported DISABLED
+ * state from a board that has not supplied health telemetry yet.
+ * @default "HASHBOARD_VOLTAGE_TUNING_STATE_UNSPECIFIED"
+ */
+export enum V2HashboardVoltageTuningState {
+  HASHBOARD_VOLTAGE_TUNING_STATE_UNSPECIFIED = "HASHBOARD_VOLTAGE_TUNING_STATE_UNSPECIFIED",
+  HASHBOARD_VOLTAGE_TUNING_STATE_DISABLED = "HASHBOARD_VOLTAGE_TUNING_STATE_DISABLED",
+  HASHBOARD_VOLTAGE_TUNING_STATE_INIT = "HASHBOARD_VOLTAGE_TUNING_STATE_INIT",
+  HASHBOARD_VOLTAGE_TUNING_STATE_SWEEP = "HASHBOARD_VOLTAGE_TUNING_STATE_SWEEP",
+  HASHBOARD_VOLTAGE_TUNING_STATE_TUNING = "HASHBOARD_VOLTAGE_TUNING_STATE_TUNING",
+  HASHBOARD_VOLTAGE_TUNING_STATE_STABILIZED = "HASHBOARD_VOLTAGE_TUNING_STATE_STABILIZED",
+}
+
+/**
+ * HealthStatus represents the overall health of the system.
+ * @default "HEALTH_STATUS_UNSPECIFIED"
+ */
+export enum V2HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = "HEALTH_STATUS_UNSPECIFIED",
+  HEALTH_STATUS_HEALTHY = "HEALTH_STATUS_HEALTHY",
+  HEALTH_STATUS_DEGRADED = "HEALTH_STATUS_DEGRADED",
+  HEALTH_STATUS_UNHEALTHY = "HEALTH_STATUS_UNHEALTHY",
+}
+
+/**
+ * HistorySource identifies the retained resolution used for a response bucket.
+ * @default "HISTORY_SOURCE_UNSPECIFIED"
+ */
+export enum V2HistorySource {
+  HISTORY_SOURCE_UNSPECIFIED = "HISTORY_SOURCE_UNSPECIFIED",
+  HISTORY_SOURCE_RAW = "HISTORY_SOURCE_RAW",
+  HISTORY_SOURCE_HOURLY = "HISTORY_SOURCE_HOURLY",
+  HISTORY_SOURCE_MIXED = "HISTORY_SOURCE_MIXED",
+}
+
+/** IsolatedBoard describes one isolated hashboard. */
+export interface V2IsolatedBoard {
+  /**
+   * desired_pll_algorithm is the requested PLL algorithm recorded alongside
+   * desired_watts. It is not firmware readback of the effective algorithm.
+   */
+  desiredPllAlgorithm?: V2PLLAlgorithm;
+  /**
+   * desired_watts, when present, is the scoped manual per-board target recorded
+   * in the shared isolation ledger.
+   * @format double
+   */
+  desiredWatts?: number;
+  /**
+   * enforced reports whether this node is actively enforcing the isolation.
+   * It is false when no current node manages or owns the ledger-isolated board.
+   */
+  enforced?: boolean;
+  /**
+   * isolated_at is when the isolation was recorded.
+   * @format date-time
+   */
+  isolatedAt?: string;
+  /** isolated_by is the server that recorded the isolation. */
+  isolatedBy?: string;
+  macAddress?: string;
+  /**
+   * 0 if unknown.
+   * @format int32
+   */
+  module?: number;
+  /**
+   * reason is the operator-entered note recorded when the board was isolated
+   * (e.g. who has claimed the unit and why).
+   */
+  reason?: string;
+  /** Empty if unknown. */
+  serial?: string;
+  /**
+   * 0 if unknown.
+   * @format int32
+   */
+  tank?: number;
+}
+
+export interface V2ListAlertsResponse {
+  alerts?: V2Alert[];
+  /** PageResponse contains pagination metadata. */
+  page?: V2PageResponse;
+}
+
+export interface V2ListAuditEventsResponse {
+  events?: V2AuditEvent[];
+}
+
+export interface V2ListContainerPlantAlarmEpisodesResponse {
+  episodes?: V2ContainerPlantAlarmEpisode[];
+  nextPageToken?: string;
+}
+
+export interface V2ListContainerPlantEventsResponse {
+  events?: V2ContainerPlantEvent[];
+}
+
+export interface V2ListFeedMappingRunEventsResponse {
+  events?: V2FeedMappingRunEvent[];
+  runId?: string;
+}
+
+export interface V2ListFirmwarePolicyBoardsResponse {
+  boards?: V2FirmwarePolicyBoard[];
+  policy?: V2FirmwarePolicy;
+}
+
+export interface V2ListFirmwareUpdatesResponse {
+  updates?: V2FirmwareUpdate[];
+}
+
+export interface V2ListHashboardPowerResponse {
+  hashboards?: V2HashboardPower[];
+}
+
+export interface V2ListHashboardRunInTasksResponse {
+  complete?: boolean;
+  sources?: V2RunInSourceCoverage[];
+  tasks?: V2HashboardRunInTask[];
+}
+
+export interface V2ListHashboardsResponse {
+  hashboards?: V2Hashboard[];
+  /**
+   * HashboardTopology describes the bounded R2 chassis topology. The whole
+   * message is omitted for products without a fixed slot topology. capacity is
+   * the nonzero number of physical slots. generation changes whenever capacity,
+   * current slot state, or current serial identity changes; a last_known-only
+   * update does not change generation. complete is true only when slots contains
+   * exactly one EMPTY or OCCUPIED observation for every slot from 1 through
+   * capacity. Each OCCUPIED entry must match exactly one Hashboard in the same
+   * ListHashboardsResponse by serial, and its HashboardLocation.slot must agree.
+   * When complete is false, an unreported slot is UNKNOWN and must never be
+   * inferred to be EMPTY.
+   */
+  topology?: V2HashboardTopology;
+}
+
+export interface V2ListIsolationResponse {
+  boards?: V2IsolatedBoard[];
+}
+
+export interface V2ListModuleVoltageSettingsResponse {
+  settings?: V2ModuleVoltageSetting[];
+}
+
+export interface V2ListPoolsResponse {
+  pools?: V2Pool[];
+}
+
+export interface V2ListPowerFeedsResponse {
+  powerFeeds?: V2PowerFeed[];
+  /**
+   * snapshot_ready distinguishes a successful empty controller poll from the
+   * startup window before the container monitor has completed its first poll.
+   * Optional presence keeps older servers distinguishable from an explicit
+   * false value.
+   */
+  snapshotReady?: boolean;
+}
+
+export interface V2ListPowerSuppliesResponse {
+  powerSupplies?: V2PowerSupply[];
+}
+
+export interface V2ListTagsResponse {
+  tags?: MdkV2Tag[];
+}
+
+export interface V2ListUnitTagsResponse {
+  tags?: V2UnitTag[];
+}
+
+export interface V2LocateDeviceRequest {
+  enable?: boolean;
+}
+
+export interface V2LocateDeviceResponse {
+  active?: boolean;
+}
+
+/**
+ * LogLevel represents the severity level for log filtering.
+ * @default "LOG_LEVEL_UNSPECIFIED"
+ */
+export enum V2LogLevel {
+  LOG_LEVEL_UNSPECIFIED = "LOG_LEVEL_UNSPECIFIED",
+  LOG_LEVEL_DEBUG = "LOG_LEVEL_DEBUG",
+  LOG_LEVEL_INFO = "LOG_LEVEL_INFO",
+  LOG_LEVEL_WARNING = "LOG_LEVEL_WARNING",
+  LOG_LEVEL_ERROR = "LOG_LEVEL_ERROR",
+}
+
+export interface V2LoginRequest {
+  password?: string;
+  username?: string;
+}
+
+export interface V2LoginResponse {
+  /**
+   * expires_at is the access-token expiry retained for protocol compatibility.
+   * @format date-time
+   */
+  expiresAt?: string;
+  refreshToken?: string;
+  /** @format date-time */
+  refreshTokenExpiresAt?: string;
+  /** token is the access token retained for protocol compatibility. */
+  token?: string;
+}
+
+export type V2LogoutResponse = object;
+
+/**
+ * MQTTSourceConnectionConfig reports nonsecret MQTT source settings. The
+ * password value is never returned through this API.
+ */
+export interface V2MQTTSourceConnectionConfig {
+  brokers?: MQTTSourceConnectionConfigBroker[];
+  enabled?: boolean;
+  passwordConfigured?: boolean;
+  /** @format int64 */
+  qos?: number;
+  topic?: string;
+  username?: string;
+}
+
+export interface V2ManagedBool {
+  managed?: boolean;
+  value?: boolean;
+}
+
+export interface V2ManagedDouble {
+  managed?: boolean;
+  /** @format double */
+  value?: number;
+}
+
+export interface V2ManagedDuration {
+  managed?: boolean;
+  value?: string;
+}
+
+export interface V2ManagedErrorCauses {
+  causes?: V2HashboardErrorCause[];
+  managed?: boolean;
+  /** Legacy numeric values retained for mixed-version Frigate deployments. */
+  values?: number[];
+}
+
+export interface V2ManagedOperationalPolicy {
+  maxBoardWatts?: V2ManagedDouble;
+  minBoardWatts?: V2ManagedDouble;
+  recoveryCauses?: V2ManagedErrorCauses;
+  recoveryEnabled?: V2ManagedBool;
+  recoveryHoldoff?: V2ManagedDuration;
+  recoveryOffDuration?: V2ManagedDuration;
+  safetyMargin?: V2ManagedDouble;
+}
+
+/**
+ * MiningOperatingState identifies the device-level mining outcome. This is
+ * intentionally separate from the per-hashboard MiningState state machine.
+ * @default "MINING_OPERATING_STATE_UNSPECIFIED"
+ */
+export enum V2MiningOperatingState {
+  MINING_OPERATING_STATE_UNSPECIFIED = "MINING_OPERATING_STATE_UNSPECIFIED",
+  MINING_OPERATING_STATE_UNINITIALIZED = "MINING_OPERATING_STATE_UNINITIALIZED",
+  MINING_OPERATING_STATE_POWERING_ON = "MINING_OPERATING_STATE_POWERING_ON",
+  MINING_OPERATING_STATE_MINING = "MINING_OPERATING_STATE_MINING",
+  MINING_OPERATING_STATE_DEGRADED_MINING = "MINING_OPERATING_STATE_DEGRADED_MINING",
+  MINING_OPERATING_STATE_POWERING_OFF = "MINING_OPERATING_STATE_POWERING_OFF",
+  MINING_OPERATING_STATE_STOPPED = "MINING_OPERATING_STATE_STOPPED",
+  MINING_OPERATING_STATE_NO_POOLS = "MINING_OPERATING_STATE_NO_POOLS",
+  MINING_OPERATING_STATE_ERROR = "MINING_OPERATING_STATE_ERROR",
+}
+
+/**
+ * MiningState represents the operational state of a hashboard.
+ * @default "MINING_STATE_UNSPECIFIED"
+ */
+export enum V2MiningState {
+  MINING_STATE_UNSPECIFIED = "MINING_STATE_UNSPECIFIED",
+  MINING_STATE_DISCONNECTED = "MINING_STATE_DISCONNECTED",
+  MINING_STATE_IDENTIFYING = "MINING_STATE_IDENTIFYING",
+  MINING_STATE_CONFIGURING = "MINING_STATE_CONFIGURING",
+  MINING_STATE_MINING = "MINING_STATE_MINING",
+  MINING_STATE_ERROR = "MINING_STATE_ERROR",
+  MINING_STATE_IDLE = "MINING_STATE_IDLE",
+  MINING_STATE_INIT = "MINING_STATE_INIT",
+  MINING_STATE_STARTUP = "MINING_STATE_STARTUP",
+  MINING_STATE_READY = "MINING_STATE_READY",
+  MINING_STATE_FLASHING = "MINING_STATE_FLASHING",
+}
+
+/** Module represents a module within a tank. */
+export interface V2Module {
+  /** @format int32 */
+  id?: number;
+  slots?: V2Slot[];
+}
+
+/** ModuleLayout describes the physical module grid inside a tank. */
+export interface V2ModuleLayout {
+  /** @format int64 */
+  columns?: number;
+  /** ModuleNumberingOrder describes how sequential module IDs fill a grid. */
+  numbering?: V2ModuleNumberingOrder;
+  /** @format int64 */
+  rows?: number;
+}
+
+/**
+ * ModuleNumberingOrder describes how sequential module IDs fill a grid.
+ * @default "MODULE_NUMBERING_ORDER_UNSPECIFIED"
+ */
+export enum V2ModuleNumberingOrder {
+  MODULE_NUMBERING_ORDER_UNSPECIFIED = "MODULE_NUMBERING_ORDER_UNSPECIFIED",
+  MODULE_NUMBERING_ORDER_ROW_MAJOR = "MODULE_NUMBERING_ORDER_ROW_MAJOR",
+  MODULE_NUMBERING_ORDER_COLUMN_MAJOR = "MODULE_NUMBERING_ORDER_COLUMN_MAJOR",
+}
+
+/** ModuleSelector selects a container module by tank and module number. */
+export interface V2ModuleSelector {
+  /** @format int32 */
+  module?: number;
+  /** @format int32 */
+  tank?: number;
+}
+
+/** @default "MODULE_VOLTAGE_READINESS_UNSPECIFIED" */
+export enum V2ModuleVoltageReadiness {
+  MODULE_VOLTAGE_READINESS_UNSPECIFIED = "MODULE_VOLTAGE_READINESS_UNSPECIFIED",
+  MODULE_VOLTAGE_READINESS_READY = "MODULE_VOLTAGE_READINESS_READY",
+  MODULE_VOLTAGE_READINESS_LIMITS_UNAVAILABLE = "MODULE_VOLTAGE_READINESS_LIMITS_UNAVAILABLE",
+  MODULE_VOLTAGE_READINESS_NO_MEMBERS = "MODULE_VOLTAGE_READINESS_NO_MEMBERS",
+  MODULE_VOLTAGE_READINESS_TARGET_OUTSIDE_LIMITS = "MODULE_VOLTAGE_READINESS_TARGET_OUTSIDE_LIMITS",
+  MODULE_VOLTAGE_READINESS_NO_COMMON_RANGE = "MODULE_VOLTAGE_READINESS_NO_COMMON_RANGE",
+}
+
+/**
+ * ModuleVoltageSetting is one durable module voltage setting. An absent
+ * fixed_millivolts field means firmware automatic voltage tuning.
+ */
+export interface V2ModuleVoltageSetting {
+  /** @format int32 */
+  boardCount?: number;
+  /** @format int64 */
+  fixedMillivolts?: number;
+  moduleId?: string;
+  readiness?: V2ModuleVoltageReadiness;
+  readinessMessage?: string;
+  /** @format int64 */
+  supportedMaximumMillivolts?: number;
+  /** @format int64 */
+  supportedMinimumMillivolts?: number;
+  /** @format date-time */
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type V2MuteContainerAlarmRequest = object;
+
+export type V2MuteContainerAlarmResponse = object;
+
+/** NetworkConfig contains network interface configuration. */
+export interface V2NetworkConfig {
+  dnsPrimary?: string;
+  dnsSecondary?: string;
+  gateway?: string;
+  hostname?: string;
+  ipAddress?: string;
+  /**
+   * mac_address is observation-only and absent when the interface identity
+   * cannot be reported. SetNetworkConfig ignores this field and returns the
+   * independently observed value in its response when available.
+   */
+  readonly macAddress?: string;
+  /** NetworkMode represents the network interface configuration mode. */
+  mode?: V2NetworkMode;
+  subnetMask?: string;
+}
+
+/**
+ * NetworkMode represents the network interface configuration mode.
+ * @default "NETWORK_MODE_UNSPECIFIED"
+ */
+export enum V2NetworkMode {
+  NETWORK_MODE_UNSPECIFIED = "NETWORK_MODE_UNSPECIFIED",
+  NETWORK_MODE_DHCP = "NETWORK_MODE_DHCP",
+  NETWORK_MODE_STATIC = "NETWORK_MODE_STATIC",
+}
+
+/** OSBuildInfo contains immutable operating-system image identity. */
+export interface V2OSBuildInfo {
+  /** @format date-time */
+  builtAt?: string;
+  gitHash?: string;
+  machine?: string;
+  name?: string;
+  /** OSBuildVariant identifies the operating-system image variant. */
+  variant?: V2OSBuildVariant;
+  version?: string;
+}
+
+/**
+ * OSBuildVariant identifies the operating-system image variant.
+ * @default "OS_BUILD_VARIANT_UNSPECIFIED"
+ */
+export enum V2OSBuildVariant {
+  OS_BUILD_VARIANT_UNSPECIFIED = "OS_BUILD_VARIANT_UNSPECIFIED",
+  OS_BUILD_VARIANT_RELEASE = "OS_BUILD_VARIANT_RELEASE",
+  OS_BUILD_VARIANT_MANUFACTURING = "OS_BUILD_VARIANT_MANUFACTURING",
+  OS_BUILD_VARIANT_DEVELOPMENT = "OS_BUILD_VARIANT_DEVELOPMENT",
+  OS_BUILD_VARIANT_UNKNOWN = "OS_BUILD_VARIANT_UNKNOWN",
+}
+
+export interface V2OperationalPolicyCapabilities {
+  mappedFeedsAvailable?: boolean;
+  powerControllerActive?: boolean;
+  recoveryActive?: boolean;
+}
+
+export interface V2OperationalPolicyState {
+  capabilities?: V2OperationalPolicyCapabilities;
+  effective?: V2EffectiveOperationalPolicy;
+  fingerprint?: string;
+  /** @format uint64 */
+  generation?: string;
+  managed?: V2ManagedOperationalPolicy;
+  /**
+   * MQTTSourceConnectionConfig reports nonsecret MQTT source settings. The
+   * password value is never returned through this API.
+   */
+  mqttSourceConnection?: V2MQTTSourceConnectionConfig;
+  /** @format uint64 */
+  profileRevision?: string;
+  /** @format date-time */
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/**
+ * PLLAlgorithm selects firmware PLL tuning used with a power-target point.
+ * @default "PLL_ALGORITHM_UNSPECIFIED"
+ */
+export enum V2PLLAlgorithm {
+  PLL_ALGORITHM_UNSPECIFIED = "PLL_ALGORITHM_UNSPECIFIED",
+  PLL_ALGORITHM_NONE = "PLL_ALGORITHM_NONE",
+  PLL_ALGORITHM_VOLTAGE_IMBALANCE = "PLL_ALGORITHM_VOLTAGE_IMBALANCE",
+  PLL_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE = "PLL_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE",
+  PLL_ALGORITHM_FMARGIN = "PLL_ALGORITHM_FMARGIN",
+  PLL_ALGORITHM_DEBUG_FUZZING = "PLL_ALGORITHM_DEBUG_FUZZING",
+  PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+}
+
+/** PageRequest specifies pagination parameters. */
+export interface V2PageRequest {
+  /** @format int32 */
+  pageSize?: number;
+  pageToken?: string;
+}
+
+/** PageResponse contains pagination metadata. */
+export interface V2PageResponse {
+  nextPageToken?: string;
+  /** @format int32 */
+  totalCount?: number;
+}
+
+/**
+ * PerformanceMode selects whether the miner prioritizes maximum hashrate or
+ * efficiency within its power target. It is distinct from TuningAlgorithm.
+ * @default "PERFORMANCE_MODE_UNSPECIFIED"
+ */
+export enum V2PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = "PERFORMANCE_MODE_UNSPECIFIED",
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = "PERFORMANCE_MODE_MAXIMUM_HASHRATE",
+  PERFORMANCE_MODE_EFFICIENCY = "PERFORMANCE_MODE_EFFICIENCY",
+}
+
+/** PerformanceSweep configures optional target-power sweep steps. */
+export interface V2PerformanceSweep {
+  steps?: V2PerformanceSweepStep[];
+}
+
+/** PerformanceSweepStep is one target-power step in a sweep. */
+export interface V2PerformanceSweepStep {
+  /** @format double */
+  boardPowerTargetWatts?: number;
+  duration?: string;
+}
+
+/**
+ * Phase represents an electrical phase.
+ * @default "PHASE_UNSPECIFIED"
+ */
+export enum V2Phase {
+  PHASE_UNSPECIFIED = "PHASE_UNSPECIFIED",
+  PHASE_A = "PHASE_A",
+  PHASE_B = "PHASE_B",
+  PHASE_C = "PHASE_C",
+}
+
+/** PhaseAggregate contains aggregate power draw for a single electrical phase. */
+export interface V2PhaseAggregate {
+  /** @format double */
+  currentA?: number;
+  /** Phase represents an electrical phase. */
+  phase?: V2Phase;
+  /** @format double */
+  powerW?: number;
+  /** @format double */
+  voltageV?: number;
+}
+
+export interface V2PlanFeedMappingRunResponse {
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  plan?: V2FeedMappingRun;
+}
+
+/** PlantAlarm identifies one currently active backend alarm. */
+export interface V2PlantAlarm {
+  componentId?: string;
+  id?: string;
+  name?: string;
+  scope?: string;
+  /** Severity represents the severity level of an alert. */
+  severity?: V2Severity;
+}
+
+export interface V2PlantCoolingFan {
+  alarmActive?: boolean;
+  componentId?: string;
+  /** PlantCoolingFan contains one cooling fan's latest readings. */
+  direction?: V2PlantCoolingFanDirection;
+  /** @format double */
+  powerW?: number;
+  /** @format double */
+  speedPercent?: number;
+}
+
+/**
+ * PlantCoolingFan contains one cooling fan's latest readings.
+ * @default "PLANT_COOLING_FAN_DIRECTION_UNSPECIFIED"
+ */
+export enum V2PlantCoolingFanDirection {
+  PLANT_COOLING_FAN_DIRECTION_UNSPECIFIED = "PLANT_COOLING_FAN_DIRECTION_UNSPECIFIED",
+  PLANT_COOLING_FAN_DIRECTION_FORWARD = "PLANT_COOLING_FAN_DIRECTION_FORWARD",
+  PLANT_COOLING_FAN_DIRECTION_REVERSE = "PLANT_COOLING_FAN_DIRECTION_REVERSE",
+  PLANT_COOLING_FAN_DIRECTION_UNKNOWN = "PLANT_COOLING_FAN_DIRECTION_UNKNOWN",
+}
+
+/**
+ * PlantFault contains one component's current numeric fault code and optional
+ * V0821 error bitmap. The legacy code field remains the fault code so older
+ * consumers keep one unique record per component and safely ignore the
+ * additive bitmap.
+ */
+export interface V2PlantFault {
+  /** @format int64 */
+  code?: number;
+  componentId?: string;
+  /**
+   * Absence means the V0821 error-bitmap telemetry is unavailable. A present
+   * zero means the controller supports it and currently reports no error bits.
+   * @format int64
+   */
+  errorBitmap?: number;
+  /**
+   * Deprecated: error_code was introduced before the V0821 value was
+   * identified as a bitmap. New producers mirror error_bitmap here during the
+   * rolling transition so older generated clients remain source/JSON/wire
+   * compatible. New consumers accept this field only as a bitmap fallback.
+   * @format int64
+   */
+  errorCode?: number;
+}
+
+/** PlantHealth contains normalized optional container-plant telemetry. */
+export interface V2PlantHealth {
+  /** @format double */
+  activeEnergyKwh?: number;
+  alarmActive?: boolean;
+  /**
+   * Deprecated compatibility alias for inside_ambient_humidity_percent.
+   * @format double
+   */
+  ambientHumidityPercent?: number;
+  /**
+   * Deprecated compatibility alias for outside_ambient_temperature_c.
+   * @format double
+   */
+  ambientTemperatureC?: number;
+  /** @format double */
+  apparentEnergyKvah?: number;
+  /** @format double */
+  apparentPowerVa?: number;
+  /**
+   * BuzzerActive is the controller's direct audible-alarm output readback.
+   * It is absent when the selected PLC transport does not expose that state.
+   */
+  buzzerActive?: boolean;
+  coolantPumpActive?: boolean;
+  /** @format double */
+  coolantPumpSpeedHz?: number;
+  criticalAlarmActive?: boolean;
+  dryCoolerFanReverse?: V2DryCoolerFanReverseStatus;
+  /** @format double */
+  dryCoolerInletTemperatureC?: number;
+  /** @format double */
+  facilityPowerW?: number;
+  /** @format double */
+  filterPressureDiffPa?: number;
+  /** @format double */
+  flowRateLpm?: number;
+  heatRejectionActive?: boolean;
+  /** @format double */
+  heatRejectionInletPressurePa?: number;
+  /** @format double */
+  heatRejectionOutletPressurePa?: number;
+  /** @format double */
+  heatRejectionPowerW?: number;
+  /** @format double */
+  heatRejectionPressureDiffPa?: number;
+  /** @format double */
+  inletTemperatureC?: number;
+  /** @format double */
+  insideAmbientHumidityPercent?: number;
+  /** @format double */
+  insideAmbientTemperatureC?: number;
+  /** PlantState represents a backend-reported container-plant operating state. */
+  operatingState?: V2PlantState;
+  /** @format double */
+  outletATemperatureC?: number;
+  /** @format double */
+  outletBTemperatureC?: number;
+  /** @format double */
+  outletTemperatureC?: number;
+  /** @format double */
+  outsideAmbientHumidityPercent?: number;
+  /** @format double */
+  outsideAmbientTemperatureC?: number;
+  /** @format double */
+  powerFactor?: number;
+  powered?: boolean;
+  /** @format double */
+  pue?: number;
+  /** @format double */
+  pumpInletPressurePa?: number;
+  /** @format double */
+  pumpOutletPressurePa?: number;
+  /** @format double */
+  pumpPressureDiffPa?: number;
+  /** @format double */
+  reactiveEnergyKvarh?: number;
+  /** @format double */
+  reactivePowerVar?: number;
+  /** @format double */
+  tankALiquidLevelMm?: number;
+  /** @format double */
+  tankBLiquidLevelMm?: number;
+  /** @format double */
+  totalPowerW?: number;
+}
+
+/** PlantOperatingParameter is one read-only raw PLC operating threshold. */
+export interface V2PlantOperatingParameter {
+  boundary?: string;
+  code?: string;
+  unit?: string;
+  /** @format double */
+  value?: number;
+}
+
+/** PlantPowerDistribution contains one distribution unit's latest readings. */
+export interface V2PlantPowerDistribution {
+  /** @format double */
+  activeEnergyKwh?: number;
+  /** @format int32 */
+  activeFeedCount?: number;
+  /** @format double */
+  activePowerW?: number;
+  componentId?: string;
+  /** @format double */
+  currentAA?: number;
+  /** @format double */
+  currentBA?: number;
+  /** @format double */
+  currentCA?: number;
+  /** @format double */
+  voltageAbV?: number;
+  /** @format double */
+  voltageBcV?: number;
+  /** @format double */
+  voltageCaV?: number;
+}
+
+/**
+ * PlantState represents a backend-reported container-plant operating state.
+ * @default "PLANT_STATE_UNSPECIFIED"
+ */
+export enum V2PlantState {
+  PLANT_STATE_UNSPECIFIED = "PLANT_STATE_UNSPECIFIED",
+  PLANT_STATE_RUNNING = "PLANT_STATE_RUNNING",
+  PLANT_STATE_STANDBY = "PLANT_STATE_STANDBY",
+  PLANT_STATE_SLEEPING = "PLANT_STATE_SLEEPING",
+}
+
+/**
+ * Pool represents a mining pool configuration.
+ * The password field is write-only and never included in responses.
+ */
+export interface V2Pool {
+  /** @format date-time */
+  createdAt?: string;
+  enabled?: boolean;
+  /** @format int64 */
+  id?: string;
+  name?: string;
+  /** @format int32 */
+  priority?: number;
+  /**
+   * share_weight enables weighted mining for this pool. It is a relative,
+   * positive weight; when absent the pool remains a priority failover target.
+   * @format double
+   */
+  shareWeight?: number;
+  url?: string;
+  username?: string;
+}
+
+/**
+ * PoolConnState mirrors the runtime connection state tracked by pkg/pools.
+ *
+ *  - POOL_CONN_STATE_IDLE: POOL_CONN_STATE_IDLE indicates the pool is available but not actively mining.
+ *  - POOL_CONN_STATE_ACTIVE: POOL_CONN_STATE_ACTIVE indicates the pool is a current mining target.
+ *  - POOL_CONN_STATE_DEAD: POOL_CONN_STATE_DEAD indicates the pool is unreachable.
+ * @default "POOL_CONN_STATE_UNSPECIFIED"
+ */
+export enum V2PoolConnState {
+  POOL_CONN_STATE_UNSPECIFIED = "POOL_CONN_STATE_UNSPECIFIED",
+  POOL_CONN_STATE_IDLE = "POOL_CONN_STATE_IDLE",
+  POOL_CONN_STATE_ACTIVE = "POOL_CONN_STATE_ACTIVE",
+  POOL_CONN_STATE_DEAD = "POOL_CONN_STATE_DEAD",
+}
+
+/** PoolConnectionDiagnostics contains runtime connection diagnostics for one pool. */
+export interface V2PoolConnectionDiagnostics {
+  /**
+   * configured_share_weight is zero when this pool is not weighted.
+   * @format double
+   */
+  configuredShareWeight?: number;
+  /**
+   * PoolConnState mirrors the runtime connection state tracked by pkg/pools.
+   *
+   *  - POOL_CONN_STATE_IDLE: POOL_CONN_STATE_IDLE indicates the pool is available but not actively mining.
+   *  - POOL_CONN_STATE_ACTIVE: POOL_CONN_STATE_ACTIVE indicates the pool is a current mining target.
+   *  - POOL_CONN_STATE_DEAD: POOL_CONN_STATE_DEAD indicates the pool is unreachable.
+   */
+  connState?: V2PoolConnState;
+  /** @format double */
+  currentDifficulty?: number;
+  /**
+   * effective_share is this pool's normalized target work fraction once the
+   * current session is ready. A ready failover-only pool reports 1 when every
+   * weighted pool is unavailable. It is zero when inactive or not yet ready.
+   * @format double
+   */
+  effectiveShare?: number;
+  isActive?: boolean;
+  /** is_ready is true after this connection session has delivered usable work. */
+  isReady?: boolean;
+  lastFailoverReason?: string;
+  /** @format date-time */
+  lastFailoverTime?: string;
+  /** @format int64 */
+  poolId?: string;
+  poolName?: string;
+  /** @format int64 */
+  reconnectCount?: string;
+  /**
+   * seconds_since_last_notify is -1 when a notify was never received.
+   * @format int64
+   */
+  secondsSinceLastNotify?: string;
+  /**
+   * session_id changes on every successful connection activation.
+   * @format uint64
+   */
+  sessionId?: string;
+}
+
+/** PowerFeed contains one container power feed and optional telemetry. */
+export interface V2PowerFeed {
+  active?: boolean;
+  /** @format double */
+  currentA?: number;
+  /** @format double */
+  currentAA?: number;
+  /** @format double */
+  currentBA?: number;
+  /** @format double */
+  currentCA?: number;
+  faulted?: boolean;
+  overridden?: boolean;
+  /** Phase represents an electrical phase. */
+  phase?: V2Phase;
+  powerFeedId?: string;
+  /** @format double */
+  powerW?: number;
+  /** PowerFeedState represents the state of a container power feed. */
+  state?: V2PowerFeedState;
+  /** @format double */
+  voltageAbV?: number;
+  /** @format double */
+  voltageBcV?: number;
+  /** @format double */
+  voltageCaV?: number;
+  /** @format double */
+  voltageV?: number;
+}
+
+/**
+ * PowerFeedState represents the state of a container power feed.
+ * @default "POWER_FEED_STATE_UNSPECIFIED"
+ */
+export enum V2PowerFeedState {
+  POWER_FEED_STATE_UNSPECIFIED = "POWER_FEED_STATE_UNSPECIFIED",
+  POWER_FEED_STATE_ENABLED = "POWER_FEED_STATE_ENABLED",
+  POWER_FEED_STATE_DISABLED = "POWER_FEED_STATE_DISABLED",
+}
+
+export interface V2PowerRecoveryCycle {
+  /** @format date-time */
+  createdAt?: string;
+  id?: string;
+  lastError?: string;
+  outletIds?: string[];
+  phase?: string;
+  /** @format date-time */
+  restoreAfter?: string;
+  scope?: string;
+}
+
+/** PowerSupply represents an installed power supply unit. */
+export interface V2PowerSupply {
+  /**
+   * bootloader_version is absent when the PSU cannot report it independently
+   * of its application firmware version.
+   */
+  bootloaderVersion?: string;
+  /** @format double */
+  current?: number;
+  /**
+   * PowerSupplyFirmwareUpdateStatus contains update metadata rather than live
+   * electrical telemetry.
+   */
+  firmwareUpdate?: V2PowerSupplyFirmwareUpdateStatus;
+  firmwareVersion?: string;
+  hardwareRevision?: string;
+  id?: string;
+  manufacturer?: string;
+  model?: string;
+  /** @format double */
+  power?: number;
+  serialNumber?: string;
+  /**
+   * slot is one-based when reported by the platform.
+   * @format int64
+   */
+  slot?: number;
+  /** PowerSupplyStatus represents the operational state of a PSU. */
+  status?: V2PowerSupplyStatus;
+  /** @format double */
+  temperature?: number;
+  vendor?: string;
+  /** @format double */
+  voltage?: number;
+}
+
+/**
+ * PowerSupplyFirmwareUpdateState identifies one PSU update lifecycle.
+ * @default "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UNSPECIFIED"
+ */
+export enum V2PowerSupplyFirmwareUpdateState {
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UNSPECIFIED = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UNSPECIFIED",
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_IDLE = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_IDLE",
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UPLOADING = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UPLOADING",
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_VERIFYING = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_VERIFYING",
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_COMPLETE = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_COMPLETE",
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_FAILED = "POWER_SUPPLY_FIRMWARE_UPDATE_STATE_FAILED",
+}
+
+/**
+ * PowerSupplyFirmwareUpdateStatus contains update metadata rather than live
+ * electrical telemetry.
+ */
+export interface V2PowerSupplyFirmwareUpdateStatus {
+  availableVersion?: string;
+  message?: string;
+  /** @format double */
+  progressPercent?: number;
+  /** PowerSupplyFirmwareUpdateState identifies one PSU update lifecycle. */
+  state?: V2PowerSupplyFirmwareUpdateState;
+}
+
+/**
+ * PowerSupplyStatus represents the operational state of a PSU.
+ * @default "POWER_SUPPLY_STATUS_UNSPECIFIED"
+ */
+export enum V2PowerSupplyStatus {
+  POWER_SUPPLY_STATUS_UNSPECIFIED = "POWER_SUPPLY_STATUS_UNSPECIFIED",
+  POWER_SUPPLY_STATUS_ONLINE = "POWER_SUPPLY_STATUS_ONLINE",
+  POWER_SUPPLY_STATUS_OFFLINE = "POWER_SUPPLY_STATUS_OFFLINE",
+  POWER_SUPPLY_STATUS_WARNING = "POWER_SUPPLY_STATUS_WARNING",
+  POWER_SUPPLY_STATUS_ERROR = "POWER_SUPPLY_STATUS_ERROR",
+}
+
+/**
+ * PowerSupplySummary contains PSU inventory identity without duplicating live
+ * electrical telemetry.
+ */
+export interface V2PowerSupplySummary {
+  /**
+   * bootloader_version is absent when the PSU cannot report it independently
+   * of its application firmware version.
+   */
+  bootloaderVersion?: string;
+  /**
+   * PowerSupplyFirmwareUpdateStatus contains update metadata rather than live
+   * electrical telemetry.
+   */
+  firmwareUpdate?: V2PowerSupplyFirmwareUpdateStatus;
+  firmwareVersion?: string;
+  hardwareRevision?: string;
+  id?: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber?: string;
+  /**
+   * slot is one-based when reported by the platform.
+   * @format int64
+   */
+  slot?: number;
+  /** PowerSupplyStatus represents the operational state of a PSU. */
+  status?: V2PowerSupplyStatus;
+  vendor?: string;
+}
+
+/** PowerTargetRange defines requested board power-target sweep points in watts. */
+export interface V2PowerTargetRange {
+  /** @format double */
+  endPowerTargetWatts?: number;
+  /** @format double */
+  startPowerTargetWatts?: number;
+  /** @format double */
+  stepPowerTargetWatts?: number;
+}
+
+export interface V2ProductionHistoryBucket {
+  /** @format double */
+  boardPowerAvgW?: number;
+  /** @format double */
+  boardPowerMaxW?: number;
+  /** @format double */
+  boardPowerMinW?: number;
+  /** @format double */
+  desiredPowerW?: number;
+  /** @format double */
+  efficiencyJTh?: number;
+  /** @format uint64 */
+  errorCount?: string;
+  /** @format int64 */
+  expectedBoards?: number;
+  /** @format double */
+  facilityPowerAvgW?: number;
+  /** @format double */
+  facilityPowerMaxW?: number;
+  /** @format double */
+  facilityPowerMinW?: number;
+  /** @format double */
+  hashrateAvgThs?: number;
+  /** @format double */
+  hashrateMaxThs?: number;
+  /** @format double */
+  hashrateMinThs?: number;
+  /** @format uint64 */
+  issueCount?: string;
+  /** @format double */
+  maximumBoardTemperatureC?: number;
+  /** @format int64 */
+  miningBoards?: number;
+  /** @format double */
+  miningSeconds?: number;
+  /** @format double */
+  observedSeconds?: number;
+  /** @format int64 */
+  onlineBoards?: number;
+  /** @format double */
+  pduPowerAvgW?: number;
+  /** @format double */
+  pduPowerMaxW?: number;
+  /** @format double */
+  pduPowerMinW?: number;
+  /** @format double */
+  pue?: number;
+  /** @format int64 */
+  reportingBoards?: number;
+  /** @format double */
+  reportingCoverage?: number;
+  /** @format uint64 */
+  sampleCount?: string;
+  /** @format date-time */
+  time?: string;
+}
+
+/** PsuElectricalHealth contains one complete power-supply electrical snapshot. */
+export interface V2PsuElectricalHealth {
+  /** @format double */
+  inputCurrent?: number;
+  /** @format double */
+  inputPower?: number;
+  /** @format double */
+  inputVoltage?: number;
+  /** @format double */
+  outputCurrent?: number;
+  /** @format double */
+  outputPower?: number;
+  /** @format double */
+  outputVoltage?: number;
+  /** @format int64 */
+  sampleAgeMs?: number;
+}
+
+/**
+ * PsuIdentity is stable manufacturer metadata for the shared power supply
+ * identified by Hashboard.module_id. It is absent until compatible firmware
+ * has reported and Frigate has durably retained the details.
+ */
+export interface V2PsuIdentity {
+  model?: string;
+  psuType?: string;
+  revision?: string;
+  /** serial is the PSU manufacturer serial, not the hashboard PCBA serial. */
+  serial?: string;
+  vendor?: string;
+}
+
+/** @default "PSU_TEMPERATURE_SENSOR_UNSPECIFIED" */
+export enum V2PsuTemperatureSensor {
+  PSU_TEMPERATURE_SENSOR_UNSPECIFIED = "PSU_TEMPERATURE_SENSOR_UNSPECIFIED",
+  PSU_TEMPERATURE_SENSOR_INLET = "PSU_TEMPERATURE_SENSOR_INLET",
+  PSU_TEMPERATURE_SENSOR_SR_HEATSINK = "PSU_TEMPERATURE_SENSOR_SR_HEATSINK",
+  PSU_TEMPERATURE_SENSOR_PFC_HEATSINK = "PSU_TEMPERATURE_SENSOR_PFC_HEATSINK",
+}
+
+/** PsuThermalHealth contains the power supply's thermal telemetry. */
+export interface V2PsuThermalHealth {
+  /** @format double */
+  inletTemperature?: number;
+  overTemperatureFault?: boolean;
+  overTemperatureWarning?: boolean;
+  /** @format double */
+  pfcHeatsinkTemperature?: number;
+  /** @format double */
+  srHeatsinkTemperature?: number;
+  /** @format int64 */
+  temperaturesAgeMs?: number;
+  /** @format int64 */
+  thermalStateAgeMs?: number;
+  thermalStateValid?: boolean;
+}
+
+export interface V2QueryProductionHistoryResponse {
+  buckets?: V2ProductionHistoryBucket[];
+  identifier?: string;
+  /** HistorySource identifies the retained resolution used for a response bucket. */
+  source?: V2HistorySource;
+}
+
+export interface V2QueryReadOnlySQLRequest {
+  /** @format int32 */
+  maxRows?: number;
+  sql?: string;
+}
+
+export interface V2QueryReadOnlySQLResponse {
+  columns?: V2ReadOnlySQLResultColumn[];
+  /** @format int64 */
+  elapsedMilliseconds?: string;
+  /** @format int32 */
+  rowCount?: number;
+  rows?: V2ReadOnlySQLRow[];
+  target?: V2DiagnosticsDatabaseTarget;
+  truncated?: boolean;
+}
+
+export interface V2QueryShareQualityHistoryResponse {
+  buckets?: V2ShareQualityHistoryBucket[];
+  grouping?: V2ShareQualityHistoryGrouping;
+  /** HistorySource identifies the retained resolution used for a response bucket. */
+  source?: V2HistorySource;
+}
+
+export interface V2QueryTimeSeriesResponse {
+  buckets?: V2TimeSeriesBucket[];
+  /**
+   * TimeSeriesMetric identifies the metric type for time series queries.
+   *
+   *  - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.
+   *  - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution
+   * unit, fan, or power feed.
+   *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
+   * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
+   * aggregate across every board sensor.
+   */
+  metric?: V2TimeSeriesMetric;
+  unit?: string;
+}
+
+/** ReadOnlyDatabaseColumn describes one column in an allowlisted relation. */
+export interface V2ReadOnlyDatabaseColumn {
+  name?: string;
+  nullable?: boolean;
+  postgresType?: string;
+}
+
+/** ReadOnlyDatabaseTable describes one allowlisted relation. */
+export interface V2ReadOnlyDatabaseTable {
+  columns?: V2ReadOnlyDatabaseColumn[];
+  name?: string;
+  /**
+   * DiagnosticsDatabaseRouting identifies whether a relation can be read from a
+   * physical standby without losing non-WAL-replicated data.
+   */
+  routing?: V2DiagnosticsDatabaseRouting;
+  schema?: string;
+}
+
+/**
+ * ReadOnlySQLCell preserves PostgreSQL text encoding without losing numeric
+ * precision and represents SQL NULL explicitly.
+ */
+export interface V2ReadOnlySQLCell {
+  isNull?: boolean;
+  text?: string;
+}
+
+/** ReadOnlySQLResultColumn identifies one result column. */
+export interface V2ReadOnlySQLResultColumn {
+  name?: string;
+  postgresType?: string;
+}
+
+export interface V2ReadOnlySQLRow {
+  cells?: V2ReadOnlySQLCell[];
+}
+
+export interface V2RebootResponse {
+  message?: string;
+}
+
+/**
+ * RecordedHashboardInventory contains the device's latest recorded static
+ * metadata for one hashboard. It is display-only evidence: it does not prove
+ * that the hashboard is currently present in the recorded slot and must never
+ * authorize a board-scoped read or mutation. Current serial identity is
+ * deliberately absent.
+ */
+export interface V2RecordedHashboardInventory {
+  apiVersion?: string;
+  asicModel?: string;
+  chipId?: string;
+  /** @format int64 */
+  expectedAsicCount?: number;
+  /**
+   * firmware_build_id is the recorded immutable firmware build identity when
+   * the device reports one independently of the display version.
+   */
+  firmwareBuildId?: string;
+  firmwareVersion?: string;
+  hardwareRevision?: string;
+  serialNumber: string;
+  /**
+   * slot is the one-based physical position associated with this record.
+   * @format int64
+   */
+  slot: number;
+}
+
+export interface V2RefreshTokenRequest {
+  /** token is the refresh token being exchanged. */
+  token?: string;
+}
+
+export interface V2RefreshTokenResponse {
+  /**
+   * expires_at is the access-token expiry retained for protocol compatibility.
+   * @format date-time
+   */
+  expiresAt?: string;
+  /** refresh_token is populated when the server rotates the refresh token. */
+  refreshToken?: string;
+  /** @format date-time */
+  refreshTokenExpiresAt?: string;
+  /** token is the new access token retained for protocol compatibility. */
+  token?: string;
+}
+
+export type V2ResetContainerAlarmRequest = object;
+
+export type V2ResetContainerAlarmResponse = object;
+
+export interface V2RetryFirmwarePolicyBoardsRequest {
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2RetryFirmwarePolicyBoardsResponse {
+  boards?: V2FirmwarePolicyBoard[];
+  policy?: V2FirmwarePolicy;
+}
+
+export interface V2RunDryCoolerFanReverseRequest {
+  /** @format int64 */
+  durationMinutes?: number;
+}
+
+export interface V2RunDryCoolerFanReverseResponse {
+  status?: V2DryCoolerFanReverseStatus;
+}
+
+/**
+ * RunInArtifactDetail controls the telemetry detail persisted in a result artifact.
+ * @default "RUN_IN_ARTIFACT_DETAIL_UNSPECIFIED"
+ */
+export enum V2RunInArtifactDetail {
+  RUN_IN_ARTIFACT_DETAIL_UNSPECIFIED = "RUN_IN_ARTIFACT_DETAIL_UNSPECIFIED",
+  RUN_IN_ARTIFACT_DETAIL_FULL = "RUN_IN_ARTIFACT_DETAIL_FULL",
+  RUN_IN_ARTIFACT_DETAIL_SUMMARY = "RUN_IN_ARTIFACT_DETAIL_SUMMARY",
+}
+
+/**
+ * RunInBoardStatus is a module member's independent run-in state.
+ * @default "RUN_IN_BOARD_STATUS_UNSPECIFIED"
+ */
+export enum V2RunInBoardStatus {
+  RUN_IN_BOARD_STATUS_UNSPECIFIED = "RUN_IN_BOARD_STATUS_UNSPECIFIED",
+  RUN_IN_BOARD_STATUS_QUEUED = "RUN_IN_BOARD_STATUS_QUEUED",
+  RUN_IN_BOARD_STATUS_STARTING = "RUN_IN_BOARD_STATUS_STARTING",
+  RUN_IN_BOARD_STATUS_RUNNING = "RUN_IN_BOARD_STATUS_RUNNING",
+  RUN_IN_BOARD_STATUS_RECOVERING = "RUN_IN_BOARD_STATUS_RECOVERING",
+  RUN_IN_BOARD_STATUS_COMPLETED = "RUN_IN_BOARD_STATUS_COMPLETED",
+  RUN_IN_BOARD_STATUS_COMPLETED_WITH_WARNINGS = "RUN_IN_BOARD_STATUS_COMPLETED_WITH_WARNINGS",
+  RUN_IN_BOARD_STATUS_FAILED = "RUN_IN_BOARD_STATUS_FAILED",
+  RUN_IN_BOARD_STATUS_CANCELED = "RUN_IN_BOARD_STATUS_CANCELED",
+}
+
+/** RunInSourceCoverage reports one HA owner's read capability and reachability. */
+export interface V2RunInSourceCoverage {
+  error?: string;
+  reachable?: boolean;
+  serverId?: string;
+  supported?: boolean;
+}
+
+/** RunInTaskBoard is one board's participation state in a module run-in. */
+export interface V2RunInTaskBoard {
+  macAddress?: string;
+  /** @format int64 */
+  pointsMissed?: number;
+  /** @format int64 */
+  pointsRun?: number;
+  reason?: string;
+  /** @format int64 */
+  recoveries?: number;
+  serial?: string;
+  /** RunInBoardStatus is a module member's independent run-in state. */
+  status?: V2RunInBoardStatus;
+}
+
+/** SSHConfig contains SSH daemon configuration. */
+export interface V2SSHConfig {
+  authorizedKeys?: string[];
+  enabled?: boolean;
+  /** @format int32 */
+  port?: number;
+}
+
+/** SetContainerControlResponse echoes the control state that was written. */
+export interface V2SetContainerControlResponse {
+  /** ContainerControl is one boolean tank/container plant control. */
+  control?: V2ContainerControl;
+}
+
+/** SetContainerSetpointResponse echoes the setpoint that was applied. */
+export interface V2SetContainerSetpointResponse {
+  /** ContainerSetpoint is one writable analog tank/container setting. */
+  setpoint?: V2ContainerSetpoint;
+}
+
+export interface V2SetCoolingConfigRequest {
+  /** CoolingConfig contains cooling system configuration. */
+  config?: V2CoolingConfig;
+}
+
+export interface V2SetCoolingConfigResponse {
+  /** CoolingConfig contains cooling system configuration. */
+  config?: V2CoolingConfig;
+}
+
+export interface V2SetFirmwarePolicyRequest {
+  /** FirmwareArtifactRef identifies one deployable firmware artifact. */
+  artifact?: V2FirmwareArtifactRef;
+  build?: string;
+  enabled?: boolean;
+  /** @format uint64 */
+  expectedGeneration?: string;
+  failureMode?: V2FirmwarePolicyFailureMode;
+  /** @format int64 */
+  maxParallel?: number;
+}
+
+export interface V2SetFirmwarePolicyResponse {
+  policy?: V2FirmwarePolicy;
+}
+
+export interface V2SetFixedVoltageRequest {
+  /**
+   * millivolts must be between 26,000 and 30,000 inclusive.
+   * @format int64
+   */
+  millivolts?: number;
+}
+
+export interface V2SetFixedVoltageResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  /** @format int64 */
+  millivolts?: number;
+}
+
+export interface V2SetIdentifyLEDRequest {
+  /** HashboardIdentifyLEDMode is the operator-requested identification LED mode. */
+  mode?: V2HashboardIdentifyLEDMode;
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2SetIdentifyLEDResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  /**
+   * expires_at is set for BLINK requests and omitted for OFF requests.
+   * @format date-time
+   */
+  expiresAt?: string;
+}
+
+export interface V2SetIsolationRequest {
+  /** true = isolate, false = clear. */
+  isolated?: boolean;
+  /**
+   * reason is an operator note (e.g. who has claimed the unit and why). It is
+   * stored in the shared isolation ledger and returned by ListIsolation.
+   */
+  reason?: string;
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2SetIsolationResponse {
+  /** @format int32 */
+  boardsChanged?: number;
+  results?: V2BoardResult[];
+}
+
+export interface V2SetMainCircuitBreakerStateRequest {
+  /** closed=true requests CLOSE; false requests OPEN. */
+  closed?: boolean;
+}
+
+export interface V2SetMainCircuitBreakerStateResponse {
+  /** changed is false when the controller was already at the target state. */
+  changed?: boolean;
+  /** closed is the authoritative controller readback after the request. */
+  closed?: boolean;
+}
+
+export interface V2SetModuleFixedVoltageResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  results?: V2BoardResult[];
+  /**
+   * ModuleVoltageSetting is one durable module voltage setting. An absent
+   * fixed_millivolts field means firmware automatic voltage tuning.
+   */
+  setting?: V2ModuleVoltageSetting;
+}
+
+export interface V2SetNetworkConfigRequest {
+  /** NetworkConfig contains network interface configuration. */
+  config?: V2NetworkConfig;
+}
+
+export interface V2SetNetworkConfigResponse {
+  /** NetworkConfig contains network interface configuration. */
+  config?: V2NetworkConfig;
+}
+
+export interface V2SetPasswordRequest {
+  password?: string;
+}
+
+export type V2SetPasswordResponse = object;
+
+export interface V2SetPowerFeedStateResponse {
+  /** PowerFeed contains one container power feed and optional telemetry. */
+  powerFeed?: V2PowerFeed;
+}
+
+export interface V2SetPowerTargetScopedRequest {
+  /**
+   * pll_algorithm selects the firmware PLL tuning algorithm used with watts.
+   * Unspecified preserves the historical behavior and selects NONE.
+   */
+  pllAlgorithm?: V2PLLAlgorithm;
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+  /**
+   * watts is the manual per-board power target.
+   * @format double
+   */
+  watts?: number;
+}
+
+export interface V2SetPowerTargetScopedResponse {
+  /** @format int32 */
+  boardsUpdated?: number;
+  results?: V2BoardResult[];
+}
+
+export interface V2SetSSHConfigRequest {
+  /** SSHConfig contains SSH daemon configuration. */
+  config?: V2SSHConfig;
+}
+
+export interface V2SetSSHConfigResponse {
+  /** SSHConfig contains SSH daemon configuration. */
+  config?: V2SSHConfig;
+}
+
+export interface V2SetTagsRequest {
+  tags?: MdkV2Tag[];
+}
+
+export interface V2SetTagsResponse {
+  tags?: MdkV2Tag[];
+}
+
+export interface V2SetTargetPowerRequest {
+  balanceBays?: boolean;
+  hashOnDisconnect?: boolean;
+  /**
+   * PerformanceMode selects whether the miner prioritizes maximum hashrate or
+   * efficiency within its power target. It is distinct from TuningAlgorithm.
+   */
+  performanceMode?: V2PerformanceMode;
+  /** @format double */
+  watts?: number;
+}
+
+export interface V2SetTargetPowerResponse {
+  balanceBays?: boolean;
+  hashOnDisconnect?: boolean;
+  /**
+   * PerformanceMode selects whether the miner prioritizes maximum hashrate or
+   * efficiency within its power target. It is distinct from TuningAlgorithm.
+   */
+  performanceMode?: V2PerformanceMode;
+  /**
+   * watts is the applied target after validation and clamping.
+   * @format double
+   */
+  watts?: number;
+}
+
+export interface V2SetTuningRequest {
+  /** mode selects one explicit canonical algorithm. Unspecified is invalid. */
+  mode?: V2TuningAlgorithm;
+}
+
+export interface V2SetTuningResponse {
+  /** mode is the authoritative canonical algorithm after application. */
+  mode?: V2TuningAlgorithm;
+}
+
+export interface V2SetUnitTagRequest {
+  /**
+   * UnitTag is an operator note for a tagged unit. kind is "module" (key = module
+   * ID), "board" (key = MAC address), or "power_feed" (key = container power-feed
+   * ID, e.g. pdu-1-outlet-03).
+   */
+  tag?: V2UnitTag;
+}
+
+export interface V2SetUnitTagResponse {
+  /**
+   * UnitTag is an operator note for a tagged unit. kind is "module" (key = module
+   * ID), "board" (key = MAC address), or "power_feed" (key = container power-feed
+   * ID, e.g. pdu-1-outlet-03).
+   */
+  tag?: V2UnitTag;
+}
+
+/**
+ * Severity represents the severity level of an alert.
+ * @default "SEVERITY_UNSPECIFIED"
+ */
+export enum V2Severity {
+  SEVERITY_UNSPECIFIED = "SEVERITY_UNSPECIFIED",
+  SEVERITY_INFO = "SEVERITY_INFO",
+  SEVERITY_WARNING = "SEVERITY_WARNING",
+  SEVERITY_ERROR = "SEVERITY_ERROR",
+  SEVERITY_CRITICAL = "SEVERITY_CRITICAL",
+}
+
+export interface V2ShareQualityHistoryBucket {
+  /** @format int64 */
+  accepted?: string;
+  /** @format double */
+  acceptedDifficulty?: number;
+  /** @format int64 */
+  expectedBoards?: number;
+  key?: string;
+  /** @format double */
+  rejectRate?: number;
+  rejectReasons?: V2ShareRejectReason[];
+  /** @format int64 */
+  rejected?: string;
+  /** @format int64 */
+  reportingBoards?: number;
+  /** @format double */
+  reportingCoverage?: number;
+  /** @format uint64 */
+  sampleCount?: string;
+  /** @format date-time */
+  time?: string;
+}
+
+/** @default "SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED" */
+export enum V2ShareQualityHistoryGrouping {
+  SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED = "SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED",
+  SHARE_QUALITY_HISTORY_GROUPING_TOTAL = "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
+  SHARE_QUALITY_HISTORY_GROUPING_BOARD = "SHARE_QUALITY_HISTORY_GROUPING_BOARD",
+  SHARE_QUALITY_HISTORY_GROUPING_POOL = "SHARE_QUALITY_HISTORY_GROUPING_POOL",
+}
+
+/**
+ * ShareQualityStats contains share acceptance metrics for a single grouping.
+ * key is the CT1 MAC address for by_board entries, the pool name for by_pool
+ * entries, and empty for the total aggregate. R2 by_board entries use serial.
+ */
+export interface V2ShareQualityStats {
+  /** @format double */
+  acceptanceRate?: number;
+  /** @format int64 */
+  accepted?: string;
+  /**
+   * accepted_hashrate_ths is the hashrate derived from accepted
+   * share difficulty over the response window, in terahashes per second.
+   * @format double
+   */
+  acceptedHashrateThs?: number;
+  key?: string;
+  rejectReasons?: V2ShareRejectReason[];
+  /** @format int64 */
+  rejected?: string;
+  /**
+   * serial is the stable R2 board identity for by_board entries. It is empty
+   * for CT1, pool, and total groupings.
+   */
+  serial?: string;
+  /**
+   * slot is present only when all samples belong to one known R2 slot.
+   * @format int64
+   */
+  slot?: number;
+}
+
+/**
+ * ShareQualityWindow selects the rolling window for share quality statistics.
+ * @default "SHARE_QUALITY_WINDOW_UNSPECIFIED"
+ */
+export enum V2ShareQualityWindow {
+  SHARE_QUALITY_WINDOW_UNSPECIFIED = "SHARE_QUALITY_WINDOW_UNSPECIFIED",
+  SHARE_QUALITY_WINDOW_15M = "SHARE_QUALITY_WINDOW_15M",
+  SHARE_QUALITY_WINDOW_1H = "SHARE_QUALITY_WINDOW_1H",
+  SHARE_QUALITY_WINDOW_24H = "SHARE_QUALITY_WINDOW_24H",
+}
+
+/** ShareRejectReason counts share rejections grouped by pool-reported reason. */
+export interface V2ShareRejectReason {
+  /** @format int64 */
+  count?: string;
+  reason?: string;
+}
+
+/** Slot represents a hashboard slot within a module. */
+export interface V2Slot {
+  /** Hashboard represents a mining hashboard with its current state and health. */
+  hashboard?: V2Hashboard;
+  occupied?: boolean;
+  powerFeedId?: string;
+}
+
+/** SoftFeedMappingBoardResult contains the soft mapping result for one board. */
+export interface V2SoftFeedMappingBoardResult {
+  anomalies?: string[];
+  /** @format double */
+  confidence?: number;
+  currentFeedId?: string;
+  error?: string;
+  /** SoftFeedMappingEvidence records the power-feed signal used for one board inference. */
+  evidence?: V2SoftFeedMappingEvidence;
+  firmwareVersion?: string;
+  hwRevision?: string;
+  inferredFeedId?: string;
+  macAddress?: string;
+  serial?: string;
+  /** SoftFeedMappingBoardStatus is the per-board result of a soft mapping run. */
+  status?: V2SoftFeedMappingBoardStatus;
+}
+
+/**
+ * SoftFeedMappingBoardStatus is the per-board result of a soft mapping run.
+ * @default "SOFT_FEED_MAPPING_BOARD_STATUS_UNSPECIFIED"
+ */
+export enum V2SoftFeedMappingBoardStatus {
+  SOFT_FEED_MAPPING_BOARD_STATUS_UNSPECIFIED = "SOFT_FEED_MAPPING_BOARD_STATUS_UNSPECIFIED",
+  SOFT_FEED_MAPPING_BOARD_STATUS_PENDING = "SOFT_FEED_MAPPING_BOARD_STATUS_PENDING",
+  SOFT_FEED_MAPPING_BOARD_STATUS_RUNNING = "SOFT_FEED_MAPPING_BOARD_STATUS_RUNNING",
+  SOFT_FEED_MAPPING_BOARD_STATUS_CONFIRMED = "SOFT_FEED_MAPPING_BOARD_STATUS_CONFIRMED",
+  SOFT_FEED_MAPPING_BOARD_STATUS_MISMATCH = "SOFT_FEED_MAPPING_BOARD_STATUS_MISMATCH",
+  SOFT_FEED_MAPPING_BOARD_STATUS_ADDED = "SOFT_FEED_MAPPING_BOARD_STATUS_ADDED",
+  SOFT_FEED_MAPPING_BOARD_STATUS_REMOVED = "SOFT_FEED_MAPPING_BOARD_STATUS_REMOVED",
+  SOFT_FEED_MAPPING_BOARD_STATUS_AMBIGUOUS = "SOFT_FEED_MAPPING_BOARD_STATUS_AMBIGUOUS",
+  SOFT_FEED_MAPPING_BOARD_STATUS_NO_SIGNAL = "SOFT_FEED_MAPPING_BOARD_STATUS_NO_SIGNAL",
+  SOFT_FEED_MAPPING_BOARD_STATUS_SKIPPED = "SOFT_FEED_MAPPING_BOARD_STATUS_SKIPPED",
+  SOFT_FEED_MAPPING_BOARD_STATUS_ERROR = "SOFT_FEED_MAPPING_BOARD_STATUS_ERROR",
+  SOFT_FEED_MAPPING_BOARD_STATUS_APPLIED = "SOFT_FEED_MAPPING_BOARD_STATUS_APPLIED",
+}
+
+/** SoftFeedMappingEvidence records the power-feed signal used for one board inference. */
+export interface V2SoftFeedMappingEvidence {
+  /** @format double */
+  baselinePowerFeedWatts?: number;
+  /** @format double */
+  bestDropWatts?: number;
+  /** @format double */
+  perturbedPowerFeedWatts?: number;
+  /** @format double */
+  recoveryWatts?: number;
+  /** @format double */
+  restoredPowerFeedWatts?: number;
+  /** @format double */
+  secondBestDropWatts?: number;
+  /** @format double */
+  totalDropWatts?: number;
+}
+
+/** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+export interface V2SoftFeedMappingRun {
+  /** @format int32 */
+  added?: number;
+  /** @format int32 */
+  ambiguous?: number;
+  /** @format int32 */
+  applied?: number;
+  applyAvailable?: boolean;
+  boards?: V2SoftFeedMappingBoardResult[];
+  /** @format int32 */
+  changed?: number;
+  /** @format date-time */
+  completedAt?: string;
+  /** @format int32 */
+  confirmed?: number;
+  currentBoardId?: string;
+  error?: string;
+  /** @format int32 */
+  noSignal?: number;
+  phase?: string;
+  /** @format int32 */
+  removed?: number;
+  runId?: string;
+  /** @format int32 */
+  skipped?: number;
+  /** @format date-time */
+  startedAt?: string;
+  /** FeedMappingRunStatus is the lifecycle state of a feed mapping run. */
+  status?: V2FeedMappingRunStatus;
+  /** @format date-time */
+  updatedAt?: string;
+  warnings?: string[];
+}
+
+/** SoftFeedMappingRunConfig configures soft mapping behavior. */
+export interface V2SoftFeedMappingRunConfig {
+  /**
+   * If second-best drop / best drop exceeds this value, mark the result ambiguous.
+   * @format double
+   */
+  ambiguityRatio?: number;
+  /** Optional board MAC addresses or serial numbers to test. Empty means all live mining boards. */
+  boardIds?: string[];
+  /** Required for mutating board controls. */
+  confirmBoardControl?: boolean;
+  /** Optional feed IDs to consider as candidates. Empty means all configured/live feeds. */
+  feedIds?: string[];
+  /**
+   * Restrict the run to boards controlled by this node and skip HA-peer
+   * delegation. Set automatically on delegated runs from the peer's parent
+   * run; the server accepts such a run on a non-primary node only when the
+   * call's source address is the configured HA peer. Any other local_only
+   * start (like every other start) still requires this node to be the
+   * container-write primary; apply always does.
+   */
+  localOnly?: boolean;
+  /**
+   * Minimum power-feed watt drop needed to infer a mapping.
+   * @format double
+   */
+  minDropWatts?: number;
+  /** Delay after stopping the board before measuring the power drop. */
+  perturbSettle?: string;
+  /** Delay after restarting the board before measuring recovery. */
+  restoreSettle?: string;
+  /**
+   * Number of power-feed samples to average for each measurement window.
+   * @format int32
+   */
+  sampleCount?: number;
+  /** Delay between power-feed samples. */
+  sampleInterval?: string;
+}
+
+/** SoftwareComponentVersion identifies one product software component. */
+export interface V2SoftwareComponentVersion {
+  name?: string;
+  version?: string;
+}
+
+/**
+ * SoftwareUpdateState identifies the product software update lifecycle.
+ * @default "SOFTWARE_UPDATE_STATE_UNSPECIFIED"
+ */
+export enum V2SoftwareUpdateState {
+  SOFTWARE_UPDATE_STATE_UNSPECIFIED = "SOFTWARE_UPDATE_STATE_UNSPECIFIED",
+  SOFTWARE_UPDATE_STATE_CURRENT = "SOFTWARE_UPDATE_STATE_CURRENT",
+  SOFTWARE_UPDATE_STATE_AVAILABLE = "SOFTWARE_UPDATE_STATE_AVAILABLE",
+  SOFTWARE_UPDATE_STATE_DOWNLOADING = "SOFTWARE_UPDATE_STATE_DOWNLOADING",
+  SOFTWARE_UPDATE_STATE_DOWNLOADED = "SOFTWARE_UPDATE_STATE_DOWNLOADED",
+  SOFTWARE_UPDATE_STATE_INSTALLING = "SOFTWARE_UPDATE_STATE_INSTALLING",
+  SOFTWARE_UPDATE_STATE_INSTALLED = "SOFTWARE_UPDATE_STATE_INSTALLED",
+  SOFTWARE_UPDATE_STATE_CONFIRMING = "SOFTWARE_UPDATE_STATE_CONFIRMING",
+  SOFTWARE_UPDATE_STATE_SUCCESS = "SOFTWARE_UPDATE_STATE_SUCCESS",
+  SOFTWARE_UPDATE_STATE_ERROR = "SOFTWARE_UPDATE_STATE_ERROR",
+}
+
+/** SoftwareUpdateStatus contains current and available product image status. */
+export interface V2SoftwareUpdateStatus {
+  availableVersion?: string;
+  currentVersion?: string;
+  error?: string;
+  message?: string;
+  previousVersion?: string;
+  /** @format int64 */
+  progressPercent?: number;
+  releaseNotes?: string;
+  /** SoftwareUpdateState identifies the product software update lifecycle. */
+  state?: V2SoftwareUpdateState;
+}
+
+export interface V2StartFeedMappingRunResponse {
+  /** FeedMappingRun is a snapshot of a feed mapping run. */
+  run?: V2FeedMappingRun;
+  runId?: string;
+}
+
+export interface V2StartFirmwareUpdateRequest {
+  /**
+   * r2_targets selects R2 boards by stable serial number. R2 must provide at
+   * least one selector and leave scope unset. Exactly one of scope or
+   * r2_targets is valid. Empty, mixed, duplicate, incomplete, or stale
+   * selection must fail explicitly.
+   */
+  r2Targets?: V2FirmwareTargetSelector[];
+  /** FirmwareArtifactRef identifies one deployable firmware artifact. */
+  artifact?: V2FirmwareArtifactRef;
+  /**
+   * FirmwareUpdateOptions tune one update job. Proto3 zero values give the safe
+   * defaults: stop mining before flashing and restore it afterwards.
+   */
+  options?: V2FirmwareUpdateOptions;
+  /**
+   * scope is retained for CT1 compatibility. CT1 must provide scope and leave
+   * r2_targets empty.
+   */
+  scope?: V2BoardScope;
+  /**
+   * task_id is optional and used by HA peers so sibling jobs from one cluster
+   * deployment share a visible update identifier. Ordinary clients leave it empty.
+   */
+  taskId?: string;
+}
+
+export interface V2StartFirmwareUpdateResponse {
+  /** FirmwareUpdate is one firmware update job. */
+  update?: V2FirmwareUpdate;
+}
+
+export interface V2StartHashboardRunInResponse {
+  macAddress?: string;
+  serial?: string;
+  /** HashboardRunInStatus is the lifecycle state of a run-in task. */
+  status?: V2HashboardRunInStatus;
+  taskId?: string;
+}
+
+export type V2StartMiningResponse = object;
+
+export interface V2StartMiningScopedRequest {
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2StartMiningScopedResponse {
+  /** @format int32 */
+  boardsStarted?: number;
+  results?: V2BoardResult[];
+}
+
+export interface V2StartModuleRunInResponse {
+  boards?: V2RunInTaskBoard[];
+  moduleId?: string;
+  /** HashboardRunInStatus is the lifecycle state of a run-in task. */
+  status?: V2HashboardRunInStatus;
+  taskId?: string;
+  voltageLeaderMac?: string;
+}
+
+export interface V2StartSoftFeedMappingRunResponse {
+  /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
+  run?: V2SoftFeedMappingRun;
+  runId?: string;
+}
+
+export type V2StopMiningResponse = object;
+
+export interface V2StopMiningScopedRequest {
+  /**
+   * BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+   * selects whole container modules by tank/module. The selections union (OR); at
+   * least one is required.
+   */
+  scope?: V2BoardScope;
+}
+
+export interface V2StopMiningScopedResponse {
+  /** @format int32 */
+  boardsStopped?: number;
+  results?: V2BoardResult[];
+}
+
+/** StreamASICHealthResponse contains per-ASIC health data for a hashboard. */
+export interface V2StreamASICHealthResponse {
+  asics?: V2ASIC[];
+  /** layout is present on the first frame and whenever the physical topology changes. */
+  layout?: V2HashboardASICLayout;
+  /**
+   * mac_address is the legacy CT1 board identity. It is empty for R2 and must
+   * never contain a synthesized address.
+   */
+  macAddress?: string;
+  /** serial is the stable R2 board identity. */
+  serial?: string;
+  /**
+   * slot is the optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+  /** @format date-time */
+  timestamp?: string;
+}
+
+export interface V2StreamAlertsResponse {
+  /** Alert represents a system alert. */
+  alert?: V2Alert;
+}
+
+/** StreamContainerHealthResponse contains plant and power-feed telemetry. */
+export interface V2StreamContainerHealthResponse {
+  /** PlantHealth contains normalized optional container-plant telemetry. */
+  plant?: V2PlantHealth;
+  powerFeeds?: V2PowerFeed[];
+  /** @format date-time */
+  timestamp?: string;
+}
+
+/** StreamDeviceMetricsResponse contains aggregate device-level metrics. */
+export interface V2StreamDeviceMetricsResponse {
+  /** @format int32 */
+  activeBoards?: number;
+  /** @format double */
+  avgTemperature?: number;
+  boardsByState?: Record<string, number>;
+  /** @format double */
+  efficiency?: number;
+  /** @format double */
+  hashrate?: number;
+  /** @format double */
+  power?: number;
+  /** @format date-time */
+  timestamp?: string;
+}
+
+/** StreamHashboardHealthResponse contains a health snapshot for a single hashboard. */
+export interface V2StreamHashboardHealthResponse {
+  /** HashboardHealth contains real-time health metrics for a hashboard. */
+  health?: V2HashboardHealth;
+  /**
+   * mac_address is the legacy CT1 board identity. It is empty for R2 and must
+   * never contain a synthesized address.
+   */
+  macAddress?: string;
+  /** MiningState represents the operational state of a hashboard. */
+  miningState?: V2MiningState;
+  /** serial is the stable R2 board identity. */
+  serial?: string;
+  /**
+   * slot is the optional one-based R2 chassis slot.
+   * @format int64
+   */
+  slot?: number;
+}
+
+/** SystemInfo contains static system information. */
+export interface V2SystemInfo {
+  componentVersions?: V2SoftwareComponentVersion[];
+  /** ControlBoardInfo contains stable control-board hardware identity. */
+  controlBoard?: V2ControlBoardInfo;
+  hostname?: string;
+  id?: string;
+  /** IpAddresses contains active non-loopback host addresses. */
+  ipAddresses?: string[];
+  manufacturer?: string;
+  model?: string;
+  /** OSBuildInfo contains immutable operating-system image identity. */
+  osBuild?: V2OSBuildInfo;
+  product?: string;
+  /**
+   * Resources is an optional point-in-time host and process sample. Older
+   * implementations omit it while preserving the static identity fields.
+   */
+  resources?: V2SystemResources;
+  /** SoftwareUpdateStatus contains current and available product image status. */
+  softwareUpdate?: V2SoftwareUpdateStatus;
+  /** @format int64 */
+  uptimeSeconds?: string;
+  version?: string;
+}
+
+/** SystemResources contains one point-in-time host and Frigate process sample. */
+export interface V2SystemResources {
+  /** @format double */
+  hostCpuUsagePercent?: number;
+  /** @format uint64 */
+  hostDiskTotalBytes?: string;
+  /**
+   * Host disk values describe the root filesystem visible to Frigate.
+   * @format uint64
+   */
+  hostDiskUsedBytes?: string;
+  /** @format int64 */
+  hostLogicalCpuCount?: number;
+  /** @format uint64 */
+  hostMemoryTotalBytes?: string;
+  /** @format uint64 */
+  hostMemoryUsedBytes?: string;
+  /** @format date-time */
+  observedAt?: string;
+  /** @format double */
+  processCpuUsageCores?: number;
+  /** @format double */
+  processCpuUsagePercent?: number;
+  /** @format uint64 */
+  processMemoryBytes?: string;
+}
+
+/** SystemStatus contains current system status. */
+export interface V2SystemStatus {
+  /** @format int32 */
+  activeBoards?: number;
+  activePool?: string;
+  containerWritePrimary?: boolean;
+  databaseConnected?: boolean;
+  /**
+   * HARecoveryStatus is bounded, machine-readable progress for one post-Patroni
+   * recovery episode. It is process-local status backed by shared assignment
+   * authority; it is not a durable workflow record.
+   */
+  haRecovery?: V2HARecoveryStatus;
+  /** HARole identifies this server's role in a high-availability cluster. */
+  haRole?: V2HARole;
+  /** HealthStatus represents the overall health of the system. */
+  health?: V2HealthStatus;
+  mining?: boolean;
+  serverId?: string;
+  /** @format int32 */
+  totalBoards?: number;
+  version?: string;
+}
+
+/** Tank represents a physical tank in the container. */
+export interface V2Tank {
+  /** @format int32 */
+  id?: number;
+  /**
+   * module_layout describes the physical module grid for this tank. Only
+   * mapped modules appear in modules; grid gaps remain meaningful positions.
+   */
+  moduleLayout?: V2ModuleLayout;
+  modules?: V2Module[];
+}
+
+/**
+ * TemperatureSeriesSelector identifies one retained board or PSU sensor.
+ * Board indexes are the zero-based indexes advertised by firmware.
+ */
+export interface V2TemperatureSeriesSelector {
+  /** @format int64 */
+  boardSensorIndex?: number;
+  psuSensor?: V2PsuTemperatureSensor;
+}
+
+export interface V2TestPoolConnectionResponse {
+  error?: string;
+  /** @format double */
+  latencyMs?: number;
+  success?: boolean;
+}
+
+/** TimeRange specifies a time window for queries. */
+export interface V2TimeRange {
+  /** @format date-time */
+  end?: string;
+  /** @format date-time */
+  start?: string;
+}
+
+/** TimeSeriesBucket contains aggregated metrics for a time window. */
+export interface V2TimeSeriesBucket {
+  /** @format double */
+  avg?: number;
+  /** @format int64 */
+  count?: string;
+  coverageComplete?: boolean;
+  /** @format int64 */
+  expectedContributors?: number;
+  /** @format double */
+  max?: number;
+  /** @format double */
+  min?: number;
+  /** @format int64 */
+  reportingContributors?: number;
+  /** HistorySource identifies the retained resolution used for a response bucket. */
+  source?: V2HistorySource;
+  /** @format date-time */
+  time?: string;
+}
+
+/**
+ * TimeSeriesMetric identifies the metric type for time series queries.
+ *
+ *  - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.
+ *  - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution
+ * unit, fan, or power feed.
+ *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
+ * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
+ * aggregate across every board sensor.
+ * @default "TIME_SERIES_METRIC_UNSPECIFIED"
+ */
+export enum V2TimeSeriesMetric {
+  TIME_SERIES_METRIC_UNSPECIFIED = "TIME_SERIES_METRIC_UNSPECIFIED",
+  TIME_SERIES_METRIC_HASHRATE = "TIME_SERIES_METRIC_HASHRATE",
+  TIME_SERIES_METRIC_POWER = "TIME_SERIES_METRIC_POWER",
+  TIME_SERIES_METRIC_TEMPERATURE = "TIME_SERIES_METRIC_TEMPERATURE",
+  TIME_SERIES_METRIC_VOLTAGE = "TIME_SERIES_METRIC_VOLTAGE",
+  TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_POWER = "TIME_SERIES_METRIC_PLANT_POWER",
+  TIME_SERIES_METRIC_PLANT_AMBIENT_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_AMBIENT_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER = "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER",
+  TIME_SERIES_METRIC_PLANT_FACILITY_POWER = "TIME_SERIES_METRIC_PLANT_FACILITY_POWER",
+  TIME_SERIES_METRIC_PLANT_REACTIVE_POWER = "TIME_SERIES_METRIC_PLANT_REACTIVE_POWER",
+  TIME_SERIES_METRIC_PLANT_APPARENT_POWER = "TIME_SERIES_METRIC_PLANT_APPARENT_POWER",
+  TIME_SERIES_METRIC_PLANT_ACTIVE_ENERGY = "TIME_SERIES_METRIC_PLANT_ACTIVE_ENERGY",
+  TIME_SERIES_METRIC_PLANT_REACTIVE_ENERGY = "TIME_SERIES_METRIC_PLANT_REACTIVE_ENERGY",
+  TIME_SERIES_METRIC_PLANT_APPARENT_ENERGY = "TIME_SERIES_METRIC_PLANT_APPARENT_ENERGY",
+  TIME_SERIES_METRIC_PLANT_POWER_FACTOR = "TIME_SERIES_METRIC_PLANT_POWER_FACTOR",
+  TIME_SERIES_METRIC_PLANT_PUE = "TIME_SERIES_METRIC_PLANT_PUE",
+  TIME_SERIES_METRIC_PLANT_DRY_COOLER_INLET_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_DRY_COOLER_INLET_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_OUTLET_A_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_OUTLET_A_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_OUTLET_B_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_OUTLET_B_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_PUMP_OUTLET_PRESSURE = "TIME_SERIES_METRIC_PLANT_PUMP_OUTLET_PRESSURE",
+  TIME_SERIES_METRIC_PLANT_PUMP_INLET_PRESSURE = "TIME_SERIES_METRIC_PLANT_PUMP_INLET_PRESSURE",
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_INLET_PRESSURE = "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_INLET_PRESSURE",
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_OUTLET_PRESSURE = "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_OUTLET_PRESSURE",
+  TIME_SERIES_METRIC_PLANT_TANK_A_LIQUID_LEVEL = "TIME_SERIES_METRIC_PLANT_TANK_A_LIQUID_LEVEL",
+  TIME_SERIES_METRIC_PLANT_TANK_B_LIQUID_LEVEL = "TIME_SERIES_METRIC_PLANT_TANK_B_LIQUID_LEVEL",
+  TIME_SERIES_METRIC_PLANT_FLOW_RATE = "TIME_SERIES_METRIC_PLANT_FLOW_RATE",
+  TIME_SERIES_METRIC_PLANT_AMBIENT_HUMIDITY = "TIME_SERIES_METRIC_PLANT_AMBIENT_HUMIDITY",
+  TIME_SERIES_METRIC_PLANT_FILTER_PRESSURE_DIFFERENTIAL = "TIME_SERIES_METRIC_PLANT_FILTER_PRESSURE_DIFFERENTIAL",
+  TIME_SERIES_METRIC_PLANT_PUMP_PRESSURE_DIFFERENTIAL = "TIME_SERIES_METRIC_PLANT_PUMP_PRESSURE_DIFFERENTIAL",
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_PRESSURE_DIFFERENTIAL = "TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_PRESSURE_DIFFERENTIAL",
+  TIME_SERIES_METRIC_PLANT_COOLANT_PUMP_SPEED = "TIME_SERIES_METRIC_PLANT_COOLANT_PUMP_SPEED",
+  TIME_SERIES_METRIC_PLANT_PHASE_POWER = "TIME_SERIES_METRIC_PLANT_PHASE_POWER",
+  TIME_SERIES_METRIC_PLANT_PHASE_CURRENT = "TIME_SERIES_METRIC_PLANT_PHASE_CURRENT",
+  TIME_SERIES_METRIC_PLANT_PHASE_VOLTAGE = "TIME_SERIES_METRIC_PLANT_PHASE_VOLTAGE",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_FEEDS = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_FEEDS",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_AB = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_AB",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_BC = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_BC",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_CA = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_CA",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_A = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_A",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_B = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_B",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_C = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_C",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER",
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_ENERGY = "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_ENERGY",
+  TIME_SERIES_METRIC_PLANT_FAN_POWER = "TIME_SERIES_METRIC_PLANT_FAN_POWER",
+  TIME_SERIES_METRIC_PLANT_FAN_SPEED = "TIME_SERIES_METRIC_PLANT_FAN_SPEED",
+  TIME_SERIES_METRIC_POWER_FEED_POWER = "TIME_SERIES_METRIC_POWER_FEED_POWER",
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT = "TIME_SERIES_METRIC_POWER_FEED_CURRENT",
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE = "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE",
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_AB = "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_AB",
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_BC = "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_BC",
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_CA = "TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_CA",
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_A = "TIME_SERIES_METRIC_POWER_FEED_CURRENT_A",
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_B = "TIME_SERIES_METRIC_POWER_FEED_CURRENT_B",
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_C = "TIME_SERIES_METRIC_POWER_FEED_CURRENT_C",
+  TIME_SERIES_METRIC_TEMPERATURE_SENSOR = "TIME_SERIES_METRIC_TEMPERATURE_SENSOR",
+  TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY = "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY",
+  TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
+  TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY = "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY",
+}
+
+/**
+ * TuningAlgorithm names the canonical mining tuning algorithm shared by all
+ * products. Implementations map these semantic values to their native tuning
+ * engine without exposing product-specific enum fields on the MDK API.
+ * @default "TUNING_ALGORITHM_UNSPECIFIED"
+ */
+export enum V2TuningAlgorithm {
+  TUNING_ALGORITHM_UNSPECIFIED = "TUNING_ALGORITHM_UNSPECIFIED",
+  TUNING_ALGORITHM_NONE = "TUNING_ALGORITHM_NONE",
+  TUNING_ALGORITHM_VOLTAGE_BALANCE = "TUNING_ALGORITHM_VOLTAGE_BALANCE",
+  TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE_BALANCE = "TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE_BALANCE",
+  TUNING_ALGORITHM_FMARGIN = "TUNING_ALGORITHM_FMARGIN",
+  TUNING_ALGORITHM_DEBUG = "TUNING_ALGORITHM_DEBUG",
+  TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
+}
+
+/** TuningSweep configures fixed-voltage points crossed with either fixed-frequency or power-target/PLL-algorithm points. */
+export interface V2TuningSweep {
+  dwellDuration?: string;
+  /** TuningSweepFailurePolicy controls sweep behavior when applying a point fails. */
+  failurePolicy?: V2TuningSweepFailurePolicy;
+  /** FrequencyRange defines requested ASIC PLL frequency sweep points in MHz. */
+  frequency?: V2FrequencyRange;
+  pllAlgorithms?: V2PLLAlgorithm[];
+  /** PowerTargetRange defines requested board power-target sweep points in watts. */
+  powerTarget?: V2PowerTargetRange;
+  /** VoltageRange defines requested PSU voltage sweep points in volts. */
+  voltage?: V2VoltageRange;
+}
+
+/**
+ * TuningSweepFailurePolicy controls sweep behavior when applying a point fails.
+ * @default "TUNING_SWEEP_FAILURE_POLICY_UNSPECIFIED"
+ */
+export enum V2TuningSweepFailurePolicy {
+  TUNING_SWEEP_FAILURE_POLICY_UNSPECIFIED = "TUNING_SWEEP_FAILURE_POLICY_UNSPECIFIED",
+  TUNING_SWEEP_FAILURE_POLICY_FAIL_FAST = "TUNING_SWEEP_FAILURE_POLICY_FAIL_FAST",
+  TUNING_SWEEP_FAILURE_POLICY_WARN_AND_CONTINUE = "TUNING_SWEEP_FAILURE_POLICY_WARN_AND_CONTINUE",
+}
+
+/**
+ * UnitTag is an operator note for a tagged unit. kind is "module" (key = module
+ * ID), "board" (key = MAC address), or "power_feed" (key = container power-feed
+ * ID, e.g. pdu-1-outlet-03).
+ */
+export interface V2UnitTag {
+  key?: string;
+  kind?: string;
+  tag?: string;
+  /** @format date-time */
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/** UnlockStatus contains the device unlock state. */
+export interface V2UnlockStatus {
+  /** @format date-time */
+  expiresAt?: string;
+  unlocked?: boolean;
+}
+
+export interface V2UpdatePSUFirmwareResponse {
+  accepted?: boolean;
+  message?: string;
+}
+
+export interface V2UpdatePoolResponse {
+  /**
+   * Pool represents a mining pool configuration.
+   * The password field is write-only and never included in responses.
+   */
+  pool?: V2Pool;
+}
+
+/** VoltageRange defines requested PSU voltage sweep points in volts. */
+export interface V2VoltageRange {
+  /** @format double */
+  endVoltage?: number;
+  /** @format double */
+  startVoltage?: number;
+  /** @format double */
+  stepVoltage?: number;
+}
+
+export type QueryParamsType = Record<string | number, any>;
+export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
+
+export interface FullRequestParams extends Omit<RequestInit, "body"> {
+  /** set parameter to `true` for call `securityWorker` for this request */
+  secure?: boolean;
+  /** request path */
+  path: string;
+  /** content type of request body */
+  type?: ContentType;
+  /** query params */
+  query?: QueryParamsType;
+  /** format of response (i.e. response.json() -> format: "json") */
+  format?: ResponseFormat;
+  /** request body */
+  body?: unknown;
+  /** base url */
+  baseUrl?: string;
+  /** request cancellation token */
+  cancelToken?: CancelToken;
+}
+
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
+
+export interface ApiConfig<SecurityDataType = unknown> {
+  baseUrl?: string;
+  baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
+  securityWorker?: (
+    securityData: SecurityDataType | null,
+  ) => Promise<RequestParams | void> | RequestParams | void;
+  customFetch?: typeof fetch;
+}
+
+export interface HttpResponse<D extends unknown, E extends unknown = unknown>
+  extends Response {
+  data: D;
+  error: E;
+}
+
+type CancelToken = Symbol | string | number;
+
+export enum ContentType {
+  Json = "application/json",
+  JsonApi = "application/vnd.api+json",
+  FormData = "multipart/form-data",
+  UrlEncoded = "application/x-www-form-urlencoded",
+  Text = "text/plain",
+}
+
+export class HttpClient<SecurityDataType = unknown> {
+  public baseUrl: string = "";
+  private securityData: SecurityDataType | null = null;
+  private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
+  private abortControllers = new Map<CancelToken, AbortController>();
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
+    fetch(...fetchParams);
+
+  private baseApiParams: RequestParams = {
+    credentials: "same-origin",
+    headers: {},
+    redirect: "follow",
+    referrerPolicy: "no-referrer",
+  };
+
+  constructor(apiConfig: ApiConfig<SecurityDataType> = {}) {
+    Object.assign(this, apiConfig);
+  }
+
+  public setSecurityData = (data: SecurityDataType | null) => {
+    this.securityData = data;
+  };
+
+  protected encodeQueryParam(key: string, value: any) {
+    const encodedKey = encodeURIComponent(key);
+    return `${encodedKey}=${encodeURIComponent(typeof value === "number" ? value : `${value}`)}`;
+  }
+
+  protected addQueryParam(query: QueryParamsType, key: string) {
+    return this.encodeQueryParam(key, query[key]);
+  }
+
+  protected addArrayQueryParam(query: QueryParamsType, key: string) {
+    const value = query[key];
+    return value.map((v: any) => this.encodeQueryParam(key, v)).join("&");
+  }
+
+  protected toQueryString(rawQuery?: QueryParamsType): string {
+    const query = rawQuery || {};
+    const keys = Object.keys(query).filter(
+      (key) => "undefined" !== typeof query[key],
+    );
+    return keys
+      .map((key) =>
+        Array.isArray(query[key])
+          ? this.addArrayQueryParam(query, key)
+          : this.addQueryParam(query, key),
+      )
+      .join("&");
+  }
+
+  protected addQueryParams(rawQuery?: QueryParamsType): string {
+    const queryString = this.toQueryString(rawQuery);
+    return queryString ? `?${queryString}` : "";
+  }
+
+  private contentFormatters: Record<ContentType, (input: any) => any> = {
+    [ContentType.Json]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.JsonApi]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.Text]: (input: any) =>
+      input !== null && typeof input !== "string"
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.FormData]: (input: any) => {
+      if (input instanceof FormData) {
+        return input;
+      }
+
+      return Object.keys(input || {}).reduce((formData, key) => {
+        const property = input[key];
+        formData.append(
+          key,
+          property instanceof Blob
+            ? property
+            : typeof property === "object" && property !== null
+              ? JSON.stringify(property)
+              : `${property}`,
+        );
+        return formData;
+      }, new FormData());
+    },
+    [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
+  };
+
+  protected mergeRequestParams(
+    params1: RequestParams,
+    params2?: RequestParams,
+  ): RequestParams {
+    return {
+      ...this.baseApiParams,
+      ...params1,
+      ...(params2 || {}),
+      headers: {
+        ...(this.baseApiParams.headers || {}),
+        ...(params1.headers || {}),
+        ...((params2 && params2.headers) || {}),
+      },
+    };
+  }
+
+  protected createAbortSignal = (
+    cancelToken: CancelToken,
+  ): AbortSignal | undefined => {
+    if (this.abortControllers.has(cancelToken)) {
+      const abortController = this.abortControllers.get(cancelToken);
+      if (abortController) {
+        return abortController.signal;
+      }
+      return void 0;
+    }
+
+    const abortController = new AbortController();
+    this.abortControllers.set(cancelToken, abortController);
+    return abortController.signal;
+  };
+
+  public abortRequest = (cancelToken: CancelToken) => {
+    const abortController = this.abortControllers.get(cancelToken);
+
+    if (abortController) {
+      abortController.abort();
+      this.abortControllers.delete(cancelToken);
+    }
+  };
+
+  public request = async <T = any, E = any>({
+    body,
+    secure,
+    path,
+    type,
+    query,
+    format,
+    baseUrl,
+    cancelToken,
+    ...params
+  }: FullRequestParams): Promise<HttpResponse<T, E>> => {
+    const secureParams =
+      ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) &&
+        this.securityWorker &&
+        (await this.securityWorker(this.securityData))) ||
+      {};
+    const requestParams = this.mergeRequestParams(params, secureParams);
+    const queryString = query && this.toQueryString(query);
+    const payloadFormatter = this.contentFormatters[type || ContentType.Json];
+    const responseFormat = format || requestParams.format;
+
+    return this.customFetch(
+      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
+      {
+        ...requestParams,
+        headers: {
+          ...(requestParams.headers || {}),
+          ...(type && type !== ContentType.FormData
+            ? { "Content-Type": type }
+            : {}),
+        },
+        signal:
+          (cancelToken
+            ? this.createAbortSignal(cancelToken)
+            : requestParams.signal) || null,
+        body:
+          typeof body === "undefined" || body === null
+            ? null
+            : payloadFormatter(body),
+      },
+    ).then(async (response) => {
+      const r = response as HttpResponse<T, E>;
+      r.data = null as unknown as T;
+      r.error = null as unknown as E;
+
+      const responseToParse = responseFormat ? response.clone() : response;
+      const data = !responseFormat
+        ? r
+        : await responseToParse[responseFormat]()
+            .then((data) => {
+              if (r.ok) {
+                r.data = data;
+              } else {
+                r.error = data;
+              }
+              return r;
+            })
+            .catch((e) => {
+              r.error = e;
+              return r;
+            });
+
+      if (cancelToken) {
+        this.abortControllers.delete(cancelToken);
+      }
+
+      if (!response.ok) throw data;
+      return data;
+    });
+  };
+}
+
+/**
+ * @title Proto MDK v2
+ * @version version not set
+ *
+ * REST API for managing and monitoring Bitcoin mining hardware.
+ */
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
+  api = {
+    /**
+     * No description
+     *
+     * @tags Alerts
+     * @name AlertServiceListAlerts
+     * @summary ListAlerts returns alerts with optional filtering and pagination.
+     * @request GET:/api/v2/alerts
+     */
+    alertServiceListAlerts: (
+      query: AlertServiceListAlertsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListAlertsResponse, RpcStatus>({
+        path: `/api/v2/alerts`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Alerts
+     * @name AlertServiceStreamAlerts
+     * @summary StreamAlerts streams new alerts as they fire.
+     * @request GET:/api/v2/alerts/stream
+     */
+    alertServiceStreamAlerts: (
+      query: AlertServiceStreamAlertsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          result?: V2StreamAlertsResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/alerts/stream`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Alerts
+     * @name AlertServiceAcknowledgeAlert
+     * @summary AcknowledgeAlert marks an alert as acknowledged.
+     * @request POST:/api/v2/alerts/{id}/acknowledge
+     */
+    alertServiceAcknowledgeAlert: (
+      { id }: AlertServiceAcknowledgeAlertParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2AcknowledgeAlertResponse, RpcStatus>({
+        path: `/api/v2/alerts/${id}/acknowledge`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceLogin
+     * @summary Login authenticates a user and returns a session token.
+     * @request POST:/api/v2/auth/login
+     */
+    authServiceLogin: (body: V2LoginRequest, params: RequestParams = {}) =>
+      this.request<V2LoginResponse, RpcStatus>({
+        path: `/api/v2/auth/login`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceLogout
+     * @summary Logout invalidates the caller's active session. The REST binding intentionally accepts an empty body and uses the Authorization bearer token, preserving existing callers.
+     * @request POST:/api/v2/auth/logout
+     */
+    authServiceLogout: (
+      query: AuthServiceLogoutParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2LogoutResponse, RpcStatus>({
+        path: `/api/v2/auth/logout`,
+        method: "POST",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceSetPassword
+     * @summary SetPassword sets the initial password during onboarding. The server MUST reject calls once a password has already been set.
+     * @request POST:/api/v2/auth/password
+     */
+    authServiceSetPassword: (
+      body: V2SetPasswordRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetPasswordResponse, RpcStatus>({
+        path: `/api/v2/auth/password`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceChangePassword
+     * @summary ChangePassword updates the password for an authenticated user.
+     * @request PUT:/api/v2/auth/password
+     */
+    authServiceChangePassword: (
+      body: V2ChangePasswordRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ChangePasswordResponse, RpcStatus>({
+        path: `/api/v2/auth/password`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceRefreshToken
+     * @summary RefreshToken exchanges a valid token for a new one.
+     * @request POST:/api/v2/auth/refresh
+     */
+    authServiceRefreshToken: (
+      body: V2RefreshTokenRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2RefreshTokenResponse, RpcStatus>({
+        path: `/api/v2/auth/refresh`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Auth
+     * @name AuthServiceGetAuthStatus
+     * @summary GetAuthStatus returns the local authentication-onboarding posture. A client may call it before login to choose initial SetPassword or Login.
+     * @request GET:/api/v2/auth/status
+     */
+    authServiceGetAuthStatus: (params: RequestParams = {}) =>
+      this.request<V2GetAuthStatusResponse, RpcStatus>({
+        path: `/api/v2/auth/status`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards, CT1
+     * @name HashboardServiceGetContainerMap
+     * @summary GetContainerMap returns the full physical layout of a CT1 container.
+     * @request GET:/api/v2/container/map
+     */
+    hashboardServiceGetContainerMap: (params: RequestParams = {}) =>
+      this.request<V2GetContainerMapResponse, RpcStatus>({
+        path: `/api/v2/container/map`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Diagnostics, CT1
+     * @name DiagnosticsServiceDescribeReadOnlyDatabase
+     * @summary DescribeReadOnlyDatabase lists the database objects available to the dedicated diagnostics reader role.
+     * @request GET:/api/v2/diagnostics/database
+     */
+    diagnosticsServiceDescribeReadOnlyDatabase: (params: RequestParams = {}) =>
+      this.request<V2DescribeReadOnlyDatabaseResponse, RpcStatus>({
+        path: `/api/v2/diagnostics/database`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Diagnostics, CT1
+     * @name DiagnosticsServiceQueryReadOnlySql
+     * @summary QueryReadOnlySQL runs exactly one bounded SELECT statement through the dedicated diagnostics reader role.
+     * @request POST:/api/v2/diagnostics/database/query
+     */
+    diagnosticsServiceQueryReadOnlySql: (
+      body: V2QueryReadOnlySQLRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2QueryReadOnlySQLResponse, RpcStatus>({
+        path: `/api/v2/diagnostics/database/query`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetFeedMappingReport
+     * @summary GetFeedMappingReport returns the currently stored feed mapping report.
+     * @request GET:/api/v2/feed-mapping
+     */
+    feedMappingServiceGetFeedMappingReport: (
+      query: FeedMappingServiceGetFeedMappingReportParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetFeedMappingReportResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetActiveFeedMappingRun
+     * @summary GetActiveFeedMappingRun returns the active feed mapping run, if one is running.
+     * @request GET:/api/v2/feed-mapping/active-run
+     */
+    feedMappingServiceGetActiveFeedMappingRun: (params: RequestParams = {}) =>
+      this.request<V2GetActiveFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/active-run`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceStartFeedMappingRun
+     * @summary StartFeedMappingRun starts a feed mapping run.
+     * @request POST:/api/v2/feed-mapping/runs
+     */
+    feedMappingServiceStartFeedMappingRun: (
+      config: V2FeedMappingRunConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/runs`,
+        method: "POST",
+        body: config,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetFeedMappingRun
+     * @summary GetFeedMappingRun returns one feed mapping run snapshot.
+     * @request GET:/api/v2/feed-mapping/runs/{runId}
+     */
+    feedMappingServiceGetFeedMappingRun: (
+      { runId }: FeedMappingServiceGetFeedMappingRunParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/runs/${runId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceListFeedMappingRunEvents
+     * @summary ListFeedMappingRunEvents returns buffered events for a feed mapping run.
+     * @request GET:/api/v2/feed-mapping/runs/{runId}/events
+     */
+    feedMappingServiceListFeedMappingRunEvents: (
+      { runId }: FeedMappingServiceListFeedMappingRunEventsParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListFeedMappingRunEventsResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/runs/${runId}/events`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceCancelFeedMappingRun
+     * @summary CancelFeedMappingRun cancels an active feed mapping run and restores feeds when configured.
+     * @request POST:/api/v2/feed-mapping/runs/{runId}:cancel
+     */
+    feedMappingServiceCancelFeedMappingRun: (
+      { runId, cancel }: FeedMappingServiceCancelFeedMappingRunParams,
+      body: FeedMappingServiceCancelFeedMappingRunBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CancelFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/runs/${runId}${cancel}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetActiveSoftFeedMappingRun
+     * @summary GetActiveSoftFeedMappingRun returns the active soft mapping run, if one is running.
+     * @request GET:/api/v2/feed-mapping/soft-active-run
+     */
+    feedMappingServiceGetActiveSoftFeedMappingRun: (
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetActiveSoftFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-active-run`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetSoftFeedMappingReport
+     * @summary GetSoftFeedMappingReport returns the most recent soft mapping run, if one exists.
+     * @request GET:/api/v2/feed-mapping/soft-report
+     */
+    feedMappingServiceGetSoftFeedMappingReport: (params: RequestParams = {}) =>
+      this.request<V2GetSoftFeedMappingReportResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-report`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceStartSoftFeedMappingRun
+     * @summary StartSoftFeedMappingRun verifies board-to-feed mappings by perturbing one mining board at a time.
+     * @request POST:/api/v2/feed-mapping/soft-runs
+     */
+    feedMappingServiceStartSoftFeedMappingRun: (
+      config: V2SoftFeedMappingRunConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartSoftFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-runs`,
+        method: "POST",
+        body: config,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceGetSoftFeedMappingRun
+     * @summary GetSoftFeedMappingRun returns one soft mapping run snapshot.
+     * @request GET:/api/v2/feed-mapping/soft-runs/{runId}
+     */
+    feedMappingServiceGetSoftFeedMappingRun: (
+      { runId }: FeedMappingServiceGetSoftFeedMappingRunParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetSoftFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-runs/${runId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceApplySoftFeedMappingRun
+     * @summary ApplySoftFeedMappingRun applies high-confidence changed/added mappings from a completed soft run.
+     * @request POST:/api/v2/feed-mapping/soft-runs/{runId}:apply
+     */
+    feedMappingServiceApplySoftFeedMappingRun: (
+      { runId, apply }: FeedMappingServiceApplySoftFeedMappingRunParams,
+      body: FeedMappingServiceApplySoftFeedMappingRunBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ApplySoftFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-runs/${runId}${apply}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServiceCancelSoftFeedMappingRun
+     * @summary CancelSoftFeedMappingRun cancels an active soft mapping run and restores the current board when possible.
+     * @request POST:/api/v2/feed-mapping/soft-runs/{runId}:cancel
+     */
+    feedMappingServiceCancelSoftFeedMappingRun: (
+      { runId, cancel }: FeedMappingServiceCancelSoftFeedMappingRunParams,
+      body: FeedMappingServiceCancelSoftFeedMappingRunBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CancelSoftFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping/soft-runs/${runId}${cancel}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Feed Mapping, CT1
+     * @name FeedMappingServicePlanFeedMappingRun
+     * @summary PlanFeedMappingRun validates and previews a feed mapping run.
+     * @request POST:/api/v2/feed-mapping:plan
+     */
+    feedMappingServicePlanFeedMappingRun: (
+      { plan }: FeedMappingServicePlanFeedMappingRunParams,
+      config: V2FeedMappingRunConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2PlanFeedMappingRunResponse, RpcStatus>({
+        path: `/api/v2/feed-mapping${plan}`,
+        method: "POST",
+        body: config,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceGetFirmwarePolicy
+     * @summary GetFirmwarePolicy returns the container's desired exact firmware target.
+     * @request GET:/api/v2/firmware/policy
+     */
+    firmwareServiceGetFirmwarePolicy: (params: RequestParams = {}) =>
+      this.request<V2GetFirmwarePolicyResponse, RpcStatus>({
+        path: `/api/v2/firmware/policy`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceSetFirmwarePolicy
+     * @summary SetFirmwarePolicy revision-fences a hot policy replacement or disable.
+     * @request PUT:/api/v2/firmware/policy
+     */
+    firmwareServiceSetFirmwarePolicy: (
+      body: V2SetFirmwarePolicyRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetFirmwarePolicyResponse, RpcStatus>({
+        path: `/api/v2/firmware/policy`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceListFirmwarePolicyBoards
+     * @summary ListFirmwarePolicyBoards returns retained compliance and retry state.
+     * @request GET:/api/v2/firmware/policy/boards
+     */
+    firmwareServiceListFirmwarePolicyBoards: (params: RequestParams = {}) =>
+      this.request<V2ListFirmwarePolicyBoardsResponse, RpcStatus>({
+        path: `/api/v2/firmware/policy/boards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceRetryFirmwarePolicyBoards
+     * @summary RetryFirmwarePolicyBoards resets terminal policy failures for a scope.
+     * @request POST:/api/v2/firmware/policy/retry
+     */
+    firmwareServiceRetryFirmwarePolicyBoards: (
+      body: V2RetryFirmwarePolicyBoardsRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2RetryFirmwarePolicyBoardsResponse, RpcStatus>({
+        path: `/api/v2/firmware/policy/retry`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware
+     * @name FirmwareServiceListFirmwareUpdates
+     * @summary ListFirmwareUpdates lists active and completed update jobs, newest first.
+     * @request GET:/api/v2/firmware/updates
+     */
+    firmwareServiceListFirmwareUpdates: (
+      query: FirmwareServiceListFirmwareUpdatesParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListFirmwareUpdatesResponse, RpcStatus>({
+        path: `/api/v2/firmware/updates`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware
+     * @name FirmwareServiceStartFirmwareUpdate
+     * @summary StartFirmwareUpdate deploys an uploaded firmware artifact to the selected boards.
+     * @request POST:/api/v2/firmware/updates
+     */
+    firmwareServiceStartFirmwareUpdate: (
+      body: V2StartFirmwareUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/firmware/updates`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware
+     * @name FirmwareServiceGetFirmwareUpdate
+     * @summary GetFirmwareUpdate returns the current state of one update job.
+     * @request GET:/api/v2/firmware/updates/{taskId}
+     */
+    firmwareServiceGetFirmwareUpdate: (
+      { taskId, ...query }: FirmwareServiceGetFirmwareUpdateParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/firmware/updates/${taskId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware
+     * @name FirmwareServiceCancelFirmwareUpdate
+     * @summary CancelFirmwareUpdate requests cancellation of an active update job.
+     * @request POST:/api/v2/firmware/updates/{taskId}/cancel
+     */
+    firmwareServiceCancelFirmwareUpdate: (
+      { taskId, ...query }: FirmwareServiceCancelFirmwareUpdateParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CancelFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/firmware/updates/${taskId}/cancel`,
+        method: "POST",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards
+     * @name HashboardServiceListHashboards
+     * @summary ListHashboards returns currently visible hashboards with their latest health snapshots.
+     * @request GET:/api/v2/hashboards
+     */
+    hashboardServiceListHashboards: (params: RequestParams = {}) =>
+      this.request<V2ListHashboardsResponse, RpcStatus>({
+        path: `/api/v2/hashboards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards, CT1
+     * @name HashboardServiceSetIdentifyLed
+     * @summary SetIdentifyLED records the desired identification LED state for a board or module. The HA node that owns each board applies the command to firmware.
+     * @request POST:/api/v2/hashboards/identify-led
+     */
+    hashboardServiceSetIdentifyLed: (
+      body: V2SetIdentifyLEDRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetIdentifyLEDResponse, RpcStatus>({
+        path: `/api/v2/hashboards/identify-led`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards
+     * @name HashboardServiceGetHashboard
+     * @summary GetHashboard returns one hashboard selected by CT1 MAC address or R2 serial number.
+     * @request GET:/api/v2/hashboards/{identifier}
+     */
+    hashboardServiceGetHashboard: (
+      { identifier }: HashboardServiceGetHashboardParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardResponse, RpcStatus>({
+        path: `/api/v2/hashboards/${identifier}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards
+     * @name HashboardServiceGetHashboardAsicMetadata
+     * @summary GetHashboardASICMetadata reads decoded ASIC eFuse metadata from a connected board selected by CT1 MAC address or R2 serial number. Firmware makes this data available only after ASIC enumeration, so the board must have reached the mining state. An implementation may cache a successful read for the lifetime of that board connection.
+     * @request GET:/api/v2/hashboards/{identifier}/asic-metadata
+     */
+    hashboardServiceGetHashboardAsicMetadata: (
+      { identifier }: HashboardServiceGetHashboardAsicMetadataParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardASICMetadataResponse, RpcStatus>({
+        path: `/api/v2/hashboards/${identifier}/asic-metadata`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards
+     * @name HashboardServiceGetHashboardAsiCs
+     * @summary GetHashboardASICs returns ASIC-level health data for one hashboard selected by CT1 MAC address or R2 serial number.
+     * @request GET:/api/v2/hashboards/{identifier}/asics
+     */
+    hashboardServiceGetHashboardAsiCs: (
+      { identifier }: HashboardServiceGetHashboardAsiCsParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardASICsResponse, RpcStatus>({
+        path: `/api/v2/hashboards/${identifier}/asics`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards
+     * @name HashboardServiceGetHashboardEvents
+     * @summary GetHashboardEvents returns recent history for one hashboard selected by CT1 MAC address or R2 serial number.
+     * @request GET:/api/v2/hashboards/{identifier}/events
+     */
+    hashboardServiceGetHashboardEvents: (
+      { identifier, ...query }: HashboardServiceGetHashboardEventsParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardEventsResponse, RpcStatus>({
+        path: `/api/v2/hashboards/${identifier}/events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Run-In, CT1
+     * @name RunInServiceStartHashboardRunIn
+     * @summary StartHashboardRunIn starts a factory run-in task for one hashboard.
+     * @request POST:/api/v2/hashboards/{identifier}/run-in
+     */
+    runInServiceStartHashboardRunIn: (
+      { identifier, ...query }: RunInServiceStartHashboardRunInParams,
+      config: V2HashboardRunInConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartHashboardRunInResponse, RpcStatus>({
+        path: `/api/v2/hashboards/${identifier}/run-in`,
+        method: "POST",
+        query: query,
+        body: config,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceListIsolation
+     * @summary ListIsolation returns the current set of isolated hashboards.
+     * @request GET:/api/v2/mining/isolation
+     */
+    miningServiceListIsolation: (params: RequestParams = {}) =>
+      this.request<V2ListIsolationResponse, RpcStatus>({
+        path: `/api/v2/mining/isolation`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceSetIsolation
+     * @summary SetIsolation marks or clears isolation for an explicit set of hashboards. Isolated boards are excluded from cluster start/stop and from the mining-intent reconciler. On clear, the server re-aligns the boards to the current cluster mining intent.
+     * @request POST:/api/v2/mining/isolation
+     */
+    miningServiceSetIsolation: (
+      body: V2SetIsolationRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetIsolationResponse, RpcStatus>({
+        path: `/api/v2/mining/isolation`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceListModuleVoltageSettings
+     * @summary ListModuleVoltageSettings returns durable fixed/AUTO settings and the firmware-supported voltage range for every known module ID.
+     * @request GET:/api/v2/mining/modules/voltage
+     */
+    miningServiceListModuleVoltageSettings: (params: RequestParams = {}) =>
+      this.request<V2ListModuleVoltageSettingsResponse, RpcStatus>({
+        path: `/api/v2/mining/modules/voltage`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceClearModuleFixedVoltage
+     * @summary ClearModuleFixedVoltage persists and applies automatic voltage tuning for one module.
+     * @request DELETE:/api/v2/mining/modules/{moduleId}/voltage/fixed
+     */
+    miningServiceClearModuleFixedVoltage: (
+      { moduleId }: MiningServiceClearModuleFixedVoltageParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ClearModuleFixedVoltageResponse, RpcStatus>({
+        path: `/api/v2/mining/modules/${moduleId}/voltage/fixed`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceSetModuleFixedVoltage
+     * @summary SetModuleFixedVoltage persists and applies one module-wide fixed voltage.
+     * @request PUT:/api/v2/mining/modules/{moduleId}/voltage/fixed
+     */
+    miningServiceSetModuleFixedVoltage: (
+      { moduleId }: MiningServiceSetModuleFixedVoltageParams,
+      body: MiningServiceSetModuleFixedVoltageBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetModuleFixedVoltageResponse, RpcStatus>({
+        path: `/api/v2/mining/modules/${moduleId}/voltage/fixed`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceSetPowerTargetScoped
+     * @summary SetPowerTargetScoped sets a manual per-board power target on an explicit set of ISOLATED hashboards. Isolation is required so the fleet power reconciler does not fight the manual target; it is validated per board.
+     * @request POST:/api/v2/mining/scoped/power
+     */
+    miningServiceSetPowerTargetScoped: (
+      body: V2SetPowerTargetScopedRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetPowerTargetScopedResponse, RpcStatus>({
+        path: `/api/v2/mining/scoped/power`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceClearPowerTargetScoped
+     * @summary ClearPowerTargetScoped removes manual per-board power targets from an explicit set of isolated hashboards, restoring automatic tuning.
+     * @request POST:/api/v2/mining/scoped/power/clear
+     */
+    miningServiceClearPowerTargetScoped: (
+      body: V2ClearPowerTargetScopedRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ClearPowerTargetScopedResponse, RpcStatus>({
+        path: `/api/v2/mining/scoped/power/clear`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceStartMiningScoped
+     * @summary StartMiningScoped begins mining for an explicit set of hashboards. Isolated boards are eligible (this is how operators drive them). Cluster intent is not changed.
+     * @request POST:/api/v2/mining/scoped/start
+     */
+    miningServiceStartMiningScoped: (
+      body: V2StartMiningScopedRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartMiningScopedResponse, RpcStatus>({
+        path: `/api/v2/mining/scoped/start`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining, CT1
+     * @name MiningServiceStopMiningScoped
+     * @summary StopMiningScoped halts mining for an explicit set of hashboards. Cluster intent is not changed.
+     * @request POST:/api/v2/mining/scoped/stop
+     */
+    miningServiceStopMiningScoped: (
+      body: V2StopMiningScopedRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StopMiningScopedResponse, RpcStatus>({
+        path: `/api/v2/mining/scoped/stop`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceStartMining
+     * @summary StartMining begins mining operations.
+     * @request POST:/api/v2/mining/start
+     */
+    miningServiceStartMining: (params: RequestParams = {}) =>
+      this.request<V2StartMiningResponse, RpcStatus>({
+        path: `/api/v2/mining/start`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceGetMiningStatus
+     * @summary GetMiningStatus returns aggregate mining status across all hashboards.
+     * @request GET:/api/v2/mining/status
+     */
+    miningServiceGetMiningStatus: (params: RequestParams = {}) =>
+      this.request<V2GetMiningStatusResponse, RpcStatus>({
+        path: `/api/v2/mining/status`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceStopMining
+     * @summary StopMining halts mining operations.
+     * @request POST:/api/v2/mining/stop
+     */
+    miningServiceStopMining: (params: RequestParams = {}) =>
+      this.request<V2StopMiningResponse, RpcStatus>({
+        path: `/api/v2/mining/stop`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceGetTargetPower
+     * @summary GetTargetPower returns the current target power setting.
+     * @request GET:/api/v2/mining/target-power
+     */
+    miningServiceGetTargetPower: (params: RequestParams = {}) =>
+      this.request<V2GetTargetPowerResponse, RpcStatus>({
+        path: `/api/v2/mining/target-power`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceSetTargetPower
+     * @summary SetTargetPower sets the target power for mining operations.
+     * @request PUT:/api/v2/mining/target-power
+     */
+    miningServiceSetTargetPower: (
+      body: V2SetTargetPowerRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetTargetPowerResponse, RpcStatus>({
+        path: `/api/v2/mining/target-power`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceGetTuning
+     * @summary GetTuning returns the active product-specific tuning algorithm.
+     * @request GET:/api/v2/mining/tuning
+     */
+    miningServiceGetTuning: (params: RequestParams = {}) =>
+      this.request<V2GetTuningResponse, RpcStatus>({
+        path: `/api/v2/mining/tuning`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceSetTuning
+     * @summary SetTuning configures the exact product-specific tuning algorithm.
+     * @request PUT:/api/v2/mining/tuning
+     */
+    miningServiceSetTuning: (
+      body: V2SetTuningRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetTuningResponse, RpcStatus>({
+        path: `/api/v2/mining/tuning`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceEnableVoltageTuning
+     * @summary EnableVoltageTuning enables automatic PSU voltage tuning on local hashboards.
+     * @request POST:/api/v2/mining/voltage-tuning/enable
+     */
+    miningServiceEnableVoltageTuning: (params: RequestParams = {}) =>
+      this.request<V2EnableVoltageTuningResponse, RpcStatus>({
+        path: `/api/v2/mining/voltage-tuning/enable`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining
+     * @name MiningServiceSetFixedVoltage
+     * @summary SetFixedVoltage disables automatic PSU voltage tuning and requests one fleet-wide fixed voltage from 26,000 through 30,000 millivolts inclusive.
+     * @request POST:/api/v2/mining/voltage/fixed
+     */
+    miningServiceSetFixedVoltage: (
+      body: V2SetFixedVoltageRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetFixedVoltageResponse, RpcStatus>({
+        path: `/api/v2/mining/voltage/fixed`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Run-In, CT1
+     * @name RunInServiceStartModuleRunIn
+     * @summary StartModuleRunIn starts one synchronized tuning sweep across the connected hashboards in a PSU module.
+     * @request POST:/api/v2/modules/{moduleId}/run-in
+     */
+    runInServiceStartModuleRunIn: (
+      { moduleId, ...query }: RunInServiceStartModuleRunInParams,
+      config: V2HashboardRunInConfig,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartModuleRunInResponse, RpcStatus>({
+        path: `/api/v2/modules/${moduleId}/run-in`,
+        method: "POST",
+        query: query,
+        body: config,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Operational policy, CT1
+     * @name OperationalPolicyServiceGetManagedOperationalPolicy
+     * @request GET:/api/v2/operational-policy
+     */
+    operationalPolicyServiceGetManagedOperationalPolicy: (
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetManagedOperationalPolicyResponse, RpcStatus>({
+        path: `/api/v2/operational-policy`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Operational policy, CT1
+     * @name OperationalPolicyServiceApplyManagedOperationalPolicy
+     * @request PUT:/api/v2/operational-policy
+     */
+    operationalPolicyServiceApplyManagedOperationalPolicy: (
+      body: V2ApplyManagedOperationalPolicyRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ApplyManagedOperationalPolicyResponse, RpcStatus>({
+        path: `/api/v2/operational-policy`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceListPools
+     * @summary ListPools returns all configured mining pools ordered by priority.
+     * @request GET:/api/v2/pools
+     */
+    poolServiceListPools: (params: RequestParams = {}) =>
+      this.request<V2ListPoolsResponse, RpcStatus>({
+        path: `/api/v2/pools`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceCreatePool
+     * @summary CreatePool adds a new pool configuration.
+     * @request POST:/api/v2/pools
+     */
+    poolServiceCreatePool: (
+      body: V2CreatePoolRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CreatePoolResponse, RpcStatus>({
+        path: `/api/v2/pools`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceGetPoolDiagnostics
+     * @summary GetPoolDiagnostics returns per-configured-enabled-pool runtime connection diagnostics reflecting this node's live pool connections. The manager tracks only enabled pools (SetPools filters to enabled), so disabled pools are not included.
+     * @request GET:/api/v2/pools/diagnostics
+     */
+    poolServiceGetPoolDiagnostics: (params: RequestParams = {}) =>
+      this.request<V2GetPoolDiagnosticsResponse, RpcStatus>({
+        path: `/api/v2/pools/diagnostics`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceGetPool
+     * @summary GetPool returns a single pool by ID.
+     * @request GET:/api/v2/pools/{id}
+     */
+    poolServiceGetPool: (
+      { id }: PoolServiceGetPoolParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetPoolResponse, RpcStatus>({
+        path: `/api/v2/pools/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceDeletePool
+     * @summary DeletePool removes a pool configuration.
+     * @request DELETE:/api/v2/pools/{id}
+     */
+    poolServiceDeletePool: (
+      { id }: PoolServiceDeletePoolParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2DeletePoolResponse, RpcStatus>({
+        path: `/api/v2/pools/${id}`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceTestPoolConnection
+     * @summary TestPoolConnection tests connectivity to a configured pool.
+     * @request POST:/api/v2/pools/{id}/test
+     */
+    poolServiceTestPoolConnection: (
+      { id }: PoolServiceTestPoolConnectionParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2TestPoolConnectionResponse, RpcStatus>({
+        path: `/api/v2/pools/${id}/test`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name PoolServiceUpdatePool
+     * @summary UpdatePool updates an existing pool configuration.
+     * @request PUT:/api/v2/pools/{pool.id}
+     */
+    poolServiceUpdatePool: (
+      { poolId }: PoolServiceUpdatePoolParams,
+      body: PoolServiceUpdatePoolBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2UpdatePoolResponse, RpcStatus>({
+        path: `/api/v2/pools/${poolId}`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceMuteContainerAlarm
+     * @summary MuteContainerAlarm pulses the container controller's alarm mute. CT1 only.
+     * @request POST:/api/v2/power/container/alarm/mute
+     */
+    powerServiceMuteContainerAlarm: (
+      body: V2MuteContainerAlarmRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2MuteContainerAlarmResponse, RpcStatus>({
+        path: `/api/v2/power/container/alarm/mute`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceResetContainerAlarm
+     * @summary ResetContainerAlarm pulses the container controller's alarm reset. CT1 only.
+     * @request POST:/api/v2/power/container/alarm/reset
+     */
+    powerServiceResetContainerAlarm: (
+      body: V2ResetContainerAlarmRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ResetContainerAlarmResponse, RpcStatus>({
+        path: `/api/v2/power/container/alarm/reset`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceGetContainerControls
+     * @summary GetContainerControls returns the tank/container plant controls (boolean switches) and analog setpoints exposed by the container backend, with their current states where the backend can read them back. Backends without control support report supported=false with empty lists. CT1 only.
+     * @request GET:/api/v2/power/container/controls
+     */
+    powerServiceGetContainerControls: (params: RequestParams = {}) =>
+      this.request<V2GetContainerControlsResponse, RpcStatus>({
+        path: `/api/v2/power/container/controls`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceSetContainerControl
+     * @summary SetContainerControl switches one boolean tank/container control (tank_led_light, coolant_pump, dry_cooler, dry_cooler_auto, air_conditioner_1, or air_conditioner_2) and echoes the state written. The PLC is authoritative for plant protection and command acceptance. CT1 only.
+     * @request POST:/api/v2/power/container/controls/{name}
+     */
+    powerServiceSetContainerControl: (
+      { name }: PowerServiceSetContainerControlParams,
+      body: PowerServiceSetContainerControlBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetContainerControlResponse, RpcStatus>({
+        path: `/api/v2/power/container/controls/${name}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceRunDryCoolerFanReverse
+     * @summary RunDryCoolerFanReverse applies a retained 3-10 whole-minute duration, starts the PLC-owned procedure, and returns after terminal completion. The operation never exposes or writes a manual stop command. CT1 only.
+     * @request POST:/api/v2/power/container/dry-cooler/fan-reverse
+     */
+    powerServiceRunDryCoolerFanReverse: (
+      body: V2RunDryCoolerFanReverseRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2RunDryCoolerFanReverseResponse, RpcStatus>({
+        path: `/api/v2/power/container/dry-cooler/fan-reverse`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceSetMainCircuitBreakerState
+     * @summary SetMainCircuitBreakerState requests an idempotent closed/open target and returns the controller's authoritative closed-state readback. CT1 only.
+     * @request POST:/api/v2/power/container/main-circuit-breaker
+     */
+    powerServiceSetMainCircuitBreakerState: (
+      body: V2SetMainCircuitBreakerStateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetMainCircuitBreakerStateResponse, RpcStatus>({
+        path: `/api/v2/power/container/main-circuit-breaker`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceSetContainerSetpoint
+     * @summary SetContainerSetpoint writes one analog tank/container setpoint and echoes the applied value. Temperature setpoints are Celsius. Frigate validates only the finite float32 wire representation; the PLC owns operational limits and final command acceptance. CT1 only.
+     * @request POST:/api/v2/power/container/setpoints/{name}
+     */
+    powerServiceSetContainerSetpoint: (
+      { name }: PowerServiceSetContainerSetpointParams,
+      body: PowerServiceSetContainerSetpointBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetContainerSetpointResponse, RpcStatus>({
+        path: `/api/v2/power/container/setpoints/${name}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power
+     * @name PowerServiceGetDevicePower
+     * @summary GetDevicePower returns aggregate device power consumption.
+     * @request GET:/api/v2/power/device
+     */
+    powerServiceGetDevicePower: (params: RequestParams = {}) =>
+      this.request<V2GetDevicePowerResponse, RpcStatus>({
+        path: `/api/v2/power/device`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceListPowerFeeds
+     * @summary ListPowerFeeds returns power-feed state and optional electrical telemetry.
+     * @request GET:/api/v2/power/feeds
+     */
+    powerServiceListPowerFeeds: (params: RequestParams = {}) =>
+      this.request<V2ListPowerFeedsResponse, RpcStatus>({
+        path: `/api/v2/power/feeds`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceClearPowerFeedOverride
+     * @summary ClearPowerFeedOverride removes the process-local operator marker from one power feed without changing its backend target or physical state. CT1 only.
+     * @request POST:/api/v2/power/feeds/{powerFeedId}/override/clear
+     */
+    powerServiceClearPowerFeedOverride: (
+      { powerFeedId }: PowerServiceClearPowerFeedOverrideParams,
+      body: PowerServiceClearPowerFeedOverrideBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ClearPowerFeedOverrideResponse, RpcStatus>({
+        path: `/api/v2/power/feeds/${powerFeedId}/override/clear`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceSetPowerFeedState
+     * @summary SetPowerFeedState enables or disables one container power feed.
+     * @request POST:/api/v2/power/feeds/{powerFeedId}/state
+     */
+    powerServiceSetPowerFeedState: (
+      { powerFeedId }: PowerServiceSetPowerFeedStateParams,
+      body: PowerServiceSetPowerFeedStateBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetPowerFeedStateResponse, RpcStatus>({
+        path: `/api/v2/power/feeds/${powerFeedId}/state`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceCyclePowerFeed
+     * @summary CyclePowerFeed disables one enabled container power feed, holds it off for 30 seconds, and restores it as one durable Frigate-owned operation. The restore survives disconnects, restart, and HA handoff. CT1 only.
+     * @request POST:/api/v2/power/feeds/{powerFeedId}:cycle
+     */
+    powerServiceCyclePowerFeed: (
+      { powerFeedId, cycle }: PowerServiceCyclePowerFeedParams,
+      body: PowerServiceCyclePowerFeedBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CyclePowerFeedResponse, RpcStatus>({
+        path: `/api/v2/power/feeds/${powerFeedId}${cycle}`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power
+     * @name PowerServiceListHashboardPower
+     * @summary ListHashboardPower returns per-hashboard power consumption.
+     * @request GET:/api/v2/power/hashboards
+     */
+    powerServiceListHashboardPower: (params: RequestParams = {}) =>
+      this.request<V2ListHashboardPowerResponse, RpcStatus>({
+        path: `/api/v2/power/hashboards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Power, CT1
+     * @name PowerServiceGetActivePowerRecoveryCycle
+     * @summary GetActivePowerRecoveryCycle returns the singleton durable outlet restore obligation, whether initiated by an operator or automatic recovery.
+     * @request GET:/api/v2/power/recovery/active
+     */
+    powerServiceGetActivePowerRecoveryCycle: (params: RequestParams = {}) =>
+      this.request<V2GetActivePowerRecoveryCycleResponse, RpcStatus>({
+        path: `/api/v2/power/recovery/active`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Run-In, CT1
+     * @name RunInServiceListHashboardRunInTasks
+     * @summary ListHashboardRunInTasks lists active and completed run-in tasks.
+     * @request GET:/api/v2/run-in
+     */
+    runInServiceListHashboardRunInTasks: (
+      query: RunInServiceListHashboardRunInTasksParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListHashboardRunInTasksResponse, RpcStatus>({
+        path: `/api/v2/run-in`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Run-In, CT1
+     * @name RunInServiceGetHashboardRunInStatus
+     * @summary GetHashboardRunInStatus returns the current status for a run-in task.
+     * @request GET:/api/v2/run-in/{taskId}
+     */
+    runInServiceGetHashboardRunInStatus: (
+      { taskId, ...query }: RunInServiceGetHashboardRunInStatusParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardRunInStatusResponse, RpcStatus>({
+        path: `/api/v2/run-in/${taskId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Run-In, CT1
+     * @name RunInServiceCancelHashboardRunIn
+     * @summary CancelHashboardRunIn requests cancellation for a run-in task.
+     * @request POST:/api/v2/run-in/{taskId}/cancel
+     */
+    runInServiceCancelHashboardRunIn: (
+      { taskId, ...query }: RunInServiceCancelHashboardRunInParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CancelHashboardRunInResponse, RpcStatus>({
+        path: `/api/v2/run-in/${taskId}/cancel`,
+        method: "POST",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceListAuditEvents
+     * @summary ListAuditEvents returns recent audit-log entries, newest first.
+     * @request GET:/api/v2/system/audit
+     */
+    systemServiceListAuditEvents: (
+      query: SystemServiceListAuditEventsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListAuditEventsResponse, RpcStatus>({
+        path: `/api/v2/system/audit`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceGetCoolingConfig
+     * @summary GetCoolingConfig returns the cooling configuration.
+     * @request GET:/api/v2/system/cooling
+     */
+    systemServiceGetCoolingConfig: (params: RequestParams = {}) =>
+      this.request<V2GetCoolingConfigResponse, RpcStatus>({
+        path: `/api/v2/system/cooling`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceSetCoolingConfig
+     * @summary SetCoolingConfig updates the cooling configuration.
+     * @request PUT:/api/v2/system/cooling
+     */
+    systemServiceSetCoolingConfig: (
+      body: V2SetCoolingConfigRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetCoolingConfigResponse, RpcStatus>({
+        path: `/api/v2/system/cooling`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceApplyFirmwareUpdate
+     * @summary ApplyFirmwareUpdate applies a firmware update.
+     * @request POST:/api/v2/system/firmware/apply
+     */
+    systemServiceApplyFirmwareUpdate: (
+      body: V2ApplyFirmwareUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ApplyFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/system/firmware/apply`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceCheckFirmwareUpdate
+     * @summary CheckFirmwareUpdate checks for available firmware updates.
+     * @request GET:/api/v2/system/firmware/check
+     */
+    systemServiceCheckFirmwareUpdate: (params: RequestParams = {}) =>
+      this.request<V2CheckFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/system/firmware/check`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceGetHardwareInfo
+     * @summary GetHardwareInfo returns hardware details.
+     * @request GET:/api/v2/system/hardware
+     */
+    systemServiceGetHardwareInfo: (params: RequestParams = {}) =>
+      this.request<V2GetHardwareInfoResponse, RpcStatus>({
+        path: `/api/v2/system/hardware`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceGetSystemInfo
+     * @summary GetSystemInfo returns static system information.
+     * @request GET:/api/v2/system/info
+     */
+    systemServiceGetSystemInfo: (params: RequestParams = {}) =>
+      this.request<V2GetSystemInfoResponse, RpcStatus>({
+        path: `/api/v2/system/info`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceLocateDevice
+     * @summary LocateDevice activates the device locator LED.
+     * @request POST:/api/v2/system/locate
+     */
+    systemServiceLocateDevice: (
+      body: V2LocateDeviceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2LocateDeviceResponse, RpcStatus>({
+        path: `/api/v2/system/locate`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceGetLogs
+     * @summary GetLogs returns a stream of system log entries.
+     * @request GET:/api/v2/system/logs
+     */
+    systemServiceGetLogs: (
+      query: SystemServiceGetLogsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          /** GetLogsResponse contains a single log entry from the stream. */
+          result?: V2GetLogsResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/system/logs`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceGetNetworkConfig
+     * @summary GetNetworkConfig returns the network configuration.
+     * @request GET:/api/v2/system/network
+     */
+    systemServiceGetNetworkConfig: (params: RequestParams = {}) =>
+      this.request<V2GetNetworkConfigResponse, RpcStatus>({
+        path: `/api/v2/system/network`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceSetNetworkConfig
+     * @summary SetNetworkConfig updates the network configuration.
+     * @request PUT:/api/v2/system/network
+     */
+    systemServiceSetNetworkConfig: (
+      body: V2SetNetworkConfigRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetNetworkConfigResponse, RpcStatus>({
+        path: `/api/v2/system/network`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceListPowerSupplies
+     * @summary ListPowerSupplies returns information about installed PSUs.
+     * @request GET:/api/v2/system/psu
+     */
+    systemServiceListPowerSupplies: (params: RequestParams = {}) =>
+      this.request<V2ListPowerSuppliesResponse, RpcStatus>({
+        path: `/api/v2/system/psu`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceUpdatePsuFirmware
+     * @summary UpdatePSUFirmware initiates a firmware update on a PSU.
+     * @request POST:/api/v2/system/psu/{psuId}/update
+     */
+    systemServiceUpdatePsuFirmware: (
+      { psuId }: SystemServiceUpdatePsuFirmwareParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2UpdatePSUFirmwareResponse, RpcStatus>({
+        path: `/api/v2/system/psu/${psuId}/update`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceReboot
+     * @summary Reboot reboots the device.
+     * @request POST:/api/v2/system/reboot
+     */
+    systemServiceReboot: (params: RequestParams = {}) =>
+      this.request<V2RebootResponse, RpcStatus>({
+        path: `/api/v2/system/reboot`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceGetSshConfig
+     * @summary GetSSHConfig returns the SSH configuration.
+     * @request GET:/api/v2/system/ssh
+     */
+    systemServiceGetSshConfig: (params: RequestParams = {}) =>
+      this.request<V2GetSSHConfigResponse, RpcStatus>({
+        path: `/api/v2/system/ssh`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceSetSshConfig
+     * @summary SetSSHConfig updates the SSH configuration.
+     * @request PUT:/api/v2/system/ssh
+     */
+    systemServiceSetSshConfig: (
+      body: V2SetSSHConfigRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetSSHConfigResponse, RpcStatus>({
+        path: `/api/v2/system/ssh`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceGetSystemStatus
+     * @summary GetSystemStatus returns current system status.
+     * @request GET:/api/v2/system/status
+     */
+    systemServiceGetSystemStatus: (params: RequestParams = {}) =>
+      this.request<V2GetSystemStatusResponse, RpcStatus>({
+        path: `/api/v2/system/status`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceListTags
+     * @summary ListTags returns the system's tag set.
+     * @request GET:/api/v2/system/tags
+     */
+    systemServiceListTags: (params: RequestParams = {}) =>
+      this.request<V2ListTagsResponse, RpcStatus>({
+        path: `/api/v2/system/tags`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System
+     * @name SystemServiceSetTags
+     * @summary SetTags replaces the system's tag set.
+     * @request PUT:/api/v2/system/tags
+     */
+    systemServiceSetTags: (
+      body: V2SetTagsRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetTagsResponse, RpcStatus>({
+        path: `/api/v2/system/tags`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags System, R2
+     * @name SystemServiceGetUnlockStatus
+     * @summary GetUnlockStatus returns the device unlock status.
+     * @request GET:/api/v2/system/unlock
+     */
+    systemServiceGetUnlockStatus: (params: RequestParams = {}) =>
+      this.request<V2GetUnlockStatusResponse, RpcStatus>({
+        path: `/api/v2/system/unlock`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards, CT1
+     * @name HashboardServiceListUnitTags
+     * @summary ListUnitTags returns operator tags for modules, hashboards, and container power feeds.
+     * @request GET:/api/v2/tags
+     */
+    hashboardServiceListUnitTags: (params: RequestParams = {}) =>
+      this.request<V2ListUnitTagsResponse, RpcStatus>({
+        path: `/api/v2/tags`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Hashboards, CT1
+     * @name HashboardServiceSetUnitTag
+     * @summary SetUnitTag upserts an operator tag for a module (keyed by module ID), a hashboard (keyed by MAC address), or a container power feed (keyed by backend feed ID). An empty tag deletes the entry.
+     * @request PUT:/api/v2/tags
+     */
+    hashboardServiceSetUnitTag: (
+      body: V2SetUnitTagRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2SetUnitTagResponse, RpcStatus>({
+        path: `/api/v2/tags`,
+        method: "PUT",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceGetContainerHealth
+     * @summary GetContainerHealth returns a point-in-time plant and power-feed snapshot.
+     * @request GET:/api/v2/telemetry/container
+     */
+    telemetryServiceGetContainerHealth: (params: RequestParams = {}) =>
+      this.request<V2GetContainerHealthResponse, RpcStatus>({
+        path: `/api/v2/telemetry/container`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceListContainerPlantAlarmEpisodes
+     * @summary ListContainerPlantAlarmEpisodes reconstructs active and cleared PLC alarm intervals from the durable transition journal.
+     * @request GET:/api/v2/telemetry/container/alarms
+     */
+    telemetryServiceListContainerPlantAlarmEpisodes: (
+      query: TelemetryServiceListContainerPlantAlarmEpisodesParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListContainerPlantAlarmEpisodesResponse, RpcStatus>({
+        path: `/api/v2/telemetry/container/alarms`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceListContainerPlantEvents
+     * @summary ListContainerPlantEvents returns durable control, setpoint, alarm, fault, power-feed, and observed-state transitions.
+     * @request GET:/api/v2/telemetry/container/events
+     */
+    telemetryServiceListContainerPlantEvents: (
+      query: TelemetryServiceListContainerPlantEventsParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2ListContainerPlantEventsResponse, RpcStatus>({
+        path: `/api/v2/telemetry/container/events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceStreamContainerHealth
+     * @summary StreamContainerHealth streams container plant and power-feed telemetry.
+     * @request GET:/api/v2/telemetry/container/stream
+     */
+    telemetryServiceStreamContainerHealth: (params: RequestParams = {}) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          /** StreamContainerHealthResponse contains plant and power-feed telemetry. */
+          result?: V2StreamContainerHealthResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/telemetry/container/stream`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceStreamDeviceMetrics
+     * @summary StreamDeviceMetrics streams aggregate device-level metrics.
+     * @request GET:/api/v2/telemetry/device/stream
+     */
+    telemetryServiceStreamDeviceMetrics: (params: RequestParams = {}) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          /** StreamDeviceMetricsResponse contains aggregate device-level metrics. */
+          result?: V2StreamDeviceMetricsResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/telemetry/device/stream`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceStreamHashboardHealth
+     * @summary StreamHashboardHealth streams hashboard health snapshots at ~1Hz.
+     * @request GET:/api/v2/telemetry/hashboards/stream
+     */
+    telemetryServiceStreamHashboardHealth: (
+      query: TelemetryServiceStreamHashboardHealthParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          /** StreamHashboardHealthResponse contains a health snapshot for a single hashboard. */
+          result?: V2StreamHashboardHealthResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/telemetry/hashboards/stream`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceStreamAsicHealth
+     * @summary StreamASICHealth streams per-ASIC health data for a single hashboard.
+     * @request GET:/api/v2/telemetry/hashboards/{identifier}/asics/stream
+     */
+    telemetryServiceStreamAsicHealth: (
+      { identifier }: TelemetryServiceStreamAsicHealthParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          /**
+           * The `Status` type defines a logical error model that is suitable for
+           * different programming environments, including REST APIs and RPC APIs. It is
+           * used by [gRPC](https://github.com/grpc). Each `Status` message contains
+           * three pieces of data: error code, error message, and error details.
+           *
+           * You can find out more about this error model and how to work with it in the
+           * [API Design Guide](https://cloud.google.com/apis/design/errors).
+           */
+          error?: RpcStatus;
+          /** StreamASICHealthResponse contains per-ASIC health data for a hashboard. */
+          result?: V2StreamASICHealthResponse;
+        },
+        RpcStatus
+      >({
+        path: `/api/v2/telemetry/hashboards/${identifier}/asics/stream`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceGetHashboardLifetime
+     * @summary GetHashboardLifetime returns the cumulative runtime the service has observed for one hashboard. It is preserved independently of retained raw health samples and excludes unobserved telemetry gaps.
+     * @request GET:/api/v2/telemetry/hashboards/{identifier}/lifetime
+     */
+    telemetryServiceGetHashboardLifetime: (
+      { identifier }: TelemetryServiceGetHashboardLifetimeParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetHashboardLifetimeResponse, RpcStatus>({
+        path: `/api/v2/telemetry/hashboards/${identifier}/lifetime`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceQueryProductionHistory
+     * @summary QueryProductionHistory returns indefinitely retained hourly or daily production summaries. An optional identifier selects one CT1 board; otherwise the result is the container aggregate.
+     * @request GET:/api/v2/telemetry/production/history
+     */
+    telemetryServiceQueryProductionHistory: (
+      query: TelemetryServiceQueryProductionHistoryParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2QueryProductionHistoryResponse, RpcStatus>({
+        path: `/api/v2/telemetry/production/history`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry, CT1
+     * @name TelemetryServiceQueryShareQualityHistory
+     * @summary QueryShareQualityHistory returns indefinitely retained share-quality summaries without scanning raw nonces and work IDs.
+     * @request GET:/api/v2/telemetry/shares/history
+     */
+    telemetryServiceQueryShareQualityHistory: (
+      query: TelemetryServiceQueryShareQualityHistoryParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2QueryShareQualityHistoryResponse, RpcStatus>({
+        path: `/api/v2/telemetry/shares/history`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceGetShareQuality
+     * @summary GetShareQuality returns share acceptance, rejection, and accepted-hashrate statistics over a window.
+     * @request GET:/api/v2/telemetry/shares/quality
+     */
+    telemetryServiceGetShareQuality: (
+      query: TelemetryServiceGetShareQualityParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetShareQualityResponse, RpcStatus>({
+        path: `/api/v2/telemetry/shares/quality`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Telemetry
+     * @name TelemetryServiceQueryTimeSeries
+     * @summary QueryTimeSeries queries historical time series data, returning bucketed aggregates (average, minimum, maximum, and sample count) over the requested metric, time range, and bucket size.
+     * @request GET:/api/v2/telemetry/timeseries
+     */
+    telemetryServiceQueryTimeSeries: (
+      query: TelemetryServiceQueryTimeSeriesParams = {},
+      params: RequestParams = {},
+    ) =>
+      this.request<V2QueryTimeSeriesResponse, RpcStatus>({
+        path: `/api/v2/telemetry/timeseries`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Downloads the completed run-in result as a gzip-compressed SQLite database. Newly completed artifacts are published atomically after finalization and compression succeed; stored legacy SQLite artifacts remain readable.
+     *
+     * @tags Run-In
+     * @name RunInServiceDownloadHashboardRunInResults
+     * @summary DownloadHashboardRunInResults downloads the final compressed SQLite result artifact for a run-in task.
+     * @request GET:/api/v2/run-in/{taskId}/results.sqlite
+     */
+    runInServiceDownloadHashboardRunInResults: (
+      { taskId }: RunInServiceDownloadHashboardRunInResultsParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<Blob, void | RpcStatus>({
+        path: `/api/v2/run-in/${taskId}/results.sqlite`,
+        method: "GET",
+        ...params,
+      }),
+  };
+}

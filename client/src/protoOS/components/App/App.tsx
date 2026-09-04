@@ -83,7 +83,9 @@ const App = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
-  const { isFleetHosted } = useMinerHosting();
+  const { isFleetHosted, resolution } = useMinerHosting();
+  const usesActorHeader = resolution.status === "ready" && resolution.adapterId === "mdk-v2";
+  const bypassesAuthentication = isFleetHosted || usesActorHeader;
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");
@@ -106,12 +108,12 @@ const App = ({
   const isPasswordSet = usePasswordSet();
   const isDefaultPasswordActive = useDefaultPasswordActive();
 
-  const { hasAccess } = useAccessToken(!isFleetHosted);
+  const { hasAccess } = useAccessToken(!bypassesAuthentication);
   // Require defaultPasswordActive to be explicitly resolved as false before
   // firing protected hooks. `!== true` would treat `undefined` (status still
   // loading) as safe, producing a burst of 403s on a factory-password device
   // during the window between token validation and status resolution.
-  const canAccessProtectedApi = isFleetHosted || (hasAccess === true && isDefaultPasswordActive === false);
+  const canAccessProtectedApi = bypassesAuthentication || (hasAccess === true && isDefaultPasswordActive === false);
 
   // Public endpoint — runs regardless of canAccessProtectedApi so bootup
   // flags stay fresh before the user has authenticated.
@@ -130,7 +132,7 @@ const App = ({
   // ONBOARDING NAVIGATION
   // ============================================================================
   useEffect(() => {
-    if (isFleetHosted) {
+    if (bypassesAuthentication) {
       return;
     }
 
@@ -151,7 +153,7 @@ const App = ({
     }
   }, [
     navigate,
-    isFleetHosted,
+    bypassesAuthentication,
     isOnboarded,
     isPasswordSet,
     isDefaultPasswordActive,
@@ -223,10 +225,10 @@ const App = ({
   const setDismissedLoginModal = useSetDismissedLoginModal();
 
   useEffect(() => {
-    if (isFleetHosted && showLoginModal) {
+    if (bypassesAuthentication && showLoginModal) {
       setShowLoginModal(false);
     }
-  }, [isFleetHosted, setShowLoginModal, showLoginModal]);
+  }, [bypassesAuthentication, setShowLoginModal, showLoginModal]);
 
   const handleDismissLogin = useCallback(() => {
     // Every auth-required route is render-gated when canAccessProtectedApi is
@@ -387,7 +389,7 @@ const App = ({
   // route hooks (useTelemetry, useTimeSeries, etc.) fire 401/403 bursts before
   // LoginModal or the default-password redirect takes over. LoginModal itself
   // still renders below so the user can recover from an expired session.
-  const gateRouteChildren = !isFleetHosted && isAuthRequiredPath(pathname) && !canAccessProtectedApi;
+  const gateRouteChildren = !bypassesAuthentication && isAuthRequiredPath(pathname) && !canAccessProtectedApi;
 
   // ============================================================================
   // RENDER
@@ -402,7 +404,7 @@ const App = ({
       </div>
 
       {/* Login Modal - Layout agnostic */}
-      {!isFleetHosted && showLoginModal ? (
+      {!bypassesAuthentication && showLoginModal ? (
         <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />
       ) : null}
 

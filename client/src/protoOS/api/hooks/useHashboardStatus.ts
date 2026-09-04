@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { HashboardStatus } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { AsicHardwareData } from "@/protoOS/store";
+import { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
 import { asAsicId } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
@@ -54,6 +54,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
     // Collect all ASICs to add in a single batch
     const asicsToAdd: Array<AsicHardwareData> = [];
+    const hashboardsToUpdate: Array<HashboardHardwareData> = [];
 
     data.forEach((hashboard) => {
       // No ASIC identities reported for this hashboard yet — nothing to record.
@@ -63,13 +64,11 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
       // Initialize hardware store with hashboard and ASIC structure
       const existingHashboard = useMinerStore.getState().hardware.getHashboard(hashboard.serial);
-      useMinerStore
-        .getState()
-        .hardware.addHashboard(
-          existingHashboard
-            ? { ...existingHashboard, asicIds: hashboard.asicIds }
-            : { serial: hashboard.serial, asicIds: hashboard.asicIds },
-        );
+      hashboardsToUpdate.push(
+        existingHashboard
+          ? { ...existingHashboard, asicIds: hashboard.asicIds }
+          : { serial: hashboard.serial, asicIds: hashboard.asicIds },
+      );
 
       // Collect ASIC info with positional data for batch processing. Always merge
       // onto any existing entry: useTelemetry may have created one without
@@ -78,16 +77,19 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
       for (const asic of hashboard.asics) {
         const existingAsic = useMinerStore.getState().hardware.getAsic(asic.id);
         asicsToAdd.push({ ...existingAsic, ...asic });
-
-        if (!existingAsic) {
-          useMinerStore.getState().hardware.linkAsicToHashboard(asic.id, hashboard.serial);
-        }
       }
+    });
 
-      // Update telemetry store with the adapter's canonical voltage/frequency
-      // samples using Immer-safe setState.
-      for (const sample of hashboard.asicTelemetry) {
-        useMinerStore.setState((state) => {
+    const hardware = useMinerStore.getState().hardware;
+    if (hashboardsToUpdate.length > 0) hardware.batchAddHashboards(hashboardsToUpdate);
+    if (asicsToAdd.length > 0) hardware.batchAddAsics(asicsToAdd);
+
+    // Apply every ASIC telemetry sample in one Immer transaction. A full CT1
+    // can report tens of thousands of ASICs, so per-sample store writes make
+    // initial hydration prohibitively expensive.
+    useMinerStore.setState((state) => {
+      data.forEach((hashboard) => {
+        for (const sample of hashboard.asicTelemetry) {
           const normalizedAsicId = asAsicId(sample.asicId);
           let asicTelemetry = state.telemetry.asics.get(normalizedAsicId);
 
@@ -102,14 +104,18 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
           if (sample.frequency) {
             asicTelemetry.frequency = { ...asicTelemetry.frequency, latest: sample.frequency };
           }
-        });
-      }
+          if (sample.hashrate) {
+            asicTelemetry.hashrate = { ...asicTelemetry.hashrate, latest: sample.hashrate };
+          }
+          if (sample.temperature) {
+            asicTelemetry.temperature = { ...asicTelemetry.temperature, latest: sample.temperature };
+          }
+          if (sample.passRate) {
+            asicTelemetry.passRate = { ...asicTelemetry.passRate, latest: sample.passRate };
+          }
+        }
+      });
     });
-
-    // Batch add all ASICs in a single store mutation
-    if (asicsToAdd.length > 0) {
-      useMinerStore.getState().hardware.batchAddAsics(asicsToAdd);
-    }
   }, [data]);
 
   return useMemo(() => ({ pending, error, data }), [pending, error, data]);

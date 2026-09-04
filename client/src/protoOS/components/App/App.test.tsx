@@ -183,7 +183,11 @@ describe("App auth gating", () => {
     vi.clearAllMocks();
 
     mocks.useLocation.mockReturnValue({ pathname: "/", state: null });
-    mocks.useMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
+    mocks.useMinerHosting.mockReturnValue({
+      mode: "direct",
+      isFleetHosted: false,
+      resolution: { status: "ready", adapterId: "mdk-v1", adapter: {} },
+    });
     mocks.useMiningStart.mockReturnValue({ startMining: mocks.startMining });
     mocks.useMiningStatus.mockReturnValue({ data: {}, fetchData: mocks.fetchMiningStatus });
     mocks.useSystemInfo.mockReturnValue({ reload: mocks.reloadSystemInfo });
@@ -333,7 +337,11 @@ describe("App auth gating", () => {
 
   it("does not render a direct ProtoOS login modal while fleet-hosted", () => {
     const setShowLoginModal = vi.fn();
-    mocks.useMinerHosting.mockReturnValue({ mode: "fleet", isFleetHosted: true });
+    mocks.useMinerHosting.mockReturnValue({
+      mode: "fleet",
+      isFleetHosted: true,
+      resolution: { status: "ready", adapterId: "mdk-v1", adapter: {} },
+    });
     mocks.useShowLoginModal.mockReturnValue(true);
     mocks.useSetShowLoginModal.mockReturnValue(setShowLoginModal);
 
