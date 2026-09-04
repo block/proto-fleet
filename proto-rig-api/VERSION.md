@@ -48,7 +48,7 @@ To update the MDK v1 API specification:
 3. Copy MDK-API.json from `crates/miner-api-server/docs/` to `openapi/`
 4. Update this VERSION.md with the new commit SHA and dates
 5. Regenerate the dependent generated code:
-   - Client: `cd client && npm run generate-api-types` (TypeScript types from the OpenAPI spec)
+   - Client: `cd client && npm run generate-api-types` (adapter-local TypeScript client from the OpenAPI spec)
 6. Update the simulator REST API if the OpenAPI spec changed
    (see `server/fake-proto-rig/README.md`)
 7. Run tests to verify compatibility
