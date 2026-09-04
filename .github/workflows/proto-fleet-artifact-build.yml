@@ -302,6 +302,7 @@ jobs:
 
           mkdir -p "$package_dir/plugins"
           install -m 0755 fleetnode "$package_dir/fleetnode"
+          install -m 0755 ../deployment-files/fleetnode/fleetnode-enroll "$package_dir/fleetnode-enroll"
           install -m 0644 ../deployment-files/fleetnode/fleet-node.service "$package_dir/fleet-node.service"
           install -m 0755 proto-plugin "$package_dir/plugins/proto-plugin"
           install -m 0755 antminer-plugin "$package_dir/plugins/antminer-plugin"

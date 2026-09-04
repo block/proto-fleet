@@ -40,6 +40,9 @@ create_release() {
 
   printf '#!/usr/bin/env bash\nexit 0\n' > "$release_dir/$archive_root/fleetnode"
   chmod 0755 "$release_dir/$archive_root/fleetnode"
+  cp "$FLEETNODE_DIR/fleetnode-enroll" "$release_dir/$archive_root/fleetnode-enroll"
+  printf '# fixture version: %s\n' "$version" >> "$release_dir/$archive_root/fleetnode-enroll"
+  chmod 0755 "$release_dir/$archive_root/fleetnode-enroll"
   printf 'version: %s\n' "$version" > "$release_dir/$archive_root/version.txt"
   cp "$FLEETNODE_DIR/fleet-node.service" "$release_dir/$archive_root/fleet-node.service"
   if [[ -n "$unit_marker" ]]; then
@@ -363,7 +366,7 @@ if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
 fi
 rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
 
-CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0
+CURL_HOME="$TEST_DIR/curl-home" FAKE_FLEETNODE_ENABLED=1 run_installer v1.0.0 > "$TEST_DIR/fresh-install.out"
 
 [[ "$(file_mode "$ROOT_PREFIX/opt")" == "711" ]] || fail "installer changed /opt mode"
 [[ "$(file_mode "$ROOT_PREFIX/etc/systemd/system")" == "751" ]] || fail "installer changed systemd directory mode"
@@ -374,6 +377,14 @@ assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "--retry-delay 2"
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "--retry-connrefused"
 
 [[ -x "$ROOT_PREFIX/opt/fleetnode/fleetnode" ]] || fail "Fleet Node binary was not installed"
+[[ -x "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" ]] || fail "Fleet Node enrollment helper was not installed"
+cmp -s "$ROOT_PREFIX/opt/fleetnode/fleetnode-enroll" "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" || \
+  fail "installed enrollment helper differs from packaged helper"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "# fixture version: v1.0.0"
+assert_file_contains "$TEST_DIR/fresh-install.out" "sudo fleetnode-enroll --server-url=https://YOUR-FLEET-SERVER"
+if grep -Fq "sudo -u fleetnode" "$TEST_DIR/fresh-install.out"; then
+  fail "installer still printed the internal enrollment command"
+fi
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode/plugins/virtual-plugin" ]] || fail "customer package installed the virtual test plugin"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
 [[ -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "systemd unit was not installed"
@@ -406,6 +417,19 @@ fi
 printf 'operator config\n' > "$ROOT_PREFIX/etc/fleetnode/config.yaml"
 printf 'identity material\n' > "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
 printf 'stale program file\n' > "$ROOT_PREFIX/opt/fleetnode/stale.txt"
+
+printf 'unmanaged helper\n' > "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+: > "$SYSTEMCTL_LOG"
+if run_installer v1.1.0 > "$TEST_DIR/unmanaged-helper.out" 2>&1; then
+  fail "installer replaced an unmanaged enrollment helper"
+fi
+assert_file_contains "$TEST_DIR/unmanaged-helper.out" "refusing to replace unmanaged enrollment helper"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
+if grep -Fq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
+  fail "installer stopped the service before validating the enrollment helper"
+fi
+cp "$ROOT_PREFIX/opt/fleetnode/fleetnode-enroll" "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+chmod 0755 "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
 
 : > "$SYSTEMCTL_LOG"
 if FAKE_PRIMARY_GID_USER=operator run_installer v1.1.0 > "$TEST_DIR/shared-primary-gid-install.out" 2>&1; then
@@ -441,6 +465,7 @@ chmod 0777 "$ROOT_PREFIX/etc/fleetnode" "$ROOT_PREFIX/var/lib/fleetnode"
 run_installer v1.1.0
 
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "# fixture version: v1.1.0"
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode/stale.txt" ]] || fail "upgrade retained stale program files"
 assert_file_contains "$ROOT_PREFIX/etc/fleetnode/config.yaml" "operator config"
 assert_file_contains "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" "identity material"
@@ -456,6 +481,7 @@ if FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" run_installer v1.3.0 > "$TE
   fail "installer accepted an upgrade whose service did not become ready"
 fi
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "# fixture version: v1.1.0"
 if grep -Fq '# candidate unit v1.3.0' "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"; then
   fail "failed upgrade retained the candidate systemd unit"
 fi
@@ -627,10 +653,38 @@ rm -f "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
 FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
 [[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "uninstall retained the program"
 [[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "uninstall retained the unit"
+[[ ! -e "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" ]] || fail "uninstall retained the enrollment helper"
 [[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "uninstall removed configuration"
 [[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "uninstall removed state"
 [[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "uninstall removed the service account"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
+
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+run_installer v1.3.0
+rm -f "$ROOT_PREFIX/opt/fleetnode/fleetnode-enroll"
+printf 'unrelated helper\n' > "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+
+: > "$SYSTEMCTL_LOG"
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "damaged uninstall retained the program"
+[[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "damaged uninstall retained the unit"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "unrelated helper"
+[[ -e "$ROOT_PREFIX/etc/fleetnode/config.yaml" ]] || fail "damaged uninstall removed configuration"
+[[ -e "$ROOT_PREFIX/var/lib/fleetnode/state.yaml" ]] || fail "damaged uninstall removed state"
+[[ -e "$ACCOUNT_DB/user" && -e "$ACCOUNT_DB/group" ]] || fail "damaged uninstall removed the service account"
+
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+run_installer v1.3.0
+rm -f "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+printf 'unrelated helper target\n' > "$TEST_DIR/unrelated-fleetnode-enroll"
+ln -s "$TEST_DIR/unrelated-fleetnode-enroll" "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll"
+
+: > "$SYSTEMCTL_LOG"
+FAKE_FLEETNODE_LOAD_STATE=loaded run_uninstaller
+[[ ! -e "$ROOT_PREFIX/opt/fleetnode" ]] || fail "symlink-helper uninstall retained the program"
+[[ ! -e "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" ]] || fail "symlink-helper uninstall retained the unit"
+[[ -L "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" ]] || fail "uninstall removed an unmanaged helper symlink"
+assert_file_contains "$ROOT_PREFIX/usr/local/bin/fleetnode-enroll" "unrelated helper target"
 
 : > "$SYSTEMCTL_LOG"
 mkdir -p "$ROOT_PREFIX/etc/systemd/system/multi-user.target.wants"
