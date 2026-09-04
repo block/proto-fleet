@@ -1,12 +1,21 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
-import { CURRENT_USER, mockTickets } from "../../mockData";
+import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
+import {
+  SortDirection,
+  TicketCategory,
+  TicketSortField,
+  TicketStatus,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
-import { Dismiss, Info } from "@/shared/assets/icons";
+import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
+import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
+import { useHasPermission } from "@/protoFleet/store";
+import { Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
@@ -17,30 +26,8 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type TicketColumns = "urgent" | "issue" | "asset" | "location" | "status";
 export type TicketQueueViewMode = "list" | "kanban";
-
 interface TicketQueueProps {
   initialViewMode?: TicketQueueViewMode;
-}
-
-interface TicketItem {
-  id: string;
-  ticketNumber: string;
-  category: string;
-  status: string;
-  urgent: boolean;
-  component: string;
-  diagnosis: string;
-  minerIdentifier: string | null;
-  minerType: string | null;
-  assigneeName: string | null;
-  siteName: string;
-  buildingName: string;
-  rackLabel: string;
-  zone: string;
-  groupLabel: string;
-  commentCount: number;
-  partsCount: number;
-  age: string;
 }
 
 const STATUS_OPTIONS = [
@@ -49,49 +36,43 @@ const STATUS_OPTIONS = [
   { id: "on_hold", label: "On Hold" },
   { id: "sent_to_vendor", label: "Sent to Vendor" },
 ];
-
 const CATEGORY_OPTIONS = [
   { id: "miner", label: "Miner" },
   { id: "infrastructure", label: "Infrastructure" },
 ];
-
-const statusCircleMap = (status: string) => {
-  switch (status) {
-    case "open":
-      return "warning" as const;
-    case "in_progress":
-      return "normal" as const;
-    case "on_hold":
-      return "sleeping" as const;
-    case "sent_to_vendor":
-      return "inactive" as const;
-    case "completed":
-      return "normal" as const;
-    default:
-      return "inactive" as const;
-  }
+const statusEnums: Record<string, TicketStatus> = {
+  open: TicketStatus.OPEN,
+  in_progress: TicketStatus.IN_PROGRESS,
+  on_hold: TicketStatus.ON_HOLD,
+  sent_to_vendor: TicketStatus.SENT_TO_VENDOR,
 };
-
-const formatStatus = (status: string) => {
-  switch (status) {
-    case "open":
-      return "Open";
-    case "in_progress":
-      return "In Progress";
-    case "on_hold":
-      return "On Hold";
-    case "sent_to_vendor":
-      return "Sent to Vendor";
-    case "completed":
-      return "Completed";
-    default:
-      return status;
-  }
+const categoryEnums: Record<string, TicketCategory> = {
+  miner: TicketCategory.MINER,
+  infrastructure: TicketCategory.INFRASTRUCTURE,
 };
-
+const formatStatus = (status: string) =>
+  ({
+    open: "Open",
+    in_progress: "In Progress",
+    on_hold: "On Hold",
+    sent_to_vendor: "Sent to Vendor",
+    completed: "Completed",
+  })[status] ?? status;
+const statusCircleMap = (status: string) =>
+  status === "open"
+    ? ("warning" as const)
+    : status === "in_progress" || status === "completed"
+      ? ("normal" as const)
+      : status === "on_hold"
+        ? ("sleeping" as const)
+        : ("inactive" as const);
+const ageText = (createdAt: Date | null) => {
+  if (!createdAt) return "";
+  const hours = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / 3_600_000));
+  return hours >= 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours}h`;
+};
 const DESKTOP_COLS: TicketColumns[] = ["urgent", "issue", "asset", "location", "status"];
 const PHONE_COLS: TicketColumns[] = ["urgent", "issue", "status"];
-
 const colTitles: ColTitles<TicketColumns> = {
   urgent: "",
   issue: "Issue",
@@ -99,71 +80,126 @@ const colTitles: ColTitles<TicketColumns> = {
   location: "Location",
   status: "Status",
 };
+const sortFields: Record<TicketColumns, TicketSortField> = {
+  urgent: TicketSortField.CREATED_AT,
+  issue: TicketSortField.COMPONENT,
+  asset: TicketSortField.ASSET,
+  location: TicketSortField.LOCATION,
+  status: TicketSortField.STATUS,
+};
 
 const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
+  const canManage = useHasPermission("maintenance:manage");
   const { isPhone, isTablet } = useWindowDimensions();
   const isCompact = isPhone || isTablet;
-  const [tickets] = useState<TicketItem[]>(mockTickets);
+  const queue = useTicketQueue({ excludeCompleted: true });
+  const options = useMaintenanceOptions();
   const [viewMode, setViewMode] = useState<TicketQueueViewMode>(initialViewMode);
   const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBulkCloseModal, setShowBulkCloseModal] = useState(false);
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [myTicketsActive, setMyTicketsActive] = useState(false);
+  const [filters, setFilters] = useState<Record<string, string[]>>({});
+
+  const applyFilters = useCallback(
+    (next: Record<string, string[]>, mine = myTicketsActive) => {
+      queue.setFilter({
+        excludeCompleted: true,
+        statuses: (next.status ?? []).map((v) => statusEnums[v]).filter(Boolean),
+        categories: (next.category ?? []).map((v) => categoryEnums[v]).filter(Boolean),
+        siteIds: (next.site ?? []).map(BigInt),
+        assigneeUserId: mine && options.currentAssignee ? BigInt(options.currentAssignee.id) : undefined,
+      });
+    },
+    [myTicketsActive, options.currentAssignee, queue],
+  );
+  const handleFilter = useCallback(
+    (key: string, values: string[]) => {
+      const next = { ...filters, [key]: values };
+      setFilters(next);
+      applyFilters(next);
+      setSelectedTicketIds([]);
+    },
+    [applyFilters, filters],
+  );
+  const toggleMine = useCallback(() => {
+    const next = !myTicketsActive;
+    setMyTicketsActive(next);
+    applyFilters(filters, next);
+  }, [applyFilters, filters, myTicketsActive]);
+  const chipFilters = useMemo<FilterChipsBarFilter[]>(
+    () => [
+      {
+        key: "status",
+        title: "Status",
+        pluralTitle: "Statuses",
+        options: STATUS_OPTIONS,
+        selectedValues: filters.status ?? [],
+      },
+      {
+        key: "category",
+        title: "Category",
+        pluralTitle: "Categories",
+        options: CATEGORY_OPTIONS,
+        selectedValues: filters.category ?? [],
+      },
+      {
+        key: "site",
+        title: "Site",
+        options: options.sites.map((site) => ({ id: site.id, label: site.name })),
+        selectedValues: filters.site ?? [],
+      },
+    ],
+    [filters, options.sites],
+  );
 
   const colConfig: ColConfig<TicketItem, string, TicketColumns> = useMemo(
     () => ({
       urgent: {
-        component: (ticket) => (
-          <div className={`flex items-center justify-center ${getComponentIconColor(ticket.urgent)}`}>
-            {getComponentIcon(ticket.component, ticket.urgent)}
+        component: (t) => (
+          <div className={`flex items-center justify-center ${getComponentIconColor(t.urgent)}`}>
+            {getComponentIcon(t.component, t.urgent)}
           </div>
         ),
         width: isCompact ? "w-8" : "w-10",
       },
       issue: {
-        component: (ticket) => (
+        component: (t) => (
           <div className="flex flex-col">
             <span className="text-emphasis-300 font-medium">
-              {ticket.component}: {ticket.diagnosis}
+              {t.component}: {t.diagnosis}
             </span>
-            <span className="text-300 text-text-primary-70">{ticket.ticketNumber}</span>
+            <span className="text-300 text-text-primary-70">{t.ticketNumber}</span>
           </div>
         ),
         width: "w-64",
       },
       asset: {
-        component: (ticket) => (
+        component: (t) => (
           <div className="flex flex-col">
-            <span className="text-emphasis-300 font-medium">{ticket.minerIdentifier ?? ticket.component}</span>
-            <span className="text-300 text-text-primary-70">{ticket.minerType ?? ticket.buildingName}</span>
+            <span>{t.minerIdentifier ?? t.component}</span>
+            <span className="text-300 text-text-primary-70">{t.buildingName ?? "—"}</span>
           </div>
         ),
         width: "w-48",
       },
       location: {
-        component: (ticket) => (
+        component: (t) => (
           <div className="flex flex-col">
-            <span className="text-300">
-              {ticket.buildingName}
-              {ticket.rackLabel ? `, ${ticket.rackLabel}` : ""}
-            </span>
-            <span className="text-300 text-text-primary-70">
-              {ticket.siteName}
-              {ticket.zone ? `, ${ticket.zone}` : ""}
-            </span>
+            <span>{[t.buildingName, t.rackLabel].filter(Boolean).join(", ")}</span>
+            <span className="text-300 text-text-primary-70">{[t.siteName, t.zone].filter(Boolean).join(", ")}</span>
           </div>
         ),
         width: "w-48",
       },
       status: {
-        component: (ticket) => (
+        component: (t) => (
           <div className="flex items-start gap-2">
-            <div className="mt-1">
-              <StatusCircle status={statusCircleMap(ticket.status)} />
-            </div>
+            <StatusCircle status={statusCircleMap(t.status)} />
             <div className="flex flex-col">
-              <span className="text-emphasis-300 font-medium">{formatStatus(ticket.status)}</span>
-              <span className="text-300 text-text-primary-70">{ticket.assigneeName ?? "Unassigned"}</span>
+              <span>{formatStatus(t.status)}</span>
+              <span className="text-300 text-text-primary-70">{t.assigneeName ?? "Unassigned"}</span>
             </div>
           </div>
         ),
@@ -172,126 +208,48 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     }),
     [isCompact],
   );
-
-  const [myTicketsActive, setMyTicketsActive] = useState(false);
-  const [overdueDismissed, setOverdueDismissed] = useState(false);
-  const [activeDropdownFilters, setActiveDropdownFilters] = useState<Record<string, string[]>>({});
-
-  const chipFilters: FilterChipsBarFilter[] = useMemo(
-    () => [
-      {
-        key: "status",
-        title: "Status",
-        pluralTitle: "Statuses",
-        options: STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
-        selectedValues: activeDropdownFilters["status"] ?? [],
-      },
-      {
-        key: "category",
-        title: "Category",
-        pluralTitle: "Categories",
-        options: CATEGORY_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
-        selectedValues: activeDropdownFilters["category"] ?? [],
-      },
-      {
-        key: "site",
-        title: "Site",
-        options: [...new Set(tickets.map((t) => t.siteName))].sort().map((s) => ({ id: s, label: s })),
-        selectedValues: activeDropdownFilters["site"] ?? [],
-      },
-      {
-        key: "building",
-        title: "Building",
-        options: [...new Set(tickets.map((t) => t.buildingName))].sort().map((b) => ({ id: b, label: b })),
-        selectedValues: activeDropdownFilters["building"] ?? [],
-      },
-    ],
-    [tickets, activeDropdownFilters],
-  );
-
-  const handleChipFilterChange = useCallback((key: string, values: string[]) => {
-    setActiveDropdownFilters((prev) => ({ ...prev, [key]: values }));
-  }, []);
-
   const rowActions: ListAction<TicketItem>[] = useMemo(
-    () => [
-      {
-        title: "Assign",
-        actionHandler: (ticket) => setDetailTicketId(ticket.id),
-        hidden: (ticket) => !!ticket.assigneeName,
-      },
-      {
-        title: "Update status",
-        actionHandler: (ticket) => setDetailTicketId(ticket.id),
-      },
-      {
-        title: (ticket) => (ticket.urgent ? "Remove urgent" : "Mark urgent"),
-        actionHandler: () => {},
-      },
-      {
-        title: "Close ticket",
-        actionHandler: (ticket) => {
-          setSelectedTicketIds([ticket.id]);
-          setShowBulkCloseModal(true);
-        },
-        variant: "destructive" as const,
-        showDividerAfter: false,
-      },
-    ],
-    [],
+    () =>
+      canManage
+        ? [
+            { title: "Assign or update", actionHandler: (t) => setDetailTicketId(t.id) },
+            {
+              title: (t) => (t.urgent ? "Remove urgent" : "Mark urgent"),
+              actionHandler: (t) => void queue.bulkUpdate([t.id], { case: "markUrgent", value: !t.urgent }),
+            },
+            {
+              title: "Close ticket",
+              actionHandler: (t) => {
+                setSelectedTicketIds([t.id]);
+                setShowBulkCloseModal(true);
+              },
+              variant: "destructive" as const,
+              showDividerAfter: false,
+            },
+          ]
+        : [],
+    [canManage, queue],
   );
-
-  const filterTicket = useCallback(
-    (ticket: TicketItem) => {
-      if (myTicketsActive && ticket.assigneeName !== CURRENT_USER) return false;
-      const statusF = activeDropdownFilters["status"];
-      if (statusF?.length && !statusF.includes(ticket.status)) return false;
-      const categoryF = activeDropdownFilters["category"];
-      if (categoryF?.length && !categoryF.includes(ticket.category)) return false;
-      const siteF = activeDropdownFilters["site"];
-      if (siteF?.length && !siteF.includes(ticket.siteName)) return false;
-      const buildingF = activeDropdownFilters["building"];
-      if (buildingF?.length && !buildingF.includes(ticket.buildingName)) return false;
-      return true;
-    },
-    [myTicketsActive, activeDropdownFilters],
+  const statusCounts = useMemo(
+    () => Object.fromEntries(STATUS_OPTIONS.map(({ id }) => [id, queue.data.filter((t) => t.status === id).length])),
+    [queue.data],
   );
-
-  const filteredTickets = useMemo(() => tickets.filter(filterTicket), [tickets, filterTicket]);
-
-  const handleRowClick = useCallback((ticket: TicketItem) => {
-    setDetailTicketId(ticket.id);
-  }, []);
-
   const renderActionBar = useCallback(
-    (selected: string[], clearSelection: () => void, selectionMode: SelectionMode) => (
+    (selected: string[], clear: () => void, mode: SelectionMode) => (
       <ActionBar
         className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
         selectedItems={selected}
-        selectionMode={selectionMode}
-        onClose={clearSelection}
+        selectionMode={mode}
+        onClose={clear}
         renderActions={() => (
           <>
             <Button
-              className="bg-grayscale-white-10! text-grayscale-white-90!"
-              text="Assign"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-            />
-            <Button
-              className="bg-grayscale-white-10! text-grayscale-white-90!"
-              text="Update Status"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-            />
-            <Button
-              className="bg-grayscale-white-10! text-grayscale-white-90!"
               text="Mark Urgent"
               variant={variants.secondary}
               size={buttonSizes.compact}
+              onClick={() => void queue.bulkUpdate(selected, { case: "markUrgent", value: true })}
             />
             <Button
-              className="bg-grayscale-white-10! text-grayscale-white-90!"
               text="Close"
               variant={variants.danger}
               size={buttonSizes.compact}
@@ -304,29 +262,28 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         )}
       />
     ),
-    [],
+    [queue],
   );
 
-  const queueStats = useMemo(() => {
-    const active = tickets.filter((t) => t.status !== "completed");
-    const overdue = active.filter((t) => t.age.includes("d") && parseInt(t.age) >= 3).length;
-    return { overdue };
-  }, [tickets]);
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { open: 0, in_progress: 0, on_hold: 0, sent_to_vendor: 0 };
-    for (const t of filteredTickets) {
-      if (t.status in counts) counts[t.status]++;
-    }
-    return counts;
-  }, [filteredTickets]);
-
-  const toolbar = (
-    <div className={`flex gap-2 pb-4 ${isCompact ? "flex-col" : "flex-wrap items-center"}`}>
-      <div className="flex flex-wrap items-center gap-2">
+  if (queue.loading && queue.data.length === 0) return <div role="status">Loading tickets…</div>;
+  if (queue.error && queue.data.length === 0)
+    return (
+      <div role="alert">
+        {queue.error}
+        <Button text="Retry" variant={variants.secondary} onClick={() => void queue.refresh()} />
+      </div>
+    );
+  return (
+    <div className="flex flex-col">
+      {(queue.stats?.overdueCount ?? 0) > 0 ? (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-border-5 px-4 py-3">
+          <Info width="w-5" />
+          <span>{queue.stats?.overdueCount} tickets overdue</span>
+        </div>
+      ) : null}
+      <div className={`flex gap-2 pb-4 ${isCompact ? "flex-col" : "flex-wrap items-center"}`}>
         <SegmentedControl
           key={viewMode}
-          className="shrink-0"
           segments={[
             { key: "list", title: "List" },
             { key: "kanban", title: "Board" },
@@ -337,95 +294,76 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         <Button
           variant={myTicketsActive ? variants.accent : variants.ghost}
           size={buttonSizes.compact}
-          onClick={() => setMyTicketsActive((v) => !v)}
+          onClick={toggleMine}
         >
           My tickets
         </Button>
-        <FilterChipsBar filters={chipFilters} onChange={handleChipFilterChange} />
-      </div>
-      <div className={`${isCompact ? "" : "ml-auto"}`}>
-        <Button
-          text="Create ticket"
-          variant={variants.secondary}
-          size={buttonSizes.compact}
-          onClick={() => setShowCreateModal(true)}
-        />
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="flex flex-col">
-      {queueStats.overdue > 0 && !overdueDismissed ? (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-border-5 px-4 py-3">
-          <Info width="w-5" className="shrink-0 text-text-primary" />
-          <div className="flex flex-1 flex-col">
-            <span className="text-emphasis-300 font-medium">
-              {queueStats.overdue} ticket{queueStats.overdue > 1 ? "s" : ""} overdue
-            </span>
-            <span className="text-300 text-text-primary-70">These tickets have been open for more than 3 days.</span>
-          </div>
+        <FilterChipsBar filters={chipFilters} onChange={handleFilter} />
+        {canManage ? (
           <Button
-            text="View"
+            className="ml-auto"
+            text="Create ticket"
             variant={variants.secondary}
             size={buttonSizes.compact}
-            onClick={() => {
-              setActiveDropdownFilters((prev) => ({ ...prev, status: ["open"] }));
-              setOverdueDismissed(true);
-            }}
+            onClick={() => setShowCreateModal(true)}
           />
-          <Button
-            ariaLabel="Dismiss"
-            variant={variants.ghost}
-            size={buttonSizes.compact}
-            prefixIcon={<Dismiss />}
-            onClick={() => setOverdueDismissed(true)}
-          />
-        </div>
-      ) : null}
-      {toolbar}
-      {viewMode === "list" ? (
+        ) : null}
+      </div>
+      {queue.data.length === 0 ? (
+        <div>No tickets</div>
+      ) : viewMode === "list" ? (
         <List
-          items={filteredTickets}
+          items={queue.data}
           itemKey="id"
           activeCols={isCompact ? PHONE_COLS : DESKTOP_COLS}
           colTitles={colTitles}
           colConfig={colConfig}
           actions={rowActions}
-          itemSelectable
+          itemSelectable={canManage}
           stickyFirstColumn={false}
           overflowContainer={false}
-          total={filteredTickets.length}
+          total={queue.total}
           itemName={{ singular: "ticket", plural: "tickets" }}
           sortableColumns={new Set<TicketColumns>(["issue", "asset", "location", "status"])}
-          onRowClick={handleRowClick}
-          renderActionBar={renderActionBar}
+          onSort={(field, direction) =>
+            queue.setSort(sortFields[field], direction === "asc" ? SortDirection.ASC : SortDirection.DESC)
+          }
+          onRowClick={(t) => setDetailTicketId(t.id)}
+          renderActionBar={canManage ? renderActionBar : undefined}
         />
       ) : (
-        <TicketKanbanView tickets={filteredTickets} statusCounts={statusCounts} onCardClick={handleRowClick} />
+        <TicketKanbanView tickets={queue.data} counts={statusCounts} onClick={(t) => setDetailTicketId(t.id)} />
       )}
-
-      {detailTicketId !== null ? (
+      {queue.nextPageToken ? (
+        <Button
+          text="Load more"
+          variant={variants.secondary}
+          onClick={() => void queue.loadMore()}
+          loading={queue.loading}
+        />
+      ) : null}
+      {detailTicketId ? (
         <TicketDetailModal
           ticketId={detailTicketId}
-          ticketIds={tickets.map((t) => t.id)}
+          ticketIds={queue.data.map((t) => t.id)}
           onDismiss={() => setDetailTicketId(null)}
         />
       ) : null}
-
       {showCreateModal ? (
         <CreateTicketModal
           onDismiss={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false);
+            void queue.refresh();
           }}
         />
       ) : null}
-
       {showBulkCloseModal ? (
         <BulkCloseModal
           ticketIds={selectedTicketIds}
+          includesMiner={queue.data.some((t) => selectedTicketIds.includes(t.id) && t.category === "miner")}
           onDismiss={() => setShowBulkCloseModal(false)}
+          onSubmit={(mutation) => queue.bulkUpdate(selectedTicketIds, mutation)}
           onSuccess={() => {
             setShowBulkCloseModal(false);
             setSelectedTicketIds([]);
@@ -436,65 +374,40 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   );
 };
 
-const KANBAN_COLUMNS = [
-  { key: "open", label: "Open" },
-  { key: "in_progress", label: "In Progress" },
-  { key: "on_hold", label: "On Hold" },
-  { key: "sent_to_vendor", label: "Sent to Vendor" },
-] as const;
-
+const KANBAN_COLUMNS = STATUS_OPTIONS;
 const TicketKanbanView = ({
   tickets,
-  statusCounts,
-  onCardClick,
+  counts,
+  onClick,
 }: {
   tickets: TicketItem[];
-  statusCounts: Record<string, number>;
-  onCardClick: (ticket: TicketItem) => void;
+  counts: Record<string, number>;
+  onClick: (ticket: TicketItem) => void;
 }) => (
-  <div className="grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
-    {KANBAN_COLUMNS.map((col) => {
-      const colTickets = tickets.filter((t) => t.status === col.key);
-      return (
-        <div key={col.key} className="flex flex-col">
-          <div className="pb-3 text-300 text-text-primary-70">
-            {col.label} ({statusCounts[col.key] ?? 0})
-          </div>
-          <div className="flex flex-col gap-2">
-            {colTickets.length === 0 ? (
-              <div className="flex min-h-32 items-center justify-center text-300 text-text-primary-70">No tickets</div>
-            ) : (
-              colTickets.map((ticket) => {
-                const metaParts = [
-                  ticket.minerIdentifier ?? ticket.buildingName,
-                  ticket.assigneeName ?? "Unassigned",
-                  ticket.age,
-                ].filter(Boolean);
-
-                return (
-                  <button
-                    key={ticket.id}
-                    type="button"
-                    className="flex cursor-pointer flex-col rounded-xl bg-surface-5 px-5 py-4 text-left transition-colors hover:bg-surface-10"
-                    onClick={() => onCardClick(ticket)}
-                  >
-                    <div className="flex w-full items-center justify-between pb-3">
-                      <span className="text-200 text-text-primary-70">{ticket.ticketNumber}</span>
-                      <div className={getComponentIconColor(ticket.urgent)}>
-                        {getComponentIcon(ticket.component, ticket.urgent)}
-                      </div>
-                    </div>
-                    <span className="pb-2 text-300 font-medium text-text-primary">{ticket.diagnosis}</span>
-                    <span className="text-200 text-text-primary-70">{metaParts.join(", ")}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
+  <div className="grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-4 overflow-x-auto">
+    {KANBAN_COLUMNS.map((column) => (
+      <div key={column.id}>
+        <div className="pb-3 text-300 text-text-primary-70">
+          {column.label} ({counts[column.id] ?? 0})
         </div>
-      );
-    })}
+        {tickets
+          .filter((t) => t.status === column.id)
+          .map((ticket) => (
+            <button
+              key={ticket.id}
+              type="button"
+              className="mb-2 flex w-full flex-col rounded-xl bg-surface-5 px-5 py-4 text-left"
+              onClick={() => onClick(ticket)}
+            >
+              <span>{ticket.ticketNumber}</span>
+              <span>{ticket.diagnosis}</span>
+              <span className="text-200 text-text-primary-70">
+                {[ticket.assigneeName ?? "Unassigned", ageText(ticket.createdAt)].filter(Boolean).join(", ")}
+              </span>
+            </button>
+          ))}
+      </div>
+    ))}
   </div>
 );
-
 export default TicketQueue;

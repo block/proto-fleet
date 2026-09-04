@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { maintenanceClient } from "@/protoFleet/api/clients";
 import type {
@@ -75,12 +76,13 @@ export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   notes?: string;
   rmaVendor?: string;
   rmaTracking?: string;
+  rmaEta?: Date;
 };
 
 export type BulkTicketMutation =
   | { case: "assignToUserId"; value: bigint }
   | { case: "setStatus"; value: TicketStatus }
-  | { case: "markUrgent"; value: true }
+  | { case: "markUrgent"; value: boolean }
   | { case: "bulkClose"; value: { resolution: TicketResolution; repairLocation: RepairLocation; notes?: string } }
   | { case: undefined };
 
@@ -234,6 +236,7 @@ export const useMaintenanceApi = () => {
             id,
             clearAssignee,
             ...fields,
+            rmaEta: fields.rmaEta ? timestampFromDate(fields.rmaEta) : undefined,
             partsSelection: partsSelection === undefined ? undefined : { parts: partsSelection },
           },
           { signal },

@@ -14,6 +14,8 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
   const [total, setTotal] = useState(0);
   const [nextPageToken, setNextPageToken] = useState("");
   const [filter, setFilterState] = useState(initialFilter);
+  const [sortField, setSortField] = useState(TicketSortField.CREATED_AT);
+  const [sortDirection, setSortDirection] = useState(SortDirection.DESC);
   const controller = useRef<AbortController | undefined>(undefined);
   const sequence = useRef(0);
   const load = useCallback(
@@ -28,8 +30,8 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       await Promise.all([
         listTickets({
           filter,
-          sortField: TicketSortField.CREATED_AT,
-          sortDirection: SortDirection.DESC,
+          sortField,
+          sortDirection,
           pageSize: 50,
           pageToken: token,
           signal: current.signal,
@@ -64,7 +66,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       ]);
       if (request === sequence.current) setLoading(false);
     },
-    [filter, getStats, listTickets, nextPageToken],
+    [filter, getStats, listTickets, nextPageToken, sortDirection, sortField],
   );
   useEffect(() => {
     let active = true;
@@ -75,7 +77,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       active = false;
       controller.current?.abort();
     };
-  }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filter, sortDirection, sortField]); // eslint-disable-line react-hooks/exhaustive-deps
   const setFilter = useCallback((value: Partial<TicketFilter>) => {
     setNextPageToken("");
     setFilterState(value);
@@ -106,6 +108,13 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
     nextPageToken,
     filter,
     setFilter,
+    sortField,
+    sortDirection,
+    setSort: (field: TicketSortField, direction: SortDirection) => {
+      setNextPageToken("");
+      setSortField(field);
+      setSortDirection(direction);
+    },
     refresh: () => load(),
     loadMore: () => load(true),
     bulkUpdate,

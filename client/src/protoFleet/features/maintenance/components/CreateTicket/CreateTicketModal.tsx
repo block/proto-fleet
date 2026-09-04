@@ -1,203 +1,169 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-
-import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import { useCallback, useMemo, useState } from "react";
+import MinerTicketPicker from "./MinerTicketPicker";
+import { TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import Row from "@/shared/components/Row";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
 interface CreateTicketModalProps {
   onDismiss: () => void;
   onSuccess: () => void;
-  prefill?: {
-    alertId?: string;
-    minerIdentifier?: string;
-    component?: string;
-    diagnosis?: string;
-    siteId?: string;
-  };
+  prefill?: { alertId?: string; minerIdentifier?: string; component?: string; diagnosis?: string; siteId?: string };
 }
-
-const MINER_COMPONENTS = [
-  { value: "Fan", label: "Fan" },
-  { value: "Hashboard", label: "Hashboard" },
-  { value: "PSU", label: "PSU" },
-  { value: "Control Board", label: "Control Board" },
-];
-
-const INFRA_COMPONENTS = [
-  { value: "Network", label: "Network" },
-  { value: "Electrical", label: "Electrical" },
-  { value: "HVAC", label: "HVAC" },
-  { value: "Cleaning", label: "Cleaning" },
-  { value: "Building", label: "Building" },
-];
-
-const SITE_OPTIONS = [
-  { value: "Denver", label: "Denver" },
-  { value: "Austin", label: "Austin" },
-  { value: "Miami", label: "Miami" },
-  { value: "Marfa", label: "Marfa" },
-];
-
-const ASSIGNEE_OPTIONS = REPAIR_TECHNICIANS.map((t) => ({ value: t, label: t }));
+const MINER_COMPONENTS = ["Fan", "Hashboard", "PSU", "Control Board"].map((value) => ({ value, label: value }));
+const INFRA_COMPONENTS = ["Network", "Electrical", "HVAC", "Cleaning", "Building"].map((value) => ({
+  value,
+  label: value,
+}));
 const CATEGORY_OPTIONS = [
   { value: "miner", label: "Miner" },
   { value: "infrastructure", label: "Infrastructure" },
 ];
-
-type TicketCategory = "miner" | "infrastructure";
-
-const siteValueFromSlug = (slug: string) =>
-  SITE_OPTIONS.find(({ value }) => value.toLowerCase().replaceAll(" ", "-") === slug)?.value;
-
-const KNOWN_MINERS = (() => {
-  const set = new Set<string>();
-  mockTickets.forEach((t) => {
-    if (t.minerIdentifier) set.add(t.minerIdentifier);
-  });
-  for (let i = 1; i <= 50; i++) set.add(`M${String(i).padStart(4, "0")}`);
-  return [...set].sort();
-})();
+type Category = "miner" | "infrastructure";
 
 const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalProps) => {
   const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const { createTicket } = useMaintenanceApi();
+  const options = useMaintenanceOptions();
   const defaultSite =
-    prefill?.siteId ??
-    (activeSite.kind === "site" ? siteValueFromSlug(activeSite.slug) : undefined) ??
-    SITE_OPTIONS[0].value;
-  const [category, setCategory] = useState<TicketCategory>("miner");
+    prefill?.siteId ?? (activeSite.kind === "site" ? activeSite.id : undefined) ?? options.sites[0]?.id ?? "";
+  const [category, setCategory] = useState<Category>("miner");
   const [component, setComponent] = useState(prefill?.component ?? "");
   const [minerIdentifier, setMinerIdentifier] = useState(prefill?.minerIdentifier ?? "");
-  const [minerQuery, setMinerQuery] = useState(prefill?.minerIdentifier ?? "");
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [diagnosis, setDiagnosis] = useState(prefill?.diagnosis ?? "");
-  const [site, setSite] = useState(defaultSite);
-  const [assignee, setAssignee] = useState("");
+  const [siteId, setSiteId] = useState(defaultSite);
+  const [assigneeId, setAssigneeId] = useState("");
   const [urgent, setUrgent] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
-
-  const componentOptions = category === "miner" ? MINER_COMPONENTS : INFRA_COMPONENTS;
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const components = category === "miner" ? MINER_COMPONENTS : INFRA_COMPONENTS;
   const canSubmit = Boolean(
-    component && diagnosis && site && (category !== "miner" || minerIdentifier) && !isSubmitting,
+    component && diagnosis.trim() && (category === "miner" ? minerIdentifier : siteId) && !submitting,
   );
-
-  const filteredMiners = useMemo(() => {
-    if (!minerQuery) return KNOWN_MINERS.slice(0, 8);
-    const q = minerQuery.toLowerCase();
-    return KNOWN_MINERS.filter((m) => m.toLowerCase().includes(q)).slice(0, 8);
-  }, [minerQuery]);
-
-  const handleMinerInput = useCallback((value: string) => {
-    setMinerQuery(value);
-    setMinerIdentifier(value);
-    setShowSuggestions(true);
-  }, []);
-
-  const selectMiner = useCallback((id: string) => {
-    setMinerIdentifier(id);
-    setMinerQuery(id);
-    setShowSuggestions(false);
-  }, []);
-
-  const handleSubmit = useCallback(() => {
+  const siteOptions = useMemo(
+    () => options.sites.map((site) => ({ value: site.id, label: site.name })),
+    [options.sites],
+  );
+  const assigneeOptions = useMemo(
+    () => [
+      { value: "", label: "Unassigned" },
+      ...options.assignees.map((item) => ({ value: item.id, label: item.username })),
+    ],
+    [options.assignees],
+  );
+  const submit = useCallback(async () => {
     if (!canSubmit) return;
-    setIsSubmitting(true);
-    onSuccess();
-  }, [canSubmit, onSuccess]);
-
+    setSubmitting(true);
+    setError(null);
+    await createTicket({
+      category: category === "miner" ? TicketCategory.MINER : TicketCategory.INFRASTRUCTURE,
+      component,
+      diagnosis,
+      urgent,
+      minerIdentifier: category === "miner" ? minerIdentifier : undefined,
+      alertId: prefill?.alertId,
+      assigneeUserId: assigneeId ? BigInt(assigneeId) : undefined,
+      siteId: category === "infrastructure" && siteId ? BigInt(siteId) : undefined,
+      onSuccess: () => onSuccess(),
+      onError: setError,
+      onFinally: () => setSubmitting(false),
+    });
+  }, [
+    assigneeId,
+    canSubmit,
+    category,
+    component,
+    createTicket,
+    diagnosis,
+    minerIdentifier,
+    onSuccess,
+    prefill?.alertId,
+    siteId,
+    urgent,
+  ]);
   return (
-    <Modal
-      open
-      onDismiss={onDismiss}
-      title="New ticket"
-      buttons={[
-        {
-          text: "Create ticket",
-          variant: variants.primary,
-          onClick: handleSubmit,
-          disabled: !canSubmit,
-          loading: isSubmitting,
-          dismissModalOnClick: false,
-        },
-      ]}
-    >
-      <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Select
-            id="category"
-            label="Category"
-            options={CATEGORY_OPTIONS}
-            value={category}
-            onChange={(value) => {
-              setCategory(value as TicketCategory);
-              setComponent("");
-            }}
-            forceBelow
-          />
-          <Select
-            id="component"
-            label="Component"
-            options={componentOptions}
-            value={component}
-            onChange={setComponent}
-            forceBelow
-          />
-        </div>
-
-        {category === "miner" ? (
-          <div className="relative">
-            <Input
-              id="miner-id"
-              label="Miner ID"
-              initValue={minerQuery}
-              onChange={handleMinerInput}
-              onFocus={() => setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+    <>
+      <Modal
+        open
+        onDismiss={onDismiss}
+        title="New ticket"
+        buttons={[
+          {
+            text: "Create ticket",
+            variant: variants.primary,
+            onClick: () => void submit(),
+            disabled: !canSubmit,
+            loading: submitting,
+            dismissModalOnClick: false,
+          },
+        ]}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              id="category"
+              label="Category"
+              options={CATEGORY_OPTIONS}
+              value={category}
+              onChange={(value) => {
+                setCategory(value as Category);
+                setComponent("");
+              }}
+              forceBelow
             />
-            {showSuggestions && filteredMiners.length > 0 ? (
-              <div
-                ref={suggestionsRef}
-                className="absolute top-full right-0 left-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-5 bg-surface-elevated-base shadow-300"
-              >
-                {filteredMiners.map((m) => (
-                  <div key={m} className="px-2" onMouseDown={(e) => e.preventDefault()}>
-                    <Row compact className="text-emphasis-300" onClick={() => selectMiner(m)}>
-                      {m}
-                    </Row>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <Select
+              id="component"
+              label="Component"
+              options={components}
+              value={component}
+              onChange={setComponent}
+              forceBelow
+            />
           </div>
-        ) : null}
-
-        <Textarea id="diagnosis" label="Issue description" onChange={(value) => setDiagnosis(value)} rows={3} />
-
-        <div className="grid grid-cols-2 gap-3">
-          <Select id="site" label="Site" options={SITE_OPTIONS} value={site} onChange={setSite} forceBelow />
+          {category === "miner" ? (
+            <div>
+              <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} disabled />
+              <button type="button" className="mt-2 text-300 underline" onClick={() => setPickerOpen(true)}>
+                Select miner
+              </button>
+            </div>
+          ) : (
+            <Select id="site" label="Site" options={siteOptions} value={siteId} onChange={setSiteId} forceBelow />
+          )}
+          <Textarea id="diagnosis" label="Issue description" onChange={setDiagnosis} rows={3} />
           <Select
             id="assignee"
             label="Assignee"
-            options={ASSIGNEE_OPTIONS}
-            value={assignee}
-            onChange={setAssignee}
+            options={assigneeOptions}
+            value={assigneeId}
+            onChange={setAssigneeId}
             forceBelow
           />
+          <label className="flex items-center gap-2 text-300">
+            <Checkbox checked={urgent} onChange={(event) => setUrgent(event.target.checked)} />
+            Mark as urgent
+          </label>
+          {error ? <div role="alert">{error}</div> : null}
         </div>
-
-        <label className="flex items-center gap-2 text-300">
-          <Checkbox checked={urgent} onChange={(e) => setUrgent(e.target.checked)} />
-          Mark as urgent
-        </label>
-      </div>
-    </Modal>
+      </Modal>
+      {pickerOpen ? (
+        <MinerTicketPicker
+          selected={minerIdentifier}
+          onDismiss={() => setPickerOpen(false)}
+          onSelect={(identifier) => {
+            setMinerIdentifier(identifier);
+            setPickerOpen(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 };
-
 export default CreateTicketModal;
