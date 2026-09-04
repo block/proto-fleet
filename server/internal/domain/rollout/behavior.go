@@ -171,6 +171,10 @@ type Behavior struct {
 	ControllerTimeoutSeconds int32
 }
 
+// allAtOnce is the behavior of drift-correction and rollback rollouts: no
+// operator is present to review a gate, so they never stage.
+var allAtOnce = Behavior{Method: MethodAllAtOnce, Order: OrderLeastEfficientFirst}
+
 // gatesAfterBatch reports whether a finished batch holds for review.
 func (b *Behavior) gatesAfterBatch() bool {
 	return b.Method == MethodPilotThenContinue || b.ReviewAfterEachBatch
@@ -315,6 +319,28 @@ func (k PairKey) matchesObserved(manufacturer, model string) bool {
 // folded returns the comparison form of the key.
 func (k PairKey) folded() PairKey {
 	return PairKey{Manufacturer: fold(k.Manufacturer), Model: fold(k.Model)}
+}
+
+func behaviorFromRollout(r sqlc.FirmwareRollout) Behavior {
+	return Behavior{
+		Method:                    r.Method,
+		Order:                     r.OrderBy,
+		BatchSize:                 r.BatchSize,
+		PilotSize:                 r.PilotSize,
+		WaitBetweenBatchesSeconds: r.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:      r.ReviewAfterEachBatch,
+		AutoContinue:              r.AutoContinue,
+		StabilizationSeconds:      r.StabilizationSeconds,
+		MaxConcurrentOffline:      r.MaxConcurrentOffline,
+		ControllerTimeoutSeconds:  r.ControllerTimeoutSeconds,
+		Thresholds: Thresholds{
+			MaxHashrateDropPercent:       nullFloat(r.MaxHashrateDropPercent),
+			MaxEfficiencyIncreasePercent: nullFloat(r.MaxEfficiencyIncreasePercent),
+			MaxTempIncreaseC:             nullFloat(r.MaxTempIncreaseC),
+			MaxNewErrors:                 nullInt(r.MaxNewErrors),
+			MinSampleCoveragePercent:     nullFloat(r.MinSampleCoveragePercent),
+		},
+	}
 }
 
 func nullFloat(v sql.NullFloat64) *float64 {

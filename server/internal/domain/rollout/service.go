@@ -211,6 +211,16 @@ type ScopePreview struct {
 	ConflictCount int32
 }
 
+// Assignment is the desired firmware for one model within a channel. An
+// empty FirmwareFileID clears the model's assignment.
+// Assignment is the desired firmware for one manufacturer/model pair: the
+// uploaded file whose artifact becomes the assignment, or empty to clear.
+type Assignment struct {
+	Manufacturer   string
+	Model          string
+	FirmwareFileID string
+}
+
 // --- Channels ---
 
 // CreateChannel creates a release channel. Fails when the scope overlaps
@@ -751,4 +761,325 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		channels = append(channels, ch)
 	}
 	return channels, nil
+}
+
+// --- Firmware assignments ---
+
+// FirmwarePlan is what ApplyFirmware would do for one assignment.
+type FirmwarePlan struct {
+	Pair PairKey
+	// Artifact fields are empty when the assignment would clear the pair.
+	FirmwareFileID   string
+	FirmwareVersion  string
+	FirmwareChecksum string
+	// TargetCount is how many members are mismatched; OnTargetCount how
+	// many already match.
+	TargetCount   int32
+	OnTargetCount int32
+	BatchCount    int32
+	Behavior      Behavior
+	// Unchanged means the checksum already assigned, so no rollout starts.
+	Unchanged bool
+}
+
+// ApplyFirmware replaces per-pair assignments of a channel and starts a
+// rollout for every changed assignment that has mismatched members, paced by
+// the channel's behavior or the override. Unchanged assignments are left
+// alone; their active rollout, if any, keeps running.
+func (s *Service) ApplyFirmware(ctx context.Context, orgID int64, actor Actor, channelID int64, assignments []Assignment, override *Behavior) ([]Rollout, error) {
+	var started []Rollout
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		channel, err := s.store.Queries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+		if err != nil {
+			return fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
+		}
+		behavior, err := s.behaviorFor(channel, override)
+		if err != nil {
+			return err
+		}
+		started, err = s.applyAssignments(ctx, channel, actor, assignments, behavior, CancelReasonSuperseded)
+		return err
+	})
+	return started, err
+}
+
+// PreviewFirmware plans ApplyFirmware without changing anything: for each
+// assignment, how many members would be targeted or already match and how
+// the rollout would be batched. Fails with the same preconditions Apply
+// would.
+func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, assignments []Assignment, override *Behavior) ([]FirmwarePlan, error) {
+	q := s.store.Queries(ctx)
+	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+	if err != nil {
+		return nil, fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
+	}
+	behavior, err := s.behaviorFor(channel, override)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := s.resolveAssignments(ctx, channel, assignments)
+	if err != nil {
+		return nil, err
+	}
+	plans := make([]FirmwarePlan, 0, len(resolved))
+	for _, a := range resolved {
+		plan := FirmwarePlan{Pair: a.pair, Behavior: behavior}
+		if a.artifact == nil {
+			plans = append(plans, plan)
+			continue
+		}
+		plan.FirmwareFileID, plan.FirmwareVersion, plan.FirmwareChecksum = a.artifact.FileID, a.artifact.Metadata.FirmwareVersion, a.artifact.Checksum
+		plan.Unchanged = a.current != nil && a.current.FirmwareChecksum == a.artifact.Checksum
+		// A changed assignment opens a new generation, in which nobody is
+		// suppressed yet; an unchanged one is judged in the current one.
+		generation := int64(1)
+		if a.current != nil {
+			generation = a.current.AssignmentGeneration
+			if !plan.Unchanged {
+				generation++
+			}
+		}
+		mismatched, err := q.ListReleaseChannelMismatchedMembers(ctx, sqlc.ListReleaseChannelMismatchedMembersParams{
+			ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
+			FirmwareVersion: a.artifact.Metadata.FirmwareVersion, FirmwareChecksum: a.artifact.Checksum,
+			AssignmentGeneration: generation, RolloutID: 0,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("list mismatched members: %v", err)
+		}
+		plan.TargetCount = int32(len(mismatched)) //nolint:gosec // bounded by the member count
+		members, err := q.ListReleaseChannelMembers(ctx, orgID)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("list channel members: %v", err)
+		}
+		for _, m := range members {
+			if m.ChannelID == channel.ID && a.pair.matchesObserved(m.Manufacturer, m.Model) &&
+				m.FirmwareVersion == a.artifact.Metadata.FirmwareVersion && m.LastDeployedFirmwareChecksum == a.artifact.Checksum {
+				plan.OnTargetCount++
+			}
+		}
+		if !plan.Unchanged {
+			switch behavior.Method {
+			case MethodBatched:
+				plan.BatchCount = (plan.TargetCount + behavior.BatchSize - 1) / behavior.BatchSize
+			case MethodPilotThenContinue:
+				if plan.TargetCount > 0 {
+					plan.BatchCount = 1
+				}
+			}
+		}
+		plans = append(plans, plan)
+	}
+	return plans, nil
+}
+
+// behaviorFor returns the behavior rollouts started on the channel run with:
+// the override when given (validated, and never carrying an offline budget of
+// its own), otherwise the channel's.
+func (s *Service) behaviorFor(channel sqlc.ReleaseChannel, override *Behavior) (Behavior, error) {
+	if override == nil {
+		return behaviorFromChannel(channel), nil
+	}
+	b := *override
+	if b.MaxConcurrentOffline != 0 {
+		return Behavior{}, fleeterror.NewInvalidArgumentError("behavior override cannot set max_concurrent_offline; the offline budget is channel-wide")
+	}
+	if err := b.validate(); err != nil {
+		return Behavior{}, err
+	}
+	b.MaxConcurrentOffline = channel.MaxConcurrentOffline
+	return b, nil
+}
+
+// RollbackFirmware reverses the referenced rollout's assignment lineage. The
+// rollout must be current under the assignment-generation rule; an empty
+// lineage clears the pair, a nonempty one is restored and enforced all at
+// once. Returns the rollout's channel id and the started rollouts.
+func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID int64, m Mutation) (int64, []Rollout, error) {
+	var (
+		channelID int64
+		started   []Rollout
+	)
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		q := s.store.Queries(ctx)
+		row, _, err := s.lockRollout(ctx, orgID, rolloutID, m.ExpectedRevision)
+		if err != nil {
+			return err
+		}
+		channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: row.ChannelID, OrgID: orgID})
+		if err != nil {
+			return fleeterror.NewNotFoundErrorf("release channel not found: %d", row.ChannelID)
+		}
+		channelID = channel.ID
+		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
+		assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
+			ChannelID: channel.ID, Manufacturer: pair.Manufacturer, Model: pair.Model,
+		})
+		if err != nil || assignment.AssignmentGeneration != row.AssignmentGeneration {
+			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonStaleGeneration},
+				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channel.Name)
+		}
+		if row.PreviousFirmwareChecksum == "" {
+			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model}}, allAtOnce, CancelReasonRolledBack)
+			return err
+		}
+		started, err = s.applyResolved(ctx, channel, m.Actor, []resolvedAssignment{{
+			pair:    pair,
+			current: &assignment,
+			artifact: &files.FirmwareArtifact{
+				Checksum: row.PreviousFirmwareChecksum,
+				Metadata: files.FirmwareMetadata{TargetManufacturer: pair.Manufacturer, TargetModel: pair.Model, FirmwareVersion: row.PreviousFirmwareVersion},
+			},
+		}}, allAtOnce, CancelReasonRolledBack)
+		return err
+	})
+	return channelID, started, err
+}
+
+// resolvedAssignment is one requested assignment with its pair key, the
+// pair's current row (nil when the pair never had one) and the artifact to
+// assign (nil to clear).
+type resolvedAssignment struct {
+	pair     PairKey
+	current  *sqlc.ReleaseChannelFirmware
+	artifact *files.FirmwareArtifact
+}
+
+// resolveAssignments normalizes pair keys, rejects duplicates by folded key,
+// loads current rows and resolves file ids to artifacts whose target metadata
+// must match the pair.
+func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseChannel, assignments []Assignment) ([]resolvedAssignment, error) {
+	q := s.store.Queries(ctx)
+	existing, err := q.ListReleaseChannelFirmware(ctx, channel.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("list channel firmware: %v", err)
+	}
+	current := map[PairKey]*sqlc.ReleaseChannelFirmware{}
+	for i := range existing {
+		f := &existing[i]
+		if f.ChannelID == channel.ID {
+			current[PairKey{Manufacturer: f.Manufacturer, Model: f.Model}.folded()] = f
+		}
+	}
+	seen := map[PairKey]bool{}
+	resolved := make([]resolvedAssignment, 0, len(assignments))
+	for _, a := range assignments {
+		pair, err := normalizePairKey(a.Manufacturer, a.Model)
+		if err != nil {
+			return nil, err
+		}
+		if seen[pair.folded()] {
+			return nil, fleeterror.NewInvalidArgumentErrorf("assignments name %s %s more than once", pair.Manufacturer, pair.Model)
+		}
+		seen[pair.folded()] = true
+		r := resolvedAssignment{pair: pair, current: current[pair.folded()]}
+		if a.FirmwareFileID != "" {
+			artifact, err := s.files.ResolveFirmwareArtifact(a.FirmwareFileID)
+			if err != nil {
+				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMissing},
+					"firmware file %q is not available: %v", a.FirmwareFileID, err)
+			}
+			if !pair.matchesObserved(artifact.Metadata.TargetManufacturer, artifact.Metadata.TargetModel) {
+				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch},
+					"firmware file %q targets %s %s, not %s %s", a.FirmwareFileID,
+					artifact.Metadata.TargetManufacturer, artifact.Metadata.TargetModel, pair.Manufacturer, pair.Model)
+			}
+			r.artifact = &artifact
+		}
+		resolved = append(resolved, r)
+	}
+	return resolved, nil
+}
+
+// applyAssignments is the shared body of ApplyFirmware and RollbackFirmware.
+// cancelReason is recorded on any active rollout a changed assignment
+// replaces. Must run inside a transaction.
+func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, assignments []Assignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+	resolved, err := s.resolveAssignments(ctx, channel, assignments)
+	if err != nil {
+		return nil, err
+	}
+	return s.applyResolved(ctx, channel, actor, resolved, behavior, cancelReason)
+}
+
+func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel, actor Actor, resolved []resolvedAssignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+	q := s.store.Queries(ctx)
+	var started []Rollout
+	for _, a := range resolved {
+		cancel := func(why string) error {
+			return q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, CancelReason: why,
+				ActorType: actor.Type, ActorID: actor.ID, ActorName: actor.Name,
+			})
+		}
+		if a.artifact == nil {
+			if a.current == nil || a.current.FirmwareChecksum == "" {
+				continue
+			}
+			if _, err := q.ClearReleaseChannelFirmware(ctx, sqlc.ClearReleaseChannelFirmwareParams{
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, AssignedBy: actor.ID,
+			}); err != nil {
+				return nil, fleeterror.NewInternalErrorf("clear assignment: %v", err)
+			}
+			why := CancelReasonCleared
+			if cancelReason == CancelReasonRolledBack {
+				why = CancelReasonRolledBack
+			}
+			if err := cancel(why); err != nil {
+				return nil, fleeterror.NewInternalErrorf("cancel rollout: %v", err)
+			}
+			continue
+		}
+
+		if a.current != nil && a.current.FirmwareChecksum == a.artifact.Checksum {
+			continue
+		}
+		assigned, err := q.UpsertReleaseChannelFirmware(ctx, sqlc.UpsertReleaseChannelFirmwareParams{
+			ChannelID:                  channel.ID,
+			Manufacturer:               a.pair.Manufacturer,
+			Model:                      a.pair.Model,
+			FirmwareChecksum:           a.artifact.Checksum,
+			FirmwareVersion:            a.artifact.Metadata.FirmwareVersion,
+			FirmwareTargetManufacturer: a.artifact.Metadata.TargetManufacturer,
+			FirmwareTargetModel:        a.artifact.Metadata.TargetModel,
+			AssignedBy:                 actor.ID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("assign firmware: %v", err)
+		}
+		if err := cancel(cancelReason); err != nil {
+			return nil, fleeterror.NewInternalErrorf("cancel replaced rollout: %v", err)
+		}
+
+		// Start the rollout here rather than leaving it to the enforcement
+		// loop, so the operator's behavior applies (the loop only ever
+		// starts all-at-once reconciliation rollouts).
+		spec := rolloutSpec{
+			OrgID: channel.OrgID, ChannelID: channel.ID, ChannelName: channel.Name, Pair: a.pair,
+			FirmwareChecksum: a.artifact.Checksum, FirmwareVersion: a.artifact.Metadata.FirmwareVersion,
+			AssignmentGeneration: assigned.AssignmentGeneration, Actor: actor, Behavior: behavior,
+		}
+		if a.current != nil && a.current.FirmwareChecksum != "" {
+			spec.PreviousFirmwareChecksum = a.current.FirmwareChecksum
+			spec.PreviousFirmwareVersion = a.current.FirmwareVersion
+		}
+		r, err := s.startRollout(ctx, spec)
+		if err != nil {
+			return nil, err
+		}
+		if r == nil {
+			continue // every member already matches
+		}
+		extra := map[string]any{}
+		if cancelReason == CancelReasonRolledBack {
+			extra["rollback"] = true
+		}
+		s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, false, extra)
+		view, err := s.refreshView(ctx, channel.OrgID, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		started = append(started, *view)
+	}
+	return started, nil
 }
