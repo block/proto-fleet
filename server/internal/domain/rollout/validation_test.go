@@ -284,6 +284,70 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 	}
 }
 
+func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		modelGroup *rolloutv1.ReleaseChannelModelGroup
+		wantErr    bool
+	}{
+		{
+			name:       "unassigned unknown identity is valid",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{},
+		},
+		{
+			name: "complete assignment is valid",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:    "Bitmain",
+				Model:           "S21",
+				FirmwareFileId:  "firmware",
+				FirmwareVersion: "1.0.0",
+			},
+		},
+		{
+			name: "assigned firmware requires manufacturer",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Model:           "S21",
+				FirmwareFileId:  "firmware",
+				FirmwareVersion: "1.0.0",
+			},
+			wantErr: true,
+		},
+		{
+			name: "assigned firmware requires model",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:    "Bitmain",
+				FirmwareFileId:  "firmware",
+				FirmwareVersion: "1.0.0",
+			},
+			wantErr: true,
+		},
+		{
+			name: "assigned firmware requires version",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:   "Bitmain",
+				Model:          "S21",
+				FirmwareFileId: "firmware",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.modelGroup)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestRolloutPaginationValidation(t *testing.T) {
 	t.Parallel()
 
@@ -420,6 +484,7 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			ChannelId:           int64(index + 1),
 			ChannelName:         fmt.Sprintf("channel-%d", index),
 			SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+			Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 		}
 	}
 
@@ -433,6 +498,33 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
 				Conflicts: conflicts[:100],
 				Cursor:    strings.Repeat("c", 100),
+			},
+		},
+		{
+			name: "winner resolution is valid",
+			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
+				}},
+			},
+		},
+		{
+			name: "loser resolution is valid",
+			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_SITE,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER,
+				}},
+			},
+		},
+		{
+			name: "excluded tie resolution is valid",
+			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_RACK,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE,
+				}},
 			},
 		},
 		{
@@ -453,9 +545,11 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			name: "oversized device identifier is rejected",
 			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
 				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					DeviceIdentifier: strings.Repeat("d", 256),
-					Manufacturer:     "Bitmain",
-					Model:            "S21",
+					DeviceIdentifier:    strings.Repeat("d", 256),
+					Manufacturer:        "Bitmain",
+					Model:               "S21",
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}},
 			},
 			wantErr: true,
@@ -464,8 +558,10 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			name: "oversized manufacturer is rejected",
 			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
 				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer: strings.Repeat("m", 256),
-					Model:        "S21",
+					Manufacturer:        strings.Repeat("m", 256),
+					Model:               "S21",
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}},
 			},
 			wantErr: true,
@@ -474,8 +570,10 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			name: "oversized model is rejected",
 			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
 				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer: "Bitmain",
-					Model:        strings.Repeat("m", 256),
+					Manufacturer:        "Bitmain",
+					Model:               strings.Repeat("m", 256),
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}},
 			},
 			wantErr: true,
@@ -484,9 +582,11 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 			name: "oversized channel name is rejected",
 			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
 				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
-					Manufacturer: "Bitmain",
-					Model:        "S21",
-					ChannelName:  strings.Repeat("c", 101),
+					Manufacturer:        "Bitmain",
+					Model:               "S21",
+					ChannelName:         strings.Repeat("c", 101),
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}},
 			},
 			wantErr: true,
@@ -498,6 +598,7 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 					Manufacturer:        "Bitmain",
 					Model:               "S21",
 					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity(99),
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}},
 			},
 			wantErr: true,
@@ -508,6 +609,30 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
 					Manufacturer: "Bitmain",
 					Model:        "S21",
+					Resolution:   rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
+				}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "unknown resolution is rejected",
+			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
+					Manufacturer:        "Bitmain",
+					Model:               "S21",
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution(99),
+				}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "unspecified resolution is rejected",
+			response: &rolloutv1.ListReleaseChannelMembershipConflictsResponse{
+				Conflicts: []*rolloutv1.ReleaseChannelMembershipConflict{{
+					Manufacturer:        "Bitmain",
+					Model:               "S21",
+					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
 				}},
 			},
 			wantErr: true,
@@ -762,12 +887,85 @@ func TestListReleaseChannelMembershipConflictsDescriptor(t *testing.T) {
 	require.NotNil(t, specificityField)
 	require.Equal(t, protoreflect.FullName("rollout.v1.ReleaseChannelSelectorSpecificity"), specificityField.Enum().FullName())
 
+	resolutionField := conflict.Fields().ByName("resolution")
+	require.NotNil(t, resolutionField)
+	resolutionEnum := resolutionField.Enum()
+	require.Equal(t, protoreflect.FullName("rollout.v1.ReleaseChannelConflictResolution"), resolutionEnum.FullName())
+	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_UNSPECIFIED"))
+	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER"))
+	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER"))
+	require.NotNil(t, resolutionEnum.Values().ByName("RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE"))
+
 	options, ok := method.Options().(*descriptorpb.MethodOptions)
 	require.True(t, ok)
 	require.Equal(t, descriptorpb.MethodOptions_NO_SIDE_EFFECTS, options.GetIdempotencyLevel())
 }
 
 func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	messages := []struct {
+		name string
+		new  func(manufacturer, model string) proto.Message
+	}{
+		{
+			name: "firmware assignment",
+			new: func(manufacturer, model string) proto.Message {
+				return &rolloutv1.FirmwareAssignment{Manufacturer: manufacturer, Model: model}
+			},
+		},
+		{
+			name: "rollout",
+			new: func(manufacturer, model string) proto.Message {
+				return &rolloutv1.Rollout{Manufacturer: manufacturer, Model: model}
+			},
+		},
+	}
+	tests := []struct {
+		name         string
+		manufacturer string
+		model        string
+		wantErr      bool
+	}{
+		{name: "simple keys are valid", manufacturer: "Bitmain", model: "S21"},
+		{name: "internal printable spaces are valid", manufacturer: "Bit Main", model: "S 21 Pro"},
+		{name: "maximum lengths are valid", manufacturer: strings.Repeat("m", 255), model: strings.Repeat("n", 255)},
+		{name: "empty manufacturer is rejected", model: "S21", wantErr: true},
+		{name: "empty model is rejected", manufacturer: "Bitmain", wantErr: true},
+		{name: "whitespace-only manufacturer is rejected", manufacturer: " \t\n", model: "S21", wantErr: true},
+		{name: "whitespace-only model is rejected", manufacturer: "Bitmain", model: " \t\n", wantErr: true},
+		{name: "non-ASCII manufacturer is rejected", manufacturer: "Bítmain", model: "S21", wantErr: true},
+		{name: "non-ASCII model is rejected", manufacturer: "Bitmain", model: "S２1", wantErr: true},
+		{name: "leading manufacturer space is rejected", manufacturer: " Bitmain", model: "S21", wantErr: true},
+		{name: "trailing manufacturer space is rejected", manufacturer: "Bitmain ", model: "S21", wantErr: true},
+		{name: "leading model space is rejected", manufacturer: "Bitmain", model: " S21", wantErr: true},
+		{name: "trailing model space is rejected", manufacturer: "Bitmain", model: "S21 ", wantErr: true},
+		{name: "internal control whitespace is rejected", manufacturer: "Bit\tmain", model: "S21", wantErr: true},
+		{name: "oversized manufacturer is rejected", manufacturer: strings.Repeat("m", 256), model: "S21", wantErr: true},
+		{name: "oversized model is rejected", manufacturer: "Bitmain", model: strings.Repeat("m", 256), wantErr: true},
+	}
+
+	for _, message := range messages {
+		t.Run(message.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					t.Parallel()
+
+					err := protovalidate.Validate(message.new(test.manufacturer, test.model))
+					if test.wantErr {
+						require.Error(t, err)
+						return
+					}
+					require.NoError(t, err)
+				})
+			}
+		})
+	}
+}
+
+func TestObservedManufacturerModelIdentityValidation(t *testing.T) {
 	t.Parallel()
 
 	messages := []struct {
@@ -793,25 +991,14 @@ func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
 					Manufacturer:        manufacturer,
 					Model:               model,
 					SelectorSpecificity: rolloutv1.ReleaseChannelSelectorSpecificity_RELEASE_CHANNEL_SELECTOR_SPECIFICITY_MINER,
+					Resolution:          rolloutv1.ReleaseChannelConflictResolution_RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER,
 				}
-			},
-		},
-		{
-			name: "firmware assignment",
-			new: func(manufacturer, model string) proto.Message {
-				return &rolloutv1.FirmwareAssignment{Manufacturer: manufacturer, Model: model}
 			},
 		},
 		{
 			name: "scope model count",
 			new: func(manufacturer, model string) proto.Message {
 				return &rolloutv1.ReleaseChannelScopeModelCount{Manufacturer: manufacturer, Model: model}
-			},
-		},
-		{
-			name: "rollout",
-			new: func(manufacturer, model string) proto.Message {
-				return &rolloutv1.Rollout{Manufacturer: manufacturer, Model: model}
 			},
 		},
 	}
@@ -821,11 +1008,12 @@ func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
 		model        string
 		wantErr      bool
 	}{
-		{name: "simple keys are valid", manufacturer: "Bitmain", model: "S21"},
+		{name: "unknown manufacturer and model are valid"},
+		{name: "unknown manufacturer is valid", model: "S21"},
+		{name: "unknown model is valid", manufacturer: "Bitmain"},
+		{name: "canonical identities are valid", manufacturer: "Bitmain", model: "S21"},
 		{name: "internal printable spaces are valid", manufacturer: "Bit Main", model: "S 21 Pro"},
 		{name: "maximum lengths are valid", manufacturer: strings.Repeat("m", 255), model: strings.Repeat("n", 255)},
-		{name: "empty manufacturer is rejected", model: "S21", wantErr: true},
-		{name: "empty model is rejected", manufacturer: "Bitmain", wantErr: true},
 		{name: "whitespace-only manufacturer is rejected", manufacturer: " \t\n", model: "S21", wantErr: true},
 		{name: "whitespace-only model is rejected", manufacturer: "Bitmain", model: " \t\n", wantErr: true},
 		{name: "non-ASCII manufacturer is rejected", manufacturer: "Bítmain", model: "S21", wantErr: true},

@@ -19,10 +19,19 @@ import "google/protobuf/timestamp.proto";
 // A miner belongs to at most one channel. Channels whose scopes would
 // overlap cannot be saved. If fleet changes later create an overlap, the
 // channel with the unique highest-specificity match (miner, group, rack,
-// building, site) wins and reports the miner as conflicted. If multiple
-// channels tie at the highest specificity, the miner belongs to none until
-// the conflict is removed. Query excluded miners with
-// ListReleaseChannelMembershipConflicts.
+// building, site) wins; lower-specificity channels lose. If multiple channels
+// tie at the highest specificity, the miner belongs to none until the
+// conflict is removed. Query every matching channel in either kind of overlap
+// with ListReleaseChannelMembershipConflicts.
+//
+// Firmware artifacts are deletion-protected across service boundaries while
+// operationally reachable from rollout state. The firmware service must fail
+// deletion with FAILED_PRECONDITION while a file id is a current channel
+// assignment, an active rollout target, a finished rollout target that remains
+// retryable because it still matches the current assignment, or a
+// previous_firmware_file_id retained in rollout history available to
+// RollbackReleaseChannelFirmware. Deleting a release channel removes its
+// assignments and rollout history and may release those references.
 //
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
@@ -53,9 +62,10 @@ service RolloutService {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
-    // Lists flat miner/channel relations excluded from membership because
-    // multiple channels tie at the miner's highest matching selector
-    // specificity. Results include every channel in each tie unless filtered
+    // Lists flat miner/channel relations for every current channel overlap.
+    // Each overlapping miner contributes one record per matching channel,
+    // marked as the winner, a lower-specificity loser, or part of an excluded
+    // highest-specificity tie. Results include every relation unless filtered
     // by channel id, with bounded cursor pagination.
     rpc ListReleaseChannelMembershipConflicts(ListReleaseChannelMembershipConflictsRequest) returns (ListReleaseChannelMembershipConflictsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
@@ -70,7 +80,8 @@ service RolloutService {
     // flight keeps the behavior it started with.
     rpc UpdateReleaseChannel(UpdateReleaseChannelRequest) returns (UpdateReleaseChannelResponse);
 
-    // Deletes a channel with its firmware assignments and rollout history.
+    // Deletes a channel with its firmware assignments and rollout history,
+    // which may release their firmware artifacts from deletion protection.
     // Miners keep whatever firmware they are running.
     rpc DeleteReleaseChannel(DeleteReleaseChannelRequest) returns (DeleteReleaseChannelResponse);
 
@@ -83,12 +94,17 @@ service RolloutService {
     // Replaces per-manufacturer/model firmware assignments of a channel and
     // starts a rollout, paced by the channel's behavior, for every pair whose
     // assignment changed and has mismatched members. Every nonempty
-    // firmware_file_id must resolve to metadata with nonempty target
-    // manufacturer, target model, and firmware version; the metadata target
-    // must match the assignment's manufacturer and model. Otherwise the RPC
-    // fails with FAILED_PRECONDITION before changing any assignment or starting
-    // any rollout. An empty firmware_file_id remains valid and clears the
-    // assignment.
+    // firmware_file_id must identify an immutable artifact with complete
+    // metadata: nonempty target manufacturer, target model, and firmware
+    // version. The normalized metadata target must match the normalized
+    // assignment target. For release-channel assignments, one normalized
+    // manufacturer/model/version tuple identifies exactly one firmware file:
+    // reusing its file id is valid, but assigning a different file id for the
+    // same tuple fails with FAILED_PRECONDITION before changing any assignment
+    // or starting any rollout. This makes convergence on the reported version
+    // uniquely identify the deployed artifact. An empty firmware_file_id
+    // remains valid and clears the assignment. Direct firmware uploads are
+    // outside this contract.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
     // Restores the firmware assignment that was in place immediately before
@@ -264,17 +280,24 @@ message ReleaseChannelSummary {
 }
 
 // Summary for one manufacturer/model pair in a channel, including its member
-// count and firmware assignment.
+// count and firmware assignment. Empty manufacturer or model means the
+// identity of unassigned members is unknown.
 message ReleaseChannelModelGroup {
     option (buf.validate.message).cel = {
         id: "reported_version_count_covers_returned_versions"
         message: "reported_version_count must be at least the number of reported_versions"
         expression: "this.reported_version_count >= this.reported_versions.size()"
     };
+    option (buf.validate.message).cel = {
+        id: "firmware_assignment_requires_target_identity"
+        message: "assigned firmware requires manufacturer, model, and firmware_version"
+        expression: "this.firmware_file_id == '' || (this.manufacturer != '' && this.model != '' && this.firmware_version != '')"
+    };
 
-    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    // Empty when no firmware is assigned to this manufacturer/model pair.
+    string manufacturer = 1 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    // Empty when no firmware is assigned to this manufacturer/model pair. A
+    // nonempty current assignment protects the artifact from deletion.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
     int32 miner_count = 5;
@@ -296,16 +319,18 @@ message ReleaseChannelModelGroup {
     int32 reported_version_count = 9;
 }
 
-// A miner resolved into a release channel.
+// A miner resolved into a release channel. Empty manufacturer or model means
+// the miner's reported hardware identity is unknown.
 message ReleaseChannelMiner {
     int64 device_id = 1;
     string device_identifier = 2;
-    string manufacturer = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 4 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware version the miner currently reports.
     string firmware_version = 5;
-    // Set only when this channel is the unique highest-specificity match and
-    // another channel's less-specific selector also covers this miner.
+    // Set when this channel is the unique highest-specificity match and at
+    // least one lower-specificity channel also matches this miner. Query every
+    // matching relation with ListReleaseChannelMembershipConflicts.
     bool conflicted = 6;
 }
 
@@ -319,16 +344,35 @@ enum ReleaseChannelSelectorSpecificity {
     RELEASE_CHANNEL_SELECTOR_SPECIFICITY_SITE = 5;
 }
 
-// One excluded miner/channel relation in an equal-specificity membership tie.
-// A miner tying multiple channels produces one record for each tied channel.
+// How one matching channel is resolved when a miner matches multiple channels.
+enum ReleaseChannelConflictResolution {
+    RELEASE_CHANNEL_CONFLICT_RESOLUTION_UNSPECIFIED = 0;
+    // The unique highest-specificity channel to which the miner belongs.
+    RELEASE_CHANNEL_CONFLICT_RESOLUTION_WINNER = 1;
+    // A lower-specificity channel to which the miner does not belong.
+    RELEASE_CHANNEL_CONFLICT_RESOLUTION_LOSER = 2;
+    // A channel tied at the highest specificity; the miner belongs to none.
+    RELEASE_CHANNEL_CONFLICT_RESOLUTION_EXCLUDED_TIE = 3;
+}
+
+// One miner/channel relation for a miner matched by multiple channels. A unique
+// highest-specificity match produces one WINNER and one LOSER for each
+// lower-specificity match. A highest-specificity tie produces one EXCLUDED_TIE
+// for each tied channel and one LOSER for each lower-specificity match.
+// Empty manufacturer or model means the miner's reported hardware identity is
+// unknown.
 message ReleaseChannelMembershipConflict {
     int64 device_id = 1;
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
-    string manufacturer = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 3 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 4 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
     int64 channel_id = 5;
     string channel_name = 6 [(buf.validate.field).string.max_len = 100];
     ReleaseChannelSelectorSpecificity selector_specificity = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+    ReleaseChannelConflictResolution resolution = 8 [(buf.validate.field).enum = {
         defined_only: true
         not_in: [0]
     }];
@@ -339,11 +383,18 @@ message FirmwareAssignment {
     string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware file to enforce for this manufacturer/model pair. A nonempty id
-    // must resolve to metadata with nonempty target manufacturer, target model,
-    // and firmware version, and the metadata target must match this assignment.
-    // ApplyReleaseChannelFirmware rejects violations with FAILED_PRECONDITION
-    // before changing any assignment or starting any rollout. Empty clears the
-    // assignment.
+    // must identify an immutable artifact with complete metadata: nonempty
+    // target manufacturer, target model, and firmware version. The normalized
+    // metadata target must match this normalized assignment target. For
+    // release-channel assignments, one normalized manufacturer/model/version
+    // tuple identifies exactly one firmware file. Reusing that file id is
+    // valid; if another file id already represents the tuple,
+    // ApplyReleaseChannelFirmware fails with FAILED_PRECONDITION before
+    // changing any assignment or starting any rollout. This makes convergence
+    // on the reported version uniquely identify the deployed artifact. Once
+    // applied, the artifact is protected from deletion while the assignment is
+    // current or the file id is retained as a rollback target. Empty clears the
+    // assignment. Direct firmware uploads are outside this contract.
     string firmware_file_id = 3;
 }
 
@@ -493,6 +544,9 @@ message Rollout {
     string channel_name = 3;
     string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    // Target artifact. It is protected from deletion while this rollout is
+    // active and, after the rollout finishes, while the target remains
+    // retryable because it matches the current channel assignment.
     string firmware_file_id = 6;
     string firmware_version = 7;
     RolloutStatus status = 8;
@@ -513,7 +567,9 @@ message Rollout {
     google.protobuf.Timestamp created_at = 17;
     // Set when the rollout completed or was canceled.
     google.protobuf.Timestamp finished_at = 18;
-    // Assignment in place before this rollout; what a rollback restores.
+    // Assignment in place before this rollout; what a rollback restores. A
+    // nonempty file id is protected from deletion while this rollout remains
+    // in history available to RollbackReleaseChannelFirmware.
     string previous_firmware_file_id = 19;
     string previous_firmware_version = 20;
     // Number of miners snapshotted into the rollout. Retrieve their live
@@ -625,7 +681,7 @@ message ListReleaseChannelMembershipConflictsRequest {
 }
 
 message ListReleaseChannelMembershipConflictsResponse {
-    // Flat records keep the page bounded when one miner ties many channels.
+    // Flat records keep the page bounded when one miner matches many channels.
     // Clients may group records by device_id.
     repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
     // Cursor for the next page; empty when there are no more conflicts.
@@ -675,9 +731,11 @@ message ReleaseChannelScopeConflict {
     int32 miner_count = 3;
 }
 
+// Aggregate count for one observed hardware identity. Empty manufacturer or
+// model means the reported hardware identity is unknown.
 message ReleaseChannelScopeModelCount {
-    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string manufacturer = 1 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {max_len: 255, pattern: "^$|^[!-~](?:[ -~]*[!-~])?$"}];
     int32 miner_count = 3;
 }
 

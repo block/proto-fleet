@@ -109,9 +109,10 @@ type RolloutServiceClient interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
-	// Lists flat miner/channel relations excluded from membership because
-	// multiple channels tie at the miner's highest matching selector
-	// specificity. Results include every channel in each tie unless filtered
+	// Lists flat miner/channel relations for every current channel overlap.
+	// Each overlapping miner contributes one record per matching channel,
+	// marked as the winner, a lower-specificity loser, or part of an excluded
+	// highest-specificity tie. Results include every relation unless filtered
 	// by channel id, with bounded cursor pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
@@ -121,7 +122,8 @@ type RolloutServiceClient interface {
 	// Behavior changes apply to rollouts started afterwards; a rollout in
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its firmware assignments and rollout history.
+	// Deletes a channel with its firmware assignments and rollout history,
+	// which may release their firmware artifacts from deletion protection.
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
@@ -130,12 +132,17 @@ type RolloutServiceClient interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must resolve to metadata with nonempty target
-	// manufacturer, target model, and firmware version; the metadata target
-	// must match the assignment's manufacturer and model. Otherwise the RPC
-	// fails with FAILED_PRECONDITION before changing any assignment or starting
-	// any rollout. An empty firmware_file_id remains valid and clears the
-	// assignment.
+	// firmware_file_id must identify an immutable artifact with complete
+	// metadata: nonempty target manufacturer, target model, and firmware
+	// version. The normalized metadata target must match the normalized
+	// assignment target. For release-channel assignments, one normalized
+	// manufacturer/model/version tuple identifies exactly one firmware file:
+	// reusing its file id is valid, but assigning a different file id for the
+	// same tuple fails with FAILED_PRECONDITION before changing any assignment
+	// or starting any rollout. This makes convergence on the reported version
+	// uniquely identify the deployed artifact. An empty firmware_file_id
+	// remains valid and clears the assignment. Direct firmware uploads are
+	// outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
@@ -428,9 +435,10 @@ type RolloutServiceHandler interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
-	// Lists flat miner/channel relations excluded from membership because
-	// multiple channels tie at the miner's highest matching selector
-	// specificity. Results include every channel in each tie unless filtered
+	// Lists flat miner/channel relations for every current channel overlap.
+	// Each overlapping miner contributes one record per matching channel,
+	// marked as the winner, a lower-specificity loser, or part of an excluded
+	// highest-specificity tie. Results include every relation unless filtered
 	// by channel id, with bounded cursor pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
@@ -440,7 +448,8 @@ type RolloutServiceHandler interface {
 	// Behavior changes apply to rollouts started afterwards; a rollout in
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its firmware assignments and rollout history.
+	// Deletes a channel with its firmware assignments and rollout history,
+	// which may release their firmware artifacts from deletion protection.
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
@@ -449,12 +458,17 @@ type RolloutServiceHandler interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must resolve to metadata with nonempty target
-	// manufacturer, target model, and firmware version; the metadata target
-	// must match the assignment's manufacturer and model. Otherwise the RPC
-	// fails with FAILED_PRECONDITION before changing any assignment or starting
-	// any rollout. An empty firmware_file_id remains valid and clears the
-	// assignment.
+	// firmware_file_id must identify an immutable artifact with complete
+	// metadata: nonempty target manufacturer, target model, and firmware
+	// version. The normalized metadata target must match the normalized
+	// assignment target. For release-channel assignments, one normalized
+	// manufacturer/model/version tuple identifies exactly one firmware file:
+	// reusing its file id is valid, but assigning a different file id for the
+	// same tuple fails with FAILED_PRECONDITION before changing any assignment
+	// or starting any rollout. This makes convergence on the reported version
+	// uniquely identify the deployed artifact. An empty firmware_file_id
+	// remains valid and clears the assignment. Direct firmware uploads are
+	// outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
