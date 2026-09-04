@@ -40,6 +40,9 @@ const (
 	// RolloutServiceGetReleaseChannelProcedure is the fully-qualified name of the RolloutService's
 	// GetReleaseChannel RPC.
 	RolloutServiceGetReleaseChannelProcedure = "/rollout.v1.RolloutService/GetReleaseChannel"
+	// RolloutServiceListReleaseChannelMinersProcedure is the fully-qualified name of the
+	// RolloutService's ListReleaseChannelMiners RPC.
+	RolloutServiceListReleaseChannelMinersProcedure = "/rollout.v1.RolloutService/ListReleaseChannelMiners"
 	// RolloutServiceCreateReleaseChannelProcedure is the fully-qualified name of the RolloutService's
 	// CreateReleaseChannel RPC.
 	RolloutServiceCreateReleaseChannelProcedure = "/rollout.v1.RolloutService/CreateReleaseChannel"
@@ -64,6 +67,9 @@ const (
 	// RolloutServiceGetRolloutProcedure is the fully-qualified name of the RolloutService's GetRollout
 	// RPC.
 	RolloutServiceGetRolloutProcedure = "/rollout.v1.RolloutService/GetRollout"
+	// RolloutServiceListRolloutDevicesProcedure is the fully-qualified name of the RolloutService's
+	// ListRolloutDevices RPC.
+	RolloutServiceListRolloutDevicesProcedure = "/rollout.v1.RolloutService/ListRolloutDevices"
 	// RolloutServiceContinueRolloutProcedure is the fully-qualified name of the RolloutService's
 	// ContinueRollout RPC.
 	RolloutServiceContinueRolloutProcedure = "/rollout.v1.RolloutService/ContinueRollout"
@@ -83,11 +89,14 @@ const (
 
 // RolloutServiceClient is a client for the rollout.v1.RolloutService service.
 type RolloutServiceClient interface {
-	// Lists all release channels with members grouped by model, current
+	// Lists all release channels with member counts grouped by model, current
 	// firmware assignments, and active rollout ids.
 	ListReleaseChannels(context.Context, *connect.Request[v1.ListReleaseChannelsRequest]) (*connect.Response[v1.ListReleaseChannelsResponse], error)
-	// Returns one release channel.
+	// Returns one release channel with member counts grouped by model.
 	GetReleaseChannel(context.Context, *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error)
+	// Lists the miners currently resolved into a channel, optionally filtered
+	// by model, with bounded cursor pagination.
+	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -105,16 +114,19 @@ type RolloutServiceClient interface {
 	// rollout, paced by the channel's behavior, for every model whose
 	// assignment changed and has mismatched members.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Re-applies the firmware of a past rollout to its channel's model group,
-	// rolling the group's miners back to that version. Any active rollout
-	// for the (channel, model) pair is canceled and a new all-at-once rollout
-	// enforces the restored version.
+	// Restores the firmware assignment that was in place immediately before
+	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
+	// model group back to A. Any active rollout for the (channel, model) pair
+	// is canceled and a new all-at-once rollout enforces the restored version.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
-	// Lists rollouts (newest first) with live per-device progress,
-	// optionally filtered by channel and status, and paged with a cursor.
+	// Lists rollout summaries (newest first), optionally filtered by channel
+	// and status, and paged with a cursor.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
-	// Returns one rollout with live per-device progress.
+	// Returns one rollout summary with live aggregate evidence.
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
+	// Lists live per-device progress for one rollout with bounded cursor
+	// pagination.
+	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
 	// Releases the review gate of a staged rollout: the next batch starts,
 	// or the remaining miners when the last batch was under review.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
@@ -153,6 +165,12 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 		getReleaseChannel: connect.NewClient[v1.GetReleaseChannelRequest, v1.GetReleaseChannelResponse](
 			httpClient,
 			baseURL+RolloutServiceGetReleaseChannelProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		listReleaseChannelMiners: connect.NewClient[v1.ListReleaseChannelMinersRequest, v1.ListReleaseChannelMinersResponse](
+			httpClient,
+			baseURL+RolloutServiceListReleaseChannelMinersProcedure,
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
@@ -199,6 +217,12 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listRolloutDevices: connect.NewClient[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse](
+			httpClient,
+			baseURL+RolloutServiceListRolloutDevicesProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		continueRollout: connect.NewClient[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse](
 			httpClient,
 			baseURL+RolloutServiceContinueRolloutProcedure,
@@ -231,6 +255,7 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 type rolloutServiceClient struct {
 	listReleaseChannels            *connect.Client[v1.ListReleaseChannelsRequest, v1.ListReleaseChannelsResponse]
 	getReleaseChannel              *connect.Client[v1.GetReleaseChannelRequest, v1.GetReleaseChannelResponse]
+	listReleaseChannelMiners       *connect.Client[v1.ListReleaseChannelMinersRequest, v1.ListReleaseChannelMinersResponse]
 	createReleaseChannel           *connect.Client[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse]
 	updateReleaseChannel           *connect.Client[v1.UpdateReleaseChannelRequest, v1.UpdateReleaseChannelResponse]
 	deleteReleaseChannel           *connect.Client[v1.DeleteReleaseChannelRequest, v1.DeleteReleaseChannelResponse]
@@ -239,6 +264,7 @@ type rolloutServiceClient struct {
 	rollbackReleaseChannelFirmware *connect.Client[v1.RollbackReleaseChannelFirmwareRequest, v1.RollbackReleaseChannelFirmwareResponse]
 	listRollouts                   *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
 	getRollout                     *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
+	listRolloutDevices             *connect.Client[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse]
 	continueRollout                *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
 	pauseRollout                   *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
 	resumeRollout                  *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
@@ -254,6 +280,11 @@ func (c *rolloutServiceClient) ListReleaseChannels(ctx context.Context, req *con
 // GetReleaseChannel calls rollout.v1.RolloutService.GetReleaseChannel.
 func (c *rolloutServiceClient) GetReleaseChannel(ctx context.Context, req *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error) {
 	return c.getReleaseChannel.CallUnary(ctx, req)
+}
+
+// ListReleaseChannelMiners calls rollout.v1.RolloutService.ListReleaseChannelMiners.
+func (c *rolloutServiceClient) ListReleaseChannelMiners(ctx context.Context, req *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error) {
+	return c.listReleaseChannelMiners.CallUnary(ctx, req)
 }
 
 // CreateReleaseChannel calls rollout.v1.RolloutService.CreateReleaseChannel.
@@ -296,6 +327,11 @@ func (c *rolloutServiceClient) GetRollout(ctx context.Context, req *connect.Requ
 	return c.getRollout.CallUnary(ctx, req)
 }
 
+// ListRolloutDevices calls rollout.v1.RolloutService.ListRolloutDevices.
+func (c *rolloutServiceClient) ListRolloutDevices(ctx context.Context, req *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error) {
+	return c.listRolloutDevices.CallUnary(ctx, req)
+}
+
 // ContinueRollout calls rollout.v1.RolloutService.ContinueRollout.
 func (c *rolloutServiceClient) ContinueRollout(ctx context.Context, req *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
 	return c.continueRollout.CallUnary(ctx, req)
@@ -323,11 +359,14 @@ func (c *rolloutServiceClient) RetryFailedRolloutDevices(ctx context.Context, re
 
 // RolloutServiceHandler is an implementation of the rollout.v1.RolloutService service.
 type RolloutServiceHandler interface {
-	// Lists all release channels with members grouped by model, current
+	// Lists all release channels with member counts grouped by model, current
 	// firmware assignments, and active rollout ids.
 	ListReleaseChannels(context.Context, *connect.Request[v1.ListReleaseChannelsRequest]) (*connect.Response[v1.ListReleaseChannelsResponse], error)
-	// Returns one release channel.
+	// Returns one release channel with member counts grouped by model.
 	GetReleaseChannel(context.Context, *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error)
+	// Lists the miners currently resolved into a channel, optionally filtered
+	// by model, with bounded cursor pagination.
+	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -345,16 +384,19 @@ type RolloutServiceHandler interface {
 	// rollout, paced by the channel's behavior, for every model whose
 	// assignment changed and has mismatched members.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Re-applies the firmware of a past rollout to its channel's model group,
-	// rolling the group's miners back to that version. Any active rollout
-	// for the (channel, model) pair is canceled and a new all-at-once rollout
-	// enforces the restored version.
+	// Restores the firmware assignment that was in place immediately before
+	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
+	// model group back to A. Any active rollout for the (channel, model) pair
+	// is canceled and a new all-at-once rollout enforces the restored version.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
-	// Lists rollouts (newest first) with live per-device progress,
-	// optionally filtered by channel and status, and paged with a cursor.
+	// Lists rollout summaries (newest first), optionally filtered by channel
+	// and status, and paged with a cursor.
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
-	// Returns one rollout with live per-device progress.
+	// Returns one rollout summary with live aggregate evidence.
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
+	// Lists live per-device progress for one rollout with bounded cursor
+	// pagination.
+	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
 	// Releases the review gate of a staged rollout: the next batch starts,
 	// or the remaining miners when the last batch was under review.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
@@ -389,6 +431,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceGetReleaseChannelHandler := connect.NewUnaryHandler(
 		RolloutServiceGetReleaseChannelProcedure,
 		svc.GetReleaseChannel,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	rolloutServiceListReleaseChannelMinersHandler := connect.NewUnaryHandler(
+		RolloutServiceListReleaseChannelMinersProcedure,
+		svc.ListReleaseChannelMiners,
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
@@ -435,6 +483,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	rolloutServiceListRolloutDevicesHandler := connect.NewUnaryHandler(
+		RolloutServiceListRolloutDevicesProcedure,
+		svc.ListRolloutDevices,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	rolloutServiceContinueRolloutHandler := connect.NewUnaryHandler(
 		RolloutServiceContinueRolloutProcedure,
 		svc.ContinueRollout,
@@ -466,6 +520,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListReleaseChannelsHandler.ServeHTTP(w, r)
 		case RolloutServiceGetReleaseChannelProcedure:
 			rolloutServiceGetReleaseChannelHandler.ServeHTTP(w, r)
+		case RolloutServiceListReleaseChannelMinersProcedure:
+			rolloutServiceListReleaseChannelMinersHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateReleaseChannelProcedure:
 			rolloutServiceCreateReleaseChannelHandler.ServeHTTP(w, r)
 		case RolloutServiceUpdateReleaseChannelProcedure:
@@ -482,6 +538,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListRolloutsHandler.ServeHTTP(w, r)
 		case RolloutServiceGetRolloutProcedure:
 			rolloutServiceGetRolloutHandler.ServeHTTP(w, r)
+		case RolloutServiceListRolloutDevicesProcedure:
+			rolloutServiceListRolloutDevicesHandler.ServeHTTP(w, r)
 		case RolloutServiceContinueRolloutProcedure:
 			rolloutServiceContinueRolloutHandler.ServeHTTP(w, r)
 		case RolloutServicePauseRolloutProcedure:
@@ -507,6 +565,10 @@ func (UnimplementedRolloutServiceHandler) ListReleaseChannels(context.Context, *
 
 func (UnimplementedRolloutServiceHandler) GetReleaseChannel(context.Context, *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetReleaseChannel is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelMiners is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error) {
@@ -539,6 +601,10 @@ func (UnimplementedRolloutServiceHandler) ListRollouts(context.Context, *connect
 
 func (UnimplementedRolloutServiceHandler) GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutDevices is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {

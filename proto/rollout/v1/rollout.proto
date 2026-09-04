@@ -23,14 +23,20 @@ import "google/protobuf/timestamp.proto";
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
 service RolloutService {
-    // Lists all release channels with members grouped by model, current
+    // Lists all release channels with member counts grouped by model, current
     // firmware assignments, and active rollout ids.
     rpc ListReleaseChannels(ListReleaseChannelsRequest) returns (ListReleaseChannelsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
-    // Returns one release channel.
+    // Returns one release channel with member counts grouped by model.
     rpc GetReleaseChannel(GetReleaseChannelRequest) returns (GetReleaseChannelResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists the miners currently resolved into a channel, optionally filtered
+    // by model, with bounded cursor pagination.
+    rpc ListReleaseChannelMiners(ListReleaseChannelMinersRequest) returns (ListReleaseChannelMinersResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
@@ -58,20 +64,26 @@ service RolloutService {
     // assignment changed and has mismatched members.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
-    // Re-applies the firmware of a past rollout to its channel's model group,
-    // rolling the group's miners back to that version. Any active rollout
-    // for the (channel, model) pair is canceled and a new all-at-once rollout
-    // enforces the restored version.
+    // Restores the firmware assignment that was in place immediately before
+    // the referenced rollout. For an A-to-B rollout, this rolls the channel's
+    // model group back to A. Any active rollout for the (channel, model) pair
+    // is canceled and a new all-at-once rollout enforces the restored version.
     rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
 
-    // Lists rollouts (newest first) with live per-device progress,
-    // optionally filtered by channel and status, and paged with a cursor.
+    // Lists rollout summaries (newest first), optionally filtered by channel
+    // and status, and paged with a cursor.
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
-    // Returns one rollout with live per-device progress.
+    // Returns one rollout summary with live aggregate evidence.
     rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists live per-device progress for one rollout with bounded cursor
+    // pagination.
+    rpc ListRolloutDevices(ListRolloutDevicesRequest) returns (ListRolloutDevicesResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
@@ -150,10 +162,21 @@ message RolloutAutomationThresholds {
 // How updates started in a channel are paced. Stored on the channel and
 // copied onto each rollout when it starts.
 message RolloutBehavior {
+    option (buf.validate.message).cel = {
+        id: "batch_size_required_for_batched"
+        message: "batch_size must be at least 1 for BATCHED"
+        expression: "this.method != 2 || this.batch_size > 0"
+    };
+    option (buf.validate.message).cel = {
+        id: "pilot_size_required_for_pilot"
+        message: "pilot_size must be at least 1 for PILOT_THEN_CONTINUE"
+        expression: "this.method != 3 || this.pilot_size > 0"
+    };
+
     // Defaults to ALL_AT_ONCE when unspecified.
-    RolloutMethod method = 1;
+    RolloutMethod method = 1 [(buf.validate.field).enum.defined_only = true];
     // Paced methods only; defaults to LEAST_EFFICIENT_FIRST.
-    RolloutOrder order = 2;
+    RolloutOrder order = 2 [(buf.validate.field).enum.defined_only = true];
     // BATCHED: miners per batch (>= 1).
     int32 batch_size = 3 [(buf.validate.field).int32 = {gte: 0}];
     // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1).
@@ -176,7 +199,7 @@ message RolloutBehavior {
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
 }
 
-// A release channel with its members grouped by model.
+// A release channel with member counts grouped by model.
 message ReleaseChannel {
     int64 id = 1;
     string name = 2;
@@ -191,13 +214,14 @@ message ReleaseChannel {
     google.protobuf.Timestamp updated_at = 9;
 }
 
-// Channel members of one model together with the model's firmware assignment.
+// Summary for one model in a channel, including its member count and firmware
+// assignment.
 message ReleaseChannelModelGroup {
     string model = 1;
     // Empty when no firmware is assigned to this model.
     string firmware_file_id = 2;
     string firmware_version = 3;
-    repeated ReleaseChannelMiner miners = 4;
+    int32 miner_count = 4;
     // Id of the active rollout for this model, 0 if none.
     int64 active_rollout_id = 5;
 }
@@ -375,8 +399,9 @@ message Rollout {
     // Assignment in place before this rollout; what a rollback restores.
     string previous_firmware_file_id = 18;
     string previous_firmware_version = 19;
-    // Every miner snapshotted into the rollout, with live progress.
-    repeated RolloutDevice devices = 20;
+    // Number of miners snapshotted into the rollout. Retrieve their live
+    // progress with ListRolloutDevices.
+    int32 device_count = 20;
     // Evidence for the miners currently under review; unset for rollouts
     // that are not active.
     RolloutEvidence evidence = 21;
@@ -427,6 +452,22 @@ message GetReleaseChannelRequest {
 
 message GetReleaseChannelResponse {
     ReleaseChannel channel = 1;
+}
+
+message ListReleaseChannelMinersRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Empty returns every model in the channel.
+    string model = 2 [(buf.validate.field).string.max_len = 255];
+    // Maximum miners to return. 0 uses the server default of 100.
+    int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Cursor returned by a previous call; leave empty for the first page.
+    string cursor = 4 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListReleaseChannelMinersResponse {
+    repeated ReleaseChannelMiner miners = 1;
+    // Cursor for the next page; empty when there are no more miners.
+    string cursor = 2;
 }
 
 message CreateReleaseChannelRequest {
@@ -499,7 +540,8 @@ message ApplyReleaseChannelFirmwareResponse {
 }
 
 message RollbackReleaseChannelFirmwareRequest {
-    // Rollout whose firmware is restored for its channel and model.
+    // Rollout whose previous firmware assignment is restored for its channel
+    // and model.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
@@ -514,7 +556,7 @@ message ListRolloutsRequest {
     int64 channel_id = 1;
     // When set, only rollouts with this status are returned.
     RolloutStatus status = 2 [(buf.validate.field).enum.defined_only = true];
-    // Maximum number of rollouts to return. 0 returns all matching rollouts.
+    // Maximum number of rollouts to return. 0 uses the server default of 100.
     int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     // Cursor returned by a previous call; leave empty for the first page.
     string cursor = 4 [(buf.validate.field).string.max_len = 100];
@@ -532,6 +574,20 @@ message GetRolloutRequest {
 
 message GetRolloutResponse {
     Rollout rollout = 1;
+}
+
+message ListRolloutDevicesRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Maximum devices to return. 0 uses the server default of 100.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Cursor returned by a previous call; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListRolloutDevicesResponse {
+    repeated RolloutDevice devices = 1;
+    // Cursor for the next page; empty when there are no more devices.
+    string cursor = 2;
 }
 
 message ContinueRolloutRequest {
