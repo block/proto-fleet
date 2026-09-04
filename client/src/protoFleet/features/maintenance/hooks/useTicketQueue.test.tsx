@@ -1,0 +1,55 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import {
+  RepairTicketSchema,
+  RepairTicketSummarySchema,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+
+const listTickets = vi.fn();
+const getStats = vi.fn();
+const bulkUpdate = vi.fn();
+vi.mock("@/protoFleet/api/maintenance", () => ({ useMaintenanceApi: () => ({ listTickets, getStats, bulkUpdate }) }));
+const { useTicketQueue } = await import("./useTicketQueue");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  listTickets.mockImplementation(async ({ onSuccess }) =>
+    onSuccess({
+      tickets: [create(RepairTicketSummarySchema, { ticket: create(RepairTicketSchema, { id: 1n }) })],
+      nextPageToken: "",
+      totalCount: 1,
+    }),
+  );
+  getStats.mockImplementation(async ({ onSuccess }) =>
+    onSuccess({
+      openCount: 1,
+      inProgressCount: 0,
+      onHoldCount: 0,
+      sentToVendorCount: 0,
+      overdueCount: 0,
+      urgentCount: 0,
+    }),
+  );
+});
+
+it("loads tickets and refreshes after a successful mutation", async () => {
+  bulkUpdate.mockImplementation(async ({ onSuccess }) => onSuccess(1));
+  const { result } = renderHook(() => useTicketQueue());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.data[0].id).toBe("1");
+  await act(() => result.current.bulkUpdate(["1"], { case: "setStatus", value: 2 }));
+  expect(listTickets).toHaveBeenCalledTimes(2);
+});
+
+it("aborts the active request on unmount", async () => {
+  let signal: AbortSignal | undefined;
+  listTickets.mockImplementation(({ signal: value }) => {
+    signal = value;
+    return new Promise(() => undefined);
+  });
+  const { unmount } = renderHook(() => useTicketQueue());
+  await waitFor(() => expect(signal).toBeDefined());
+  unmount();
+  expect(signal?.aborted).toBe(true);
+});

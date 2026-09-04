@@ -1,47 +1,55 @@
 import { useCallback } from "react";
 
-// import { maintenanceClient } from "@/protoFleet/api/clients";
-// import type {
-//   RepairTicket,
-//   RepairTicketDetail,
-//   RepairTicketSummary,
-//   TicketComment,
-//   TicketFilter,
-//   TicketSortField,
-//   SortDirection,
-// } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { maintenanceClient } from "@/protoFleet/api/clients";
+import type {
+  Assignee,
+  RepairTicket,
+  RepairTicketDetail,
+  RepairTicketSummary,
+  TicketComment,
+  TicketFilter,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import {
+  RepairLocation,
+  SortDirection,
+  TicketCategory,
+  TicketResolution,
+  TicketSortField,
+  TicketStatus,
+  WarrantyStatus,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
-interface ListTicketsProps {
-  filter?: Record<string, unknown>;
-  sortField?: number;
-  sortDirection?: number;
+type Callbacks<T> = {
+  signal?: AbortSignal;
+  onSuccess?: (value: T) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+};
+
+export type ListTicketsProps = Callbacks<{
+  tickets: RepairTicketSummary[];
+  nextPageToken: string;
+  totalCount: number;
+}> & {
+  filter?: Partial<TicketFilter>;
+  sortField?: TicketSortField;
+  sortDirection?: SortDirection;
   pageSize?: number;
   pageToken?: string;
-  signal?: AbortSignal;
-  onSuccess?: (tickets: unknown[], nextPageToken: string, totalCount: number) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+};
 
-interface GetTicketProps {
-  id: bigint;
-  signal?: AbortSignal;
-  onSuccess?: (detail: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface CreateTicketProps {
-  category: number;
+export type CreateTicketProps = Callbacks<RepairTicket | undefined> & {
+  category: TicketCategory;
   component: string;
-  diagnosis: string;
+  diagnosis?: string;
   urgent?: boolean;
   minerIdentifier?: string;
   alertId?: string;
   assigneeUserId?: bigint;
-  warrantyStatus?: number;
+  warrantyStatus?: WarrantyStatus;
   siteId?: bigint;
   buildingId?: bigint;
   zone?: string;
@@ -49,209 +57,341 @@ interface CreateTicketProps {
   rackLabel?: string;
   groupLabel?: string;
   notes?: string;
-  signal?: AbortSignal;
-  onSuccess?: (ticket: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+};
 
-interface UpdateTicketProps {
+export type PartSelection = { inventoryPartId: bigint; partName: string; quantity: number };
+export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   id: bigint;
-  status?: number;
+  status?: TicketStatus;
   urgent?: boolean;
   assigneeUserId?: bigint;
   clearAssignee?: boolean;
-  resolution?: number;
-  repairLocation?: number;
-  partsUsed?: Array<{ partName: string; quantity: number }>;
+  component?: string;
+  diagnosis?: string;
+  warrantyStatus?: WarrantyStatus;
+  resolution?: TicketResolution;
+  repairLocation?: RepairLocation;
+  partsSelection?: PartSelection[];
   notes?: string;
   rmaVendor?: string;
   rmaTracking?: string;
-  signal?: AbortSignal;
-  onSuccess?: (ticket: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+};
 
-interface BulkUpdateProps {
-  ticketIds: bigint[];
-  mutation: Record<string, unknown>;
-  signal?: AbortSignal;
-  onSuccess?: (updatedCount: number) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+export type BulkTicketMutation =
+  | { case: "assignToUserId"; value: bigint }
+  | { case: "setStatus"; value: TicketStatus }
+  | { case: "markUrgent"; value: true }
+  | { case: "bulkClose"; value: { resolution: TicketResolution; repairLocation: RepairLocation; notes?: string } }
+  | { case: undefined };
 
-interface GetTicketStatsProps {
-  signal?: AbortSignal;
-  onSuccess?: (stats: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface CommentProps {
-  ticketId: bigint;
-  text?: string;
-  commentId?: bigint;
-  signal?: AbortSignal;
-  onSuccess?: (result: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+const defaultFilter = (filter?: Partial<TicketFilter>) => ({
+  statuses: filter?.statuses ?? [],
+  categories: filter?.categories ?? [],
+  siteIds: filter?.siteIds ?? [],
+  buildingIds: filter?.buildingIds ?? [],
+  rackIds: filter?.rackIds ?? [],
+  groupLabels: filter?.groupLabels ?? [],
+  assigneeUserId: filter?.assigneeUserId,
+  urgentOnly: filter?.urgentOnly ?? false,
+  searchQuery: filter?.searchQuery ?? "",
+  excludeCompleted: filter?.excludeCompleted ?? false,
+  overdueOnly: filter?.overdueOnly ?? false,
+});
 
 export const useMaintenanceApi = () => {
   const { handleAuthErrors } = useAuthErrors();
+  const report = useCallback(
+    (error: unknown, signal: AbortSignal | undefined, onError?: (message: string) => void) => {
+      if (isAbortError(error, signal)) return;
+      handleAuthErrors({ error, onError: (value: unknown) => onError?.(getErrorMessage(value)) });
+    },
+    [handleAuthErrors],
+  );
 
   const listTickets = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: ListTicketsProps) => {
+    async ({
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+      filter,
+      sortField = TicketSortField.UNSPECIFIED,
+      sortDirection = SortDirection.UNSPECIFIED,
+      pageSize = 0,
+      pageToken = "",
+    }: ListTicketsProps) => {
       try {
-        // TODO: wire to maintenanceClient.listRepairTickets
         if (signal?.aborted) return;
-        onSuccess?.([], "", 0);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.listRepairTickets(
+          { filter: defaultFilter(filter), sortField, sortDirection, pageSize, pageToken },
+          { signal },
+        );
+        if (!signal?.aborted)
+          onSuccess?.({
+            tickets: response.tickets,
+            nextPageToken: response.nextPageToken,
+            totalCount: response.totalCount,
+          });
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const getTicket = useCallback(
-    async ({ id: _id, signal, onSuccess, onError, onFinally }: GetTicketProps) => {
+    async ({
+      id,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<RepairTicketDetail | undefined> & { id: bigint }) => {
       try {
-        // TODO: wire to maintenanceClient.getRepairTicket
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.getRepairTicket({ id }, { signal });
+        if (!signal?.aborted) onSuccess?.(response.detail);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const createTicket = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: CreateTicketProps) => {
+    async ({
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+      category,
+      component,
+      diagnosis = "",
+      urgent = false,
+      minerIdentifier,
+      alertId,
+      assigneeUserId,
+      warrantyStatus = WarrantyStatus.UNSPECIFIED,
+      siteId,
+      buildingId,
+      zone = "",
+      rackId,
+      rackLabel = "",
+      groupLabel = "",
+      notes = "",
+    }: CreateTicketProps) => {
       try {
-        // TODO: wire to maintenanceClient.createRepairTicket
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.createRepairTicket(
+          {
+            category,
+            component,
+            diagnosis,
+            urgent,
+            minerIdentifier,
+            alertId,
+            assigneeUserId,
+            warrantyStatus,
+            siteId,
+            buildingId,
+            zone,
+            rackId,
+            rackLabel,
+            groupLabel,
+            notes,
+          },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response.ticket);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const updateTicket = useCallback(
-    async ({ id: _id, signal, onSuccess, onError, onFinally }: UpdateTicketProps) => {
+    async ({
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+      id,
+      partsSelection,
+      clearAssignee = false,
+      ...fields
+    }: UpdateTicketProps) => {
       try {
-        // TODO: wire to maintenanceClient.updateRepairTicket
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.updateRepairTicket(
+          {
+            id,
+            clearAssignee,
+            ...fields,
+            partsSelection: partsSelection === undefined ? undefined : { parts: partsSelection },
+          },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response.ticket);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const bulkUpdate = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: BulkUpdateProps) => {
+    async ({
+      ticketIds,
+      mutation,
+      clearAssignee = false,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<number> & { ticketIds: bigint[]; mutation: BulkTicketMutation; clearAssignee?: boolean }) => {
       try {
-        // TODO: wire to maintenanceClient.bulkUpdateRepairTickets
         if (signal?.aborted) return;
-        onSuccess?.(0);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const encoded =
+          mutation.case === "bulkClose"
+            ? { case: "bulkClose" as const, value: { ...mutation.value, notes: mutation.value.notes ?? "" } }
+            : mutation;
+        const response = await maintenanceClient.bulkUpdateRepairTickets(
+          { ticketIds, mutation: encoded, clearAssignee },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response.updatedCount);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const getStats = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: GetTicketStatsProps) => {
+    async ({
+      filter,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<Awaited<ReturnType<typeof maintenanceClient.getTicketStats>>> & {
+      filter?: Partial<TicketFilter>;
+    }) => {
       try {
-        // TODO: wire to maintenanceClient.getTicketStats
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.getTicketStats({ filter: defaultFilter(filter) }, { signal });
+        if (!signal?.aborted) onSuccess?.(response);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
+  );
+
+  const listAssignees = useCallback(
+    async ({ signal, onSuccess, onError, onFinally }: Callbacks<Assignee[]>) => {
+      try {
+        if (signal?.aborted) return;
+        const response = await maintenanceClient.listAssignees({}, { signal });
+        if (!signal?.aborted) onSuccess?.(response.assignees);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
+  const listCompleted = useCallback(
+    async ({
+      componentFilter,
+      assigneeUserIdFilter,
+      sortField = TicketSortField.UNSPECIFIED,
+      sortDirection = SortDirection.UNSPECIFIED,
+      pageSize = 0,
+      pageToken = "",
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<{ tickets: RepairTicketSummary[]; nextPageToken: string; totalCount: number }> & {
+      componentFilter?: string;
+      assigneeUserIdFilter?: bigint;
+      sortField?: TicketSortField;
+      sortDirection?: SortDirection;
+      pageSize?: number;
+      pageToken?: string;
+    }) => {
+      try {
+        if (signal?.aborted) return;
+        const response = await maintenanceClient.listCompletedTickets(
+          { componentFilter, assigneeUserIdFilter, sortField, sortDirection, pageSize, pageToken },
+          { signal },
+        );
+        if (!signal?.aborted)
+          onSuccess?.({
+            tickets: response.tickets,
+            nextPageToken: response.nextPageToken,
+            totalCount: response.totalCount,
+          });
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
   );
 
   const createComment = useCallback(
-    async ({ ticketId: _ticketId, text: _text, signal, onSuccess, onError, onFinally }: CommentProps) => {
+    async ({
+      ticketId,
+      text,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<TicketComment | undefined> & { ticketId: bigint; text: string }) => {
       try {
-        // TODO: wire to maintenanceClient.createTicketComment
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await maintenanceClient.createTicketComment({ ticketId, text }, { signal });
+        if (!signal?.aborted) onSuccess?.(response.comment);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const deleteComment = useCallback(
-    async ({ commentId: _commentId, signal, onSuccess, onError, onFinally }: CommentProps) => {
+    async ({ commentId, signal, onSuccess, onError, onFinally }: Callbacks<void> & { commentId: bigint }) => {
       try {
-        // TODO: wire to maintenanceClient.deleteTicketComment
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        await maintenanceClient.deleteTicketComment({ id: commentId }, { signal });
+        if (!signal?.aborted) onSuccess?.();
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   return {
@@ -261,6 +401,8 @@ export const useMaintenanceApi = () => {
     updateTicket,
     bulkUpdate,
     getStats,
+    listAssignees,
+    listCompleted,
     createComment,
     deleteComment,
   };

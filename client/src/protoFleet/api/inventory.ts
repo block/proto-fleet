@@ -1,179 +1,256 @@
 import { useCallback } from "react";
 
-// import { inventoryClient } from "@/protoFleet/api/clients";
+import { inventoryClient } from "@/protoFleet/api/clients";
+import {
+  AdjustmentReason,
+  type CsvPreviewRow,
+  type InventoryFilter,
+  type InventoryInsights,
+  type InventoryPart,
+} from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
-interface ListPartsProps {
-  filter?: Record<string, unknown>;
-  pageSize?: number;
-  pageToken?: string;
+type Callbacks<T> = {
   signal?: AbortSignal;
-  onSuccess?: (parts: unknown[], nextPageToken: string) => void;
+  onSuccess?: (value: T) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
-}
+};
 
-interface GetInsightsProps {
-  signal?: AbortSignal;
-  onSuccess?: (insights: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface UpdatePartProps {
-  id: bigint;
-  onHand?: number;
-  reorderPoint?: number;
-  binLocation?: string;
-  reason?: number;
-  notes?: string;
-  signal?: AbortSignal;
-  onSuccess?: (part: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface ListPartsBySiteProps {
-  siteId: bigint;
-  signal?: AbortSignal;
-  onSuccess?: (parts: unknown[]) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface ImportCsvProps {
-  csvData: Uint8Array;
-  signal?: AbortSignal;
-  onSuccess?: (preview: unknown) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
-
-interface ConfirmImportProps {
-  csvData: Uint8Array;
-  signal?: AbortSignal;
-  onSuccess?: (importedCount: number) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
+export type InventoryCsvPreview = { rows: CsvPreviewRow[]; validCount: number; errorCount: number };
 
 export const useInventoryApi = () => {
   const { handleAuthErrors } = useAuthErrors();
-
-  const listParts = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: ListPartsProps) => {
-      try {
-        // TODO: wire to inventoryClient.listInventoryParts
-        if (signal?.aborted) return;
-        onSuccess?.([], "");
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
-      } finally {
-        onFinally?.();
-      }
+  const report = useCallback(
+    (error: unknown, signal: AbortSignal | undefined, onError?: (message: string) => void) => {
+      if (isAbortError(error, signal)) return;
+      handleAuthErrors({ error, onError: (value: unknown) => onError?.(getErrorMessage(value)) });
     },
     [handleAuthErrors],
   );
 
-  const getInsights = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: GetInsightsProps) => {
+  const listParts = useCallback(
+    async ({
+      filter,
+      pageSize = 0,
+      pageToken = "",
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<{ parts: InventoryPart[]; nextPageToken: string }> & {
+      filter?: Partial<InventoryFilter>;
+      pageSize?: number;
+      pageToken?: string;
+    }) => {
       try {
-        // TODO: wire to inventoryClient.getInventoryInsights
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await inventoryClient.listInventoryParts(
+          {
+            filter: {
+              siteIds: filter?.siteIds ?? [],
+              types: filter?.types ?? [],
+              lowStockOnly: filter?.lowStockOnly ?? false,
+            },
+            pageSize,
+            pageToken,
+          },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.({ parts: response.parts, nextPageToken: response.nextPageToken });
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
+  );
+
+  const getPart = useCallback(
+    async ({ id, signal, onSuccess, onError, onFinally }: Callbacks<InventoryPart | undefined> & { id: bigint }) => {
+      try {
+        if (signal?.aborted) return;
+        const response = await inventoryClient.getInventoryPart({ id }, { signal });
+        if (!signal?.aborted) onSuccess?.(response.part);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
+  const createPart = useCallback(
+    async ({
+      name,
+      type,
+      manufacturer = "",
+      partNumber = "",
+      siteId,
+      onHand = 0,
+      reorderPoint = 0,
+      binLocation = "",
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<InventoryPart | undefined> & {
+      name: string;
+      type: string;
+      manufacturer?: string;
+      partNumber?: string;
+      siteId?: bigint;
+      onHand?: number;
+      reorderPoint?: number;
+      binLocation?: string;
+    }) => {
+      try {
+        if (signal?.aborted) return;
+        const response = await inventoryClient.createInventoryPart(
+          { name, type, manufacturer, partNumber, siteId, onHand, reorderPoint, binLocation },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response.part);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
   );
 
   const updatePart = useCallback(
-    async ({ id: _id, signal, onSuccess, onError, onFinally }: UpdatePartProps) => {
+    async ({
+      id,
+      onHand,
+      reorderPoint,
+      binLocation,
+      reason = AdjustmentReason.UNSPECIFIED,
+      notes = "",
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<InventoryPart | undefined> & {
+      id: bigint;
+      onHand?: number;
+      reorderPoint?: number;
+      binLocation?: string;
+      reason?: AdjustmentReason;
+      notes?: string;
+    }) => {
       try {
-        // TODO: wire to inventoryClient.updateInventoryPart
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await inventoryClient.updateInventoryPart(
+          { id, onHand, reorderPoint, binLocation, reason, notes },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response.part);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
+  );
+
+  const deletePart = useCallback(
+    async ({ id, signal, onSuccess, onError, onFinally }: Callbacks<void> & { id: bigint }) => {
+      try {
+        if (signal?.aborted) return;
+        await inventoryClient.deleteInventoryPart({ id }, { signal });
+        if (!signal?.aborted) onSuccess?.();
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
+  const getInsights = useCallback(
+    async ({ signal, onSuccess, onError, onFinally }: Callbacks<InventoryInsights | undefined>) => {
+      try {
+        if (signal?.aborted) return;
+        const response = await inventoryClient.getInventoryInsights({}, { signal });
+        if (!signal?.aborted) onSuccess?.(response.insights);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
   );
 
   const listPartsBySite = useCallback(
-    async ({ siteId: _siteId, signal, onSuccess, onError, onFinally }: ListPartsBySiteProps) => {
+    async ({ siteId, signal, onSuccess, onError, onFinally }: Callbacks<InventoryPart[]> & { siteId: bigint }) => {
       try {
-        // TODO: wire to inventoryClient.listPartsBySite
         if (signal?.aborted) return;
-        onSuccess?.([]);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await inventoryClient.listPartsBySite({ siteId }, { signal });
+        if (!signal?.aborted) onSuccess?.(response.parts);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const importCsv = useCallback(
-    async ({ csvData: _csvData, signal, onSuccess, onError, onFinally }: ImportCsvProps) => {
+    async ({
+      csvData,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<InventoryCsvPreview> & { csvData: Uint8Array }) => {
       try {
-        // TODO: wire to inventoryClient.importInventoryCsv
         if (signal?.aborted) return;
-        onSuccess?.(undefined);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await inventoryClient.importInventoryCsv({ csvData }, { signal });
+        if (!signal?.aborted)
+          onSuccess?.({ rows: response.rows, validCount: response.validCount, errorCount: response.errorCount });
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
   const confirmImport = useCallback(
-    async ({ csvData: _csvData, signal, onSuccess, onError, onFinally }: ConfirmImportProps) => {
+    async ({ csvData, signal, onSuccess, onError, onFinally }: Callbacks<number> & { csvData: Uint8Array }) => {
       try {
-        // TODO: wire to inventoryClient.confirmInventoryImport
         if (signal?.aborted) return;
-        onSuccess?.(0);
-      } catch (err) {
-        if (signal?.aborted) return;
-        handleAuthErrors({
-          error: err,
-          onError: (error: unknown) => onError?.(getErrorMessage(error)),
-        });
+        const response = await inventoryClient.confirmInventoryImport({ csvData }, { signal });
+        if (!signal?.aborted) onSuccess?.(response.importedCount);
+      } catch (error) {
+        report(error, signal, onError);
       } finally {
         onFinally?.();
       }
     },
-    [handleAuthErrors],
+    [report],
   );
 
-  return { listParts, getInsights, updatePart, listPartsBySite, importCsv, confirmImport };
+  return {
+    listParts,
+    getPart,
+    createPart,
+    updatePart,
+    deletePart,
+    getInsights,
+    listPartsBySite,
+    importCsv,
+    confirmImport,
+  };
 };
