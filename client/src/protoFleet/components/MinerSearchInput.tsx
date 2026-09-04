@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Search as SearchIcon } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Search from "@/shared/components/Search";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -25,6 +27,10 @@ interface MinerSearchInputProps {
    * filter still reads as empty, so a selection gated on the applied filter
    * stays armed while the field already shows a query. */
   onQueryInput?: (query: string) => void;
+  /** Collapses an empty field behind an icon button. Intended for list
+   * toolbars; modal/picker search stays persistently visible by default. */
+  collapsible?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   id?: string;
 }
 
@@ -41,8 +47,11 @@ const MinerSearchInput = ({
   initialValue = "",
   onQueryChange,
   onQueryInput,
+  collapsible = false,
+  onExpandedChange,
   id = "miner-search",
 }: MinerSearchInputProps) => {
+  const [expanded, setExpanded] = useState(!collapsible || Boolean(initialValue));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The pending timer must survive a new `onQueryChange` identity (the fleet
   // table rebuilds it on every navigation), so the callback is read from a ref
@@ -55,6 +64,11 @@ const MinerSearchInput = ({
   const handleChange = useCallback((value: string) => {
     onQueryInputRef.current?.(value);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (!value) {
+      timeoutRef.current = null;
+      onQueryChangeRef.current("");
+      return;
+    }
     timeoutRef.current = setTimeout(() => {
       onQueryChangeRef.current(value);
     }, SEARCH_DEBOUNCE_MS);
@@ -79,15 +93,55 @@ const MinerSearchInput = ({
     [],
   );
 
+  const setSearchExpanded = useCallback(
+    (nextExpanded: boolean) => {
+      setExpanded(nextExpanded);
+      onExpandedChange?.(nextExpanded);
+    },
+    [onExpandedChange],
+  );
+  const shouldExpand = expanded || Boolean(initialValue);
+  useEffect(() => {
+    if (collapsible && initialValue && !expanded) onExpandedChange?.(true);
+  }, [collapsible, expanded, initialValue, onExpandedChange]);
+  const collapseIfEmpty = useCallback(
+    (currentValue = initialValue) => {
+      if (collapsible && !currentValue) setSearchExpanded(false);
+    },
+    [collapsible, initialValue, setSearchExpanded],
+  );
+
+  if (collapsible && !shouldExpand) {
+    return (
+      <Button
+        ariaLabel="Search miners"
+        ariaExpanded={false}
+        variant={variants.secondary}
+        size={sizes.compact}
+        prefixIcon={<SearchIcon width="w-4" />}
+        onClick={() => setSearchExpanded(true)}
+        testId={`${id}-toggle`}
+      />
+    );
+  }
+
   return (
-    <Search
-      id={id}
-      label="Search miners"
-      variant="toolbar"
-      initValue={initialValue}
-      onChange={handleChange}
-      sanitize={sanitizeSearchQuery}
-    />
+    <div role="search" aria-label="Miner search" data-testid={`${id}-expanded`}>
+      <Search
+        id={id}
+        label="Search miners"
+        variant="toolbar"
+        initValue={initialValue}
+        onChange={handleChange}
+        onBlur={collapseIfEmpty}
+        onClear={(previousValue) => {
+          if (!previousValue) collapseIfEmpty("");
+        }}
+        showClearWhenEmpty={collapsible}
+        shouldFocus={collapsible ? expanded : false}
+        sanitize={sanitizeSearchQuery}
+      />
+    </div>
   );
 };
 

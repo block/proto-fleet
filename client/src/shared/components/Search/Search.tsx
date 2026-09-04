@@ -21,6 +21,13 @@ interface SearchProps {
   variant?: SearchVariant;
   initValue?: string;
   onChange: (value: string, id: string) => void;
+  onBlur?: (value: string) => void;
+  /** Called after the clear affordance empties the field. Receives the value
+   * that was present before clearing so collapsible consumers can distinguish
+   * clearing a query from dismissing an already-empty field. */
+  onClear?: (previousValue: string) => void;
+  /** Keeps the toolbar clear affordance visible when the field is empty. */
+  showClearWhenEmpty?: boolean;
   shouldFocus?: boolean;
   id?: string;
   label?: string;
@@ -36,6 +43,9 @@ const Search = ({
   className,
   variant = "default",
   onChange,
+  onBlur,
+  onClear,
+  showClearWhenEmpty = false,
   initValue,
   shouldFocus,
   id = defaultId,
@@ -77,11 +87,14 @@ const Search = ({
   );
 
   const clearValue = useCallback(() => {
+    const previousValue = value ?? "";
     handleChange("");
+    onClear?.(previousValue);
     // Clearing from the button would otherwise drop focus and force the user
-    // back to the mouse to start a new query.
+    // back to the mouse to start a new query. Collapsible consumers unmount the
+    // field when an already-empty clear is a dismiss action.
     inputRef.current?.focus();
-  }, [handleChange]);
+  }, [handleChange, onClear, value]);
 
   const clearValueOnEscape = useCallback(
     (key: string) => {
@@ -102,7 +115,7 @@ const Search = ({
 
   // Input only renders its own clear button at the default height, so `toolbar`
   // supplies one to avoid a bordered field with no way out but the Escape key.
-  const showToolbarClear = isToolbar && Boolean(value);
+  const showToolbarClear = isToolbar && (showClearWhenEmpty || Boolean(value));
 
   return (
     <div className="w-full tablet:w-80">
@@ -127,6 +140,7 @@ const Search = ({
           inputRef={inputRef}
           initValue={value}
           onKeyDown={clearValueOnEscape}
+          onBlur={() => onBlur?.(value ?? "")}
           compact={bareInput}
           sanitize={sanitize}
         />

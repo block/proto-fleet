@@ -323,6 +323,7 @@ const ScopedMinerListBody = ({
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.
   const [prevSelectionScopeKey, setPrevSelectionScopeKey] = useState(selectionScopeKey);
@@ -402,9 +403,23 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
+        leadingHeaderControls={
+          <div
+            className={clsx("min-w-0 shrink-0", {
+              "phone:w-full": searchExpanded || Boolean(searchQuery),
+            })}
+          >
+            <MinerSearchInput
+              id="miner-list-search"
+              initialValue={searchQuery}
+              onQueryChange={onSearchQueryChange}
+              onExpandedChange={setSearchExpanded}
+              collapsible
+            />
+          </div>
+        }
         headerControls={
           <div className="flex min-w-0 items-center justify-end gap-2">
-            <MinerSearchInput id="miner-list-search" initialValue={searchQuery} onQueryChange={onSearchQueryChange} />
             <div className="hidden items-center gap-2 tablet:flex">
               <Button
                 ariaLabel="Manage columns"
