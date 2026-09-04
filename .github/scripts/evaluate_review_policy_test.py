@@ -321,14 +321,18 @@ class ReviewPolicyTest(unittest.TestCase):
         for command in (
             "bin/python -m pip config get global.index-url",
             "bin/npm config get registry",
-            'add_registry_env PIP_INDEX_URL "${pip_index_url}"',
-            'add_registry_env NPM_CONFIG_REGISTRY "${npm_registry}"',
-            '"${package_registry_env[@]}"',
+            'pip_index_url="https://pypi.org/simple"',
+            'npm_registry="https://registry.npmjs.org"',
+            "bin/python -m pip config get global.cert",
+            "bin/npm config get cafile",
+            '"${NODE_EXTRA_CA_CERTS:-}"',
+            '--env "PIP_CERT=${container_ca_bundle}"',
+            '--env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"',
+            '--container-options "--volume=${host_ca_bundle}:${container_ca_bundle}:ro"',
+            '"${package_args[@]}"',
         ):
             with self.subTest(command=command):
                 self.assertIn(command, justfile)
-        self.assertNotIn("PIP_INDEX_URL=https://", justfile)
-        self.assertNotIn("NPM_CONFIG_REGISTRY=https://", justfile)
 
     def test_codex_security_review_is_bounded_and_fail_closed(self):
         workflow = load_workflow("codex-security-review.yml")

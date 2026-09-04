@@ -237,7 +237,10 @@ without copying credentials or config files; absent an override, the package
 managers keep their public defaults. To protect an active development stack,
 the command refuses to start while the `server` Compose project or
 `fake-proto-rig` container name is in use, and it cleans up CI containers and
-volumes afterward.
+volumes afterward. If the host package managers use a custom CA bundle, local
+CI copies its public certificates into the temporary run directory and mounts
+them read-only into the action containers. Host-specific registry URLs,
+certificates, and credentials are not stored in the repository.
 
 `act` cannot reproduce Windows runners or GitHub-hosted policy checks. The
 Windows C# and PowerShell jobs, dependency review, security review, and final

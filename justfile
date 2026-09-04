@@ -36,21 +36,30 @@ ci base_branch="main" parallelism="4":
     exit 1
   fi
 
-  package_registry_env=()
-  add_registry_env() {
-    local variable="$1"
-    local value="$2"
-    [[ -n "${value}" ]] || return
-    if [[ ! "${value}" =~ ^https?://[^[:space:]@]+$ ]]; then
-      echo "${variable} must be an HTTP(S) URL without embedded credentials." >&2
+  pip_index_url="${PIP_INDEX_URL:-$(bin/python -m pip config get global.index-url 2>/dev/null || true)}"
+  npm_registry="${NPM_CONFIG_REGISTRY:-$(bin/npm config get registry 2>/dev/null || true)}"
+  [[ -n "${pip_index_url}" ]] || pip_index_url="https://pypi.org/simple"
+  [[ -n "${npm_registry}" && "${npm_registry}" != "null" && "${npm_registry}" != "undefined" ]] \
+    || npm_registry="https://registry.npmjs.org"
+  for registry in "PIP_INDEX_URL=${pip_index_url}" "NPM_CONFIG_REGISTRY=${npm_registry}"; do
+    if [[ ! "${registry#*=}" =~ ^https?://[^[:space:]@]+$ ]]; then
+      echo "${registry%%=*} must be an HTTP(S) URL without embedded credentials." >&2
       exit 1
     fi
-    package_registry_env+=(--env "${variable}=${value}")
-  }
-  pip_index_url="${PIP_INDEX_URL:-$(bin/python -m pip config get global.index-url 2>/dev/null || true)}"
-  npm_registry="${NPM_CONFIG_REGISTRY:-$(bin/npm config get registry)}"
-  add_registry_env PIP_INDEX_URL "${pip_index_url}"
-  add_registry_env NPM_CONFIG_REGISTRY "${npm_registry}"
+  done
+
+  host_ca_files=()
+  for host_ca in \
+    "${PIP_CERT:-$(bin/python -m pip config get global.cert 2>/dev/null || true)}" \
+    "${NODE_EXTRA_CA_CERTS:-}" \
+    "${NPM_CONFIG_CAFILE:-$(bin/npm config get cafile 2>/dev/null || true)}"; do
+    [[ -n "${host_ca}" && "${host_ca}" != "null" && "${host_ca}" != "undefined" ]] || continue
+    if [[ ! -f "${host_ca}" || ! -r "${host_ca}" || ! -s "${host_ca}" ]]; then
+      echo "Configured package CA file is not readable: ${host_ca}" >&2
+      exit 1
+    fi
+    host_ca_files+=("${host_ca}")
+  done
 
   base_ref="origin/${base_branch}"
   if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
@@ -70,6 +79,24 @@ ci base_branch="main" parallelism="4":
   run_dir="$(mktemp -d /tmp/proto-fleet-local-ci.XXXXXX)"
   snapshot_index="${run_dir}/index"
   workspace="${run_dir}/workspace"
+  package_args=(
+    --env "PIP_INDEX_URL=${pip_index_url}"
+    --env "NPM_CONFIG_REGISTRY=${npm_registry}"
+  )
+  if (( ${#host_ca_files[@]} )); then
+    host_ca_bundle="${run_dir}/host-package-ca.pem"
+    container_ca_bundle="/tmp/proto-fleet-host-package-ca.pem"
+    for host_ca in "${host_ca_files[@]}"; do
+      cat "${host_ca}"
+      printf '\n'
+    done > "${host_ca_bundle}"
+    chmod 0644 "${host_ca_bundle}"
+    package_args+=(
+      --env "PIP_CERT=${container_ca_bundle}"
+      --env "NODE_EXTRA_CA_CERTS=${container_ca_bundle}"
+      --container-options "--volume=${host_ca_bundle}:${container_ca_bundle}:ro"
+    )
+  fi
   cleanup() {
     docker rm -f fake-proto-rig >/dev/null 2>&1 || true
     docker compose -f server/docker-compose.yaml \
@@ -77,6 +104,7 @@ ci base_branch="main" parallelism="4":
     rm -rf "${run_dir}"
   }
   trap cleanup EXIT
+  trap 'exit 130' INT TERM
 
   # Represent committed, staged, unstaged, and untracked (non-ignored) files as
   # one PR head without changing the developer's branch or index.
@@ -105,7 +133,7 @@ ci base_branch="main" parallelism="4":
       --eventpath "${event_path}" \
       --secret GITHUB_TOKEN= \
       --env "HOME=${workspace}/.home" \
-      "${package_registry_env[@]}" \
+      "${package_args[@]}" \
       --artifact-server-path "${run_dir}/artifacts/${phase}" \
       --platform ubuntu-latest=catthehacker/ubuntu:act-latest \
       --container-architecture linux/amd64 \
