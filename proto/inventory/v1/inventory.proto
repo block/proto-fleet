@@ -138,7 +138,7 @@ message UpdateInventoryPartRequest {
     optional int32  reorder_point = 3 [(buf.validate.field).int32.gte = 0];
     optional string bin_location  = 4 [(buf.validate.field).string.max_len = 64];
 
-    AdjustmentReason reason = 5 [(buf.validate.field).enum.defined_only = true];
+    AdjustmentReason reason = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     string           notes  = 6 [(buf.validate.field).string.max_len = 4096];
 }
 
@@ -169,13 +169,16 @@ message ImportInventoryCsvRequest {
 }
 
 message CsvPreviewRow {
-    string name          = 1;
-    string type          = 2;
-    string site_name     = 3;
-    int32  on_hand       = 4;
-    int32  reorder_point = 5;
-    string bin_location  = 6;
-    string error         = 7;
+    int32  row_number    = 1;
+    string name          = 2;
+    string type          = 3;
+    string manufacturer  = 4;
+    string part_number   = 5;
+    string site_name     = 6;
+    int32  on_hand       = 7;
+    int32  reorder_point = 8;
+    string bin_location  = 9;
+    string error         = 10;
 }
 
 message ImportInventoryCsvResponse {

@@ -1,8 +1,16 @@
+CREATE TABLE repair_ticket_counter (
+    org_id       BIGINT PRIMARY KEY,
+    next_number  BIGINT NOT NULL CHECK (next_number > 0),
+
+    CONSTRAINT fk_repair_ticket_counter_org FOREIGN KEY (org_id)
+        REFERENCES organization(id) ON DELETE RESTRICT
+);
+
 CREATE TABLE repair_ticket (
     id                BIGSERIAL PRIMARY KEY,
     org_id            BIGINT NOT NULL,
     ticket_number     VARCHAR(16) NOT NULL,
-    category          SMALLINT NOT NULL DEFAULT 0,
+    category          SMALLINT NOT NULL,
     status            SMALLINT NOT NULL DEFAULT 1,
     urgent            BOOLEAN NOT NULL DEFAULT FALSE,
     component         VARCHAR(255) NOT NULL,
@@ -31,11 +39,17 @@ CREATE TABLE repair_ticket (
 
     CONSTRAINT fk_repair_ticket_org FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_repair_ticket_assignee FOREIGN KEY (assignee_user_id)
+        REFERENCES "user"(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_repair_ticket_site FOREIGN KEY (site_id, org_id)
+        REFERENCES site(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_repair_ticket_building FOREIGN KEY (building_id, org_id)
+        REFERENCES building(id, org_id) ON DELETE RESTRICT,
     CONSTRAINT uq_repair_ticket_id_org UNIQUE (id, org_id),
 
-    CONSTRAINT ck_repair_ticket_category CHECK (category BETWEEN 0 AND 2),
-    CONSTRAINT ck_repair_ticket_status CHECK (status BETWEEN 0 AND 5),
-    CONSTRAINT ck_repair_ticket_resolution CHECK (resolution BETWEEN 0 AND 4),
+    CONSTRAINT ck_repair_ticket_category CHECK (category BETWEEN 1 AND 2),
+    CONSTRAINT ck_repair_ticket_status CHECK (status BETWEEN 1 AND 5),
+    CONSTRAINT ck_repair_ticket_resolution CHECK (resolution BETWEEN 0 AND 5),
     CONSTRAINT ck_repair_ticket_repair_location CHECK (repair_location BETWEEN 0 AND 2),
     CONSTRAINT ck_repair_ticket_warranty CHECK (warranty_status BETWEEN 0 AND 3)
 );

@@ -16,10 +16,13 @@ CREATE TABLE inventory_part (
 
     CONSTRAINT fk_inventory_part_org FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_inventory_part_site FOREIGN KEY (site_id, org_id)
+        REFERENCES site(id, org_id) ON DELETE RESTRICT,
     CONSTRAINT uq_inventory_part_id_org UNIQUE (id, org_id),
 
     CONSTRAINT ck_inventory_on_hand CHECK (on_hand >= 0),
     CONSTRAINT ck_inventory_allocated CHECK (allocated >= 0),
+    CONSTRAINT ck_inventory_allocation_within_stock CHECK (allocated <= on_hand),
     CONSTRAINT ck_inventory_reorder CHECK (reorder_point >= 0)
 );
 

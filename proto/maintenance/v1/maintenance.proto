@@ -53,6 +53,11 @@ service MaintenanceService {
     // tab with optional component and assignee filters.
     rpc ListCompletedTickets(ListCompletedTicketsRequest) returns (ListCompletedTicketsResponse);
 
+    // ListAssignees returns active users who belong to the caller's
+    // organization. It is intentionally maintenance-scoped so field
+    // technicians do not need the Super-Admin-only user-management RPC.
+    rpc ListAssignees(ListAssigneesRequest) returns (ListAssigneesResponse);
+
     // GetTicketStats returns aggregate counts by status for the queue
     // stats row and kanban column headers.
     rpc GetTicketStats(GetTicketStatsRequest) returns (GetTicketStatsResponse);
@@ -78,11 +83,12 @@ enum TicketStatus {
 }
 
 enum TicketResolution {
-    TICKET_RESOLUTION_UNSPECIFIED  = 0;
-    TICKET_RESOLUTION_REPAIRED     = 1;
-    TICKET_RESOLUTION_REPLACED     = 2;
-    TICKET_RESOLUTION_DEFERRED     = 3;
-    TICKET_RESOLUTION_UNREPAIRABLE = 4;
+    TICKET_RESOLUTION_UNSPECIFIED      = 0;
+    TICKET_RESOLUTION_REPAIRED         = 1;
+    TICKET_RESOLUTION_REPLACED         = 2;
+    TICKET_RESOLUTION_DEFERRED         = 3;
+    TICKET_RESOLUTION_UNREPAIRABLE     = 4;
+    TICKET_RESOLUTION_NO_ACTION_NEEDED = 5;
 }
 
 enum RepairLocation {
@@ -162,11 +168,20 @@ message RepairTicket {
     optional google.protobuf.Timestamp completed_at = 26;
     google.protobuf.Timestamp          created_at   = 27;
     google.protobuf.Timestamp          updated_at   = 28;
+
+    // Hydrated display labels. Clients do not resolve tenant-scoped IDs.
+    string site_name     = 29;
+    string building_name = 30;
 }
 
 message PartUsage {
-    string part_name = 1 [(buf.validate.field).string.min_len = 1];
-    int32  quantity  = 2 [(buf.validate.field).int32.gt = 0];
+    int64  inventory_part_id = 1 [(buf.validate.field).int64.gt = 0];
+    string part_name         = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    int32  quantity          = 3 [(buf.validate.field).int32.gt = 0];
+}
+
+message TicketPartsSelection {
+    repeated PartUsage parts = 1;
 }
 
 message TicketComment {
@@ -176,6 +191,15 @@ message TicketComment {
     string user_name = 4;
     string text      = 5;
     google.protobuf.Timestamp created_at = 6;
+    // Derived by the server from the authenticated caller. Never accepted
+    // on a mutation request.
+    bool authored_by_caller = 7;
+}
+
+message Assignee {
+    int64  user_id   = 1;
+    string username  = 2;
+    string role_name = 3;
 }
 
 // RepairTicketDetail pairs a ticket with its comments and parts for
@@ -211,6 +235,7 @@ message TicketFilter {
     bool                    urgent_only  = 8;
     string                  search_query = 9 [(buf.validate.field).string.max_len = 256];
     bool                    exclude_completed = 10;
+    bool                    overdue_only      = 11;
 }
 
 message ListRepairTicketsRequest {
@@ -272,17 +297,17 @@ message UpdateRepairTicketRequest {
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Mutable fields — only set fields are applied.
-    optional TicketStatus    status           = 2;
+    optional TicketStatus    status           = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     optional bool            urgent           = 3;
     optional int64           assignee_user_id = 4;
     optional string          component        = 5  [(buf.validate.field).string.max_len = 255];
     optional string          diagnosis        = 6  [(buf.validate.field).string.max_len = 4096];
-    optional WarrantyStatus  warranty_status  = 7;
+    optional WarrantyStatus  warranty_status  = 7 [(buf.validate.field).enum.defined_only = true];
 
     // Completion fields — set when transitioning to COMPLETED.
-    optional TicketResolution resolution      = 8;
-    optional RepairLocation   repair_location = 9;
-    repeated PartUsage        parts_used      = 10;
+    optional TicketResolution   resolution      = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    optional RepairLocation     repair_location = 9 [(buf.validate.field).enum.defined_only = true];
+    optional TicketPartsSelection parts_selection = 10;
     optional string           notes           = 11 [(buf.validate.field).string.max_len = 4096];
 
     // RMA fields — set when transitioning to SENT_TO_VENDOR.
@@ -313,8 +338,8 @@ message BulkUpdateRepairTicketsRequest {
 
     // Exactly one mutation must be set.
     oneof mutation {
-        int64           assign_to_user_id = 2;
-        TicketStatus    set_status        = 3;
+        int64           assign_to_user_id = 2 [(buf.validate.field).int64.gt = 0];
+        TicketStatus    set_status        = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
         bool            mark_urgent       = 4;
         BulkCloseParams bulk_close        = 5;
     }
@@ -326,8 +351,9 @@ message BulkUpdateRepairTicketsRequest {
 message BulkCloseParams {
     TicketResolution resolution      = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     RepairLocation   repair_location = 2 [(buf.validate.field).enum.defined_only = true];
-    repeated PartUsage parts_used    = 3;
-    string             notes         = 4 [(buf.validate.field).string.max_len = 4096];
+    reserved 3;
+    reserved "parts_used";
+    string notes = 4 [(buf.validate.field).string.max_len = 4096];
 }
 
 message BulkUpdateRepairTicketsResponse {
@@ -380,9 +406,19 @@ message ListCompletedTicketsResponse {
     int32                       total_count     = 3;
 }
 
+// ListAssignees
+
+message ListAssigneesRequest {}
+
+message ListAssigneesResponse {
+    repeated Assignee assignees = 1;
+}
+
 // GetTicketStats
 
-message GetTicketStatsRequest {}
+message GetTicketStatsRequest {
+    TicketFilter filter = 1;
+}
 
 message GetTicketStatsResponse {
     int32 open_count        = 1;

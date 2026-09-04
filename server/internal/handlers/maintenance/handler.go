@@ -17,6 +17,7 @@ import (
 
 // Handler implements the MaintenanceService Connect-RPC surface.
 type Handler struct {
+	maintenancev1connect.UnimplementedMaintenanceServiceHandler
 	service *domain.Service
 }
 
@@ -95,10 +96,15 @@ func (h *Handler) UpdateRepairTicket(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.PartsUsed != nil {
-		parts := make([]models.PartUsage, len(req.Msg.GetPartsUsed()))
-		for i, part := range req.Msg.GetPartsUsed() {
-			parts[i] = models.PartUsage{PartName: part.GetPartName(), Quantity: part.GetQuantity()}
+	if req.Msg.PartsSelection != nil {
+		selectedParts := req.Msg.GetPartsSelection().GetParts()
+		parts := make([]models.PartUsage, len(selectedParts))
+		for i, part := range selectedParts {
+			parts[i] = models.PartUsage{
+				InventoryPartID: part.GetInventoryPartId(),
+				PartName:        part.GetPartName(),
+				Quantity:        part.GetQuantity(),
+			}
 		}
 		if err := h.service.SetTicketParts(ctx, info.OrganizationID, req.Msg.GetId(), parts); err != nil {
 			return nil, err

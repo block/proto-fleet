@@ -30,11 +30,12 @@ const (
 type TicketResolution int16
 
 const (
-	TicketResolutionUnspecified  TicketResolution = 0
-	TicketResolutionRepaired     TicketResolution = 1
-	TicketResolutionReplaced     TicketResolution = 2
-	TicketResolutionDeferred     TicketResolution = 3
-	TicketResolutionUnrepairable TicketResolution = 4
+	TicketResolutionUnspecified    TicketResolution = 0
+	TicketResolutionRepaired       TicketResolution = 1
+	TicketResolutionReplaced       TicketResolution = 2
+	TicketResolutionDeferred       TicketResolution = 3
+	TicketResolutionUnrepairable   TicketResolution = 4
+	TicketResolutionNoActionNeeded TicketResolution = 5
 )
 
 // RepairLocation mirrors repair_ticket.repair_location.
@@ -78,7 +79,9 @@ type RepairTicket struct {
 	RMATracking     *string
 	RMAEta          *time.Time
 	SiteID          *int64
+	SiteName        string
 	BuildingID      *int64
+	BuildingName    string
 	Zone            *string
 	RackID          *int64
 	RackLabel       *string
@@ -111,8 +114,9 @@ type TicketComment struct {
 
 // PartUsage represents a single part consumed during a repair.
 type PartUsage struct {
-	PartName string
-	Quantity int32
+	InventoryPartID int64
+	PartName        string
+	Quantity        int32
 }
 
 // TicketDetail is the full read model returned by GetRepairTicket,
@@ -190,6 +194,7 @@ type ListFilter struct {
 	AssigneeUserID   *int64
 	UrgentOnly       bool
 	ExcludeCompleted bool
+	OverdueOnly      bool
 	SearchQuery      string
 	CursorID         *int64
 	Limit            int32

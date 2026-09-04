@@ -1270,12 +1270,19 @@ type RepairTicketComment struct {
 	DeletedAt sql.NullTime
 }
 
+type RepairTicketCounter struct {
+	OrgID      int64
+	NextNumber int64
+}
+
 type RepairTicketPart struct {
-	ID       int64
-	OrgID    int64
-	TicketID int64
-	PartName string
-	Quantity int32
+	ID              int64
+	OrgID           int64
+	TicketID        int64
+	InventoryPartID int64
+	PartName        string
+	Quantity        int32
+	ConsumedAt      sql.NullTime
 }
 
 type Role struct {

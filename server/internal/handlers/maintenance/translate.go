@@ -236,7 +236,7 @@ func checkedEnumValue(value, minValue, maxValue int32, field string) (int16, err
 }
 
 func toBulkCloseParams(req *pb.BulkCloseParams, orgID int64, ticketIDs []int64) (models.BulkCloseParams, error) {
-	resolution, err := checkedEnumValue(int32(req.GetResolution()), 1, 4, "bulk_close.resolution")
+	resolution, err := checkedEnumValue(int32(req.GetResolution()), 1, 5, "bulk_close.resolution")
 	if err != nil {
 		return models.BulkCloseParams{}, err
 	}
@@ -253,15 +253,6 @@ func toBulkCloseParams(req *pb.BulkCloseParams, orgID int64, ticketIDs []int64) 
 	if req.GetNotes() != "" {
 		v := req.GetNotes()
 		params.Notes = &v
-	}
-	if len(req.GetPartsUsed()) > 0 {
-		params.PartsUsed = make([]models.PartUsage, len(req.GetPartsUsed()))
-		for i, p := range req.GetPartsUsed() {
-			params.PartsUsed[i] = models.PartUsage{
-				PartName: p.GetPartName(),
-				Quantity: p.GetQuantity(),
-			}
-		}
 	}
 	return params, nil
 }
@@ -285,6 +276,8 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		Resolution:     pb.TicketResolution(t.Resolution),
 		RepairLocation: pb.RepairLocation(t.RepairLocation),
 		DailyImpactUsd: t.DailyImpactUsd,
+		SiteName:       t.SiteName,
+		BuildingName:   t.BuildingName,
 		CreatedAt:      timestamppb.New(t.CreatedAt),
 		UpdatedAt:      timestamppb.New(t.UpdatedAt),
 	}
@@ -380,8 +373,9 @@ func toProtoPartUsage(p *models.PartUsage) *pb.PartUsage {
 		return nil
 	}
 	return &pb.PartUsage{
-		PartName: p.PartName,
-		Quantity: p.Quantity,
+		InventoryPartId: p.InventoryPartID,
+		PartName:        p.PartName,
+		Quantity:        p.Quantity,
 	}
 }
 

@@ -38,7 +38,7 @@ func (q *Queries) InsertTicketPart(ctx context.Context, arg InsertTicketPartPara
 }
 
 const listTicketParts = `-- name: ListTicketParts :many
-SELECT id, org_id, ticket_id, part_name, quantity
+SELECT id, org_id, ticket_id, inventory_part_id, part_name, quantity, consumed_at
 FROM repair_ticket_part
 WHERE ticket_id = $1
   AND org_id = $2
@@ -62,8 +62,10 @@ func (q *Queries) ListTicketParts(ctx context.Context, arg ListTicketPartsParams
 			&i.ID,
 			&i.OrgID,
 			&i.TicketID,
+			&i.InventoryPartID,
 			&i.PartName,
 			&i.Quantity,
+			&i.ConsumedAt,
 		); err != nil {
 			return nil, err
 		}

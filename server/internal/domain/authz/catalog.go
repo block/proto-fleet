@@ -189,8 +189,8 @@ var catalog = []CatalogEntry{
 
 	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
 
-	{PermMaintenanceRead, "View repair tickets, the maintenance queue, and repair history.", ResourceMaintenance},
-	{PermMaintenanceManage, "Create, assign, update, and close repair tickets.", ResourceMaintenance},
+	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
+	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

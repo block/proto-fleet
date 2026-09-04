@@ -11,7 +11,9 @@ CREATE TABLE repair_ticket_comment (
     CONSTRAINT fk_ticket_comment_org FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
     CONSTRAINT fk_ticket_comment_ticket FOREIGN KEY (ticket_id, org_id)
-        REFERENCES repair_ticket(id, org_id) ON DELETE CASCADE
+        REFERENCES repair_ticket(id, org_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ticket_comment_user FOREIGN KEY (user_id)
+        REFERENCES "user"(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_ticket_comment_ticket

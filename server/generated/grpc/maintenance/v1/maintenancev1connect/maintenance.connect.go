@@ -64,6 +64,9 @@ const (
 	// MaintenanceServiceListCompletedTicketsProcedure is the fully-qualified name of the
 	// MaintenanceService's ListCompletedTickets RPC.
 	MaintenanceServiceListCompletedTicketsProcedure = "/maintenance.v1.MaintenanceService/ListCompletedTickets"
+	// MaintenanceServiceListAssigneesProcedure is the fully-qualified name of the MaintenanceService's
+	// ListAssignees RPC.
+	MaintenanceServiceListAssigneesProcedure = "/maintenance.v1.MaintenanceService/ListAssignees"
 	// MaintenanceServiceGetTicketStatsProcedure is the fully-qualified name of the MaintenanceService's
 	// GetTicketStats RPC.
 	MaintenanceServiceGetTicketStatsProcedure = "/maintenance.v1.MaintenanceService/GetTicketStats"
@@ -104,6 +107,10 @@ type MaintenanceServiceClient interface {
 	// ListCompletedTickets returns completed tickets for the history
 	// tab with optional component and assignee filters.
 	ListCompletedTickets(context.Context, *connect.Request[v1.ListCompletedTicketsRequest]) (*connect.Response[v1.ListCompletedTicketsResponse], error)
+	// ListAssignees returns active users who belong to the caller's
+	// organization. It is intentionally maintenance-scoped so field
+	// technicians do not need the Super-Admin-only user-management RPC.
+	ListAssignees(context.Context, *connect.Request[v1.ListAssigneesRequest]) (*connect.Response[v1.ListAssigneesResponse], error)
 	// GetTicketStats returns aggregate counts by status for the queue
 	// stats row and kanban column headers.
 	GetTicketStats(context.Context, *connect.Request[v1.GetTicketStatsRequest]) (*connect.Response[v1.GetTicketStatsResponse], error)
@@ -169,6 +176,11 @@ func NewMaintenanceServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+MaintenanceServiceListCompletedTicketsProcedure,
 			opts...,
 		),
+		listAssignees: connect.NewClient[v1.ListAssigneesRequest, v1.ListAssigneesResponse](
+			httpClient,
+			baseURL+MaintenanceServiceListAssigneesProcedure,
+			opts...,
+		),
 		getTicketStats: connect.NewClient[v1.GetTicketStatsRequest, v1.GetTicketStatsResponse](
 			httpClient,
 			baseURL+MaintenanceServiceGetTicketStatsProcedure,
@@ -189,6 +201,7 @@ type maintenanceServiceClient struct {
 	createTicketComment     *connect.Client[v1.CreateTicketCommentRequest, v1.CreateTicketCommentResponse]
 	deleteTicketComment     *connect.Client[v1.DeleteTicketCommentRequest, v1.DeleteTicketCommentResponse]
 	listCompletedTickets    *connect.Client[v1.ListCompletedTicketsRequest, v1.ListCompletedTicketsResponse]
+	listAssignees           *connect.Client[v1.ListAssigneesRequest, v1.ListAssigneesResponse]
 	getTicketStats          *connect.Client[v1.GetTicketStatsRequest, v1.GetTicketStatsResponse]
 }
 
@@ -242,6 +255,11 @@ func (c *maintenanceServiceClient) ListCompletedTickets(ctx context.Context, req
 	return c.listCompletedTickets.CallUnary(ctx, req)
 }
 
+// ListAssignees calls maintenance.v1.MaintenanceService.ListAssignees.
+func (c *maintenanceServiceClient) ListAssignees(ctx context.Context, req *connect.Request[v1.ListAssigneesRequest]) (*connect.Response[v1.ListAssigneesResponse], error) {
+	return c.listAssignees.CallUnary(ctx, req)
+}
+
 // GetTicketStats calls maintenance.v1.MaintenanceService.GetTicketStats.
 func (c *maintenanceServiceClient) GetTicketStats(ctx context.Context, req *connect.Request[v1.GetTicketStatsRequest]) (*connect.Response[v1.GetTicketStatsResponse], error) {
 	return c.getTicketStats.CallUnary(ctx, req)
@@ -282,6 +300,10 @@ type MaintenanceServiceHandler interface {
 	// ListCompletedTickets returns completed tickets for the history
 	// tab with optional component and assignee filters.
 	ListCompletedTickets(context.Context, *connect.Request[v1.ListCompletedTicketsRequest]) (*connect.Response[v1.ListCompletedTicketsResponse], error)
+	// ListAssignees returns active users who belong to the caller's
+	// organization. It is intentionally maintenance-scoped so field
+	// technicians do not need the Super-Admin-only user-management RPC.
+	ListAssignees(context.Context, *connect.Request[v1.ListAssigneesRequest]) (*connect.Response[v1.ListAssigneesResponse], error)
 	// GetTicketStats returns aggregate counts by status for the queue
 	// stats row and kanban column headers.
 	GetTicketStats(context.Context, *connect.Request[v1.GetTicketStatsRequest]) (*connect.Response[v1.GetTicketStatsResponse], error)
@@ -343,6 +365,11 @@ func NewMaintenanceServiceHandler(svc MaintenanceServiceHandler, opts ...connect
 		svc.ListCompletedTickets,
 		opts...,
 	)
+	maintenanceServiceListAssigneesHandler := connect.NewUnaryHandler(
+		MaintenanceServiceListAssigneesProcedure,
+		svc.ListAssignees,
+		opts...,
+	)
 	maintenanceServiceGetTicketStatsHandler := connect.NewUnaryHandler(
 		MaintenanceServiceGetTicketStatsProcedure,
 		svc.GetTicketStats,
@@ -370,6 +397,8 @@ func NewMaintenanceServiceHandler(svc MaintenanceServiceHandler, opts ...connect
 			maintenanceServiceDeleteTicketCommentHandler.ServeHTTP(w, r)
 		case MaintenanceServiceListCompletedTicketsProcedure:
 			maintenanceServiceListCompletedTicketsHandler.ServeHTTP(w, r)
+		case MaintenanceServiceListAssigneesProcedure:
+			maintenanceServiceListAssigneesHandler.ServeHTTP(w, r)
 		case MaintenanceServiceGetTicketStatsProcedure:
 			maintenanceServiceGetTicketStatsHandler.ServeHTTP(w, r)
 		default:
@@ -419,6 +448,10 @@ func (UnimplementedMaintenanceServiceHandler) DeleteTicketComment(context.Contex
 
 func (UnimplementedMaintenanceServiceHandler) ListCompletedTickets(context.Context, *connect.Request[v1.ListCompletedTicketsRequest]) (*connect.Response[v1.ListCompletedTicketsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.ListCompletedTickets is not implemented"))
+}
+
+func (UnimplementedMaintenanceServiceHandler) ListAssignees(context.Context, *connect.Request[v1.ListAssigneesRequest]) (*connect.Response[v1.ListAssigneesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.ListAssignees is not implemented"))
 }
 
 func (UnimplementedMaintenanceServiceHandler) GetTicketStats(context.Context, *connect.Request[v1.GetTicketStatsRequest]) (*connect.Response[v1.GetTicketStatsResponse], error) {
