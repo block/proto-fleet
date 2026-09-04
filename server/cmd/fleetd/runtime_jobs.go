@@ -210,6 +210,7 @@ type runtimeJobLifecycles struct {
 	ipScanner                 runtimejobs.Lifecycle
 	commandExecution          runtimejobs.Lifecycle
 	scheduleProcessor         runtimejobs.Lifecycle
+	rolloutEnforcement        runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
 	curtailmentRigConfig      runtimejobs.Lifecycle
@@ -246,6 +247,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "ip-scanner", lifecycle: lifecycles.ipScanner},
 		{name: "command-execution", lifecycle: commandExecution},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
+		{name: "rollout-enforcement", lifecycle: lifecycles.rolloutEnforcement},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
 		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
