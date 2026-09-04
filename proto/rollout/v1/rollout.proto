@@ -26,17 +26,23 @@ import "google/protobuf/timestamp.proto";
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
 service RolloutService {
-    // Lists scope-free release channel summaries with member counts grouped
-    // by manufacturer/model, current firmware assignments, and active rollout
-    // ids, using bounded cursor pagination. Use GetReleaseChannel to retrieve
-    // a scope.
+    // Lists scope-free release channel summaries with aggregate miner and
+    // manufacturer/model group counts, using bounded cursor pagination. Use
+    // GetReleaseChannel to retrieve a scope.
     rpc ListReleaseChannels(ListReleaseChannelsRequest) returns (ListReleaseChannelsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
-    // Returns one complete release channel, including its scope and member
-    // counts grouped by manufacturer/model.
+    // Returns one release channel, including its scope and aggregate miner and
+    // manufacturer/model group counts.
     rpc GetReleaseChannel(GetReleaseChannelRequest) returns (GetReleaseChannelResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists a channel's manufacturer/model groups sorted by manufacturer then
+    // model, including firmware assignments and active rollout ids, with
+    // bounded cursor pagination.
+    rpc ListReleaseChannelModelGroups(ListReleaseChannelModelGroupsRequest) returns (ListReleaseChannelModelGroupsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
@@ -206,43 +212,32 @@ message RolloutBehavior {
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
 }
 
-// A complete release channel, including its scope and member counts grouped
-// by manufacturer/model.
+// A release channel with its scope and aggregate member counts.
 message ReleaseChannel {
     int64 id = 1;
     string name = 2;
     string description = 3;
     ReleaseChannelScope scope = 4;
     RolloutBehavior behavior = 5;
-    // One group per distinct manufacturer/model pair among members, plus one
-    // group per pair that has a firmware assignment but currently no members.
-    repeated ReleaseChannelModelGroup model_groups = 6;
+    // Total manufacturer/model groups, including assigned pairs with no
+    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    int32 model_group_count = 6;
     int32 miner_count = 7;
     google.protobuf.Timestamp created_at = 8;
     google.protobuf.Timestamp updated_at = 9;
 }
 
-// Scope-free release channel details for bounded list responses.
+// Scope-free release channel details with aggregate member counts.
 message ReleaseChannelSummary {
-    option (buf.validate.message).cel = {
-        id: "model_group_count_covers_returned_groups"
-        message: "model_group_count must be at least the number of model_groups"
-        expression: "this.model_group_count >= this.model_groups.size()"
-    };
-
     int64 id = 1;
     string name = 2;
     string description = 3;
     RolloutBehavior behavior = 4;
-    // The first 100 manufacturer/model groups sorted by manufacturer then
-    // model. Includes distinct pairs among members, plus pairs that have a
-    // firmware assignment but currently no members.
-    repeated ReleaseChannelModelGroup model_groups = 5 [(buf.validate.field).repeated.max_items = 100];
     int32 miner_count = 6;
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
-    // Total manufacturer/model groups before model_groups is truncated.
-    // A value greater than the length of model_groups means truncation.
+    // Total manufacturer/model groups, including assigned pairs with no
+    // current members. Retrieve details with ListReleaseChannelModelGroups.
     int32 model_group_count = 9;
 }
 
@@ -543,6 +538,20 @@ message GetReleaseChannelRequest {
 
 message GetReleaseChannelResponse {
     ReleaseChannel channel = 1;
+}
+
+message ListReleaseChannelModelGroupsRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Maximum model groups to return. 0 uses the server default of 100.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    // Cursor returned by a previous call; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListReleaseChannelModelGroupsResponse {
+    repeated ReleaseChannelModelGroup model_groups = 1 [(buf.validate.field).repeated.max_items = 100];
+    // Cursor for the next page; empty when there are no more model groups.
+    string cursor = 2;
 }
 
 message ListReleaseChannelMinersRequest {

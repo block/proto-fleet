@@ -334,83 +334,6 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 	}
 }
 
-func TestReleaseChannelSummaryModelGroupsValidation(t *testing.T) {
-	t.Parallel()
-
-	boundedGroups := make([]*rolloutv1.ReleaseChannelModelGroup, 100)
-	for index := range boundedGroups {
-		boundedGroups[index] = &rolloutv1.ReleaseChannelModelGroup{
-			Manufacturer: "Bitmain",
-			Model:        fmt.Sprintf("model-%03d", index),
-		}
-	}
-	oversizedGroups := append(
-		append([]*rolloutv1.ReleaseChannelModelGroup{}, boundedGroups...),
-		&rolloutv1.ReleaseChannelModelGroup{Manufacturer: "MicroBT", Model: "M60"},
-	)
-
-	tests := []struct {
-		name    string
-		summary *rolloutv1.ReleaseChannelSummary
-		wantErr bool
-	}{
-		{
-			name: "truncated summary is valid",
-			summary: &rolloutv1.ReleaseChannelSummary{
-				ModelGroups:     boundedGroups,
-				ModelGroupCount: 101,
-			},
-		},
-		{
-			name: "101 groups are rejected",
-			summary: &rolloutv1.ReleaseChannelSummary{
-				ModelGroups:     oversizedGroups,
-				ModelGroupCount: 101,
-			},
-			wantErr: true,
-		},
-		{
-			name: "count below returned list length is rejected",
-			summary: &rolloutv1.ReleaseChannelSummary{
-				ModelGroups:     boundedGroups[:2],
-				ModelGroupCount: 1,
-			},
-			wantErr: true,
-		},
-		{
-			name: "count equal to returned list length is valid",
-			summary: &rolloutv1.ReleaseChannelSummary{
-				ModelGroups:     boundedGroups[:2],
-				ModelGroupCount: 2,
-			},
-		},
-		{
-			name: "oversized group identity is rejected",
-			summary: &rolloutv1.ReleaseChannelSummary{
-				ModelGroups: []*rolloutv1.ReleaseChannelModelGroup{{
-					Manufacturer: strings.Repeat("m", 256),
-					Model:        "S21",
-				}},
-				ModelGroupCount: 1,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			err := protovalidate.Validate(test.summary)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
 func TestRolloutPaginationValidation(t *testing.T) {
 	t.Parallel()
 
@@ -459,6 +382,24 @@ func TestRolloutPaginationValidation(t *testing.T) {
 			request: &rolloutv1.ListReleaseChannelMinersRequest{ChannelId: 1, PageSize: 1001},
 			wantErr: true,
 		},
+		{
+			name:    "channel model groups accept default page size",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1},
+		},
+		{
+			name:    "channel model groups accept maximum page",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1, PageSize: 100},
+		},
+		{
+			name:    "channel model groups reject negative page",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1, PageSize: -1},
+			wantErr: true,
+		},
+		{
+			name:    "channel model groups reject oversized page",
+			request: &rolloutv1.ListReleaseChannelModelGroupsRequest{ChannelId: 1, PageSize: 101},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -475,6 +416,22 @@ func TestRolloutPaginationValidation(t *testing.T) {
 	}
 }
 
+func TestListReleaseChannelModelGroupsResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	modelGroups := make([]*rolloutv1.ReleaseChannelModelGroup, 101)
+	for index := range modelGroups {
+		modelGroups[index] = &rolloutv1.ReleaseChannelModelGroup{}
+	}
+
+	require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+		ModelGroups: modelGroups[:100],
+	}))
+	require.Error(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+		ModelGroups: modelGroups,
+	}))
+}
+
 func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	t.Parallel()
 
@@ -482,12 +439,19 @@ func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	require.Nil(t, rolloutFields.ByName("devices"))
 	require.NotNil(t, rolloutFields.ByName("device_count"))
 
-	modelGroupFields := (&rolloutv1.ReleaseChannelModelGroup{}).ProtoReflect().Descriptor().Fields()
+	modelGroup := (&rolloutv1.ReleaseChannelModelGroup{}).ProtoReflect().Descriptor()
+	modelGroupFields := modelGroup.Fields()
 	require.Nil(t, modelGroupFields.ByName("miners"))
 	require.NotNil(t, modelGroupFields.ByName("miner_count"))
 
 	channelSummary := (&rolloutv1.ReleaseChannelSummary{}).ProtoReflect().Descriptor()
 	require.Nil(t, channelSummary.Fields().ByName("scope"))
+	require.Nil(t, channelSummary.Fields().ByName("model_groups"))
+	require.NotNil(t, channelSummary.Fields().ByName("model_group_count"))
+
+	channel := (&rolloutv1.ReleaseChannel{}).ProtoReflect().Descriptor()
+	require.Nil(t, channel.Fields().ByName("model_groups"))
+	require.NotNil(t, channel.Fields().ByName("model_group_count"))
 
 	methods := rolloutv1.File_rollout_v1_rollout_proto.
 		Services().
@@ -498,6 +462,15 @@ func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	channelsField := listReleaseChannels.Output().Fields().ByName("channels")
 	require.NotNil(t, channelsField)
 	require.Equal(t, channelSummary.FullName(), channelsField.Message().FullName())
+
+	listReleaseChannelModelGroups := methods.ByName("ListReleaseChannelModelGroups")
+	require.NotNil(t, listReleaseChannelModelGroups)
+	modelGroupsField := listReleaseChannelModelGroups.Output().Fields().ByName("model_groups")
+	require.NotNil(t, modelGroupsField)
+	require.True(t, modelGroupsField.IsList())
+	require.Equal(t, modelGroup.FullName(), modelGroupsField.Message().FullName())
+	require.NotNil(t, listReleaseChannelModelGroups.Output().Fields().ByName("cursor"))
+
 	require.NotNil(t, methods.ByName("ListReleaseChannelMiners"))
 	require.NotNil(t, methods.ByName("ListRolloutDevices"))
 }
