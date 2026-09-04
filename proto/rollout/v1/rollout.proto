@@ -224,6 +224,12 @@ message ReleaseChannelModelGroup {
     int32 miner_count = 4;
     // Id of the active rollout for this model, 0 if none.
     int64 active_rollout_id = 5;
+    // Members currently reporting the assigned firmware version; 0 when no
+    // firmware is assigned.
+    int32 on_target_count = 6;
+    // Distinct firmware versions members currently report, sorted. Lets a
+    // client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing miners.
+    repeated string reported_versions = 7;
 }
 
 // A miner resolved into a release channel.
@@ -334,6 +340,16 @@ message MetricComparison {
     optional double current = 2;
 }
 
+// Per-phase miner counts for a rollout or for one of its batches.
+message RolloutDeviceCounts {
+    int32 queued = 1;
+    int32 in_progress = 2;
+    int32 retrying = 3;
+    int32 done = 4;
+    int32 failed = 5;
+    int32 excluded = 6;
+}
+
 // Post-update evidence for the miners under review: the batch at the gate
 // (or in flight), or every target in the rest stage. Compared against each
 // miner's own baseline.
@@ -405,6 +421,11 @@ message Rollout {
     // Evidence for the miners currently under review; unset for rollouts
     // that are not active.
     RolloutEvidence evidence = 21;
+    // Per-phase counts over every snapshotted miner; sums to device_count.
+    RolloutDeviceCounts device_counts = 22;
+    // Per-phase counts over the batch in flight or under review. All zero
+    // in the rest stage and for all-at-once rollouts.
+    RolloutDeviceCounts current_batch_counts = 23;
 }
 
 // Progress of one miner within a rollout.
