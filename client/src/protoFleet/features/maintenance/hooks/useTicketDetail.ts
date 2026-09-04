@@ -16,6 +16,7 @@ export const useTicketDetail = (ticketId: string | null) => {
       setLoading(false);
       return;
     }
+    setData((currentData) => (currentData?.id === ticketId ? currentData : null));
     controller.current?.abort();
     const current = new AbortController();
     controller.current = current;
@@ -91,5 +92,13 @@ export const useTicketDetail = (ticketId: string | null) => {
     },
     [deleteComment, refresh],
   );
-  return { data, loading, error, refresh, update, addComment, removeComment };
+  return {
+    data: data?.id === ticketId ? data : null,
+    loading,
+    error,
+    refresh,
+    update,
+    addComment,
+    removeComment,
+  };
 };

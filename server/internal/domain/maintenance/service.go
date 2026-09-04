@@ -430,7 +430,9 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 		return 0, err
 	}
 	var affected int64
+	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		attemptSiteIDs := make([]*int64, 0, len(ids))
 		for _, id := range ids {
 			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
 			if err != nil {
@@ -439,12 +441,14 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 			if ticket.Status == models.TicketStatusCompleted || !statusTransitionAllowed(ticket.Status, newStatus) {
 				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot transition to status %d", id, newStatus)
 			}
+			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 		}
 		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, ids, int16(newStatus))
 		if err != nil {
 			return err
 		}
 		affected = rows
+		scope = activitymodels.ResolveSiteScope(attemptSiteIDs)
 		return nil
 	})
 	if err != nil {
@@ -466,6 +470,7 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 				"affected":   affected,
 			},
 		}
+		event.ApplySiteScope(scope)
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
@@ -482,13 +487,15 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 	}
 
 	var affected int64
+	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if assigneeUserID != nil {
 			if _, err := s.refs.ResolveAssignee(txCtx, orgID, *assigneeUserID); err != nil {
 				return err
 			}
 		}
-		if err := s.requireMutableTickets(txCtx, orgID, ids); err != nil {
+		siteIDs, err := s.requireMutableTickets(txCtx, orgID, ids)
+		if err != nil {
 			return err
 		}
 		rows, err := s.store.BulkAssignTickets(txCtx, orgID, ids, assigneeUserID)
@@ -496,6 +503,7 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 			return err
 		}
 		affected = rows
+		scope = activitymodels.ResolveSiteScope(siteIDs)
 		return nil
 	})
 	if err != nil {
@@ -517,6 +525,7 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 				"affected":         affected,
 			},
 		}
+		event.ApplySiteScope(scope)
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
@@ -533,8 +542,10 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 	}
 
 	var affected int64
+	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.requireMutableTickets(txCtx, orgID, ids); err != nil {
+		siteIDs, err := s.requireMutableTickets(txCtx, orgID, ids)
+		if err != nil {
 			return err
 		}
 		rows, err := s.store.BulkMarkUrgent(txCtx, orgID, ids)
@@ -542,6 +553,7 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 			return err
 		}
 		affected = rows
+		scope = activitymodels.ResolveSiteScope(siteIDs)
 		return nil
 	})
 	if err != nil {
@@ -559,6 +571,7 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 				"affected":   affected,
 			},
 		}
+		event.ApplySiteScope(scope)
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
@@ -581,8 +594,10 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 	}
 
 	var affected int64
+	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		var attemptAffected int64
+		attemptSiteIDs := make([]*int64, 0, len(ids))
 		minerIDs := make([]int64, 0, len(ids))
 		infrastructureIDs := make([]int64, 0, len(ids))
 		for _, id := range ids {
@@ -596,6 +611,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			if !statusTransitionAllowed(ticket.Status, models.TicketStatusCompleted) {
 				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot be completed", id)
 			}
+			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 			if err := validateCompletion(ticket.Category, params.Resolution, params.RepairLocation); err != nil {
 				return err
 			}
@@ -632,6 +648,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			attemptAffected += rows
 		}
 		affected = attemptAffected
+		scope = activitymodels.ResolveSiteScope(attemptSiteIDs)
 		return nil
 	})
 	if err != nil {
@@ -654,6 +671,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 				"affected":   affected,
 			},
 		}
+		event.ApplySiteScope(scope)
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
@@ -902,17 +920,19 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 	return next, nil
 }
 
-func (s *Service) requireMutableTickets(ctx context.Context, orgID int64, ids []int64) error {
+func (s *Service) requireMutableTickets(ctx context.Context, orgID int64, ids []int64) ([]*int64, error) {
+	siteIDs := make([]*int64, 0, len(ids))
 	for _, id := range ids {
 		ticket, err := s.store.GetRepairTicketForUpdate(ctx, orgID, id)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if ticket.Status == models.TicketStatusCompleted {
-			return fleeterror.NewFailedPreconditionErrorf("completed ticket %d is terminal", id)
+			return nil, fleeterror.NewFailedPreconditionErrorf("completed ticket %d is terminal", id)
 		}
+		siteIDs = append(siteIDs, ticket.SiteID)
 	}
-	return nil
+	return siteIDs, nil
 }
 
 func normalizeBulkIDs(ids []int64) ([]int64, error) {

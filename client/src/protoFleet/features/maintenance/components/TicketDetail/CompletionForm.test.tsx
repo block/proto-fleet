@@ -93,6 +93,21 @@ it("preserves existing reservations when completing without editing parts", asyn
   );
 });
 
+it("omits blank completion notes so existing ticket notes are preserved", async () => {
+  const onSubmit = vi.fn(async () => true);
+  render(<CompletionForm siteId="11" onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+
+  await waitFor(() =>
+    expect(onSubmit).toHaveBeenCalledWith({
+      resolution: TicketResolution.REPAIRED,
+      repairLocation: RepairLocation.ON_RACK,
+      partsSelection: [],
+    }),
+  );
+});
+
 it("omits repair location for a non-repair outcome", async () => {
   const onSubmit = vi.fn(async () => true);
   render(<CompletionForm siteId="11" onSubmit={onSubmit} onCancel={vi.fn()} />);

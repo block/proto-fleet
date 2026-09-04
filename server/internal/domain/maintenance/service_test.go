@@ -363,6 +363,92 @@ func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t 
 	assert.Equal(t, int64(2), count)
 }
 
+func TestBulkActivityUsesAffectedTicketSiteScope(t *testing.T) {
+	assertScope := func(t *testing.T) func(context.Context, *activitymodels.Event) error {
+		t.Helper()
+		return func(_ context.Context, event *activitymodels.Event) error {
+			assert.True(t, event.MultiSite)
+			assert.ElementsMatch(t, []int64{11, 12}, event.MemberSiteIDs)
+			assert.True(t, event.TouchesUnassigned)
+			return nil
+		}
+	}
+	lockedTickets := func() []*models.RepairTicket {
+		siteA, siteB := int64(11), int64(12)
+		return []*models.RepairTicket{
+			{ID: 3, SiteID: &siteA, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen},
+			{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen},
+			{ID: 5, SiteID: &siteB, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen},
+		}
+	}
+
+	t.Run("status", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		tickets := mocks.NewMockMaintenanceStore(ctrl)
+		tx := mocks.NewMockTransactor(ctrl)
+		activityStore := mocks.NewMockActivityStore(ctrl)
+		service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+		for _, ticket := range lockedTickets() {
+			tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), ticket.ID).Return(ticket, nil)
+		}
+		tickets.EXPECT().BulkUpdateTicketStatus(gomock.Any(), int64(2), []int64{3, 4, 5}, int16(models.TicketStatusInProgress)).Return(int64(3), nil)
+		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
+		_, err := service.BulkUpdateStatus(t.Context(), 2, []int64{5, 3, 4}, models.TicketStatusInProgress)
+		require.NoError(t, err)
+	})
+
+	t.Run("assignment", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		tickets := mocks.NewMockMaintenanceStore(ctrl)
+		tx := mocks.NewMockTransactor(ctrl)
+		activityStore := mocks.NewMockActivityStore(ctrl)
+		service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+		for _, ticket := range lockedTickets() {
+			tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), ticket.ID).Return(ticket, nil)
+		}
+		tickets.EXPECT().BulkAssignTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, nil).Return(int64(3), nil)
+		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
+		_, err := service.BulkAssign(t.Context(), 2, []int64{5, 3, 4}, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("urgent", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		tickets := mocks.NewMockMaintenanceStore(ctrl)
+		tx := mocks.NewMockTransactor(ctrl)
+		activityStore := mocks.NewMockActivityStore(ctrl)
+		service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+		for _, ticket := range lockedTickets() {
+			tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), ticket.ID).Return(ticket, nil)
+		}
+		tickets.EXPECT().BulkMarkUrgent(gomock.Any(), int64(2), []int64{3, 4, 5}).Return(int64(3), nil)
+		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
+		_, err := service.BulkMarkUrgent(t.Context(), 2, []int64{5, 3, 4})
+		require.NoError(t, err)
+	})
+
+	t.Run("close", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		tickets := mocks.NewMockMaintenanceStore(ctrl)
+		tx := mocks.NewMockTransactor(ctrl)
+		activityStore := mocks.NewMockActivityStore(ctrl)
+		service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+		for _, ticket := range lockedTickets() {
+			tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), ticket.ID).Return(ticket, nil)
+			tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), ticket.ID).Return(nil, nil)
+			tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), ticket.ID).Return(nil)
+		}
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(3), nil)
+		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
+		_, err := service.BulkClose(t.Context(), models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{5, 3, 4}, Resolution: models.TicketResolutionDeferred})
+		require.NoError(t, err)
+	})
+}
+
 func TestUpdateRepairTicketRejectsPartFromAnotherSite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)

@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const getTicket = vi.fn();
@@ -8,7 +8,9 @@ const deleteComment = vi.fn();
 vi.mock("@/protoFleet/api/maintenance", () => ({
   useMaintenanceApi: () => ({ getTicket, updateTicket, createComment, deleteComment }),
 }));
-vi.mock("../mappers", () => ({ toTicketDetail: () => ({ id: "9" }) }));
+vi.mock("../mappers", () => ({
+  toTicketDetail: (value: { ticket: { id: bigint } }) => ({ id: value.ticket.id.toString() }),
+}));
 const { useTicketDetail } = await import("./useTicketDetail");
 
 beforeEach(() => {
@@ -21,6 +23,30 @@ it("loads the selected ticket ID", async () => {
   expect(getTicket).toHaveBeenCalledWith(expect.objectContaining({ id: 9n }));
   expect(result.current.data).toEqual({ id: "9" });
 });
+it("clears the prior ticket while a newly selected ticket loads", async () => {
+  let resolveSecond: ((value: unknown) => void) | undefined;
+  getTicket.mockImplementation(({ id, onSuccess }) => {
+    if (id === 1n) {
+      onSuccess({ ticket: { id: 1n } });
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      resolveSecond = resolve;
+    });
+  });
+  const { result, rerender } = renderHook(({ id }) => useTicketDetail(id), {
+    initialProps: { id: "1" },
+  });
+  await waitFor(() => expect(result.current.data).toEqual({ id: "1" }));
+
+  rerender({ id: "2" });
+  await waitFor(() => expect(getTicket).toHaveBeenCalledWith(expect.objectContaining({ id: 2n })));
+  expect(result.current.loading).toBe(true);
+  expect(result.current.data).toBeNull();
+
+  await act(async () => resolveSecond?.(undefined));
+});
+
 it("clears state without an RPC when no ticket is selected", async () => {
   const { result } = renderHook(() => useTicketDetail(null));
   await waitFor(() => expect(result.current.loading).toBe(false));

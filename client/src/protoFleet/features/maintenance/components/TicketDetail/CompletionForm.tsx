@@ -14,7 +14,7 @@ interface CompletionFormProps {
   onSubmit: (value: {
     resolution: TicketResolution;
     repairLocation: RepairLocation;
-    notes: string;
+    notes?: string;
     partsSelection: PartSelection[];
   }) => Promise<boolean>;
   onCancel: () => void;
@@ -100,7 +100,7 @@ const CompletionForm = ({
     const ok = await onSubmit({
       resolution,
       repairLocation: recordsRepairLocation ? repairLocation : RepairLocation.UNSPECIFIED,
-      notes,
+      ...(notes.trim() ? { notes: notes.trim() } : {}),
       partsSelection: selection,
     });
     setBusy(false);

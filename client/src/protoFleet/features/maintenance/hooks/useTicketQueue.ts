@@ -24,6 +24,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
   const sequence = useRef(0);
   const currentPageRef = useRef(0);
   const cursorHistoryRef = useRef<string[]>([""]);
+  const loadedBoardPageCountRef = useRef(1);
 
   const load = useCallback(
     async (page = 0, pageToken = "", append = false) => {
@@ -34,6 +35,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       setLoading(true);
       setError(null);
       let loadedRowCount: number | null = null;
+      let loadedNextPageToken = "";
       await Promise.all([
         listTickets({
           filter,
@@ -46,6 +48,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
             if (request !== sequence.current) return;
             const mapped = response.tickets.map(toTicketItem);
             loadedRowCount = mapped.length;
+            loadedNextPageToken = response.nextPageToken;
             setData((old) => (append ? [...old, ...mapped] : mapped));
             setTotal(response.totalCount);
             setNextPageToken(response.nextPageToken);
@@ -81,17 +84,40 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
             }),
       ]);
       if (request === sequence.current) setLoading(false);
-      return loadedRowCount;
+      return loadedRowCount === null ? null : { rowCount: loadedRowCount, nextPageToken: loadedNextPageToken };
     },
     [filter, getStats, listTickets, sortDirection, sortField],
   );
 
-  const resetPagination = useCallback(() => {
+  const resetPagination = useCallback(async () => {
     setCurrentPage(0);
     currentPageRef.current = 0;
     cursorHistoryRef.current = [""];
+    loadedBoardPageCountRef.current = 1;
     setNextPageToken("");
-    return load(0, "");
+    await load(0, "");
+  }, [load]);
+
+  const refreshCurrentView = useCallback(async () => {
+    const boardPageCount = loadedBoardPageCountRef.current;
+    if (boardPageCount <= 1) {
+      const result = await load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+      return result?.rowCount ?? null;
+    }
+
+    let pageToken = "";
+    let refreshedPages = 0;
+    let loadedRows = 0;
+    for (let page = 0; page < boardPageCount; page += 1) {
+      const result = await load(0, pageToken, page > 0);
+      if (result === null) return null;
+      refreshedPages += 1;
+      loadedRows += result.rowCount;
+      if (!result.nextPageToken) break;
+      pageToken = result.nextPageToken;
+    }
+    loadedBoardPageCountRef.current = Math.max(1, refreshedPages);
+    return loadedRows;
   }, [load]);
 
   useEffect(() => {
@@ -112,7 +138,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       timeoutId = setTimeout(async () => {
         if (!active) return;
         try {
-          await load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+          await refreshCurrentView();
         } catch {
           // RPC adapters report request failures through load's onError callbacks.
         } finally {
@@ -125,7 +151,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       active = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [load]);
+  }, [refreshCurrentView]);
 
   const setFilter = useCallback((value: Partial<TicketFilter>) => {
     setFilterState(value);
@@ -142,10 +168,10 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+      if (ok) await refreshCurrentView();
       return ok;
     },
-    [load, updateTicket],
+    [refreshCurrentView, updateTicket],
   );
 
   const bulkUpdate = useCallback(
@@ -162,17 +188,18 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       });
       if (ok) {
         const page = currentPageRef.current;
-        const loadedRowCount = await load(page, cursorHistoryRef.current[page]);
+        const loadedRowCount = await refreshCurrentView();
         if (loadedRowCount === 0 && page > 0) {
           const previous = page - 1;
           const previousToken = cursorHistoryRef.current[previous];
           cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
+          loadedBoardPageCountRef.current = 1;
           await load(previous, previousToken);
         }
       }
       return ok;
     },
-    [load, sendBulkUpdate],
+    [load, refreshCurrentView, sendBulkUpdate],
   );
 
   return {
@@ -192,17 +219,23 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       setSortField(field);
       setSortDirection(direction);
     },
-    refresh: () => load(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]),
+    refresh: refreshCurrentView,
     resetPagination,
-    nextPage: () => {
+    nextPage: async () => {
       const token = cursorHistoryRef.current[currentPageRef.current + 1] ?? nextPageToken;
-      return token ? load(currentPageRef.current + 1, token) : Promise.resolve();
+      loadedBoardPageCountRef.current = 1;
+      if (token) await load(currentPageRef.current + 1, token);
     },
-    previousPage: () => {
+    previousPage: async () => {
       const previous = currentPageRef.current - 1;
-      return previous >= 0 ? load(previous, cursorHistoryRef.current[previous]) : Promise.resolve();
+      loadedBoardPageCountRef.current = 1;
+      if (previous >= 0) await load(previous, cursorHistoryRef.current[previous]);
     },
-    loadMore: () => (nextPageToken ? load(currentPageRef.current, nextPageToken, true) : Promise.resolve()),
+    loadMore: async () => {
+      if (!nextPageToken) return;
+      const result = await load(currentPageRef.current, nextPageToken, true);
+      if (result !== null) loadedBoardPageCountRef.current += 1;
+    },
     setUrgent,
     bulkUpdate,
   };

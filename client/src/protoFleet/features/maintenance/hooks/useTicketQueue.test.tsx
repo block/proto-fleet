@@ -55,6 +55,30 @@ it("polls the current queue page and stops polling after unmount", async () => {
   expect(listTickets).toHaveBeenCalledTimes(2);
 });
 
+it("preserves all loaded board pages during polling", async () => {
+  vi.useFakeTimers();
+  listTickets.mockImplementation(async ({ pageToken, onSuccess }) =>
+    onSuccess({
+      tickets: [
+        create(RepairTicketSummarySchema, {
+          ticket: create(RepairTicketSchema, { id: pageToken === "cursor-2" ? 2n : 1n }),
+        }),
+      ],
+      nextPageToken: pageToken ? "" : "cursor-2",
+      totalCount: 2,
+    }),
+  );
+  const { result } = renderHook(() => useTicketQueue());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  await act(() => result.current.loadMore());
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1", "2"]);
+
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1", "2"]);
+  expect(listTickets).toHaveBeenLastCalledWith(expect.objectContaining({ pageToken: "cursor-2" }));
+});
+
 it("loads tickets and refreshes after a successful mutation", async () => {
   bulkUpdate.mockImplementation(async ({ onSuccess }) => onSuccess(1));
   const { result } = renderHook(() => useTicketQueue());
