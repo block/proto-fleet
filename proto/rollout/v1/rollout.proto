@@ -224,16 +224,26 @@ message ReleaseChannel {
 
 // Scope-free release channel details for bounded list responses.
 message ReleaseChannelSummary {
+    option (buf.validate.message).cel = {
+        id: "model_group_count_covers_returned_groups"
+        message: "model_group_count must be at least the number of model_groups"
+        expression: "this.model_group_count >= this.model_groups.size()"
+    };
+
     int64 id = 1;
     string name = 2;
     string description = 3;
     RolloutBehavior behavior = 4;
-    // One group per distinct manufacturer/model pair among members, plus one
-    // group per pair that has a firmware assignment but currently no members.
-    repeated ReleaseChannelModelGroup model_groups = 5;
+    // The first 100 manufacturer/model groups sorted by manufacturer then
+    // model. Includes distinct pairs among members, plus pairs that have a
+    // firmware assignment but currently no members.
+    repeated ReleaseChannelModelGroup model_groups = 5 [(buf.validate.field).repeated.max_items = 100];
     int32 miner_count = 6;
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
+    // Total manufacturer/model groups before model_groups is truncated.
+    // A value greater than the length of model_groups means truncation.
+    int32 model_group_count = 9;
 }
 
 // Summary for one manufacturer/model pair in a channel, including its member
@@ -245,11 +255,11 @@ message ReleaseChannelModelGroup {
         expression: "this.reported_version_count >= this.reported_versions.size()"
     };
 
-    string manufacturer = 1;
-    string model = 2;
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
     // Empty when no firmware is assigned to this manufacturer/model pair.
-    string firmware_file_id = 3;
-    string firmware_version = 4;
+    string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+    string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
     int32 miner_count = 5;
     // Id of the active rollout for this manufacturer/model pair, 0 if none.
     int64 active_rollout_id = 6;
@@ -601,12 +611,13 @@ message ApplyReleaseChannelFirmwareRequest {
     option (buf.validate.message).cel = {
         id: "assignments_unique_by_manufacturer_model"
         message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer + a.model).unique()"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.trim().lowerAscii().size()) + ':' + a.manufacturer.trim().lowerAscii() + a.model.trim().lowerAscii()).unique()"
     };
 
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Desired assignments. Manufacturer/model pairs omitted here keep their
-    // current assignment.
+    // current assignment. Assignment target identity trims surrounding
+    // whitespace and compares ASCII letters case-insensitively.
     repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated = {
         min_items: 1
         max_items: 100

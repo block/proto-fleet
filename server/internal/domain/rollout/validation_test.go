@@ -156,6 +156,38 @@ func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "case variants of one manufacturer and model pair are rejected",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
+					{Manufacturer: "bitMAIN", Model: "s21", FirmwareFileId: "firmware-b"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "surrounding whitespace variants of one manufacturer and model pair are rejected",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "firmware-a"},
+					{Manufacturer: " Bitmain ", Model: "\tS21\n", FirmwareFileId: "firmware-b"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "distinct normalized manufacturer and model pairs are accepted",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{
+					{Manufacturer: " Bitmain ", Model: " S21 ", FirmwareFileId: "firmware-a"},
+					{Manufacturer: " bitMAIN ", Model: " S19 ", FirmwareFileId: "firmware-b"},
+				},
+			},
+		},
+		{
 			name: "same model under different manufacturers is accepted",
 			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
 				ChannelId: 1,
@@ -277,6 +309,83 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			t.Parallel()
 
 			err := protovalidate.Validate(test.modelGroup)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestReleaseChannelSummaryModelGroupsValidation(t *testing.T) {
+	t.Parallel()
+
+	boundedGroups := make([]*rolloutv1.ReleaseChannelModelGroup, 100)
+	for index := range boundedGroups {
+		boundedGroups[index] = &rolloutv1.ReleaseChannelModelGroup{
+			Manufacturer: "Bitmain",
+			Model:        fmt.Sprintf("model-%03d", index),
+		}
+	}
+	oversizedGroups := append(
+		append([]*rolloutv1.ReleaseChannelModelGroup{}, boundedGroups...),
+		&rolloutv1.ReleaseChannelModelGroup{Manufacturer: "MicroBT", Model: "M60"},
+	)
+
+	tests := []struct {
+		name    string
+		summary *rolloutv1.ReleaseChannelSummary
+		wantErr bool
+	}{
+		{
+			name: "truncated summary is valid",
+			summary: &rolloutv1.ReleaseChannelSummary{
+				ModelGroups:     boundedGroups,
+				ModelGroupCount: 101,
+			},
+		},
+		{
+			name: "101 groups are rejected",
+			summary: &rolloutv1.ReleaseChannelSummary{
+				ModelGroups:     oversizedGroups,
+				ModelGroupCount: 101,
+			},
+			wantErr: true,
+		},
+		{
+			name: "count below returned list length is rejected",
+			summary: &rolloutv1.ReleaseChannelSummary{
+				ModelGroups:     boundedGroups[:2],
+				ModelGroupCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "count equal to returned list length is valid",
+			summary: &rolloutv1.ReleaseChannelSummary{
+				ModelGroups:     boundedGroups[:2],
+				ModelGroupCount: 2,
+			},
+		},
+		{
+			name: "oversized group identity is rejected",
+			summary: &rolloutv1.ReleaseChannelSummary{
+				ModelGroups: []*rolloutv1.ReleaseChannelModelGroup{{
+					Manufacturer: strings.Repeat("m", 256),
+					Model:        "S21",
+				}},
+				ModelGroupCount: 1,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.summary)
 			if test.wantErr {
 				require.Error(t, err)
 				return
