@@ -730,6 +730,14 @@ type Device struct {
 	BuildingID               sql.NullInt64
 }
 
+type DeviceFirmwareDeployment struct {
+	DeviceID         int64
+	FirmwareChecksum string
+	FirmwareVersion  string
+	RolloutID        sql.NullInt64
+	DeployedAt       time.Time
+}
+
 type DeviceMetric struct {
 	Time             time.Time
 	DeviceIdentifier string
@@ -926,6 +934,74 @@ type Error struct {
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	SiteID            sql.NullInt64
+}
+
+type FirmwareRollout struct {
+	ID                           int64
+	OrgID                        int64
+	ChannelID                    int64
+	Manufacturer                 string
+	Model                        string
+	FirmwareChecksum             string
+	FirmwareVersion              string
+	PreviousFirmwareChecksum     string
+	PreviousFirmwareVersion      string
+	AssignmentGeneration         int64
+	Status                       string
+	CancelReason                 string
+	Stage                        string
+	Method                       string
+	OrderBy                      string
+	BatchSize                    int32
+	PilotSize                    int32
+	WaitBetweenBatchesSeconds    int32
+	ReviewAfterEachBatch         bool
+	AutoContinue                 bool
+	StabilizationSeconds         int32
+	MaxHashrateDropPercent       sql.NullFloat64
+	MaxEfficiencyIncreasePercent sql.NullFloat64
+	MaxTempIncreaseC             sql.NullFloat64
+	MaxNewErrors                 sql.NullInt32
+	MinSampleCoveragePercent     sql.NullFloat64
+	MaxConcurrentOffline         int32
+	ControllerTimeoutSeconds     int32
+	BatchCount                   int32
+	CurrentBatch                 int32
+	StageChangedAt               time.Time
+	PausedAt                     sql.NullTime
+	Revision                     int64
+	UpdatedAt                    time.Time
+	StartedByType                string
+	StartedByID                  int64
+	StartedByName                string
+	LastActionByType             string
+	LastActionByID               int64
+	LastActionByName             string
+	CreatedAt                    time.Time
+	FinishedAt                   sql.NullTime
+}
+
+type FirmwareRolloutDevice struct {
+	RolloutID            int64
+	DeviceID             int64
+	BatchIndex           sql.NullInt32
+	Position             sql.NullInt32
+	Attempts             int32
+	FirstSentAt          sql.NullTime
+	LastSentAt           sql.NullTime
+	HaltedAt             sql.NullTime
+	HaltReason           string
+	LastError            string
+	SkipNote             string
+	ExcludedAt           sql.NullTime
+	BaselineStatus       sql.NullString
+	BaselineHashRateHs   sql.NullFloat64
+	BaselinePowerW       sql.NullFloat64
+	BaselineEfficiencyJh sql.NullFloat64
+	BaselineTempC        sql.NullFloat64
+	BaselineOpenErrors   sql.NullInt32
+	BaselineAt           sql.NullTime
+	AddedAt              time.Time
 }
 
 type FleetActiveOrganization struct {
@@ -1221,10 +1297,76 @@ type RackSlot struct {
 	CreatedAt   time.Time
 }
 
+type ReleaseChannel struct {
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	Description                  string
+	Method                       string
+	OrderBy                      string
+	BatchSize                    int32
+	PilotSize                    int32
+	WaitBetweenBatchesSeconds    int32
+	ReviewAfterEachBatch         bool
+	AutoContinue                 bool
+	StabilizationSeconds         int32
+	MaxHashrateDropPercent       sql.NullFloat64
+	MaxEfficiencyIncreasePercent sql.NullFloat64
+	MaxTempIncreaseC             sql.NullFloat64
+	MaxNewErrors                 sql.NullInt32
+	MinSampleCoveragePercent     sql.NullFloat64
+	MaxConcurrentOffline         int32
+	ControllerTimeoutSeconds     int32
+	CreatedBy                    int64
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+}
+
+type ReleaseChannelConflict struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity interface{}
+	Resolution  string
+}
+
+type ReleaseChannelFirmware struct {
+	ChannelID                  int64
+	Manufacturer               string
+	Model                      string
+	FirmwareChecksum           string
+	FirmwareVersion            string
+	FirmwareTargetManufacturer string
+	FirmwareTargetModel        string
+	AssignmentGeneration       int64
+	AssignedBy                 int64
+	UpdatedAt                  time.Time
+}
+
+type ReleaseChannelMatch struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity int32
+}
+
+type ReleaseChannelMember struct {
+	ChannelID  int64
+	OrgID      int64
+	DeviceID   int64
+	Conflicted bool
+}
+
 type ReleaseChannelSetting struct {
 	OrganizationID int64
 	Channel        string
 	UpdatedAt      time.Time
+}
+
+type ReleaseChannelTarget struct {
+	ChannelID  int64
+	TargetType string
+	TargetID   int64
 }
 
 type RepairTicket struct {

@@ -1,0 +1,14 @@
+DROP VIEW IF EXISTS release_channel_member;
+DROP VIEW IF EXISTS release_channel_conflict;
+DROP VIEW IF EXISTS release_channel_match;
+DROP TABLE IF EXISTS device_firmware_deployment;
+DROP TRIGGER IF EXISTS firmware_rollout_device_updated ON firmware_rollout_device;
+DROP TRIGGER IF EXISTS firmware_rollout_device_inserted ON firmware_rollout_device;
+DROP FUNCTION IF EXISTS firmware_rollout_devices_changed();
+DROP TABLE IF EXISTS firmware_rollout_device;
+DROP TRIGGER IF EXISTS firmware_rollout_revision ON firmware_rollout;
+DROP FUNCTION IF EXISTS firmware_rollout_bump_revision();
+DROP TABLE IF EXISTS firmware_rollout;
+DROP TABLE IF EXISTS release_channel_firmware;
+DROP TABLE IF EXISTS release_channel_target;
+DROP TABLE IF EXISTS release_channel;
