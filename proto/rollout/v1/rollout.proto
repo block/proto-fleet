@@ -1,0 +1,580 @@
+syntax = "proto3";
+
+package rollout.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// Firmware release channels and the rollouts that enforce them.
+//
+// A release channel is a set of miners described by a scope (sites,
+// buildings, racks, groups and/or individual miners), resolved live against
+// current fleet placement. Members are grouped by hardware model, and each
+// model may have one firmware version assigned. Once assigned, the server
+// enforces it: any member of that model not running the assigned version is
+// updated, paced by the channel's update behavior. Each enforcement run for
+// one (channel, model) pair is tracked as a rollout.
+//
+// A miner belongs to at most one channel. Channels whose scopes would
+// overlap cannot be saved; a miner that later moves into two channels'
+// scopes resolves to the most specific selector (miner, group, rack,
+// building, site) and is reported as a conflict.
+//
+// "Rollout" is the engine's name; operator-facing copy calls it a firmware
+// update.
+service RolloutService {
+    // Lists all release channels with members grouped by model, current
+    // firmware assignments, and active rollout ids.
+    rpc ListReleaseChannels(ListReleaseChannelsRequest) returns (ListReleaseChannelsResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Returns one release channel.
+    rpc GetReleaseChannel(GetReleaseChannelRequest) returns (GetReleaseChannelResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Creates a release channel. Fails when the scope overlaps another
+    // channel's.
+    rpc CreateReleaseChannel(CreateReleaseChannelRequest) returns (CreateReleaseChannelResponse);
+
+    // Replaces a channel's name, description, scope and update behavior.
+    // Behavior changes apply to rollouts started afterwards; a rollout in
+    // flight keeps the behavior it started with.
+    rpc UpdateReleaseChannel(UpdateReleaseChannelRequest) returns (UpdateReleaseChannelResponse);
+
+    // Deletes a channel with its firmware assignments and rollout history.
+    // Miners keep whatever firmware they are running.
+    rpc DeleteReleaseChannel(DeleteReleaseChannelRequest) returns (DeleteReleaseChannelResponse);
+
+    // Resolves a scope without saving it: how many miners it covers per
+    // model, and which existing channels it would overlap.
+    rpc PreviewReleaseChannelScope(PreviewReleaseChannelScopeRequest) returns (PreviewReleaseChannelScopeResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Replaces per-model firmware assignments of a channel and starts a
+    // rollout, paced by the channel's behavior, for every model whose
+    // assignment changed and has mismatched members.
+    rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
+
+    // Re-applies the firmware of a past rollout to its channel's model group,
+    // rolling the group's miners back to that version. Any active rollout
+    // for the (channel, model) pair is canceled and a new all-at-once rollout
+    // enforces the restored version.
+    rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
+
+    // Lists rollouts (newest first) with live per-device progress,
+    // optionally filtered by channel and status, and paged with a cursor.
+    rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Returns one rollout with live per-device progress.
+    rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Releases the review gate of a staged rollout: the next batch starts,
+    // or the remaining miners when the last batch was under review.
+    rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
+
+    // Pauses an active rollout: no new update commands are sent and no stage
+    // transitions happen until it is resumed. Commands already sent finish.
+    rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
+
+    // Resumes a paused rollout where it left off.
+    rpc ResumeRollout(ResumeRolloutRequest) returns (ResumeRolloutResponse);
+
+    // Cancels the remaining work of an active rollout. Miners already
+    // updated keep the new firmware; miners not yet updated are left alone
+    // and are not picked up again until the assignment changes or their
+    // updates are retried.
+    rpc CancelRollout(CancelRolloutRequest) returns (CancelRolloutResponse);
+
+    // Re-queues the miners that failed (or were canceled) in a rollout. An
+    // active rollout retries them in place; a finished rollout gets a new
+    // all-at-once rollout for them.
+    rpc RetryFailedRolloutDevices(RetryFailedRolloutDevicesRequest) returns (RetryFailedRolloutDevicesResponse);
+}
+
+// --- Release channels ---
+
+// Which miners a channel applies to. Every dimension is a union; a miner is
+// in the channel when any selector matches its current placement.
+message ReleaseChannelScope {
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 building_ids = 2 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 rack_ids = 3 [(buf.validate.field).repeated = {max_items: 500, items: {int64: {gt: 0}}}];
+    repeated int64 group_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    // Individual miners by device identifier.
+    repeated string device_identifiers = 5 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 255}}}];
+}
+
+// How a rollout distributes the update across its targets.
+enum RolloutMethod {
+    ROLLOUT_METHOD_UNSPECIFIED = 0;
+    // Single batch: every mismatched miner is updated at once.
+    ROLLOUT_METHOD_ALL_AT_ONCE = 1;
+    // Multiple batches of batch_size, optionally reviewed after each one;
+    // late joiners follow once the batches are done.
+    ROLLOUT_METHOD_BATCHED = 2;
+    // A pilot batch of pilot_size, a review gate, then the remaining miners.
+    ROLLOUT_METHOD_PILOT_THEN_CONTINUE = 3;
+}
+
+// Order miners are worked through in a paced rollout. Meaningless for
+// ALL_AT_ONCE.
+enum RolloutOrder {
+    ROLLOUT_ORDER_UNSPECIFIED = 0;
+    // Miners with the worst efficiency (highest J/TH) go first; miners with
+    // no recent sample go last.
+    ROLLOUT_ORDER_LEAST_EFFICIENT_FIRST = 1;
+    ROLLOUT_ORDER_RANDOM = 2;
+}
+
+// Limits a reviewed batch must satisfy for the rollout to continue without
+// an operator. An unset threshold is not checked.
+message RolloutAutomationThresholds {
+    // Largest acceptable aggregate hashrate drop versus baseline, percent.
+    optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100}];
+    // Largest acceptable mean efficiency (J/TH) increase versus baseline, percent.
+    optional double max_efficiency_increase_percent = 2 [(buf.validate.field).double = {gte: 0}];
+    // Largest acceptable mean temperature increase versus baseline, °C.
+    optional double max_temperature_increase_celsius = 3 [(buf.validate.field).double = {gte: 0}];
+    // Largest acceptable number of errors opened since baseline, summed over
+    // the batch.
+    optional int32 max_new_errors = 4 [(buf.validate.field).int32 = {gte: 0}];
+}
+
+// How updates started in a channel are paced. Stored on the channel and
+// copied onto each rollout when it starts.
+message RolloutBehavior {
+    // Defaults to ALL_AT_ONCE when unspecified.
+    RolloutMethod method = 1;
+    // Paced methods only; defaults to LEAST_EFFICIENT_FIRST.
+    RolloutOrder order = 2;
+    // BATCHED: miners per batch (>= 1).
+    int32 batch_size = 3 [(buf.validate.field).int32 = {gte: 0}];
+    // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1).
+    int32 pilot_size = 4 [(buf.validate.field).int32 = {gte: 0}];
+    // BATCHED without review: pause between one batch finishing and the
+    // next starting.
+    int32 wait_between_batches_seconds = 5 [(buf.validate.field).int32 = {gte: 0}];
+    // BATCHED: hold at a review gate after every batch. The pilot method
+    // always gates after the pilot.
+    bool review_after_each_batch = 6;
+    // Release a gate automatically once the batch is verified, has no failed
+    // miners, meets the thresholds, and has held for stabilization_seconds.
+    bool auto_continue_on_healthy_telemetry = 7;
+    // How long a verified batch must hold at the gate before it can
+    // auto-continue, so post-update telemetry has settled.
+    int32 stabilization_seconds = 8 [(buf.validate.field).int32 = {gte: 0}];
+    RolloutAutomationThresholds thresholds = 9;
+    // Never have more than this many miners mid-update at once; 0 means no
+    // limit.
+    int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
+}
+
+// A release channel with its members grouped by model.
+message ReleaseChannel {
+    int64 id = 1;
+    string name = 2;
+    string description = 3;
+    ReleaseChannelScope scope = 4;
+    RolloutBehavior behavior = 5;
+    // One group per distinct model among members, plus one group per model
+    // that has a firmware assignment but currently no members.
+    repeated ReleaseChannelModelGroup model_groups = 6;
+    int32 miner_count = 7;
+    google.protobuf.Timestamp created_at = 8;
+    google.protobuf.Timestamp updated_at = 9;
+}
+
+// Channel members of one model together with the model's firmware assignment.
+message ReleaseChannelModelGroup {
+    string model = 1;
+    // Empty when no firmware is assigned to this model.
+    string firmware_file_id = 2;
+    string firmware_version = 3;
+    repeated ReleaseChannelMiner miners = 4;
+    // Id of the active rollout for this model, 0 if none.
+    int64 active_rollout_id = 5;
+}
+
+// A miner resolved into a release channel.
+message ReleaseChannelMiner {
+    int64 device_id = 1;
+    string device_identifier = 2;
+    string model = 3;
+    // Firmware version the miner currently reports.
+    string firmware_version = 4;
+    // Set when another channel's scope also covers this miner; this channel
+    // won because its selector is more specific.
+    bool conflicted = 5;
+}
+
+// Desired firmware for one model within a channel.
+message FirmwareAssignment {
+    string model = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    // Firmware file to enforce for this model; empty clears the assignment.
+    string firmware_file_id = 2;
+}
+
+// --- Rollouts ---
+
+// Lifecycle of a rollout.
+enum RolloutStatus {
+    ROLLOUT_STATUS_UNSPECIFIED = 0;
+    // The rollout is enforcing its firmware version.
+    ROLLOUT_STATUS_ACTIVE = 1;
+    // Every targeted miner is on the assigned version, back online, and at
+    // least as healthy as before the update.
+    ROLLOUT_STATUS_COMPLETED = 2;
+    // Every targeted miner settled, but some failed.
+    ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
+    // Ended before completion; see cancel_reason.
+    ROLLOUT_STATUS_CANCELED = 4;
+}
+
+// Why a rollout was canceled.
+enum RolloutCancelReason {
+    ROLLOUT_CANCEL_REASON_UNSPECIFIED = 0;
+    // A newer assignment replaced it.
+    ROLLOUT_CANCEL_REASON_SUPERSEDED = 1;
+    // An operator canceled the remaining updates.
+    ROLLOUT_CANCEL_REASON_CANCELED_REMAINING = 2;
+    // An operator rolled the model back to an earlier version.
+    ROLLOUT_CANCEL_REASON_ROLLED_BACK = 3;
+    // The model's assignment was cleared.
+    ROLLOUT_CANCEL_REASON_CLEARED = 4;
+}
+
+// Progress of a staged rollout. ALL_AT_ONCE rollouts are always in REST.
+enum RolloutStage {
+    ROLLOUT_STAGE_UNSPECIFIED = 0;
+    // Updating the current batch only.
+    ROLLOUT_STAGE_BATCH = 1;
+    // The current batch is done; holding for a review (manual continue, or
+    // automatic once the thresholds are met).
+    ROLLOUT_STAGE_AWAITING_REVIEW = 2;
+    // The current batch is done; waiting wait_between_batches_seconds
+    // before the next one starts.
+    ROLLOUT_STAGE_WAITING = 3;
+    // Updating all remaining targets.
+    ROLLOUT_STAGE_REST = 4;
+}
+
+// Operator-facing lifecycle state, derived from status, stage and pause.
+enum RolloutState {
+    ROLLOUT_STATE_UNSPECIFIED = 0;
+    ROLLOUT_STATE_IN_PROGRESS = 1;
+    // At a gate that will auto-continue once the stabilization period
+    // elapses and telemetry holds.
+    ROLLOUT_STATE_STABILIZING_TELEMETRY = 2;
+    // At the gate after the pilot batch, waiting for an operator.
+    ROLLOUT_STATE_PAUSED_AT_PILOT_GATE = 3;
+    // At the gate after a batch, waiting for an operator.
+    ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW = 4;
+    // Paused by an operator.
+    ROLLOUT_STATE_PAUSED = 5;
+    ROLLOUT_STATE_COMPLETED = 6;
+    ROLLOUT_STATE_COMPLETED_WITH_FAILURES = 7;
+    ROLLOUT_STATE_CANCELED = 8;
+}
+
+// Per-miner phase within a rollout.
+enum RolloutDevicePhase {
+    ROLLOUT_DEVICE_PHASE_UNSPECIFIED = 0;
+    // No update command sent yet.
+    ROLLOUT_DEVICE_PHASE_QUEUED = 1;
+    // First update command sent; the miner has not verified yet.
+    ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
+    // The first attempt did not take; the update was re-sent.
+    ROLLOUT_DEVICE_PHASE_RETRYING = 3;
+    // On the target version, back online, and at least as healthy as
+    // before the update.
+    ROLLOUT_DEVICE_PHASE_DONE = 4;
+    // Attempts exhausted, or the rollout was canceled before this miner
+    // updated. Not retried until RetryFailedRolloutDevices.
+    ROLLOUT_DEVICE_PHASE_FAILED = 5;
+    // Left the channel's scope while the rollout was running.
+    ROLLOUT_DEVICE_PHASE_EXCLUDED = 6;
+}
+
+// A telemetry metric before the update (baseline, captured when the miner
+// was snapshotted into the rollout) and now. A missing half means no sample
+// was available.
+message MetricComparison {
+    optional double baseline = 1;
+    optional double current = 2;
+}
+
+// Post-update evidence for the miners under review: the batch at the gate
+// (or in flight), or every target in the rest stage. Compared against each
+// miner's own baseline.
+message RolloutEvidence {
+    int32 devices_total = 1;
+    // Miners in the DONE phase.
+    int32 verified = 2;
+    int32 online = 3;
+    int32 hashing = 4;
+    // How many of these miners were hashing before the update.
+    int32 baseline_hashing = 5;
+    int32 failed = 6;
+    // Aggregate hashrate change versus baseline, percent (negative is a
+    // drop). Only meaningful when hash_rate_hs has both halves.
+    double hashrate_change_percent = 7;
+    // Mean efficiency change versus baseline, percent (positive is worse).
+    double efficiency_change_percent = 8;
+    // Mean temperature change versus baseline, °C.
+    double temperature_change_celsius = 9;
+    // Errors opened since baseline, summed over the batch (never below 0).
+    int32 new_errors = 10;
+    // Whether the evidence meets the rollout's auto-continue conditions
+    // (always false for rollouts without auto-continue).
+    bool ready_to_advance = 11;
+    // Why the rollout is holding at the gate when it cannot auto-continue.
+    string hold_reason = 12;
+    // Seconds of stabilization still required before auto-continue.
+    int32 stabilization_remaining_seconds = 13;
+    // Aggregates over miners in scope that have both halves: total
+    // hashrate, total power, mean efficiency, mean temperature.
+    MetricComparison hash_rate_hs = 14;
+    MetricComparison power_w = 15;
+    MetricComparison efficiency_jh = 16;
+    MetricComparison temp_c = 17;
+}
+
+// A firmware change being enforced for one model within one channel.
+message Rollout {
+    int64 id = 1;
+    int64 channel_id = 2;
+    string channel_name = 3;
+    string model = 4;
+    string firmware_file_id = 5;
+    string firmware_version = 6;
+    RolloutStatus status = 7;
+    RolloutState state = 8;
+    // Stage of a staged rollout; REST for all-at-once rollouts.
+    RolloutStage stage = 9;
+    RolloutCancelReason cancel_reason = 10;
+    // The behavior this rollout runs with (copied from the channel at start).
+    RolloutBehavior behavior = 11;
+    // Number of snapshotted batches; 0 for all-at-once rollouts.
+    int32 batch_count = 12;
+    // 0-based index of the batch in flight or under review.
+    int32 current_batch = 13;
+    // When the current stage began.
+    google.protobuf.Timestamp stage_changed_at = 14;
+    // Set while the rollout is paused.
+    google.protobuf.Timestamp paused_at = 15;
+    google.protobuf.Timestamp created_at = 16;
+    // Set when the rollout completed or was canceled.
+    google.protobuf.Timestamp finished_at = 17;
+    // Assignment in place before this rollout; what a rollback restores.
+    string previous_firmware_file_id = 18;
+    string previous_firmware_version = 19;
+    // Every miner snapshotted into the rollout, with live progress.
+    repeated RolloutDevice devices = 20;
+    // Evidence for the miners currently under review; unset for rollouts
+    // that are not active.
+    RolloutEvidence evidence = 21;
+}
+
+// Progress of one miner within a rollout.
+message RolloutDevice {
+    int64 device_id = 1;
+    string device_identifier = 2;
+    string ip_address = 3;
+    // Firmware version the miner currently reports.
+    string firmware_version = 4;
+    RolloutDevicePhase phase = 5;
+    // 1-based batch the miner was snapshotted into; 0 when it is not part of
+    // any batch (rest stage / late joiner).
+    int32 batch = 6;
+    // Live device status (e.g. ACTIVE, OFFLINE, NEEDS_MINING_POOL).
+    string status = 7;
+    bool online = 8;
+    bool hashing = 9;
+    // False for late joiners with no baseline snapshot.
+    bool has_baseline = 10;
+    bool baseline_hashing = 11;
+    int32 open_errors = 12;
+    int32 baseline_open_errors = 13;
+    MetricComparison hash_rate_hs = 14;
+    MetricComparison power_w = 15;
+    MetricComparison efficiency_jh = 16;
+    MetricComparison temp_c = 17;
+    // Update commands sent to this miner so far.
+    int32 attempts = 18;
+    google.protobuf.Timestamp last_sent_at = 19;
+    // Why the miner is FAILED, when known.
+    string last_error = 20;
+}
+
+// --- Requests / responses ---
+
+message ListReleaseChannelsRequest {}
+
+message ListReleaseChannelsResponse {
+    repeated ReleaseChannel channels = 1;
+}
+
+message GetReleaseChannelRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetReleaseChannelResponse {
+    ReleaseChannel channel = 1;
+}
+
+message CreateReleaseChannelRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+    string description = 2 [(buf.validate.field).string = {max_len: 1000}];
+    ReleaseChannelScope scope = 3;
+    RolloutBehavior behavior = 4;
+}
+
+message CreateReleaseChannelResponse {
+    ReleaseChannel channel = 1;
+}
+
+message UpdateReleaseChannelRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+    string description = 3 [(buf.validate.field).string = {max_len: 1000}];
+    ReleaseChannelScope scope = 4;
+    RolloutBehavior behavior = 5;
+}
+
+message UpdateReleaseChannelResponse {
+    ReleaseChannel channel = 1;
+}
+
+message DeleteReleaseChannelRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteReleaseChannelResponse {}
+
+message PreviewReleaseChannelScopeRequest {
+    ReleaseChannelScope scope = 1;
+    // When editing, the channel being edited so its own members do not count
+    // as conflicts.
+    int64 channel_id = 2;
+}
+
+// Miners another channel already covers that the previewed scope would take.
+message ReleaseChannelScopeConflict {
+    int64 channel_id = 1;
+    string channel_name = 2;
+    int32 miner_count = 3;
+}
+
+message ReleaseChannelScopeModelCount {
+    string model = 1;
+    int32 miner_count = 2;
+}
+
+message PreviewReleaseChannelScopeResponse {
+    int32 miner_count = 1;
+    repeated ReleaseChannelScopeModelCount models = 2;
+    // Non-empty means the scope cannot be saved as is.
+    repeated ReleaseChannelScopeConflict conflicts = 3;
+}
+
+message ApplyReleaseChannelFirmwareRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Desired assignments. Models omitted here keep their current
+    // assignment.
+    repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message ApplyReleaseChannelFirmwareResponse {
+    ReleaseChannel channel = 1;
+    // Rollouts started by this call, one per changed model with mismatched
+    // members.
+    repeated Rollout started_rollouts = 2;
+}
+
+message RollbackReleaseChannelFirmwareRequest {
+    // Rollout whose firmware is restored for its channel and model.
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message RollbackReleaseChannelFirmwareResponse {
+    ReleaseChannel channel = 1;
+    // Rollouts started by this call (at most one, for the rolled-back model).
+    repeated Rollout started_rollouts = 2;
+}
+
+message ListRolloutsRequest {
+    // When set, only rollouts for this channel are returned.
+    int64 channel_id = 1;
+    // When set, only rollouts with this status are returned.
+    RolloutStatus status = 2 [(buf.validate.field).enum.defined_only = true];
+    // Maximum number of rollouts to return. 0 returns all matching rollouts.
+    int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Cursor returned by a previous call; leave empty for the first page.
+    string cursor = 4 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListRolloutsResponse {
+    repeated Rollout rollouts = 1;
+    // Cursor for the next page; empty when there are no more rollouts.
+    string cursor = 2;
+}
+
+message GetRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ContinueRolloutRequest {
+    // Active staged rollout in the AWAITING_REVIEW stage.
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ContinueRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message PauseRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message PauseRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ResumeRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ResumeRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message CancelRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message CancelRolloutResponse {
+    // The canceled rollout.
+    Rollout rollout = 1;
+    ReleaseChannel channel = 2;
+}
+
+message RetryFailedRolloutDevicesRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message RetryFailedRolloutDevicesResponse {
+    // The rollout now carrying the retried miners: the same rollout when it
+    // was still active, otherwise the new rollout started for them.
+    Rollout rollout = 1;
+}
