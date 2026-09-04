@@ -102,7 +102,7 @@ WORK_DIR=""
 run_installer uninstall
 [[ ! -e /opt/fleetnode ]] || fail "uninstall retained the program"
 [[ ! -e /etc/systemd/system/fleet-node.service ]] || fail "uninstall retained the unit"
-[[ -e /var/lib/fleetnode/state.yaml ]] || fail "uninstall removed state"
+sudo test -f /var/lib/fleetnode/state.yaml || fail "uninstall removed state"
 getent passwd fleetnode >/dev/null || fail "uninstall removed the service account"
 
 trap - EXIT
