@@ -936,6 +936,18 @@ func (q *retryingQuerier) CountRepairTickets(ctx context.Context, arg CountRepai
 	return result, err
 }
 
+func (q *retryingQuerier) CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountRepairTicketsBySite", func() error {
+		callResult, callErr := q.next.CountRepairTicketsBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountResponseProfilesByInfrastructureDevice", func() error {
@@ -5002,6 +5014,18 @@ func (q *retryingQuerier) LockInventorySites(ctx context.Context, arg LockInvent
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockInventorySites", func() error {
 		callResult, callErr := q.next.LockInventorySites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMaintenanceSiteForTicket", func() error {
+		callResult, callErr := q.next.LockMaintenanceSiteForTicket(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

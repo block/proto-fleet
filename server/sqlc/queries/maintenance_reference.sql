@@ -1,3 +1,11 @@
+-- name: LockMaintenanceSiteForTicket :one
+SELECT id
+FROM site
+WHERE org_id = sqlc.arg('org_id')
+  AND id = sqlc.arg('site_id')
+  AND deleted_at IS NULL
+FOR SHARE;
+
 -- name: ResolveMaintenanceMinerContext :one
 SELECT
     d.device_identifier AS miner_identifier,

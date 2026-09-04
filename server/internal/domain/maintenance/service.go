@@ -123,6 +123,12 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			return fleeterror.NewInvalidArgumentError("invalid ticket category")
 		}
 
+		if params.SiteID != nil {
+			if err := s.refs.LockSiteForTicket(txCtx, params.OrgID, *params.SiteID); err != nil {
+				return err
+			}
+		}
+
 		nextID, err := s.store.NextTicketNumber(txCtx, params.OrgID)
 		if err != nil {
 			return err

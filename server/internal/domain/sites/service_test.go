@@ -124,6 +124,24 @@ func TestDeleteSiteRejectsLiveInventoryParts(t *testing.T) {
 	}
 }
 
+func TestDeleteSiteRejectsLiveRepairTickets(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, mocks.NewMockBuildingStore(ctrl), nil, nil, nil, &fakeTransactor{}, nil)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().CountInventoryPartsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil)
+	store.EXPECT().CountRepairTicketsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil)
+
+	_, err := svc.DeleteSite(t.Context(), testOrgID, 11)
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "repair ticket") {
+		t.Fatalf("expected repair ticket context, got %v", err)
+	}
+}
+
 func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
@@ -136,6 +154,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().CountInventoryPartsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().CountRepairTicketsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		// Lock every building under the site after the site lock — site→
 		// building lock order matches AssignBuildingToSite to prevent
 		// deadlock and to keep a concurrent move from slipping a building
@@ -179,6 +198,7 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	// branch). All cascade calls happen inside RunInTx.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().CountInventoryPartsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	store.EXPECT().CountRepairTicketsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil, nil)
 	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64(nil)).Return(int64(0), nil)
@@ -208,6 +228,7 @@ func TestDeleteSite_rejectsInfrastructureDevicesReferencedBySurvivingProfiles(t 
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().CountInventoryPartsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().CountRepairTicketsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil),
 		store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(0), nil),
@@ -239,6 +260,7 @@ func TestDeleteSite_rejectsInfrastructureDevicesClaimedByActiveCurtailmentEvents
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().CountInventoryPartsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().CountRepairTicketsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil),
 		store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil),

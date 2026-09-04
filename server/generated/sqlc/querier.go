@@ -311,6 +311,7 @@ type Querier interface {
 	// ListBuildingRacks' filter so the count and the list agree.
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
+	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
@@ -1294,6 +1295,7 @@ type Querier interface {
 	// Inventory creation takes share locks in a deterministic order so a
 	// concurrent soft deletion cannot update deleted_at between validation and insert.
 	LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error)
+	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
 	LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error)

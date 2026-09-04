@@ -40,17 +40,27 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 	if err != nil {
 		return nil, err
 	}
+	canReadSites, err := middleware.HasPermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
 	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
 	if err != nil {
 		return nil, err
 	}
 	includeStatsForSite := func(siteID int64) bool {
+		if !canReadSites {
+			return false
+		}
 		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
 		return err == nil
 	}
 	out, err := h.service.ListSites(ctx, info.OrganizationID, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
+	}
+	if !canReadSites {
+		return connect.NewResponse(toMaintenanceSiteOptionsResponse(out)), nil
 	}
 	return connect.NewResponse(toListSitesResponse(out)), nil
 }

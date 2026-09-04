@@ -150,6 +150,9 @@ type MaintenanceStore interface {
 // MaintenanceReferenceStore resolves live tenant-scoped references for ticket
 // validation and hydration.
 type MaintenanceReferenceStore interface {
+	// LockSiteForTicket takes a shared lock on a live site while a ticket is
+	// created so site deletion cannot race the new reference.
+	LockSiteForTicket(ctx context.Context, orgID, siteID int64) error
 	ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error)
 	ResolveLocationContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (*models.AssetContext, error)
 	ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error)

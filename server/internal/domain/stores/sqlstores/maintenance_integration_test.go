@@ -1,10 +1,12 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	maintenancemodels "github.com/block/proto-fleet/server/internal/domain/maintenance/models"
@@ -51,6 +53,32 @@ func TestMaintenanceStoreCRUDHydrationAndOrganizationIsolation(t *testing.T) {
 	assert.Equal(t, int64(1), rows)
 	_, err = store.GetRepairTicket(ctx, orgID, ticket.ID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestMaintenanceSiteLockSerializesConcurrentSoftDelete(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	orgID := insertMaintenanceTestOrg(t, db, "site-lock")
+	siteID := insertMaintenanceTestSite(t, db, orgID, "Locked Ticket Site")
+
+	err := transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		require.NoError(t, store.LockSiteForTicket(txCtx, orgID, siteID))
+
+		deleteCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, deleteErr := db.ExecContext(deleteCtx, `UPDATE site SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, siteID)
+		require.Error(t, deleteErr, "soft delete must wait for the maintenance site lock")
+		return nil
+	})
+	require.NoError(t, err)
+
+	result, err := db.ExecContext(ctx, `UPDATE site SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, siteID)
+	require.NoError(t, err)
+	rows, err := result.RowsAffected()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
 }
 
 func TestMaintenanceStoreConcurrentTicketNumbers(t *testing.T) {

@@ -512,6 +512,20 @@ func (mr *MockMaintenanceReferenceStoreMockRecorder) ListAssignees(ctx, orgID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAssignees", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListAssignees), ctx, orgID)
 }
 
+// LockSiteForTicket mocks base method.
+func (m *MockMaintenanceReferenceStore) LockSiteForTicket(ctx context.Context, orgID, siteID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockSiteForTicket", ctx, orgID, siteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockSiteForTicket indicates an expected call of LockSiteForTicket.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) LockSiteForTicket(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSiteForTicket", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockSiteForTicket), ctx, orgID, siteID)
+}
+
 // ResolveAssignee mocks base method.
 func (m *MockMaintenanceReferenceStore) ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error) {
 	m.ctrl.T.Helper()

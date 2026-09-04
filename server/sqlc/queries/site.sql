@@ -153,6 +153,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
 
+-- name: CountRepairTicketsBySite :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
 -- name: UpdateSite :exec
 -- The slug is not user-editable but tracks the name: the service regenerates
 -- it on a rename and re-sends the unchanged slug otherwise. A slug

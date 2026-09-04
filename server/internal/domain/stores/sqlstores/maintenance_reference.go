@@ -19,6 +19,19 @@ func NewSQLMaintenanceReferenceStore(conn *sql.DB) *SQLMaintenanceStore {
 	return NewSQLMaintenanceStore(conn)
 }
 
+func (s *SQLMaintenanceStore) LockSiteForTicket(ctx context.Context, orgID, siteID int64) error {
+	_, err := s.GetQueries(ctx).LockMaintenanceSiteForTicket(ctx, sqlc.LockMaintenanceSiteForTicketParams{
+		OrgID: orgID, SiteID: siteID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock maintenance site: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLMaintenanceStore) ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error) {
 	row, err := s.GetQueries(ctx).ResolveMaintenanceMinerContext(ctx, sqlc.ResolveMaintenanceMinerContextParams{
 		OrgID: orgID, MinerIdentifier: minerIdentifier,

@@ -264,6 +264,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRepairTicketsStmt, err = db.PrepareContext(ctx, countRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTickets: %w", err)
 	}
+	if q.countRepairTicketsBySiteStmt, err = db.PrepareContext(ctx, countRepairTicketsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRepairTicketsBySite: %w", err)
+	}
 	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
 	}
@@ -1326,6 +1329,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockInventorySitesStmt, err = db.PrepareContext(ctx, lockInventorySites); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInventorySites: %w", err)
 	}
+	if q.lockMaintenanceSiteForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceSiteForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceSiteForTicket: %w", err)
+	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
 	}
@@ -2254,6 +2260,11 @@ func (q *Queries) Close() error {
 	if q.countRepairTicketsStmt != nil {
 		if cerr := q.countRepairTicketsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRepairTicketsStmt: %w", cerr)
+		}
+	}
+	if q.countRepairTicketsBySiteStmt != nil {
+		if cerr := q.countRepairTicketsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRepairTicketsBySiteStmt: %w", cerr)
 		}
 	}
 	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
@@ -4026,6 +4037,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockInventorySitesStmt: %w", cerr)
 		}
 	}
+	if q.lockMaintenanceSiteForTicketStmt != nil {
+		if cerr := q.lockMaintenanceSiteForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceSiteForTicketStmt: %w", cerr)
+		}
+	}
 	if q.lockRackPlacementForWriteStmt != nil {
 		if cerr := q.lockRackPlacementForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
@@ -5020,6 +5036,7 @@ type Queries struct {
 	countRacksBySiteStmt                                         *sql.Stmt
 	countRacksInBuildingStmt                                     *sql.Stmt
 	countRepairTicketsStmt                                       *sql.Stmt
+	countRepairTicketsBySiteStmt                                 *sql.Stmt
 	countResponseProfilesByInfrastructureDeviceStmt              *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt             *sql.Stmt
 	countUnexpiredAlertMaintenanceWindowsStmt                    *sql.Stmt
@@ -5374,6 +5391,7 @@ type Queries struct {
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
 	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
 	lockInventorySitesStmt                                       *sql.Stmt
+	lockMaintenanceSiteForTicketStmt                             *sql.Stmt
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
 	lockRepairTicketsByIDsStmt                                   *sql.Stmt
@@ -5635,6 +5653,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRacksBySiteStmt:                                         q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
 		countRepairTicketsStmt:                                       q.countRepairTicketsStmt,
+		countRepairTicketsBySiteStmt:                                 q.countRepairTicketsBySiteStmt,
 		countResponseProfilesByInfrastructureDeviceStmt:              q.countResponseProfilesByInfrastructureDeviceStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:             q.countResponseProfilesByInfrastructureDevicesStmt,
 		countUnexpiredAlertMaintenanceWindowsStmt:                    q.countUnexpiredAlertMaintenanceWindowsStmt,
@@ -5989,6 +6008,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
 		lockInventorySitesStmt:                                       q.lockInventorySitesStmt,
+		lockMaintenanceSiteForTicketStmt:                             q.lockMaintenanceSiteForTicketStmt,
 		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,
 		lockRepairTicketsByIDsStmt:                                   q.lockRepairTicketsByIDsStmt,

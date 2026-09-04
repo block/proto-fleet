@@ -41,7 +41,13 @@ const CompletionForm = ({
   const { listPartsBySite } = useInventoryApi();
   const [resolution, setResolution] = useState(TicketResolution.REPAIRED);
   const [repairLocation, setRepairLocation] = useState(RepairLocation.ON_RACK);
-  const [parts, setParts] = useState<Array<{ id: bigint; name: string; available: number }>>([]);
+  const [parts, setParts] = useState<Array<{ id: bigint; name: string; available: number }>>(() =>
+    initialParts.map((part) => ({
+      id: BigInt(part.inventoryPartId),
+      name: part.partName,
+      available: part.quantity,
+    })),
+  );
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(initialParts.map((part) => [part.inventoryPartId, part.quantity])),
   );

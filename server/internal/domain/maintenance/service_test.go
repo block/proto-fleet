@@ -270,6 +270,7 @@ func TestCreateRepairTicketDerivesMinerContext(t *testing.T) {
 	gomock.InOrder(
 		refs.EXPECT().ResolveAssignee(txContextMatcher{}, int64(4), assigneeID).Return(&models.Assignee{UserID: assigneeID}, nil),
 		refs.EXPECT().ResolveMinerContext(txContextMatcher{}, int64(4), "miner-1").Return(&models.AssetContext{MinerIdentifier: "miner-1", SiteID: &siteID, BuildingID: &buildingID, Zone: &zone, RackID: &rackID, RackLabel: &rack, GroupLabel: &group}, nil),
+		refs.EXPECT().LockSiteForTicket(txContextMatcher{}, int64(4), siteID).Return(nil),
 		tickets.EXPECT().NextTicketNumber(txContextMatcher{}, int64(4)).Return(int64(1), nil),
 		tickets.EXPECT().CreateRepairTicket(txContextMatcher{}, expected, "TK-0001").Return(&models.RepairTicket{ID: 1, OrgID: 4, Component: "Hashboard"}, nil),
 	)

@@ -189,11 +189,30 @@ func TestHandler_sitePermissionsPassGate(t *testing.T) {
 func TestHandler_ListSites_allowsMaintenanceReadWithoutSiteRead(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
-	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return(nil, nil)
+	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{{
+		Site: models.Site{
+			ID: 11, Name: "Repair Depot", Slug: "repair-depot", Address: "123 Private Way",
+			NetworkConfig: "sensitive", Notes: "private", PowerCapacityMw: 12,
+		},
+		DeviceCount: 9, BuildingCount: 3, RackCount: 4, InfrastructureDeviceCount: 2,
+	}}, nil)
 
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermMaintenanceRead)
-	_, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
-	assert.NoError(t, err)
+	resp, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSites(), 1)
+	row := resp.Msg.GetSites()[0]
+	assert.Equal(t, int64(11), row.GetSite().GetId())
+	assert.Equal(t, "Repair Depot", row.GetSite().GetName())
+	assert.Empty(t, row.GetSite().GetSlug())
+	assert.Empty(t, row.GetSite().GetAddress())
+	assert.Empty(t, row.GetSite().GetNetworkConfig())
+	assert.Empty(t, row.GetSite().GetNotes())
+	assert.Zero(t, row.GetSite().GetPowerCapacityMw())
+	assert.Zero(t, row.GetDeviceCount())
+	assert.Zero(t, row.GetBuildingCount())
+	assert.Zero(t, row.GetRackCount())
+	assert.Zero(t, row.GetInfrastructureDeviceCount())
 }
 
 func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
@@ -560,6 +579,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	// AssignBuildingToSite).
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().CountInventoryPartsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountRepairTicketsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return([]int64{70}, nil)
 	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
@@ -609,6 +629,7 @@ func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
 	// restriction.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().CountInventoryPartsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountRepairTicketsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil, nil)
 	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)

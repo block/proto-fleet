@@ -59,6 +59,10 @@ type SiteStore interface {
 	// attached to the site. Site deletion is blocked while this is non-zero.
 	CountInventoryPartsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// CountRepairTicketsBySite returns the number of live repair tickets
+	// attached to the site. Site deletion is blocked while this is non-zero.
+	CountRepairTicketsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// UpdateSite mutates the live site row. Maps unique-violation to
 	// AlreadyExists; returns NotFound when the row is gone.
 	UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error)

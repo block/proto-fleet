@@ -160,6 +160,26 @@ func (q *Queries) CountRacksBySite(ctx context.Context, arg CountRacksBySitePara
 	return column_1, err
 }
 
+const countRepairTicketsBySite = `-- name: CountRepairTicketsBySite :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountRepairTicketsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRepairTicketsBySiteStmt, countRepairTicketsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countResponseProfilesByInfrastructureDevices = `-- name: CountResponseProfilesByInfrastructureDevices :one
 SELECT COUNT(*)
 FROM curtailment_response_profile

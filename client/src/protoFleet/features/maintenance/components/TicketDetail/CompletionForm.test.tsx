@@ -45,6 +45,29 @@ vi.mock("@/shared/components/Select", () => ({
   ),
 }));
 
+it("preserves existing reservations when completing before inventory finishes loading", async () => {
+  listPartsBySite.mockImplementationOnce(() => new Promise(() => undefined));
+  const onSubmit = vi.fn(async () => true);
+  render(
+    <CompletionForm
+      siteId="11"
+      initialParts={[{ inventoryPartId: "7", partName: "Fan", quantity: 2 }]}
+      onSubmit={onSubmit}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+
+  await waitFor(() =>
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partsSelection: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2 }],
+      }),
+    ),
+  );
+});
+
 it("preserves existing reservations when completing without editing parts", async () => {
   const onSubmit = vi.fn(async () => true);
   render(
