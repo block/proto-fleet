@@ -8,7 +8,15 @@ const meta = {
   component: ImportCsvModal,
   args: {
     onDismiss: action("dismiss inventory import"),
-    onSuccess: action("confirm inventory import"),
+    onPreview: async (bytes) => {
+      action("preview inventory import")(bytes);
+      return { rows: [], validCount: 0, errorCount: 0 };
+    },
+    onConfirm: async (bytes) => {
+      action("confirm inventory import")(bytes);
+      return 0;
+    },
+    onSuccess: action("inventory imported"),
   },
   parameters: {
     layout: "fullscreen",

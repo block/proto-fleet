@@ -1,37 +1,59 @@
-import { useCallback, useState } from "react";
-
+import { useState } from "react";
+import type { InventoryPartItem } from "../../types";
+import { AdjustmentReason } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
-
-interface AdjustPartModalProps {
-  part: { id: string; name: string; siteName: string; onHand: number; reorderPoint: number; binLocation: string };
+interface Props {
+  part: InventoryPartItem;
   onDismiss: () => void;
-  onSuccess: () => void;
+  onSubmit: (value: {
+    id: bigint;
+    onHand: number;
+    reorderPoint: number;
+    binLocation: string;
+    reason: AdjustmentReason;
+    notes: string;
+  }) => Promise<boolean>;
 }
-
-const REASON_OPTIONS = [
-  { value: "received_shipment", label: "Received shipment" },
-  { value: "cycle_count", label: "Cycle count" },
-  { value: "damaged_scrapped", label: "Damaged/scrapped" },
-  { value: "returned_from_repair", label: "Returned from repair" },
-  { value: "other", label: "Other" },
+const reasons = [
+  { value: String(AdjustmentReason.RECEIVED_SHIPMENT), label: "Received shipment" },
+  { value: String(AdjustmentReason.CYCLE_COUNT), label: "Cycle count" },
+  { value: String(AdjustmentReason.DAMAGED_SCRAPPED), label: "Damaged/scrapped" },
+  { value: String(AdjustmentReason.RETURNED_FROM_REPAIR), label: "Returned from repair" },
+  { value: String(AdjustmentReason.OTHER), label: "Other" },
 ];
-
-const AdjustPartModal = ({ part, onDismiss, onSuccess }: AdjustPartModalProps) => {
+const AdjustPartModal = ({ part, onDismiss, onSubmit }: Props) => {
   const [onHand, setOnHand] = useState(String(part.onHand));
-  const [reorderPoint, setReorderPoint] = useState(String(part.reorderPoint));
-  const [binLocation, setBinLocation] = useState(part.binLocation);
-  const [reason, setReason] = useState("");
-  const [, setNotes] = useState("");
-
-  const handleSave = useCallback(() => {
-    // TODO: wire to API
-    onSuccess();
-  }, [onSuccess]);
-
+  const [reorder, setReorder] = useState(String(part.reorderPoint));
+  const [bin, setBin] = useState(part.binLocation);
+  const [reason, setReason] = useState(AdjustmentReason.UNSPECIFIED);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const valid =
+    Number.isInteger(Number(onHand)) &&
+    Number(onHand) >= 0 &&
+    Number.isInteger(Number(reorder)) &&
+    Number(reorder) >= 0 &&
+    reason !== AdjustmentReason.UNSPECIFIED;
+  const save = async () => {
+    if (!valid) return;
+    setBusy(true);
+    const ok = await onSubmit({
+      id: BigInt(part.id),
+      onHand: Number(onHand),
+      reorderPoint: Number(reorder),
+      binLocation: bin,
+      reason,
+      notes,
+    });
+    setBusy(false);
+    if (ok) onDismiss();
+    else setError("Unable to adjust part");
+  };
   return (
     <Modal
       open
@@ -41,27 +63,29 @@ const AdjustPartModal = ({ part, onDismiss, onSuccess }: AdjustPartModalProps) =
         {
           text: "Save",
           variant: variants.primary,
-          onClick: handleSave,
+          disabled: !valid,
+          loading: busy,
+          onClick: () => void save(),
           dismissModalOnClick: false,
         },
       ]}
     >
       <div className="flex flex-col gap-4">
-        <Input id="adjust-site" label="Site" initValue={part.siteName} readOnly />
-        <Input id="adjust-bin" label="Bin location" initValue={binLocation} onChange={(v) => setBinLocation(v)} />
-        <Input id="adjust-on-hand" label="On hand" initValue={onHand} onChange={(v) => setOnHand(v)} type="number" />
-        <Input
-          id="adjust-reorder"
-          label="Reorder point"
-          initValue={reorderPoint}
-          onChange={(v) => setReorderPoint(v)}
-          type="number"
+        <Input id="adjust-site" label="Site" initValue={part.siteName ?? ""} readOnly />
+        <Input id="adjust-bin" label="Bin location" initValue={bin} onChange={setBin} />
+        <Input id="adjust-on-hand" label="On hand" initValue={onHand} onChange={setOnHand} type="number" />
+        <Input id="adjust-reorder" label="Reorder point" initValue={reorder} onChange={setReorder} type="number" />
+        <Select
+          id="adjust-reason"
+          label="Reason"
+          options={reasons}
+          value={String(reason)}
+          onChange={(value) => setReason(Number(value) as AdjustmentReason)}
         />
-        <Select id="adjust-reason" label="Reason" options={REASON_OPTIONS} value={reason} onChange={setReason} />
-        <Textarea id="adjust-notes" label="Notes" onChange={(v) => setNotes(v)} rows={2} />
+        <Textarea id="adjust-notes" label="Notes" onChange={setNotes} rows={2} />
+        {error ? <div role="alert">{error}</div> : null}
       </div>
     </Modal>
   );
 };
-
 export default AdjustPartModal;

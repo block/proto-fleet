@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 
 import HistoryTab from "../components/TicketHistory/HistoryTab";
+import InventoryTab from "../components/TicketInventory/InventoryTab";
 import TicketQueue, { type TicketQueueViewMode } from "../components/TicketQueue/TicketQueue";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
-type MaintenanceTabId = "queue" | "history";
+type MaintenanceTabId = "queue" | "history" | "inventory";
 
 interface MaintenancePageProps {
   initialQueueView?: TicketQueueViewMode;
@@ -24,11 +25,13 @@ const MaintenancePage = ({ initialQueueView = "list" }: MaintenancePageProps) =>
         <TabStrip activeId={activeTab} onSelect={handleTabSelect} ariaLabel="Maintenance sections">
           <TabStripItem id="queue" label="Queue" testId="maintenance-tab-queue" />
           <TabStripItem id="history" label="History" testId="maintenance-tab-history" />
+          <TabStripItem id="inventory" label="Inventory" testId="maintenance-tab-inventory" />
         </TabStrip>
       </div>
       <div className="min-h-0 flex-1 px-6 pt-6 laptop:px-10">
         {activeTab === "queue" ? <TicketQueue initialViewMode={initialQueueView} /> : null}
         {activeTab === "history" ? <HistoryTab /> : null}
+        {activeTab === "inventory" ? <InventoryTab /> : null}
       </div>
     </div>
   );

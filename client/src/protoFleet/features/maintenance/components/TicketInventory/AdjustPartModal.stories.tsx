@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
-import { mockInventoryParts } from "../../mockData";
+import { mockInventoryParts } from "../../maintenance.stories.fixtures";
 import AdjustPartModal from "./AdjustPartModal";
 
 const meta = {
@@ -9,7 +9,10 @@ const meta = {
   component: AdjustPartModal,
   args: {
     onDismiss: action("dismiss inventory adjustment"),
-    onSuccess: action("save inventory adjustment"),
+    onSubmit: async (value) => {
+      action("save inventory adjustment")(value);
+      return true;
+    },
   },
   parameters: {
     layout: "fullscreen",
@@ -27,12 +30,30 @@ type Story = StoryObj<typeof meta>;
 
 export const LowStockHashboard: Story = {
   args: {
-    part: mockInventoryParts[1],
+    part: {
+      ...mockInventoryParts[1],
+      manufacturer: "Bitmain",
+      partNumber: "HS-S21",
+      siteId: "1",
+      available: mockInventoryParts[1].onHand - mockInventoryParts[1].allocated,
+      lowStock: true,
+      createdAt: null,
+      updatedAt: null,
+    },
   },
 };
 
 export const WellStockedConsumable: Story = {
   args: {
-    part: mockInventoryParts[4],
+    part: {
+      ...mockInventoryParts[4],
+      manufacturer: "Generic",
+      partNumber: "TP-1",
+      siteId: "1",
+      available: mockInventoryParts[4].onHand - mockInventoryParts[4].allocated,
+      lowStock: false,
+      createdAt: null,
+      updatedAt: null,
+    },
   },
 };

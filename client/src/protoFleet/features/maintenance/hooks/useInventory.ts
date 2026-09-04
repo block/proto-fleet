@@ -5,7 +5,7 @@ import type { InventoryFilter } from "@/protoFleet/api/generated/inventory/v1/in
 import { type InventoryCsvPreview, useInventoryApi } from "@/protoFleet/api/inventory";
 
 export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
-  const { listParts, getInsights, updatePart, importCsv, confirmImport } = useInventoryApi();
+  const { listParts, getInsights, createPart, updatePart, deletePart, importCsv, confirmImport } = useInventoryApi();
   const [data, setData] = useState<InventoryPartItem[]>([]);
   const [insights, setInsights] = useState<InventoryInsightsItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +64,21 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     setNextPageToken("");
     setFilterState(value);
   }, []);
+  const create = useCallback(
+    async (input: Parameters<typeof createPart>[0]) => {
+      let ok = false;
+      await createPart({
+        ...input,
+        onSuccess: () => {
+          ok = true;
+        },
+        onError: setError,
+      });
+      if (ok) await load();
+      return ok;
+    },
+    [createPart, load],
+  );
   const adjust = useCallback(
     async (input: Parameters<typeof updatePart>[0]) => {
       let ok = false;
@@ -78,6 +93,21 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
       return ok;
     },
     [load, updatePart],
+  );
+  const remove = useCallback(
+    async (id: string) => {
+      let ok = false;
+      await deletePart({
+        id: BigInt(id),
+        onSuccess: () => {
+          ok = true;
+        },
+        onError: setError,
+      });
+      if (ok) await load();
+      return ok;
+    },
+    [deletePart, load],
   );
   const previewCsv = useCallback(
     async (csvData: Uint8Array): Promise<InventoryCsvPreview | null> => {
@@ -118,7 +148,9 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     setFilter,
     refresh: () => load(),
     loadMore: () => load(true),
+    create,
     adjust,
+    remove,
     previewCsv,
     applyCsv,
   };

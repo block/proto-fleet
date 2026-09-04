@@ -1,58 +1,55 @@
-import { type ChangeEvent, useCallback, useRef, useState } from "react";
-
+import { type ChangeEvent, useRef, useState } from "react";
+import type { InventoryCsvPreview } from "@/protoFleet/api/inventory";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
-
-interface ImportCsvModalProps {
+interface Props {
   onDismiss: () => void;
-  onSuccess: () => void;
+  onPreview: (bytes: Uint8Array) => Promise<InventoryCsvPreview | null>;
+  onConfirm: (bytes: Uint8Array) => Promise<number | null>;
+  onSuccess: (count: number) => void;
 }
-
-interface PreviewRow {
-  name: string;
-  type: string;
-  siteName: string;
-  onHand: number;
-  reorderPoint: number;
-  binLocation: string;
-  error: string;
-}
-
-const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
-  const [errorCount, setErrorCount] = useState(0);
-  const [hasFile, setHasFile] = useState(false);
-
-  const handleFileSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+const ImportCsvModal = ({ onDismiss, onPreview, onConfirm, onSuccess }: Props) => {
+  const ref = useRef<HTMLInputElement>(null);
+  const [bytes, setBytes] = useState<Uint8Array>();
+  const [preview, setPreview] = useState<InventoryCsvPreview>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const select = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-    setHasFile(true);
-    // TODO: wire to ImportInventoryCsv RPC for server-side parsing
-    setPreviewRows([]);
-    setErrorCount(0);
-  }, []);
-
-  const handleConfirm = useCallback(() => {
-    // TODO: wire to ConfirmInventoryImport RPC
-    onSuccess();
-  }, [onSuccess]);
-
+    const exact = new Uint8Array(await file.arrayBuffer());
+    setBytes(exact);
+    setLoading(true);
+    setError(null);
+    const value = await onPreview(exact);
+    setLoading(false);
+    if (value) setPreview(value);
+    else setError("Unable to preview CSV");
+  };
+  const confirm = async () => {
+    if (!bytes || !preview || preview.errorCount) return;
+    setLoading(true);
+    const count = await onConfirm(bytes);
+    setLoading(false);
+    if (count === null) setError("Unable to import CSV");
+    else onSuccess(count);
+  };
   return (
     <Modal
       open
       onDismiss={onDismiss}
       title="Import inventory CSV"
       buttons={
-        hasFile && previewRows.length > 0
+        preview
           ? [
               {
-                text: `Import ${previewRows.length - errorCount} parts`,
+                text: `Import ${preview.validCount} parts`,
                 variant: variants.primary,
-                onClick: handleConfirm,
-                disabled: previewRows.length === errorCount,
+                onClick: () => void confirm(),
+                disabled: preview.errorCount > 0,
+                loading,
                 dismissModalOnClick: false,
               },
             ]
@@ -60,61 +57,70 @@ const ImportCsvModal = ({ onDismiss, onSuccess }: ImportCsvModalProps) => {
       }
     >
       <div className="flex flex-col gap-4">
-        {!hasFile ? (
+        {!bytes ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-border-5 p-8">
-            <span className="text-300 text-text-primary-70">
-              Upload a CSV with columns: Part Name, Type, Site, On Hand, Reorder Point, Bin Location
-            </span>
-            <input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
+            <span>Upload a CSV with part, site, quantity, and bin columns.</span>
+            <input
+              aria-label="Inventory CSV"
+              ref={ref}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => void select(event)}
+              className="hidden"
+            />
             <Button
               text="Select file"
               variant={variants.secondary}
               size={buttonSizes.compact}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => ref.current?.click()}
             />
           </div>
-        ) : previewRows.length === 0 ? (
-          <span className="text-300 text-text-primary-70">Parsing CSV...</span>
-        ) : (
+        ) : loading && !preview ? (
+          <span role="status">Parsing CSV…</span>
+        ) : preview ? (
           <>
-            {errorCount > 0 ? (
-              <Callout
-                intent="warning"
-                prefixIcon={<Alert width="w-4" />}
-                title={`${errorCount} row${errorCount > 1 ? "s" : ""} have errors and will be skipped`}
-              />
+            {preview.errorCount ? (
+              <Callout intent="warning" prefixIcon={<Alert width="w-4" />} title="Fix all errors before importing" />
             ) : null}
             <div className="max-h-80 overflow-auto">
               <table className="w-full text-300">
                 <thead>
-                  <tr className="border-b border-border-5 text-left text-text-primary-70">
-                    <th className="p-2">Part Name</th>
-                    <th className="p-2">Type</th>
-                    <th className="p-2">Site</th>
-                    <th className="p-2">On Hand</th>
-                    <th className="p-2">Reorder Pt</th>
-                    <th className="p-2">Bin</th>
+                  <tr>
+                    <th>Row</th>
+                    <th>Part name</th>
+                    <th>Type</th>
+                    <th>Manufacturer</th>
+                    <th>Part number</th>
+                    <th>Site</th>
+                    <th>On hand</th>
+                    <th>Reorder point</th>
+                    <th>Bin</th>
+                    <th>Error</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {previewRows.map((row, i) => (
-                    <tr key={i} className={`border-b border-border-5 ${row.error ? "bg-intent-critical-fill/10" : ""}`}>
-                      <td className="p-2">{row.name}</td>
-                      <td className="p-2">{row.type}</td>
-                      <td className="p-2">{row.siteName}</td>
-                      <td className="p-2">{row.onHand}</td>
-                      <td className="p-2">{row.reorderPoint}</td>
-                      <td className="p-2">{row.binLocation}</td>
+                  {preview.rows.map((row) => (
+                    <tr key={row.rowNumber} className={row.error ? "bg-intent-critical-fill/10" : ""}>
+                      <td>{row.rowNumber}</td>
+                      <td>{row.name}</td>
+                      <td>{row.type}</td>
+                      <td>{row.manufacturer}</td>
+                      <td>{row.partNumber}</td>
+                      <td>{row.siteName}</td>
+                      <td>{row.onHand}</td>
+                      <td>{row.reorderPoint}</td>
+                      <td>{row.binLocation}</td>
+                      <td>{row.error}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </>
-        )}
+        ) : null}
+        {error ? <div role="alert">{error}</div> : null}
       </div>
     </Modal>
   );
 };
-
 export default ImportCsvModal;
