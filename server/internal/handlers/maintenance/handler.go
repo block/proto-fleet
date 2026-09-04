@@ -77,11 +77,11 @@ func (h *Handler) ListRepairTickets(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, err
 	}
-	tickets, totalCount, err := h.service.ListRepairTickets(ctx, filter)
+	tickets, totalCount, hasNext, err := h.service.ListRepairTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListRepairTicketsResponse(tickets, totalCount)), nil
+	return connect.NewResponse(toListRepairTicketsResponse(tickets, totalCount, hasNext)), nil
 }
 
 func (h *Handler) UpdateRepairTicket(ctx context.Context, req *connect.Request[pb.UpdateRepairTicketRequest]) (*connect.Response[pb.UpdateRepairTicketResponse], error) {
@@ -263,11 +263,11 @@ func (h *Handler) ListCompletedTickets(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	tickets, total, err := h.service.ListCompletedTickets(ctx, filter)
+	tickets, total, hasNext, err := h.service.ListCompletedTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListCompletedTicketsResponse(tickets, total)), nil
+	return connect.NewResponse(toListCompletedTicketsResponse(tickets, total, hasNext)), nil
 }
 
 func (h *Handler) ListAssignees(ctx context.Context, _ *connect.Request[pb.ListAssigneesRequest]) (*connect.Response[pb.ListAssigneesResponse], error) {

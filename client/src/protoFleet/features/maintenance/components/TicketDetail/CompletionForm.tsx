@@ -89,9 +89,11 @@ const CompletionForm = ({
         ? [{ inventoryPartId: part.id, partName: part.name, quantity: quantities[part.id.toString()] }]
         : [],
     );
+    const recordsRepairLocation =
+      isMinerTicket && (resolution === TicketResolution.REPAIRED || resolution === TicketResolution.REPLACED);
     const ok = await onSubmit({
       resolution,
-      repairLocation: isMinerTicket ? repairLocation : RepairLocation.UNSPECIFIED,
+      repairLocation: recordsRepairLocation ? repairLocation : RepairLocation.UNSPECIFIED,
       notes,
       partsSelection: selection,
     });

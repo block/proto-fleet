@@ -47,6 +47,20 @@ func TestToListFilterAcceptsOmittedFilter(t *testing.T) {
 	assert.Nil(t, filter.AssigneeUserID)
 }
 
+func TestListResponsesOnlyEmitCursorWhenAnotherPageExists(t *testing.T) {
+	cursor := models.TicketCursor{
+		SortField: models.TicketSortFieldCreatedAt, SortDirection: models.SortDirectionDescending,
+		Value: "2026-09-04T00:00:00Z", ID: 7,
+	}
+	tickets := []models.RepairTicketSummary{{RepairTicket: models.RepairTicket{ID: 7}, Cursor: cursor}}
+
+	finalPage := toListRepairTicketsResponse(tickets, 1, false)
+	assert.Empty(t, finalPage.NextPageToken)
+
+	pageWithMore := toListCompletedTicketsResponse(tickets, 2, true)
+	assert.NotEmpty(t, pageWithMore.NextPageToken)
+}
+
 func TestToProtoAssigneesMapsHydratedLabels(t *testing.T) {
 	assignees := toProtoAssignees([]models.Assignee{{UserID: 7, Username: "tech", RoleName: "Field Tech"}})
 	require.Len(t, assignees, 1)

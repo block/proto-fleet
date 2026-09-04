@@ -175,6 +175,20 @@ func (mr *MockInventoryStoreMockRecorder) ListPartsBySite(ctx, orgID, siteID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPartsBySite", reflect.TypeOf((*MockInventoryStore)(nil).ListPartsBySite), ctx, orgID, siteID)
 }
 
+// LockSites mocks base method.
+func (m *MockInventoryStore) LockSites(ctx context.Context, orgID int64, siteIDs []int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockSites", ctx, orgID, siteIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockSites indicates an expected call of LockSites.
+func (mr *MockInventoryStoreMockRecorder) LockSites(ctx, orgID, siteIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSites", reflect.TypeOf((*MockInventoryStore)(nil).LockSites), ctx, orgID, siteIDs)
+}
+
 // Release mocks base method.
 func (m *MockInventoryStore) Release(ctx context.Context, orgID, id int64, quantity int32) error {
 	m.ctrl.T.Helper()

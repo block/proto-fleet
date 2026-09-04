@@ -10,6 +10,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -84,9 +85,31 @@ func (s *Service) CreatePart(ctx context.Context, params models.CreateParams) (*
 		return nil, fleeterror.NewInvalidArgumentError("reorder_point must be >= 0")
 	}
 
-	part, err := s.store.Create(ctx, params)
-	if err != nil {
-		return nil, err
+	var part *models.InventoryPart
+	if params.SiteID == nil {
+		var err error
+		part, err = s.store.Create(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if s.transactor == nil {
+			return nil, fleeterror.NewInternalError("inventory transactor is not configured")
+		}
+		result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+			if err := s.store.LockSites(txCtx, params.OrgID, []int64{*params.SiteID}); err != nil {
+				return nil, err
+			}
+			return s.store.Create(txCtx, params)
+		})
+		if err != nil {
+			return nil, err
+		}
+		var ok bool
+		part, ok = result.(*models.InventoryPart)
+		if !ok || part == nil {
+			return nil, fleeterror.NewInternalError("create inventory transaction returned an invalid result")
+		}
 	}
 
 	// Activity log fires AFTER the write succeeds.
@@ -96,6 +119,7 @@ func (s *Service) CreatePart(ctx context.Context, params models.CreateParams) (*
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventPartCreated,
 			OrganizationID: &orgID,
+			SiteID:         part.SiteID,
 			Description:    fmt.Sprintf("Created inventory part %q (id=%d)", part.Name, part.ID),
 			Metadata: map[string]any{
 				"part_id":   part.ID,
@@ -186,6 +210,7 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventPartUpdated,
 			OrganizationID: &orgID,
+			SiteID:         after.SiteID,
 			Description:    fmt.Sprintf("Updated inventory part %q (id=%d)", after.Name, after.ID),
 			Metadata: map[string]any{
 				"part_id":           after.ID,
@@ -239,6 +264,7 @@ func (s *Service) DeletePart(ctx context.Context, orgID, id int64) error {
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventPartDeleted,
 			OrganizationID: &orgID,
+			SiteID:         part.SiteID,
 			Description:    fmt.Sprintf("Deleted inventory part %q (id=%d)", part.Name, part.ID),
 			Metadata: map[string]any{
 				"part_id":   part.ID,
@@ -312,8 +338,12 @@ func (s *Service) ConfirmCsvImport(ctx context.Context, orgID int64, data []byte
 		return 0, fleeterror.NewInternalError("inventory transactor is not configured")
 	}
 
+	siteIDs := distinctSortedSiteIDs(resolved)
 	var created int32
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if err := s.store.LockSites(txCtx, orgID, siteIDs); err != nil {
+			return err
+		}
 		var createErr error
 		created, createErr = s.store.BulkCreate(txCtx, orgID, resolved)
 		return createErr
@@ -332,11 +362,31 @@ func (s *Service) ConfirmCsvImport(ctx context.Context, orgID int64, data []byte
 				"imported_count": created,
 			},
 		}
+		importSiteIDs := make([]*int64, 0, len(resolved))
+		for _, row := range resolved {
+			importSiteIDs = append(importSiteIDs, row.SiteID)
+		}
+		event.ApplySiteScope(activitymodels.ResolveSiteScope(importSiteIDs))
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
 
 	return created, nil
+}
+
+func distinctSortedSiteIDs(rows []models.ResolvedCsvRow) []int64 {
+	unique := make(map[int64]struct{})
+	for _, row := range rows {
+		if row.SiteID != nil {
+			unique[*row.SiteID] = struct{}{}
+		}
+	}
+	siteIDs := make([]int64, 0, len(unique))
+	for siteID := range unique {
+		siteIDs = append(siteIDs, siteID)
+	}
+	sort.Slice(siteIDs, func(i, j int) bool { return siteIDs[i] < siteIDs[j] })
+	return siteIDs
 }
 
 func (s *Service) parseAndResolveCsv(ctx context.Context, orgID int64, data []byte) ([]models.CsvPreviewRow, []models.ResolvedCsvRow, error) {

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import CompletionForm from "./CompletionForm";
+import { RepairLocation, TicketResolution } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 
 const stockedPart = {
   id: 7n,
@@ -19,6 +20,30 @@ beforeEach(() => {
 });
 
 vi.mock("@/protoFleet/api/inventory", () => ({ useInventoryApi: () => ({ listPartsBySite }) }));
+vi.mock("@/shared/components/Select", () => ({
+  default: ({
+    label,
+    options,
+    value,
+    onChange,
+  }: {
+    label: string;
+    options: Array<{ value: string; label: string }>;
+    value: string;
+    onChange: (value: string) => void;
+  }) => (
+    <label>
+      {label}
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  ),
+}));
 
 it("preserves existing reservations when completing without editing parts", async () => {
   const onSubmit = vi.fn(async () => true);
@@ -40,6 +65,25 @@ it("preserves existing reservations when completing without editing parts", asyn
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         partsSelection: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2 }],
+      }),
+    ),
+  );
+});
+
+it("omits repair location for a non-repair outcome", async () => {
+  const onSubmit = vi.fn(async () => true);
+  render(<CompletionForm siteId="11" onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+  fireEvent.change(screen.getByRole("combobox", { name: "Mark as" }), {
+    target: { value: String(TicketResolution.DEFERRED) },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+
+  await waitFor(() =>
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolution: TicketResolution.DEFERRED,
+        repairLocation: RepairLocation.UNSPECIFIED,
       }),
     ),
   );

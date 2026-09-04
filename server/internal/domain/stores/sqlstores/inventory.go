@@ -213,6 +213,22 @@ func (s *SQLInventoryStore) ResolveSiteByName(ctx context.Context, orgID int64, 
 	return id, nil
 }
 
+func (s *SQLInventoryStore) LockSites(ctx context.Context, orgID int64, siteIDs []int64) error {
+	if len(siteIDs) == 0 {
+		return nil
+	}
+	locked, err := s.GetQueries(ctx).LockInventorySites(ctx, sqlc.LockInventorySitesParams{
+		OrgID: orgID, SiteIds: siteIDs,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock inventory sites: %v", err)
+	}
+	if len(locked) != len(siteIDs) {
+		return fleeterror.NewFailedPreconditionError("one or more inventory sites no longer exist")
+	}
+	return nil
+}
+
 func (s *SQLInventoryStore) BulkCreate(ctx context.Context, orgID int64, rows []models.ResolvedCsvRow) (int32, error) {
 	var created int32
 	for _, row := range rows {

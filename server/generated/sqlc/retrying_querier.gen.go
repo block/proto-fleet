@@ -840,6 +840,18 @@ func (q *retryingQuerier) CountInventoryParts(ctx context.Context, arg CountInve
 	return result, err
 }
 
+func (q *retryingQuerier) CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountInventoryPartsBySite", func() error {
+		callResult, callErr := q.next.CountInventoryPartsBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
 	var result CountMinersByStateRow
 	err := q.retrier.RetryQuery(ctx, "CountMinersByState", func() error {
@@ -4978,6 +4990,18 @@ func (q *retryingQuerier) LockInfrastructureRackForPlacement(ctx context.Context
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockInfrastructureRackForPlacement", func() error {
 		callResult, callErr := q.next.LockInfrastructureRackForPlacement(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockInventorySites", func() error {
+		callResult, callErr := q.next.LockInventorySites(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

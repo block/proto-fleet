@@ -13,6 +13,41 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestListRepairTicketsUsesLookaheadAndReportsWhetherAnotherPageExists(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockMaintenanceStore(ctrl)
+	service := NewService(store, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil)
+	filter := models.ListFilter{OrgID: 2, Limit: 2}
+	store.EXPECT().ListRepairTickets(gomock.Any(), models.ListFilter{OrgID: 2, Limit: 3}).Return(
+		[]models.RepairTicketSummary{{RepairTicket: models.RepairTicket{ID: 3}}, {RepairTicket: models.RepairTicket{ID: 2}}, {RepairTicket: models.RepairTicket{ID: 1}}}, nil,
+	)
+	store.EXPECT().CountRepairTickets(gomock.Any(), filter).Return(int32(3), nil)
+
+	tickets, total, hasNext, err := service.ListRepairTickets(t.Context(), filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), total)
+	assert.True(t, hasNext)
+	require.Len(t, tickets, 2)
+	assert.Equal(t, int64(2), tickets[1].ID)
+}
+
+func TestListCompletedTicketsSuppressesLookaheadOnFinalPage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockMaintenanceStore(ctrl)
+	service := NewService(store, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil)
+	filter := models.CompletedFilter{OrgID: 2, Limit: 2}
+	store.EXPECT().ListCompletedTickets(gomock.Any(), models.CompletedFilter{OrgID: 2, Limit: 3}).Return(
+		[]models.RepairTicketSummary{{RepairTicket: models.RepairTicket{ID: 1}}}, nil,
+	)
+	store.EXPECT().CountCompletedTickets(gomock.Any(), filter).Return(int32(1), nil)
+
+	tickets, total, hasNext, err := service.ListCompletedTickets(t.Context(), filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), total)
+	assert.False(t, hasNext)
+	require.Len(t, tickets, 1)
+}
+
 func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 	allowed := map[models.TicketStatus]map[models.TicketStatus]bool{
 		models.TicketStatusOpen: {
@@ -251,9 +286,11 @@ func TestCreateRepairTicketDerivesMinerContextAndRejectsCrossOrgReference(t *tes
 func TestCreateCommentTrimsAndBoundsText(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
-	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil)
-	tickets.EXPECT().GetRepairTicket(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3}, nil)
-	tickets.EXPECT().CreateTicketComment(gomock.Any(), int64(2), int64(3), int64(4), "fixed it").Return(&models.TicketComment{ID: 5, Text: "fixed it"}, nil)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&models.RepairTicket{ID: 3}, nil)
+	tickets.EXPECT().CreateTicketComment(txContextMatcher{}, int64(2), int64(3), int64(4), "fixed it").Return(&models.TicketComment{ID: 5, Text: "fixed it"}, nil)
 	comment, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "  fixed it  ")
 	require.NoError(t, err)
 	assert.Equal(t, "fixed it", comment.Text)
@@ -346,6 +383,29 @@ func TestBulkMarkUrgentRejectsCompletedTicket(t *testing.T) {
 
 	_, err := service.BulkMarkUrgent(t.Context(), 2, []int64{3})
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+}
+
+func TestBulkClosePublishesOnlyTheCommittedRetryAttemptCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{3}, Resolution: models.TicketResolutionDeferred}
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+		require.NoError(t, fn(ctx))
+		return fn(ctx)
+	})
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+		&models.RepairTicket{ID: 3, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil,
+	).Times(2)
+	tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return(nil, nil).Times(2)
+	tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil).Times(2)
+	tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil).Times(2)
+
+	count, err := service.BulkClose(t.Context(), params)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
 }
 
 func TestBulkCloseDoesNotRewriteCompletedTickets(t *testing.T) {

@@ -32,6 +32,9 @@ type InventoryStore interface { //nolint:interfacebloat
 	ConsumeReserved(ctx context.Context, orgID, id int64, quantity int32) error
 
 	ResolveSiteByName(ctx context.Context, orgID int64, name string) (int64, error)
+	// LockSites takes share locks on every referenced live site so inventory
+	// creation serializes against concurrent soft deletion.
+	LockSites(ctx context.Context, orgID int64, siteIDs []int64) error
 	// BulkCreate uses the transaction-bound query handle from ctx. Callers own
 	// the transaction so any row failure rolls back the complete import.
 	BulkCreate(ctx context.Context, orgID int64, rows []models.ResolvedCsvRow) (int32, error)

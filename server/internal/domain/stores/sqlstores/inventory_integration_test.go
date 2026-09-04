@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	inventorymodels "github.com/block/proto-fleet/server/internal/domain/inventory/models"
@@ -69,6 +70,32 @@ func TestInventoryStoreCRUDIsolationAndAllocationGuards(t *testing.T) {
 	assert.Equal(t, int64(1), rows)
 	_, err = store.Get(ctx, orgID, part.ID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestInventorySiteLockSerializesConcurrentSoftDelete(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLInventoryStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	orgID := insertInventoryTestOrg(t, db, "site-lock")
+	siteID := insertInventoryTestSite(t, db, orgID, "Locked Site")
+
+	err := transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		require.NoError(t, store.LockSites(txCtx, orgID, []int64{siteID}))
+
+		updateCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, updateErr := db.ExecContext(updateCtx, `UPDATE site SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, siteID)
+		require.Error(t, updateErr, "soft delete must wait for the inventory site lock")
+		return nil
+	})
+	require.NoError(t, err)
+
+	result, err := db.ExecContext(ctx, `UPDATE site SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, siteID)
+	require.NoError(t, err)
+	rows, err := result.RowsAffected()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
 }
 
 func TestInventoryStoreListFiltersCursorInsightsAndSitePicker(t *testing.T) {

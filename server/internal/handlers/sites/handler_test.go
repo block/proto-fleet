@@ -559,6 +559,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	// tx are part of the TOCTOU fix vs concurrent DeleteSite/
 	// AssignBuildingToSite).
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
+	h.siteStore.EXPECT().CountInventoryPartsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return([]int64{70}, nil)
 	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
@@ -607,6 +608,7 @@ func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
 	// away from — the narrowing check is per-target, not a blanket
 	// restriction.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().CountInventoryPartsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil, nil)
 	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)

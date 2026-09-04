@@ -190,20 +190,27 @@ func (s *Service) GetRepairTicket(ctx context.Context, orgID, id int64) (*models
 }
 
 // ListRepairTickets returns tickets matching the filter with pagination.
-func (s *Service) ListRepairTickets(ctx context.Context, filter models.ListFilter) ([]models.RepairTicketSummary, int32, error) {
-	filter.Limit = clampLimit(filter.Limit)
+func (s *Service) ListRepairTickets(ctx context.Context, filter models.ListFilter) ([]models.RepairTicketSummary, int32, bool, error) {
+	pageSize := clampLimit(filter.Limit)
+	filter.Limit = pageSize
+	countFilter := filter
+	filter.Limit++
 
 	tickets, err := s.store.ListRepairTickets(ctx, filter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 
-	totalCount, err := s.store.CountRepairTickets(ctx, filter)
+	totalCount, err := s.store.CountRepairTickets(ctx, countFilter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 
-	return tickets, totalCount, nil
+	hasNext := len(tickets) > int(pageSize)
+	if hasNext {
+		tickets = tickets[:pageSize]
+	}
+	return tickets, totalCount, hasNext, nil
 }
 
 // UpdateRepairTicket validates lifecycle and reference policy and mutates the
@@ -551,6 +558,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 
 	var affected int64
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var attemptAffected int64
 		minerIDs := make([]int64, 0, len(ids))
 		infrastructureIDs := make([]int64, 0, len(ids))
 		for _, id := range ids {
@@ -590,15 +598,16 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			if err != nil {
 				return err
 			}
-			affected += rows
+			attemptAffected += rows
 		}
 		if len(infrastructureIDs) > 0 {
 			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, infrastructureIDs, int16(params.Resolution), int16(models.RepairLocationUnspecified), params.Notes)
 			if err != nil {
 				return err
 			}
-			affected += rows
+			attemptAffected += rows
 		}
+		affected = attemptAffected
 		return nil
 	})
 	if err != nil {
@@ -653,14 +662,21 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 		return nil, fleeterror.NewInvalidArgumentError("comment text must not exceed 4096 characters")
 	}
 
-	// Verify ticket exists in org.
-	if _, err := s.store.GetRepairTicket(ctx, orgID, ticketID); err != nil {
-		return nil, err
+	if s.transactor == nil {
+		return nil, fleeterror.NewInternalError("maintenance transactor is not configured")
 	}
-
-	comment, err := s.store.CreateTicketComment(ctx, orgID, ticketID, userID, text)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		if _, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, ticketID); err != nil {
+			return nil, err
+		}
+		return s.store.CreateTicketComment(txCtx, orgID, ticketID, userID, text)
+	})
 	if err != nil {
 		return nil, err
+	}
+	comment, ok := result.(*models.TicketComment)
+	if !ok || comment == nil {
+		return nil, fleeterror.NewInternalError("create comment transaction returned an invalid result")
 	}
 	comment.AuthoredByCaller = true
 
@@ -726,17 +742,24 @@ func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commen
 // ---------------------------------------------------------------
 
 // ListCompletedTickets returns completed tickets for the history tab.
-func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, int32, error) {
-	filter.Limit = clampLimit(filter.Limit)
+func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, int32, bool, error) {
+	pageSize := clampLimit(filter.Limit)
+	filter.Limit = pageSize
+	countFilter := filter
+	filter.Limit++
 	tickets, err := s.store.ListCompletedTickets(ctx, filter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
-	total, err := s.store.CountCompletedTickets(ctx, filter)
+	total, err := s.store.CountCompletedTickets(ctx, countFilter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
-	return tickets, total, nil
+	hasNext := len(tickets) > int(pageSize)
+	if hasNext {
+		tickets = tickets[:pageSize]
+	}
+	return tickets, total, hasNext, nil
 }
 
 // ---------------------------------------------------------------

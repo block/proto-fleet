@@ -15,6 +15,17 @@ INSERT INTO inventory_part (
 )
 RETURNING id;
 
+-- name: LockInventorySites :many
+-- Inventory creation takes share locks in a deterministic order so a
+-- concurrent soft deletion cannot update deleted_at between validation and insert.
+SELECT id
+FROM site
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('site_ids')::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR SHARE;
+
 -- name: GetInventoryPart :one
 SELECT
     ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,

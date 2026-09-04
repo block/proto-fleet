@@ -56,6 +56,13 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useTicketDetail", () => ({
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
   useMaintenanceOptions: () => ({ assignees: [] }),
 }));
+vi.mock("./CompletionForm", () => ({
+  default: ({ onSubmit }: { onSubmit: () => Promise<boolean> }) => (
+    <button type="button" onClick={() => void onSubmit()}>
+      Submit completion
+    </button>
+  ),
+}));
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => true }));
 describe("TicketDetailModal", () => {
   beforeEach(() => {
@@ -92,6 +99,49 @@ describe("TicketDetailModal", () => {
     expect(screen.queryByText("Next")).not.toBeInTheDocument();
     fireEvent.click(next);
     expect(screen.getByText("3 of 3 tickets")).toBeInTheDocument();
+  });
+
+  it("clears the completion editor when navigating to another ticket", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" ticketIds={["1", "2"]} onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+    expect(screen.getByRole("button", { name: "Submit completion" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+
+    expect(screen.queryByRole("button", { name: "Submit completion" })).not.toBeInTheDocument();
+  });
+
+  it("clears the RMA editor and its draft when navigating to another ticket", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" ticketIds={["1", "2"]} onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Update status" }));
+    fireEvent.click(screen.getByText("Sent to Vendor"));
+    fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "Stale vendor" } });
+    expect(screen.getByDisplayValue("Stale vendor")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+
+    expect(screen.queryByLabelText("Vendor")).not.toBeInTheDocument();
+  });
+
+  it("closes the completion editor after a successful completion", async () => {
+    update.mockResolvedValueOnce(true);
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit completion" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Submit completion" })).not.toBeInTheDocument());
   });
 
   it("does not expose terminal mutation controls", () => {

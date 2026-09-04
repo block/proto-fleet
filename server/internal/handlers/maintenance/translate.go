@@ -433,26 +433,26 @@ func toProtoTicketStats(stats *models.TicketStats) *pb.GetTicketStatsResponse {
 // Response builders
 // ---------------------------------------------------------------
 
-func toListRepairTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32) *pb.ListRepairTicketsResponse {
+func toListRepairTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32, hasNext bool) *pb.ListRepairTicketsResponse {
 	out := make([]*pb.RepairTicketSummary, 0, len(tickets))
 	for i := range tickets {
 		out = append(out, toProtoTicketSummary(&tickets[i]))
 	}
 	return &pb.ListRepairTicketsResponse{
 		Tickets:       out,
-		NextPageToken: nextPageToken(tickets),
+		NextPageToken: nextPageToken(tickets, hasNext),
 		TotalCount:    totalCount,
 	}
 }
 
-func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32) *pb.ListCompletedTicketsResponse {
+func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32, hasNext bool) *pb.ListCompletedTicketsResponse {
 	out := make([]*pb.RepairTicketSummary, 0, len(tickets))
 	for i := range tickets {
 		out = append(out, toProtoTicketSummary(&tickets[i]))
 	}
 	return &pb.ListCompletedTicketsResponse{
 		Tickets:       out,
-		NextPageToken: nextPageToken(tickets),
+		NextPageToken: nextPageToken(tickets, hasNext),
 		TotalCount:    totalCount,
 	}
 }
@@ -465,8 +465,8 @@ func toProtoAssignees(assignees []models.Assignee) []*pb.Assignee {
 	return out
 }
 
-func nextPageToken(tickets []models.RepairTicketSummary) string {
-	if len(tickets) == 0 {
+func nextPageToken(tickets []models.RepairTicketSummary, hasNext bool) string {
+	if !hasNext || len(tickets) == 0 {
 		return ""
 	}
 	token, err := tickets[len(tickets)-1].Cursor.Encode()

@@ -46,6 +46,33 @@ func TestListPartsReturnsFilteredTotalAndOnlyEmitsCursorWhenAnotherPageExists(t 
 	assert.Nil(t, finalPage.NextCursorID)
 }
 
+func TestCreatePartLocksAssignedSiteInTheCreateTransaction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(store, transactor, activity.NewService(activityStore))
+	siteID := int64(11)
+	params := models.CreateParams{OrgID: 42, Name: "Fan", Type: "cooling", SiteID: &siteID}
+
+	transactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) (any, error)) (any, error) {
+			return action(context.WithValue(ctx, inventoryTxMarker{}, true))
+		},
+	)
+	store.EXPECT().LockSites(inventoryTxContextMatcher{}, int64(42), []int64{siteID}).Return(nil)
+	store.EXPECT().Create(inventoryTxContextMatcher{}, params).Return(&models.InventoryPart{ID: 7, OrgID: 42, SiteID: &siteID, Name: "Fan", Type: "cooling"}, nil)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		require.NotNil(t, event.SiteID)
+		assert.Equal(t, siteID, *event.SiteID)
+		return nil
+	})
+
+	part, err := service.CreatePart(t.Context(), params)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), part.ID)
+}
+
 func TestInventoryParseCsvPreviewResolvesSitesAndReportsErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
@@ -90,7 +117,8 @@ func TestConfirmCsvImportResolvesEverySiteInsideOrganization(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
 	transactor := mocks.NewMockTransactor(ctrl)
-	service := NewService(store, transactor, nil)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(store, transactor, activity.NewService(activityStore))
 	const orgID = int64(42)
 	const siteID = int64(7)
 
@@ -98,6 +126,7 @@ func TestConfirmCsvImportResolvesEverySiteInsideOrganization(t *testing.T) {
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
 	)
+	store.EXPECT().LockSites(gomock.Any(), orgID, []int64{siteID}).Return(nil)
 	store.EXPECT().BulkCreate(gomock.Any(), orgID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ int64, rows []models.ResolvedCsvRow) (int32, error) {
 			require.Len(t, rows, 2)
@@ -109,6 +138,12 @@ func TestConfirmCsvImportResolvesEverySiteInsideOrganization(t *testing.T) {
 			return 2, nil
 		},
 	)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		assert.True(t, event.MultiSite)
+		assert.Equal(t, []int64{siteID}, event.MemberSiteIDs)
+		assert.True(t, event.TouchesUnassigned)
+		return nil
+	})
 
 	data := []byte(strings.Join([]string{
 		"name,type,manufacturer,part_number,site_name,on_hand,reorder_point,bin_location",
@@ -162,8 +197,9 @@ func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 		OrgID: orgID, ID: partID, OnHand: &onHand, ReorderPoint: &reorderPoint,
 		Reason: models.AdjustmentReasonCycleCount,
 	}
-	oldPart := &models.InventoryPart{ID: partID, OrgID: orgID, Name: "Fan", OnHand: 10, Allocated: 2, ReorderPoint: 1}
-	newPart := &models.InventoryPart{ID: partID, OrgID: orgID, Name: "Fan", OnHand: 8, Allocated: 2, ReorderPoint: 3}
+	siteID := int64(11)
+	oldPart := &models.InventoryPart{ID: partID, OrgID: orgID, SiteID: &siteID, Name: "Fan", OnHand: 10, Allocated: 2, ReorderPoint: 1}
+	newPart := &models.InventoryPart{ID: partID, OrgID: orgID, SiteID: &siteID, Name: "Fan", OnHand: 8, Allocated: 2, ReorderPoint: 3}
 	txComplete := false
 
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -178,6 +214,8 @@ func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, event *activitymodels.Event) error {
 			assert.True(t, txComplete, "activity must be emitted after transaction commit")
+			require.NotNil(t, event.SiteID)
+			assert.Equal(t, siteID, *event.SiteID)
 			assert.Equal(t, int32(10), event.Metadata["old_on_hand"])
 			assert.Equal(t, int32(8), event.Metadata["new_on_hand"])
 			assert.Equal(t, int32(1), event.Metadata["old_reorder_point"])
@@ -191,6 +229,40 @@ func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newPart, part)
 }
+
+func TestDeletePartScopesActivityToPersistedSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(store, transactor, activity.NewService(activityStore))
+	siteID := int64(11)
+	part := &models.InventoryPart{ID: 7, OrgID: 42, SiteID: &siteID, Name: "Fan"}
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
+	)
+	store.EXPECT().GetForUpdate(gomock.Any(), int64(42), int64(7)).Return(part, nil)
+	store.EXPECT().SoftDelete(gomock.Any(), int64(42), int64(7)).Return(int64(1), nil)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		require.NotNil(t, event.SiteID)
+		assert.Equal(t, siteID, *event.SiteID)
+		return nil
+	})
+
+	require.NoError(t, service.DeletePart(t.Context(), 42, 7))
+}
+
+type inventoryTxMarker struct{}
+
+type inventoryTxContextMatcher struct{}
+
+func (inventoryTxContextMatcher) Matches(value any) bool {
+	ctx, ok := value.(context.Context)
+	return ok && ctx.Value(inventoryTxMarker{}) == true
+}
+
+func (inventoryTxContextMatcher) String() string { return "inventory transaction-bound context" }
 
 func TestUpdatePartRejectsOnHandBelowAllocatedBeforeWrite(t *testing.T) {
 	ctrl := gomock.NewController(t)

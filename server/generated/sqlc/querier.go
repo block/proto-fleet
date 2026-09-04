@@ -278,6 +278,7 @@ type Querier interface {
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
 	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error)
+	CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error)
 	// Counts miners by their operational state for fleet health dashboard.
 	// Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);
 	// the uptime chart stores history against the same classifier.
@@ -1290,6 +1291,9 @@ type Querier interface {
 	// operations lock rack rows before cascading to infrastructure devices, so
 	// callers must invoke this before locking an infrastructure-device row.
 	LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error)
+	// Inventory creation takes share locks in a deterministic order so a
+	// concurrent soft deletion cannot update deleted_at between validation and insert.
+	LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
 	LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error)

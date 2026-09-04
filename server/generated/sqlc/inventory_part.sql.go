@@ -454,6 +454,46 @@ func (q *Queries) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams
 	return items, nil
 }
 
+const lockInventorySites = `-- name: LockInventorySites :many
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND id = ANY($2::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR SHARE
+`
+
+type LockInventorySitesParams struct {
+	OrgID   int64
+	SiteIds []int64
+}
+
+// Inventory creation takes share locks in a deterministic order so a
+// concurrent soft deletion cannot update deleted_at between validation and insert.
+func (q *Queries) LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockInventorySitesStmt, lockInventorySites, arg.OrgID, pq.Array(arg.SiteIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const releaseInventoryPart = `-- name: ReleaseInventoryPart :execrows
 UPDATE inventory_part
 SET allocated = allocated - $1::int,

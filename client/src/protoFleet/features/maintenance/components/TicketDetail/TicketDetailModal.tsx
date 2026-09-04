@@ -68,6 +68,16 @@ const TicketDetailModal = ({
   const [eta, setEta] = useState("");
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
+  const navigateToTicket = (id: string) => {
+    setAssignOpen(false);
+    setStatusOpen(false);
+    setCompleting(false);
+    setRma(false);
+    setVendor("");
+    setTracking("");
+    setEta("");
+    setCurrentId(id);
+  };
   const updateTicket = async (input: Omit<UpdateTicketProps, "id">) => {
     const updated = await detail.update(input);
     if (updated) onMutationSuccess?.();
@@ -195,7 +205,11 @@ const TicketDetailModal = ({
                 siteId={ticket.siteId}
                 initialParts={ticket.partsUsed}
                 onCancel={() => setCompleting(false)}
-                onSubmit={(value) => updateTicket({ status: TicketStatus.COMPLETED, ...value })}
+                onSubmit={async (value) => {
+                  const updated = await updateTicket({ status: TicketStatus.COMPLETED, ...value });
+                  if (updated) setCompleting(false);
+                  return updated;
+                }}
               />
             ) : null}
           </div>
@@ -273,7 +287,7 @@ const TicketDetailModal = ({
                 variant={variants.secondary}
                 ariaLabel="Previous ticket"
                 prefixIcon={<ArrowLeftCompact />}
-                onClick={() => setCurrentId(ticketIds[index - 1])}
+                onClick={() => navigateToTicket(ticketIds[index - 1])}
                 disabled={index <= 0}
               />
               <Button
@@ -281,7 +295,7 @@ const TicketDetailModal = ({
                 variant={variants.secondary}
                 ariaLabel="Next ticket"
                 prefixIcon={<ArrowRight />}
-                onClick={() => setCurrentId(ticketIds[index + 1])}
+                onClick={() => navigateToTicket(ticketIds[index + 1])}
                 disabled={index < 0 || index >= ticketIds.length - 1}
               />
             </div>
