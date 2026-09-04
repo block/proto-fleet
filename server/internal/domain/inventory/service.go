@@ -12,6 +12,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -50,18 +51,20 @@ const (
 // Service is the domain entry point for inventory part CRUD.
 type Service struct {
 	store       interfaces.InventoryStore
+	transactor  interfaces.Transactor
 	activitySvc *activity.Service
 }
 
-// NewService wires an InventoryStore and the activity Service used
-// for fire-and-forget audit logs. activitySvc may be nil in tests
-// or environments where activity logging is disabled.
+// NewService wires inventory persistence, transaction ownership, and activity
+// logging. activitySvc may be nil where audit persistence is disabled.
 func NewService(
 	store interfaces.InventoryStore,
+	transactor interfaces.Transactor,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		store:       store,
+		transactor:  transactor,
 		activitySvc: activitySvc,
 	}
 }
@@ -124,7 +127,7 @@ func (s *Service) ListParts(ctx context.Context, filter models.ListFilter) ([]mo
 	return s.store.List(ctx, filter)
 }
 
-// UpdatePart mutates the part's mutable fields.
+// UpdatePart locks, validates, and mutates a part in one transaction.
 func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*models.InventoryPart, error) {
 	if !params.Reason.Valid() {
 		return nil, fleeterror.NewInvalidArgumentError("invalid adjustment_reason")
@@ -135,8 +138,26 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 	if params.ReorderPoint != nil && *params.ReorderPoint < 0 {
 		return nil, fleeterror.NewInvalidArgumentError("reorder_point must be >= 0")
 	}
+	if params.OnHand == nil && params.ReorderPoint == nil && params.BinLocation == nil {
+		return nil, fleeterror.NewInvalidArgumentError("at least one inventory field must be updated")
+	}
+	if s.transactor == nil {
+		return nil, fleeterror.NewInternalError("inventory transactor is not configured")
+	}
 
-	part, err := s.store.Update(ctx, params)
+	var before, after *models.InventoryPart
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		before, err = s.store.GetForUpdate(txCtx, params.OrgID, params.ID)
+		if err != nil {
+			return err
+		}
+		if params.OnHand != nil && *params.OnHand < before.Allocated {
+			return fleeterror.NewFailedPreconditionError("on_hand cannot be less than allocated stock")
+		}
+		after, err = s.store.Update(txCtx, params)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -147,37 +168,52 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventPartUpdated,
 			OrganizationID: &orgID,
-			Description:    fmt.Sprintf("Updated inventory part %q (id=%d)", part.Name, part.ID),
+			Description:    fmt.Sprintf("Updated inventory part %q (id=%d)", after.Name, after.ID),
 			Metadata: map[string]any{
-				"part_id":           part.ID,
-				"part_name":         part.Name,
+				"part_id":           after.ID,
+				"part_name":         after.Name,
 				"adjustment_reason": int16(params.Reason),
+				"old_on_hand":       before.OnHand,
+				"new_on_hand":       after.OnHand,
+				"old_allocated":     before.Allocated,
+				"new_allocated":     after.Allocated,
+				"old_reorder_point": before.ReorderPoint,
+				"new_reorder_point": after.ReorderPoint,
 			},
-		}
-		if params.Notes != nil {
-			event.Metadata["notes"] = *params.Notes
 		}
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
 
-	return part, nil
+	return after, nil
 }
 
-// DeletePart soft-deletes the inventory part.
+// DeletePart locks and soft-deletes an unallocated inventory part.
 func (s *Service) DeletePart(ctx context.Context, orgID, id int64) error {
-	// Read the part before delete for the activity log.
-	part, err := s.store.Get(ctx, orgID, id)
+	if s.transactor == nil {
+		return fleeterror.NewInternalError("inventory transactor is not configured")
+	}
+	var part *models.InventoryPart
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		part, err = s.store.GetForUpdate(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if part.Allocated > 0 {
+			return fleeterror.NewFailedPreconditionError("allocated inventory part cannot be deleted")
+		}
+		rowsAffected, err := s.store.SoftDelete(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return fleeterror.NewNotFoundErrorf("inventory part %d not found", id)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-
-	rowsAffected, err := s.store.SoftDelete(ctx, orgID, id)
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return fleeterror.NewNotFoundErrorf("inventory part %d not found", id)
 	}
 
 	if s.activitySvc != nil {
@@ -226,98 +262,46 @@ type csvColumnIndex struct {
 	binLocation  int
 }
 
-// maxCsvPreviewRows caps the number of rows returned in a preview
-// response to avoid blowing up the response payload.
+// maxCsvPreviewRows is a hard import limit. Oversized files are rejected rather
+// than truncated so preview and confirmation always describe the same payload.
 const maxCsvPreviewRows = 500
 
-// ParseCsvPreview parses the raw CSV bytes and returns a preview
-// table of rows with per-row validation errors. The first row is
-// expected to be column headers.
-func (s *Service) ParseCsvPreview(ctx context.Context, data []byte) ([]models.CsvPreviewRow, error) {
-	_ = ctx // reserved for future site-name resolution
-
-	reader := csv.NewReader(bytes.NewReader(data))
-	reader.TrimLeadingSpace = true
-
-	// Read the header row.
-	headers, err := reader.Read()
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("CSV is empty or has no header row")
-	}
-
-	idx, err := buildColumnIndex(headers)
-	if err != nil {
-		return nil, err
-	}
-
-	var rows []models.CsvPreviewRow
-	rowNum := 1 // 1-indexed; header is row 0 conceptually
-	for {
-		record, readErr := reader.Read()
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			// Surface parse errors as a preview row with an error message.
-			rowNum++
-			rows = append(rows, models.CsvPreviewRow{
-				RowNumber: rowNum,
-				Error:     fmt.Sprintf("parse error: %v", readErr),
-			})
-			continue
-		}
-		rowNum++
-		row := parseCsvRow(record, idx, rowNum)
-		rows = append(rows, row)
-		if len(rows) >= maxCsvPreviewRows {
-			break
-		}
-	}
-
-	if len(rows) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError("CSV contains no data rows")
-	}
-
-	return rows, nil
+// ParseCsvPreview parses and validates all CSV rows, including organization-
+// scoped site resolution. It never writes inventory.
+func (s *Service) ParseCsvPreview(ctx context.Context, orgID int64, data []byte) ([]models.CsvPreviewRow, error) {
+	rows, _, err := s.parseAndResolveCsv(ctx, orgID, data)
+	return rows, err
 }
 
-// ConfirmCsvImport takes the validated preview rows and creates parts
-// in bulk. Rows with non-empty Error are skipped. Returns the number
-// of parts successfully created.
-func (s *Service) ConfirmCsvImport(ctx context.Context, orgID int64, rows []models.CsvPreviewRow) (int32, error) {
-	var created int32
-	for _, row := range rows {
+// ConfirmCsvImport reparses the exact submitted bytes and commits every row in
+// one transaction. A single invalid row or insert failure leaves inventory
+// unchanged.
+func (s *Service) ConfirmCsvImport(ctx context.Context, orgID int64, data []byte) (int32, error) {
+	preview, resolved, err := s.parseAndResolveCsv(ctx, orgID, data)
+	if err != nil {
+		return 0, err
+	}
+	var invalidRows int
+	for _, row := range preview {
 		if row.Error != "" {
-			continue
+			invalidRows++
 		}
-		params := models.CreateParams{
-			OrgID:        orgID,
-			Name:         row.Name,
-			Type:         row.Type,
-			OnHand:       row.OnHand,
-			ReorderPoint: row.ReorderPoint,
-		}
-		if row.Manufacturer != "" {
-			v := row.Manufacturer
-			params.Manufacturer = &v
-		}
-		if row.PartNumber != "" {
-			v := row.PartNumber
-			params.PartNumber = &v
-		}
-		if row.BinLocation != "" {
-			v := row.BinLocation
-			params.BinLocation = &v
-		}
-		// SiteID resolution from SiteName is deferred to the store /
-		// handler layer where site lookups are available. For now, the
-		// import creates parts without a site assignment when SiteName
-		// is provided.
+	}
+	if invalidRows > 0 {
+		return 0, fleeterror.NewInvalidArgumentErrorf("CSV contains %d invalid row(s)", invalidRows)
+	}
+	if s.transactor == nil {
+		return 0, fleeterror.NewInternalError("inventory transactor is not configured")
+	}
 
-		if _, err := s.store.Create(ctx, params); err != nil {
-			return created, fmt.Errorf("row %d: %w", row.RowNumber, err)
-		}
-		created++
+	var created int32
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var createErr error
+		created, createErr = s.store.BulkCreate(txCtx, orgID, resolved)
+		return createErr
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	if s.activitySvc != nil && created > 0 {
@@ -335,6 +319,101 @@ func (s *Service) ConfirmCsvImport(ctx context.Context, orgID int64, rows []mode
 	}
 
 	return created, nil
+}
+
+func (s *Service) parseAndResolveCsv(ctx context.Context, orgID int64, data []byte) ([]models.CsvPreviewRow, []models.ResolvedCsvRow, error) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	reader.TrimLeadingSpace = true
+
+	headers, err := reader.Read()
+	if err != nil {
+		return nil, nil, fleeterror.NewInvalidArgumentError("CSV is empty or has no header row")
+	}
+	idx, err := buildColumnIndex(headers)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	preview := make([]models.CsvPreviewRow, 0)
+	resolved := make([]models.ResolvedCsvRow, 0)
+	seen := make(map[string]struct{})
+	rowNum := 1
+	for {
+		record, readErr := reader.Read()
+		if readErr == io.EOF {
+			break
+		}
+		rowNum++
+		if len(preview) == maxCsvPreviewRows {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("CSV exceeds the %d data row limit", maxCsvPreviewRows)
+		}
+		if readErr != nil {
+			preview = append(preview, models.CsvPreviewRow{
+				RowNumber: rowNum,
+				Error:     fmt.Sprintf("parse error: %v", readErr),
+			})
+			continue
+		}
+
+		row := parseCsvRow(record, idx, rowNum)
+		var siteID *int64
+		if row.Error == "" && row.SiteName != "" {
+			resolvedID, resolveErr := s.store.ResolveSiteByName(ctx, orgID, row.SiteName)
+			if resolveErr != nil {
+				if !fleeterror.IsNotFoundError(resolveErr) {
+					return nil, nil, resolveErr
+				}
+				row.Error = fmt.Sprintf("site_name %q was not found in this organization", row.SiteName)
+			} else {
+				siteID = &resolvedID
+			}
+		}
+		if row.Error == "" {
+			key := fmt.Sprintf("%d\x00%s", valueOrZero(siteID), strings.ToLower(strings.TrimSpace(row.Name)))
+			if _, exists := seen[key]; exists {
+				row.Error = "duplicate name for site in CSV"
+			} else {
+				seen[key] = struct{}{}
+			}
+		}
+		preview = append(preview, row)
+		if row.Error == "" {
+			resolved = append(resolved, resolvedCsvRow(row, siteID))
+		}
+	}
+	if len(preview) == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("CSV contains no data rows")
+	}
+	return preview, resolved, nil
+}
+
+func resolvedCsvRow(row models.CsvPreviewRow, siteID *int64) models.ResolvedCsvRow {
+	return models.ResolvedCsvRow{
+		RowNumber:    row.RowNumber,
+		Name:         strings.TrimSpace(row.Name),
+		Type:         strings.TrimSpace(row.Type),
+		Manufacturer: optionalCsvString(row.Manufacturer),
+		PartNumber:   optionalCsvString(row.PartNumber),
+		SiteID:       siteID,
+		OnHand:       row.OnHand,
+		ReorderPoint: row.ReorderPoint,
+		BinLocation:  optionalCsvString(row.BinLocation),
+	}
+}
+
+func optionalCsvString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func valueOrZero(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // buildColumnIndex maps header names to their positional index.
@@ -422,8 +501,18 @@ func parseCsvRow(record []string, idx *csvColumnIndex, rowNum int) models.CsvPre
 	// Validation.
 	if row.Name == "" {
 		row.Error = "name is required"
+	} else if utf8.RuneCountInString(row.Name) > 255 {
+		row.Error = "name must be at most 255 characters"
 	} else if row.Type == "" {
 		row.Error = "type is required"
+	} else if utf8.RuneCountInString(row.Type) > 64 {
+		row.Error = "type must be at most 64 characters"
+	} else if utf8.RuneCountInString(row.Manufacturer) > 255 {
+		row.Error = "manufacturer must be at most 255 characters"
+	} else if utf8.RuneCountInString(row.PartNumber) > 128 {
+		row.Error = "part_number must be at most 128 characters"
+	} else if utf8.RuneCountInString(row.BinLocation) > 64 {
+		row.Error = "bin_location must be at most 64 characters"
 	} else if row.OnHand < 0 {
 		row.Error = "on_hand must be >= 0"
 	} else if row.ReorderPoint < 0 {

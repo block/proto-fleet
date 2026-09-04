@@ -648,6 +648,18 @@ func (q *retryingQuerier) ConsumeFleetNodeAuthChallenge(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ConsumeReservedInventoryPart", func() error {
+		callResult, callErr := q.next.ConsumeReservedInventoryPart(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveAssignmentsForRole", func() error {
@@ -1068,8 +1080,8 @@ func (q *retryingQuerier) CreateInfrastructureDevice(ctx context.Context, arg Cr
 	return result, err
 }
 
-func (q *retryingQuerier) CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (InventoryPart, error) {
-	var result InventoryPart
+func (q *retryingQuerier) CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (int64, error) {
+	var result int64
 	err := q.retrier.RetryQuery(ctx, "CreateInventoryPart", func() error {
 		callResult, callErr := q.next.CreateInventoryPart(ctx, arg)
 		if callErr == nil {
@@ -1222,18 +1234,6 @@ func (q *retryingQuerier) CurtailmentEventHasInFlightTargets(ctx context.Context
 		return callErr
 	})
 	return result, err
-}
-
-func (q *retryingQuerier) DecrementPartAllocated(ctx context.Context, arg DecrementPartAllocatedParams) error {
-	return q.retrier.RetryQuery(ctx, "DecrementPartAllocated", func() error {
-		return q.next.DecrementPartAllocated(ctx, arg)
-	})
-}
-
-func (q *retryingQuerier) DecrementPartStock(ctx context.Context, arg DecrementPartStockParams) error {
-	return q.retrier.RetryQuery(ctx, "DecrementPartStock", func() error {
-		return q.next.DecrementPartStock(ctx, arg)
-	})
 }
 
 func (q *retryingQuerier) DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error) {
@@ -2682,10 +2682,22 @@ func (q *retryingQuerier) GetInventoryInsights(ctx context.Context, orgID int64)
 	return result, err
 }
 
-func (q *retryingQuerier) GetInventoryPart(ctx context.Context, arg GetInventoryPartParams) (InventoryPart, error) {
-	var result InventoryPart
+func (q *retryingQuerier) GetInventoryPart(ctx context.Context, arg GetInventoryPartParams) (GetInventoryPartRow, error) {
+	var result GetInventoryPartRow
 	err := q.retrier.RetryQuery(ctx, "GetInventoryPart", func() error {
 		callResult, callErr := q.next.GetInventoryPart(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetInventoryPartForUpdate(ctx context.Context, arg GetInventoryPartForUpdateParams) (GetInventoryPartForUpdateRow, error) {
+	var result GetInventoryPartForUpdateRow
+	err := q.retrier.RetryQuery(ctx, "GetInventoryPartForUpdate", func() error {
+		callResult, callErr := q.next.GetInventoryPartForUpdate(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3486,12 +3498,6 @@ func (q *retryingQuerier) HasUser(ctx context.Context) (bool, error) {
 	return result, err
 }
 
-func (q *retryingQuerier) IncrementPartAllocated(ctx context.Context, arg IncrementPartAllocatedParams) error {
-	return q.retrier.RetryQuery(ctx, "IncrementPartAllocated", func() error {
-		return q.next.IncrementPartAllocated(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertActivityLog", func() error {
 		return q.next.InsertActivityLog(ctx, arg)
@@ -4290,8 +4296,8 @@ func (q *retryingQuerier) ListInfrastructureDevicesByOrg(ctx context.Context, ar
 	return result, err
 }
 
-func (q *retryingQuerier) ListInventoryParts(ctx context.Context, arg ListInventoryPartsParams) ([]InventoryPart, error) {
-	var result []InventoryPart
+func (q *retryingQuerier) ListInventoryParts(ctx context.Context, arg ListInventoryPartsParams) ([]ListInventoryPartsRow, error) {
+	var result []ListInventoryPartsRow
 	err := q.retrier.RetryQuery(ctx, "ListInventoryParts", func() error {
 		callResult, callErr := q.next.ListInventoryParts(ctx, arg)
 		if callErr == nil {
@@ -4386,8 +4392,8 @@ func (q *retryingQuerier) ListOrganizations(ctx context.Context) ([]Organization
 	return result, err
 }
 
-func (q *retryingQuerier) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]InventoryPart, error) {
-	var result []InventoryPart
+func (q *retryingQuerier) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error) {
+	var result []ListPartsBySiteRow
 	err := q.retrier.RetryQuery(ctx, "ListPartsBySite", func() error {
 		callResult, callErr := q.next.ListPartsBySite(ctx, arg)
 		if callErr == nil {
@@ -5268,6 +5274,18 @@ func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReleaseInventoryPart", func() error {
+		callResult, callErr := q.next.ReleaseInventoryPart(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReleaseUndispatchedTargetsForRestore", func() error {
@@ -5340,6 +5358,18 @@ func (q *retryingQuerier) RequeueRigConfigReconciliationAfterTerminalFailure(ctx
 	})
 }
 
+func (q *retryingQuerier) ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReserveInventoryPart", func() error {
+		callResult, callErr := q.next.ReserveInventoryPart(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) (ResetCurtailmentTargetsForRecurtailRow, error) {
 	var result ResetCurtailmentTargetsForRecurtailRow
 	err := q.retrier.RetryQuery(ctx, "ResetCurtailmentTargetsForRecurtail", func() error {
@@ -5368,6 +5398,18 @@ func (q *retryingQuerier) ResolveCurtailmentTopologyDispatch(ctx context.Context
 	var result ResolveCurtailmentTopologyDispatchRow
 	err := q.retrier.RetryQuery(ctx, "ResolveCurtailmentTopologyDispatch", func() error {
 		callResult, callErr := q.next.ResolveCurtailmentTopologyDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ResolveInventorySiteByName", func() error {
+		callResult, callErr := q.next.ResolveInventorySiteByName(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6222,8 +6264,8 @@ func (q *retryingQuerier) UpdateInfrastructureDevice(ctx context.Context, arg Up
 	return result, err
 }
 
-func (q *retryingQuerier) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPartParams) (InventoryPart, error) {
-	var result InventoryPart
+func (q *retryingQuerier) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPartParams) (int64, error) {
+	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpdateInventoryPart", func() error {
 		callResult, callErr := q.next.UpdateInventoryPart(ctx, arg)
 		if callErr == nil {

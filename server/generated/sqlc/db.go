@@ -192,6 +192,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, consumeFleetNodeAuthChallenge); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeFleetNodeAuthChallenge: %w", err)
 	}
+	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
+	}
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
 	}
@@ -347,12 +350,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
-	}
-	if q.decrementPartAllocatedStmt, err = db.PrepareContext(ctx, decrementPartAllocated); err != nil {
-		return nil, fmt.Errorf("error preparing query DecrementPartAllocated: %w", err)
-	}
-	if q.decrementPartStockStmt, err = db.PrepareContext(ctx, decrementPartStock); err != nil {
-		return nil, fmt.Errorf("error preparing query DecrementPartStock: %w", err)
 	}
 	if q.deleteAlertMaintenanceWindowStmt, err = db.PrepareContext(ctx, deleteAlertMaintenanceWindow); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAlertMaintenanceWindow: %w", err)
@@ -729,6 +726,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getInventoryPartStmt, err = db.PrepareContext(ctx, getInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInventoryPart: %w", err)
 	}
+	if q.getInventoryPartForUpdateStmt, err = db.PrepareContext(ctx, getInventoryPartForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInventoryPartForUpdate: %w", err)
+	}
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
 	}
@@ -926,9 +926,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
-	}
-	if q.incrementPartAllocatedStmt, err = db.PrepareContext(ctx, incrementPartAllocated); err != nil {
-		return nil, fmt.Errorf("error preparing query IncrementPartAllocated: %w", err)
 	}
 	if q.insertActivityLogStmt, err = db.PrepareContext(ctx, insertActivityLog); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertActivityLog: %w", err)
@@ -1398,6 +1395,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
 	}
+	if q.releaseInventoryPartStmt, err = db.PrepareContext(ctx, releaseInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseInventoryPart: %w", err)
+	}
 	if q.releaseUndispatchedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedTargetsForRestore: %w", err)
 	}
@@ -1419,6 +1419,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.requeueRigConfigReconciliationAfterTerminalFailureStmt, err = db.PrepareContext(ctx, requeueRigConfigReconciliationAfterTerminalFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query RequeueRigConfigReconciliationAfterTerminalFailure: %w", err)
 	}
+	if q.reserveInventoryPartStmt, err = db.PrepareContext(ctx, reserveInventoryPart); err != nil {
+		return nil, fmt.Errorf("error preparing query ReserveInventoryPart: %w", err)
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
 	}
@@ -1430,6 +1433,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.resolveCurtailmentTopologyDispatchStmt, err = db.PrepareContext(ctx, resolveCurtailmentTopologyDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveCurtailmentTopologyDispatch: %w", err)
+	}
+	if q.resolveInventorySiteByNameStmt, err = db.PrepareContext(ctx, resolveInventorySiteByName); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveInventorySiteByName: %w", err)
 	}
 	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
@@ -2109,6 +2115,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing consumeFleetNodeAuthChallengeStmt: %w", cerr)
 		}
 	}
+	if q.consumeReservedInventoryPartStmt != nil {
+		if cerr := q.consumeReservedInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeReservedInventoryPartStmt: %w", cerr)
+		}
+	}
 	if q.countActiveAssignmentsForRoleStmt != nil {
 		if cerr := q.countActiveAssignmentsForRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveAssignmentsForRoleStmt: %w", cerr)
@@ -2367,16 +2378,6 @@ func (q *Queries) Close() error {
 	if q.curtailmentEventHasInFlightTargetsStmt != nil {
 		if cerr := q.curtailmentEventHasInFlightTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
-		}
-	}
-	if q.decrementPartAllocatedStmt != nil {
-		if cerr := q.decrementPartAllocatedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing decrementPartAllocatedStmt: %w", cerr)
-		}
-	}
-	if q.decrementPartStockStmt != nil {
-		if cerr := q.decrementPartStockStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing decrementPartStockStmt: %w", cerr)
 		}
 	}
 	if q.deleteAlertMaintenanceWindowStmt != nil {
@@ -3004,6 +3005,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getInventoryPartStmt: %w", cerr)
 		}
 	}
+	if q.getInventoryPartForUpdateStmt != nil {
+		if cerr := q.getInventoryPartForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInventoryPartForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getKnownSubnetsStmt != nil {
 		if cerr := q.getKnownSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getKnownSubnetsStmt: %w", cerr)
@@ -3332,11 +3338,6 @@ func (q *Queries) Close() error {
 	if q.hasUserStmt != nil {
 		if cerr := q.hasUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
-		}
-	}
-	if q.incrementPartAllocatedStmt != nil {
-		if cerr := q.incrementPartAllocatedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing incrementPartAllocatedStmt: %w", cerr)
 		}
 	}
 	if q.insertActivityLogStmt != nil {
@@ -4119,6 +4120,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
 		}
 	}
+	if q.releaseInventoryPartStmt != nil {
+		if cerr := q.releaseInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseInventoryPartStmt: %w", cerr)
+		}
+	}
 	if q.releaseUndispatchedTargetsForRestoreStmt != nil {
 		if cerr := q.releaseUndispatchedTargetsForRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseUndispatchedTargetsForRestoreStmt: %w", cerr)
@@ -4154,6 +4160,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing requeueRigConfigReconciliationAfterTerminalFailureStmt: %w", cerr)
 		}
 	}
+	if q.reserveInventoryPartStmt != nil {
+		if cerr := q.reserveInventoryPartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reserveInventoryPartStmt: %w", cerr)
+		}
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRecurtailStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRecurtailStmt: %w", cerr)
@@ -4172,6 +4183,11 @@ func (q *Queries) Close() error {
 	if q.resolveCurtailmentTopologyDispatchStmt != nil {
 		if cerr := q.resolveCurtailmentTopologyDispatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resolveCurtailmentTopologyDispatchStmt: %w", cerr)
+		}
+	}
+	if q.resolveInventorySiteByNameStmt != nil {
+		if cerr := q.resolveInventorySiteByNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveInventorySiteByNameStmt: %w", cerr)
 		}
 	}
 	if q.resumeCurtailmentFromRestoringStmt != nil {
@@ -4924,6 +4940,7 @@ type Queries struct {
 	completeRigConfigReconciliationStmt                          *sql.Stmt
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
+	consumeReservedInventoryPartStmt                             *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
@@ -4976,8 +4993,6 @@ type Queries struct {
 	createUserStmt                                               *sql.Stmt
 	createUserOrganizationStmt                                   *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt                       *sql.Stmt
-	decrementPartAllocatedStmt                                   *sql.Stmt
-	decrementPartStockStmt                                       *sql.Stmt
 	deleteAlertMaintenanceWindowStmt                             *sql.Stmt
 	deleteAlertRouteChannelsStmt                                 *sql.Stmt
 	deleteAlertRoutePolicyStmt                                   *sql.Stmt
@@ -5103,6 +5118,7 @@ type Queries struct {
 	getInfrastructureDeviceStmt                                  *sql.Stmt
 	getInventoryInsightsStmt                                     *sql.Stmt
 	getInventoryPartStmt                                         *sql.Stmt
+	getInventoryPartForUpdateStmt                                *sql.Stmt
 	getKnownSubnetsStmt                                          *sql.Stmt
 	getLatestAllDeviceMetricsStmt                                *sql.Stmt
 	getLatestDeviceMetricsStmt                                   *sql.Stmt
@@ -5169,7 +5185,6 @@ type Queries struct {
 	getUserRoleNameForUpdateStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
-	incrementPartAllocatedStmt                                   *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
 	insertAlertChannelStmt                                       *sql.Stmt
 	insertAlertMaintenanceWindowStmt                             *sql.Stmt
@@ -5326,6 +5341,7 @@ type Queries struct {
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
+	releaseInventoryPartStmt                                     *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
@@ -5333,10 +5349,12 @@ type Queries struct {
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	requestRigConfigReconciliationStmt                           *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
+	reserveInventoryPartStmt                                     *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resetReapedFirmwareStatusesStmt                              *sql.Stmt
 	resolveCurtailmentTopologyDispatchStmt                       *sql.Stmt
+	resolveInventorySiteByNameStmt                               *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
 	resumePausedScheduleStmt                                     *sql.Stmt
 	retryRigConfigReconciliationStmt                             *sql.Stmt
@@ -5530,6 +5548,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
+		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
@@ -5582,8 +5601,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                               q.createUserStmt,
 		createUserOrganizationStmt:                                   q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:                       q.curtailmentEventHasInFlightTargetsStmt,
-		decrementPartAllocatedStmt:                                   q.decrementPartAllocatedStmt,
-		decrementPartStockStmt:                                       q.decrementPartStockStmt,
 		deleteAlertMaintenanceWindowStmt:                             q.deleteAlertMaintenanceWindowStmt,
 		deleteAlertRouteChannelsStmt:                                 q.deleteAlertRouteChannelsStmt,
 		deleteAlertRoutePolicyStmt:                                   q.deleteAlertRoutePolicyStmt,
@@ -5709,6 +5726,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
 		getInventoryInsightsStmt:                                     q.getInventoryInsightsStmt,
 		getInventoryPartStmt:                                         q.getInventoryPartStmt,
+		getInventoryPartForUpdateStmt:                                q.getInventoryPartForUpdateStmt,
 		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                                q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                   q.getLatestDeviceMetricsStmt,
@@ -5775,7 +5793,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
-		incrementPartAllocatedStmt:                                   q.incrementPartAllocatedStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
 		insertAlertMaintenanceWindowStmt:                             q.insertAlertMaintenanceWindowStmt,
@@ -5932,6 +5949,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
+		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
@@ -5939,10 +5957,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
 		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:       q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
+		reserveInventoryPartStmt:                                     q.reserveInventoryPartStmt,
 		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resetReapedFirmwareStatusesStmt:                              q.resetReapedFirmwareStatusesStmt,
 		resolveCurtailmentTopologyDispatchStmt:                       q.resolveCurtailmentTopologyDispatchStmt,
+		resolveInventorySiteByNameStmt:                               q.resolveInventorySiteByNameStmt,
 		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
 		resumePausedScheduleStmt:                                     q.resumePausedScheduleStmt,
 		retryRigConfigReconciliationStmt:                             q.retryRigConfigReconciliationStmt,

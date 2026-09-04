@@ -20,7 +20,7 @@ const (
 // Valid reports whether the value matches one of the defined enum
 // members. Used to reject malformed proto inputs at the service edge.
 func (r AdjustmentReason) Valid() bool {
-	return r >= AdjustmentReasonUnspecified && r <= AdjustmentReasonOther
+	return r >= AdjustmentReasonReceivedShipment && r <= AdjustmentReasonOther
 }
 
 // InventoryPart is the canonical domain shape for an inventory_part row.
@@ -102,4 +102,18 @@ type CsvPreviewRow struct {
 	ReorderPoint int32
 	BinLocation  string
 	Error        string // empty when valid
+}
+
+// ResolvedCsvRow is a validated import row with any site name resolved inside
+// the caller's organization. It is the only CSV shape accepted by persistence.
+type ResolvedCsvRow struct {
+	RowNumber    int
+	Name         string
+	Type         string
+	Manufacturer *string
+	PartNumber   *string
+	SiteID       *int64
+	OnHand       int32
+	ReorderPoint int32
+	BinLocation  *string
 }

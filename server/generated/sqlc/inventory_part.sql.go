@@ -8,9 +8,36 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
+
+const consumeReservedInventoryPart = `-- name: ConsumeReservedInventoryPart :execrows
+UPDATE inventory_part
+SET on_hand = on_hand - $1::int,
+    allocated = allocated - $1::int,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+  AND allocated >= $1::int
+  AND on_hand >= $1::int
+`
+
+type ConsumeReservedInventoryPartParams struct {
+	Quantity int32
+	ID       int64
+	OrgID    int64
+}
+
+func (q *Queries) ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error) {
+	result, err := q.exec(ctx, q.consumeReservedInventoryPartStmt, consumeReservedInventoryPart, arg.Quantity, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const createInventoryPart = `-- name: CreateInventoryPart :one
 INSERT INTO inventory_part (
@@ -27,7 +54,7 @@ INSERT INTO inventory_part (
     $8,
     $9
 )
-RETURNING id, org_id, name, type, manufacturer, part_number, site_id, on_hand, allocated, reorder_point, bin_location, created_at, updated_at, deleted_at
+RETURNING id
 `
 
 type CreateInventoryPartParams struct {
@@ -42,7 +69,7 @@ type CreateInventoryPartParams struct {
 	BinLocation  sql.NullString
 }
 
-func (q *Queries) CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (InventoryPart, error) {
+func (q *Queries) CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (int64, error) {
 	row := q.queryRow(ctx, q.createInventoryPartStmt, createInventoryPart,
 		arg.OrgID,
 		arg.Name,
@@ -54,68 +81,9 @@ func (q *Queries) CreateInventoryPart(ctx context.Context, arg CreateInventoryPa
 		arg.ReorderPoint,
 		arg.BinLocation,
 	)
-	var i InventoryPart
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Name,
-		&i.Type,
-		&i.Manufacturer,
-		&i.PartNumber,
-		&i.SiteID,
-		&i.OnHand,
-		&i.Allocated,
-		&i.ReorderPoint,
-		&i.BinLocation,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
-}
-
-const decrementPartAllocated = `-- name: DecrementPartAllocated :exec
-UPDATE inventory_part
-SET allocated = GREATEST(0, allocated - $1::int),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $2
-  AND org_id = $3
-  AND deleted_at IS NULL
-`
-
-type DecrementPartAllocatedParams struct {
-	Quantity int32
-	ID       int64
-	OrgID    int64
-}
-
-// Releases allocated stock (repair cancelled or completed).
-func (q *Queries) DecrementPartAllocated(ctx context.Context, arg DecrementPartAllocatedParams) error {
-	_, err := q.exec(ctx, q.decrementPartAllocatedStmt, decrementPartAllocated, arg.Quantity, arg.ID, arg.OrgID)
-	return err
-}
-
-const decrementPartStock = `-- name: DecrementPartStock :exec
-UPDATE inventory_part
-SET on_hand = on_hand - $1::int,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $2
-  AND org_id = $3
-  AND deleted_at IS NULL
-  AND on_hand >= $1::int
-`
-
-type DecrementPartStockParams struct {
-	Quantity int32
-	ID       int64
-	OrgID    int64
-}
-
-// Decrements on_hand for a part when used in a repair. Called per part
-// in the ticket completion transaction.
-func (q *Queries) DecrementPartStock(ctx context.Context, arg DecrementPartStockParams) error {
-	_, err := q.exec(ctx, q.decrementPartStockStmt, decrementPartStock, arg.Quantity, arg.ID, arg.OrgID)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getInventoryInsights = `-- name: GetInventoryInsights :one
@@ -136,7 +104,6 @@ type GetInventoryInsightsRow struct {
 	SitesCount     int32
 }
 
-// Aggregate stats for the inventory tab insights row.
 func (q *Queries) GetInventoryInsights(ctx context.Context, orgID int64) (GetInventoryInsightsRow, error) {
 	row := q.queryRow(ctx, q.getInventoryInsightsStmt, getInventoryInsights, orgID)
 	var i GetInventoryInsightsRow
@@ -150,11 +117,19 @@ func (q *Queries) GetInventoryInsights(ctx context.Context, orgID int64) (GetInv
 }
 
 const getInventoryPart = `-- name: GetInventoryPart :one
-SELECT id, org_id, name, type, manufacturer, part_number, site_id, on_hand, allocated, reorder_point, bin_location, created_at, updated_at, deleted_at
-FROM inventory_part
-WHERE id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
+SELECT
+    ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,
+    ip.site_id, COALESCE(s.name, '') AS site_name,
+    ip.on_hand, ip.allocated, ip.reorder_point, ip.bin_location,
+    ip.created_at, ip.updated_at, ip.deleted_at
+FROM inventory_part ip
+LEFT JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
+WHERE ip.id = $1
+  AND ip.org_id = $2
+  AND ip.deleted_at IS NULL
 `
 
 type GetInventoryPartParams struct {
@@ -162,9 +137,27 @@ type GetInventoryPartParams struct {
 	OrgID int64
 }
 
-func (q *Queries) GetInventoryPart(ctx context.Context, arg GetInventoryPartParams) (InventoryPart, error) {
+type GetInventoryPartRow struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	SiteName     string
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
+func (q *Queries) GetInventoryPart(ctx context.Context, arg GetInventoryPartParams) (GetInventoryPartRow, error) {
 	row := q.queryRow(ctx, q.getInventoryPartStmt, getInventoryPart, arg.ID, arg.OrgID)
-	var i InventoryPart
+	var i GetInventoryPartRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -173,6 +166,7 @@ func (q *Queries) GetInventoryPart(ctx context.Context, arg GetInventoryPartPara
 		&i.Manufacturer,
 		&i.PartNumber,
 		&i.SiteID,
+		&i.SiteName,
 		&i.OnHand,
 		&i.Allocated,
 		&i.ReorderPoint,
@@ -184,38 +178,87 @@ func (q *Queries) GetInventoryPart(ctx context.Context, arg GetInventoryPartPara
 	return i, err
 }
 
-const incrementPartAllocated = `-- name: IncrementPartAllocated :exec
-UPDATE inventory_part
-SET allocated = allocated + $1::int,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $2
-  AND org_id = $3
-  AND deleted_at IS NULL
+const getInventoryPartForUpdate = `-- name: GetInventoryPartForUpdate :one
+SELECT
+    ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,
+    ip.site_id, COALESCE(s.name, '') AS site_name,
+    ip.on_hand, ip.allocated, ip.reorder_point, ip.bin_location,
+    ip.created_at, ip.updated_at, ip.deleted_at
+FROM inventory_part ip
+LEFT JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
+WHERE ip.id = $1
+  AND ip.org_id = $2
+  AND ip.deleted_at IS NULL
+FOR UPDATE OF ip
 `
 
-type IncrementPartAllocatedParams struct {
-	Quantity int32
-	ID       int64
-	OrgID    int64
+type GetInventoryPartForUpdateParams struct {
+	ID    int64
+	OrgID int64
 }
 
-// Allocates stock to an active repair.
-func (q *Queries) IncrementPartAllocated(ctx context.Context, arg IncrementPartAllocatedParams) error {
-	_, err := q.exec(ctx, q.incrementPartAllocatedStmt, incrementPartAllocated, arg.Quantity, arg.ID, arg.OrgID)
-	return err
+type GetInventoryPartForUpdateRow struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	SiteName     string
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
+func (q *Queries) GetInventoryPartForUpdate(ctx context.Context, arg GetInventoryPartForUpdateParams) (GetInventoryPartForUpdateRow, error) {
+	row := q.queryRow(ctx, q.getInventoryPartForUpdateStmt, getInventoryPartForUpdate, arg.ID, arg.OrgID)
+	var i GetInventoryPartForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Type,
+		&i.Manufacturer,
+		&i.PartNumber,
+		&i.SiteID,
+		&i.SiteName,
+		&i.OnHand,
+		&i.Allocated,
+		&i.ReorderPoint,
+		&i.BinLocation,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }
 
 const listInventoryParts = `-- name: ListInventoryParts :many
-SELECT ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number, ip.site_id, ip.on_hand, ip.allocated, ip.reorder_point, ip.bin_location, ip.created_at, ip.updated_at, ip.deleted_at
+SELECT
+    ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,
+    ip.site_id, COALESCE(s.name, '') AS site_name,
+    ip.on_hand, ip.allocated, ip.reorder_point, ip.bin_location,
+    ip.created_at, ip.updated_at, ip.deleted_at
 FROM inventory_part ip
+LEFT JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
 WHERE ip.org_id = $1
   AND ip.deleted_at IS NULL
   AND ($2::bigint[] IS NULL
        OR ip.site_id = ANY($2::bigint[]))
   AND ($3::text[] IS NULL
        OR ip.type = ANY($3::text[]))
-  AND ($4::boolean IS NULL
-       OR $4::boolean = false
+  AND (NOT $4::boolean
        OR (ip.on_hand - ip.allocated) <= ip.reorder_point)
   AND ($5::bigint IS NULL
        OR ip.id < $5::bigint)
@@ -227,12 +270,30 @@ type ListInventoryPartsParams struct {
 	OrgID          int64
 	FilterSiteIds  []int64
 	FilterTypes    []string
-	FilterLowStock sql.NullBool
+	FilterLowStock bool
 	CursorID       sql.NullInt64
 	LimitN         int32
 }
 
-func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryPartsParams) ([]InventoryPart, error) {
+type ListInventoryPartsRow struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	SiteName     string
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
+func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryPartsParams) ([]ListInventoryPartsRow, error) {
 	rows, err := q.query(ctx, q.listInventoryPartsStmt, listInventoryParts,
 		arg.OrgID,
 		pq.Array(arg.FilterSiteIds),
@@ -245,9 +306,9 @@ func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryParts
 		return nil, err
 	}
 	defer rows.Close()
-	var items []InventoryPart
+	var items []ListInventoryPartsRow
 	for rows.Next() {
-		var i InventoryPart
+		var i ListInventoryPartsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -256,6 +317,7 @@ func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryParts
 			&i.Manufacturer,
 			&i.PartNumber,
 			&i.SiteID,
+			&i.SiteName,
 			&i.OnHand,
 			&i.Allocated,
 			&i.ReorderPoint,
@@ -278,13 +340,21 @@ func (q *Queries) ListInventoryParts(ctx context.Context, arg ListInventoryParts
 }
 
 const listPartsBySite = `-- name: ListPartsBySite :many
-SELECT id, org_id, name, type, manufacturer, part_number, site_id, on_hand, allocated, reorder_point, bin_location, created_at, updated_at, deleted_at
-FROM inventory_part
-WHERE org_id = $1
-  AND site_id = $2
-  AND deleted_at IS NULL
-  AND (on_hand - allocated) > 0
-ORDER BY name
+SELECT
+    ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,
+    ip.site_id, COALESCE(s.name, '') AS site_name,
+    ip.on_hand, ip.allocated, ip.reorder_point, ip.bin_location,
+    ip.created_at, ip.updated_at, ip.deleted_at
+FROM inventory_part ip
+JOIN site s
+  ON s.id = ip.site_id
+ AND s.org_id = ip.org_id
+ AND s.deleted_at IS NULL
+WHERE ip.org_id = $1
+  AND ip.site_id = $2
+  AND ip.deleted_at IS NULL
+  AND (ip.on_hand - ip.allocated) > 0
+ORDER BY ip.name, ip.id
 `
 
 type ListPartsBySiteParams struct {
@@ -292,16 +362,33 @@ type ListPartsBySiteParams struct {
 	SiteID sql.NullInt64
 }
 
-// Parts at a given site for the ticket completion part picker.
-func (q *Queries) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]InventoryPart, error) {
+type ListPartsBySiteRow struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	SiteName     string
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
+func (q *Queries) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error) {
 	rows, err := q.query(ctx, q.listPartsBySiteStmt, listPartsBySite, arg.OrgID, arg.SiteID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []InventoryPart
+	var items []ListPartsBySiteRow
 	for rows.Next() {
-		var i InventoryPart
+		var i ListPartsBySiteRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -310,6 +397,7 @@ func (q *Queries) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams
 			&i.Manufacturer,
 			&i.PartNumber,
 			&i.SiteID,
+			&i.SiteName,
 			&i.OnHand,
 			&i.Allocated,
 			&i.ReorderPoint,
@@ -331,12 +419,82 @@ func (q *Queries) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams
 	return items, nil
 }
 
+const releaseInventoryPart = `-- name: ReleaseInventoryPart :execrows
+UPDATE inventory_part
+SET allocated = allocated - $1::int,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+  AND allocated >= $1::int
+`
+
+type ReleaseInventoryPartParams struct {
+	Quantity int32
+	ID       int64
+	OrgID    int64
+}
+
+func (q *Queries) ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error) {
+	result, err := q.exec(ctx, q.releaseInventoryPartStmt, releaseInventoryPart, arg.Quantity, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const reserveInventoryPart = `-- name: ReserveInventoryPart :execrows
+UPDATE inventory_part
+SET allocated = allocated + $1::int,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+  AND on_hand - allocated >= $1::int
+`
+
+type ReserveInventoryPartParams struct {
+	Quantity int32
+	ID       int64
+	OrgID    int64
+}
+
+func (q *Queries) ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error) {
+	result, err := q.exec(ctx, q.reserveInventoryPartStmt, reserveInventoryPart, arg.Quantity, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resolveInventorySiteByName = `-- name: ResolveInventorySiteByName :one
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND name = $2
+  AND deleted_at IS NULL
+`
+
+type ResolveInventorySiteByNameParams struct {
+	OrgID int64
+	Name  string
+}
+
+func (q *Queries) ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error) {
+	row := q.queryRow(ctx, q.resolveInventorySiteByNameStmt, resolveInventorySiteByName, arg.OrgID, arg.Name)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const softDeleteInventoryPart = `-- name: SoftDeleteInventoryPart :execrows
 UPDATE inventory_part
-SET deleted_at = CURRENT_TIMESTAMP
+SET deleted_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND org_id = $2
   AND deleted_at IS NULL
+  AND allocated = 0
 `
 
 type SoftDeleteInventoryPartParams struct {
@@ -352,7 +510,7 @@ func (q *Queries) SoftDeleteInventoryPart(ctx context.Context, arg SoftDeleteInv
 	return result.RowsAffected()
 }
 
-const updateInventoryPart = `-- name: UpdateInventoryPart :one
+const updateInventoryPart = `-- name: UpdateInventoryPart :execrows
 UPDATE inventory_part
 SET on_hand       = COALESCE($1, on_hand),
     reorder_point = COALESCE($2, reorder_point),
@@ -361,7 +519,7 @@ SET on_hand       = COALESCE($1, on_hand),
 WHERE id = $4
   AND org_id = $5
   AND deleted_at IS NULL
-RETURNING id, org_id, name, type, manufacturer, part_number, site_id, on_hand, allocated, reorder_point, bin_location, created_at, updated_at, deleted_at
+  AND COALESCE($1, on_hand) >= allocated
 `
 
 type UpdateInventoryPartParams struct {
@@ -372,30 +530,16 @@ type UpdateInventoryPartParams struct {
 	OrgID        int64
 }
 
-func (q *Queries) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPartParams) (InventoryPart, error) {
-	row := q.queryRow(ctx, q.updateInventoryPartStmt, updateInventoryPart,
+func (q *Queries) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPartParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateInventoryPartStmt, updateInventoryPart,
 		arg.OnHand,
 		arg.ReorderPoint,
 		arg.BinLocation,
 		arg.ID,
 		arg.OrgID,
 	)
-	var i InventoryPart
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Name,
-		&i.Type,
-		&i.Manufacturer,
-		&i.PartNumber,
-		&i.SiteID,
-		&i.OnHand,
-		&i.Allocated,
-		&i.ReorderPoint,
-		&i.BinLocation,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

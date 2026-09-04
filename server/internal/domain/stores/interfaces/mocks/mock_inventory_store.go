@@ -41,6 +41,35 @@ func (m *MockInventoryStore) EXPECT() *MockInventoryStoreMockRecorder {
 	return m.recorder
 }
 
+// BulkCreate mocks base method.
+func (m *MockInventoryStore) BulkCreate(ctx context.Context, orgID int64, rows []models.ResolvedCsvRow) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BulkCreate", ctx, orgID, rows)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BulkCreate indicates an expected call of BulkCreate.
+func (mr *MockInventoryStoreMockRecorder) BulkCreate(ctx, orgID, rows any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkCreate", reflect.TypeOf((*MockInventoryStore)(nil).BulkCreate), ctx, orgID, rows)
+}
+
+// ConsumeReserved mocks base method.
+func (m *MockInventoryStore) ConsumeReserved(ctx context.Context, orgID, id int64, quantity int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeReserved", ctx, orgID, id, quantity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConsumeReserved indicates an expected call of ConsumeReserved.
+func (mr *MockInventoryStoreMockRecorder) ConsumeReserved(ctx, orgID, id, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeReserved", reflect.TypeOf((*MockInventoryStore)(nil).ConsumeReserved), ctx, orgID, id, quantity)
+}
+
 // Create mocks base method.
 func (m *MockInventoryStore) Create(ctx context.Context, params models.CreateParams) (*models.InventoryPart, error) {
 	m.ctrl.T.Helper()
@@ -54,34 +83,6 @@ func (m *MockInventoryStore) Create(ctx context.Context, params models.CreatePar
 func (mr *MockInventoryStoreMockRecorder) Create(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockInventoryStore)(nil).Create), ctx, params)
-}
-
-// DecrementPartAllocated mocks base method.
-func (m *MockInventoryStore) DecrementPartAllocated(ctx context.Context, orgID, id int64, quantity int32) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DecrementPartAllocated", ctx, orgID, id, quantity)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DecrementPartAllocated indicates an expected call of DecrementPartAllocated.
-func (mr *MockInventoryStoreMockRecorder) DecrementPartAllocated(ctx, orgID, id, quantity any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementPartAllocated", reflect.TypeOf((*MockInventoryStore)(nil).DecrementPartAllocated), ctx, orgID, id, quantity)
-}
-
-// DecrementPartStock mocks base method.
-func (m *MockInventoryStore) DecrementPartStock(ctx context.Context, orgID, id int64, quantity int32) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DecrementPartStock", ctx, orgID, id, quantity)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DecrementPartStock indicates an expected call of DecrementPartStock.
-func (mr *MockInventoryStoreMockRecorder) DecrementPartStock(ctx, orgID, id, quantity any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementPartStock", reflect.TypeOf((*MockInventoryStore)(nil).DecrementPartStock), ctx, orgID, id, quantity)
 }
 
 // Get mocks base method.
@@ -99,6 +100,21 @@ func (mr *MockInventoryStoreMockRecorder) Get(ctx, orgID, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockInventoryStore)(nil).Get), ctx, orgID, id)
 }
 
+// GetForUpdate mocks base method.
+func (m *MockInventoryStore) GetForUpdate(ctx context.Context, orgID, id int64) (*models.InventoryPart, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetForUpdate", ctx, orgID, id)
+	ret0, _ := ret[0].(*models.InventoryPart)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetForUpdate indicates an expected call of GetForUpdate.
+func (mr *MockInventoryStoreMockRecorder) GetForUpdate(ctx, orgID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetForUpdate", reflect.TypeOf((*MockInventoryStore)(nil).GetForUpdate), ctx, orgID, id)
+}
+
 // GetInsights mocks base method.
 func (m *MockInventoryStore) GetInsights(ctx context.Context, orgID int64) (*models.InventoryInsights, error) {
 	m.ctrl.T.Helper()
@@ -112,20 +128,6 @@ func (m *MockInventoryStore) GetInsights(ctx context.Context, orgID int64) (*mod
 func (mr *MockInventoryStoreMockRecorder) GetInsights(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInsights", reflect.TypeOf((*MockInventoryStore)(nil).GetInsights), ctx, orgID)
-}
-
-// IncrementPartAllocated mocks base method.
-func (m *MockInventoryStore) IncrementPartAllocated(ctx context.Context, orgID, id int64, quantity int32) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IncrementPartAllocated", ctx, orgID, id, quantity)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// IncrementPartAllocated indicates an expected call of IncrementPartAllocated.
-func (mr *MockInventoryStoreMockRecorder) IncrementPartAllocated(ctx, orgID, id, quantity any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementPartAllocated", reflect.TypeOf((*MockInventoryStore)(nil).IncrementPartAllocated), ctx, orgID, id, quantity)
 }
 
 // List mocks base method.
@@ -156,6 +158,49 @@ func (m *MockInventoryStore) ListPartsBySite(ctx context.Context, orgID, siteID 
 func (mr *MockInventoryStoreMockRecorder) ListPartsBySite(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPartsBySite", reflect.TypeOf((*MockInventoryStore)(nil).ListPartsBySite), ctx, orgID, siteID)
+}
+
+// Release mocks base method.
+func (m *MockInventoryStore) Release(ctx context.Context, orgID, id int64, quantity int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Release", ctx, orgID, id, quantity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Release indicates an expected call of Release.
+func (mr *MockInventoryStoreMockRecorder) Release(ctx, orgID, id, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Release", reflect.TypeOf((*MockInventoryStore)(nil).Release), ctx, orgID, id, quantity)
+}
+
+// Reserve mocks base method.
+func (m *MockInventoryStore) Reserve(ctx context.Context, orgID, id int64, quantity int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Reserve", ctx, orgID, id, quantity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Reserve indicates an expected call of Reserve.
+func (mr *MockInventoryStoreMockRecorder) Reserve(ctx, orgID, id, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reserve", reflect.TypeOf((*MockInventoryStore)(nil).Reserve), ctx, orgID, id, quantity)
+}
+
+// ResolveSiteByName mocks base method.
+func (m *MockInventoryStore) ResolveSiteByName(ctx context.Context, orgID int64, name string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveSiteByName", ctx, orgID, name)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveSiteByName indicates an expected call of ResolveSiteByName.
+func (mr *MockInventoryStoreMockRecorder) ResolveSiteByName(ctx, orgID, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveSiteByName", reflect.TypeOf((*MockInventoryStore)(nil).ResolveSiteByName), ctx, orgID, name)
 }
 
 // SoftDelete mocks base method.

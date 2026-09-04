@@ -120,11 +120,11 @@ func (h *Handler) DeleteInventoryPart(ctx context.Context, req *connect.Request[
 }
 
 func (h *Handler) ImportInventoryCsv(ctx context.Context, req *connect.Request[pb.ImportInventoryCsvRequest]) (*connect.Response[pb.ImportInventoryCsvResponse], error) {
-	_, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
+	info, err := middleware.RequirePermission(ctx, authz.PermMaintenanceManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ParseCsvPreview(ctx, req.Msg.GetCsvData())
+	rows, err := h.service.ParseCsvPreview(ctx, info.OrganizationID, req.Msg.GetCsvData())
 	if err != nil {
 		return nil, err
 	}
@@ -136,11 +136,7 @@ func (h *Handler) ConfirmInventoryImport(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	previewRows, err := h.service.ParseCsvPreview(ctx, req.Msg.GetCsvData())
-	if err != nil {
-		return nil, err
-	}
-	created, err := h.service.ConfirmCsvImport(ctx, info.OrganizationID, previewRows)
+	created, err := h.service.ConfirmCsvImport(ctx, info.OrganizationID, req.Msg.GetCsvData())
 	if err != nil {
 		return nil, err
 	}
