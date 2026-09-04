@@ -89,13 +89,16 @@ const (
 
 // RolloutServiceClient is a client for the rollout.v1.RolloutService service.
 type RolloutServiceClient interface {
-	// Lists all release channels with member counts grouped by model, current
-	// firmware assignments, and active rollout ids.
+	// Lists scope-free release channel summaries with member counts grouped
+	// by manufacturer/model, current firmware assignments, and active rollout
+	// ids, using bounded cursor pagination. Use GetReleaseChannel to retrieve
+	// a scope.
 	ListReleaseChannels(context.Context, *connect.Request[v1.ListReleaseChannelsRequest]) (*connect.Response[v1.ListReleaseChannelsResponse], error)
-	// Returns one release channel with member counts grouped by model.
+	// Returns one complete release channel, including its scope and member
+	// counts grouped by manufacturer/model.
 	GetReleaseChannel(context.Context, *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error)
 	// Lists the miners currently resolved into a channel, optionally filtered
-	// by model, with bounded cursor pagination.
+	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
@@ -108,16 +111,17 @@ type RolloutServiceClient interface {
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
-	// model, and which existing channels it would overlap.
+	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
-	// Replaces per-model firmware assignments of a channel and starts a
-	// rollout, paced by the channel's behavior, for every model whose
+	// Replaces per-manufacturer/model firmware assignments of a channel and
+	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
-	// model group back to A. Any active rollout for the (channel, model) pair
-	// is canceled and a new all-at-once rollout enforces the restored version.
+	// manufacturer/model group back to A. Any active rollout for the (channel,
+	// manufacturer, model) tuple is canceled and a new all-at-once rollout
+	// enforces the restored version.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -359,13 +363,16 @@ func (c *rolloutServiceClient) RetryFailedRolloutDevices(ctx context.Context, re
 
 // RolloutServiceHandler is an implementation of the rollout.v1.RolloutService service.
 type RolloutServiceHandler interface {
-	// Lists all release channels with member counts grouped by model, current
-	// firmware assignments, and active rollout ids.
+	// Lists scope-free release channel summaries with member counts grouped
+	// by manufacturer/model, current firmware assignments, and active rollout
+	// ids, using bounded cursor pagination. Use GetReleaseChannel to retrieve
+	// a scope.
 	ListReleaseChannels(context.Context, *connect.Request[v1.ListReleaseChannelsRequest]) (*connect.Response[v1.ListReleaseChannelsResponse], error)
-	// Returns one release channel with member counts grouped by model.
+	// Returns one complete release channel, including its scope and member
+	// counts grouped by manufacturer/model.
 	GetReleaseChannel(context.Context, *connect.Request[v1.GetReleaseChannelRequest]) (*connect.Response[v1.GetReleaseChannelResponse], error)
 	// Lists the miners currently resolved into a channel, optionally filtered
-	// by model, with bounded cursor pagination.
+	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
@@ -378,16 +385,17 @@ type RolloutServiceHandler interface {
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
-	// model, and which existing channels it would overlap.
+	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
-	// Replaces per-model firmware assignments of a channel and starts a
-	// rollout, paced by the channel's behavior, for every model whose
+	// Replaces per-manufacturer/model firmware assignments of a channel and
+	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Restores the firmware assignment that was in place immediately before
 	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
-	// model group back to A. Any active rollout for the (channel, model) pair
-	// is canceled and a new all-at-once rollout enforces the restored version.
+	// manufacturer/model group back to A. Any active rollout for the (channel,
+	// manufacturer, model) tuple is canceled and a new all-at-once rollout
+	// enforces the restored version.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
