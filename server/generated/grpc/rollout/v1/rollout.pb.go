@@ -1400,18 +1400,19 @@ type FirmwareAssignment struct {
 	Manufacturer string                 `protobuf:"bytes,1,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
 	Model        string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	// Firmware file to enforce for this manufacturer/model pair. A nonempty id
-	// must identify an immutable artifact with complete metadata: nonempty
-	// target manufacturer, target model, and firmware version. The normalized
-	// metadata target must match this normalized assignment target. For
+	// must identify an immutable firmware payload with complete target
+	// metadata: nonempty target manufacturer, target model, and firmware
+	// version. The normalized metadata target must match this normalized
+	// assignment target. For
 	// release-channel assignments, one normalized manufacturer/model/version
 	// tuple identifies exactly one firmware file. Reusing that file id is
 	// valid; if another file id already represents the tuple,
 	// ApplyReleaseChannelFirmware fails with FAILED_PRECONDITION before
 	// changing any assignment or starting any rollout. This makes convergence
 	// on the reported version uniquely identify the deployed artifact. Once
-	// applied, the artifact is protected from deletion while the assignment is
-	// current or the file id is retained as a rollback target. Empty clears the
-	// assignment. Direct firmware uploads are outside this contract.
+	// referenced, its deletion and target metadata are governed by the
+	// cross-service protection invariant above. Empty clears the assignment.
+	// Direct firmware uploads are outside this contract.
 	FirmwareFileId string `protobuf:"bytes,3,opt,name=firmware_file_id,json=firmwareFileId,proto3" json:"firmware_file_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1807,9 +1808,8 @@ type Rollout struct {
 	ChannelName  string                 `protobuf:"bytes,3,opt,name=channel_name,json=channelName,proto3" json:"channel_name,omitempty"`
 	Manufacturer string                 `protobuf:"bytes,4,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
 	Model        string                 `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`
-	// Target artifact. It is protected from deletion while this rollout is
-	// active and, after the rollout finishes, while the target remains
-	// retryable because it matches the current channel assignment.
+	// Target artifact. Its deletion and target metadata are governed by the
+	// cross-service protection invariant above.
 	FirmwareFileId  string        `protobuf:"bytes,6,opt,name=firmware_file_id,json=firmwareFileId,proto3" json:"firmware_file_id,omitempty"`
 	FirmwareVersion string        `protobuf:"bytes,7,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
 	Status          RolloutStatus `protobuf:"varint,8,opt,name=status,proto3,enum=rollout.v1.RolloutStatus" json:"status,omitempty"`
@@ -1830,10 +1830,14 @@ type Rollout struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Set when the rollout completed or was canceled.
 	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
-	// Assignment in place before this rollout; what a rollback restores. A
-	// nonempty file id is protected from deletion while this rollout remains
-	// in history available to RollbackReleaseChannelFirmware.
-	PreviousFirmwareFileId  string `protobuf:"bytes,19,opt,name=previous_firmware_file_id,json=previousFirmwareFileId,proto3" json:"previous_firmware_file_id,omitempty"`
+	// Assignment in place before this rollout. Empty means this rollout
+	// introduced the manufacturer/model pair's first assignment, so rollback
+	// clears the current assignment and starts no rollout. A nonempty file id
+	// remains covered by the cross-service protection invariant while this
+	// rollout remains in history available to RollbackReleaseChannelFirmware.
+	PreviousFirmwareFileId string `protobuf:"bytes,19,opt,name=previous_firmware_file_id,json=previousFirmwareFileId,proto3" json:"previous_firmware_file_id,omitempty"`
+	// Version of the previous assignment; empty when there was no previous
+	// assignment.
 	PreviousFirmwareVersion string `protobuf:"bytes,20,opt,name=previous_firmware_version,json=previousFirmwareVersion,proto3" json:"previous_firmware_version,omitempty"`
 	// Number of miners snapshotted into the rollout. Retrieve their live
 	// progress with ListRolloutDevices.
@@ -3496,8 +3500,10 @@ func (x *ApplyReleaseChannelFirmwareResponse) GetStartedRollouts() []*Rollout {
 
 type RollbackReleaseChannelFirmwareRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Rollout whose previous firmware assignment is restored for its channel
-	// and manufacturer/model pair.
+	// Rollout whose assignment is reversed for its channel and
+	// manufacturer/model pair. Its previous assignment is restored, or its
+	// first assignment is cleared when the referenced rollout's
+	// previous_firmware_file_id is empty.
 	RolloutId     int64 `protobuf:"varint,1,opt,name=rollout_id,json=rolloutId,proto3" json:"rollout_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3543,8 +3549,9 @@ func (x *RollbackReleaseChannelFirmwareRequest) GetRolloutId() int64 {
 type RollbackReleaseChannelFirmwareResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Channel *ReleaseChannel        `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	// Rollouts started by this call (at most one, for the rolled-back
-	// manufacturer/model pair).
+	// Rollouts started by this call. Empty when the first assignment was
+	// cleared or no members mismatch the restored assignment; otherwise
+	// contains one all-at-once rollout for those mismatched members.
 	StartedRollouts []*Rollout `protobuf:"bytes,2,rep,name=started_rollouts,json=startedRollouts,proto3" json:"started_rollouts,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

@@ -132,9 +132,9 @@ type RolloutServiceClient interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must identify an immutable artifact with complete
-	// metadata: nonempty target manufacturer, target model, and firmware
-	// version. The normalized metadata target must match the normalized
+	// firmware_file_id must identify an immutable firmware payload with
+	// complete target metadata: nonempty target manufacturer, target model,
+	// and firmware version. The normalized metadata target must match the
 	// assignment target. For release-channel assignments, one normalized
 	// manufacturer/model/version tuple identifies exactly one firmware file:
 	// reusing its file id is valid, but assigning a different file id for the
@@ -144,11 +144,12 @@ type RolloutServiceClient interface {
 	// remains valid and clears the assignment. Direct firmware uploads are
 	// outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Restores the firmware assignment that was in place immediately before
-	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
-	// manufacturer/model group back to A. Any active rollout for the (channel,
-	// manufacturer, model) tuple is canceled and a new all-at-once rollout
-	// enforces the restored version.
+	// Atomically cancels any active rollout for the referenced (channel,
+	// manufacturer, model) tuple and reverses its firmware assignment. If the
+	// referenced rollout introduced the pair's first assignment, rollback
+	// clears the current assignment and starts no rollout. Otherwise, rollback
+	// restores the previous assignment and starts at most one all-at-once
+	// rollout for mismatched members.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -458,9 +459,9 @@ type RolloutServiceHandler interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must identify an immutable artifact with complete
-	// metadata: nonempty target manufacturer, target model, and firmware
-	// version. The normalized metadata target must match the normalized
+	// firmware_file_id must identify an immutable firmware payload with
+	// complete target metadata: nonempty target manufacturer, target model,
+	// and firmware version. The normalized metadata target must match the
 	// assignment target. For release-channel assignments, one normalized
 	// manufacturer/model/version tuple identifies exactly one firmware file:
 	// reusing its file id is valid, but assigning a different file id for the
@@ -470,11 +471,12 @@ type RolloutServiceHandler interface {
 	// remains valid and clears the assignment. Direct firmware uploads are
 	// outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Restores the firmware assignment that was in place immediately before
-	// the referenced rollout. For an A-to-B rollout, this rolls the channel's
-	// manufacturer/model group back to A. Any active rollout for the (channel,
-	// manufacturer, model) tuple is canceled and a new all-at-once rollout
-	// enforces the restored version.
+	// Atomically cancels any active rollout for the referenced (channel,
+	// manufacturer, model) tuple and reverses its firmware assignment. If the
+	// referenced rollout introduced the pair's first assignment, rollback
+	// clears the current assignment and starts no rollout. Otherwise, rollback
+	// restores the previous assignment and starts at most one all-at-once
+	// rollout for mismatched members.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.

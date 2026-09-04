@@ -24,14 +24,18 @@ import "google/protobuf/timestamp.proto";
 // conflict is removed. Query every matching channel in either kind of overlap
 // with ListReleaseChannelMembershipConflicts.
 //
-// Firmware artifacts are deletion-protected across service boundaries while
-// operationally reachable from rollout state. The firmware service must fail
-// deletion with FAILED_PRECONDITION while a file id is a current channel
+// Firmware artifact target metadata is frozen and artifacts are
+// deletion-protected across service boundaries while operationally reachable
+// from rollout state. The firmware service must fail with FAILED_PRECONDITION
+// when an operation would delete a file or change its target manufacturer,
+// target model, or firmware version while its file id is a current channel
 // assignment, an active rollout target, a finished rollout target that remains
 // retryable because it still matches the current assignment, or a
 // previous_firmware_file_id retained in rollout history available to
-// RollbackReleaseChannelFirmware. Deleting a release channel removes its
-// assignments and rollout history and may release those references.
+// RollbackReleaseChannelFirmware. Non-target descriptive metadata may remain
+// editable if it cannot affect dispatch or convergence. Deleting a release
+// channel removes its assignments and rollout history and may release those
+// references.
 //
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
@@ -94,9 +98,9 @@ service RolloutService {
     // Replaces per-manufacturer/model firmware assignments of a channel and
     // starts a rollout, paced by the channel's behavior, for every pair whose
     // assignment changed and has mismatched members. Every nonempty
-    // firmware_file_id must identify an immutable artifact with complete
-    // metadata: nonempty target manufacturer, target model, and firmware
-    // version. The normalized metadata target must match the normalized
+    // firmware_file_id must identify an immutable firmware payload with
+    // complete target metadata: nonempty target manufacturer, target model,
+    // and firmware version. The normalized metadata target must match the
     // assignment target. For release-channel assignments, one normalized
     // manufacturer/model/version tuple identifies exactly one firmware file:
     // reusing its file id is valid, but assigning a different file id for the
@@ -107,11 +111,12 @@ service RolloutService {
     // outside this contract.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
-    // Restores the firmware assignment that was in place immediately before
-    // the referenced rollout. For an A-to-B rollout, this rolls the channel's
-    // manufacturer/model group back to A. Any active rollout for the (channel,
-    // manufacturer, model) tuple is canceled and a new all-at-once rollout
-    // enforces the restored version.
+    // Atomically cancels any active rollout for the referenced (channel,
+    // manufacturer, model) tuple and reverses its firmware assignment. If the
+    // referenced rollout introduced the pair's first assignment, rollback
+    // clears the current assignment and starts no rollout. Otherwise, rollback
+    // restores the previous assignment and starts at most one all-at-once
+    // rollout for mismatched members.
     rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
 
     // Lists rollout summaries (newest first), optionally filtered by channel
@@ -383,18 +388,19 @@ message FirmwareAssignment {
     string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware file to enforce for this manufacturer/model pair. A nonempty id
-    // must identify an immutable artifact with complete metadata: nonempty
-    // target manufacturer, target model, and firmware version. The normalized
-    // metadata target must match this normalized assignment target. For
+    // must identify an immutable firmware payload with complete target
+    // metadata: nonempty target manufacturer, target model, and firmware
+    // version. The normalized metadata target must match this normalized
+    // assignment target. For
     // release-channel assignments, one normalized manufacturer/model/version
     // tuple identifies exactly one firmware file. Reusing that file id is
     // valid; if another file id already represents the tuple,
     // ApplyReleaseChannelFirmware fails with FAILED_PRECONDITION before
     // changing any assignment or starting any rollout. This makes convergence
     // on the reported version uniquely identify the deployed artifact. Once
-    // applied, the artifact is protected from deletion while the assignment is
-    // current or the file id is retained as a rollback target. Empty clears the
-    // assignment. Direct firmware uploads are outside this contract.
+    // referenced, its deletion and target metadata are governed by the
+    // cross-service protection invariant above. Empty clears the assignment.
+    // Direct firmware uploads are outside this contract.
     string firmware_file_id = 3;
 }
 
@@ -544,9 +550,8 @@ message Rollout {
     string channel_name = 3;
     string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
-    // Target artifact. It is protected from deletion while this rollout is
-    // active and, after the rollout finishes, while the target remains
-    // retryable because it matches the current channel assignment.
+    // Target artifact. Its deletion and target metadata are governed by the
+    // cross-service protection invariant above.
     string firmware_file_id = 6;
     string firmware_version = 7;
     RolloutStatus status = 8;
@@ -567,10 +572,14 @@ message Rollout {
     google.protobuf.Timestamp created_at = 17;
     // Set when the rollout completed or was canceled.
     google.protobuf.Timestamp finished_at = 18;
-    // Assignment in place before this rollout; what a rollback restores. A
-    // nonempty file id is protected from deletion while this rollout remains
-    // in history available to RollbackReleaseChannelFirmware.
+    // Assignment in place before this rollout. Empty means this rollout
+    // introduced the manufacturer/model pair's first assignment, so rollback
+    // clears the current assignment and starts no rollout. A nonempty file id
+    // remains covered by the cross-service protection invariant while this
+    // rollout remains in history available to RollbackReleaseChannelFirmware.
     string previous_firmware_file_id = 19;
+    // Version of the previous assignment; empty when there was no previous
+    // assignment.
     string previous_firmware_version = 20;
     // Number of miners snapshotted into the rollout. Retrieve their live
     // progress with ListRolloutDevices.
@@ -790,15 +799,18 @@ message ApplyReleaseChannelFirmwareResponse {
 }
 
 message RollbackReleaseChannelFirmwareRequest {
-    // Rollout whose previous firmware assignment is restored for its channel
-    // and manufacturer/model pair.
+    // Rollout whose assignment is reversed for its channel and
+    // manufacturer/model pair. Its previous assignment is restored, or its
+    // first assignment is cleared when the referenced rollout's
+    // previous_firmware_file_id is empty.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
 message RollbackReleaseChannelFirmwareResponse {
     ReleaseChannel channel = 1;
-    // Rollouts started by this call (at most one, for the rolled-back
-    // manufacturer/model pair).
+    // Rollouts started by this call. Empty when the first assignment was
+    // cleared or no members mismatch the restored assignment; otherwise
+    // contains one all-at-once rollout for those mismatched members.
     repeated Rollout started_rollouts = 2;
 }
 
