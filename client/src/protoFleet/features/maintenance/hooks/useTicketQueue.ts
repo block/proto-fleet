@@ -120,6 +120,19 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
     return loadedRows;
   }, [load]);
 
+  const refreshValidView = useCallback(async () => {
+    const page = currentPageRef.current;
+    const loadedRowCount = await refreshCurrentView();
+    if (loadedRowCount === 0 && page > 0 && currentPageRef.current === page) {
+      const previous = page - 1;
+      const previousToken = cursorHistoryRef.current[previous];
+      cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
+      loadedBoardPageCountRef.current = 1;
+      await load(previous, previousToken);
+    }
+    return loadedRowCount;
+  }, [load, refreshCurrentView]);
+
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -138,7 +151,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       timeoutId = setTimeout(async () => {
         if (!active) return;
         try {
-          await refreshCurrentView();
+          await refreshValidView();
         } catch {
           // RPC adapters report request failures through load's onError callbacks.
         } finally {
@@ -151,7 +164,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       active = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [refreshCurrentView]);
+  }, [refreshValidView]);
 
   const setFilter = useCallback((value: Partial<TicketFilter>) => {
     setFilterState(value);
@@ -168,10 +181,10 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await refreshCurrentView();
+      if (ok) await refreshValidView();
       return ok;
     },
-    [refreshCurrentView, updateTicket],
+    [refreshValidView, updateTicket],
   );
 
   const bulkUpdate = useCallback(
@@ -186,20 +199,10 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) {
-        const page = currentPageRef.current;
-        const loadedRowCount = await refreshCurrentView();
-        if (loadedRowCount === 0 && page > 0) {
-          const previous = page - 1;
-          const previousToken = cursorHistoryRef.current[previous];
-          cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
-          loadedBoardPageCountRef.current = 1;
-          await load(previous, previousToken);
-        }
-      }
+      if (ok) await refreshValidView();
       return ok;
     },
-    [load, refreshCurrentView, sendBulkUpdate],
+    [refreshValidView, sendBulkUpdate],
   );
 
   return {
@@ -219,7 +222,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       setSortField(field);
       setSortDirection(direction);
     },
-    refresh: refreshCurrentView,
+    refresh: refreshValidView,
     resetPagination,
     nextPage: async () => {
       const token = cursorHistoryRef.current[currentPageRef.current + 1] ?? nextPageToken;

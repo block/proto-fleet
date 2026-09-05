@@ -431,6 +431,25 @@ func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t 
 	assert.Equal(t, int64(2), count)
 }
 
+func TestBulkCloseRetryWithNoChangesDoesNotLogActivity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	inventory := mocks.NewMockInventoryStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, activity.NewService(activityStore))
+	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{3}, Resolution: models.TicketResolutionDeferred}
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{
+		ID: 3, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusCompleted,
+	}, nil)
+
+	count, err := service.BulkClose(t.Context(), params)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+}
+
 func TestBulkActivityUsesAffectedTicketSiteScope(t *testing.T) {
 	assertScope := func(t *testing.T) func(context.Context, *activitymodels.Event) error {
 		t.Helper()

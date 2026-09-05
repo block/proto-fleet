@@ -672,7 +672,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 		return 0, err
 	}
 
-	if s.activitySvc != nil {
+	if s.activitySvc != nil && affected > 0 {
 		orgID := params.OrgID
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,

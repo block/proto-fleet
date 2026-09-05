@@ -55,6 +55,32 @@ it("polls the current queue page and stops polling after unmount", async () => {
   expect(listTickets).toHaveBeenCalledTimes(2);
 });
 
+it("returns to the previous list page when polling finds an empty later page", async () => {
+  vi.useFakeTimers();
+  let externallyClosed = false;
+  listTickets.mockImplementation(async ({ pageToken, onSuccess }) => {
+    const ticketId = pageToken === "cursor-2" && externallyClosed ? undefined : pageToken ? 2n : 1n;
+    onSuccess({
+      tickets:
+        ticketId === undefined
+          ? []
+          : [create(RepairTicketSummarySchema, { ticket: create(RepairTicketSchema, { id: ticketId }) })],
+      nextPageToken: pageToken || externallyClosed ? "" : "cursor-2",
+      totalCount: externallyClosed ? 1 : 2,
+    });
+  });
+  const { result } = renderHook(() => useTicketQueue());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  await act(() => result.current.nextPage());
+  expect(result.current.currentPage).toBe(1);
+
+  externallyClosed = true;
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+  expect(result.current.currentPage).toBe(0);
+  expect(result.current.data.map((ticket) => ticket.id)).toEqual(["1"]);
+});
+
 it("preserves all loaded board pages during polling", async () => {
   vi.useFakeTimers();
   listTickets.mockImplementation(async ({ pageToken, onSuccess }) =>
