@@ -54,6 +54,36 @@ func TestListCompletedTicketsSuppressesLookaheadOnFinalPage(t *testing.T) {
 	assert.Equal(t, facets, assignees)
 }
 
+func TestCreateRepairTicketRejectsWhitespaceDiagnosis(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl), mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
+	)
+
+	_, err := service.CreateRepairTicket(t.Context(), models.CreateParams{
+		OrgID: 2, Category: models.TicketCategoryMiner, Component: "Fan", Diagnosis: stringPointer("   "),
+	})
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+	assert.ErrorContains(t, err, "diagnosis")
+}
+
+func TestUpdateRepairTicketRejectsWhitespaceDiagnosis(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl), mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
+	)
+
+	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{
+		OrgID: 2, ID: 3, Diagnosis: stringPointer("   "),
+	})
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+	assert.ErrorContains(t, err, "diagnosis")
+}
+
 func TestUpdateRepairTicketRejectsSetAndClearRMAEtaTogether(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	service := NewService(
@@ -571,9 +601,10 @@ func TestCreateRepairTicketDerivesMinerContext(t *testing.T) {
 	service := NewService(tickets, refs, mocks.NewMockInventoryStore(ctrl), tx, nil)
 	siteID, buildingID, rackID, assigneeID := int64(11), int64(12), int64(13), int64(14)
 	zone, rack, group := "A", "Rack 1", "Hot"
-	params := models.CreateParams{OrgID: 4, Category: models.TicketCategoryMiner, Component: " Hashboard ", MinerIdentifier: stringPointer(" miner-1 "), AssigneeUserID: &assigneeID}
+	params := models.CreateParams{OrgID: 4, Category: models.TicketCategoryMiner, Component: " Hashboard ", Diagnosis: stringPointer(" Board failed "), MinerIdentifier: stringPointer(" miner-1 "), AssigneeUserID: &assigneeID}
 	expected := params
 	expected.Component = "Hashboard"
+	expected.Diagnosis = stringPointer("Board failed")
 	expected.MinerIdentifier = stringPointer("miner-1")
 	expected.SiteID, expected.BuildingID, expected.RackID = &siteID, &buildingID, &rackID
 	expected.Zone, expected.RackLabel, expected.GroupLabel = &zone, &rack, &group

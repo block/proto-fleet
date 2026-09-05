@@ -99,6 +99,13 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 	if params.Component == "" {
 		return nil, fleeterror.NewInvalidArgumentError("component is required")
 	}
+	if params.Diagnosis != nil {
+		trimmed := strings.TrimSpace(*params.Diagnosis)
+		if trimmed == "" {
+			return nil, fleeterror.NewInvalidArgumentError("diagnosis is required")
+		}
+		params.Diagnosis = &trimmed
+	}
 	if params.Category != models.TicketCategoryMiner && params.Category != models.TicketCategoryInfrastructure {
 		return nil, fleeterror.NewInvalidArgumentError("invalid ticket category")
 	}
@@ -248,6 +255,13 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			return nil, fleeterror.NewInvalidArgumentError("component must not be empty")
 		}
 		params.Component = &trimmed
+	}
+	if params.Diagnosis != nil {
+		trimmed := strings.TrimSpace(*params.Diagnosis)
+		if trimmed == "" {
+			return nil, fleeterror.NewInvalidArgumentError("diagnosis must not be empty")
+		}
+		params.Diagnosis = &trimmed
 	}
 	if params.RMAVendor != nil {
 		trimmed := strings.TrimSpace(*params.RMAVendor)
