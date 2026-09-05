@@ -341,6 +341,12 @@ describe("TicketDetailModal", () => {
         rmaVendor: "Repair Co",
         rmaTracking: "TRACK-1",
         clearRmaEta: true,
+        expectedRmaSnapshot: {
+          status: TicketStatus.IN_PROGRESS,
+          rmaVendor: "Repair Co",
+          rmaTracking: "TRACK-1",
+          rmaEta: new Date("2026-09-10T00:00:00Z"),
+        },
       }),
     );
   });
@@ -375,6 +381,12 @@ describe("TicketDetailModal", () => {
         rmaVendor: "Repair Co",
         rmaTracking: "TRACK-2",
         clearRmaEta: true,
+        expectedRmaSnapshot: {
+          status: TicketStatus.SENT_TO_VENDOR,
+          rmaVendor: "Repair Co",
+          rmaTracking: "TRACK-1",
+          rmaEta: new Date("2026-09-10T00:00:00Z"),
+        },
       }),
     );
   });

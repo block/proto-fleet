@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { TicketStatus } from "./generated/maintenance/v1/maintenance_pb";
 
@@ -84,8 +85,20 @@ describe("useMaintenanceApi", () => {
   it("preserves explicit empty and clear signals", async () => {
     clients.updateRepairTicket.mockResolvedValue({});
     const { result } = renderHook(() => useMaintenanceApi());
+    const expectedRmaEta = new Date("2026-09-10T00:00:00Z");
     await act(() =>
-      result.current.updateTicket({ id: 4n, partsSelection: [], expectedPartsSelection: [], clearRmaEta: true }),
+      result.current.updateTicket({
+        id: 4n,
+        partsSelection: [],
+        expectedPartsSelection: [],
+        clearRmaEta: true,
+        expectedRmaSnapshot: {
+          status: TicketStatus.SENT_TO_VENDOR,
+          rmaVendor: "Repair Co",
+          rmaTracking: "TRACK-1",
+          rmaEta: expectedRmaEta,
+        },
+      }),
     );
     expect(clients.updateRepairTicket).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -93,6 +106,12 @@ describe("useMaintenanceApi", () => {
         partsSelection: { parts: [] },
         expectedPartsSelection: { parts: [] },
         clearRmaEta: true,
+        expectedRmaSnapshot: {
+          status: TicketStatus.SENT_TO_VENDOR,
+          rmaVendor: "Repair Co",
+          rmaTracking: "TRACK-1",
+          rmaEta: timestampFromDate(expectedRmaEta),
+        },
       }),
       expect.anything(),
     );

@@ -2,11 +2,13 @@ package maintenance
 
 import (
 	"testing"
+	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/maintenance/v1"
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestToUpdateParamsPreservesPartsSelectionPresence(t *testing.T) {
@@ -29,6 +31,25 @@ func TestToUpdateParamsPreservesRMAEtaClearSignal(t *testing.T) {
 	params, err := toUpdateParams(&pb.UpdateRepairTicketRequest{Id: 1, ClearRmaEta: true}, 42)
 	require.NoError(t, err)
 	assert.True(t, params.ClearRMAEta)
+}
+
+func TestToUpdateParamsMapsExpectedRMASnapshot(t *testing.T) {
+	vendor := "Repair Co"
+	tracking := "TRACK-1"
+	eta := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	params, err := toUpdateParams(&pb.UpdateRepairTicketRequest{
+		Id: 1,
+		ExpectedRmaSnapshot: &pb.RmaSnapshot{
+			Status: pb.TicketStatus_TICKET_STATUS_SENT_TO_VENDOR, RmaVendor: &vendor, RmaTracking: &tracking,
+			RmaEta: timestamppb.New(eta),
+		},
+	}, 42)
+	require.NoError(t, err)
+	require.NotNil(t, params.ExpectedRMASnapshot)
+	assert.Equal(t, models.TicketStatusSentToVendor, params.ExpectedRMASnapshot.Status)
+	assert.Equal(t, vendor, *params.ExpectedRMASnapshot.RMAVendor)
+	assert.Equal(t, tracking, *params.ExpectedRMASnapshot.RMATracking)
+	assert.True(t, eta.Equal(*params.ExpectedRMASnapshot.RMAEta))
 }
 
 func TestToUpdateParamsAcceptsNoActionNeededResolution(t *testing.T) {

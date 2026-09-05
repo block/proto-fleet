@@ -62,6 +62,12 @@ export type CreateTicketProps = Callbacks<RepairTicket | undefined> & {
 };
 
 export type PartSelection = { inventoryPartId: bigint; partName: string; quantity: number };
+export type RmaSnapshot = {
+  status: TicketStatus;
+  rmaVendor?: string;
+  rmaTracking?: string;
+  rmaEta?: Date;
+};
 export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   id: bigint;
   status?: TicketStatus;
@@ -80,6 +86,7 @@ export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   rmaTracking?: string;
   rmaEta?: Date;
   clearRmaEta?: boolean;
+  expectedRmaSnapshot?: RmaSnapshot;
 };
 
 export type BulkTicketMutation =
@@ -232,6 +239,7 @@ export const useMaintenanceApi = () => {
       id,
       partsSelection,
       expectedPartsSelection,
+      expectedRmaSnapshot,
       clearAssignee = false,
       ...fields
     }: UpdateTicketProps) => {
@@ -246,6 +254,13 @@ export const useMaintenanceApi = () => {
             partsSelection: partsSelection === undefined ? undefined : { parts: partsSelection },
             expectedPartsSelection:
               expectedPartsSelection === undefined ? undefined : { parts: expectedPartsSelection },
+            expectedRmaSnapshot:
+              expectedRmaSnapshot === undefined
+                ? undefined
+                : {
+                    ...expectedRmaSnapshot,
+                    rmaEta: expectedRmaSnapshot.rmaEta ? timestampFromDate(expectedRmaSnapshot.rmaEta) : undefined,
+                  },
           },
           { signal },
         );

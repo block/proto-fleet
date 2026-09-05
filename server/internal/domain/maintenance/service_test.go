@@ -104,6 +104,7 @@ func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 				if to == models.TicketStatusSentToVendor {
 					vendor := "Vendor"
 					params.RMAVendor = &vendor
+					params.ExpectedRMASnapshot = &models.RMASnapshot{Status: from}
 				}
 				if to == models.TicketStatusCompleted {
 					resolution := models.TicketResolutionDeferred
@@ -284,7 +285,10 @@ func TestUpdateRepairTicketRejectsRMAFieldsOutsideVendorStatus(t *testing.T) {
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
 	vendor := "Hidden vendor"
-	params := models.UpdateParams{OrgID: 2, ID: 3, RMAVendor: &vendor}
+	params := models.UpdateParams{
+		OrgID: 2, ID: 3, RMAVendor: &vendor,
+		ExpectedRMASnapshot: &models.RMASnapshot{Status: models.TicketStatusOpen},
+	}
 
 	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
 	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
@@ -294,6 +298,68 @@ func TestUpdateRepairTicketRejectsRMAFieldsOutsideVendorStatus(t *testing.T) {
 	_, err := service.UpdateRepairTicket(t.Context(), params)
 
 	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+}
+
+func TestUpdateRepairTicketRequiresExpectedRMASnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl),
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		mocks.NewMockTransactor(ctrl),
+		nil,
+	)
+	vendor := "Repair Co"
+
+	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{OrgID: 2, ID: 3, RMAVendor: &vendor})
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+	assert.ErrorContains(t, err, "expected_rma_snapshot")
+}
+
+func TestUpdateRepairTicketRejectsStaleRMASnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	vendor := "Updated Vendor"
+	expectedVendor := "Original Vendor"
+	currentVendor := "Concurrent Vendor"
+	params := models.UpdateParams{
+		OrgID: 2, ID: 3, RMAVendor: &vendor,
+		ExpectedRMASnapshot: &models.RMASnapshot{Status: models.TicketStatusSentToVendor, RMAVendor: &expectedVendor},
+	}
+	current := &models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusSentToVendor, RMAVendor: &currentVendor}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+
+	_, err := service.UpdateRepairTicket(t.Context(), params)
+
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+	assert.ErrorContains(t, err, "RMA details changed")
+}
+
+func TestUpdateRepairTicketAcceptsSatisfiedRMARetryWithStaleSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	vendor := "Repair Co"
+	status := models.TicketStatusSentToVendor
+	params := models.UpdateParams{
+		OrgID: 2, ID: 3, Status: &status, RMAVendor: &vendor,
+		ExpectedRMASnapshot: &models.RMASnapshot{Status: models.TicketStatusInProgress},
+	}
+	current := &models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusSentToVendor, RMAVendor: &vendor}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+
+	updated, err := service.UpdateRepairTicket(t.Context(), params)
+
+	require.NoError(t, err)
+	assert.Same(t, current, updated)
 }
 
 func TestUpdateRepairTicketRejectsStalePartSelection(t *testing.T) {

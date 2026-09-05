@@ -14,7 +14,7 @@ import type { UpdateTicketProps } from "@/protoFleet/api/maintenance";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
-import type { PartUsageItem } from "@/protoFleet/features/maintenance/types";
+import type { PartUsageItem, TicketDetail } from "@/protoFleet/features/maintenance/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { ArrowLeftCompact, ArrowRight, Fleet, Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -36,6 +36,7 @@ const statusLabels: Partial<Record<TicketStatus, string>> = {
   [TicketStatus.SENT_TO_VENDOR]: "Sent to Vendor",
 };
 const enumForStatus = {
+  unknown: TicketStatus.UNSPECIFIED,
   open: TicketStatus.OPEN,
   in_progress: TicketStatus.IN_PROGRESS,
   on_hold: TicketStatus.ON_HOLD,
@@ -78,10 +79,10 @@ const TicketDetailModal = ({
   const [tracking, setTracking] = useState("");
   const [eta, setEta] = useState("");
   const [rmaBaseline, setRmaBaseline] = useState<{
-    status: string;
-    vendor: string;
-    tracking: string;
-    eta: string;
+    status: TicketDetail["status"];
+    vendor: string | null;
+    tracking: string | null;
+    eta: Date | null;
   } | null>(null);
   const [rmaConflict, setRmaConflict] = useState<string | null>(null);
   const [minerLookup, setMinerLookup] = useState<{
@@ -124,13 +125,13 @@ const TicketDetailModal = ({
     if (!ticket) return;
     const snapshot = {
       status: ticket.status,
-      vendor: ticket.rmaVendor ?? "",
-      tracking: ticket.rmaTracking ?? "",
-      eta: toDateInputValue(ticket.rmaEta),
+      vendor: ticket.rmaVendor,
+      tracking: ticket.rmaTracking,
+      eta: ticket.rmaEta,
     };
-    setVendor(snapshot.vendor);
-    setTracking(snapshot.tracking);
-    setEta(snapshot.eta);
+    setVendor(snapshot.vendor ?? "");
+    setTracking(snapshot.tracking ?? "");
+    setEta(toDateInputValue(snapshot.eta));
     setRmaBaseline(snapshot);
     setRmaConflict(null);
     setRma(true);
@@ -157,19 +158,19 @@ const TicketDetailModal = ({
     if (!ticket || !rmaBaseline) return;
     const liveSnapshot = {
       status: ticket.status,
-      vendor: ticket.rmaVendor ?? "",
-      tracking: ticket.rmaTracking ?? "",
-      eta: toDateInputValue(ticket.rmaEta),
+      vendor: ticket.rmaVendor,
+      tracking: ticket.rmaTracking,
+      eta: ticket.rmaEta,
     };
     if (
       liveSnapshot.status !== rmaBaseline.status ||
       liveSnapshot.vendor !== rmaBaseline.vendor ||
       liveSnapshot.tracking !== rmaBaseline.tracking ||
-      liveSnapshot.eta !== rmaBaseline.eta
+      liveSnapshot.eta?.getTime() !== rmaBaseline.eta?.getTime()
     ) {
-      setVendor(liveSnapshot.vendor);
-      setTracking(liveSnapshot.tracking);
-      setEta(liveSnapshot.eta);
+      setVendor(liveSnapshot.vendor ?? "");
+      setTracking(liveSnapshot.tracking ?? "");
+      setEta(toDateInputValue(liveSnapshot.eta));
       setRmaBaseline(liveSnapshot);
       setRmaConflict("RMA details changed while you were editing. Review the latest values and try again.");
       return;
@@ -181,6 +182,12 @@ const TicketDetailModal = ({
       rmaTracking: tracking,
       ...(eta ? { rmaEta: new Date(`${eta}T00:00:00.000Z`) } : {}),
       ...(ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
+      expectedRmaSnapshot: {
+        status: enumForStatus[rmaBaseline.status],
+        ...(rmaBaseline.vendor === null ? {} : { rmaVendor: rmaBaseline.vendor }),
+        ...(rmaBaseline.tracking === null ? {} : { rmaTracking: rmaBaseline.tracking }),
+        ...(rmaBaseline.eta === null ? {} : { rmaEta: rmaBaseline.eta }),
+      },
     }).then((updated) => {
       if (updated) setRma(false);
     });

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -262,6 +263,15 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 	if !hasTicketMutation(params) {
 		return nil, fleeterror.NewInvalidArgumentError("ticket update must include at least one mutable field")
 	}
+	hasRMAMutation := params.RMAVendor != nil || params.RMATracking != nil || params.RMAEta != nil || params.ClearRMAEta
+	if hasRMAMutation && params.ExpectedRMASnapshot == nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_rma_snapshot is required when updating RMA fields")
+	}
+	if params.ExpectedRMASnapshot != nil {
+		if err := validateStatusTransition(params.ExpectedRMASnapshot.Status); err != nil {
+			return nil, fleeterror.NewInvalidArgumentError("expected_rma_snapshot has an invalid status")
+		}
+	}
 	if (params.Resolution != nil || params.RepairLocation != nil) &&
 		(params.Status == nil || *params.Status != models.TicketStatusCompleted) {
 		return nil, fleeterror.NewInvalidArgumentError("resolution and repair_location require a transition to completed")
@@ -276,7 +286,10 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		if params.Status != nil {
 			targetStatus = *params.Status
 		}
-		hasRMAMutation := params.RMAVendor != nil || params.RMATracking != nil || params.RMAEta != nil || params.ClearRMAEta
+		if hasRMAMutation && !rmaSnapshotMatches(current, params.ExpectedRMASnapshot) &&
+			(!ticketUpdateSatisfied(current, params) || params.PartsSelection != nil) {
+			return nil, fleeterror.NewFailedPreconditionError("RMA details changed; refresh the ticket before saving")
+		}
 		if hasRMAMutation && targetStatus != models.TicketStatusSentToVendor {
 			return nil, fleeterror.NewInvalidArgumentError("RMA fields require sent-to-vendor status")
 		}
@@ -1266,6 +1279,21 @@ func optionalInt64Equal(left, right *int64) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+func optionalTimeEqual(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
+}
+
+func rmaSnapshotMatches(ticket *models.RepairTicket, expected *models.RMASnapshot) bool {
+	return expected != nil &&
+		ticket.Status == expected.Status &&
+		optionalStringEqual(ticket.RMAVendor, expected.RMAVendor) &&
+		optionalStringEqual(ticket.RMATracking, expected.RMATracking) &&
+		optionalTimeEqual(ticket.RMAEta, expected.RMAEta)
 }
 
 func derefInt64(v *int64) any {

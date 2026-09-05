@@ -154,6 +154,27 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 		parts := toPartUsages(req.GetExpectedPartsSelection().GetParts())
 		params.ExpectedPartsSelection = &parts
 	}
+	if req.ExpectedRmaSnapshot != nil {
+		expected := req.GetExpectedRmaSnapshot()
+		raw, err := checkedEnumValue(int32(expected.GetStatus()), 1, 5, "expected_rma_snapshot.status")
+		if err != nil {
+			return models.UpdateParams{}, err
+		}
+		snapshot := models.RMASnapshot{Status: models.TicketStatus(raw)}
+		if expected.RmaVendor != nil {
+			v := expected.GetRmaVendor()
+			snapshot.RMAVendor = &v
+		}
+		if expected.RmaTracking != nil {
+			v := expected.GetRmaTracking()
+			snapshot.RMATracking = &v
+		}
+		if expected.RmaEta != nil {
+			v := expected.GetRmaEta().AsTime()
+			snapshot.RMAEta = &v
+		}
+		params.ExpectedRMASnapshot = &snapshot
+	}
 	return params, nil
 }
 

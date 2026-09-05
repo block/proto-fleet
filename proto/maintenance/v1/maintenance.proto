@@ -294,6 +294,13 @@ message CreateRepairTicketResponse {
 
 // UpdateRepairTicket
 
+message RmaSnapshot {
+    TicketStatus                       status       = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    optional string                    rma_vendor   = 2 [(buf.validate.field).string.max_len = 255];
+    optional string                    rma_tracking = 3 [(buf.validate.field).string.max_len = 255];
+    optional google.protobuf.Timestamp rma_eta      = 4;
+}
+
 message UpdateRepairTicketRequest {
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
 
@@ -323,6 +330,9 @@ message UpdateRepairTicketRequest {
     // Required with parts_selection. Carries the caller's reservation snapshot
     // so stale absolute replacements cannot discard another operator's edits.
     optional TicketPartsSelection expected_parts_selection = 17;
+    // Required with any RMA field mutation. Carries the caller's status and
+    // RMA snapshot so stale edits cannot overwrite another operator's work.
+    optional RmaSnapshot expected_rma_snapshot = 18;
 }
 
 message UpdateRepairTicketResponse {

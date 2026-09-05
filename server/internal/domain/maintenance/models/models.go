@@ -215,6 +215,14 @@ type CreateParams struct {
 	Notes           *string
 }
 
+// RMASnapshot is the caller's view of RMA state before an update.
+type RMASnapshot struct {
+	Status      TicketStatus
+	RMAVendor   *string
+	RMATracking *string
+	RMAEta      *time.Time
+}
+
 // UpdateParams is the input shape for updating a repair ticket. Pointer
 // fields are optional; when nil the column is left unchanged. The
 // ClearAssignee flag unsets assignee_user_id even if AssigneeUserID is
@@ -236,6 +244,9 @@ type UpdateParams struct {
 	RMATracking    *string
 	RMAEta         *time.Time
 	ClearRMAEta    bool
+	// ExpectedRMASnapshot is required for RMA mutations and compared with the
+	// locked ticket before applying any fields.
+	ExpectedRMASnapshot *RMASnapshot
 	// PartsSelection is nil when the caller omitted the field and points to an
 	// empty slice when the caller explicitly removes every active reservation.
 	PartsSelection *[]PartUsage
