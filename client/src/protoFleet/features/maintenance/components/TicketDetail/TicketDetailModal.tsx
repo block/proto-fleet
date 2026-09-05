@@ -9,6 +9,7 @@ import { TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintena
 import type { UpdateTicketProps } from "@/protoFleet/api/maintenance";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
+import type { PartUsageItem } from "@/protoFleet/features/maintenance/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { ArrowLeftCompact, ArrowRight, Fleet, Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -65,12 +66,18 @@ const TicketDetailModal = ({
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [completionParts, setCompletionParts] = useState<PartUsageItem[]>([]);
   const [rma, setRma] = useState(false);
   const [vendor, setVendor] = useState("");
   const [tracking, setTracking] = useState("");
   const [eta, setEta] = useState("");
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
+  const openCompletionEditor = () => {
+    if (!ticket) return;
+    setCompletionParts(ticket.partsUsed.map((part) => ({ ...part })));
+    setCompleting(true);
+  };
   const openRmaEditor = () => {
     setVendor(ticket?.rmaVendor ?? "");
     setTracking(ticket?.rmaTracking ?? "");
@@ -81,6 +88,7 @@ const TicketDetailModal = ({
     setAssignOpen(false);
     setStatusOpen(false);
     setCompleting(false);
+    setCompletionParts([]);
     setRma(false);
     setVendor("");
     setTracking("");
@@ -205,7 +213,7 @@ const TicketDetailModal = ({
                   text="Complete repair"
                   variant={variants.secondary}
                   size={buttonSizes.compact}
-                  onClick={() => setCompleting(true)}
+                  onClick={openCompletionEditor}
                 />
               ) : null}
             </div>
@@ -214,13 +222,13 @@ const TicketDetailModal = ({
                 key={ticket.id}
                 isMinerTicket={ticket.category === "miner"}
                 siteId={ticket.siteId}
-                initialParts={ticket.partsUsed}
+                initialParts={completionParts}
                 onCancel={() => setCompleting(false)}
                 onSubmit={async (value) => {
                   const updated = await updateTicket({
                     status: TicketStatus.COMPLETED,
                     ...value,
-                    expectedPartsSelection: ticket.partsUsed.map((part) => ({
+                    expectedPartsSelection: completionParts.map((part) => ({
                       inventoryPartId: BigInt(part.inventoryPartId),
                       partName: part.partName,
                       quantity: part.quantity,

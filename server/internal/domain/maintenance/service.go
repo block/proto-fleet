@@ -259,6 +259,13 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			return nil, err
 		}
 	}
+	if !hasTicketMutation(params) {
+		return nil, fleeterror.NewInvalidArgumentError("ticket update must include at least one mutable field")
+	}
+	if (params.Resolution != nil || params.RepairLocation != nil) &&
+		(params.Status == nil || *params.Status != models.TicketStatusCompleted) {
+		return nil, fleeterror.NewInvalidArgumentError("resolution and repair_location require a transition to completed")
+	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
 		current, err := s.store.GetRepairTicketForUpdate(txCtx, params.OrgID, params.ID)
@@ -1065,6 +1072,13 @@ func partsByID(parts []models.PartUsage) map[int64]models.PartUsage {
 		result[part.InventoryPartID] = part
 	}
 	return result
+}
+
+func hasTicketMutation(params models.UpdateParams) bool {
+	return params.Status != nil || params.Urgent != nil || params.AssigneeUserID != nil || params.ClearAssignee ||
+		params.Component != nil || params.Diagnosis != nil || params.WarrantyStatus != nil || params.Resolution != nil ||
+		params.RepairLocation != nil || params.Notes != nil || params.RMAVendor != nil || params.RMATracking != nil ||
+		params.RMAEta != nil || params.ClearRMAEta || params.PartsSelection != nil
 }
 
 func samePartQuantities(left, right []models.PartUsage) bool {

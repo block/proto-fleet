@@ -199,6 +199,33 @@ describe("TicketDetailModal", () => {
     );
   });
 
+  it("keeps the expected reservation snapshot fixed while completion is open", async () => {
+    ticket.partsUsed = [{ inventoryPartId: "7", partName: "Fan", quantity: 2 }];
+    update.mockResolvedValueOnce(true);
+    const view = render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+
+    ticket.partsUsed = [{ inventoryPartId: "8", partName: "Cable", quantity: 1 }];
+    view.rerender(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Submit completion" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedPartsSelection: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2 }],
+        }),
+      ),
+    );
+  });
+
   it("closes the completion editor after a successful completion", async () => {
     update.mockResolvedValueOnce(true);
     render(

@@ -221,6 +221,37 @@ func TestCompletedTicketRetryDoesNotWriteActivity(t *testing.T) {
 	assert.Equal(t, current, ticket)
 }
 
+func TestUpdateRepairTicketRejectsEmptyMutation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl),
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		mocks.NewMockTransactor(ctrl),
+		nil,
+	)
+
+	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{OrgID: 2, ID: 3})
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+}
+
+func TestUpdateRepairTicketRejectsCompletionFieldsWithoutCompletionTransition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl),
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		mocks.NewMockTransactor(ctrl),
+		nil,
+	)
+	resolution := models.TicketResolutionRepaired
+
+	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{OrgID: 2, ID: 3, Resolution: &resolution})
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+}
+
 func TestUpdateRepairTicketRejectsStalePartSelection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
