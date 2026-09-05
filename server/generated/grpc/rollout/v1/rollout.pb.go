@@ -797,16 +797,22 @@ type RolloutBehavior struct {
 	// auto-continue, so post-update telemetry has settled.
 	StabilizationSeconds int32                        `protobuf:"varint,8,opt,name=stabilization_seconds,json=stabilizationSeconds,proto3" json:"stabilization_seconds,omitempty"`
 	Thresholds           *RolloutAutomationThresholds `protobuf:"bytes,9,opt,name=thresholds,proto3" json:"thresholds,omitempty"`
-	// Per-rollout safety budget across every rollout method, including
-	// ALL_AT_ONCE. Each distinct target consumes at most one slot when it is
+	// Channel-wide safety budget shared by every active rollout in the
+	// channel, whatever their method (including ALL_AT_ONCE) and however many
+	// rollouts one ApplyReleaseChannelFirmware call started. Each distinct
+	// target across those rollouts consumes at most one slot when it is
 	// observed offline, regardless of phase or whether the update caused the
-	// outage, or when a slot has been reserved immediately before dispatch.
-	// A reservation or offline slot is released only after that target is next
+	// outage, or when a slot has been reserved immediately before dispatch. A
+	// reservation or offline slot is released only after that target is next
 	// observed online; becoming EXCLUDED, FAILED, or otherwise terminal does
-	// not release an offline slot. Dispatch pauses while this nonzero budget is
-	// full. Cancellation ends all further dispatch, so residual slots no
-	// longer affect that canceled rollout; it does not waive offline state.
-	// 0 is unlimited.
+	// not release an offline slot. Dispatch in every rollout of the channel
+	// pauses while this nonzero budget is full. Cancellation ends further
+	// dispatch for the canceled rollout only; slots held by its targets keep
+	// counting against the channel until those targets are observed online.
+	// Unlike other behavior fields, this budget is not snapshotted: the
+	// channel's current value governs its active rollouts immediately, and the
+	// copy on Rollout.behavior records the value in force when the rollout
+	// started. 0 is unlimited.
 	MaxConcurrentOffline int32 `protobuf:"varint,10,opt,name=max_concurrent_offline,json=maxConcurrentOffline,proto3" json:"max_concurrent_offline,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache

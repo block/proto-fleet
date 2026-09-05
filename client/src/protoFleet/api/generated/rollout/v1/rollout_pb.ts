@@ -203,16 +203,22 @@ export type RolloutBehavior = Message<"rollout.v1.RolloutBehavior"> & {
   thresholds?: RolloutAutomationThresholds | undefined;
 
   /**
-   * Per-rollout safety budget across every rollout method, including
-   * ALL_AT_ONCE. Each distinct target consumes at most one slot when it is
+   * Channel-wide safety budget shared by every active rollout in the
+   * channel, whatever their method (including ALL_AT_ONCE) and however many
+   * rollouts one ApplyReleaseChannelFirmware call started. Each distinct
+   * target across those rollouts consumes at most one slot when it is
    * observed offline, regardless of phase or whether the update caused the
-   * outage, or when a slot has been reserved immediately before dispatch.
-   * A reservation or offline slot is released only after that target is next
+   * outage, or when a slot has been reserved immediately before dispatch. A
+   * reservation or offline slot is released only after that target is next
    * observed online; becoming EXCLUDED, FAILED, or otherwise terminal does
-   * not release an offline slot. Dispatch pauses while this nonzero budget is
-   * full. Cancellation ends all further dispatch, so residual slots no
-   * longer affect that canceled rollout; it does not waive offline state.
-   * 0 is unlimited.
+   * not release an offline slot. Dispatch in every rollout of the channel
+   * pauses while this nonzero budget is full. Cancellation ends further
+   * dispatch for the canceled rollout only; slots held by its targets keep
+   * counting against the channel until those targets are observed online.
+   * Unlike other behavior fields, this budget is not snapshotted: the
+   * channel's current value governs its active rollouts immediately, and the
+   * copy on Rollout.behavior records the value in force when the rollout
+   * started. 0 is unlimited.
    *
    * @generated from field: int32 max_concurrent_offline = 10;
    */
@@ -2772,7 +2778,8 @@ export const RolloutService: GenService<{
   /**
    * Replaces a channel's name, description, scope and update behavior.
    * Behavior changes apply to rollouts started afterwards; a rollout in
-   * flight keeps the behavior it started with.
+   * flight keeps the behavior it started with, except that the channel-wide
+   * RolloutBehavior.max_concurrent_offline budget takes effect immediately.
    *
    * @generated from rpc rollout.v1.RolloutService.UpdateReleaseChannel
    */
@@ -2807,9 +2814,12 @@ export const RolloutService: GenService<{
   /**
    * Atomically replaces per-manufacturer/model firmware assignments. For each
    * changed assignment with mismatched members, it starts a rollout paced by
-   * the channel's behavior. A member matches only when it reports the target
-   * version and its RolloutService managed-deployment provenance equals the
-   * assigned firmware_file_id; empty or different provenance is mismatched.
+   * the channel's behavior; rollouts started together run concurrently and
+   * share the channel-wide RolloutBehavior.max_concurrent_offline budget
+   * rather than each receiving their own. A member matches only when it
+   * reports the target version and its RolloutService managed-deployment
+   * provenance equals the assigned firmware_file_id; empty or different
+   * provenance is mismatched.
    * FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
    * and identity constraints. Any violation fails with FAILED_PRECONDITION
    * before any assignment changes or rollouts start. An empty file id clears

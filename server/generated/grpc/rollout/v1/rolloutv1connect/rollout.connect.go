@@ -119,7 +119,8 @@ type RolloutServiceClient interface {
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
 	// Replaces a channel's name, description, scope and update behavior.
 	// Behavior changes apply to rollouts started afterwards; a rollout in
-	// flight keeps the behavior it started with.
+	// flight keeps the behavior it started with, except that the channel-wide
+	// RolloutBehavior.max_concurrent_offline budget takes effect immediately.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
 	// Deletes a channel with its assignments and rollout history. Miners keep
 	// their running firmware. Assignment and history references are released
@@ -130,9 +131,12 @@ type RolloutServiceClient interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior. A member matches only when it reports the target
-	// version and its RolloutService managed-deployment provenance equals the
-	// assigned firmware_file_id; empty or different provenance is mismatched.
+	// the channel's behavior; rollouts started together run concurrently and
+	// share the channel-wide RolloutBehavior.max_concurrent_offline budget
+	// rather than each receiving their own. A member matches only when it
+	// reports the target version and its RolloutService managed-deployment
+	// provenance equals the assigned firmware_file_id; empty or different
+	// provenance is mismatched.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
@@ -455,7 +459,8 @@ type RolloutServiceHandler interface {
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
 	// Replaces a channel's name, description, scope and update behavior.
 	// Behavior changes apply to rollouts started afterwards; a rollout in
-	// flight keeps the behavior it started with.
+	// flight keeps the behavior it started with, except that the channel-wide
+	// RolloutBehavior.max_concurrent_offline budget takes effect immediately.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
 	// Deletes a channel with its assignments and rollout history. Miners keep
 	// their running firmware. Assignment and history references are released
@@ -466,9 +471,12 @@ type RolloutServiceHandler interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior. A member matches only when it reports the target
-	// version and its RolloutService managed-deployment provenance equals the
-	// assigned firmware_file_id; empty or different provenance is mismatched.
+	// the channel's behavior; rollouts started together run concurrently and
+	// share the channel-wide RolloutBehavior.max_concurrent_offline budget
+	// rather than each receiving their own. A member matches only when it
+	// reports the target version and its RolloutService managed-deployment
+	// provenance equals the assigned firmware_file_id; empty or different
+	// provenance is mismatched.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
