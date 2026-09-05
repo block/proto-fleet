@@ -133,6 +133,7 @@ export const useInventoryApi = () => {
     async ({
       id,
       onHand,
+      expectedOnHand,
       reorderPoint,
       binLocation,
       siteId,
@@ -144,6 +145,7 @@ export const useInventoryApi = () => {
     }: Callbacks<InventoryPart | undefined> & {
       id: bigint;
       onHand?: number;
+      expectedOnHand?: number;
       reorderPoint?: number;
       binLocation?: string;
       siteId?: bigint;
@@ -152,7 +154,7 @@ export const useInventoryApi = () => {
       try {
         if (signal?.aborted) return;
         const response = await inventoryClient.updateInventoryPart(
-          { id, onHand, reorderPoint, binLocation, siteId, reason },
+          { id, onHand, expectedOnHand, reorderPoint, binLocation, siteId, reason },
           { signal },
         );
         if (!signal?.aborted) onSuccess?.(response.part);

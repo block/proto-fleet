@@ -134,13 +134,21 @@ enum AdjustmentReason {
 }
 
 message UpdateInventoryPartRequest {
+    option (buf.validate.message).cel = {
+        id: "inventory.update.expected_on_hand"
+        message: "expected_on_hand is required when updating on_hand"
+        expression: "!has(this.on_hand) || has(this.expected_on_hand)"
+    };
+
     reserved 6;
     reserved "notes";
 
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
 
-    optional int32  on_hand       = 2 [(buf.validate.field).int32.gte = 0];
-    optional int32  reorder_point = 3 [(buf.validate.field).int32.gte = 0];
+    optional int32  on_hand          = 2 [(buf.validate.field).int32.gte = 0];
+    // Compare-and-set guard for on_hand. Omit when on_hand is unchanged.
+    optional int32  expected_on_hand = 8 [(buf.validate.field).int32.gte = 0];
+    optional int32  reorder_point    = 3 [(buf.validate.field).int32.gte = 0];
     optional string bin_location  = 4 [(buf.validate.field).string.max_len = 64];
     // Assigns or transfers the part to a live site. Omission preserves its current site.
     optional int64  site_id       = 7 [(buf.validate.field).int64.gt = 0];

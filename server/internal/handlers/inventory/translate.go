@@ -70,6 +70,10 @@ func toUpdateParams(req *pb.UpdateInventoryPartRequest, orgID int64) (models.Upd
 		v := req.GetOnHand()
 		out.OnHand = &v
 	}
+	if req.ExpectedOnHand != nil {
+		v := req.GetExpectedOnHand()
+		out.ExpectedOnHand = &v
+	}
 	if req.ReorderPoint != nil {
 		v := req.GetReorderPoint()
 		out.ReorderPoint = &v

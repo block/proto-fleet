@@ -104,6 +104,8 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
   AND COALESCE(sqlc.narg('on_hand'), on_hand) >= allocated
+  AND (sqlc.narg('expected_on_hand')::integer IS NULL
+       OR on_hand = sqlc.narg('expected_on_hand')::integer)
   AND (sqlc.narg('site_id')::bigint IS NULL
        OR site_id IS NOT DISTINCT FROM sqlc.narg('site_id')::bigint
        OR allocated = 0);

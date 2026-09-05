@@ -77,13 +77,14 @@ type CreateParams struct {
 // non-nil fields are written; the store COALESCE pattern preserves
 // existing values for omitted fields.
 type UpdateParams struct {
-	ID           int64
-	OrgID        int64
-	OnHand       *int32
-	ReorderPoint *int32
-	BinLocation  *string
-	SiteID       *int64
-	Reason       AdjustmentReason
+	ID             int64
+	OrgID          int64
+	OnHand         *int32
+	ExpectedOnHand *int32
+	ReorderPoint   *int32
+	BinLocation    *string
+	SiteID         *int64
+	Reason         AdjustmentReason
 }
 
 // ListFilter selects which inventory parts to return.

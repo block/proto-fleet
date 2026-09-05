@@ -20,6 +20,26 @@ const part = {
   createdAt: null,
   updatedAt: null,
 };
+it("submits the expected stock snapshot with an on-hand edit", async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn(async () => true);
+  render(<AdjustPartModal part={part} sites={[]} onDismiss={vi.fn()} onSubmit={submit} />);
+
+  const onHand = screen.getByLabelText("On hand");
+  await user.clear(onHand);
+  await user.type(onHand, "8");
+  await user.click(screen.getByRole("button", { name: "Reason" }));
+  await user.click(screen.getByText("Received shipment"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(submit).toHaveBeenCalledWith({
+    id: 1n,
+    onHand: 8,
+    expectedOnHand: 5,
+    reason: AdjustmentReason.RECEIVED_SHIPMENT,
+  });
+});
+
 it("requires a reason and submits integer quantities", async () => {
   const user = userEvent.setup();
   const submit = vi.fn(async () => true);

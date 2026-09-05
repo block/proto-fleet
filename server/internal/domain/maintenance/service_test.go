@@ -192,6 +192,31 @@ func TestCompleteTicketConsumesSelectedPartsOnce(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCompletedTicketRetryDoesNotWriteActivity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+
+	status := models.TicketStatusCompleted
+	params := models.UpdateParams{OrgID: 2, ID: 3, Status: &status}
+	current := &models.RepairTicket{ID: 3, OrgID: 2, TicketNumber: "RPR-3", Status: models.TicketStatusCompleted}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(current, nil)
+
+	ticket, err := service.UpdateRepairTicket(t.Context(), params)
+	require.NoError(t, err)
+	assert.Equal(t, current, ticket)
+}
+
 func TestReplacingActivePartsReleasesOldAndReservesNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)

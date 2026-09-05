@@ -174,8 +174,13 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 	if !params.Reason.Valid() {
 		return nil, fleeterror.NewInvalidArgumentError("invalid adjustment_reason")
 	}
-	if params.OnHand != nil && *params.OnHand < 0 {
-		return nil, fleeterror.NewInvalidArgumentError("on_hand must be >= 0")
+	if params.OnHand != nil {
+		if *params.OnHand < 0 {
+			return nil, fleeterror.NewInvalidArgumentError("on_hand must be >= 0")
+		}
+		if params.ExpectedOnHand == nil {
+			return nil, fleeterror.NewInvalidArgumentError("expected_on_hand is required when updating on_hand")
+		}
 	}
 	if params.ReorderPoint != nil && *params.ReorderPoint < 0 {
 		return nil, fleeterror.NewInvalidArgumentError("reorder_point must be >= 0")
@@ -198,6 +203,9 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 		before, err = s.store.GetForUpdate(txCtx, params.OrgID, params.ID)
 		if err != nil {
 			return err
+		}
+		if params.OnHand != nil && before.OnHand != *params.ExpectedOnHand {
+			return fleeterror.NewFailedPreconditionError("inventory stock changed; refresh the part before adjusting it")
 		}
 		if params.OnHand != nil && *params.OnHand < before.Allocated {
 			return fleeterror.NewFailedPreconditionError("on_hand cannot be less than allocated stock")

@@ -12,6 +12,7 @@ interface Props {
   onSubmit: (value: {
     id: bigint;
     onHand?: number;
+    expectedOnHand?: number;
     reorderPoint?: number;
     binLocation?: string;
     siteId?: bigint;
@@ -50,7 +51,7 @@ const AdjustPartModal = ({ part, sites, onDismiss, onSubmit }: Props) => {
     setBusy(true);
     const ok = await onSubmit({
       id: BigInt(part.id),
-      ...(parsedOnHand !== part.onHand ? { onHand: parsedOnHand } : {}),
+      ...(parsedOnHand !== part.onHand ? { onHand: parsedOnHand, expectedOnHand: part.onHand } : {}),
       ...(parsedReorder !== part.reorderPoint ? { reorderPoint: parsedReorder } : {}),
       ...(bin !== part.binLocation ? { binLocation: bin } : {}),
       ...(siteChanged ? { siteId: BigInt(siteId) } : {}),

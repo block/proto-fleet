@@ -42,6 +42,11 @@ type commentDeleteResult struct {
 	siteID *int64
 }
 
+type ticketUpdateResult struct {
+	ticket  *models.RepairTicket
+	updated bool
+}
+
 // Service is the domain entry point for repair ticket operations.
 type Service struct {
 	store       interfaces.MaintenanceStore
@@ -268,7 +273,7 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			if targetStatus != models.TicketStatusCompleted {
 				return nil, fleeterror.NewFailedPreconditionError("completed tickets are terminal")
 			}
-			return current, nil
+			return &ticketUpdateResult{ticket: current}, nil
 		}
 		if !statusTransitionAllowed(current.Status, targetStatus) {
 			return nil, fleeterror.NewFailedPreconditionErrorf("ticket status transition %d to %d is not allowed", current.Status, targetStatus)
@@ -324,18 +329,23 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 				return nil, err
 			}
 		}
-		return s.store.UpdateRepairTicket(txCtx, params)
+		updated, err := s.store.UpdateRepairTicket(txCtx, params)
+		if err != nil {
+			return nil, err
+		}
+		return &ticketUpdateResult{ticket: updated, updated: true}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	ticket, ok := result.(*models.RepairTicket)
-	if !ok {
+	updateResult, ok := result.(*ticketUpdateResult)
+	if !ok || updateResult.ticket == nil {
 		return nil, fleeterror.NewInternalError("maintenance transaction returned an unexpected result")
 	}
+	ticket := updateResult.ticket
 
-	// Activity log fires AFTER the write.
-	if s.activitySvc != nil {
+	// Activity log fires AFTER a committed write.
+	if updateResult.updated && s.activitySvc != nil {
 		orgID := params.OrgID
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,

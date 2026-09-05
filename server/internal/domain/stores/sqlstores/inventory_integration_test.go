@@ -44,15 +44,25 @@ func TestInventoryStoreCRUDIsolationAndAllocationGuards(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err), "cross-org reads must be hidden: %v", err)
 
 	require.NoError(t, store.Reserve(ctx, orgID, part.ID, 3))
+	currentOnHand := int32(5)
 	belowAllocated := int32(2)
-	_, err = store.Update(ctx, inventorymodels.UpdateParams{OrgID: orgID, ID: part.ID, OnHand: &belowAllocated})
+	_, err = store.Update(ctx, inventorymodels.UpdateParams{
+		OrgID: orgID, ID: part.ID, OnHand: &belowAllocated, ExpectedOnHand: &currentOnHand,
+	})
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "on_hand cannot fall below allocated: %v", err)
 
+	staleOnHand := int32(4)
 	updatedOnHand := int32(6)
+	_, err = store.Update(ctx, inventorymodels.UpdateParams{
+		OrgID: orgID, ID: part.ID, OnHand: &updatedOnHand, ExpectedOnHand: &staleOnHand,
+	})
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "stale on_hand must be rejected: %v", err)
+	assert.Contains(t, err.Error(), "refresh")
+
 	updatedReorderPoint := int32(4)
 	updatedBin := "B-7"
 	got, err = store.Update(ctx, inventorymodels.UpdateParams{
-		OrgID: orgID, ID: part.ID, OnHand: &updatedOnHand,
+		OrgID: orgID, ID: part.ID, OnHand: &updatedOnHand, ExpectedOnHand: &currentOnHand,
 		ReorderPoint: &updatedReorderPoint, BinLocation: &updatedBin,
 	})
 	require.NoError(t, err)

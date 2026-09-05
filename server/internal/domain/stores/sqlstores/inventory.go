@@ -102,12 +102,13 @@ func (s *SQLInventoryStore) Count(ctx context.Context, filter models.ListFilter)
 
 func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdateParams) (*models.InventoryPart, error) {
 	rows, err := s.GetQueries(ctx).UpdateInventoryPart(ctx, sqlc.UpdateInventoryPartParams{
-		OnHand:       ptrToNullInt32(params.OnHand),
-		ReorderPoint: ptrToNullInt32(params.ReorderPoint),
-		BinLocation:  ptrToNullString(params.BinLocation),
-		SiteID:       ptrToNullInt64(params.SiteID),
-		ID:           params.ID,
-		OrgID:        params.OrgID,
+		OnHand:         ptrToNullInt32(params.OnHand),
+		ExpectedOnHand: ptrToNullInt32(params.ExpectedOnHand),
+		ReorderPoint:   ptrToNullInt32(params.ReorderPoint),
+		BinLocation:    ptrToNullString(params.BinLocation),
+		SiteID:         ptrToNullInt64(params.SiteID),
+		ID:             params.ID,
+		OrgID:          params.OrgID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -116,8 +117,12 @@ func (s *SQLInventoryStore) Update(ctx context.Context, params models.UpdatePara
 		return nil, fleeterror.NewInternalErrorf("failed to update inventory part: %v", err)
 	}
 	if rows == 0 {
-		if _, getErr := s.Get(ctx, params.OrgID, params.ID); getErr != nil {
+		current, getErr := s.Get(ctx, params.OrgID, params.ID)
+		if getErr != nil {
 			return nil, getErr
+		}
+		if params.ExpectedOnHand != nil && current.OnHand != *params.ExpectedOnHand {
+			return nil, fleeterror.NewFailedPreconditionError("inventory stock changed; refresh the part before adjusting it")
 		}
 		return nil, fleeterror.NewFailedPreconditionError("inventory update conflicts with allocated stock")
 	}

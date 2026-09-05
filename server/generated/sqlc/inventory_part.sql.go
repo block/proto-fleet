@@ -620,18 +620,21 @@ WHERE id = $5
   AND org_id = $6
   AND deleted_at IS NULL
   AND COALESCE($1, on_hand) >= allocated
+  AND ($7::integer IS NULL
+       OR on_hand = $7::integer)
   AND ($4::bigint IS NULL
        OR site_id IS NOT DISTINCT FROM $4::bigint
        OR allocated = 0)
 `
 
 type UpdateInventoryPartParams struct {
-	OnHand       sql.NullInt32
-	ReorderPoint sql.NullInt32
-	BinLocation  sql.NullString
-	SiteID       sql.NullInt64
-	ID           int64
-	OrgID        int64
+	OnHand         sql.NullInt32
+	ReorderPoint   sql.NullInt32
+	BinLocation    sql.NullString
+	SiteID         sql.NullInt64
+	ID             int64
+	OrgID          int64
+	ExpectedOnHand sql.NullInt32
 }
 
 func (q *Queries) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPartParams) (int64, error) {
@@ -642,6 +645,7 @@ func (q *Queries) UpdateInventoryPart(ctx context.Context, arg UpdateInventoryPa
 		arg.SiteID,
 		arg.ID,
 		arg.OrgID,
+		arg.ExpectedOnHand,
 	)
 	if err != nil {
 		return 0, err

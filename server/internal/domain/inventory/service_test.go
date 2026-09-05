@@ -273,9 +273,10 @@ func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 	const partID = int64(9)
 
 	onHand := int32(8)
+	expectedOnHand := int32(10)
 	reorderPoint := int32(3)
 	params := models.UpdateParams{
-		OrgID: orgID, ID: partID, OnHand: &onHand, ReorderPoint: &reorderPoint,
+		OrgID: orgID, ID: partID, OnHand: &onHand, ExpectedOnHand: &expectedOnHand, ReorderPoint: &reorderPoint,
 		Reason: models.AdjustmentReasonCycleCount,
 	}
 	siteID := int64(11)
@@ -345,6 +346,33 @@ func (inventoryTxContextMatcher) Matches(value any) bool {
 
 func (inventoryTxContextMatcher) String() string { return "inventory transaction-bound context" }
 
+func TestUpdatePartRejectsStaleOnHandBeforeWrite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	service := NewService(store, transactor, nil)
+	const orgID = int64(42)
+	const partID = int64(9)
+	expectedOnHand := int32(10)
+	requestedOnHand := int32(15)
+	params := models.UpdateParams{
+		OrgID: orgID, ID: partID, OnHand: &requestedOnHand, ExpectedOnHand: &expectedOnHand,
+		Reason: models.AdjustmentReasonReceivedShipment,
+	}
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
+	)
+	store.EXPECT().GetForUpdate(gomock.Any(), orgID, partID).Return(
+		&models.InventoryPart{ID: partID, OrgID: orgID, OnHand: 8, Allocated: 0}, nil,
+	)
+
+	_, err := service.UpdatePart(t.Context(), params)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "refresh")
+}
+
 func TestUpdatePartRejectsOnHandBelowAllocatedBeforeWrite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
@@ -353,7 +381,11 @@ func TestUpdatePartRejectsOnHandBelowAllocatedBeforeWrite(t *testing.T) {
 	const orgID = int64(42)
 	const partID = int64(9)
 	onHand := int32(1)
-	params := models.UpdateParams{OrgID: orgID, ID: partID, OnHand: &onHand, Reason: models.AdjustmentReasonCycleCount}
+	expectedOnHand := int32(5)
+	params := models.UpdateParams{
+		OrgID: orgID, ID: partID, OnHand: &onHand, ExpectedOnHand: &expectedOnHand,
+		Reason: models.AdjustmentReasonCycleCount,
+	}
 
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
