@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import HistoryTab from "./HistoryTab";
 import { SortDirection, TicketSortField } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 const listCompleted = vi.fn(async ({ pageToken, onSuccess, onFinally }) => {
@@ -31,6 +31,8 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => (
   useMaintenanceOptions: () => ({ assignees: [{ id: "1", username: "alex" }] }),
 }));
 vi.mock("../TicketDetail/TicketDetailModal", () => ({ default: () => null }));
+afterEach(() => vi.useRealTimers());
+
 it("loads completed ticket history without an export control", async () => {
   render(<HistoryTab />);
   await waitFor(() => expect(screen.getByText("TK-2")).toBeInTheDocument());
@@ -61,6 +63,20 @@ it("replaces completed tickets when moving between cursor pages", async () => {
   await waitFor(() => expect(screen.getByText("TK-3")).toBeInTheDocument());
   expect(screen.queryByText("TK-2")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Previous page" })).toBeEnabled();
+});
+
+it("polls the current history cursor page", async () => {
+  vi.useFakeTimers();
+  render(<HistoryTab />);
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  await act(async () => undefined);
+  listCompleted.mockClear();
+
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+  expect(listCompleted).toHaveBeenCalledOnce();
+  expect(listCompleted).toHaveBeenCalledWith(expect.objectContaining({ pageToken: "cursor-2" }));
 });
 
 it("ignores completion callbacks from an older filtered request", async () => {

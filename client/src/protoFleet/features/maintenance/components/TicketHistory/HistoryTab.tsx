@@ -35,6 +35,7 @@ const colTitles: ColTitles<Columns> = {
   completedAt: "Completed",
   assignee: "Technician",
 };
+const POLL_INTERVAL_MS = 15_000;
 const resolutionLabels: Partial<Record<TicketResolution, string>> = {
   [TicketResolution.REPAIRED]: "Repaired",
   [TicketResolution.REPLACED]: "Replaced",
@@ -118,6 +119,10 @@ const HistoryTab = () => {
     },
     [assignee, component, listCompleted],
   );
+  const refreshCurrentPage = useCallback(
+    () => load(currentPage, cursorHistory[currentPage] ?? ""),
+    [currentPage, cursorHistory, load],
+  );
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -132,6 +137,27 @@ const HistoryTab = () => {
       controller.current?.abort();
     };
   }, [assignee, component]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let active = true;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        if (!active) return;
+        try {
+          await refreshCurrentPage();
+        } catch {
+          // RPC adapters report request failures through load's onError callback.
+        } finally {
+          if (active) scheduleNext();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+    scheduleNext();
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [refreshCurrentPage]);
   const colConfig: ColConfig<Item, string, Columns> = useMemo(
     () => ({
       issue: {

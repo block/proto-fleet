@@ -613,6 +613,10 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 		attemptSiteIDs := make([]*int64, 0, len(ids))
 		minerIDs := make([]int64, 0, len(ids))
 		infrastructureIDs := make([]int64, 0, len(ids))
+		ticketsToClose := make([]*models.RepairTicket, 0, len(ids))
+		// Lock the full normalized ticket set before touching inventory. Single-
+		// ticket updates use ticket → inventory ordering, so bulk close must not
+		// hold an inventory row while waiting for a later ticket row.
 		for _, id := range ids {
 			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, params.OrgID, id)
 			if err != nil {
@@ -632,7 +636,15 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			if err := validateCompletion(ticket.Category, params.Resolution, completionLocation); err != nil {
 				return err
 			}
-			parts, err := s.store.ListTicketParts(txCtx, params.OrgID, id)
+			ticketsToClose = append(ticketsToClose, ticket)
+			if ticket.Category == models.TicketCategoryMiner {
+				minerIDs = append(minerIDs, id)
+			} else {
+				infrastructureIDs = append(infrastructureIDs, id)
+			}
+		}
+		for _, ticket := range ticketsToClose {
+			parts, err := s.store.ListTicketParts(txCtx, params.OrgID, ticket.ID)
 			if err != nil {
 				return err
 			}
@@ -641,13 +653,8 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 					return err
 				}
 			}
-			if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, id); err != nil {
+			if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, ticket.ID); err != nil {
 				return err
-			}
-			if ticket.Category == models.TicketCategoryMiner {
-				minerIDs = append(minerIDs, id)
-			} else {
-				infrastructureIDs = append(infrastructureIDs, id)
 			}
 		}
 		if len(minerIDs) > 0 {

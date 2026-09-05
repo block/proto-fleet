@@ -2,6 +2,7 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TicketDetailModal from "./TicketDetailModal";
+import { TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketDetail } from "@/protoFleet/features/maintenance/types";
 const update = vi.fn();
 const addComment = vi.fn();
@@ -207,6 +208,37 @@ describe("TicketDetailModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Update status" }));
     fireEvent.click(screen.getByText("Open"));
     await waitFor(() => expect(onMutationSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("retains persisted RMA details when resending a ticket to the vendor", async () => {
+    ticket.rmaVendor = "Repair Co";
+    ticket.rmaTracking = "TRACK-1";
+    ticket.rmaEta = new Date("2026-09-10T00:00:00Z");
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Update status" }));
+    fireEvent.click(screen.getByText("Sent to Vendor"));
+
+    expect(screen.getByLabelText("Vendor")).toHaveValue("Repair Co");
+    expect(screen.getByLabelText("Tracking #")).toHaveValue("TRACK-1");
+    expect(screen.getByLabelText("ETA")).toHaveValue("2026-09-10");
+
+    update.mockResolvedValueOnce(true);
+    fireEvent.change(screen.getByLabelText("ETA"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to vendor" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        status: TicketStatus.SENT_TO_VENDOR,
+        rmaVendor: "Repair Co",
+        rmaTracking: "TRACK-1",
+        clearRmaEta: true,
+      }),
+    );
   });
 
   it("edits persisted RMA details after vendor dispatch", async () => {

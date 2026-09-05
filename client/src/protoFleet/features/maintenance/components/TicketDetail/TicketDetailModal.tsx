@@ -71,6 +71,12 @@ const TicketDetailModal = ({
   const [eta, setEta] = useState("");
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
+  const openRmaEditor = () => {
+    setVendor(ticket?.rmaVendor ?? "");
+    setTracking(ticket?.rmaTracking ?? "");
+    setEta(toDateInputValue(ticket?.rmaEta ?? null));
+    setRma(true);
+  };
   const navigateToTicket = (id: string) => {
     setAssignOpen(false);
     setStatusOpen(false);
@@ -163,7 +169,7 @@ const TicketDetailModal = ({
                       <Row
                         compact
                         onClick={() => {
-                          if (value === TicketStatus.SENT_TO_VENDOR) setRma(true);
+                          if (value === TicketStatus.SENT_TO_VENDOR) openRmaEditor();
                           else void updateTicket({ status: value });
                           setStatusOpen(false);
                         }}
@@ -238,7 +244,7 @@ const TicketDetailModal = ({
                     rmaVendor: vendor,
                     rmaTracking: tracking,
                     ...(eta ? { rmaEta: new Date(`${eta}T00:00:00.000Z`) } : {}),
-                    ...(ticket.status === "sent_to_vendor" && ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
+                    ...(ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
                   }).then((updated) => {
                     if (updated) setRma(false);
                   })
@@ -254,12 +260,7 @@ const TicketDetailModal = ({
                     text="Edit RMA details"
                     variant={variants.secondary}
                     size={buttonSizes.compact}
-                    onClick={() => {
-                      setVendor(ticket.rmaVendor ?? "");
-                      setTracking(ticket.rmaTracking ?? "");
-                      setEta(toDateInputValue(ticket.rmaEta));
-                      setRma(true);
-                    }}
+                    onClick={openRmaEditor}
                   />
                 ) : null}
               </div>

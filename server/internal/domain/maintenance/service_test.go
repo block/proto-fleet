@@ -407,7 +407,7 @@ func TestDeleteCommentScopesActivityToTicketSite(t *testing.T) {
 	require.NoError(t, service.DeleteComment(t.Context(), 2, 4, 5))
 }
 
-func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t *testing.T) {
+func TestBulkCloseLocksAllTicketsBeforeConsumingReservations(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	inventory := mocks.NewMockInventoryStore(ctrl)
@@ -417,10 +417,10 @@ func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t 
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 	gomock.InOrder(
 		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3, Category: models.TicketCategoryMiner, Status: models.TicketStatusOpen}, nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(&models.RepairTicket{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil),
 		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return([]models.PartUsage{{InventoryPartID: 7, Quantity: 1}}, nil),
 		inventory.EXPECT().ConsumeReserved(gomock.Any(), int64(2), int64(7), int32(1)).Return(nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil),
-		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(&models.RepairTicket{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil),
 		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return(nil, nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
 		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationOnRack), nil).Return(int64(1), nil),
