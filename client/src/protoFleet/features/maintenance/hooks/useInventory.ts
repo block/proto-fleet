@@ -99,6 +99,18 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     [load],
   );
 
+  const refreshValidPage = useCallback(async () => {
+    const page = currentPageRef.current;
+    const loadedRowCount = await refreshCurrentPage();
+    if (loadedRowCount === 0 && page > 0 && currentPageRef.current === page) {
+      const previous = page - 1;
+      const previousToken = cursorHistoryRef.current[previous];
+      cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
+      await load(previous, previousToken);
+    }
+    return loadedRowCount;
+  }, [load, refreshCurrentPage]);
+
   useEffect(() => {
     let active = true;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -106,7 +118,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
       timeoutId = setTimeout(async () => {
         if (!active) return;
         try {
-          await refreshCurrentPage();
+          await refreshValidPage();
         } catch {
           // RPC adapters report request failures through load's onError callbacks.
         } finally {
@@ -119,7 +131,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
       active = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [refreshCurrentPage]);
+  }, [refreshValidPage]);
 
   const create = useCallback(
     async (input: Parameters<typeof createPart>[0]) => {
@@ -147,10 +159,10 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) await refreshCurrentPage();
+      if (ok) await refreshValidPage();
       return ok;
     },
-    [refreshCurrentPage, updatePart],
+    [refreshValidPage, updatePart],
   );
 
   const remove = useCallback(
@@ -163,19 +175,10 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
         },
         onError: setError,
       });
-      if (ok) {
-        const page = currentPageRef.current;
-        const loadedRowCount = await refreshCurrentPage();
-        if (loadedRowCount === 0 && page > 0) {
-          const previous = page - 1;
-          const previousToken = cursorHistoryRef.current[previous];
-          cursorHistoryRef.current = cursorHistoryRef.current.slice(0, page);
-          await load(previous, previousToken);
-        }
-      }
+      if (ok) await refreshValidPage();
       return ok;
     },
-    [deletePart, load, refreshCurrentPage],
+    [deletePart, refreshValidPage],
   );
 
   const previewCsv = useCallback(
@@ -220,7 +223,7 @@ export const useInventory = (initialFilter: Partial<InventoryFilter> = {}) => {
     hasPreviousPage: currentPage > 0,
     filter,
     setFilter,
-    refresh: refreshCurrentPage,
+    refresh: refreshValidPage,
     nextPage: () => {
       const token = cursorHistoryRef.current[currentPageRef.current + 1] ?? nextPageToken;
       return token ? load(currentPageRef.current + 1, token) : Promise.resolve();

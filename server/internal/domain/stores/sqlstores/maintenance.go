@@ -262,6 +262,18 @@ func (s *SQLMaintenanceStore) AvgTicketAgeHours(ctx context.Context, orgID int64
 	return stats.AvgAgeHours, nil
 }
 
+func (s *SQLMaintenanceStore) ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error) {
+	rows, err := s.GetQueries(ctx).ListCompletedTicketAssignees(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list completed ticket assignees: %v", err)
+	}
+	assignees := make([]models.Assignee, 0, len(rows))
+	for _, row := range rows {
+		assignees = append(assignees, models.Assignee{UserID: row.UserID, Username: row.Username, RoleName: row.RoleName})
+	}
+	return assignees, nil
+}
+
 func (s *SQLMaintenanceStore) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error) {
 	sortField, direction, cursor, err := normalizeCursor(filter.SortField, filter.SortDirection, filter.Cursor)
 	if err != nil {

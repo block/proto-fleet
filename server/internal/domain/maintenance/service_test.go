@@ -43,12 +43,15 @@ func TestListCompletedTicketsSuppressesLookaheadOnFinalPage(t *testing.T) {
 		[]models.RepairTicketSummary{{RepairTicket: models.RepairTicket{ID: 1}}}, nil,
 	)
 	store.EXPECT().CountCompletedTickets(gomock.Any(), filter).Return(int32(1), nil)
+	facets := []models.Assignee{{UserID: 9, Username: "former-tech"}}
+	store.EXPECT().ListCompletedTicketAssignees(gomock.Any(), int64(2)).Return(facets, nil)
 
-	tickets, total, hasNext, err := service.ListCompletedTickets(t.Context(), filter)
+	tickets, total, hasNext, assignees, err := service.ListCompletedTickets(t.Context(), filter)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), total)
 	assert.False(t, hasNext)
 	require.Len(t, tickets, 1)
+	assert.Equal(t, facets, assignees)
 }
 
 func TestUpdateRepairTicketRejectsSetAndClearRMAEtaTogether(t *testing.T) {

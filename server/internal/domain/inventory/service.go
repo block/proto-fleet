@@ -72,6 +72,11 @@ func NewService(
 
 // CreatePart inserts a new inventory part.
 func (s *Service) CreatePart(ctx context.Context, params models.CreateParams) (*models.InventoryPart, error) {
+	params.Name = strings.TrimSpace(params.Name)
+	params.Type = strings.TrimSpace(params.Type)
+	params.Manufacturer = optionalTrimmedString(params.Manufacturer)
+	params.PartNumber = optionalTrimmedString(params.PartNumber)
+	params.BinLocation = optionalTrimmedString(params.BinLocation)
 	if params.Name == "" {
 		return nil, fleeterror.NewInvalidArgumentError("name is required")
 	}
@@ -495,11 +500,18 @@ func resolvedCsvRow(row models.CsvPreviewRow, siteID *int64) models.ResolvedCsvR
 }
 
 func optionalCsvString(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	return optionalTrimmedString(&value)
+}
+
+func optionalTrimmedString(value *string) *string {
+	if value == nil {
 		return nil
 	}
-	return &value
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func valueOrZero(value *int64) int64 {

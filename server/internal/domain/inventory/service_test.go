@@ -46,6 +46,33 @@ func TestListPartsReturnsFilteredTotalAndOnlyEmitsCursorWhenAnotherPageExists(t 
 	assert.Nil(t, finalPage.NextCursorID)
 }
 
+func TestCreatePartCanonicalizesDisplayFieldsBeforePersistence(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	service := NewService(store, nil, nil)
+	manufacturer := " Proto "
+	partNumber := " FAN-1 "
+	binLocation := " A-12 "
+	params := models.CreateParams{
+		OrgID: 42, Name: " Fan ", Type: " Cooling ", Manufacturer: &manufacturer,
+		PartNumber: &partNumber, BinLocation: &binLocation,
+	}
+	trimmedManufacturer := "Proto"
+	trimmedPartNumber := "FAN-1"
+	trimmedBinLocation := "A-12"
+	canonical := models.CreateParams{
+		OrgID: 42, Name: "Fan", Type: "Cooling", Manufacturer: &trimmedManufacturer,
+		PartNumber: &trimmedPartNumber, BinLocation: &trimmedBinLocation,
+	}
+	created := &models.InventoryPart{ID: 7, OrgID: 42, Name: "Fan", Type: "Cooling"}
+
+	store.EXPECT().Create(gomock.Any(), canonical).Return(created, nil)
+
+	part, err := service.CreatePart(t.Context(), params)
+	require.NoError(t, err)
+	assert.Equal(t, created, part)
+}
+
 func TestCreatePartLocksAssignedSiteInTheCreateTransaction(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)

@@ -272,6 +272,14 @@ WHERE org_id = sqlc.arg('org_id') AND deleted_at IS NULL AND status = 5
   AND (sqlc.narg('component_filter')::text IS NULL OR component = sqlc.narg('component_filter'))
   AND (sqlc.narg('assignee_filter')::bigint IS NULL OR assignee_user_id = sqlc.narg('assignee_filter'));
 
+-- name: ListCompletedTicketAssignees :many
+SELECT u.id AS user_id, u.username, ''::text AS role_name
+FROM repair_ticket rt
+JOIN "user" u ON u.id = rt.assignee_user_id
+WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL AND rt.status = 5
+GROUP BY u.id, u.username
+ORDER BY LOWER(u.username), u.id;
+
 -- name: ListTicketsByMiner :many
 SELECT id FROM repair_ticket
 WHERE org_id = sqlc.arg('org_id') AND miner_identifier = sqlc.arg('miner_identifier') AND deleted_at IS NULL

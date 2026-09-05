@@ -826,24 +826,28 @@ func (s *Service) DeleteComment(ctx context.Context, orgID, callerUserID, commen
 // ---------------------------------------------------------------
 
 // ListCompletedTickets returns completed tickets for the history tab.
-func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, int32, bool, error) {
+func (s *Service) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, int32, bool, []models.Assignee, error) {
 	pageSize := clampLimit(filter.Limit)
 	filter.Limit = pageSize
 	countFilter := filter
 	filter.Limit++
 	tickets, err := s.store.ListCompletedTickets(ctx, filter)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, false, nil, err
 	}
 	total, err := s.store.CountCompletedTickets(ctx, countFilter)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, false, nil, err
+	}
+	assignees, err := s.store.ListCompletedTicketAssignees(ctx, filter.OrgID)
+	if err != nil {
+		return nil, 0, false, nil, err
 	}
 	hasNext := len(tickets) > int(pageSize)
 	if hasNext {
 		tickets = tickets[:pageSize]
 	}
-	return tickets, total, hasNext, nil
+	return tickets, total, hasNext, assignees, nil
 }
 
 // ---------------------------------------------------------------

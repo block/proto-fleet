@@ -184,6 +184,14 @@ func TestCompletedTicketRetainsAssigneeNameAfterUserDeactivation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, "former-technician", history[0].AssigneeName)
+	assignees, err := store.ListCompletedTicketAssignees(ctx, orgID)
+	require.NoError(t, err)
+	require.Len(t, assignees, 1)
+	assert.Equal(t, userID, assignees[0].UserID)
+	assert.Equal(t, "former-technician", assignees[0].Username)
+	activeAssignees, err := sqlstores.NewSQLMaintenanceReferenceStore(db).ListAssignees(ctx, orgID)
+	require.NoError(t, err)
+	assert.Empty(t, activeAssignees, "inactive historical users must not be offered for new assignments")
 }
 
 func TestMaintenanceStoreConcurrentTicketNumbers(t *testing.T) {

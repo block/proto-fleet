@@ -1059,6 +1059,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBuiltinRolesForOrgStmt, err = db.PrepareContext(ctx, listBuiltinRolesForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuiltinRolesForOrg: %w", err)
 	}
+	if q.listCompletedTicketAssigneesStmt, err = db.PrepareContext(ctx, listCompletedTicketAssignees); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCompletedTicketAssignees: %w", err)
+	}
 	if q.listCompletedTicketsStmt, err = db.PrepareContext(ctx, listCompletedTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCompletedTickets: %w", err)
 	}
@@ -3602,6 +3605,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBuiltinRolesForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCompletedTicketAssigneesStmt != nil {
+		if cerr := q.listCompletedTicketAssigneesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCompletedTicketAssigneesStmt: %w", cerr)
+		}
+	}
 	if q.listCompletedTicketsStmt != nil {
 		if cerr := q.listCompletedTicketsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCompletedTicketsStmt: %w", cerr)
@@ -5341,6 +5349,7 @@ type Queries struct {
 	listBuildingRacksStmt                                        *sql.Stmt
 	listBuildingsByOrgStmt                                       *sql.Stmt
 	listBuiltinRolesForOrgStmt                                   *sql.Stmt
+	listCompletedTicketAssigneesStmt                             *sql.Stmt
 	listCompletedTicketsStmt                                     *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
 	listCurtailmentBuildingScopeCoverageStmt                     *sql.Stmt
@@ -5963,6 +5972,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
 		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
+		listCompletedTicketAssigneesStmt:                             q.listCompletedTicketAssigneesStmt,
 		listCompletedTicketsStmt:                                     q.listCompletedTicketsStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
 		listCurtailmentBuildingScopeCoverageStmt:                     q.listCurtailmentBuildingScopeCoverageStmt,

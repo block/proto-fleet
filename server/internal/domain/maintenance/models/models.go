@@ -285,7 +285,7 @@ type CompletedFilter struct {
 	Limit          int32
 }
 
-// Assignee is an active user with a live organization membership.
+// Assignee identifies a user available in an assignment or history context.
 type Assignee struct {
 	UserID   int64
 	Username string

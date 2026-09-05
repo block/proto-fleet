@@ -3978,6 +3978,18 @@ func (q *retryingQuerier) ListBuiltinRolesForOrg(ctx context.Context, organizati
 	return result, err
 }
 
+func (q *retryingQuerier) ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]ListCompletedTicketAssigneesRow, error) {
+	var result []ListCompletedTicketAssigneesRow
+	err := q.retrier.RetryQuery(ctx, "ListCompletedTicketAssignees", func() error {
+		callResult, callErr := q.next.ListCompletedTicketAssignees(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error) {
 	var result []ListCompletedTicketsRow
 	err := q.retrier.RetryQuery(ctx, "ListCompletedTickets", func() error {

@@ -332,7 +332,12 @@ export const useMaintenanceApi = () => {
       onSuccess,
       onError,
       onFinally,
-    }: Callbacks<{ tickets: RepairTicketSummary[]; nextPageToken: string; totalCount: number }> & {
+    }: Callbacks<{
+      tickets: RepairTicketSummary[];
+      nextPageToken: string;
+      totalCount: number;
+      assigneeFacets: Assignee[];
+    }> & {
       componentFilter?: string;
       assigneeUserIdFilter?: bigint;
       sortField?: TicketSortField;
@@ -351,6 +356,7 @@ export const useMaintenanceApi = () => {
             tickets: response.tickets,
             nextPageToken: response.nextPageToken,
             totalCount: response.totalCount,
+            assigneeFacets: response.assigneeFacets,
           });
       } catch (error) {
         report(error, signal, onError);

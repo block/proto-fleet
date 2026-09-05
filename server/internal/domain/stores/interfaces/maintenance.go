@@ -100,6 +100,8 @@ type MaintenanceStore interface {
 	// component and assignee filters with stable sort-key pagination.
 	ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error)
 	CountCompletedTickets(ctx context.Context, filter models.CompletedFilter) (int32, error)
+	// ListCompletedTicketAssignees includes inactive users referenced by history.
+	ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error)
 
 	// ---------------------------------------------------------------
 	// Miner / Rack scoped queries

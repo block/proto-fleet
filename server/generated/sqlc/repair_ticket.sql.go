@@ -530,6 +530,44 @@ func (q *Queries) GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTic
 	return i, err
 }
 
+const listCompletedTicketAssignees = `-- name: ListCompletedTicketAssignees :many
+SELECT u.id AS user_id, u.username, ''::text AS role_name
+FROM repair_ticket rt
+JOIN "user" u ON u.id = rt.assignee_user_id
+WHERE rt.org_id = $1 AND rt.deleted_at IS NULL AND rt.status = 5
+GROUP BY u.id, u.username
+ORDER BY LOWER(u.username), u.id
+`
+
+type ListCompletedTicketAssigneesRow struct {
+	UserID   int64
+	Username string
+	RoleName string
+}
+
+func (q *Queries) ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]ListCompletedTicketAssigneesRow, error) {
+	rows, err := q.query(ctx, q.listCompletedTicketAssigneesStmt, listCompletedTicketAssignees, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompletedTicketAssigneesRow
+	for rows.Next() {
+		var i ListCompletedTicketAssigneesRow
+		if err := rows.Scan(&i.UserID, &i.Username, &i.RoleName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCompletedTickets = `-- name: ListCompletedTickets :many
 WITH completed AS (
     SELECT

@@ -952,6 +952,7 @@ type Querier interface {
 	// by the startup reconciler (which iterates orgs) and by the
 	// onboarding hook that seeds built-ins for a new org.
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
+	ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]ListCompletedTicketAssigneesRow, error)
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)

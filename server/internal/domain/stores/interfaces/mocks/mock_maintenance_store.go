@@ -310,6 +310,21 @@ func (mr *MockMaintenanceStoreMockRecorder) InsertTicketPart(ctx, orgID, ticketI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertTicketPart", reflect.TypeOf((*MockMaintenanceStore)(nil).InsertTicketPart), ctx, orgID, ticketID, inventoryPartID, partName, quantity)
 }
 
+// ListCompletedTicketAssignees mocks base method.
+func (m *MockMaintenanceStore) ListCompletedTicketAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCompletedTicketAssignees", ctx, orgID)
+	ret0, _ := ret[0].([]models.Assignee)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCompletedTicketAssignees indicates an expected call of ListCompletedTicketAssignees.
+func (mr *MockMaintenanceStoreMockRecorder) ListCompletedTicketAssignees(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCompletedTicketAssignees", reflect.TypeOf((*MockMaintenanceStore)(nil).ListCompletedTicketAssignees), ctx, orgID)
+}
+
 // ListCompletedTickets mocks base method.
 func (m *MockMaintenanceStore) ListCompletedTickets(ctx context.Context, filter models.CompletedFilter) ([]models.RepairTicketSummary, error) {
 	m.ctrl.T.Helper()

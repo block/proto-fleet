@@ -446,15 +446,16 @@ func toListRepairTicketsResponse(tickets []models.RepairTicketSummary, totalCoun
 	}
 }
 
-func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32, hasNext bool) *pb.ListCompletedTicketsResponse {
+func toListCompletedTicketsResponse(tickets []models.RepairTicketSummary, totalCount int32, hasNext bool, assignees []models.Assignee) *pb.ListCompletedTicketsResponse {
 	out := make([]*pb.RepairTicketSummary, 0, len(tickets))
 	for i := range tickets {
 		out = append(out, toProtoTicketSummary(&tickets[i]))
 	}
 	return &pb.ListCompletedTicketsResponse{
-		Tickets:       out,
-		NextPageToken: nextPageToken(tickets, hasNext),
-		TotalCount:    totalCount,
+		Tickets:        out,
+		NextPageToken:  nextPageToken(tickets, hasNext),
+		TotalCount:     totalCount,
+		AssigneeFacets: toProtoAssignees(assignees),
 	}
 }
 

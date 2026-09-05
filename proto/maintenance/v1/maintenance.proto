@@ -404,9 +404,11 @@ message ListCompletedTicketsRequest {
 }
 
 message ListCompletedTicketsResponse {
-    repeated RepairTicketSummary tickets         = 1;
-    string                      next_page_token = 2;
-    int32                       total_count     = 3;
+    repeated RepairTicketSummary tickets          = 1;
+    string                       next_page_token  = 2;
+    int32                        total_count      = 3;
+    // All users referenced by live completed tickets, including inactive users.
+    repeated Assignee assignee_facets = 4;
 }
 
 // ListAssignees

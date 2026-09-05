@@ -72,8 +72,10 @@ func TestListResponsesOnlyEmitCursorWhenAnotherPageExists(t *testing.T) {
 	finalPage := toListRepairTicketsResponse(tickets, 1, false)
 	assert.Empty(t, finalPage.NextPageToken)
 
-	pageWithMore := toListCompletedTicketsResponse(tickets, 2, true)
+	pageWithMore := toListCompletedTicketsResponse(tickets, 2, true, []models.Assignee{{UserID: 9, Username: "former-tech"}})
 	assert.NotEmpty(t, pageWithMore.NextPageToken)
+	require.Len(t, pageWithMore.AssigneeFacets, 1)
+	assert.Equal(t, "former-tech", pageWithMore.AssigneeFacets[0].Username)
 }
 
 func TestToProtoAssigneesMapsHydratedLabels(t *testing.T) {

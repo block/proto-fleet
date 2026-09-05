@@ -22,6 +22,7 @@ const listCompleted = vi.fn(async ({ pageToken, onSuccess, onFinally }) => {
     ],
     totalCount: 2,
     nextPageToken: secondPage ? "" : "cursor-2",
+    assigneeFacets: [{ userId: 9n, username: "former-tech", roleName: "" }],
   });
   onFinally();
 });
@@ -42,6 +43,15 @@ it("loads completed ticket history without an export control", async () => {
       sortDirection: SortDirection.DESC,
     }),
   );
+});
+
+it("offers inactive technicians returned by history facets", async () => {
+  render(<HistoryTab />);
+  await waitFor(() => expect(screen.getByText("TK-2")).toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole("button", { name: "Technician" }));
+
+  expect(screen.getByText("former-tech")).toBeInTheDocument();
 });
 
 it("replaces completed tickets when moving between cursor pages", async () => {

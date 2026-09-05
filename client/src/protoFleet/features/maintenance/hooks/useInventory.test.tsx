@@ -98,6 +98,32 @@ it("returns to the previous page after deleting the final row on a later page", 
   expect(listParts).toHaveBeenCalledTimes(4);
 });
 
+it("returns to the previous page when polling finds an empty later page", async () => {
+  vi.useFakeTimers();
+  let externallyRemoved = false;
+  try {
+    listParts.mockImplementation(async ({ pageToken, onSuccess }) =>
+      onSuccess({
+        parts: pageToken === "next" ? (externallyRemoved ? [] : [{ id: "2" }]) : [{ id: "1" }],
+        nextPageToken: pageToken || externallyRemoved ? "" : "next",
+        totalCount: externallyRemoved ? 1 : 2,
+      }),
+    );
+    const { result } = renderHook(() => useInventory());
+    await act(async () => undefined);
+    await act(() => result.current.nextPage());
+    expect(result.current.currentPage).toBe(1);
+
+    externallyRemoved = true;
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+
+    expect(result.current.currentPage).toBe(0);
+    expect(result.current.data).toEqual([{ id: "1" }]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("submits combined site, type, and low-stock filters", async () => {
   const { result } = renderHook(() => useInventory());
   await waitFor(() => expect(result.current.loading).toBe(false));

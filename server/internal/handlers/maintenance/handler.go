@@ -263,11 +263,11 @@ func (h *Handler) ListCompletedTickets(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	tickets, total, hasNext, err := h.service.ListCompletedTickets(ctx, filter)
+	tickets, total, hasNext, assignees, err := h.service.ListCompletedTickets(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListCompletedTicketsResponse(tickets, total, hasNext)), nil
+	return connect.NewResponse(toListCompletedTicketsResponse(tickets, total, hasNext, assignees)), nil
 }
 
 func (h *Handler) ListAssignees(ctx context.Context, _ *connect.Request[pb.ListAssigneesRequest]) (*connect.Response[pb.ListAssigneesResponse], error) {

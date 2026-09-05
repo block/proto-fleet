@@ -48,6 +48,27 @@ describe("useMaintenanceApi", () => {
     );
     expect(onSuccess).toHaveBeenCalledWith({ tickets: [], nextPageToken: "next", totalCount: 7 });
   });
+  it("forwards completed-ticket assignee facets", async () => {
+    const facets = [{ userId: 9n, username: "former-tech", roleName: "" }];
+    clients.listCompletedTickets.mockResolvedValue({
+      tickets: [],
+      nextPageToken: "",
+      totalCount: 0,
+      assigneeFacets: facets,
+    });
+    const onSuccess = vi.fn();
+    const { result } = renderHook(() => useMaintenanceApi());
+
+    await act(() => result.current.listCompleted({ onSuccess }));
+
+    expect(onSuccess).toHaveBeenCalledWith({
+      tickets: [],
+      nextPageToken: "",
+      totalCount: 0,
+      assigneeFacets: facets,
+    });
+  });
+
   it("preserves explicit empty and clear signals", async () => {
     clients.updateRepairTicket.mockResolvedValue({});
     const { result } = renderHook(() => useMaintenanceApi());

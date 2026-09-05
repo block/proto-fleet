@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
+import type { Assignee } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
   SortDirection,
   TicketResolution,
   TicketSortField,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
-import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -44,8 +44,8 @@ const resolutionLabels: Partial<Record<TicketResolution, string>> = {
 };
 const HistoryTab = () => {
   const { listCompleted } = useMaintenanceApi();
-  const options = useMaintenanceOptions();
   const [items, setItems] = useState<Item[]>([]);
+  const [assigneeFacets, setAssigneeFacets] = useState<Assignee[]>([]);
   const [total, setTotal] = useState(0);
   const [next, setNext] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -96,6 +96,7 @@ const HistoryTab = () => {
               : [],
           );
           setItems(mapped);
+          setAssigneeFacets(response.assigneeFacets);
           setTotal(response.totalCount);
           setNext(response.nextPageToken);
           setCurrentPage(page);
@@ -171,7 +172,7 @@ const HistoryTab = () => {
           value={assignee}
           options={[
             { value: "", label: "All technicians" },
-            ...options.assignees.map((item) => ({ value: item.id, label: item.username })),
+            ...assigneeFacets.map((item) => ({ value: item.userId.toString(), label: item.username })),
           ]}
           onChange={setAssignee}
         />
