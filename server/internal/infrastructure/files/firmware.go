@@ -65,6 +65,7 @@ const firmwareMetadataFilename = "metadata.json"
 var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
 const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
+const maxFirmwareVersionLength = 255
 
 // allowedFirmwareExtensions lists file suffixes accepted for firmware uploads.
 // .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer format.
@@ -132,6 +133,18 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	}
 	if metadata.FirmwareVersion == "" {
 		return fleeterror.NewInvalidArgumentError("firmware_version is required")
+	}
+	if len(metadata.FirmwareVersion) > maxFirmwareVersionLength {
+		runeCount := 0
+		for range metadata.FirmwareVersion {
+			runeCount++
+			if runeCount > maxFirmwareVersionLength {
+				return fleeterror.NewInvalidArgumentErrorf(
+					"firmware_version must be at most %d Unicode code points",
+					maxFirmwareVersionLength,
+				)
+			}
+		}
 	}
 	return nil
 }

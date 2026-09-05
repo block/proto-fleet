@@ -103,12 +103,15 @@ service RolloutService {
     // Empty or different deployment provenance remains mismatched and must
     // receive the rollout. Every nonempty firmware_file_id must identify an
     // immutable firmware payload with complete target metadata: nonempty target
-    // manufacturer, target model, and firmware version. The normalized metadata
-    // target must match the assignment target. For release-channel assignments,
-    // one normalized manufacturer/model/version tuple identifies exactly one
-    // firmware file: reusing its file id is valid, but assigning a different
-    // file id for the same tuple fails with FAILED_PRECONDITION before changing
-    // any assignment or starting any rollout. This prevents ambiguity in the
+    // manufacturer and target model, and a firmware version with length 1..255
+    // Unicode code points. The normalized metadata target must match the
+    // assignment target. Incomplete or mismatched metadata fails with
+    // FAILED_PRECONDITION before changing any assignment or starting any
+    // rollout. For release-channel assignments, one normalized
+    // manufacturer/model/version tuple identifies exactly one firmware file:
+    // reusing its file id is valid, but assigning a different file id for the
+    // same tuple also fails with FAILED_PRECONDITION before changing any
+    // assignment or starting any rollout. This prevents ambiguity in the
     // firmware store; it does not attest the payload running on a device. An
     // empty firmware_file_id remains valid and clears the assignment. Direct
     // firmware uploads are outside this contract.
@@ -297,10 +300,9 @@ message ReleaseChannelSummary {
 }
 
 // Summary for one observed manufacturer/model pair in a channel, including
-// its member count and firmware assignment. Observed identities up to 255
-// characters are returned verbatim and may contain non-ASCII, whitespace, or
-// control characters; an empty manufacturer or model means the identity is
-// unknown.
+// its member count and firmware assignment. The observed manufacturer and
+// model are returned verbatim and are separate from the canonical target keys
+// used for firmware assignment.
 message ReleaseChannelModelGroup {
     option (buf.validate.message).cel = {
         id: "reported_version_count_covers_returned_versions"
@@ -308,19 +310,24 @@ message ReleaseChannelModelGroup {
         expression: "this.reported_version_count >= this.reported_versions.size()"
     };
     option (buf.validate.message).cel = {
-        id: "firmware_assignment_requires_target_identity"
-        message: "assigned firmware requires canonical manufacturer/model target keys and firmware_version"
-        expression: "this.firmware_file_id == '' || (this.manufacturer.matches('^[!-~](?:[ -~]*[!-~])?$') && this.model.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_version != '')"
+        id: "firmware_assignment_is_absent_or_complete"
+        message: "firmware assignment fields must be absent or include canonical target manufacturer/model keys and firmware_version"
+        expression: "(this.firmware_file_id == '' && this.firmware_target_manufacturer == '' && this.firmware_target_model == '' && this.firmware_version == '') || (this.firmware_file_id != '' && this.firmware_target_manufacturer.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_target_model.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_version != '')"
     };
 
+    // Observed manufacturer returned verbatim. May contain non-ASCII,
+    // whitespace, or control characters; empty means unknown.
     string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    // Observed model returned verbatim. May contain non-ASCII, whitespace, or
+    // control characters; empty means unknown.
     string model = 2 [(buf.validate.field).string.max_len = 255];
-    // Empty when no firmware is assigned to this manufacturer/model pair. A
-    // nonempty current assignment protects the artifact from deletion.
+    // Empty when no firmware is assigned to this target manufacturer/model
+    // pair. A nonempty current assignment protects the artifact from deletion.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+    // Target firmware version; empty when no firmware is assigned.
     string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
     int32 miner_count = 5;
-    // Id of the active rollout for this manufacturer/model pair, 0 if none.
+    // Id of the active rollout for this firmware target pair, 0 if none.
     int64 active_rollout_id = 6;
     // Members currently reporting the assigned firmware version whose
     // last_deployed_firmware_file_id also equals the assigned firmware_file_id;
@@ -337,6 +344,12 @@ message ReleaseChannelModelGroup {
     // Total distinct reported versions before reported_versions is truncated.
     // A value greater than the length of reported_versions means truncation.
     int32 reported_version_count = 9;
+    // Canonical printable-ASCII manufacturer assignment key with no
+    // surrounding spaces. Empty when no firmware is assigned.
+    string firmware_target_manufacturer = 10 [(buf.validate.field).string.max_len = 255];
+    // Canonical printable-ASCII model assignment key with no surrounding
+    // spaces. Empty when no firmware is assigned.
+    string firmware_target_model = 11 [(buf.validate.field).string.max_len = 255];
 }
 
 // A miner resolved into a release channel. Observed identities up to 255
@@ -412,19 +425,22 @@ message FirmwareAssignment {
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Firmware file to enforce for this manufacturer/model pair. A nonempty id
     // must identify an immutable firmware payload with complete target
-    // metadata: nonempty target manufacturer, target model, and firmware
-    // version. The normalized metadata target must match this normalized
-    // assignment target. For
-    // release-channel assignments, one normalized manufacturer/model/version
-    // tuple identifies exactly one firmware file. Reusing that file id is
-    // valid; if another file id already represents the tuple,
-    // ApplyReleaseChannelFirmware fails with FAILED_PRECONDITION before
-    // changing any assignment or starting any rollout. This prevents ambiguity
-    // in the firmware store; it does not attest the payload running on a
-    // device. Device provenance comes from last_deployed_firmware_file_id. Once
-    // referenced, the artifact's deletion and target metadata are governed by
-    // the cross-service protection invariant above. Empty clears the
-    // assignment. Direct firmware uploads are outside this contract.
+    // metadata: nonempty target manufacturer and target model, and a firmware
+    // version with length 1..255 Unicode code points. The normalized metadata
+    // target must match this normalized assignment target. Incomplete or
+    // mismatched metadata causes ApplyReleaseChannelFirmware to fail with
+    // FAILED_PRECONDITION before changing any assignment or starting any
+    // rollout. For release-channel assignments, one normalized
+    // manufacturer/model/version tuple identifies exactly one firmware file.
+    // Reusing that file id is valid; if another file id already represents the
+    // tuple, ApplyReleaseChannelFirmware also fails with FAILED_PRECONDITION
+    // before changing any assignment or starting any rollout. This prevents
+    // ambiguity in the firmware store; it does not attest the payload running
+    // on a device. Device provenance comes from
+    // last_deployed_firmware_file_id. Once referenced, the artifact's deletion
+    // and target metadata are governed by the cross-service protection
+    // invariant above. Empty clears the assignment. Direct firmware uploads
+    // are outside this contract.
     string firmware_file_id = 3;
 }
 
@@ -590,7 +606,7 @@ message Rollout {
     // Target artifact. Its deletion and target metadata are governed by the
     // cross-service protection invariant above.
     string firmware_file_id = 6;
-    string firmware_version = 7;
+    string firmware_version = 7 [(buf.validate.field).string.max_len = 255];
     RolloutStatus status = 8;
     RolloutState state = 9;
     // Stage of a staged rollout; REST for all-at-once rollouts.
@@ -617,7 +633,7 @@ message Rollout {
     string previous_firmware_file_id = 19;
     // Version of the previous assignment; empty when there was no previous
     // assignment.
-    string previous_firmware_version = 20;
+    string previous_firmware_version = 20 [(buf.validate.field).string.max_len = 255];
     // Number of miners snapshotted into the rollout. Retrieve their live
     // progress with ListRolloutDevices.
     int32 device_count = 21;

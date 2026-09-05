@@ -28,6 +28,23 @@ func testFirmwareMetadata() FirmwareMetadata {
 	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
 }
 
+func TestValidateFirmwareUploadMetadata_FirmwareVersionLength(t *testing.T) {
+	t.Parallel()
+
+	metadata := testFirmwareMetadata()
+	metadata.FirmwareVersion = strings.Repeat("界", maxFirmwareVersionLength)
+	require.NoError(t, ValidateFirmwareUploadMetadata(metadata))
+
+	metadata.FirmwareVersion = strings.Repeat("界", maxFirmwareVersionLength+1)
+	err := ValidateFirmwareUploadMetadata(metadata)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), fmt.Sprintf(
+		"firmware_version must be at most %d Unicode code points",
+		maxFirmwareVersionLength,
+	))
+}
+
 func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

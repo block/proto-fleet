@@ -83,6 +83,46 @@ func TestRolloutBehaviorValidation(t *testing.T) {
 	}
 }
 
+func TestRolloutFirmwareVersionsValidation(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name string
+		set  func(*rolloutv1.Rollout, string)
+	}{
+		{
+			name: "target",
+			set: func(rollout *rolloutv1.Rollout, version string) {
+				rollout.FirmwareVersion = version
+			},
+		},
+		{
+			name: "previous target",
+			set: func(rollout *rolloutv1.Rollout, version string) {
+				rollout.PreviousFirmwareVersion = version
+			},
+		},
+	}
+
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
+			newRollout := func(version string) *rolloutv1.Rollout {
+				rollout := &rolloutv1.Rollout{
+					Manufacturer: "Bitmain",
+					Model:        "S21",
+				}
+				field.set(rollout, version)
+				return rollout
+			}
+
+			require.NoError(t, protovalidate.Validate(newRollout(strings.Repeat("界", 255))))
+			require.Error(t, protovalidate.Validate(newRollout(strings.Repeat("界", 256))))
+		})
+	}
+}
+
 func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
 	t.Parallel()
 
@@ -304,58 +344,79 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "complete assignment is valid",
+			name: "complete assignment with noncanonical observed identity is valid",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:    "Bitmain",
-				Model:           "S21",
-				FirmwareFileId:  "firmware",
-				FirmwareVersion: "1.0.0",
+				Manufacturer:               "Bít main ",
+				Model:                      " S２1\t",
+				FirmwareFileId:             "firmware",
+				FirmwareVersion:            "1.0.0",
+				FirmwareTargetManufacturer: "Bitmain",
+				FirmwareTargetModel:        "S21",
 			},
 		},
 		{
-			name: "assigned firmware requires manufacturer",
+			name: "assignment fields without firmware file are rejected",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Model:           "S21",
-				FirmwareFileId:  "firmware",
-				FirmwareVersion: "1.0.0",
+				FirmwareVersion:            "1.0.0",
+				FirmwareTargetManufacturer: "Bitmain",
+				FirmwareTargetModel:        "S21",
 			},
 			wantErr: true,
 		},
 		{
-			name: "assigned firmware requires model",
+			name: "assigned firmware requires target manufacturer",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:    "Bitmain",
-				FirmwareFileId:  "firmware",
-				FirmwareVersion: "1.0.0",
+				Manufacturer:        "Bitmain",
+				Model:               "S21",
+				FirmwareFileId:      "firmware",
+				FirmwareVersion:     "1.0.0",
+				FirmwareTargetModel: "S21",
+			},
+			wantErr: true,
+		},
+		{
+			name: "assigned firmware requires target model",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:               "Bitmain",
+				Model:                      "S21",
+				FirmwareFileId:             "firmware",
+				FirmwareVersion:            "1.0.0",
+				FirmwareTargetManufacturer: "Bitmain",
 			},
 			wantErr: true,
 		},
 		{
 			name: "assigned firmware requires version",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:   "Bitmain",
-				Model:          "S21",
-				FirmwareFileId: "firmware",
+				Manufacturer:               "Bitmain",
+				Model:                      "S21",
+				FirmwareFileId:             "firmware",
+				FirmwareTargetManufacturer: "Bitmain",
+				FirmwareTargetModel:        "S21",
 			},
 			wantErr: true,
 		},
 		{
-			name: "assigned firmware requires canonical manufacturer",
+			name: "assigned firmware requires canonical target manufacturer",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:    "Bítmain",
-				Model:           "S21",
-				FirmwareFileId:  "firmware",
-				FirmwareVersion: "1.0.0",
+				Manufacturer:               "Bitmain",
+				Model:                      "S21",
+				FirmwareFileId:             "firmware",
+				FirmwareVersion:            "1.0.0",
+				FirmwareTargetManufacturer: "Bítmain",
+				FirmwareTargetModel:        "S21",
 			},
 			wantErr: true,
 		},
 		{
-			name: "assigned firmware requires canonical model",
+			name: "assigned firmware requires canonical target model",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
-				Manufacturer:    "Bitmain",
-				Model:           " S21 ",
-				FirmwareFileId:  "firmware",
-				FirmwareVersion: "1.0.0",
+				Manufacturer:               "Bitmain",
+				Model:                      "S21",
+				FirmwareFileId:             "firmware",
+				FirmwareVersion:            "1.0.0",
+				FirmwareTargetManufacturer: "Bitmain",
+				FirmwareTargetModel:        " S21 ",
 			},
 			wantErr: true,
 		},

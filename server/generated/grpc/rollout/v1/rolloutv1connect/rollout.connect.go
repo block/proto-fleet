@@ -137,12 +137,15 @@ type RolloutServiceClient interface {
 	// Empty or different deployment provenance remains mismatched and must
 	// receive the rollout. Every nonempty firmware_file_id must identify an
 	// immutable firmware payload with complete target metadata: nonempty target
-	// manufacturer, target model, and firmware version. The normalized metadata
-	// target must match the assignment target. For release-channel assignments,
-	// one normalized manufacturer/model/version tuple identifies exactly one
-	// firmware file: reusing its file id is valid, but assigning a different
-	// file id for the same tuple fails with FAILED_PRECONDITION before changing
-	// any assignment or starting any rollout. This prevents ambiguity in the
+	// manufacturer and target model, and a firmware version with length 1..255
+	// Unicode code points. The normalized metadata target must match the
+	// assignment target. Incomplete or mismatched metadata fails with
+	// FAILED_PRECONDITION before changing any assignment or starting any
+	// rollout. For release-channel assignments, one normalized
+	// manufacturer/model/version tuple identifies exactly one firmware file:
+	// reusing its file id is valid, but assigning a different file id for the
+	// same tuple also fails with FAILED_PRECONDITION before changing any
+	// assignment or starting any rollout. This prevents ambiguity in the
 	// firmware store; it does not attest the payload running on a device. An
 	// empty firmware_file_id remains valid and clears the assignment. Direct
 	// firmware uploads are outside this contract.
@@ -467,12 +470,15 @@ type RolloutServiceHandler interface {
 	// Empty or different deployment provenance remains mismatched and must
 	// receive the rollout. Every nonempty firmware_file_id must identify an
 	// immutable firmware payload with complete target metadata: nonempty target
-	// manufacturer, target model, and firmware version. The normalized metadata
-	// target must match the assignment target. For release-channel assignments,
-	// one normalized manufacturer/model/version tuple identifies exactly one
-	// firmware file: reusing its file id is valid, but assigning a different
-	// file id for the same tuple fails with FAILED_PRECONDITION before changing
-	// any assignment or starting any rollout. This prevents ambiguity in the
+	// manufacturer and target model, and a firmware version with length 1..255
+	// Unicode code points. The normalized metadata target must match the
+	// assignment target. Incomplete or mismatched metadata fails with
+	// FAILED_PRECONDITION before changing any assignment or starting any
+	// rollout. For release-channel assignments, one normalized
+	// manufacturer/model/version tuple identifies exactly one firmware file:
+	// reusing its file id is valid, but assigning a different file id for the
+	// same tuple also fails with FAILED_PRECONDITION before changing any
+	// assignment or starting any rollout. This prevents ambiguity in the
 	// firmware store; it does not attest the payload running on a device. An
 	// empty firmware_file_id remains valid and clears the assignment. Direct
 	// firmware uploads are outside this contract.
