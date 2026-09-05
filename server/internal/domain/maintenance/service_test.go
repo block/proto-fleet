@@ -841,23 +841,40 @@ func TestBulkMarkUrgentRejectsCompletedTicket(t *testing.T) {
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
 }
 
-func TestBulkClosePublishesOnlyTheCommittedRetryAttemptCount(t *testing.T) {
+func TestBulkClosePublishesOnlyTheCommittedRetryAttempt(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
-	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
-	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{3}, Resolution: models.TicketResolutionDeferred}
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{3, 4}, Resolution: models.TicketResolutionDeferred}
+	open3 := &models.RepairTicket{ID: 3, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}
+	open4 := &models.RepairTicket{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}
+	completed3 := &models.RepairTicket{ID: 3, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusCompleted}
 
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
 		require.NoError(t, fn(ctx))
 		return fn(ctx)
 	})
-	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
-		&models.RepairTicket{ID: 3, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil,
-	).Times(2)
-	tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return(nil, nil).Times(2)
-	tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil).Times(2)
-	tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil).Times(2)
+	gomock.InOrder(
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(open3, nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(open4, nil),
+		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return(nil, nil),
+		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return(nil, nil),
+		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil),
+		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3, 4}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(2), nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(completed3, nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(open4, nil),
+		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return(nil, nil),
+		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil),
+	)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+		assert.Equal(t, []int64{4}, event.Metadata["ticket_ids"])
+		assert.Equal(t, int64(1), event.Metadata["affected"])
+		return nil
+	})
 
 	count, err := service.BulkClose(t.Context(), params)
 	require.NoError(t, err)

@@ -378,4 +378,32 @@ describe("TicketDetailModal", () => {
       }),
     );
   });
+
+  it("does not overwrite RMA details changed by polling while the editor is open", () => {
+    ticket.status = "sent_to_vendor";
+    ticket.rmaVendor = "Repair Co";
+    ticket.rmaTracking = "TRACK-1";
+    ticket.rmaEta = null;
+    const view = render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit RMA details" }));
+    fireEvent.change(screen.getByLabelText("Tracking #"), { target: { value: "MY-DRAFT" } });
+
+    ticket.rmaTracking = "TRACK-LIVE";
+    ticket.rmaEta = new Date("2026-09-12T00:00:00Z");
+    view.rerender(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save RMA details" }));
+
+    expect(update).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("RMA details changed while you were editing");
+    expect(screen.getByLabelText("Tracking #")).toHaveValue("TRACK-LIVE");
+    expect(screen.getByLabelText("ETA")).toHaveValue("2026-09-12");
+  });
 });

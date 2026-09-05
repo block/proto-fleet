@@ -77,6 +77,13 @@ const TicketDetailModal = ({
   const [vendor, setVendor] = useState("");
   const [tracking, setTracking] = useState("");
   const [eta, setEta] = useState("");
+  const [rmaBaseline, setRmaBaseline] = useState<{
+    status: string;
+    vendor: string;
+    tracking: string;
+    eta: string;
+  } | null>(null);
+  const [rmaConflict, setRmaConflict] = useState<string | null>(null);
   const [minerLookup, setMinerLookup] = useState<{
     identifier: string;
     snapshot: MinerStateSnapshot | null;
@@ -114,9 +121,18 @@ const TicketDetailModal = ({
     setCompleting(true);
   };
   const openRmaEditor = () => {
-    setVendor(ticket?.rmaVendor ?? "");
-    setTracking(ticket?.rmaTracking ?? "");
-    setEta(toDateInputValue(ticket?.rmaEta ?? null));
+    if (!ticket) return;
+    const snapshot = {
+      status: ticket.status,
+      vendor: ticket.rmaVendor ?? "",
+      tracking: ticket.rmaTracking ?? "",
+      eta: toDateInputValue(ticket.rmaEta),
+    };
+    setVendor(snapshot.vendor);
+    setTracking(snapshot.tracking);
+    setEta(snapshot.eta);
+    setRmaBaseline(snapshot);
+    setRmaConflict(null);
     setRma(true);
   };
   const navigateToTicket = (id: string) => {
@@ -128,12 +144,46 @@ const TicketDetailModal = ({
     setVendor("");
     setTracking("");
     setEta("");
+    setRmaBaseline(null);
+    setRmaConflict(null);
     setCurrentId(id);
   };
   const updateTicket = async (input: Omit<UpdateTicketProps, "id">) => {
     const updated = await detail.update(input);
     if (updated) onMutationSuccess?.();
     return updated;
+  };
+  const saveRma = () => {
+    if (!ticket || !rmaBaseline) return;
+    const liveSnapshot = {
+      status: ticket.status,
+      vendor: ticket.rmaVendor ?? "",
+      tracking: ticket.rmaTracking ?? "",
+      eta: toDateInputValue(ticket.rmaEta),
+    };
+    if (
+      liveSnapshot.status !== rmaBaseline.status ||
+      liveSnapshot.vendor !== rmaBaseline.vendor ||
+      liveSnapshot.tracking !== rmaBaseline.tracking ||
+      liveSnapshot.eta !== rmaBaseline.eta
+    ) {
+      setVendor(liveSnapshot.vendor);
+      setTracking(liveSnapshot.tracking);
+      setEta(liveSnapshot.eta);
+      setRmaBaseline(liveSnapshot);
+      setRmaConflict("RMA details changed while you were editing. Review the latest values and try again.");
+      return;
+    }
+    setRmaConflict(null);
+    void updateTicket({
+      ...(ticket.status === "sent_to_vendor" ? {} : { status: TicketStatus.SENT_TO_VENDOR }),
+      rmaVendor: vendor,
+      rmaTracking: tracking,
+      ...(eta ? { rmaEta: new Date(`${eta}T00:00:00.000Z`) } : {}),
+      ...(ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
+    }).then((updated) => {
+      if (updated) setRma(false);
+    });
   };
   const canMutate = canManage && ticket?.status !== "completed";
   const buttons = canMutate
@@ -285,21 +335,12 @@ const TicketDetailModal = ({
                 onTrackingChange={setTracking}
                 onEtaChange={setEta}
               />
+              {rmaConflict ? <div role="alert">{rmaConflict}</div> : null}
               <Button
                 text={ticket.status === "sent_to_vendor" ? "Save RMA details" : "Send to vendor"}
                 variant={variants.primary}
                 disabled={!vendor.trim()}
-                onClick={() =>
-                  void updateTicket({
-                    ...(ticket.status === "sent_to_vendor" ? {} : { status: TicketStatus.SENT_TO_VENDOR }),
-                    rmaVendor: vendor,
-                    rmaTracking: tracking,
-                    ...(eta ? { rmaEta: new Date(`${eta}T00:00:00.000Z`) } : {}),
-                    ...(ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
-                  }).then((updated) => {
-                    if (updated) setRma(false);
-                  })
-                }
+                onClick={saveRma}
               />
             </div>
           ) : ticket.status === "sent_to_vendor" ? (

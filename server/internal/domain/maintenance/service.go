@@ -672,6 +672,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 	}
 
 	var affected int64
+	var closedTicketIDs []int64
 	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		var attemptAffected int64
@@ -756,6 +757,10 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			attemptAffected += rows
 		}
 		affected = attemptAffected
+		closedTicketIDs = make([]int64, 0, len(ticketsToClose))
+		for _, ticket := range ticketsToClose {
+			closedTicketIDs = append(closedTicketIDs, ticket.ID)
+		}
 		scope = activitymodels.ResolveSiteScope(attemptSiteIDs)
 		return nil
 	})
@@ -774,7 +779,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 				affected, int16(params.Resolution),
 			),
 			Metadata: map[string]any{
-				"ticket_ids": params.TicketIDs,
+				"ticket_ids": closedTicketIDs,
 				"resolution": int16(params.Resolution),
 				"affected":   affected,
 			},
