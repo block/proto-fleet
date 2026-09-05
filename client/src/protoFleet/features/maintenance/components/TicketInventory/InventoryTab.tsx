@@ -54,7 +54,10 @@ const InventoryTab = () => {
       allocated: { component: (part) => <span>{part.allocated}</span>, width: "w-20" },
       available: {
         component: (part) => (
-          <span className={part.lowStock ? "font-medium text-text-critical" : ""}>{part.available}</span>
+          <span>
+            {part.available}
+            {part.lowStock ? " (low)" : ""}
+          </span>
         ),
         width: "w-20",
       },

@@ -46,6 +46,8 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => (
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => state.canManage }));
 beforeEach(() => {
   state.canManage = true;
+  inventory.data[0].available = 4;
+  inventory.data[0].lowStock = false;
   vi.clearAllMocks();
 });
 it("renders the complete top-line summary and mutation controls", () => {
@@ -59,6 +61,15 @@ it("renders the complete top-line summary and mutation controls", () => {
   expect(screen.getByRole("button", { name: "Import CSV" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Export/ })).not.toBeInTheDocument();
 });
+it("renders a low-stock suffix without critical text color", () => {
+  inventory.data[0].available = 2;
+  inventory.data[0].lowStock = true;
+  render(<InventoryTab />);
+
+  const quantity = screen.getByText("2 (low)");
+  expect(quantity).not.toHaveClass("text-text-critical");
+});
+
 it("uses compact site, type, and low-stock controls", async () => {
   const user = userEvent.setup();
   render(<InventoryTab />);
