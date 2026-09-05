@@ -13,6 +13,175 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
+type observedIdentityValidationCase struct {
+	observedName         string
+	filterName           string
+	manufacturer         string
+	model                string
+	observedManufacturer string
+	observedModel        string
+	wantErr              bool
+}
+
+var observedIdentityValidationCases = []observedIdentityValidationCase{
+	{
+		observedName: "unknown manufacturer and model are valid",
+		filterName:   "empty filters are valid",
+	},
+	{
+		observedName: "unknown manufacturer is valid",
+		filterName:   "model-only filter is valid",
+		model:        "S21",
+	},
+	{
+		observedName: "unknown model is valid",
+		filterName:   "manufacturer-only filter is valid",
+		manufacturer: "Bitmain",
+	},
+	{
+		observedName: "canonical identities are valid",
+		manufacturer: "Bitmain",
+		model:        "S21",
+	},
+	{
+		observedName: "internal printable spaces are valid",
+		filterName:   "internal printable spaces are valid",
+		manufacturer: "Bit Main",
+		model:        "S 21 Pro",
+	},
+	{
+		observedName: "maximum Unicode lengths are valid",
+		filterName:   "maximum Unicode lengths are valid",
+		manufacturer: strings.Repeat("界", 255),
+		model:        strings.Repeat("型", 255),
+	},
+	{
+		observedName:  "whitespace-only manufacturer is valid",
+		filterName:    "whitespace-only manufacturer filter is valid",
+		manufacturer:  " \t\n",
+		observedModel: "S21",
+	},
+	{
+		observedName:         "whitespace-only model is valid",
+		filterName:           "whitespace-only model filter is valid",
+		model:                " \t\n",
+		observedManufacturer: "Bitmain",
+	},
+	{
+		observedName:  "non-ASCII manufacturer is valid",
+		filterName:    "non-ASCII manufacturer is valid",
+		manufacturer:  "Bítmain",
+		observedModel: "S21",
+	},
+	{
+		observedName:         "non-ASCII model is valid",
+		filterName:           "non-ASCII model is valid",
+		model:                "S２1",
+		observedManufacturer: "Bitmain",
+	},
+	{
+		observedName:  "leading manufacturer space is valid",
+		filterName:    "leading manufacturer space is valid",
+		manufacturer:  " Bitmain",
+		observedModel: "S21",
+	},
+	{
+		observedName:  "trailing manufacturer space is valid",
+		filterName:    "trailing manufacturer space is valid",
+		manufacturer:  "Bitmain ",
+		observedModel: "S21",
+	},
+	{
+		observedName:         "leading model space is valid",
+		filterName:           "leading model space is valid",
+		model:                " S21",
+		observedManufacturer: "Bitmain",
+	},
+	{
+		observedName:         "trailing model space is valid",
+		filterName:           "trailing model space is valid",
+		model:                "S21 ",
+		observedManufacturer: "Bitmain",
+	},
+	{
+		observedName:  "internal control character is valid",
+		filterName:    "internal control character is valid",
+		manufacturer:  "Bit\x00main",
+		observedModel: "S21",
+	},
+	{
+		observedName:  "oversized manufacturer is rejected",
+		filterName:    "oversized manufacturer is rejected",
+		manufacturer:  strings.Repeat("界", 256),
+		observedModel: "S21",
+		wantErr:       true,
+	},
+	{
+		observedName:         "oversized model is rejected",
+		filterName:           "oversized model is rejected",
+		model:                strings.Repeat("型", 256),
+		observedManufacturer: "Bitmain",
+		wantErr:              true,
+	},
+}
+
+func (test observedIdentityValidationCase) observedValues() (string, string) {
+	manufacturer := test.manufacturer
+	if test.observedManufacturer != "" {
+		manufacturer = test.observedManufacturer
+	}
+	model := test.model
+	if test.observedModel != "" {
+		model = test.observedModel
+	}
+	return manufacturer, model
+}
+
+type deploymentProvenanceValidationCase struct {
+	name            string
+	response        func(string) proto.Message
+	collectionField protoreflect.Name
+	fieldNumber     protoreflect.FieldNumber
+}
+
+var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
+	{
+		name: "release channel miners",
+		response: func(fileID string) proto.Message {
+			return &rolloutv1.ListReleaseChannelMinersResponse{
+				Miners: []*rolloutv1.ReleaseChannelMiner{{
+					LastDeployedFirmwareFileId: fileID,
+				}},
+			}
+		},
+		collectionField: "miners",
+		fieldNumber:     7,
+	},
+	{
+		name: "rollout devices",
+		response: func(fileID string) proto.Message {
+			return &rolloutv1.ListRolloutDevicesResponse{
+				Devices: []*rolloutv1.RolloutDevice{{
+					LastDeployedFirmwareFileId: fileID,
+				}},
+			}
+		},
+		collectionField: "devices",
+		fieldNumber:     21,
+	},
+}
+
+func requireProtoValidation(t *testing.T, message proto.Message, wantErr bool) {
+	t.Helper()
+
+	err := protovalidate.Validate(message)
+	if wantErr {
+		require.Error(t, err)
+		return
+	}
+	require.NoError(t, err)
+}
+
 func TestRolloutBehaviorValidation(t *testing.T) {
 	t.Parallel()
 
@@ -73,12 +242,7 @@ func TestRolloutBehaviorValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.behavior)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.behavior, test.wantErr)
 		})
 	}
 }
@@ -117,8 +281,8 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 				return rollout
 			}
 
-			require.NoError(t, protovalidate.Validate(newRollout(strings.Repeat("界", 255))))
-			require.Error(t, protovalidate.Validate(newRollout(strings.Repeat("界", 256))))
+			requireProtoValidation(t, newRollout(strings.Repeat("界", 255)), false)
+			requireProtoValidation(t, newRollout(strings.Repeat("界", 256)), true)
 		})
 	}
 }
@@ -221,18 +385,36 @@ func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "maximum firmware file id is accepted",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{{
+					Manufacturer:   "Bitmain",
+					Model:          "S21",
+					FirmwareFileId: strings.Repeat("f", 255),
+				}},
+			},
+		},
+		{
+			name: "oversized firmware file id is rejected",
+			request: &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+				ChannelId: 1,
+				Assignments: []*rolloutv1.FirmwareAssignment{{
+					Manufacturer:   "Bitmain",
+					Model:          "S21",
+					FirmwareFileId: strings.Repeat("f", 256),
+				}},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.request)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.request, test.wantErr)
 		})
 	}
 }
@@ -314,12 +496,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.modelGroup)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.modelGroup, test.wantErr)
 		})
 	}
 }
@@ -426,12 +603,7 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.modelGroup)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.modelGroup, test.wantErr)
 		})
 	}
 }
@@ -549,12 +721,145 @@ func TestRolloutPaginationValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.request)
-			if test.wantErr {
-				require.Error(t, err)
+			requireProtoValidation(t, test.request, test.wantErr)
+		})
+	}
+}
+
+func TestOptionalReleaseChannelIDValidation(t *testing.T) {
+	t.Parallel()
+
+	requests := []struct {
+		name string
+		new  func(channelID int64) proto.Message
+	}{
+		{
+			name: "scope preview",
+			new: func(channelID int64) proto.Message {
+				return &rolloutv1.PreviewReleaseChannelScopeRequest{ChannelId: channelID}
+			},
+		},
+		{
+			name: "rollout list",
+			new: func(channelID int64) proto.Message {
+				return &rolloutv1.ListRolloutsRequest{ChannelId: channelID}
+			},
+		},
+	}
+	tests := []struct {
+		name      string
+		channelID int64
+		wantErr   bool
+	}{
+		{name: "zero is valid"},
+		{name: "positive is valid", channelID: 1},
+		{name: "negative is rejected", channelID: -1, wantErr: true},
+	}
+
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					t.Parallel()
+
+					requireProtoValidation(t, request.new(test.channelID), test.wantErr)
+				})
+			}
+		})
+	}
+}
+
+func TestBoundedListResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	newRollout := func() proto.Message {
+		return &rolloutv1.Rollout{Manufacturer: "Bitmain", Model: "S21"}
+	}
+	tests := []struct {
+		name            string
+		newResponse     func() proto.Message
+		newElement      func() proto.Message
+		collectionField protoreflect.Name
+		maxItems        int
+		cursorMaxLen    int
+	}{
+		{
+			name:            "release channels",
+			newResponse:     func() proto.Message { return &rolloutv1.ListReleaseChannelsResponse{} },
+			newElement:      func() proto.Message { return &rolloutv1.ReleaseChannelSummary{} },
+			collectionField: "channels",
+			maxItems:        1000,
+			cursorMaxLen:    100,
+		},
+		{
+			name:            "release channel miners",
+			newResponse:     func() proto.Message { return &rolloutv1.ListReleaseChannelMinersResponse{} },
+			newElement:      func() proto.Message { return &rolloutv1.ReleaseChannelMiner{} },
+			collectionField: "miners",
+			maxItems:        1000,
+			cursorMaxLen:    100,
+		},
+		{
+			name:            "rollouts",
+			newResponse:     func() proto.Message { return &rolloutv1.ListRolloutsResponse{} },
+			newElement:      newRollout,
+			collectionField: "rollouts",
+			maxItems:        1000,
+			cursorMaxLen:    100,
+		},
+		{
+			name:            "rollout devices",
+			newResponse:     func() proto.Message { return &rolloutv1.ListRolloutDevicesResponse{} },
+			newElement:      func() proto.Message { return &rolloutv1.RolloutDevice{} },
+			collectionField: "devices",
+			maxItems:        1000,
+			cursorMaxLen:    100,
+		},
+		{
+			name:            "applied rollouts",
+			newResponse:     func() proto.Message { return &rolloutv1.ApplyReleaseChannelFirmwareResponse{} },
+			newElement:      newRollout,
+			collectionField: "started_rollouts",
+			maxItems:        100,
+		},
+		{
+			name:            "rollback rollout",
+			newResponse:     func() proto.Message { return &rolloutv1.RollbackReleaseChannelFirmwareResponse{} },
+			newElement:      newRollout,
+			collectionField: "started_rollouts",
+			maxItems:        1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			response := test.newResponse()
+			responseMessage := response.ProtoReflect()
+			collection := responseMessage.Mutable(
+				responseMessage.Descriptor().Fields().ByName(test.collectionField),
+			).List()
+			for range test.maxItems {
+				collection.Append(protoreflect.ValueOfMessage(test.newElement().ProtoReflect()))
+			}
+			requireProtoValidation(t, response, false)
+
+			collection.Append(protoreflect.ValueOfMessage(test.newElement().ProtoReflect()))
+			requireProtoValidation(t, response, true)
+
+			if test.cursorMaxLen == 0 {
 				return
 			}
-			require.NoError(t, err)
+			response = test.newResponse()
+			responseMessage = response.ProtoReflect()
+			cursor := responseMessage.Descriptor().Fields().ByName("cursor")
+			responseMessage.Set(cursor, protoreflect.ValueOfString(strings.Repeat("c", test.cursorMaxLen)))
+			requireProtoValidation(t, response, false)
+			responseMessage.Set(cursor, protoreflect.ValueOfString(strings.Repeat("c", test.cursorMaxLen+1)))
+			requireProtoValidation(t, response, true)
 		})
 	}
 }
@@ -731,12 +1036,7 @@ func TestListReleaseChannelMembershipConflictsResponseValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.response)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.response, test.wantErr)
 		})
 	}
 }
@@ -752,18 +1052,18 @@ func TestListReleaseChannelModelGroupsResponseValidation(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
 		ModelGroups: modelGroups[:100],
-	}))
-	require.Error(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+	}, false)
+	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
 		ModelGroups: modelGroups,
-	}))
-	require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+	}, true)
+	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
 		Cursor: strings.Repeat("c", 8192),
-	}))
-	require.Error(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelModelGroupsResponse{
+	}, false)
+	requireProtoValidation(t, &rolloutv1.ListReleaseChannelModelGroupsResponse{
 		Cursor: strings.Repeat("c", 8193),
-	}))
+	}, true)
 }
 
 func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
@@ -892,12 +1192,7 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(test.response)
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			requireProtoValidation(t, test.response, test.wantErr)
 		})
 	}
 }
@@ -905,31 +1200,11 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 func TestDeploymentProvenanceResponseDescriptors(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		response    proto.Message
-		itemsField  protoreflect.Name
-		fieldNumber protoreflect.FieldNumber
-	}{
-		{
-			name:        "release channel miners",
-			response:    &rolloutv1.ListReleaseChannelMinersResponse{},
-			itemsField:  "miners",
-			fieldNumber: 7,
-		},
-		{
-			name:        "rollout devices",
-			response:    &rolloutv1.ListRolloutDevicesResponse{},
-			itemsField:  "devices",
-			fieldNumber: 21,
-		},
-	}
-
-	for _, test := range tests {
+	for _, test := range deploymentProvenanceValidationCases {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			items := test.response.ProtoReflect().Descriptor().Fields().ByName(test.itemsField)
+			items := test.response("").ProtoReflect().Descriptor().Fields().ByName(test.collectionField)
 			require.NotNil(t, items)
 			require.True(t, items.IsList())
 
@@ -944,38 +1219,12 @@ func TestDeploymentProvenanceResponseDescriptors(t *testing.T) {
 func TestDeploymentProvenanceResponseValidation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		response func(string) proto.Message
-	}{
-		{
-			name: "release channel miners",
-			response: func(fileID string) proto.Message {
-				return &rolloutv1.ListReleaseChannelMinersResponse{
-					Miners: []*rolloutv1.ReleaseChannelMiner{{
-						LastDeployedFirmwareFileId: fileID,
-					}},
-				}
-			},
-		},
-		{
-			name: "rollout devices",
-			response: func(fileID string) proto.Message {
-				return &rolloutv1.ListRolloutDevicesResponse{
-					Devices: []*rolloutv1.RolloutDevice{{
-						LastDeployedFirmwareFileId: fileID,
-					}},
-				}
-			},
-		},
-	}
-
-	for _, test := range tests {
+	for _, test := range deploymentProvenanceValidationCases {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.NoError(t, protovalidate.Validate(test.response(strings.Repeat("f", 255))))
-			require.Error(t, protovalidate.Validate(test.response(strings.Repeat("f", 256))))
+			requireProtoValidation(t, test.response(strings.Repeat("f", 255)), false)
+			requireProtoValidation(t, test.response(strings.Repeat("f", 256)), true)
 		})
 	}
 }
@@ -1119,12 +1368,7 @@ func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
 				t.Run(test.name, func(t *testing.T) {
 					t.Parallel()
 
-					err := protovalidate.Validate(message.new(test.manufacturer, test.model))
-					if test.wantErr {
-						require.Error(t, err)
-						return
-					}
-					require.NoError(t, err)
+					requireProtoValidation(t, message.new(test.manufacturer, test.model), test.wantErr)
 				})
 			}
 		})
@@ -1168,45 +1412,20 @@ func TestObservedManufacturerModelIdentityValidation(t *testing.T) {
 			},
 		},
 	}
-	tests := []struct {
-		name         string
-		manufacturer string
-		model        string
-		wantErr      bool
-	}{
-		{name: "unknown manufacturer and model are valid"},
-		{name: "unknown manufacturer is valid", model: "S21"},
-		{name: "unknown model is valid", manufacturer: "Bitmain"},
-		{name: "canonical identities are valid", manufacturer: "Bitmain", model: "S21"},
-		{name: "internal printable spaces are valid", manufacturer: "Bit Main", model: "S 21 Pro"},
-		{name: "maximum Unicode lengths are valid", manufacturer: strings.Repeat("界", 255), model: strings.Repeat("型", 255)},
-		{name: "whitespace-only manufacturer is valid", manufacturer: " \t\n", model: "S21"},
-		{name: "whitespace-only model is valid", manufacturer: "Bitmain", model: " \t\n"},
-		{name: "non-ASCII manufacturer is valid", manufacturer: "Bítmain", model: "S21"},
-		{name: "non-ASCII model is valid", manufacturer: "Bitmain", model: "S２1"},
-		{name: "leading manufacturer space is valid", manufacturer: " Bitmain", model: "S21"},
-		{name: "trailing manufacturer space is valid", manufacturer: "Bitmain ", model: "S21"},
-		{name: "leading model space is valid", manufacturer: "Bitmain", model: " S21"},
-		{name: "trailing model space is valid", manufacturer: "Bitmain", model: "S21 "},
-		{name: "internal control character is valid", manufacturer: "Bit\x00main", model: "S21"},
-		{name: "oversized manufacturer is rejected", manufacturer: strings.Repeat("界", 256), model: "S21", wantErr: true},
-		{name: "oversized model is rejected", manufacturer: "Bitmain", model: strings.Repeat("型", 256), wantErr: true},
-	}
-
 	for _, message := range messages {
 		t.Run(message.name, func(t *testing.T) {
 			t.Parallel()
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
+			for _, test := range observedIdentityValidationCases {
+				t.Run(test.observedName, func(t *testing.T) {
 					t.Parallel()
 
-					err := protovalidate.Validate(message.new(test.manufacturer, test.model))
-					if test.wantErr {
-						require.Error(t, err)
-						return
-					}
-					require.NoError(t, err)
+					manufacturer, model := test.observedValues()
+					requireProtoValidation(
+						t,
+						message.new(manufacturer, model),
+						test.wantErr,
+					)
 				})
 			}
 		})
@@ -1216,44 +1435,19 @@ func TestObservedManufacturerModelIdentityValidation(t *testing.T) {
 func TestOptionalManufacturerModelFilterValidation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name         string
-		manufacturer string
-		model        string
-		wantErr      bool
-	}{
-		{name: "empty filters are valid"},
-		{name: "manufacturer-only filter is valid", manufacturer: "Bitmain"},
-		{name: "model-only filter is valid", model: "S21"},
-		{name: "internal printable spaces are valid", manufacturer: "Bit Main", model: "S 21 Pro"},
-		{name: "maximum Unicode lengths are valid", manufacturer: strings.Repeat("界", 255), model: strings.Repeat("型", 255)},
-		{name: "whitespace-only manufacturer filter is valid", manufacturer: " \t\n"},
-		{name: "whitespace-only model filter is valid", model: " \t\n"},
-		{name: "non-ASCII manufacturer is valid", manufacturer: "Bítmain"},
-		{name: "non-ASCII model is valid", model: "S２1"},
-		{name: "leading manufacturer space is valid", manufacturer: " Bitmain"},
-		{name: "trailing manufacturer space is valid", manufacturer: "Bitmain "},
-		{name: "leading model space is valid", model: " S21"},
-		{name: "trailing model space is valid", model: "S21 "},
-		{name: "internal control character is valid", manufacturer: "Bit\x00main"},
-		{name: "oversized manufacturer is rejected", manufacturer: strings.Repeat("界", 256), wantErr: true},
-		{name: "oversized model is rejected", model: strings.Repeat("型", 256), wantErr: true},
-	}
+	for _, test := range observedIdentityValidationCases {
+		if test.filterName == "" {
+			continue
+		}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.filterName, func(t *testing.T) {
 			t.Parallel()
 
-			err := protovalidate.Validate(&rolloutv1.ListReleaseChannelMinersRequest{
+			requireProtoValidation(t, &rolloutv1.ListReleaseChannelMinersRequest{
 				ChannelId:    1,
 				Manufacturer: test.manufacturer,
 				Model:        test.model,
-			})
-			if test.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			}, test.wantErr)
 		})
 	}
 }

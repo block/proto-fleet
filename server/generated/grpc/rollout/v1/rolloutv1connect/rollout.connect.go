@@ -109,11 +109,10 @@ type RolloutServiceClient interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
-	// Lists flat miner/channel relations for every current channel overlap.
-	// Each overlapping miner contributes one record per matching channel,
-	// marked as the winner, a lower-specificity loser, or part of an excluded
-	// highest-specificity tie. Results include every relation unless filtered
-	// by channel id, with bounded cursor pagination.
+	// Lists one flat relation per matching channel for every current overlap.
+	// Each relation includes its ReleaseChannelConflictResolution. Results
+	// include every relation unless filtered by channel id, with bounded cursor
+	// pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
@@ -122,52 +121,36 @@ type RolloutServiceClient interface {
 	// Behavior changes apply to rollouts started afterwards; a rollout in
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its firmware assignments and rollout history,
-	// which may release those artifact references from deletion protection.
-	// Command references remain protected by the cross-service invariant above.
-	// Commands already sent may finish under existing cancellation semantics.
-	// Miners keep whatever firmware they are running.
+	// Deletes a channel with its assignments and rollout history. Miners keep
+	// their running firmware. Assignment and history references are released
+	// only as specified by the RolloutService artifact-protection invariant.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
-	// Replaces per-manufacturer/model firmware assignments of a channel and
-	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members. A member matches only when
-	// it reports the assignment's firmware version and its historical
-	// managed-deployment provenance records the assignment's firmware_file_id
-	// as the last successful Fleet-managed deployment. This fallback does not
-	// attest the artifact currently installed on the device. On devices without
-	// a current checksum or file identity, Fleet cannot detect a same-version
-	// out-of-band, vendor, or manual replacement. Empty or different deployment
-	// provenance remains mismatched and must receive the rollout. Every
-	// nonempty firmware_file_id must identify an
-	// immutable firmware payload with complete target metadata: nonempty target
-	// manufacturer and target model, and a firmware version with length 1..255
-	// Unicode code points. The normalized metadata target must match the
-	// assignment target. Incomplete or mismatched metadata fails with
-	// FAILED_PRECONDITION before changing any assignment or starting any
-	// rollout. For release-channel assignments, one normalized
-	// manufacturer/model/version tuple identifies exactly one firmware file:
-	// reusing its file id is valid, but assigning a different file id for the
-	// same tuple also fails with FAILED_PRECONDITION before changing any
-	// assignment or starting any rollout. This prevents ambiguity in the
-	// firmware store; it does not attest the payload running on a device. An
-	// empty firmware_file_id remains valid and clears the assignment. Clearing
-	// may release assignment or rollout-history references, but command
-	// references remain protected by the cross-service invariant above.
-	// Commands already sent may finish under existing cancellation semantics.
-	// Direct firmware uploads are outside this contract.
+	// Atomically replaces per-manufacturer/model firmware assignments. For each
+	// changed assignment with mismatched members, it starts a rollout paced by
+	// the channel's behavior. A member matches only when it reports the target
+	// version and its RolloutService managed-deployment provenance equals the
+	// assigned firmware_file_id; empty or different provenance is mismatched.
+	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
+	// and identity constraints. Any violation fails with FAILED_PRECONDITION
+	// before any assignment changes or rollouts start. An empty file id clears
+	// the assignment; its reference effects follow the RolloutService
+	// artifact-protection invariant. Direct firmware uploads are outside this
+	// contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Atomically cancels any active rollout for the referenced (channel,
-	// manufacturer, model) tuple and reverses its firmware assignment. If the
-	// referenced rollout introduced the pair's first assignment, rollback
-	// clears the current assignment and starts no rollout. Otherwise, rollback
-	// restores the previous assignment and starts at most one all-at-once
-	// rollout for mismatched members. Clearing the first assignment may release
-	// assignment or rollout-history references, but command references remain
-	// protected by the cross-service invariant above. Commands already sent may
-	// finish under existing cancellation semantics.
+	// Reverses the referenced rollout's firmware assignment. Before canceling
+	// any rollout, changing an assignment, or starting a rollout, the referenced
+	// rollout's channel, canonical manufacturer/model pair, and target
+	// firmware_file_id must match the channel's current assignment. If any
+	// differs, the RPC fails with FAILED_PRECONDITION and makes no changes.
+	// When all match, rollback atomically cancels any active rollout for the
+	// tuple. A first rollout clears the assignment and starts no rollout; a
+	// later rollout restores its previous assignment and starts at most one
+	// all-at-once rollout for mismatched members. Released references, enqueued
+	// commands, and commands already sent remain governed by the RolloutService
+	// artifact-protection invariant and existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -187,11 +170,11 @@ type RolloutServiceClient interface {
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation
-	// semantics; their artifacts remain protected by the cross-service
-	// invariant above. Miners already updated, including by a command that
-	// finishes after cancellation, keep the new firmware; miners with no command
-	// sent are left alone and are not picked up again until the assignment
-	// changes or their updates are retried.
+	// semantics; their artifacts follow the RolloutService artifact-protection
+	// invariant. Miners already updated, including by a command that finishes
+	// after cancellation, keep the new firmware; miners with no command sent
+	// are left alone and are not picked up again until the assignment changes
+	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
@@ -457,11 +440,10 @@ type RolloutServiceHandler interface {
 	// Lists the miners currently resolved into a channel, optionally filtered
 	// by manufacturer and model, with bounded cursor pagination.
 	ListReleaseChannelMiners(context.Context, *connect.Request[v1.ListReleaseChannelMinersRequest]) (*connect.Response[v1.ListReleaseChannelMinersResponse], error)
-	// Lists flat miner/channel relations for every current channel overlap.
-	// Each overlapping miner contributes one record per matching channel,
-	// marked as the winner, a lower-specificity loser, or part of an excluded
-	// highest-specificity tie. Results include every relation unless filtered
-	// by channel id, with bounded cursor pagination.
+	// Lists one flat relation per matching channel for every current overlap.
+	// Each relation includes its ReleaseChannelConflictResolution. Results
+	// include every relation unless filtered by channel id, with bounded cursor
+	// pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
@@ -470,52 +452,36 @@ type RolloutServiceHandler interface {
 	// Behavior changes apply to rollouts started afterwards; a rollout in
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
-	// Deletes a channel with its firmware assignments and rollout history,
-	// which may release those artifact references from deletion protection.
-	// Command references remain protected by the cross-service invariant above.
-	// Commands already sent may finish under existing cancellation semantics.
-	// Miners keep whatever firmware they are running.
+	// Deletes a channel with its assignments and rollout history. Miners keep
+	// their running firmware. Assignment and history references are released
+	// only as specified by the RolloutService artifact-protection invariant.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
-	// Replaces per-manufacturer/model firmware assignments of a channel and
-	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members. A member matches only when
-	// it reports the assignment's firmware version and its historical
-	// managed-deployment provenance records the assignment's firmware_file_id
-	// as the last successful Fleet-managed deployment. This fallback does not
-	// attest the artifact currently installed on the device. On devices without
-	// a current checksum or file identity, Fleet cannot detect a same-version
-	// out-of-band, vendor, or manual replacement. Empty or different deployment
-	// provenance remains mismatched and must receive the rollout. Every
-	// nonempty firmware_file_id must identify an
-	// immutable firmware payload with complete target metadata: nonempty target
-	// manufacturer and target model, and a firmware version with length 1..255
-	// Unicode code points. The normalized metadata target must match the
-	// assignment target. Incomplete or mismatched metadata fails with
-	// FAILED_PRECONDITION before changing any assignment or starting any
-	// rollout. For release-channel assignments, one normalized
-	// manufacturer/model/version tuple identifies exactly one firmware file:
-	// reusing its file id is valid, but assigning a different file id for the
-	// same tuple also fails with FAILED_PRECONDITION before changing any
-	// assignment or starting any rollout. This prevents ambiguity in the
-	// firmware store; it does not attest the payload running on a device. An
-	// empty firmware_file_id remains valid and clears the assignment. Clearing
-	// may release assignment or rollout-history references, but command
-	// references remain protected by the cross-service invariant above.
-	// Commands already sent may finish under existing cancellation semantics.
-	// Direct firmware uploads are outside this contract.
+	// Atomically replaces per-manufacturer/model firmware assignments. For each
+	// changed assignment with mismatched members, it starts a rollout paced by
+	// the channel's behavior. A member matches only when it reports the target
+	// version and its RolloutService managed-deployment provenance equals the
+	// assigned firmware_file_id; empty or different provenance is mismatched.
+	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
+	// and identity constraints. Any violation fails with FAILED_PRECONDITION
+	// before any assignment changes or rollouts start. An empty file id clears
+	// the assignment; its reference effects follow the RolloutService
+	// artifact-protection invariant. Direct firmware uploads are outside this
+	// contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
-	// Atomically cancels any active rollout for the referenced (channel,
-	// manufacturer, model) tuple and reverses its firmware assignment. If the
-	// referenced rollout introduced the pair's first assignment, rollback
-	// clears the current assignment and starts no rollout. Otherwise, rollback
-	// restores the previous assignment and starts at most one all-at-once
-	// rollout for mismatched members. Clearing the first assignment may release
-	// assignment or rollout-history references, but command references remain
-	// protected by the cross-service invariant above. Commands already sent may
-	// finish under existing cancellation semantics.
+	// Reverses the referenced rollout's firmware assignment. Before canceling
+	// any rollout, changing an assignment, or starting a rollout, the referenced
+	// rollout's channel, canonical manufacturer/model pair, and target
+	// firmware_file_id must match the channel's current assignment. If any
+	// differs, the RPC fails with FAILED_PRECONDITION and makes no changes.
+	// When all match, rollback atomically cancels any active rollout for the
+	// tuple. A first rollout clears the assignment and starts no rollout; a
+	// later rollout restores its previous assignment and starts at most one
+	// all-at-once rollout for mismatched members. Released references, enqueued
+	// commands, and commands already sent remain governed by the RolloutService
+	// artifact-protection invariant and existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -535,11 +501,11 @@ type RolloutServiceHandler interface {
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation
-	// semantics; their artifacts remain protected by the cross-service
-	// invariant above. Miners already updated, including by a command that
-	// finishes after cancellation, keep the new firmware; miners with no command
-	// sent are left alone and are not picked up again until the assignment
-	// changes or their updates are retried.
+	// semantics; their artifacts follow the RolloutService artifact-protection
+	// invariant. Miners already updated, including by a command that finishes
+	// after cancellation, keep the new firmware; miners with no command sent
+	// are left alone and are not picked up again until the assignment changes
+	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
