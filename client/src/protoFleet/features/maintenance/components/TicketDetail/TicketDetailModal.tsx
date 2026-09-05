@@ -92,23 +92,23 @@ const TicketDetailModal = ({
     if (updated) onMutationSuccess?.();
     return updated;
   };
-  const buttons =
-    canManage && ticket?.status !== "completed"
-      ? [
-          {
-            text: "Assign",
-            variant: variants.secondary,
-            onClick: () => setAssignOpen((v) => !v),
-            dismissModalOnClick: false,
-          },
-          {
-            text: "Update status",
-            variant: variants.secondary,
-            onClick: () => setStatusOpen((v) => !v),
-            dismissModalOnClick: false,
-          },
-        ]
-      : [];
+  const canMutate = canManage && ticket?.status !== "completed";
+  const buttons = canMutate
+    ? [
+        {
+          text: "Assign",
+          variant: variants.secondary,
+          onClick: () => setAssignOpen((v) => !v),
+          dismissModalOnClick: false,
+        },
+        {
+          text: "Update status",
+          variant: variants.secondary,
+          onClick: () => setStatusOpen((v) => !v),
+          dismissModalOnClick: false,
+        },
+      ]
+    : [];
   const resolutionLabel = useMemo(() => ticket?.resolution.replaceAll("_", " ") ?? "", [ticket?.resolution]);
   return (
     <Modal
@@ -130,7 +130,7 @@ const TicketDetailModal = ({
         <div role="alert">Ticket not found</div>
       ) : (
         <div className="flex flex-col gap-6">
-          {assignOpen || statusOpen ? (
+          {canMutate && (assignOpen || statusOpen) ? (
             <div className="rounded-xl bg-surface-elevated-base py-2 shadow-300">
               {assignOpen ? (
                 <>
@@ -200,7 +200,7 @@ const TicketDetailModal = ({
               <div className="flex-1">
                 <strong>{ticket.status.replaceAll("_", " ")}</strong>
               </div>
-              {canManage && ticket.status !== "completed" ? (
+              {canMutate ? (
                 <Button
                   text="Complete repair"
                   variant={variants.secondary}
@@ -209,7 +209,7 @@ const TicketDetailModal = ({
                 />
               ) : null}
             </div>
-            {completing ? (
+            {canMutate && completing ? (
               <CompletionForm
                 key={ticket.id}
                 isMinerTicket={ticket.category === "miner"}
@@ -232,7 +232,7 @@ const TicketDetailModal = ({
               />
             ) : null}
           </div>
-          {rma ? (
+          {canMutate && rma ? (
             <div className="flex flex-col gap-3">
               <RmaSectionContent
                 vendor={vendor}
@@ -263,7 +263,7 @@ const TicketDetailModal = ({
             <div className="flex flex-col gap-2 rounded-xl bg-surface-5 p-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-emphasis-300 font-medium">RMA Details</span>
-                {canManage ? (
+                {canMutate ? (
                   <Button
                     text="Edit RMA details"
                     variant={variants.secondary}

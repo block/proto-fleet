@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TicketQueue from "./TicketQueue";
 
@@ -48,6 +48,7 @@ const queue = {
   setSort: vi.fn(),
   bulkUpdate: vi.fn(),
   setUrgent: vi.fn(),
+  remove: vi.fn(),
   refresh: vi.fn(),
   loadMore: vi.fn(),
   nextPage: vi.fn(),
@@ -165,6 +166,23 @@ describe("TicketQueue", () => {
     expect(queue.setUrgent).toHaveBeenCalledWith("1", false);
     expect(queue.bulkUpdate).not.toHaveBeenCalledWith(["1"], { case: "markUrgent", value: false });
     queue.data[0].urgent = false;
+  });
+
+  it("confirms ticket deletion before removing it", async () => {
+    queue.remove.mockResolvedValue(true);
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTestId("list-actions-trigger"));
+    fireEvent.click(screen.getByText("Delete ticket"));
+    expect(screen.getByText("Delete TK-1?")).toBeInTheDocument();
+    expect(queue.remove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete ticket" }));
+    await waitFor(() => expect(queue.remove).toHaveBeenCalledWith("1"));
   });
 
   it("paginates list mode and keeps progressive loading in board mode", () => {

@@ -10,8 +10,9 @@ const listTickets = vi.fn();
 const getStats = vi.fn();
 const bulkUpdate = vi.fn();
 const updateTicket = vi.fn();
+const deleteTicket = vi.fn();
 vi.mock("@/protoFleet/api/maintenance", () => ({
-  useMaintenanceApi: () => ({ listTickets, getStats, bulkUpdate, updateTicket }),
+  useMaintenanceApi: () => ({ listTickets, getStats, bulkUpdate, updateTicket, deleteTicket }),
 }));
 const { useTicketQueue } = await import("./useTicketQueue");
 
@@ -120,6 +121,17 @@ it("sets urgent false through the single-ticket update and refreshes", async () 
   await waitFor(() => expect(result.current.loading).toBe(false));
   await act(() => result.current.setUrgent("1", false));
   expect(updateTicket).toHaveBeenCalledWith(expect.objectContaining({ id: 1n, urgent: false }));
+  expect(listTickets).toHaveBeenCalledTimes(2);
+});
+
+it("deletes a ticket and refreshes the current valid page", async () => {
+  deleteTicket.mockImplementation(async ({ onSuccess }) => onSuccess());
+  const { result } = renderHook(() => useTicketQueue());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(() => result.current.remove("1"));
+
+  expect(deleteTicket).toHaveBeenCalledWith(expect.objectContaining({ id: 1n }));
   expect(listTickets).toHaveBeenCalledTimes(2);
 });
 

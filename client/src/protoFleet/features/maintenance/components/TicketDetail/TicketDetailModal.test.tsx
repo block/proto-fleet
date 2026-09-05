@@ -222,6 +222,25 @@ describe("TicketDetailModal", () => {
     expect(screen.queryByRole("button", { name: "Complete repair" })).not.toBeInTheDocument();
   });
 
+  it("hides an open mutation editor when polling reports terminal status", () => {
+    const view = render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+    expect(screen.getByRole("button", { name: "Submit completion" })).toBeInTheDocument();
+
+    ticket.status = "completed";
+    view.rerender(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Submit completion" })).not.toBeInTheDocument();
+  });
+
   it("notifies the queue after a successful detail mutation", async () => {
     update.mockResolvedValueOnce(true);
     const onMutationSuccess = vi.fn();

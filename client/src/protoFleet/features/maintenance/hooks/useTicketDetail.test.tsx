@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const getTicket = vi.fn();
 const updateTicket = vi.fn();
@@ -16,6 +16,9 @@ const { useTicketDetail } = await import("./useTicketDetail");
 beforeEach(() => {
   vi.clearAllMocks();
 });
+afterEach(() => {
+  vi.useRealTimers();
+});
 it("loads the selected ticket ID", async () => {
   getTicket.mockImplementation(async ({ onSuccess }) => onSuccess({ ticket: { id: 9n } }));
   const { result } = renderHook(() => useTicketDetail("9"));
@@ -23,6 +26,23 @@ it("loads the selected ticket ID", async () => {
   expect(getTicket).toHaveBeenCalledWith(expect.objectContaining({ id: 9n }));
   expect(result.current.data).toEqual({ id: "9" });
 });
+it("polls ticket detail while retaining the current ticket", async () => {
+  vi.useFakeTimers();
+  getTicket.mockImplementation(async ({ onSuccess }) => onSuccess({ ticket: { id: 9n } }));
+  const { result, unmount } = renderHook(() => useTicketDetail("9"));
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(getTicket).toHaveBeenCalledTimes(1);
+  expect(result.current.data).toEqual({ id: "9" });
+
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(getTicket).toHaveBeenCalledTimes(2);
+  expect(result.current.data).toEqual({ id: "9" });
+
+  unmount();
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(getTicket).toHaveBeenCalledTimes(2);
+});
+
 it("clears the prior ticket while a newly selected ticket loads", async () => {
   let resolveSecond: ((value: unknown) => void) | undefined;
   getTicket.mockImplementation(({ id, onSuccess }) => {

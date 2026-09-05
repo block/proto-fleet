@@ -13,6 +13,7 @@ const clients = {
   listCompletedTickets: vi.fn(),
   createTicketComment: vi.fn(),
   deleteTicketComment: vi.fn(),
+  deleteRepairTicket: vi.fn(),
 };
 vi.mock("./clients", () => ({ maintenanceClient: clients }));
 const handleAuthErrors = vi.fn();
@@ -85,6 +86,17 @@ describe("useMaintenanceApi", () => {
       expect.anything(),
     );
   });
+  it("deletes a repair ticket", async () => {
+    clients.deleteRepairTicket.mockResolvedValue({});
+    const onSuccess = vi.fn();
+    const { result } = renderHook(() => useMaintenanceApi());
+
+    await act(() => result.current.deleteTicket({ id: 4n, onSuccess }));
+
+    expect(clients.deleteRepairTicket).toHaveBeenCalledWith({ id: 4n }, expect.anything());
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
   it("routes failures through auth handling and finalizes once", async () => {
     const error = new Error("failed");
     clients.getRepairTicket.mockRejectedValue(error);

@@ -3,6 +3,8 @@ import { toTicketDetail } from "../mappers";
 import type { TicketDetail } from "../types";
 import { type UpdateTicketProps, useMaintenanceApi } from "@/protoFleet/api/maintenance";
 
+const POLL_INTERVAL_MS = 15_000;
+
 export const useTicketDetail = (ticketId: string | null) => {
   const { getTicket, updateTicket, createComment, deleteComment } = useMaintenanceApi();
   const [data, setData] = useState<TicketDetail | null>(null);
@@ -43,6 +45,28 @@ export const useTicketDetail = (ticketId: string | null) => {
       controller.current?.abort();
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!ticketId) return;
+    let active = true;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        if (!active) return;
+        try {
+          await refresh();
+        } catch {
+          // RPC adapters report request failures through refresh's onError callback.
+        } finally {
+          if (active) scheduleNext();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+    scheduleNext();
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [refresh, ticketId]);
   const update = useCallback(
     async (input: Omit<UpdateTicketProps, "id">) => {
       if (!ticketId) return false;

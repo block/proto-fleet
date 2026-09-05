@@ -241,6 +241,35 @@ func TestUpdateRepairTicketRejectsStalePartSelection(t *testing.T) {
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
 }
 
+func TestReplacingPartsLocksCurrentAndRequestedInventoryInGlobalOrder(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	inventory := mocks.NewMockInventoryStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
+	selection := []models.PartUsage{{InventoryPartID: 5, PartName: "Cable", Quantity: 1}}
+	expected := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 1}}
+	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection, ExpectedPartsSelection: &expected}
+	siteID := int64(11)
+	current := &models.RepairTicket{ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen, Component: "Power"}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+	tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return([]models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 1}}, nil)
+	gomock.InOrder(
+		inventory.EXPECT().GetForUpdate(gomock.Any(), int64(2), int64(5)).Return(&inventorymodels.InventoryPart{ID: 5, OrgID: 2, SiteID: &siteID, Name: "Cable"}, nil),
+		inventory.EXPECT().GetForUpdate(gomock.Any(), int64(2), int64(7)).Return(&inventorymodels.InventoryPart{ID: 7, OrgID: 2, SiteID: &siteID, Name: "Fan"}, nil),
+		inventory.EXPECT().Reserve(gomock.Any(), int64(2), int64(5), int32(1)).Return(nil),
+		inventory.EXPECT().Release(gomock.Any(), int64(2), int64(7), int32(1)).Return(nil),
+	)
+	tickets.EXPECT().SetTicketParts(gomock.Any(), int64(2), int64(3)).Return(nil)
+	tickets.EXPECT().InsertTicketPart(gomock.Any(), int64(2), int64(3), int64(5), "Cable", int32(1)).Return(nil)
+	tickets.EXPECT().UpdateRepairTicket(gomock.Any(), gomock.Any()).Return(current, nil)
+
+	_, err := service.UpdateRepairTicket(t.Context(), params)
+	require.NoError(t, err)
+}
+
 func TestReplacingActivePartsReleasesOldAndReservesNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)

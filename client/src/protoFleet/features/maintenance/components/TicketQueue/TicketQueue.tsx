@@ -6,6 +6,7 @@ import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
 import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
+import DeleteTicketModal from "./DeleteTicketModal";
 import {
   SortDirection,
   TicketCategory,
@@ -98,6 +99,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   const options = useMaintenanceOptions();
   const [viewMode, setViewMode] = useState<TicketQueueViewMode>(initialViewMode);
   const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
+  const [ticketToDelete, setTicketToDelete] = useState<TicketItem | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBulkCloseModal, setShowBulkCloseModal] = useState(false);
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
@@ -229,6 +231,12 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
                 setSelectedTicketIds([t.id]);
                 setShowBulkCloseModal(true);
               },
+              variant: "destructive" as const,
+              showDividerAfter: true,
+            },
+            {
+              title: "Delete ticket",
+              actionHandler: setTicketToDelete,
               variant: "destructive" as const,
               showDividerAfter: false,
             },
@@ -395,6 +403,17 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
           ticketIds={queue.data.map((t) => t.id)}
           onDismiss={() => setDetailTicketId(null)}
           onMutationSuccess={() => void queue.refresh()}
+        />
+      ) : null}
+      {ticketToDelete ? (
+        <DeleteTicketModal
+          ticketNumber={ticketToDelete.ticketNumber}
+          onDismiss={() => setTicketToDelete(null)}
+          onDelete={async () => {
+            const deleted = await queue.remove(ticketToDelete.id);
+            if (deleted) setSelectedTicketIds((ids) => ids.filter((id) => id !== ticketToDelete.id));
+            return deleted;
+          }}
         />
       ) : null}
       {showCreateModal ? (

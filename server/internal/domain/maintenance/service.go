@@ -926,19 +926,6 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 	if err != nil {
 		return nil, err
 	}
-	for index := range next {
-		part, err := s.inventory.GetForUpdate(ctx, ticket.OrgID, next[index].InventoryPartID)
-		if err != nil {
-			return nil, err
-		}
-		if ticket.SiteID == nil || part.SiteID == nil || *ticket.SiteID != *part.SiteID {
-			return nil, fleeterror.NewFailedPreconditionErrorf(
-				"inventory part %d is not stocked at the ticket site",
-				next[index].InventoryPartID,
-			)
-		}
-		next[index].PartName = part.Name
-	}
 	currentByID := partsByID(current)
 	nextByID := partsByID(next)
 	ids := make([]int64, 0, len(currentByID)+len(nextByID))
@@ -953,6 +940,27 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	nextIndexes := make(map[int64]int, len(next))
+	for index := range next {
+		nextIndexes[next[index].InventoryPartID] = index
+	}
+	for _, id := range ids {
+		part, err := s.inventory.GetForUpdate(ctx, ticket.OrgID, id)
+		if err != nil {
+			return nil, err
+		}
+		index, requested := nextIndexes[id]
+		if !requested {
+			continue
+		}
+		if ticket.SiteID == nil || part.SiteID == nil || *ticket.SiteID != *part.SiteID {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"inventory part %d is not stocked at the ticket site",
+				id,
+			)
+		}
+		next[index].PartName = part.Name
+	}
 	for _, id := range ids {
 		delta := nextByID[id].Quantity - currentByID[id].Quantity
 		switch {

@@ -9,7 +9,7 @@ const PAGE_SIZE = 50;
 const POLL_INTERVAL_MS = 15_000;
 
 export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
-  const { listTickets, getStats, bulkUpdate: sendBulkUpdate, updateTicket } = useMaintenanceApi();
+  const { listTickets, getStats, bulkUpdate: sendBulkUpdate, updateTicket, deleteTicket } = useMaintenanceApi();
   const [data, setData] = useState<TicketItem[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -187,6 +187,22 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
     [refreshValidView, updateTicket],
   );
 
+  const remove = useCallback(
+    async (ticketId: string) => {
+      let ok = false;
+      await deleteTicket({
+        id: BigInt(ticketId),
+        onSuccess: () => {
+          ok = true;
+        },
+        onError: setError,
+      });
+      if (ok) await refreshValidView();
+      return ok;
+    },
+    [deleteTicket, refreshValidView],
+  );
+
   const bulkUpdate = useCallback(
     async (ticketIds: string[], mutation: BulkTicketMutation, clearAssignee = false) => {
       let ok = false;
@@ -240,6 +256,7 @@ export const useTicketQueue = (initialFilter: Partial<TicketFilter> = {}) => {
       if (result !== null) loadedBoardPageCountRef.current += 1;
     },
     setUrgent,
+    remove,
     bulkUpdate,
   };
 };

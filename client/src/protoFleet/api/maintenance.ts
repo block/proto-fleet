@@ -256,6 +256,21 @@ export const useMaintenanceApi = () => {
     [report],
   );
 
+  const deleteTicket = useCallback(
+    async ({ id, signal, onSuccess, onError, onFinally }: Callbacks<void> & { id: bigint }) => {
+      try {
+        if (signal?.aborted) return;
+        await maintenanceClient.deleteRepairTicket({ id }, { signal });
+        if (!signal?.aborted) onSuccess?.();
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
   const bulkUpdate = useCallback(
     async ({
       ticketIds,
@@ -413,6 +428,7 @@ export const useMaintenanceApi = () => {
     getTicket,
     createTicket,
     updateTicket,
+    deleteTicket,
     bulkUpdate,
     getStats,
     listAssignees,
