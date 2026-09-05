@@ -3,6 +3,7 @@ interface HeaderWidgetVisibility {
   hasVisibleAlertsPill: boolean;
   hasVisibleUpdatePill?: boolean;
   hasVisibleCurtailmentPill: boolean;
+  hasVisibleRolloutPill?: boolean;
   hasVisibleSchedules: boolean;
 }
 
@@ -21,12 +22,14 @@ export function getVisibleHeaderWidgetCount({
   hasVisibleAlertsPill,
   hasVisibleUpdatePill = false,
   hasVisibleCurtailmentPill,
+  hasVisibleRolloutPill = false,
   hasVisibleSchedules,
 }: HeaderWidgetVisibility): number {
   return (
     Number(hasVisibleAlertsPill) +
     Number(hasVisibleCurtailmentPill) +
     Number(hasVisibleSchedules) +
+    Number(hasVisibleRolloutPill) +
     Number(hasVisibleUpdatePill) +
     Number(hasDismissedSetup)
   );
