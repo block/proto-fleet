@@ -60,6 +60,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -89,6 +90,7 @@ import (
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
+	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -125,6 +127,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
+	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
@@ -546,6 +549,24 @@ func start(config *Config) (result error) {
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 
+	rolloutStore := sqlstores.NewSQLReleaseChannelStore(conn)
+	rolloutSvc := rolloutDomain.NewService(rolloutStore, transactor, commandSvc, filesService, activitySvc)
+	rolloutEnforcement := newBackgroundLoop(func(ctx context.Context) {
+		const enforceInterval = 15 * time.Second
+		reportProgress := runtimejobs.TrackProgress(ctx, enforceInterval)
+		ticker := time.NewTicker(enforceInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				rolloutSvc.EnforceTick(ctx)
+				reportProgress()
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+
 	curtailmentRec := curtailmentReconciler.New(
 		config.Curtailment,
 		curtailmentStore,
@@ -704,6 +725,7 @@ func start(config *Config) (result error) {
 		ipScanner:                 ipScannerService,
 		commandExecution:          executionService,
 		scheduleProcessor:         scheduleProcessor,
+		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
 		curtailmentRigConfig:      mqttSettingsSvc,
@@ -801,6 +823,7 @@ func start(config *Config) (result error) {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
+	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
 		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
 		li,
