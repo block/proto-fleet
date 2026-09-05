@@ -131,18 +131,21 @@ type RolloutServiceClient interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must identify an immutable firmware payload with
-	// complete target metadata: nonempty target manufacturer, target model,
-	// and firmware version. The normalized metadata target must match the
-	// assignment target. For release-channel assignments, one normalized
-	// manufacturer/model/version tuple identifies exactly one firmware file:
-	// reusing its file id is valid, but assigning a different file id for the
-	// same tuple fails with FAILED_PRECONDITION before changing any assignment
-	// or starting any rollout. This makes convergence on the reported version
-	// uniquely identify the deployed artifact. An empty firmware_file_id
-	// remains valid and clears the assignment. Direct firmware uploads are
-	// outside this contract.
+	// assignment changed and has mismatched members. A member matches only when
+	// it reports the assignment's firmware version and its
+	// last_deployed_firmware_file_id equals the assignment's firmware_file_id.
+	// Empty or different deployment provenance remains mismatched and must
+	// receive the rollout. Every nonempty firmware_file_id must identify an
+	// immutable firmware payload with complete target metadata: nonempty target
+	// manufacturer, target model, and firmware version. The normalized metadata
+	// target must match the assignment target. For release-channel assignments,
+	// one normalized manufacturer/model/version tuple identifies exactly one
+	// firmware file: reusing its file id is valid, but assigning a different
+	// file id for the same tuple fails with FAILED_PRECONDITION before changing
+	// any assignment or starting any rollout. This prevents ambiguity in the
+	// firmware store; it does not attest the payload running on a device. An
+	// empty firmware_file_id remains valid and clears the assignment. Direct
+	// firmware uploads are outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Atomically cancels any active rollout for the referenced (channel,
 	// manufacturer, model) tuple and reverses its firmware assignment. If the
@@ -458,18 +461,21 @@ type RolloutServiceHandler interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
-	// assignment changed and has mismatched members. Every nonempty
-	// firmware_file_id must identify an immutable firmware payload with
-	// complete target metadata: nonempty target manufacturer, target model,
-	// and firmware version. The normalized metadata target must match the
-	// assignment target. For release-channel assignments, one normalized
-	// manufacturer/model/version tuple identifies exactly one firmware file:
-	// reusing its file id is valid, but assigning a different file id for the
-	// same tuple fails with FAILED_PRECONDITION before changing any assignment
-	// or starting any rollout. This makes convergence on the reported version
-	// uniquely identify the deployed artifact. An empty firmware_file_id
-	// remains valid and clears the assignment. Direct firmware uploads are
-	// outside this contract.
+	// assignment changed and has mismatched members. A member matches only when
+	// it reports the assignment's firmware version and its
+	// last_deployed_firmware_file_id equals the assignment's firmware_file_id.
+	// Empty or different deployment provenance remains mismatched and must
+	// receive the rollout. Every nonempty firmware_file_id must identify an
+	// immutable firmware payload with complete target metadata: nonempty target
+	// manufacturer, target model, and firmware version. The normalized metadata
+	// target must match the assignment target. For release-channel assignments,
+	// one normalized manufacturer/model/version tuple identifies exactly one
+	// firmware file: reusing its file id is valid, but assigning a different
+	// file id for the same tuple fails with FAILED_PRECONDITION before changing
+	// any assignment or starting any rollout. This prevents ambiguity in the
+	// firmware store; it does not attest the payload running on a device. An
+	// empty firmware_file_id remains valid and clears the assignment. Direct
+	// firmware uploads are outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Atomically cancels any active rollout for the referenced (channel,
 	// manufacturer, model) tuple and reverses its firmware assignment. If the

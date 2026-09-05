@@ -97,18 +97,21 @@ service RolloutService {
 
     // Replaces per-manufacturer/model firmware assignments of a channel and
     // starts a rollout, paced by the channel's behavior, for every pair whose
-    // assignment changed and has mismatched members. Every nonempty
-    // firmware_file_id must identify an immutable firmware payload with
-    // complete target metadata: nonempty target manufacturer, target model,
-    // and firmware version. The normalized metadata target must match the
-    // assignment target. For release-channel assignments, one normalized
-    // manufacturer/model/version tuple identifies exactly one firmware file:
-    // reusing its file id is valid, but assigning a different file id for the
-    // same tuple fails with FAILED_PRECONDITION before changing any assignment
-    // or starting any rollout. This makes convergence on the reported version
-    // uniquely identify the deployed artifact. An empty firmware_file_id
-    // remains valid and clears the assignment. Direct firmware uploads are
-    // outside this contract.
+    // assignment changed and has mismatched members. A member matches only when
+    // it reports the assignment's firmware version and its
+    // last_deployed_firmware_file_id equals the assignment's firmware_file_id.
+    // Empty or different deployment provenance remains mismatched and must
+    // receive the rollout. Every nonempty firmware_file_id must identify an
+    // immutable firmware payload with complete target metadata: nonempty target
+    // manufacturer, target model, and firmware version. The normalized metadata
+    // target must match the assignment target. For release-channel assignments,
+    // one normalized manufacturer/model/version tuple identifies exactly one
+    // firmware file: reusing its file id is valid, but assigning a different
+    // file id for the same tuple fails with FAILED_PRECONDITION before changing
+    // any assignment or starting any rollout. This prevents ambiguity in the
+    // firmware store; it does not attest the payload running on a device. An
+    // empty firmware_file_id remains valid and clears the assignment. Direct
+    // firmware uploads are outside this contract.
     rpc ApplyReleaseChannelFirmware(ApplyReleaseChannelFirmwareRequest) returns (ApplyReleaseChannelFirmwareResponse);
 
     // Atomically cancels any active rollout for the referenced (channel,
@@ -183,7 +186,7 @@ enum RolloutMethod {
     ROLLOUT_METHOD_UNSPECIFIED = 0;
     // One ungated REST stage for every mismatched miner, with no batching,
     // waits, or review gates. This does not guarantee simultaneous command
-    // dispatch; max_concurrent_offline may throttle dispatch.
+    // dispatch or bypass the per-rollout max_concurrent_offline safety budget.
     ROLLOUT_METHOD_ALL_AT_ONCE = 1;
     // Multiple batches of batch_size, optionally reviewed after each one;
     // late joiners follow once the batches are done.
@@ -252,9 +255,15 @@ message RolloutBehavior {
     // auto-continue, so post-update telemetry has settled.
     int32 stabilization_seconds = 8 [(buf.validate.field).int32 = {gte: 0}];
     RolloutAutomationThresholds thresholds = 9;
-    // Safety override across every rollout method, including ALL_AT_ONCE.
-    // When nonzero, command dispatch is throttled so the number of miners
-    // mid-update never exceeds this value; 0 means unlimited.
+    // Per-rollout safety budget across every rollout method, including
+    // ALL_AT_ONCE. Each distinct target consumes at most one slot when it is
+    // observed offline, regardless of phase or whether the update caused the
+    // outage, or when a slot has been reserved immediately before dispatch.
+    // The reservation remains until that target is next observed online or
+    // EXCLUDED. Dispatch pauses while this nonzero budget is full. A FAILED
+    // target observed offline retains its slot until it is observed online or
+    // EXCLUDED. Canceling ends dispatch rather than waiving offline state.
+    // 0 is unlimited.
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
 }
 
@@ -313,8 +322,9 @@ message ReleaseChannelModelGroup {
     int32 miner_count = 5;
     // Id of the active rollout for this manufacturer/model pair, 0 if none.
     int64 active_rollout_id = 6;
-    // Members currently reporting the assigned firmware version; 0 when no
-    // firmware is assigned.
+    // Members currently reporting the assigned firmware version whose
+    // last_deployed_firmware_file_id also equals the assigned firmware_file_id;
+    // 0 when no firmware is assigned.
     int32 on_target_count = 7;
     // The first 10 sorted distinct firmware versions members currently report.
     // Lets a client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing
@@ -344,6 +354,11 @@ message ReleaseChannelMiner {
     // least one lower-specificity channel also matches this miner. Query every
     // matching relation with ListReleaseChannelMembershipConflicts.
     bool conflicted = 6;
+    // ID of the immutable firmware file Fleet records only after a Fleet-managed
+    // update of that exact artifact succeeds and the miner subsequently reports
+    // the target version. Empty means provenance is unknown, including
+    // vendor/manual installs.
+    string last_deployed_firmware_file_id = 7 [(buf.validate.field).string.max_len = 255];
 }
 
 // Selector specificity, ordered from most specific to least specific.
@@ -404,11 +419,12 @@ message FirmwareAssignment {
     // tuple identifies exactly one firmware file. Reusing that file id is
     // valid; if another file id already represents the tuple,
     // ApplyReleaseChannelFirmware fails with FAILED_PRECONDITION before
-    // changing any assignment or starting any rollout. This makes convergence
-    // on the reported version uniquely identify the deployed artifact. Once
-    // referenced, its deletion and target metadata are governed by the
-    // cross-service protection invariant above. Empty clears the assignment.
-    // Direct firmware uploads are outside this contract.
+    // changing any assignment or starting any rollout. This prevents ambiguity
+    // in the firmware store; it does not attest the payload running on a
+    // device. Device provenance comes from last_deployed_firmware_file_id. Once
+    // referenced, the artifact's deletion and target metadata are governed by
+    // the cross-service protection invariant above. Empty clears the
+    // assignment. Direct firmware uploads are outside this contract.
     string firmware_file_id = 3;
 }
 
@@ -419,11 +435,12 @@ enum RolloutStatus {
     ROLLOUT_STATUS_UNSPECIFIED = 0;
     // The rollout is enforcing its firmware version.
     ROLLOUT_STATUS_ACTIVE = 1;
-    // Every targeted miner settled successfully under the operational
-    // criteria: assigned version, back online, and hashing when
-    // baseline_hashing is true or has_baseline is false. A miner with a
-    // baseline that was not hashing does not need to be hashing. Aggregate
-    // telemetry deltas do not affect this status.
+    // Every targeted miner settled successfully under the operational criteria:
+    // it reports the target version, its last_deployed_firmware_file_id equals
+    // the rollout's firmware_file_id, it is back online, and it is hashing when
+    // baseline_hashing is true or has_baseline is false. A miner with a baseline
+    // that was not hashing does not need to be hashing. Aggregate telemetry
+    // deltas do not affect this status.
     ROLLOUT_STATUS_COMPLETED = 2;
     // Every targeted miner settled, but some failed.
     ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
@@ -445,7 +462,8 @@ enum RolloutCancelReason {
 }
 
 // Progress of a staged rollout. ALL_AT_ONCE rollouts remain in one ungated
-// REST stage; REST does not imply simultaneous command dispatch.
+// REST stage; REST does not imply simultaneous command dispatch or bypass the
+// per-rollout max_concurrent_offline safety budget.
 enum RolloutStage {
     ROLLOUT_STAGE_UNSPECIFIED = 0;
     // Updating the current batch only.
@@ -457,7 +475,8 @@ enum RolloutStage {
     // before the next one starts.
     ROLLOUT_STAGE_WAITING = 3;
     // Updating all remaining targets with no further waits or review gates.
-    // Command dispatch may still be throttled by max_concurrent_offline.
+    // Dispatch pauses while a nonzero max_concurrent_offline budget is full,
+    // including while FAILED targets remain observed offline.
     ROLLOUT_STAGE_REST = 4;
 }
 
@@ -488,13 +507,17 @@ enum RolloutDevicePhase {
     ROLLOUT_DEVICE_PHASE_IN_PROGRESS = 2;
     // The first attempt did not take; the update was re-sent.
     ROLLOUT_DEVICE_PHASE_RETRYING = 3;
-    // Reports the target version, is online, and is hashing when
-    // baseline_hashing is true or has_baseline is false. A miner with a
-    // baseline that was not hashing does not need to be hashing. Per-device
-    // telemetry deltas do not affect this phase.
+    // Reports the target version, has last_deployed_firmware_file_id equal to
+    // the rollout's firmware_file_id, is online, and is hashing when
+    // baseline_hashing is true or has_baseline is false. A miner with a baseline
+    // that was not hashing does not need to be hashing. Per-device telemetry
+    // deltas do not affect this phase.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, or the rollout was canceled before this miner
-    // updated. Not retried until RetryFailedRolloutDevices.
+    // updated. Not retried until RetryFailedRolloutDevices. While observed
+    // offline, the target remains in the max_concurrent_offline budget until
+    // it is observed online or EXCLUDED. Cancellation ends further dispatch
+    // rather than releasing its slot.
     ROLLOUT_DEVICE_PHASE_FAILED = 5;
     // Left the channel's scope while the rollout was running.
     ROLLOUT_DEVICE_PHASE_EXCLUDED = 6;
@@ -640,6 +663,11 @@ message RolloutDevice {
     google.protobuf.Timestamp last_sent_at = 19;
     // Why the miner is FAILED, when known.
     string last_error = 20;
+    // ID of the immutable firmware file Fleet records only after a Fleet-managed
+    // update of that exact artifact succeeds and the miner subsequently reports
+    // the target version. Empty means provenance is unknown, including
+    // vendor/manual installs.
+    string last_deployed_firmware_file_id = 21 [(buf.validate.field).string.max_len = 255];
 }
 
 // --- Requests / responses ---

@@ -841,6 +841,84 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 	}
 }
 
+func TestDeploymentProvenanceResponseDescriptors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		response    proto.Message
+		itemsField  protoreflect.Name
+		fieldNumber protoreflect.FieldNumber
+	}{
+		{
+			name:        "release channel miners",
+			response:    &rolloutv1.ListReleaseChannelMinersResponse{},
+			itemsField:  "miners",
+			fieldNumber: 7,
+		},
+		{
+			name:        "rollout devices",
+			response:    &rolloutv1.ListRolloutDevicesResponse{},
+			itemsField:  "devices",
+			fieldNumber: 21,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			items := test.response.ProtoReflect().Descriptor().Fields().ByName(test.itemsField)
+			require.NotNil(t, items)
+			require.True(t, items.IsList())
+
+			provenance := items.Message().Fields().ByName("last_deployed_firmware_file_id")
+			require.NotNil(t, provenance)
+			require.Equal(t, test.fieldNumber, provenance.Number())
+			require.Equal(t, protoreflect.StringKind, provenance.Kind())
+		})
+	}
+}
+
+func TestDeploymentProvenanceResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		response func(string) proto.Message
+	}{
+		{
+			name: "release channel miners",
+			response: func(fileID string) proto.Message {
+				return &rolloutv1.ListReleaseChannelMinersResponse{
+					Miners: []*rolloutv1.ReleaseChannelMiner{{
+						LastDeployedFirmwareFileId: fileID,
+					}},
+				}
+			},
+		},
+		{
+			name: "rollout devices",
+			response: func(fileID string) proto.Message {
+				return &rolloutv1.ListRolloutDevicesResponse{
+					Devices: []*rolloutv1.RolloutDevice{{
+						LastDeployedFirmwareFileId: fileID,
+					}},
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.NoError(t, protovalidate.Validate(test.response(strings.Repeat("f", 255))))
+			require.Error(t, protovalidate.Validate(test.response(strings.Repeat("f", 256))))
+		})
+	}
+}
+
 func TestRolloutDetailsArePagedSeparately(t *testing.T) {
 	t.Parallel()
 
