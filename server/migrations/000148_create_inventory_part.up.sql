@@ -27,7 +27,7 @@ CREATE TABLE inventory_part (
 );
 
 CREATE UNIQUE INDEX uk_inventory_part_site_name
-    ON inventory_part(org_id, COALESCE(site_id, 0), name)
+    ON inventory_part(org_id, COALESCE(site_id, 0), LOWER(name))
     WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_inventory_part_org_site

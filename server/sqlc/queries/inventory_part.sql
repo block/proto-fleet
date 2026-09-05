@@ -182,7 +182,7 @@ SELECT EXISTS (
     FROM inventory_part
     WHERE org_id = sqlc.arg('org_id')
       AND site_id IS NOT DISTINCT FROM sqlc.narg('site_id')::bigint
-      AND name = sqlc.arg('name')
+      AND LOWER(name) = LOWER(sqlc.arg('name'))
       AND deleted_at IS NULL
 );
 

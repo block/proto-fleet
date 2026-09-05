@@ -282,7 +282,7 @@ SELECT EXISTS (
     FROM inventory_part
     WHERE org_id = $1
       AND site_id IS NOT DISTINCT FROM $2::bigint
-      AND name = $3
+      AND LOWER(name) = LOWER($3)
       AND deleted_at IS NULL
 )
 `

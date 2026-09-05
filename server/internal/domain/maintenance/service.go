@@ -276,6 +276,10 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		if params.Status != nil {
 			targetStatus = *params.Status
 		}
+		hasRMAMutation := params.RMAVendor != nil || params.RMATracking != nil || params.RMAEta != nil || params.ClearRMAEta
+		if hasRMAMutation && targetStatus != models.TicketStatusSentToVendor {
+			return nil, fleeterror.NewInvalidArgumentError("RMA fields require sent-to-vendor status")
+		}
 		if current.Status == models.TicketStatusCompleted {
 			if targetStatus != models.TicketStatusCompleted {
 				return nil, fleeterror.NewFailedPreconditionError("completed tickets are terminal")
@@ -450,6 +454,7 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 		return 0, err
 	}
 	var affected int64
+	var changedIDs []int64
 	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		attemptSiteIDs := make([]*int64, 0, len(ids))
@@ -461,9 +466,16 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 			if ticket.Status == models.TicketStatusCompleted || !statusTransitionAllowed(ticket.Status, newStatus) {
 				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot transition to status %d", id, newStatus)
 			}
+			if ticket.Status == newStatus {
+				continue
+			}
+			changedIDs = append(changedIDs, id)
 			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 		}
-		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, ids, int16(newStatus))
+		if len(changedIDs) == 0 {
+			return nil
+		}
+		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, changedIDs, int16(newStatus))
 		if err != nil {
 			return err
 		}
@@ -475,7 +487,7 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 		return 0, err
 	}
 
-	if s.activitySvc != nil {
+	if s.activitySvc != nil && affected > 0 {
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventTicketBulk,
@@ -485,7 +497,7 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 				affected, int16(newStatus),
 			),
 			Metadata: map[string]any{
-				"ticket_ids": ticketIDs,
+				"ticket_ids": changedIDs,
 				"new_status": int16(newStatus),
 				"affected":   affected,
 			},

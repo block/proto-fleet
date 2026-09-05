@@ -252,6 +252,24 @@ func TestUpdateRepairTicketRejectsCompletionFieldsWithoutCompletionTransition(t 
 	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
 }
 
+func TestUpdateRepairTicketRejectsRMAFieldsOutsideVendorStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	vendor := "Hidden vendor"
+	params := models.UpdateParams{OrgID: 2, ID: 3, RMAVendor: &vendor}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+		&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusOpen}, nil,
+	)
+
+	_, err := service.UpdateRepairTicket(t.Context(), params)
+
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+}
+
 func TestUpdateRepairTicketRejectsStalePartSelection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
@@ -643,6 +661,30 @@ func TestUpdateRepairTicketRejectsPartFromAnotherSite(t *testing.T) {
 
 	_, err := service.UpdateRepairTicket(t.Context(), params)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+}
+
+func TestBulkUpdateStatusSkipsTicketsAlreadyAtTarget(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+		&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusInProgress}, nil,
+	)
+
+	affected, err := service.BulkUpdateStatus(t.Context(), 2, []int64{3}, models.TicketStatusInProgress)
+
+	require.NoError(t, err)
+	assert.Zero(t, affected)
 }
 
 func TestBulkUpdateStatusRejectsSentToVendorWithoutVendorData(t *testing.T) {

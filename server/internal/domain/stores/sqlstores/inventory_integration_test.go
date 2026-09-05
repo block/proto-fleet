@@ -119,6 +119,10 @@ func TestInventorySiteTransferMapsDuplicateNameToAlreadyExists(t *testing.T) {
 		OrgID: orgID, Name: "Fan", Type: "cooling", SiteID: &siteID,
 	})
 	require.NoError(t, err)
+	_, err = store.Create(ctx, inventorymodels.CreateParams{
+		OrgID: orgID, Name: "fan", Type: "cooling", SiteID: &siteID,
+	})
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "case-insensitive duplicate should be actionable: %v", err)
 	unassigned, err := store.Create(ctx, inventorymodels.CreateParams{
 		OrgID: orgID, Name: "Fan", Type: "cooling",
 	})
