@@ -132,10 +132,14 @@ type RolloutServiceClient interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. A member matches only when
-	// it reports the assignment's firmware version and its
-	// last_deployed_firmware_file_id equals the assignment's firmware_file_id.
-	// Empty or different deployment provenance remains mismatched and must
-	// receive the rollout. Every nonempty firmware_file_id must identify an
+	// it reports the assignment's firmware version and its historical
+	// managed-deployment provenance records the assignment's firmware_file_id
+	// as the last successful Fleet-managed deployment. This fallback does not
+	// attest the artifact currently installed on the device. On devices without
+	// a current checksum or file identity, Fleet cannot detect a same-version
+	// out-of-band, vendor, or manual replacement. Empty or different deployment
+	// provenance remains mismatched and must receive the rollout. Every
+	// nonempty firmware_file_id must identify an
 	// immutable firmware payload with complete target metadata: nonempty target
 	// manufacturer and target model, and a firmware version with length 1..255
 	// Unicode code points. The normalized metadata target must match the
@@ -465,10 +469,14 @@ type RolloutServiceHandler interface {
 	// Replaces per-manufacturer/model firmware assignments of a channel and
 	// starts a rollout, paced by the channel's behavior, for every pair whose
 	// assignment changed and has mismatched members. A member matches only when
-	// it reports the assignment's firmware version and its
-	// last_deployed_firmware_file_id equals the assignment's firmware_file_id.
-	// Empty or different deployment provenance remains mismatched and must
-	// receive the rollout. Every nonempty firmware_file_id must identify an
+	// it reports the assignment's firmware version and its historical
+	// managed-deployment provenance records the assignment's firmware_file_id
+	// as the last successful Fleet-managed deployment. This fallback does not
+	// attest the artifact currently installed on the device. On devices without
+	// a current checksum or file identity, Fleet cannot detect a same-version
+	// out-of-band, vendor, or manual replacement. Empty or different deployment
+	// provenance remains mismatched and must receive the rollout. Every
+	// nonempty firmware_file_id must identify an
 	// immutable firmware payload with complete target metadata: nonempty target
 	// manufacturer and target model, and a firmware version with length 1..255
 	// Unicode code points. The normalized metadata target must match the

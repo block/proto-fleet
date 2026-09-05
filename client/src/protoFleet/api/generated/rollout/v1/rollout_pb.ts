@@ -375,9 +375,12 @@ export type ReleaseChannelModelGroup = Message<"rollout.v1.ReleaseChannelModelGr
   activeRolloutId: bigint;
 
   /**
-   * Members currently reporting the assigned firmware version whose
-   * last_deployed_firmware_file_id also equals the assigned firmware_file_id;
-   * 0 when no firmware is assigned.
+   * Members currently reporting the assigned firmware version whose historical
+   * managed-deployment provenance records the assigned firmware_file_id as the
+   * last successful Fleet-managed deployment; 0 when no firmware is assigned.
+   * This count is not current-device artifact attestation. On devices without
+   * a current checksum or file identity, a same-version out-of-band, vendor,
+   * or manual replacement remains undetectable.
    *
    * @generated from field: int32 on_target_count = 7;
    */
@@ -471,10 +474,14 @@ export type ReleaseChannelMiner = Message<"rollout.v1.ReleaseChannelMiner"> & {
   conflicted: boolean;
 
   /**
-   * ID of the immutable firmware file Fleet records only after a Fleet-managed
-   * update of that exact artifact succeeds and the miner subsequently reports
-   * the target version. Empty means provenance is unknown, including
-   * vendor/manual installs.
+   * Historical ID of the immutable firmware file from the last successful
+   * Fleet-managed deployment, recorded after that update succeeds and the
+   * miner subsequently reports the target version. This is managed-deployment
+   * provenance, not current-device artifact attestation. On devices without a
+   * current checksum or file identity, Fleet cannot detect a same-version
+   * out-of-band, vendor, or manual replacement. Such replacements do not
+   * update this field; empty means no qualifying Fleet-managed deployment is
+   * recorded.
    *
    * @generated from field: string last_deployed_firmware_file_id = 7;
    */
@@ -580,11 +587,15 @@ export type FirmwareAssignment = Message<"rollout.v1.FirmwareAssignment"> & {
    * tuple, ApplyReleaseChannelFirmware also fails with FAILED_PRECONDITION
    * before changing any assignment or starting any rollout. This prevents
    * ambiguity in the firmware store; it does not attest the payload running
-   * on a device. Device provenance comes from
-   * last_deployed_firmware_file_id. Once referenced, the artifact's deletion
-   * and target metadata are governed by the cross-service protection
-   * invariant above. Empty clears the assignment. Direct firmware uploads
-   * are outside this contract.
+   * on a device. Convergence instead combines the reported version with the
+   * last successful Fleet-managed deployment recorded in
+   * last_deployed_firmware_file_id. That historical managed-deployment
+   * provenance is not current-device artifact attestation. On devices without
+   * a current checksum or file identity, Fleet cannot detect a same-version
+   * out-of-band, vendor, or manual replacement. Once referenced, the
+   * artifact's deletion and target metadata are governed by the cross-service
+   * protection invariant above. Empty clears the assignment. Direct firmware
+   * uploads are outside this contract.
    *
    * @generated from field: string firmware_file_id = 3;
    */
@@ -1093,10 +1104,14 @@ export type RolloutDevice = Message<"rollout.v1.RolloutDevice"> & {
   lastError: string;
 
   /**
-   * ID of the immutable firmware file Fleet records only after a Fleet-managed
-   * update of that exact artifact succeeds and the miner subsequently reports
-   * the target version. Empty means provenance is unknown, including
-   * vendor/manual installs.
+   * Historical ID of the immutable firmware file from the last successful
+   * Fleet-managed deployment, recorded after that update succeeds and the
+   * miner subsequently reports the target version. This is managed-deployment
+   * provenance, not current-device artifact attestation. On devices without a
+   * current checksum or file identity, Fleet cannot detect a same-version
+   * out-of-band, vendor, or manual replacement. Such replacements do not
+   * update this field; empty means no qualifying Fleet-managed deployment is
+   * recorded.
    *
    * @generated from field: string last_deployed_firmware_file_id = 21;
    */
@@ -2303,11 +2318,14 @@ export enum RolloutStatus {
 
   /**
    * Every targeted miner settled successfully under the operational criteria:
-   * it reports the target version, its last_deployed_firmware_file_id equals
-   * the rollout's firmware_file_id, it is back online, and it is hashing when
-   * baseline_hashing is true or has_baseline is false. A miner with a baseline
-   * that was not hashing does not need to be hashing. Aggregate telemetry
-   * deltas do not affect this status.
+   * it reports the target version, its historical managed-deployment provenance
+   * records the rollout's firmware_file_id as the last successful Fleet-managed
+   * deployment, it is back online, and it is hashing when baseline_hashing is
+   * true or has_baseline is false. A miner with a baseline that was not hashing
+   * does not need to be hashing. These criteria do not attest the current
+   * artifact. On devices without a current checksum or file identity, a
+   * same-version out-of-band, vendor, or manual replacement remains
+   * undetectable. Aggregate telemetry deltas do not affect this status.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED = 2;
    */
@@ -2531,11 +2549,14 @@ export enum RolloutDevicePhase {
   RETRYING = 3,
 
   /**
-   * Reports the target version, has last_deployed_firmware_file_id equal to
-   * the rollout's firmware_file_id, is online, and is hashing when
-   * baseline_hashing is true or has_baseline is false. A miner with a baseline
-   * that was not hashing does not need to be hashing. Per-device telemetry
-   * deltas do not affect this phase.
+   * Reports the target version, has historical managed-deployment provenance
+   * recording the rollout's firmware_file_id as the last successful
+   * Fleet-managed deployment, is online, and is hashing when baseline_hashing
+   * is true or has_baseline is false. A miner with a baseline that was not
+   * hashing does not need to be hashing. These criteria do not attest the
+   * current artifact. On devices without a current checksum or file identity,
+   * a same-version out-of-band, vendor, or manual replacement remains
+   * undetectable. Per-device telemetry deltas do not affect this phase.
    *
    * @generated from enum value: ROLLOUT_DEVICE_PHASE_DONE = 4;
    */
@@ -2719,10 +2740,14 @@ export const RolloutService: GenService<{
    * Replaces per-manufacturer/model firmware assignments of a channel and
    * starts a rollout, paced by the channel's behavior, for every pair whose
    * assignment changed and has mismatched members. A member matches only when
-   * it reports the assignment's firmware version and its
-   * last_deployed_firmware_file_id equals the assignment's firmware_file_id.
-   * Empty or different deployment provenance remains mismatched and must
-   * receive the rollout. Every nonempty firmware_file_id must identify an
+   * it reports the assignment's firmware version and its historical
+   * managed-deployment provenance records the assignment's firmware_file_id
+   * as the last successful Fleet-managed deployment. This fallback does not
+   * attest the artifact currently installed on the device. On devices without
+   * a current checksum or file identity, Fleet cannot detect a same-version
+   * out-of-band, vendor, or manual replacement. Empty or different deployment
+   * provenance remains mismatched and must receive the rollout. Every
+   * nonempty firmware_file_id must identify an
    * immutable firmware payload with complete target metadata: nonempty target
    * manufacturer and target model, and a firmware version with length 1..255
    * Unicode code points. The normalized metadata target must match the

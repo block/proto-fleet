@@ -259,11 +259,14 @@ const (
 	// The rollout is enforcing its firmware version.
 	RolloutStatus_ROLLOUT_STATUS_ACTIVE RolloutStatus = 1
 	// Every targeted miner settled successfully under the operational criteria:
-	// it reports the target version, its last_deployed_firmware_file_id equals
-	// the rollout's firmware_file_id, it is back online, and it is hashing when
-	// baseline_hashing is true or has_baseline is false. A miner with a baseline
-	// that was not hashing does not need to be hashing. Aggregate telemetry
-	// deltas do not affect this status.
+	// it reports the target version, its historical managed-deployment provenance
+	// records the rollout's firmware_file_id as the last successful Fleet-managed
+	// deployment, it is back online, and it is hashing when baseline_hashing is
+	// true or has_baseline is false. A miner with a baseline that was not hashing
+	// does not need to be hashing. These criteria do not attest the current
+	// artifact. On devices without a current checksum or file identity, a
+	// same-version out-of-band, vendor, or manual replacement remains
+	// undetectable. Aggregate telemetry deltas do not affect this status.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED RolloutStatus = 2
 	// Every targeted miner settled, but some failed.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES RolloutStatus = 3
@@ -527,11 +530,14 @@ const (
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_IN_PROGRESS RolloutDevicePhase = 2
 	// The first attempt did not take; the update was re-sent.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_RETRYING RolloutDevicePhase = 3
-	// Reports the target version, has last_deployed_firmware_file_id equal to
-	// the rollout's firmware_file_id, is online, and is hashing when
-	// baseline_hashing is true or has_baseline is false. A miner with a baseline
-	// that was not hashing does not need to be hashing. Per-device telemetry
-	// deltas do not affect this phase.
+	// Reports the target version, has historical managed-deployment provenance
+	// recording the rollout's firmware_file_id as the last successful
+	// Fleet-managed deployment, is online, and is hashing when baseline_hashing
+	// is true or has_baseline is false. A miner with a baseline that was not
+	// hashing does not need to be hashing. These criteria do not attest the
+	// current artifact. On devices without a current checksum or file identity,
+	// a same-version out-of-band, vendor, or manual replacement remains
+	// undetectable. Per-device telemetry deltas do not affect this phase.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_DONE RolloutDevicePhase = 4
 	// Attempts exhausted, or the rollout was canceled before this miner
 	// updated. Not retried until RetryFailedRolloutDevices. While observed
@@ -1126,9 +1132,12 @@ type ReleaseChannelModelGroup struct {
 	MinerCount      int32  `protobuf:"varint,5,opt,name=miner_count,json=minerCount,proto3" json:"miner_count,omitempty"`
 	// Id of the active rollout for this firmware target pair, 0 if none.
 	ActiveRolloutId int64 `protobuf:"varint,6,opt,name=active_rollout_id,json=activeRolloutId,proto3" json:"active_rollout_id,omitempty"`
-	// Members currently reporting the assigned firmware version whose
-	// last_deployed_firmware_file_id also equals the assigned firmware_file_id;
-	// 0 when no firmware is assigned.
+	// Members currently reporting the assigned firmware version whose historical
+	// managed-deployment provenance records the assigned firmware_file_id as the
+	// last successful Fleet-managed deployment; 0 when no firmware is assigned.
+	// This count is not current-device artifact attestation. On devices without
+	// a current checksum or file identity, a same-version out-of-band, vendor,
+	// or manual replacement remains undetectable.
 	OnTargetCount int32 `protobuf:"varint,7,opt,name=on_target_count,json=onTargetCount,proto3" json:"on_target_count,omitempty"`
 	// The first 10 sorted distinct firmware versions members currently report.
 	// Lets a client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing
@@ -1270,10 +1279,14 @@ type ReleaseChannelMiner struct {
 	// least one lower-specificity channel also matches this miner. Query every
 	// matching relation with ListReleaseChannelMembershipConflicts.
 	Conflicted bool `protobuf:"varint,6,opt,name=conflicted,proto3" json:"conflicted,omitempty"`
-	// ID of the immutable firmware file Fleet records only after a Fleet-managed
-	// update of that exact artifact succeeds and the miner subsequently reports
-	// the target version. Empty means provenance is unknown, including
-	// vendor/manual installs.
+	// Historical ID of the immutable firmware file from the last successful
+	// Fleet-managed deployment, recorded after that update succeeds and the
+	// miner subsequently reports the target version. This is managed-deployment
+	// provenance, not current-device artifact attestation. On devices without a
+	// current checksum or file identity, Fleet cannot detect a same-version
+	// out-of-band, vendor, or manual replacement. Such replacements do not
+	// update this field; empty means no qualifying Fleet-managed deployment is
+	// recorded.
 	LastDeployedFirmwareFileId string `protobuf:"bytes,7,opt,name=last_deployed_firmware_file_id,json=lastDeployedFirmwareFileId,proto3" json:"last_deployed_firmware_file_id,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
@@ -1483,11 +1496,15 @@ type FirmwareAssignment struct {
 	// tuple, ApplyReleaseChannelFirmware also fails with FAILED_PRECONDITION
 	// before changing any assignment or starting any rollout. This prevents
 	// ambiguity in the firmware store; it does not attest the payload running
-	// on a device. Device provenance comes from
-	// last_deployed_firmware_file_id. Once referenced, the artifact's deletion
-	// and target metadata are governed by the cross-service protection
-	// invariant above. Empty clears the assignment. Direct firmware uploads
-	// are outside this contract.
+	// on a device. Convergence instead combines the reported version with the
+	// last successful Fleet-managed deployment recorded in
+	// last_deployed_firmware_file_id. That historical managed-deployment
+	// provenance is not current-device artifact attestation. On devices without
+	// a current checksum or file identity, Fleet cannot detect a same-version
+	// out-of-band, vendor, or manual replacement. Once referenced, the
+	// artifact's deletion and target metadata are governed by the cross-service
+	// protection invariant above. Empty clears the assignment. Direct firmware
+	// uploads are outside this contract.
 	FirmwareFileId string `protobuf:"bytes,3,opt,name=firmware_file_id,json=firmwareFileId,proto3" json:"firmware_file_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -2160,10 +2177,14 @@ type RolloutDevice struct {
 	LastSentAt *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=last_sent_at,json=lastSentAt,proto3" json:"last_sent_at,omitempty"`
 	// Why the miner is FAILED, when known.
 	LastError string `protobuf:"bytes,20,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	// ID of the immutable firmware file Fleet records only after a Fleet-managed
-	// update of that exact artifact succeeds and the miner subsequently reports
-	// the target version. Empty means provenance is unknown, including
-	// vendor/manual installs.
+	// Historical ID of the immutable firmware file from the last successful
+	// Fleet-managed deployment, recorded after that update succeeds and the
+	// miner subsequently reports the target version. This is managed-deployment
+	// provenance, not current-device artifact attestation. On devices without a
+	// current checksum or file identity, Fleet cannot detect a same-version
+	// out-of-band, vendor, or manual replacement. Such replacements do not
+	// update this field; empty means no qualifying Fleet-managed deployment is
+	// recorded.
 	LastDeployedFirmwareFileId string `protobuf:"bytes,21,opt,name=last_deployed_firmware_file_id,json=lastDeployedFirmwareFileId,proto3" json:"last_deployed_firmware_file_id,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
