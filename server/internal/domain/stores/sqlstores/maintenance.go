@@ -116,8 +116,8 @@ func (s *SQLMaintenanceStore) UpdateRepairTicket(ctx context.Context, params mod
 		Diagnosis: ptrToNullString(params.Diagnosis), WarrantyStatus: warrantyToNull(params.WarrantyStatus),
 		Resolution: resolutionToNull(params.Resolution), RepairLocation: repairLocationToNull(params.RepairLocation),
 		Notes: ptrToNullString(params.Notes), RmaVendor: ptrToNullString(params.RMAVendor),
-		RmaTracking: ptrToNullString(params.RMATracking), RmaEta: ptrToNullTime(params.RMAEta),
-		ID: params.ID, OrgID: params.OrgID,
+		RmaTracking: ptrToNullString(params.RMATracking), ClearRmaEta: params.ClearRMAEta,
+		RmaEta: ptrToNullTime(params.RMAEta), ID: params.ID, OrgID: params.OrgID,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

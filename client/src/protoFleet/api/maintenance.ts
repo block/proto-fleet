@@ -77,6 +77,7 @@ export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   rmaVendor?: string;
   rmaTracking?: string;
   rmaEta?: Date;
+  clearRmaEta?: boolean;
 };
 
 export type BulkTicketMutation =

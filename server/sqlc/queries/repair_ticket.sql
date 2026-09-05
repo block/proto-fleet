@@ -154,7 +154,7 @@ UPDATE repair_ticket SET
     notes = COALESCE(sqlc.narg('notes'), notes),
     rma_vendor = COALESCE(sqlc.narg('rma_vendor'), rma_vendor),
     rma_tracking = COALESCE(sqlc.narg('rma_tracking'), rma_tracking),
-    rma_eta = COALESCE(sqlc.narg('rma_eta'), rma_eta),
+    rma_eta = CASE WHEN sqlc.arg('clear_rma_eta')::boolean THEN NULL ELSE COALESCE(sqlc.narg('rma_eta'), rma_eta) END,
     completed_at = CASE WHEN sqlc.narg('status')::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END,
     updated_at = NOW()
 WHERE id = sqlc.arg('id') AND org_id = sqlc.arg('org_id') AND deleted_at IS NULL

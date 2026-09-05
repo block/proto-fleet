@@ -1039,10 +1039,10 @@ UPDATE repair_ticket SET
     notes = COALESCE($10, notes),
     rma_vendor = COALESCE($11, rma_vendor),
     rma_tracking = COALESCE($12, rma_tracking),
-    rma_eta = COALESCE($13, rma_eta),
+    rma_eta = CASE WHEN $13::boolean THEN NULL ELSE COALESCE($14, rma_eta) END,
     completed_at = CASE WHEN $1::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END,
     updated_at = NOW()
-WHERE id = $14 AND org_id = $15 AND deleted_at IS NULL
+WHERE id = $15 AND org_id = $16 AND deleted_at IS NULL
 RETURNING id
 `
 
@@ -1059,6 +1059,7 @@ type UpdateRepairTicketParams struct {
 	Notes          sql.NullString
 	RmaVendor      sql.NullString
 	RmaTracking    sql.NullString
+	ClearRmaEta    bool
 	RmaEta         sql.NullTime
 	ID             int64
 	OrgID          int64
@@ -1078,6 +1079,7 @@ func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicket
 		arg.Notes,
 		arg.RmaVendor,
 		arg.RmaTracking,
+		arg.ClearRmaEta,
 		arg.RmaEta,
 		arg.ID,
 		arg.OrgID,

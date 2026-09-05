@@ -234,7 +234,8 @@ const TicketDetailModal = ({
                     ...(ticket.status === "sent_to_vendor" ? {} : { status: TicketStatus.SENT_TO_VENDOR }),
                     rmaVendor: vendor,
                     rmaTracking: tracking,
-                    rmaEta: eta ? new Date(`${eta}T00:00:00.000Z`) : undefined,
+                    ...(eta ? { rmaEta: new Date(`${eta}T00:00:00.000Z`) } : {}),
+                    ...(ticket.status === "sent_to_vendor" && ticket.rmaEta && !eta ? { clearRmaEta: true } : {}),
                   }).then((updated) => {
                     if (updated) setRma(false);
                   })

@@ -205,13 +205,14 @@ describe("TicketDetailModal", () => {
     expect(screen.getByLabelText("Tracking #")).toHaveValue("TRACK-1");
     expect(screen.getByLabelText("ETA")).toHaveValue("2026-09-10");
     fireEvent.change(screen.getByLabelText("Tracking #"), { target: { value: "TRACK-2" } });
+    fireEvent.change(screen.getByLabelText("ETA"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save RMA details" }));
 
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({
         rmaVendor: "Repair Co",
         rmaTracking: "TRACK-2",
-        rmaEta: new Date("2026-09-10"),
+        clearRmaEta: true,
       }),
     );
   });

@@ -48,12 +48,12 @@ describe("useMaintenanceApi", () => {
     );
     expect(onSuccess).toHaveBeenCalledWith({ tickets: [], nextPageToken: "next", totalCount: 7 });
   });
-  it("preserves an explicitly empty parts selection", async () => {
+  it("preserves explicit empty and clear signals", async () => {
     clients.updateRepairTicket.mockResolvedValue({});
     const { result } = renderHook(() => useMaintenanceApi());
-    await act(() => result.current.updateTicket({ id: 4n, partsSelection: [] }));
+    await act(() => result.current.updateTicket({ id: 4n, partsSelection: [], clearRmaEta: true }));
     expect(clients.updateRepairTicket).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 4n, partsSelection: { parts: [] } }),
+      expect.objectContaining({ id: 4n, partsSelection: { parts: [] }, clearRmaEta: true }),
       expect.anything(),
     );
   });

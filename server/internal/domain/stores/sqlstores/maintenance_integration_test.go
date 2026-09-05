@@ -135,6 +135,28 @@ func TestMaintenanceAssigneeResolutionSerializesConcurrentDeactivation(t *testin
 	assert.Equal(t, int64(1), rows)
 }
 
+func TestMaintenanceStoreClearsRMAEta(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	orgID := insertMaintenanceTestOrg(t, db, "clear-rma-eta")
+
+	number, err := store.NextTicketNumber(ctx, orgID)
+	require.NoError(t, err)
+	ticket, err := store.CreateRepairTicket(ctx, maintenancemodels.CreateParams{
+		OrgID: orgID, Category: maintenancemodels.TicketCategoryInfrastructure, Component: "Transformer",
+	}, fmt.Sprintf("TK-%04d", number))
+	require.NoError(t, err)
+	eta := time.Date(2026, time.September, 5, 0, 0, 0, 0, time.UTC)
+	updated, err := store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: ticket.ID, RMAEta: &eta})
+	require.NoError(t, err)
+	require.NotNil(t, updated.RMAEta)
+
+	updated, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: ticket.ID, ClearRMAEta: true})
+	require.NoError(t, err)
+	assert.Nil(t, updated.RMAEta)
+}
+
 func TestCompletedTicketRetainsAssigneeNameAfterUserDeactivation(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()

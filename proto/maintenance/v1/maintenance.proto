@@ -318,6 +318,8 @@ message UpdateRepairTicketRequest {
 
     // Clear assignee — set to true to unassign.
     bool clear_assignee = 15;
+    // Clear RMA ETA — set to true to remove a previously recorded date.
+    bool clear_rma_eta = 16;
 }
 
 message UpdateRepairTicketResponse {

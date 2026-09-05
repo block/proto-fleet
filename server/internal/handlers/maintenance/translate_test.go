@@ -20,6 +20,12 @@ func TestToUpdateParamsPreservesPartsSelectionPresence(t *testing.T) {
 	assert.Empty(t, *withEmpty.PartsSelection)
 }
 
+func TestToUpdateParamsPreservesRMAEtaClearSignal(t *testing.T) {
+	params, err := toUpdateParams(&pb.UpdateRepairTicketRequest{Id: 1, ClearRmaEta: true}, 42)
+	require.NoError(t, err)
+	assert.True(t, params.ClearRMAEta)
+}
+
 func TestToUpdateParamsAcceptsNoActionNeededResolution(t *testing.T) {
 	params, err := toUpdateParams(&pb.UpdateRepairTicketRequest{
 		Id:         1,

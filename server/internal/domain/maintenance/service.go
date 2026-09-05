@@ -246,6 +246,9 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 	if params.ClearAssignee && params.AssigneeUserID != nil {
 		return nil, fleeterror.NewInvalidArgumentError("assignee_user_id and clear_assignee cannot both be set")
 	}
+	if params.ClearRMAEta && params.RMAEta != nil {
+		return nil, fleeterror.NewInvalidArgumentError("rma_eta and clear_rma_eta cannot both be set")
+	}
 	if params.Status != nil {
 		if err := validateStatusTransition(*params.Status); err != nil {
 			return nil, err

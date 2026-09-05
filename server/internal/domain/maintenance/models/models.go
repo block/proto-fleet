@@ -235,6 +235,7 @@ type UpdateParams struct {
 	RMAVendor      *string
 	RMATracking    *string
 	RMAEta         *time.Time
+	ClearRMAEta    bool
 	// PartsSelection is nil when the caller omitted the field and points to an
 	// empty slice when the caller explicitly removes every active reservation.
 	PartsSelection *[]PartUsage

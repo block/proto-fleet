@@ -80,6 +80,7 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 		OrgID:         orgID,
 		ID:            req.GetId(),
 		ClearAssignee: req.GetClearAssignee(),
+		ClearRMAEta:   req.GetClearRmaEta(),
 	}
 	if req.Status != nil {
 		raw, err := checkedEnumValue(int32(req.GetStatus()), 1, 5, "status")

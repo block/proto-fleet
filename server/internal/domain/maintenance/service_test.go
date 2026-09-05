@@ -3,6 +3,7 @@ package maintenance
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -48,6 +49,19 @@ func TestListCompletedTicketsSuppressesLookaheadOnFinalPage(t *testing.T) {
 	assert.Equal(t, int32(1), total)
 	assert.False(t, hasNext)
 	require.Len(t, tickets, 1)
+}
+
+func TestUpdateRepairTicketRejectsSetAndClearRMAEtaTogether(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewService(
+		mocks.NewMockMaintenanceStore(ctrl), mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
+	)
+	eta := time.Date(2026, time.September, 5, 0, 0, 0, 0, time.UTC)
+	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{
+		OrgID: 2, ID: 3, RMAEta: &eta, ClearRMAEta: true,
+	})
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "set and clear must conflict: %v", err)
 }
 
 func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {

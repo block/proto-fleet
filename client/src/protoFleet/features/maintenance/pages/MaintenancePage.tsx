@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import HistoryTab from "../components/TicketHistory/HistoryTab";
 import InventoryTab from "../components/TicketInventory/InventoryTab";
 import TicketQueue, { type TicketQueueViewMode } from "../components/TicketQueue/TicketQueue";
+import { useSitesPolling } from "@/protoFleet/api/SitesContext";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 type MaintenanceTabId = "queue" | "history" | "inventory";
@@ -12,6 +13,7 @@ interface MaintenancePageProps {
 }
 
 const MaintenancePage = ({ initialQueueView = "list" }: MaintenancePageProps) => {
+  useSitesPolling();
   const [activeTab, setActiveTab] = useState<MaintenanceTabId>("queue");
 
   const handleTabSelect = useCallback((id: string) => {
