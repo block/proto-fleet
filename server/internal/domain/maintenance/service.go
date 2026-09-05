@@ -612,7 +612,11 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 				return fleeterror.NewFailedPreconditionErrorf("ticket %d cannot be completed", id)
 			}
 			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
-			if err := validateCompletion(ticket.Category, params.Resolution, params.RepairLocation); err != nil {
+			completionLocation := params.RepairLocation
+			if ticket.Category == models.TicketCategoryInfrastructure {
+				completionLocation = models.RepairLocationUnspecified
+			}
+			if err := validateCompletion(ticket.Category, params.Resolution, completionLocation); err != nil {
 				return err
 			}
 			parts, err := s.store.ListTicketParts(txCtx, params.OrgID, id)
@@ -1032,9 +1036,16 @@ func validateCompletion(category models.TicketCategory, resolution models.Ticket
 	if resolution < models.TicketResolutionRepaired || resolution > models.TicketResolutionNoActionNeeded {
 		return fleeterror.NewInvalidArgumentError("resolution is required when completing a ticket")
 	}
-	if category == models.TicketCategoryMiner && (resolution == models.TicketResolutionRepaired || resolution == models.TicketResolutionReplaced) &&
-		location != models.RepairLocationOnRack && location != models.RepairLocationRepairBench {
-		return fleeterror.NewInvalidArgumentError("repair_location is required for repaired or replaced miner tickets")
+	requiresLocation := category == models.TicketCategoryMiner &&
+		(resolution == models.TicketResolutionRepaired || resolution == models.TicketResolutionReplaced)
+	if requiresLocation {
+		if location != models.RepairLocationOnRack && location != models.RepairLocationRepairBench {
+			return fleeterror.NewInvalidArgumentError("repair_location is required for repaired or replaced miner tickets")
+		}
+		return nil
+	}
+	if location != models.RepairLocationUnspecified {
+		return fleeterror.NewInvalidArgumentError("repair_location is only valid for repaired or replaced miner tickets")
 	}
 	return nil
 }

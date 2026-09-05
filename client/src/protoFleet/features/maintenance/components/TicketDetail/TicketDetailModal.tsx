@@ -234,7 +234,7 @@ const TicketDetailModal = ({
                     ...(ticket.status === "sent_to_vendor" ? {} : { status: TicketStatus.SENT_TO_VENDOR }),
                     rmaVendor: vendor,
                     rmaTracking: tracking,
-                    rmaEta: eta ? new Date(eta) : undefined,
+                    rmaEta: eta ? new Date(`${eta}T00:00:00.000Z`) : undefined,
                   }).then((updated) => {
                     if (updated) setRma(false);
                   })
@@ -261,7 +261,7 @@ const TicketDetailModal = ({
               </div>
               <span>Vendor: {ticket.rmaVendor ?? "—"}</span>
               <span>Tracking #: {ticket.rmaTracking ?? "—"}</span>
-              <span>ETA: {ticket.rmaEta?.toLocaleDateString() ?? "—"}</span>
+              <span>ETA: {ticket.rmaEta?.toLocaleDateString(undefined, { timeZone: "UTC" }) ?? "—"}</span>
             </div>
           ) : null}
           {ticket.category === "miner" && ticket.minerIdentifier ? (

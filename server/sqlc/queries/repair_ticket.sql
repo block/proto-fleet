@@ -33,7 +33,7 @@ SELECT
     rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
     rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at
 FROM repair_ticket rt
-LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND (u.deleted_at IS NULL OR rt.status = 5)
 LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
 LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
 WHERE rt.id = sqlc.arg('id') AND rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL;
@@ -50,7 +50,7 @@ SELECT
     rt.zone, rt.rack_id, rt.rack_label, rt.group_label,
     rt.completed_at, rt.created_at, rt.updated_at, rt.deleted_at
 FROM repair_ticket rt
-LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND (u.deleted_at IS NULL OR rt.status = 5)
 LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
 LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
 WHERE rt.id = sqlc.arg('id') AND rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
@@ -80,7 +80,7 @@ WITH filtered AS (
             ELSE TO_CHAR(rt.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
         END AS sort_value
     FROM repair_ticket rt
-    LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+    LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND (u.deleted_at IS NULL OR rt.status = 5)
     LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
     LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
     WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
@@ -244,7 +244,7 @@ WITH completed AS (
             ELSE TO_CHAR(rt.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
         END AS sort_value
     FROM repair_ticket rt
-    LEFT JOIN "user" u ON u.id = rt.assignee_user_id AND u.deleted_at IS NULL
+    LEFT JOIN "user" u ON u.id = rt.assignee_user_id
     LEFT JOIN site s ON s.id = rt.site_id AND s.org_id = rt.org_id AND s.deleted_at IS NULL
     LEFT JOIN building b ON b.id = rt.building_id AND b.org_id = rt.org_id AND b.deleted_at IS NULL
     WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL AND rt.status = 5

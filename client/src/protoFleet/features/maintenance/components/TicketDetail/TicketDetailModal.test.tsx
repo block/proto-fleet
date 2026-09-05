@@ -188,6 +188,7 @@ describe("TicketDetailModal", () => {
     ticket.rmaVendor = "Repair Co";
     ticket.rmaTracking = "TRACK-1";
     ticket.rmaEta = new Date("2026-09-10T00:00:00Z");
+    const formatEta = vi.spyOn(ticket.rmaEta, "toLocaleDateString").mockReturnValue("9/10/2026");
     render(
       <MemoryRouter>
         <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
@@ -196,6 +197,7 @@ describe("TicketDetailModal", () => {
     expect(screen.getByText("RMA Details")).toBeInTheDocument();
     expect(screen.getByText("Vendor: Repair Co")).toBeInTheDocument();
     expect(screen.getByText("Tracking #: TRACK-1")).toBeInTheDocument();
+    expect(formatEta).toHaveBeenCalledWith(undefined, { timeZone: "UTC" });
 
     update.mockResolvedValueOnce(true);
     fireEvent.click(screen.getByRole("button", { name: "Edit RMA details" }));

@@ -135,6 +135,35 @@ func TestMaintenanceAssigneeResolutionSerializesConcurrentDeactivation(t *testin
 	assert.Equal(t, int64(1), rows)
 }
 
+func TestCompletedTicketRetainsAssigneeNameAfterUserDeactivation(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	orgID := insertMaintenanceTestOrg(t, db, "completed-assignee")
+	userID := insertMaintenanceTestUser(t, db, orgID, "former-technician")
+
+	number, err := store.NextTicketNumber(ctx, orgID)
+	require.NoError(t, err)
+	ticket, err := store.CreateRepairTicket(ctx, maintenancemodels.CreateParams{
+		OrgID: orgID, Category: maintenancemodels.TicketCategoryInfrastructure,
+		Component: "Transformer", AssigneeUserID: &userID,
+	}, fmt.Sprintf("TK-%04d", number))
+	require.NoError(t, err)
+	completed := maintenancemodels.TicketStatusCompleted
+	_, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: ticket.ID, Status: &completed})
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE "user" SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
+	require.NoError(t, err)
+
+	detail, err := store.GetRepairTicket(ctx, orgID, ticket.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "former-technician", detail.AssigneeName)
+	history, err := store.ListCompletedTickets(ctx, maintenancemodels.CompletedFilter{OrgID: orgID, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "former-technician", history[0].AssigneeName)
+}
+
 func TestMaintenanceStoreConcurrentTicketNumbers(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	store := sqlstores.NewSQLMaintenanceStore(db)

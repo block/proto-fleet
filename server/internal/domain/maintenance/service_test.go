@@ -118,6 +118,32 @@ func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 	}
 }
 
+func TestValidateCompletionRejectsLocationsForUnsupportedOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		category   models.TicketCategory
+		resolution models.TicketResolution
+		location   models.RepairLocation
+	}{
+		{
+			name: "infrastructure ticket with repair location", category: models.TicketCategoryInfrastructure,
+			resolution: models.TicketResolutionRepaired, location: models.RepairLocationOnRack,
+		},
+		{
+			name: "deferred miner ticket with repair location", category: models.TicketCategoryMiner,
+			resolution: models.TicketResolutionDeferred, location: models.RepairLocationRepairBench,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCompletion(tc.category, tc.resolution, tc.location)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), "unexpected location must be rejected: %v", err)
+		})
+	}
+
+	require.NoError(t, validateCompletion(models.TicketCategoryMiner, models.TicketResolutionRepaired, models.RepairLocationOnRack))
+	require.NoError(t, validateCompletion(models.TicketCategoryMiner, models.TicketResolutionDeferred, models.RepairLocationUnspecified))
+}
+
 func TestCompleteTicketConsumesSelectedPartsOnce(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
@@ -345,7 +371,7 @@ func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t 
 	inventory := mocks.NewMockInventoryStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
-	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{4, 3, 3}, Resolution: models.TicketResolutionDeferred, RepairLocation: models.RepairLocationOnRack}
+	params := models.BulkCloseParams{OrgID: 2, TicketIDs: []int64{4, 3, 3}, Resolution: models.TicketResolutionRepaired, RepairLocation: models.RepairLocationOnRack}
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 	gomock.InOrder(
 		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3, Category: models.TicketCategoryMiner, Status: models.TicketStatusOpen}, nil),
@@ -355,8 +381,8 @@ func TestBulkCloseConsumesExistingReservationsAndClearsInfrastructureLocation(t 
 		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(&models.RepairTicket{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil),
 		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return(nil, nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
-		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationOnRack), nil).Return(int64(1), nil),
-		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationOnRack), nil).Return(int64(1), nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil),
 	)
 	count, err := service.BulkClose(t.Context(), params)
 	require.NoError(t, err)
