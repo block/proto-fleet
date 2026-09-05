@@ -55,6 +55,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -86,6 +88,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
+	inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
+	maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -119,6 +123,8 @@ import (
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
+	maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
@@ -194,6 +200,8 @@ var reflectEnabledServices = []string{
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
 	instancev1connect.InstanceUpdateServiceName,
+	maintenancev1connect.MaintenanceServiceName,
+	inventoryv1connect.InventoryServiceName,
 }
 
 func start(config *Config) (result error) {
@@ -281,6 +289,10 @@ func start(config *Config) (result error) {
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
 
 	activitySvc := activityDomain.NewService(activityStore)
+	inventoryStore := sqlstores.NewSQLInventoryStore(conn)
+	maintenanceStore := sqlstores.NewSQLMaintenanceStore(conn)
+	inventorySvc := inventoryDomain.NewService(inventoryStore, transactor, activitySvc)
+	maintenanceSvc := maintenanceDomain.NewService(maintenanceStore, maintenanceStore, inventoryStore, transactor, activitySvc)
 
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
@@ -826,6 +838,8 @@ func start(config *Config) (result error) {
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
+	mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenanceHandler.NewHandler(maintenanceSvc), li))
+	mux.Handle(inventoryv1connect.NewInventoryServiceHandler(inventoryHandler.NewHandler(inventorySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn, activitySvc)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))

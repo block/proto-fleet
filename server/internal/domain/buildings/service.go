@@ -1620,6 +1620,13 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 		if !found {
 			return fleeterror.NewNotFoundErrorf("building %d not found", id)
 		}
+		ticketCount, err := s.store.CountRepairTicketsByBuilding(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("building cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
+		}
 		siteID = sid
 		rackCount, err := s.store.UnassignRacksFromBuilding(txCtx, orgID, id)
 		if err != nil {

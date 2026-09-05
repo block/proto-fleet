@@ -1345,6 +1345,23 @@ func (s *Service) deleteOmittedRacks(ctx context.Context, orgID int64, racks []r
 
 func (s *Service) deleteOmittedBuildings(ctx context.Context, orgID int64, buildings []buildingmodels.Building) error {
 	for _, building := range buildings {
+		// Match ticket creation's site-then-building lock order. Imports that
+		// later remove the parent site must not deadlock with a concurrent ticket.
+		if building.SiteID != nil {
+			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *building.SiteID); err != nil {
+				return err
+			}
+		}
+		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, building.ID); err != nil {
+			return err
+		}
+		ticketCount, err := s.buildingStore.CountRepairTicketsByBuilding(ctx, orgID, building.ID)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("building cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
+		}
 		_, found, err := s.buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
 		if err != nil {
 			return err
@@ -1366,6 +1383,20 @@ func (s *Service) deleteOmittedSites(ctx context.Context, orgID int64, sites []s
 	for _, site := range sites {
 		if err := s.siteStore.LockSiteForWrite(ctx, orgID, site.ID); err != nil {
 			return err
+		}
+		inventoryCount, err := s.siteStore.CountInventoryPartsBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
+		if inventoryCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d inventory part(s) remain assigned", inventoryCount)
+		}
+		ticketCount, err := s.siteStore.CountRepairTicketsBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
 		}
 		if err := s.siteStore.LockBuildingsBySiteForWrite(ctx, orgID, site.ID); err != nil {
 			return err

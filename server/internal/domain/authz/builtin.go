@@ -124,5 +124,7 @@ func fieldTechSeedPermissions() []string {
 		PermMinerDownloadLogs,
 		PermRackRead,
 		PermRackManage,
+		PermMaintenanceRead,
+		PermMaintenanceManage,
 	}
 }

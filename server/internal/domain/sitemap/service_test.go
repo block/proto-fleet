@@ -1312,6 +1312,46 @@ func TestApplyOmittedRowsLeavesHiddenRackMembersUntouched(t *testing.T) {
 	}
 }
 
+func TestDeleteOmittedBuildingRejectsRepairTicketReferences(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+
+	siteID := int64(11)
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteID).Return(nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, int64(12)).Return(nil),
+		buildingStore.EXPECT().CountRepairTicketsByBuilding(ctx, orgID, int64(12)).Return(int64(1), nil),
+	)
+
+	err := svc.deleteOmittedBuildings(ctx, orgID, []buildingmodels.Building{{ID: 12, SiteID: &siteID}})
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("deleteOmittedBuildings error = %v, want failed precondition", err)
+	}
+}
+
+func TestDeleteOmittedSiteRejectsMaintenanceReferences(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, int64(11)).Return(nil),
+		siteStore.EXPECT().CountInventoryPartsBySite(ctx, orgID, int64(11)).Return(int64(1), nil),
+	)
+
+	err := svc.deleteOmittedSites(ctx, orgID, []sitemodels.Site{{ID: 11}})
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("deleteOmittedSites error = %v, want failed precondition", err)
+	}
+}
+
 func TestDeleteOmittedSitesRejectsInfrastructureDevicesReferencedByProfiles(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
@@ -1322,6 +1362,8 @@ func TestDeleteOmittedSitesRejectsInfrastructureDevicesReferencedByProfiles(t *t
 
 	gomock.InOrder(
 		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, int64(11)).Return(nil),
+		siteStore.EXPECT().CountInventoryPartsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().CountRepairTicketsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
 		siteStore.EXPECT().LockBuildingsBySiteForWrite(ctx, orgID, int64(11)).Return(nil),
 		siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(ctx, orgID, int64(11)).Return([]int64{70}, nil),
 		siteStore.EXPECT().UnassignRacksFromBuildingsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
@@ -1430,6 +1472,8 @@ func TestApplyImportPlanMovesBuildingsBeforeDeletingOmittedSites(t *testing.T) {
 			RacksPerAisle: 2,
 		}).Return(&buildingmodels.Building{ID: 10, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building A", Aisles: 1, RacksPerAisle: 2}, nil),
 		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteAID).Return(nil),
+		siteStore.EXPECT().CountInventoryPartsBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().CountRepairTicketsBySite(ctx, orgID, siteAID).Return(int64(0), nil),
 		siteStore.EXPECT().LockBuildingsBySiteForWrite(ctx, orgID, siteAID).Return(nil),
 		siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(ctx, orgID, siteAID).Return(nil, nil),
 		siteStore.EXPECT().UnassignRacksFromBuildingsBySite(ctx, orgID, siteAID).Return(int64(0), nil),

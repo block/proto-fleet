@@ -225,6 +225,17 @@ func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildin
 	return out, nextPageToken, nil
 }
 
+func (s *SQLBuildingStore) CountRepairTicketsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountRepairTicketsByBuilding(ctx, sqlc.CountRepairTicketsByBuildingParams{
+		OrgID:      orgID,
+		BuildingID: zeroToNullInt64(buildingID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count repair tickets by building: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLBuildingStore) CountRacksInBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
 	// This method always targets a concrete building, so bind the id
 	// explicitly rather than via zeroToNullInt64 — a 0 mapped to NULL would

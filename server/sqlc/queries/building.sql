@@ -133,6 +133,13 @@ WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL
 RETURNING site_id;
 
+-- name: CountRepairTicketsByBuilding :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = sqlc.arg('building_id')
+  AND deleted_at IS NULL;
+
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
 -- zone label + grid position) for every live rack pointing at the

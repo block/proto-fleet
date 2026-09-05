@@ -446,6 +446,20 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		if err := s.store.LockSiteForWrite(txCtx, orgID, id); err != nil {
 			return err
 		}
+		inventoryCount, err := s.store.CountInventoryPartsBySite(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if inventoryCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d inventory part(s) remain assigned", inventoryCount)
+		}
+		ticketCount, err := s.store.CountRepairTicketsBySite(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
+		}
 		// 0b. Lock every live building under this site so a concurrent
 		// AssignBuildingToSite can't move one out from under the
 		// rack-clear step below. Site-first-then-buildings lock order

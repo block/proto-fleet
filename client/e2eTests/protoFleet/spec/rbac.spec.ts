@@ -24,6 +24,7 @@ import {
   REACHABLE_WEBHOOK_URL,
 } from "../helpers/rbacTestSetup";
 import { generateRandomText } from "../helpers/testDataHelper";
+import { MaintenancePage } from "../pages/maintenance";
 
 async function validateManageOnlySettingsRouteHidden(
   page: Page,
@@ -323,6 +324,23 @@ test.describe("Proto Fleet - RBAC", () => {
       const allowedResult = await invokeIngestCurtailmentSignal(page, allowedReference);
       expectConnectSuccessfulOrUnimplemented(allowedResult);
     });
+  });
+
+  test("Maintenance read-only role can view but cannot mutate", async ({ commonSteps, page }) => {
+    await provisionRoleAndLogin(commonSteps, {
+      roleDescription: "Read-only maintenance access for RBAC coverage.",
+      permissionKeys: ["maintenance:read"],
+    });
+    const maintenance = new MaintenancePage(page);
+    await maintenance.open();
+    await expect(page.getByRole("button", { name: "Create ticket" })).toHaveCount(0);
+    const result = await maintenance.rpc("maintenance.v1.MaintenanceService/CreateRepairTicket", {
+      category: "TICKET_CATEGORY_INFRASTRUCTURE",
+      component: "Network",
+      diagnosis: "must be denied",
+      siteId: "1",
+    });
+    expectConnectError({ body: JSON.stringify(result.body), status: result.status }, "permission_denied");
   });
 
   test(

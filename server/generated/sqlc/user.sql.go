@@ -36,6 +36,27 @@ func (q *Queries) AdminResetUserPassword(ctx context.Context, arg AdminResetUser
 	return result.RowsAffected()
 }
 
+const countActiveRepairTicketsAssignedToUser = `-- name: CountActiveRepairTicketsAssignedToUser :one
+SELECT COUNT(*)
+FROM repair_ticket
+WHERE org_id = $1
+  AND assignee_user_id = $2::bigint
+  AND status <> 5
+  AND deleted_at IS NULL
+`
+
+type CountActiveRepairTicketsAssignedToUserParams struct {
+	OrganizationID int64
+	UserID         int64
+}
+
+func (q *Queries) CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error) {
+	row := q.queryRow(ctx, q.countActiveRepairTicketsAssignedToUserStmt, countActiveRepairTicketsAssignedToUser, arg.OrganizationID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO
     "user" (
