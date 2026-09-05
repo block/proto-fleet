@@ -146,11 +146,13 @@ type RolloutServiceClient interface {
 	// firmware_file_id must match the channel's current assignment. If any
 	// differs, the RPC fails with FAILED_PRECONDITION and makes no changes.
 	// When all match, rollback atomically cancels any active rollout for the
-	// tuple. A first rollout clears the assignment and starts no rollout; a
-	// later rollout restores its previous assignment and starts at most one
-	// all-at-once rollout for mismatched members. Released references, enqueued
-	// commands, and commands already sent remain governed by the RolloutService
-	// artifact-protection invariant and existing cancellation semantics.
+	// tuple and reverses the rollout's assignment lineage
+	// (Rollout.previous_firmware_file_id): an empty lineage clears the
+	// assignment and starts no rollout; a nonempty lineage is restored and
+	// starts at most one all-at-once rollout for mismatched members. Released
+	// references, enqueued commands, and commands already sent remain governed
+	// by the RolloutService artifact-protection invariant and existing
+	// cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -179,7 +181,10 @@ type RolloutServiceClient interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only when its manufacturer/model target and firmware
-	// file still equal the channel's current assignment.
+	// file still equal the channel's current assignment; the new rollout
+	// inherits the retried rollout's assignment lineage
+	// (previous_firmware_file_id and previous_firmware_version), so rolling
+	// back either rollout reverses the original assignment.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
@@ -477,11 +482,13 @@ type RolloutServiceHandler interface {
 	// firmware_file_id must match the channel's current assignment. If any
 	// differs, the RPC fails with FAILED_PRECONDITION and makes no changes.
 	// When all match, rollback atomically cancels any active rollout for the
-	// tuple. A first rollout clears the assignment and starts no rollout; a
-	// later rollout restores its previous assignment and starts at most one
-	// all-at-once rollout for mismatched members. Released references, enqueued
-	// commands, and commands already sent remain governed by the RolloutService
-	// artifact-protection invariant and existing cancellation semantics.
+	// tuple and reverses the rollout's assignment lineage
+	// (Rollout.previous_firmware_file_id): an empty lineage clears the
+	// assignment and starts no rollout; a nonempty lineage is restored and
+	// starts at most one all-at-once rollout for mismatched members. Released
+	// references, enqueued commands, and commands already sent remain governed
+	// by the RolloutService artifact-protection invariant and existing
+	// cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -510,7 +517,10 @@ type RolloutServiceHandler interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only when its manufacturer/model target and firmware
-	// file still equal the channel's current assignment.
+	// file still equal the channel's current assignment; the new rollout
+	// inherits the retried rollout's assignment lineage
+	// (previous_firmware_file_id and previous_firmware_version), so rolling
+	// back either rollout reverses the original assignment.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only

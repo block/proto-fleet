@@ -122,11 +122,13 @@ service RolloutService {
     // firmware_file_id must match the channel's current assignment. If any
     // differs, the RPC fails with FAILED_PRECONDITION and makes no changes.
     // When all match, rollback atomically cancels any active rollout for the
-    // tuple. A first rollout clears the assignment and starts no rollout; a
-    // later rollout restores its previous assignment and starts at most one
-    // all-at-once rollout for mismatched members. Released references, enqueued
-    // commands, and commands already sent remain governed by the RolloutService
-    // artifact-protection invariant and existing cancellation semantics.
+    // tuple and reverses the rollout's assignment lineage
+    // (Rollout.previous_firmware_file_id): an empty lineage clears the
+    // assignment and starts no rollout; a nonempty lineage is restored and
+    // starts at most one all-at-once rollout for mismatched members. Released
+    // references, enqueued commands, and commands already sent remain governed
+    // by the RolloutService artifact-protection invariant and existing
+    // cancellation semantics.
     rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
 
     // Lists rollout summaries (newest first), optionally filtered by channel
@@ -169,7 +171,10 @@ service RolloutService {
     // Re-queues the miners that failed (or were canceled) in a rollout. An
     // active rollout retries them in place. A finished rollout starts a new
     // all-at-once rollout only when its manufacturer/model target and firmware
-    // file still equal the channel's current assignment.
+    // file still equal the channel's current assignment; the new rollout
+    // inherits the retried rollout's assignment lineage
+    // (previous_firmware_file_id and previous_firmware_version), so rolling
+    // back either rollout reverses the original assignment.
     //
     // Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
     // retryable. A rollout canceled as CANCELED_REMAINING is retryable only
@@ -222,8 +227,9 @@ enum RolloutOrder {
 // Coverage rule: a set telemetry limit is judged against the RolloutEvidence
 // aggregate for its metric and fails closed. It passes only when that
 // aggregate samples at least one miner and at least
-// min_sample_coverage_percent of the verified miners under review; otherwise
-// the gate holds and hold_reason names the metric. An absent aggregate is
+// min_sample_coverage_percent of the verified miners under review, and, for
+// percent limits, has a nonzero baseline; otherwise the gate holds and
+// hold_reason names the metric. An absent aggregate or undefined change is
 // never treated as zero change.
 message RolloutAutomationThresholds {
     // Largest acceptable aggregate hashrate drop versus baseline, percent.
@@ -568,13 +574,13 @@ message MetricComparison {
 }
 
 // One telemetry metric aggregated over the verified miners under review that
-// have both halves. Both halves are present exactly when at least one miner
-// is sampled, so an absent aggregate is never mistaken for zero change.
+// have both halves. Each half is present exactly when at least one miner is
+// sampled, so an absent aggregate is never mistaken for zero change.
 message AggregateMetricComparison {
     option (buf.validate.message).cel = {
-        id: "aggregate_present_iff_sampled"
-        message: "baseline and current must both be set when sampled_devices is positive and unset otherwise"
-        expression: "(has(this.baseline) && has(this.current)) == (this.sampled_devices > 0)"
+        id: "aggregate_halves_present_iff_sampled"
+        message: "baseline and current must each be set exactly when sampled_devices is positive"
+        expression: "has(this.baseline) == (this.sampled_devices > 0) && has(this.current) == (this.sampled_devices > 0)"
     };
 
     optional double baseline = 1;
@@ -609,9 +615,9 @@ message RolloutEvidence {
         expression: "this.hash_rate_hs.sampled_devices <= this.verified && this.power_w.sampled_devices <= this.verified && this.efficiency_jh.sampled_devices <= this.verified && this.temp_c.sampled_devices <= this.verified"
     };
     option (buf.validate.message).cel = {
-        id: "derived_changes_require_samples"
-        message: "a derived change must be unset when its aggregate samples no miners"
-        expression: "(!has(this.hashrate_change_percent) || this.hash_rate_hs.sampled_devices > 0) && (!has(this.efficiency_change_percent) || this.efficiency_jh.sampled_devices > 0) && (!has(this.temperature_change_celsius) || this.temp_c.sampled_devices > 0)"
+        id: "derived_changes_present_iff_derivable"
+        message: "percent changes must be set exactly when their aggregate is sampled with a nonzero baseline; temperature change exactly when temp_c is sampled"
+        expression: "has(this.hashrate_change_percent) == (this.hash_rate_hs.sampled_devices > 0 && this.hash_rate_hs.baseline != 0.0) && has(this.efficiency_change_percent) == (this.efficiency_jh.sampled_devices > 0 && this.efficiency_jh.baseline != 0.0) && has(this.temperature_change_celsius) == (this.temp_c.sampled_devices > 0)"
     };
 
     int32 devices_total = 1 [(buf.validate.field).int32.gte = 0];
@@ -624,13 +630,15 @@ message RolloutEvidence {
     int32 baseline_hashing = 5 [(buf.validate.field).int32.gte = 0];
     int32 failed = 6 [(buf.validate.field).int32.gte = 0];
     // Aggregate hashrate change versus baseline, percent (negative is a
-    // drop). Unset when hash_rate_hs samples no miners.
+    // drop). Set exactly when hash_rate_hs samples at least one miner with a
+    // nonzero baseline; a zero baseline has no defined percent change.
     optional double hashrate_change_percent = 7;
     // Mean efficiency change versus baseline, percent (positive is worse).
-    // Unset when efficiency_jh samples no miners.
+    // Set exactly when efficiency_jh samples at least one miner with a
+    // nonzero baseline.
     optional double efficiency_change_percent = 8;
-    // Mean temperature change versus baseline, °C. Unset when temp_c samples
-    // no miners.
+    // Mean temperature change versus baseline, °C. Set exactly when temp_c
+    // samples at least one miner.
     optional double temperature_change_celsius = 9;
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
@@ -656,6 +664,22 @@ message RolloutEvidence {
 // A firmware change being enforced for one manufacturer/model pair within one
 // channel.
 message Rollout {
+    option (buf.validate.message).cel = {
+        id: "target_file_and_version_paired"
+        message: "firmware_file_id and firmware_version must be set together"
+        expression: "(this.firmware_file_id == '') == (this.firmware_version == '')"
+    };
+    option (buf.validate.message).cel = {
+        id: "lineage_file_and_version_paired"
+        message: "previous_firmware_file_id and previous_firmware_version must be set together"
+        expression: "(this.previous_firmware_file_id == '') == (this.previous_firmware_version == '')"
+    };
+    option (buf.validate.message).cel = {
+        id: "lineage_differs_from_target"
+        message: "previous_firmware_file_id must not equal firmware_file_id"
+        expression: "this.firmware_file_id == '' || this.previous_firmware_file_id != this.firmware_file_id"
+    };
+
     int64 id = 1;
     int64 channel_id = 2;
     string channel_name = 3 [(buf.validate.field).string.max_len = 100];
@@ -683,14 +707,16 @@ message Rollout {
     google.protobuf.Timestamp created_at = 17;
     // Set when the rollout completed or was canceled.
     google.protobuf.Timestamp finished_at = 18;
-    // Assignment in place before this rollout. Empty marks the pair's first
-    // assignment; rollback clears it only while this rollout's target remains
-    // current. A nonempty id is restored under the same precondition. This
-    // history reference follows the RolloutService artifact-protection
-    // invariant.
+    // Assignment lineage: the assignment this rollout's target replaced, never
+    // the target itself. Empty marks the pair's first assignment. A rollout
+    // started by RetryFailedRolloutDevices inherits the lineage of the rollout
+    // it retries. RollbackReleaseChannelFirmware clears an empty lineage or
+    // restores a nonempty one only while this rollout's target remains
+    // current. This history reference follows the RolloutService
+    // artifact-protection invariant.
     string previous_firmware_file_id = 19 [(buf.validate.field).string.max_len = 255];
-    // Version of the previous assignment; empty when there was no previous
-    // assignment.
+    // Version of the lineage assignment; set exactly when
+    // previous_firmware_file_id is set.
     string previous_firmware_version = 20 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     // Number of miners snapshotted into the rollout. Retrieve their live
     // progress with ListRolloutDevices.
@@ -932,8 +958,8 @@ message RollbackReleaseChannelFirmwareRequest {
 
 message RollbackReleaseChannelFirmwareResponse {
     ReleaseChannel channel = 1;
-    // Rollouts started by this call. Empty when the first assignment was
-    // cleared or no members mismatch the restored assignment; otherwise
+    // Rollouts started by this call. Empty when an empty lineage cleared the
+    // assignment or no members mismatch the restored assignment; otherwise
     // contains one all-at-once rollout for those mismatched members.
     repeated Rollout started_rollouts = 2 [(buf.validate.field).repeated.max_items = 1];
 }

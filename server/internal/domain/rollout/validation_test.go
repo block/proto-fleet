@@ -268,12 +268,14 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 		{
 			name: "target",
 			set: func(rollout *rolloutv1.Rollout, version string) {
+				rollout.FirmwareFileId = "file-1"
 				rollout.FirmwareVersion = version
 			},
 		},
 		{
-			name: "previous target",
+			name: "lineage",
 			set: func(rollout *rolloutv1.Rollout, version string) {
+				rollout.PreviousFirmwareFileId = "file-0"
 				rollout.PreviousFirmwareVersion = version
 			},
 		},
@@ -295,6 +297,42 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 			requireProtoValidation(t, newRollout(strings.Repeat("界", 255)), false)
 			requireProtoValidation(t, newRollout(strings.Repeat("界", 256)), true)
 			requireProtoValidation(t, newRollout("v1\x00custom"), true)
+		})
+	}
+}
+
+func TestRolloutLineageValidation(t *testing.T) {
+	t.Parallel()
+
+	newRollout := func(fileID, version, previousFileID, previousVersion string) *rolloutv1.Rollout {
+		return &rolloutv1.Rollout{
+			Manufacturer:            "Bitmain",
+			Model:                   "S21",
+			FirmwareFileId:          fileID,
+			FirmwareVersion:         version,
+			PreviousFirmwareFileId:  previousFileID,
+			PreviousFirmwareVersion: previousVersion,
+		}
+	}
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "first assignment has an empty lineage", rollout: newRollout("file-1", "2.0", "", "")},
+		{name: "later assignment records the replaced one", rollout: newRollout("file-1", "2.0", "file-0", "1.0")},
+		{name: "target file without version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
+		{name: "target version without file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
+		{name: "lineage file without version is rejected", rollout: newRollout("file-1", "2.0", "file-0", ""), wantErr: true},
+		{name: "lineage version without file is rejected", rollout: newRollout("file-1", "2.0", "", "1.0"), wantErr: true},
+		{name: "lineage equal to the target is rejected", rollout: newRollout("file-1", "2.0", "file-1", "2.0"), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout, test.wantErr)
 		})
 	}
 }
@@ -364,7 +402,7 @@ func TestAggregateMetricComparisonValidation(t *testing.T) {
 			aggregate: sampledAggregate(3),
 		},
 		{
-			name: "sampled aggregate missing a half is rejected",
+			name: "sampled aggregate missing current is rejected",
 			aggregate: &rolloutv1.AggregateMetricComparison{
 				Baseline:       proto.Float64(100),
 				SampledDevices: 1,
@@ -372,8 +410,21 @@ func TestAggregateMetricComparisonValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "values without samples are rejected",
+			name: "sampled aggregate missing baseline is rejected",
+			aggregate: &rolloutv1.AggregateMetricComparison{
+				Current:        proto.Float64(90),
+				SampledDevices: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name:      "both halves without samples are rejected",
 			aggregate: sampledAggregate(0),
+			wantErr:   true,
+		},
+		{
+			name:      "one half without samples is rejected",
+			aggregate: &rolloutv1.AggregateMetricComparison{Baseline: proto.Float64(100)},
 			wantErr:   true,
 		},
 		{
@@ -407,17 +458,54 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 		{
 			name: "consistent evidence is valid",
 			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal:          4,
-				Verified:              3,
-				Failed:                1,
-				Online:                4,
-				Hashing:               3,
-				BaselineHashing:       4,
-				HashRateHs:            sampledAggregate(3),
-				TempC:                 sampledAggregate(2),
-				HashrateChangePercent: proto.Float64(-10),
-				HoldReason:            strings.Repeat("h", 1024),
+				DevicesTotal:             4,
+				Verified:                 3,
+				Failed:                   1,
+				Online:                   4,
+				Hashing:                  3,
+				BaselineHashing:          4,
+				HashRateHs:               sampledAggregate(3),
+				TempC:                    sampledAggregate(2),
+				HashrateChangePercent:    proto.Float64(-10),
+				TemperatureChangeCelsius: proto.Float64(-10),
+				HoldReason:               strings.Repeat("h", 1024),
 			},
+		},
+		{
+			name: "zero baseline leaves the percent change unset",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1,
+				Verified:     1,
+				HashRateHs: &rolloutv1.AggregateMetricComparison{
+					Baseline:       proto.Float64(0),
+					Current:        proto.Float64(50),
+					SampledDevices: 1,
+				},
+			},
+		},
+		{
+			name: "percent change with a zero baseline is rejected",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1,
+				Verified:     1,
+				EfficiencyJh: &rolloutv1.AggregateMetricComparison{
+					Baseline:       proto.Float64(0),
+					Current:        proto.Float64(50),
+					SampledDevices: 1,
+				},
+				EfficiencyChangePercent: proto.Float64(100),
+			},
+			wantErr: true,
+		},
+		{
+			name:     "sampled hashrate without its change is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, HashRateHs: sampledAggregate(1)},
+			wantErr:  true,
+		},
+		{
+			name:     "sampled temperature without its change is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, TempC: sampledAggregate(1)},
+			wantErr:  true,
 		},
 		{
 			name:     "verified plus failed above total is rejected",
