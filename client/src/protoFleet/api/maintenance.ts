@@ -73,6 +73,7 @@ export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   resolution?: TicketResolution;
   repairLocation?: RepairLocation;
   partsSelection?: PartSelection[];
+  expectedPartsSelection?: PartSelection[];
   notes?: string;
   rmaVendor?: string;
   rmaTracking?: string;
@@ -227,6 +228,7 @@ export const useMaintenanceApi = () => {
       onFinally,
       id,
       partsSelection,
+      expectedPartsSelection,
       clearAssignee = false,
       ...fields
     }: UpdateTicketProps) => {
@@ -239,6 +241,8 @@ export const useMaintenanceApi = () => {
             ...fields,
             rmaEta: fields.rmaEta ? timestampFromDate(fields.rmaEta) : undefined,
             partsSelection: partsSelection === undefined ? undefined : { parts: partsSelection },
+            expectedPartsSelection:
+              expectedPartsSelection === undefined ? undefined : { parts: expectedPartsSelection },
           },
           { signal },
         );

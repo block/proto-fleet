@@ -72,9 +72,16 @@ describe("useMaintenanceApi", () => {
   it("preserves explicit empty and clear signals", async () => {
     clients.updateRepairTicket.mockResolvedValue({});
     const { result } = renderHook(() => useMaintenanceApi());
-    await act(() => result.current.updateTicket({ id: 4n, partsSelection: [], clearRmaEta: true }));
+    await act(() =>
+      result.current.updateTicket({ id: 4n, partsSelection: [], expectedPartsSelection: [], clearRmaEta: true }),
+    );
     expect(clients.updateRepairTicket).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 4n, partsSelection: { parts: [] }, clearRmaEta: true }),
+      expect.objectContaining({
+        id: 4n,
+        partsSelection: { parts: [] },
+        expectedPartsSelection: { parts: [] },
+        clearRmaEta: true,
+      }),
       expect.anything(),
     );
   });

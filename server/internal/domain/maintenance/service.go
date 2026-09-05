@@ -314,7 +314,7 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 
 		var parts []models.PartUsage
 		if params.PartsSelection != nil || targetStatus == models.TicketStatusCompleted {
-			parts, err = s.reconcileParts(txCtx, current, params.PartsSelection)
+			parts, err = s.reconcileParts(txCtx, current, params.PartsSelection, params.ExpectedPartsSelection)
 			if err != nil {
 				return nil, err
 			}
@@ -643,12 +643,31 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 				infrastructureIDs = append(infrastructureIDs, id)
 			}
 		}
+		ticketParts := make(map[int64][]models.PartUsage, len(ticketsToClose))
+		inventoryIDSet := make(map[int64]struct{})
 		for _, ticket := range ticketsToClose {
 			parts, err := s.store.ListTicketParts(txCtx, params.OrgID, ticket.ID)
 			if err != nil {
 				return err
 			}
-			for _, part := range activeParts(parts) {
+			active := activeParts(parts)
+			ticketParts[ticket.ID] = active
+			for _, part := range active {
+				inventoryIDSet[part.InventoryPartID] = struct{}{}
+			}
+		}
+		inventoryIDs := make([]int64, 0, len(inventoryIDSet))
+		for id := range inventoryIDSet {
+			inventoryIDs = append(inventoryIDs, id)
+		}
+		sort.Slice(inventoryIDs, func(i, j int) bool { return inventoryIDs[i] < inventoryIDs[j] })
+		for _, id := range inventoryIDs {
+			if _, err := s.inventory.GetForUpdate(txCtx, params.OrgID, id); err != nil {
+				return err
+			}
+		}
+		for _, ticket := range ticketsToClose {
+			for _, part := range ticketParts[ticket.ID] {
 				if err := s.inventory.ConsumeReserved(txCtx, params.OrgID, part.InventoryPartID, part.Quantity); err != nil {
 					return err
 				}
@@ -884,7 +903,7 @@ func (s *Service) ListAssignees(ctx context.Context, orgID int64) ([]models.Assi
 // Helpers
 // ---------------------------------------------------------------
 
-func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicket, requested *[]models.PartUsage) ([]models.PartUsage, error) {
+func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicket, requested, expected *[]models.PartUsage) ([]models.PartUsage, error) {
 	existing, err := s.store.ListTicketParts(ctx, ticket.OrgID, ticket.ID)
 	if err != nil {
 		return nil, err
@@ -892,6 +911,16 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 	current := activeParts(existing)
 	if requested == nil {
 		return current, nil
+	}
+	if expected == nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_parts_selection is required when replacing ticket parts")
+	}
+	expectedParts, err := normalizeParts(*expected)
+	if err != nil {
+		return nil, err
+	}
+	if !samePartQuantities(current, expectedParts) {
+		return nil, fleeterror.NewFailedPreconditionError("ticket parts changed; refresh the ticket before saving")
 	}
 	next, err := normalizeParts(*requested)
 	if err != nil {
@@ -1028,6 +1057,22 @@ func partsByID(parts []models.PartUsage) map[int64]models.PartUsage {
 		result[part.InventoryPartID] = part
 	}
 	return result
+}
+
+func samePartQuantities(left, right []models.PartUsage) bool {
+	quantities := make(map[int64]int64, len(left)+len(right))
+	for _, part := range left {
+		quantities[part.InventoryPartID] += int64(part.Quantity)
+	}
+	for _, part := range right {
+		quantities[part.InventoryPartID] -= int64(part.Quantity)
+	}
+	for _, quantity := range quantities {
+		if quantity != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func validateStatusTransition(status models.TicketStatus) error {

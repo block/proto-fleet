@@ -66,8 +66,12 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => (
   useMaintenanceOptions: () => ({ assignees: [] }),
 }));
 vi.mock("./CompletionForm", () => ({
-  default: ({ onSubmit }: { onSubmit: () => Promise<boolean> }) => (
-    <button type="button" onClick={() => void onSubmit()}>
+  default: ({
+    onSubmit,
+  }: {
+    onSubmit: (value: { partsSelection: []; resolution: number; repairLocation: number }) => Promise<boolean>;
+  }) => (
+    <button type="button" onClick={() => void onSubmit({ partsSelection: [], resolution: 1, repairLocation: 1 })}>
       Submit completion
     </button>
   ),
@@ -83,6 +87,7 @@ describe("TicketDetailModal", () => {
     ticket.rmaVendor = null;
     ticket.rmaTracking = null;
     ticket.rmaEta = null;
+    ticket.partsUsed = [];
   });
 
   it("uses an accessible spinner for the initial ticket-detail load", () => {
@@ -172,6 +177,26 @@ describe("TicketDetailModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
 
     expect(screen.queryByLabelText("Vendor")).not.toBeInTheDocument();
+  });
+
+  it("submits the loaded part reservations as the expected completion snapshot", async () => {
+    ticket.partsUsed = [{ inventoryPartId: "7", partName: "Fan", quantity: 2 }];
+    update.mockResolvedValueOnce(true);
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit completion" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedPartsSelection: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2 }],
+        }),
+      ),
+    );
   });
 
   it("closes the completion editor after a successful completion", async () => {

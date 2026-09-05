@@ -239,6 +239,9 @@ type UpdateParams struct {
 	// PartsSelection is nil when the caller omitted the field and points to an
 	// empty slice when the caller explicitly removes every active reservation.
 	PartsSelection *[]PartUsage
+	// ExpectedPartsSelection is the caller's reservation snapshot. Explicit
+	// replacements fail when it no longer matches the locked ticket.
+	ExpectedPartsSelection *[]PartUsage
 }
 
 // BulkCloseParams is the input shape for closing multiple tickets at

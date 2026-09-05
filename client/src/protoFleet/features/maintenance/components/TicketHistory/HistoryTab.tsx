@@ -60,6 +60,7 @@ const HistoryTab = () => {
   const sequence = useRef(0);
   const load = useCallback(
     async (page = 0, pageToken = "") => {
+      let loadedRowCount: number | null = null;
       controller.current?.abort();
       const current = new AbortController();
       controller.current = current;
@@ -76,6 +77,7 @@ const HistoryTab = () => {
         signal: current.signal,
         onSuccess: (response) => {
           if (request !== sequence.current) return;
+          loadedRowCount = response.tickets.length;
           const mapped = response.tickets.flatMap((summary) =>
             summary.ticket
               ? [
@@ -116,13 +118,21 @@ const HistoryTab = () => {
           if (request === sequence.current) setLoading(false);
         },
       });
+      return loadedRowCount;
     },
     [assignee, component, listCompleted],
   );
-  const refreshCurrentPage = useCallback(
-    () => load(currentPage, cursorHistory[currentPage] ?? ""),
-    [currentPage, cursorHistory, load],
-  );
+  const refreshValidPage = useCallback(async () => {
+    const page = currentPage;
+    const loadedRowCount = await load(page, cursorHistory[page] ?? "");
+    if (loadedRowCount === 0 && page > 0) {
+      const previous = page - 1;
+      const previousToken = cursorHistory[previous] ?? "";
+      setCursorHistory((old) => old.slice(0, page));
+      await load(previous, previousToken);
+    }
+    return loadedRowCount;
+  }, [currentPage, cursorHistory, load]);
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -144,7 +154,7 @@ const HistoryTab = () => {
       timeoutId = setTimeout(async () => {
         if (!active) return;
         try {
-          await refreshCurrentPage();
+          await refreshValidPage();
         } catch {
           // RPC adapters report request failures through load's onError callback.
         } finally {
@@ -157,7 +167,7 @@ const HistoryTab = () => {
       active = false;
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [refreshCurrentPage]);
+  }, [refreshValidPage]);
   const colConfig: ColConfig<Item, string, Columns> = useMemo(
     () => ({
       issue: {

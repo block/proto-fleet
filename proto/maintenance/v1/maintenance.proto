@@ -320,6 +320,9 @@ message UpdateRepairTicketRequest {
     bool clear_assignee = 15;
     // Clear RMA ETA — set to true to remove a previously recorded date.
     bool clear_rma_eta = 16;
+    // Required with parts_selection. Carries the caller's reservation snapshot
+    // so stale absolute replacements cannot discard another operator's edits.
+    optional TicketPartsSelection expected_parts_selection = 17;
 }
 
 message UpdateRepairTicketResponse {

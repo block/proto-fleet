@@ -147,18 +147,26 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 		params.RMAEta = &t
 	}
 	if req.PartsSelection != nil {
-		selected := req.GetPartsSelection().GetParts()
-		parts := make([]models.PartUsage, len(selected))
-		for i, part := range selected {
-			parts[i] = models.PartUsage{
-				InventoryPartID: part.GetInventoryPartId(),
-				PartName:        part.GetPartName(),
-				Quantity:        part.GetQuantity(),
-			}
-		}
+		parts := toPartUsages(req.GetPartsSelection().GetParts())
 		params.PartsSelection = &parts
 	}
+	if req.ExpectedPartsSelection != nil {
+		parts := toPartUsages(req.GetExpectedPartsSelection().GetParts())
+		params.ExpectedPartsSelection = &parts
+	}
 	return params, nil
+}
+
+func toPartUsages(selected []*pb.PartUsage) []models.PartUsage {
+	parts := make([]models.PartUsage, len(selected))
+	for i, part := range selected {
+		parts[i] = models.PartUsage{
+			InventoryPartID: part.GetInventoryPartId(),
+			PartName:        part.GetPartName(),
+			Quantity:        part.GetQuantity(),
+		}
+	}
+	return parts
 }
 
 func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFilter, error) {

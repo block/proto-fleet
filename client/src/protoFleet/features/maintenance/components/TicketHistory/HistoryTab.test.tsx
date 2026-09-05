@@ -65,18 +65,46 @@ it("replaces completed tickets when moving between cursor pages", async () => {
   expect(screen.getByRole("button", { name: "Previous page" })).toBeEnabled();
 });
 
-it("polls the current history cursor page", async () => {
+it("backs up when polling empties the current history cursor page", async () => {
   vi.useFakeTimers();
+  let externallyDeleted = false;
+  listCompleted.mockImplementation(async ({ pageToken, onSuccess, onFinally }) => {
+    const secondPage = pageToken === "cursor-2";
+    onSuccess({
+      tickets:
+        secondPage && externallyDeleted
+          ? []
+          : [
+              {
+                ticket: {
+                  id: secondPage ? 3n : 2n,
+                  ticketNumber: secondPage ? "TK-3" : "TK-2",
+                  component: "Fan",
+                  diagnosis: "Fixed",
+                  resolution: 1,
+                },
+              },
+            ],
+      totalCount: externallyDeleted ? 1 : 2,
+      nextPageToken: secondPage || externallyDeleted ? "" : "cursor-2",
+      assigneeFacets: [],
+    });
+    onFinally();
+  });
   render(<HistoryTab />);
   await act(async () => vi.advanceTimersByTimeAsync(0));
   fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   await act(async () => undefined);
-  listCompleted.mockClear();
+  expect(screen.getByText("TK-3")).toBeInTheDocument();
 
+  externallyDeleted = true;
+  listCompleted.mockClear();
   await act(async () => vi.advanceTimersByTimeAsync(15_000));
 
-  expect(listCompleted).toHaveBeenCalledOnce();
-  expect(listCompleted).toHaveBeenCalledWith(expect.objectContaining({ pageToken: "cursor-2" }));
+  expect(listCompleted).toHaveBeenNthCalledWith(1, expect.objectContaining({ pageToken: "cursor-2" }));
+  expect(listCompleted).toHaveBeenNthCalledWith(2, expect.objectContaining({ pageToken: "" }));
+  expect(screen.getByText("TK-2")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
 });
 
 it("ignores completion callbacks from an older filtered request", async () => {

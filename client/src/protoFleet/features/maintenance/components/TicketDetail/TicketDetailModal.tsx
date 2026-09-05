@@ -217,7 +217,15 @@ const TicketDetailModal = ({
                 initialParts={ticket.partsUsed}
                 onCancel={() => setCompleting(false)}
                 onSubmit={async (value) => {
-                  const updated = await updateTicket({ status: TicketStatus.COMPLETED, ...value });
+                  const updated = await updateTicket({
+                    status: TicketStatus.COMPLETED,
+                    ...value,
+                    expectedPartsSelection: ticket.partsUsed.map((part) => ({
+                      inventoryPartId: BigInt(part.inventoryPartId),
+                      partName: part.partName,
+                      quantity: part.quantity,
+                    })),
+                  });
                   if (updated) setCompleting(false);
                   return updated;
                 }}

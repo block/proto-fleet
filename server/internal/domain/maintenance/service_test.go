@@ -173,7 +173,8 @@ func TestCompleteTicketConsumesSelectedPartsOnce(t *testing.T) {
 	resolution := models.TicketResolutionRepaired
 	location := models.RepairLocationOnRack
 	selection := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 2}}
-	params := models.UpdateParams{OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, RepairLocation: &location, PartsSelection: &selection}
+	expected := []models.PartUsage{}
+	params := models.UpdateParams{OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, RepairLocation: &location, PartsSelection: &selection, ExpectedPartsSelection: &expected}
 	siteID := int64(11)
 	current := &models.RepairTicket{ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryMiner, Status: models.TicketStatusInProgress, Component: "Fan", MinerIdentifier: stringPointer("miner-1")}
 	updated := *current
@@ -220,6 +221,26 @@ func TestCompletedTicketRetryDoesNotWriteActivity(t *testing.T) {
 	assert.Equal(t, current, ticket)
 }
 
+func TestUpdateRepairTicketRejectsStalePartSelection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	selection := []models.PartUsage{}
+	expected := []models.PartUsage{}
+	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection, ExpectedPartsSelection: &expected}
+	current := &models.RepairTicket{ID: 3, OrgID: 2, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+	tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return(
+		[]models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 1}}, nil,
+	)
+
+	_, err := service.UpdateRepairTicket(t.Context(), params)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+}
+
 func TestReplacingActivePartsReleasesOldAndReservesNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
@@ -227,7 +248,8 @@ func TestReplacingActivePartsReleasesOldAndReservesNew(t *testing.T) {
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
 	selection := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 1}, {InventoryPartID: 8, PartName: "Cable", Quantity: 2}}
-	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection}
+	expected := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 3}}
+	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection, ExpectedPartsSelection: &expected}
 	siteID := int64(11)
 	current := &models.RepairTicket{ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen, Component: "Power"}
 
@@ -281,7 +303,8 @@ func TestCompleteTicketStockFailureStopsTicketMutation(t *testing.T) {
 	status := models.TicketStatusCompleted
 	resolution := models.TicketResolutionDeferred
 	selection := []models.PartUsage{{InventoryPartID: 9, PartName: "PSU", Quantity: 1}}
-	params := models.UpdateParams{OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, PartsSelection: &selection}
+	expected := []models.PartUsage{}
+	params := models.UpdateParams{OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, PartsSelection: &selection, ExpectedPartsSelection: &expected}
 	siteID := int64(11)
 	current := &models.RepairTicket{ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen, Component: "Power"}
 	stockErr := fleeterror.NewFailedPreconditionError("insufficient available stock")
@@ -407,7 +430,7 @@ func TestDeleteCommentScopesActivityToTicketSite(t *testing.T) {
 	require.NoError(t, service.DeleteComment(t.Context(), 2, 4, 5))
 }
 
-func TestBulkCloseLocksAllTicketsBeforeConsumingReservations(t *testing.T) {
+func TestBulkCloseLocksTicketsAndInventoryBeforeConsumingReservations(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	inventory := mocks.NewMockInventoryStore(ctrl)
@@ -419,9 +442,12 @@ func TestBulkCloseLocksAllTicketsBeforeConsumingReservations(t *testing.T) {
 		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(&models.RepairTicket{ID: 3, Category: models.TicketCategoryMiner, Status: models.TicketStatusOpen}, nil),
 		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(4)).Return(&models.RepairTicket{ID: 4, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen}, nil),
 		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(3)).Return([]models.PartUsage{{InventoryPartID: 7, Quantity: 1}}, nil),
+		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return([]models.PartUsage{{InventoryPartID: 5, Quantity: 2}}, nil),
+		inventory.EXPECT().GetForUpdate(gomock.Any(), int64(2), int64(5)).Return(&inventorymodels.InventoryPart{ID: 5, OrgID: 2}, nil),
+		inventory.EXPECT().GetForUpdate(gomock.Any(), int64(2), int64(7)).Return(&inventorymodels.InventoryPart{ID: 7, OrgID: 2}, nil),
 		inventory.EXPECT().ConsumeReserved(gomock.Any(), int64(2), int64(7), int32(1)).Return(nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil),
-		tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), int64(4)).Return(nil, nil),
+		inventory.EXPECT().ConsumeReserved(gomock.Any(), int64(2), int64(5), int32(2)).Return(nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
 		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationOnRack), nil).Return(int64(1), nil),
 		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil),
@@ -544,7 +570,8 @@ func TestUpdateRepairTicketRejectsPartFromAnotherSite(t *testing.T) {
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
 	ticketSiteID, partSiteID := int64(11), int64(12)
 	selection := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 1}}
-	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection}
+	expected := []models.PartUsage{}
+	params := models.UpdateParams{OrgID: 2, ID: 3, PartsSelection: &selection, ExpectedPartsSelection: &expected}
 	current := &models.RepairTicket{ID: 3, OrgID: 2, SiteID: &ticketSiteID, Category: models.TicketCategoryMiner, Status: models.TicketStatusOpen}
 
 	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)

@@ -13,11 +13,16 @@ func TestToUpdateParamsPreservesPartsSelectionPresence(t *testing.T) {
 	without, err := toUpdateParams(&pb.UpdateRepairTicketRequest{Id: 1}, 42)
 	require.NoError(t, err)
 	assert.Nil(t, without.PartsSelection)
+	assert.Nil(t, without.ExpectedPartsSelection)
 
-	withEmpty, err := toUpdateParams(&pb.UpdateRepairTicketRequest{Id: 1, PartsSelection: &pb.TicketPartsSelection{}}, 42)
+	withEmpty, err := toUpdateParams(&pb.UpdateRepairTicketRequest{
+		Id: 1, PartsSelection: &pb.TicketPartsSelection{}, ExpectedPartsSelection: &pb.TicketPartsSelection{},
+	}, 42)
 	require.NoError(t, err)
 	require.NotNil(t, withEmpty.PartsSelection)
 	assert.Empty(t, *withEmpty.PartsSelection)
+	require.NotNil(t, withEmpty.ExpectedPartsSelection)
+	assert.Empty(t, *withEmpty.ExpectedPartsSelection)
 }
 
 func TestToUpdateParamsPreservesRMAEtaClearSignal(t *testing.T) {
