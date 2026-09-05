@@ -187,8 +187,9 @@ message ReleaseChannelScope {
     repeated int64 building_ids = 2 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
     repeated int64 rack_ids = 3 [(buf.validate.field).repeated = {max_items: 500, items: {int64: {gt: 0}}}];
     repeated int64 group_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
-    // Individual miners by device identifier.
-    repeated string device_identifiers = 5 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 255}}}];
+    // Individual miners by device identifier. Identifiers are matched against
+    // stored text, which cannot contain U+0000.
+    repeated string device_identifiers = 5 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 255, not_contains: "\x00"}}}];
 }
 
 // How a rollout distributes the update across its targets.
@@ -676,8 +677,9 @@ message RolloutDevice {
     // Update commands sent to this miner so far.
     int32 attempts = 18;
     google.protobuf.Timestamp last_sent_at = 19;
-    // Why the miner is FAILED, when known.
-    string last_error = 20;
+    // Why the miner is FAILED, when known. Device-reported text is truncated
+    // to this limit before it is persisted or returned.
+    string last_error = 20 [(buf.validate.field).string.max_len = 2048];
     // Managed-deployment provenance as defined by RolloutService; empty when no
     // qualifying Fleet-managed deployment is recorded.
     string last_deployed_firmware_file_id = 21 [(buf.validate.field).string.max_len = 255];
@@ -724,11 +726,12 @@ message ListReleaseChannelModelGroupsResponse {
 
 message ListReleaseChannelMinersRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
-    // Filters accept observed identities verbatim up to 255 characters,
-    // including non-ASCII, whitespace, and control characters. Empty filters
-    // return every manufacturer/model pair in the channel.
-    string manufacturer = 2 [(buf.validate.field).string.max_len = 255];
-    string model = 3 [(buf.validate.field).string.max_len = 255];
+    // Filters match observed identities verbatim up to 255 characters,
+    // including non-ASCII, whitespace, and control characters other than
+    // U+0000, which stored text cannot contain. Empty filters return every
+    // manufacturer/model pair in the channel.
+    string manufacturer = 2 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    string model = 3 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     // Maximum miners to return. 0 uses the server default of 100.
     int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     // Cursor returned by a previous call; leave empty for the first page.
@@ -760,8 +763,8 @@ message ListReleaseChannelMembershipConflictsResponse {
 }
 
 message CreateReleaseChannelRequest {
-    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
-    string description = 2 [(buf.validate.field).string = {max_len: 1000}];
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 100, not_contains: "\x00"}];
+    string description = 2 [(buf.validate.field).string = {max_len: 1000, not_contains: "\x00"}];
     ReleaseChannelScope scope = 3;
     RolloutBehavior behavior = 4;
 }
@@ -772,8 +775,8 @@ message CreateReleaseChannelResponse {
 
 message UpdateReleaseChannelRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
-    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
-    string description = 3 [(buf.validate.field).string = {max_len: 1000}];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100, not_contains: "\x00"}];
+    string description = 3 [(buf.validate.field).string = {max_len: 1000, not_contains: "\x00"}];
     ReleaseChannelScope scope = 4;
     RolloutBehavior behavior = 5;
 }

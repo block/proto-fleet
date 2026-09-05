@@ -21,6 +21,9 @@ type observedIdentityValidationCase struct {
 	observedManufacturer string
 	observedModel        string
 	wantErr              bool
+	// filterWantErr marks values that responses may carry but that request
+	// filters must reject because stored text cannot represent them.
+	filterWantErr bool
 }
 
 var observedIdentityValidationCases = []observedIdentityValidationCase{
@@ -106,8 +109,15 @@ var observedIdentityValidationCases = []observedIdentityValidationCase{
 	{
 		observedName:  "internal control character is valid",
 		filterName:    "internal control character is valid",
+		manufacturer:  "Bit\x01main",
+		observedModel: "S21",
+	},
+	{
+		observedName:  "NUL character is valid",
+		filterName:    "NUL character is rejected",
 		manufacturer:  "Bit\x00main",
 		observedModel: "S21",
+		filterWantErr: true,
 	},
 	{
 		observedName:  "oversized manufacturer is rejected",
@@ -1447,7 +1457,63 @@ func TestOptionalManufacturerModelFilterValidation(t *testing.T) {
 				ChannelId:    1,
 				Manufacturer: test.manufacturer,
 				Model:        test.model,
-			}, test.wantErr)
+			}, test.wantErr || test.filterWantErr)
 		})
 	}
+}
+
+func TestPersistedRequestStringsRejectNUL(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name string
+		new  func(value string) proto.Message
+	}{
+		{
+			name: "scope device identifier",
+			new: func(value string) proto.Message {
+				return &rolloutv1.ReleaseChannelScope{DeviceIdentifiers: []string{value}}
+			},
+		},
+		{
+			name: "create channel name",
+			new: func(value string) proto.Message {
+				return &rolloutv1.CreateReleaseChannelRequest{Name: value}
+			},
+		},
+		{
+			name: "create channel description",
+			new: func(value string) proto.Message {
+				return &rolloutv1.CreateReleaseChannelRequest{Name: "stable", Description: value}
+			},
+		},
+		{
+			name: "update channel name",
+			new: func(value string) proto.Message {
+				return &rolloutv1.UpdateReleaseChannelRequest{ChannelId: 1, Name: value}
+			},
+		},
+		{
+			name: "update channel description",
+			new: func(value string) proto.Message {
+				return &rolloutv1.UpdateReleaseChannelRequest{ChannelId: 1, Name: "stable", Description: value}
+			},
+		},
+	}
+
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, field.new("miner-01"), false)
+			requireProtoValidation(t, field.new("miner\x0001"), true)
+		})
+	}
+}
+
+func TestRolloutDeviceLastErrorValidation(t *testing.T) {
+	t.Parallel()
+
+	requireProtoValidation(t, &rolloutv1.RolloutDevice{LastError: strings.Repeat("e", 2048)}, false)
+	requireProtoValidation(t, &rolloutv1.RolloutDevice{LastError: strings.Repeat("e", 2049)}, true)
 }
