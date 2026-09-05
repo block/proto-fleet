@@ -217,6 +217,16 @@ func (s *SQLInventoryStore) ResolveSiteByName(ctx context.Context, orgID int64, 
 	return id, nil
 }
 
+func (s *SQLInventoryStore) PartExistsBySiteAndName(ctx context.Context, orgID int64, siteID *int64, name string) (bool, error) {
+	exists, err := s.GetQueries(ctx).InventoryPartExistsBySiteAndName(ctx, sqlc.InventoryPartExistsBySiteAndNameParams{
+		OrgID: orgID, SiteID: ptrToNullInt64(siteID), Name: strings.TrimSpace(name),
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to check inventory part identity: %v", err)
+	}
+	return exists, nil
+}
+
 func (s *SQLInventoryStore) LockSites(ctx context.Context, orgID int64, siteIDs []int64) error {
 	if len(siteIDs) == 0 {
 		return nil

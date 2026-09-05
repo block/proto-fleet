@@ -174,6 +174,16 @@ WHERE id = sqlc.arg('id')
   AND allocated >= sqlc.arg('quantity')::int
   AND on_hand >= sqlc.arg('quantity')::int;
 
+-- name: InventoryPartExistsBySiteAndName :one
+SELECT EXISTS (
+    SELECT 1
+    FROM inventory_part
+    WHERE org_id = sqlc.arg('org_id')
+      AND site_id IS NOT DISTINCT FROM sqlc.narg('site_id')::bigint
+      AND name = sqlc.arg('name')
+      AND deleted_at IS NULL
+);
+
 -- name: ResolveInventorySiteByName :one
 SELECT id
 FROM site

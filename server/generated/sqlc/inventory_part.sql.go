@@ -276,6 +276,30 @@ func (q *Queries) GetInventoryPartForUpdate(ctx context.Context, arg GetInventor
 	return i, err
 }
 
+const inventoryPartExistsBySiteAndName = `-- name: InventoryPartExistsBySiteAndName :one
+SELECT EXISTS (
+    SELECT 1
+    FROM inventory_part
+    WHERE org_id = $1
+      AND site_id IS NOT DISTINCT FROM $2::bigint
+      AND name = $3
+      AND deleted_at IS NULL
+)
+`
+
+type InventoryPartExistsBySiteAndNameParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+	Name   string
+}
+
+func (q *Queries) InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error) {
+	row := q.queryRow(ctx, q.inventoryPartExistsBySiteAndNameStmt, inventoryPartExistsBySiteAndName, arg.OrgID, arg.SiteID, arg.Name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listInventoryParts = `-- name: ListInventoryParts :many
 SELECT
     ip.id, ip.org_id, ip.name, ip.type, ip.manufacturer, ip.part_number,

@@ -198,6 +198,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
+	if q.countActiveRepairTicketsAssignedToUserStmt, err = db.PrepareContext(ctx, countActiveRepairTicketsAssignedToUser); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveRepairTicketsAssignedToUser: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -983,6 +986,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertRepairTicketPartStmt, err = db.PrepareContext(ctx, insertRepairTicketPart); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertRepairTicketPart: %w", err)
+	}
+	if q.inventoryPartExistsBySiteAndNameStmt, err = db.PrepareContext(ctx, inventoryPartExistsBySiteAndName); err != nil {
+		return nil, fmt.Errorf("error preparing query InventoryPartExistsBySiteAndName: %w", err)
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
@@ -2159,6 +2165,11 @@ func (q *Queries) Close() error {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
 		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveRepairTicketsAssignedToUserStmt != nil {
+		if cerr := q.countActiveRepairTicketsAssignedToUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveRepairTicketsAssignedToUserStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -3469,6 +3480,11 @@ func (q *Queries) Close() error {
 	if q.insertRepairTicketPartStmt != nil {
 		if cerr := q.insertRepairTicketPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertRepairTicketPartStmt: %w", cerr)
+		}
+	}
+	if q.inventoryPartExistsBySiteAndNameStmt != nil {
+		if cerr := q.inventoryPartExistsBySiteAndNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing inventoryPartExistsBySiteAndNameStmt: %w", cerr)
 		}
 	}
 	if q.isBatchFinishedStmt != nil {
@@ -5038,6 +5054,7 @@ type Queries struct {
 	consumeReservedInventoryPartStmt                             *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
 	countBuildingsBySiteStmt                                     *sql.Stmt
@@ -5300,6 +5317,7 @@ type Queries struct {
 	insertNotificationHistoryStmt                                *sql.Stmt
 	insertNotificationMetricSamplesStmt                          *sql.Stmt
 	insertRepairTicketPartStmt                                   *sql.Stmt
+	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
 	isDeviceOwnedByFleetNodeStmt                                 *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
@@ -5658,6 +5676,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,
 		countBuildingsBySiteStmt:                                     q.countBuildingsBySiteStmt,
@@ -5920,6 +5939,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
 		insertNotificationMetricSamplesStmt:                          q.insertNotificationMetricSamplesStmt,
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
+		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
 		isDeviceOwnedByFleetNodeStmt:                                 q.isDeviceOwnedByFleetNodeStmt,
 		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,

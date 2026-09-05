@@ -672,6 +672,18 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
+func (q *retryingQuerier) CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveRepairTicketsAssignedToUser", func() error {
+		callResult, callErr := q.next.CountActiveRepairTicketsAssignedToUser(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveUnpairedDiscoveredDevices", func() error {
@@ -3676,6 +3688,18 @@ func (q *retryingQuerier) InsertRepairTicketPart(ctx context.Context, arg Insert
 	return q.retrier.RetryQuery(ctx, "InsertRepairTicketPart", func() error {
 		return q.next.InsertRepairTicketPart(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "InventoryPartExistsBySiteAndName", func() error {
+		callResult, callErr := q.next.InventoryPartExistsBySiteAndName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error) {

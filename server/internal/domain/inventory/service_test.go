@@ -129,6 +129,7 @@ func TestInventoryParseCsvPreviewResolvesSitesAndReportsErrors(t *testing.T) {
 	service := NewService(store, nil, nil)
 	const orgID = int64(42)
 
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), orgID, gomock.Any(), gomock.Any()).AnyTimes().Return(false, nil)
 	store.EXPECT().ResolveSiteByName(gomock.Any(), orgID, "Repair Depot").Return(int64(7), nil)
 	store.EXPECT().ResolveSiteByName(gomock.Any(), orgID, "Missing Site").Return(int64(0), fleeterror.NewNotFoundError("missing"))
 
@@ -144,6 +145,31 @@ func TestInventoryParseCsvPreviewResolvesSitesAndReportsErrors(t *testing.T) {
 	assert.Contains(t, rows[1].Error, "Missing Site")
 }
 
+func TestInventoryParseCsvPreviewFlagsExistingPartAtResolvedSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	service := NewService(store, nil, nil)
+	const orgID = int64(42)
+	const siteID = int64(7)
+
+	store.EXPECT().ResolveSiteByName(gomock.Any(), orgID, "Repair Depot").Return(siteID, nil)
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), orgID, gomock.Any(), "Hashboard").DoAndReturn(
+		func(_ context.Context, _ int64, resolvedSiteID *int64, _ string) (bool, error) {
+			require.NotNil(t, resolvedSiteID)
+			assert.Equal(t, siteID, *resolvedSiteID)
+			return true, nil
+		},
+	)
+
+	rows, err := service.ParseCsvPreview(t.Context(), orgID, []byte(strings.Join([]string{
+		"name,type,site_name,on_hand",
+		"Hashboard,board,Repair Depot,4",
+	}, "\n")))
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Contains(t, rows[0].Error, "already exists")
+}
+
 func TestConfirmCsvImportRejectsAnyInvalidRowWithoutWrites(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
@@ -151,6 +177,7 @@ func TestConfirmCsvImportRejectsAnyInvalidRowWithoutWrites(t *testing.T) {
 	service := NewService(store, transactor, nil)
 	const orgID = int64(42)
 
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), orgID, gomock.Any(), gomock.Any()).AnyTimes().Return(false, nil)
 	store.EXPECT().ResolveSiteByName(gomock.Any(), orgID, "Unknown").Return(int64(0), fleeterror.NewNotFoundError("missing"))
 	data := []byte(strings.Join([]string{
 		"name,type,site_name,on_hand",
@@ -172,6 +199,7 @@ func TestConfirmCsvImportResolvesEverySiteInsideOrganization(t *testing.T) {
 	const orgID = int64(42)
 	const siteID = int64(7)
 
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), orgID, gomock.Any(), gomock.Any()).AnyTimes().Return(false, nil)
 	store.EXPECT().ResolveSiteByName(gomock.Any(), orgID, "Repair Depot").Return(siteID, nil)
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
@@ -207,7 +235,9 @@ func TestConfirmCsvImportResolvesEverySiteInsideOrganization(t *testing.T) {
 
 func TestInventoryCsvRejectsMoreThanMaximumRowsInsteadOfTruncating(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	service := NewService(mocks.NewMockInventoryStore(ctrl), nil, nil)
+	store := mocks.NewMockInventoryStore(ctrl)
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), int64(1), gomock.Any(), gomock.Any()).AnyTimes().Return(false, nil)
+	service := NewService(store, nil, nil)
 
 	var csv strings.Builder
 	csv.WriteString("name,type\n")
@@ -223,6 +253,7 @@ func TestInventoryCsvRejectsDuplicateSiteAndName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)
 	service := NewService(store, nil, nil)
+	store.EXPECT().PartExistsBySiteAndName(gomock.Any(), int64(1), gomock.Any(), gomock.Any()).AnyTimes().Return(false, nil)
 	store.EXPECT().ResolveSiteByName(gomock.Any(), int64(1), "Depot").Times(2).Return(int64(5), nil)
 
 	rows, err := service.ParseCsvPreview(t.Context(), 1, []byte("name,type,site_name\nFan,fan,Depot\n fan ,fan,Depot\n"))

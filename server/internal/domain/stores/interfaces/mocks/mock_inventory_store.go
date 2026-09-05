@@ -189,6 +189,21 @@ func (mr *MockInventoryStoreMockRecorder) LockSites(ctx, orgID, siteIDs any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSites", reflect.TypeOf((*MockInventoryStore)(nil).LockSites), ctx, orgID, siteIDs)
 }
 
+// PartExistsBySiteAndName mocks base method.
+func (m *MockInventoryStore) PartExistsBySiteAndName(ctx context.Context, orgID int64, siteID *int64, name string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PartExistsBySiteAndName", ctx, orgID, siteID, name)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PartExistsBySiteAndName indicates an expected call of PartExistsBySiteAndName.
+func (mr *MockInventoryStoreMockRecorder) PartExistsBySiteAndName(ctx, orgID, siteID, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PartExistsBySiteAndName", reflect.TypeOf((*MockInventoryStore)(nil).PartExistsBySiteAndName), ctx, orgID, siteID, name)
+}
+
 // Release mocks base method.
 func (m *MockInventoryStore) Release(ctx context.Context, orgID, id int64, quantity int32) error {
 	m.ctrl.T.Helper()

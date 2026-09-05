@@ -183,7 +183,7 @@ describe("TicketDetailModal", () => {
     await waitFor(() => expect(onMutationSuccess).toHaveBeenCalledTimes(1));
   });
 
-  it("renders persisted RMA details after reopening a vendor ticket", () => {
+  it("edits persisted RMA details after vendor dispatch", async () => {
     ticket.status = "sent_to_vendor";
     ticket.rmaVendor = "Repair Co";
     ticket.rmaTracking = "TRACK-1";
@@ -196,5 +196,21 @@ describe("TicketDetailModal", () => {
     expect(screen.getByText("RMA Details")).toBeInTheDocument();
     expect(screen.getByText("Vendor: Repair Co")).toBeInTheDocument();
     expect(screen.getByText("Tracking #: TRACK-1")).toBeInTheDocument();
+
+    update.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit RMA details" }));
+    expect(screen.getByLabelText("Vendor")).toHaveValue("Repair Co");
+    expect(screen.getByLabelText("Tracking #")).toHaveValue("TRACK-1");
+    expect(screen.getByLabelText("ETA")).toHaveValue("2026-09-10");
+    fireEvent.change(screen.getByLabelText("Tracking #"), { target: { value: "TRACK-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save RMA details" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        rmaVendor: "Repair Co",
+        rmaTracking: "TRACK-2",
+        rmaEta: new Date("2026-09-10"),
+      }),
+    );
   });
 });

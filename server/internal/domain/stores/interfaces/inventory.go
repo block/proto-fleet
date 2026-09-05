@@ -32,6 +32,7 @@ type InventoryStore interface { //nolint:interfacebloat
 	ConsumeReserved(ctx context.Context, orgID, id int64, quantity int32) error
 
 	ResolveSiteByName(ctx context.Context, orgID int64, name string) (int64, error)
+	PartExistsBySiteAndName(ctx context.Context, orgID int64, siteID *int64, name string) (bool, error)
 	// LockSites takes share locks on every referenced live site so inventory
 	// creation serializes against concurrent soft deletion.
 	LockSites(ctx context.Context, orgID int64, siteIDs []int64) error

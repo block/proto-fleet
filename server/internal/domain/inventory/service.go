@@ -452,6 +452,13 @@ func (s *Service) parseAndResolveCsv(ctx context.Context, orgID int64, data []by
 				row.Error = "duplicate name for site in CSV"
 			} else {
 				seen[key] = struct{}{}
+				exists, existsErr := s.store.PartExistsBySiteAndName(ctx, orgID, siteID, row.Name)
+				if existsErr != nil {
+					return nil, nil, existsErr
+				}
+				if exists {
+					row.Error = "inventory part with this name and site already exists"
+				}
 			}
 		}
 		preview = append(preview, row)

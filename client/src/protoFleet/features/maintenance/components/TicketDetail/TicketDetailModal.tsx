@@ -48,6 +48,8 @@ const allowed = (status: string): TicketStatus[] =>
           TicketStatus.COMPLETED,
         ].filter((value) => value !== enumForStatus[status as keyof typeof enumForStatus]);
 
+const toDateInputValue = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
+
 const TicketDetailModal = ({
   ticketId,
   onDismiss,
@@ -224,12 +226,12 @@ const TicketDetailModal = ({
                 onEtaChange={setEta}
               />
               <Button
-                text="Send to vendor"
+                text={ticket.status === "sent_to_vendor" ? "Save RMA details" : "Send to vendor"}
                 variant={variants.primary}
                 disabled={!vendor.trim()}
                 onClick={() =>
                   void updateTicket({
-                    status: TicketStatus.SENT_TO_VENDOR,
+                    ...(ticket.status === "sent_to_vendor" ? {} : { status: TicketStatus.SENT_TO_VENDOR }),
                     rmaVendor: vendor,
                     rmaTracking: tracking,
                     rmaEta: eta ? new Date(eta) : undefined,
@@ -241,7 +243,22 @@ const TicketDetailModal = ({
             </div>
           ) : ticket.status === "sent_to_vendor" ? (
             <div className="flex flex-col gap-2 rounded-xl bg-surface-5 p-4">
-              <span className="text-emphasis-300 font-medium">RMA Details</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-emphasis-300 font-medium">RMA Details</span>
+                {canManage ? (
+                  <Button
+                    text="Edit RMA details"
+                    variant={variants.secondary}
+                    size={buttonSizes.compact}
+                    onClick={() => {
+                      setVendor(ticket.rmaVendor ?? "");
+                      setTracking(ticket.rmaTracking ?? "");
+                      setEta(toDateInputValue(ticket.rmaEta));
+                      setRma(true);
+                    }}
+                  />
+                ) : null}
+              </div>
               <span>Vendor: {ticket.rmaVendor ?? "—"}</span>
               <span>Tracking #: {ticket.rmaTracking ?? "—"}</span>
               <span>ETA: {ticket.rmaEta?.toLocaleDateString() ?? "—"}</span>
