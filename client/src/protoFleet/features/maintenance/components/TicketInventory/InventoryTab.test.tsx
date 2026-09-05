@@ -39,6 +39,7 @@ const inventory = {
   previewCsv: vi.fn(),
   applyCsv: vi.fn(),
 };
+const inventoryRows = [...inventory.data];
 vi.mock("@/protoFleet/features/maintenance/hooks/useInventory", () => ({ useInventory: () => inventory }));
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
   useMaintenanceOptions: () => ({ sites: [{ id: "2", name: "Denver" }] }),
@@ -46,10 +47,23 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => (
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => state.canManage }));
 beforeEach(() => {
   state.canManage = true;
+  inventory.data = [...inventoryRows];
+  inventory.loading = false;
   inventory.data[0].available = 4;
   inventory.data[0].lowStock = false;
   vi.clearAllMocks();
 });
+it("uses an accessible spinner for the initial inventory load", () => {
+  inventory.data = [];
+  inventory.loading = true;
+
+  render(<InventoryTab />);
+
+  const status = screen.getByRole("status", { name: "Loading inventory" });
+  expect(status.querySelector(".animate-spin")).toBeInTheDocument();
+  expect(status).not.toHaveTextContent("Loading inventory");
+});
+
 it("renders the complete top-line summary and mutation controls", () => {
   render(<InventoryTab />);
   expect(screen.getByText("Fan")).toBeInTheDocument();

@@ -12,6 +12,7 @@ import Button, { sizes as buttonSizes, variants } from "@/shared/components/Butt
 import List from "@/shared/components/List";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 type Columns = "name" | "type" | "site" | "onHand" | "allocated" | "available" | "reorderPoint";
 const activeCols: Columns[] = ["name", "type", "site", "onHand", "allocated", "available", "reorderPoint"];
@@ -77,7 +78,13 @@ const InventoryTab = () => {
     [canManage],
   );
 
-  if (inventory.loading && !inventory.data.length) return <div role="status">Loading inventory…</div>;
+  if (inventory.loading && !inventory.data.length) {
+    return (
+      <div role="status" aria-label="Loading inventory" className="flex justify-center py-20">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
   if (inventory.error && !inventory.data.length) return <div role="alert">{inventory.error}</div>;
 
   return (

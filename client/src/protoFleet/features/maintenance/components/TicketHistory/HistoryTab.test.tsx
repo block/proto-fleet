@@ -66,5 +66,7 @@ it("ignores completion callbacks from an older filtered request", async () => {
   await waitFor(() => expect(requests).toHaveLength(2));
   act(() => requests[0].onFinally());
 
-  expect(screen.getByRole("status")).toHaveTextContent("Loading history");
+  const status = screen.getByRole("status", { name: "Loading history" });
+  expect(status.querySelector(".animate-spin")).toBeInTheDocument();
+  expect(status).not.toHaveTextContent("Loading history");
 });

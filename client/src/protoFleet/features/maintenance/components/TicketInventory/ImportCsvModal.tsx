@@ -4,6 +4,7 @@ import { Alert } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface Props {
   onDismiss: () => void;
@@ -111,7 +112,11 @@ const ImportCsvModal = ({ onDismiss, onPreview, onConfirm, onSuccess }: Props) =
           </div>
         )}
 
-        {loading && !preview ? <span role="status">Parsing CSV…</span> : null}
+        {loading && !preview ? (
+          <div role="status" aria-label="Parsing CSV" className="flex justify-center py-4">
+            <ProgressCircular indeterminate />
+          </div>
+        ) : null}
         {preview ? (
           <>
             <div className="flex gap-6">

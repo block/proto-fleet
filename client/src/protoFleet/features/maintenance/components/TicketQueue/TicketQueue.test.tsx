@@ -54,6 +54,7 @@ const queue = {
   previousPage: vi.fn(),
   resetPagination: vi.fn(),
 };
+const queueRows = [...queue.data];
 vi.mock("@/protoFleet/features/maintenance/hooks/useTicketQueue", () => ({ useTicketQueue: () => queue }));
 let maintenanceOptions: {
   sites: { id: string; name: string }[];
@@ -82,6 +83,8 @@ vi.mock("../CreateTicket/CreateTicketModal", () => ({ default: () => null }));
 describe("TicketQueue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    queue.data = [...queueRows];
+    queue.loading = false;
     queue.data[0].urgent = false;
     maintenanceOptions = {
       sites: [{ id: "1", name: "Denver" }],
@@ -89,6 +92,21 @@ describe("TicketQueue", () => {
       currentAssignee: null,
       loading: true,
     };
+  });
+
+  it("uses an accessible spinner for the initial ticket load", () => {
+    queue.data = [];
+    queue.loading = true;
+
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+
+    const status = screen.getByRole("status", { name: "Loading tickets" });
+    expect(status.querySelector(".animate-spin")).toBeInTheDocument();
+    expect(status).not.toHaveTextContent("Loading tickets");
   });
 
   it("renders live active status lanes in board view", () => {

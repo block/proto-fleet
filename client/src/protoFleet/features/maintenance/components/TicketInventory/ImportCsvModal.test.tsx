@@ -5,6 +5,23 @@ import userEvent from "@testing-library/user-event";
 import ImportCsvModal from "./ImportCsvModal";
 import { CsvPreviewRowSchema } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
 import type { InventoryCsvPreview } from "@/protoFleet/api/inventory";
+
+it("uses an accessible spinner while parsing a CSV", async () => {
+  const user = userEvent.setup();
+  let resolvePreview!: (value: InventoryCsvPreview) => void;
+  const preview = vi.fn(() => new Promise<InventoryCsvPreview>((resolve) => (resolvePreview = resolve)));
+  render(<ImportCsvModal onDismiss={vi.fn()} onPreview={preview} onConfirm={vi.fn()} onSuccess={vi.fn()} />);
+
+  await user.upload(screen.getByLabelText("Inventory CSV"), new File(["name,type"], "parts.csv"));
+
+  const status = screen.getByRole("status", { name: "Parsing CSV" });
+  expect(status.querySelector(".animate-spin")).toBeInTheDocument();
+  expect(status).not.toHaveTextContent("Parsing CSV");
+
+  resolvePreview({ rows: [], validCount: 1, errorCount: 0 });
+  await waitFor(() => expect(screen.queryByRole("status", { name: "Parsing CSV" })).not.toBeInTheDocument());
+});
+
 it("summarizes valid rows without rendering a wide data preview", async () => {
   const user = userEvent.setup();
   const preview = vi.fn(async (_bytes: Uint8Array) => ({

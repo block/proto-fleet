@@ -21,6 +21,7 @@ import Button, { sizes as buttonSizes, variants } from "@/shared/components/Butt
 import List, { type SelectionMode } from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import StatusCircle from "@/shared/components/StatusCircle";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -285,7 +286,13 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
     [queue],
   );
 
-  if (queue.loading && queue.data.length === 0) return <div role="status">Loading tickets…</div>;
+  if (queue.loading && queue.data.length === 0) {
+    return (
+      <div role="status" aria-label="Loading tickets" className="flex justify-center py-20">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
   if (queue.error && queue.data.length === 0)
     return (
       <div role="alert">

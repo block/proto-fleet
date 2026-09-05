@@ -14,6 +14,7 @@ import { ArrowLeftCompact, ArrowRight, Fleet, Info } from "@/shared/assets/icons
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 
 interface TicketDetailModalProps {
@@ -114,7 +115,9 @@ const TicketDetailModal = ({
       buttons={buttons}
     >
       {detail.loading && !ticket ? (
-        <div role="status">Loading ticket…</div>
+        <div role="status" aria-label="Loading ticket" className="flex justify-center py-12">
+          <ProgressCircular indeterminate />
+        </div>
       ) : detail.error && !ticket ? (
         <div role="alert">{detail.error}</div>
       ) : !ticket ? (

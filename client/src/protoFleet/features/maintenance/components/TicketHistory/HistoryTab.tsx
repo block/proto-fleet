@@ -11,6 +11,7 @@ import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/u
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
 
 type Columns = "issue" | "asset" | "resolution" | "completedAt" | "assignee";
@@ -178,7 +179,9 @@ const HistoryTab = () => {
       {error && !items.length ? (
         <div role="alert">{error}</div>
       ) : loading && !items.length ? (
-        <div role="status">Loading history…</div>
+        <div role="status" aria-label="Loading history" className="flex justify-center py-20">
+          <ProgressCircular indeterminate />
+        </div>
       ) : (
         <List
           items={items}

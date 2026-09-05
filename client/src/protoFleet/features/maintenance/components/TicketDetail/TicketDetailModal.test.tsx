@@ -50,8 +50,16 @@ const ticket: TicketDetail = {
   ],
   partsUsed: [],
 };
+const detailState: {
+  data: TicketDetail | null;
+  loading: boolean;
+  error: string | null;
+  update: typeof update;
+  addComment: typeof addComment;
+  removeComment: typeof removeComment;
+} = { data: ticket, loading: false, error: null, update, addComment, removeComment };
 vi.mock("@/protoFleet/features/maintenance/hooks/useTicketDetail", () => ({
-  useTicketDetail: () => ({ data: ticket, loading: false, error: null, update, addComment, removeComment }),
+  useTicketDetail: () => detailState,
 }));
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
   useMaintenanceOptions: () => ({ assignees: [] }),
@@ -67,10 +75,28 @@ vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => true }));
 describe("TicketDetailModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    detailState.data = ticket;
+    detailState.loading = false;
+    detailState.error = null;
     ticket.status = "in_progress";
     ticket.rmaVendor = null;
     ticket.rmaTracking = null;
     ticket.rmaEta = null;
+  });
+
+  it("uses an accessible spinner for the initial ticket-detail load", () => {
+    detailState.data = null;
+    detailState.loading = true;
+
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    const status = screen.getByRole("status", { name: "Loading ticket" });
+    expect(status.querySelector(".animate-spin")).toBeInTheDocument();
+    expect(status).not.toHaveTextContent("Loading ticket");
   });
 
   it("renders server-backed detail and author-aware comments", () => {
