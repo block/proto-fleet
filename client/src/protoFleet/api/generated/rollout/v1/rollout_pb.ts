@@ -185,10 +185,11 @@ export type RolloutBehavior = Message<"rollout.v1.RolloutBehavior"> & {
    * ALL_AT_ONCE. Each distinct target consumes at most one slot when it is
    * observed offline, regardless of phase or whether the update caused the
    * outage, or when a slot has been reserved immediately before dispatch.
-   * The reservation remains until that target is next observed online or
-   * EXCLUDED. Dispatch pauses while this nonzero budget is full. A FAILED
-   * target observed offline retains its slot until it is observed online or
-   * EXCLUDED. Canceling ends dispatch rather than waiving offline state.
+   * A reservation or offline slot is released only after that target is next
+   * observed online; becoming EXCLUDED, FAILED, or otherwise terminal does
+   * not release an offline slot. Dispatch pauses while this nonzero budget is
+   * full. Cancellation ends all further dispatch, so residual slots no
+   * longer affect that canceled rollout; it does not waive offline state.
    * 0 is unlimited.
    *
    * @generated from field: int32 max_concurrent_offline = 10;
@@ -2418,7 +2419,8 @@ export enum RolloutStage {
   /**
    * Updating all remaining targets with no further waits or review gates.
    * Dispatch pauses while a nonzero max_concurrent_offline budget is full,
-   * including while FAILED targets remain observed offline.
+   * including while EXCLUDED, FAILED, or other terminal targets remain
+   * observed offline.
    *
    * @generated from enum value: ROLLOUT_STAGE_REST = 4;
    */
@@ -2543,15 +2545,20 @@ export enum RolloutDevicePhase {
    * Attempts exhausted, or the rollout was canceled before this miner
    * updated. Not retried until RetryFailedRolloutDevices. While observed
    * offline, the target remains in the max_concurrent_offline budget until
-   * it is observed online or EXCLUDED. Cancellation ends further dispatch
-   * rather than releasing its slot.
+   * it is observed online; becoming EXCLUDED or otherwise terminal does not
+   * release its slot. Cancellation ends all further dispatch, so residual
+   * slots no longer affect that canceled rollout; it does not waive offline
+   * state.
    *
    * @generated from enum value: ROLLOUT_DEVICE_PHASE_FAILED = 5;
    */
   FAILED = 5,
 
   /**
-   * Left the channel's scope while the rollout was running.
+   * Left the channel's scope while the rollout was running. No further
+   * rollout work is performed for this target. While it remains observed
+   * offline, it continues to consume a max_concurrent_offline slot until it
+   * is observed online.
    *
    * @generated from enum value: ROLLOUT_DEVICE_PHASE_EXCLUDED = 6;
    */
