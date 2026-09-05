@@ -147,6 +147,10 @@ type Behavior struct {
 	MaxConcurrentOffline      int32
 }
 
+// allAtOnce is the behavior of drift-correction and rollback rollouts: no
+// operator is present to review a gate, so they never stage.
+var allAtOnce = Behavior{Method: MethodAllAtOnce, Order: OrderLeastEfficientFirst}
+
 // gatesAfterBatch reports whether a finished batch holds for review.
 func (b *Behavior) gatesAfterBatch() bool {
 	return b.Method == MethodPilotThenContinue || b.ReviewAfterEachBatch
@@ -225,6 +229,26 @@ func behaviorFromChannel(c sqlc.ReleaseChannel) Behavior {
 			MaxEfficiencyIncreasePercent: nullFloat(c.MaxEfficiencyIncreasePercent),
 			MaxTempIncreaseC:             nullFloat(c.MaxTempIncreaseC),
 			MaxNewErrors:                 nullInt(c.MaxNewErrors),
+		},
+	}
+}
+
+func behaviorFromRollout(r sqlc.FirmwareRollout) Behavior {
+	return Behavior{
+		Method:                    r.Method,
+		Order:                     r.OrderBy,
+		BatchSize:                 r.BatchSize,
+		PilotSize:                 r.PilotSize,
+		WaitBetweenBatchesSeconds: r.WaitBetweenBatchesSeconds,
+		ReviewAfterEachBatch:      r.ReviewAfterEachBatch,
+		AutoContinue:              r.AutoContinue,
+		StabilizationSeconds:      r.StabilizationSeconds,
+		MaxConcurrentOffline:      r.MaxConcurrentOffline,
+		Thresholds: Thresholds{
+			MaxHashrateDropPercent:       nullFloat(r.MaxHashrateDropPercent),
+			MaxEfficiencyIncreasePercent: nullFloat(r.MaxEfficiencyIncreasePercent),
+			MaxTempIncreaseC:             nullFloat(r.MaxTempIncreaseC),
+			MaxNewErrors:                 nullInt(r.MaxNewErrors),
 		},
 	}
 }

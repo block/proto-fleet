@@ -31,6 +31,14 @@ func (f *fakeDispatcher) FirmwareUpdate(_ context.Context, selector *commandpb.D
 	return &command.CommandResult{DispatchedCount: len(ids), DispatchedDeviceIdentifiers: ids}, nil
 }
 
+func (f *fakeDispatcher) sentIdentifiers() []string {
+	var all []string
+	for _, batch := range f.sent {
+		all = append(all, batch...)
+	}
+	return all
+}
+
 // fakeFirmwareFiles serves two Rig firmware files: fw-1 (1.5.0) and fw-2 (2.0.0).
 type fakeFirmwareFiles struct{}
 
@@ -53,6 +61,14 @@ func (f *fakeActivity) Log(_ context.Context, event activitymodels.Event) {
 	f.events = append(f.events, event)
 }
 
+func (f *fakeActivity) types() []string {
+	out := make([]string, 0, len(f.events))
+	for _, e := range f.events {
+		out = append(out, e.Type)
+	}
+	return out
+}
+
 type fixture struct {
 	conn       *sql.DB
 	svc        *Service
@@ -60,12 +76,13 @@ type fixture struct {
 	activity   *fakeActivity
 	clock      time.Time
 	orgID      int64
+	channelID  int64
 	deviceIDs  map[string]int64
 }
 
 // newFixture provisions an org and miners named miner-0..n-1 (model Rig,
 // firmware 1.0.0, status ACTIVE, hashing 100 H/s). The service clock is
-// frozen.
+// frozen and advanced with advanceClock. Call channel to create a channel.
 func newFixture(t *testing.T, minerCount int) *fixture {
 	t.Helper()
 	if testing.Short() || os.Getenv("DB_PASSWORD") == "" {
@@ -97,6 +114,26 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 	return f
 }
 
+// channel creates a channel over the given miners with the given behavior
+// and remembers it as the fixture's channel.
+func (f *fixture) channel(t *testing.T, behavior Behavior, miners ...string) *Channel {
+	t.Helper()
+	ch, err := f.svc.CreateChannel(t.Context(), f.orgID, 1, ChannelSpec{
+		Name: "Test channel", Scope: Scope{DeviceIdentifiers: miners}, Behavior: behavior,
+	})
+	require.NoError(t, err)
+	f.channelID = ch.ID
+	return ch
+}
+
+func (f *fixture) allMiners() []string {
+	out := make([]string, 0, len(f.deviceIDs))
+	for i := range len(f.deviceIDs) {
+		out = append(out, fmt.Sprintf("miner-%d", i))
+	}
+	return out
+}
+
 func (f *fixture) addMiner(t *testing.T, identifier, model string) int64 {
 	t.Helper()
 	ctx := t.Context()
@@ -119,6 +156,26 @@ func (f *fixture) addMiner(t *testing.T, identifier, model string) int64 {
 	return deviceID
 }
 
+func (f *fixture) advanceClock(d time.Duration) { f.clock = f.clock.Add(d) }
+
+func (f *fixture) setReportedVersion(t *testing.T, identifier, version string) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		UPDATE discovered_device SET firmware_version = $1
+		WHERE org_id = $2 AND device_identifier = $3
+	`, version, f.orgID, identifier)
+	require.NoError(t, err)
+}
+
+func (f *fixture) setStatus(t *testing.T, identifier, status string) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		UPDATE device_status SET status = $1::device_status_enum
+		WHERE device_id = (SELECT id FROM device WHERE device_identifier = $2)
+	`, status, identifier)
+	require.NoError(t, err)
+}
+
 // reportHashrate lands a fresh hashrate sample for the miner.
 func (f *fixture) reportHashrate(t *testing.T, identifier string, hashRateHs float64) {
 	t.Helper()
@@ -127,6 +184,77 @@ func (f *fixture) reportHashrate(t *testing.T, identifier string, hashRateHs flo
 		VALUES (now(), $1, $2)
 	`, identifier, hashRateHs)
 	require.NoError(t, err)
+}
+
+// reportTelemetry lands a full telemetry sample for the miner.
+func (f *fixture) reportTelemetry(t *testing.T, identifier string, hashRateHs, powerW, efficiencyJh, tempC float64) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		INSERT INTO device_metrics (time, device_identifier, hash_rate_hs, power_w, efficiency_jh, temp_c)
+		VALUES (now(), $1, $2, $3, $4, $5)
+	`, identifier, hashRateHs, powerW, efficiencyJh, tempC)
+	require.NoError(t, err)
+}
+
+// finishUpdate makes the miner look like it came back from the update on the
+// version, online and hashing.
+func (f *fixture) finishUpdate(t *testing.T, identifier, version string) {
+	t.Helper()
+	f.setReportedVersion(t, identifier, version)
+	f.setStatus(t, identifier, "ACTIVE")
+}
+
+// backdateSends makes every command sent so far look older than the resend
+// interval, so the next tick may re-send.
+func (f *fixture) backdateSends(t *testing.T) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_device SET last_sent_at = last_sent_at - INTERVAL '1 hour'
+		WHERE last_sent_at IS NOT NULL
+	`)
+	require.NoError(t, err)
+}
+
+func (f *fixture) apply(t *testing.T, fileID string) Rollout {
+	t.Helper()
+	started, err := f.svc.ApplyFirmware(t.Context(), f.orgID, 1, f.channelID,
+		[]Assignment{{Model: "Rig", FirmwareFileID: fileID}})
+	require.NoError(t, err)
+	require.Len(t, started, 1)
+	return started[0]
+}
+
+func (f *fixture) rollout(t *testing.T, id int64) Rollout {
+	t.Helper()
+	rollouts, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+	require.NoError(t, err)
+	for _, r := range rollouts {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("rollout %d not found", id)
+	return Rollout{}
+}
+
+func (f *fixture) latestRollout(t *testing.T) Rollout {
+	t.Helper()
+	rollouts, _, err := f.svc.ListRollouts(t.Context(), f.orgID, RolloutFilter{})
+	require.NoError(t, err)
+	require.NotEmpty(t, rollouts)
+	return rollouts[0]
+}
+
+func (f *fixture) assignedFirmware(t *testing.T) string {
+	t.Helper()
+	ch, err := f.svc.GetChannel(t.Context(), f.orgID, f.channelID)
+	require.NoError(t, err)
+	for _, g := range ch.ModelGroups {
+		if g.Model == "Rig" {
+			return g.FirmwareFileID
+		}
+	}
+	return ""
 }
 
 // --- Fleet placement fixtures ---
@@ -191,6 +319,37 @@ func (f *fixture) placeAtSite(t *testing.T, siteID int64, identifier string) {
 	_, err := f.conn.ExecContext(t.Context(),
 		`UPDATE device SET site_id = $1 WHERE id = $2`, siteID, f.deviceIDs[identifier])
 	require.NoError(t, err)
+}
+
+// --- Assertion helpers ---
+
+func batchOf(r Rollout, identifier string) int32 {
+	for _, d := range r.Devices {
+		if d.DeviceIdentifier == identifier {
+			return d.Batch
+		}
+	}
+	return -1
+}
+
+func phaseOf(r Rollout, identifier string) string {
+	for _, d := range r.Devices {
+		if d.DeviceIdentifier == identifier {
+			return d.Phase
+		}
+	}
+	return ""
+}
+
+func deviceOf(t *testing.T, r Rollout, identifier string) RolloutDevice {
+	t.Helper()
+	for _, d := range r.Devices {
+		if d.DeviceIdentifier == identifier {
+			return d
+		}
+	}
+	t.Fatalf("device %s not in rollout %d", identifier, r.ID)
+	return RolloutDevice{}
 }
 
 func ptr[T any](v T) *T { return &v }

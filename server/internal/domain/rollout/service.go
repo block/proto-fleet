@@ -150,6 +150,13 @@ type ScopePreview struct {
 	Conflicts  []ScopeConflict
 }
 
+// Assignment is the desired firmware for one model within a channel. An
+// empty FirmwareFileID clears the model's assignment.
+type Assignment struct {
+	Model          string
+	FirmwareFileID string
+}
+
 // --- Channels ---
 
 // CreateChannel creates a release channel. Fails when the scope overlaps
@@ -585,4 +592,152 @@ func (s *Service) buildChannels(ctx context.Context, orgID int64, rows []sqlc.Re
 		channels = append(channels, ch)
 	}
 	return channels, nil
+}
+
+// --- Firmware assignments ---
+
+// ApplyFirmware replaces per-model assignments of a channel and starts a
+// rollout, paced by the channel's behavior, for every changed model that
+// has mismatched members. Unchanged assignments are left alone; their
+// active rollout, if any, keeps running.
+func (s *Service) ApplyFirmware(ctx context.Context, orgID, userID, channelID int64, assignments []Assignment) ([]Rollout, error) {
+	var started []Rollout
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		channel, err := s.store.Queries(ctx).GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID})
+		if err != nil {
+			return fleeterror.NewNotFoundErrorf("release channel not found: %d", channelID)
+		}
+		started, err = s.applyAssignments(ctx, channel, userID, assignments, behaviorFromChannel(channel), CancelReasonSuperseded)
+		return err
+	})
+	return started, err
+}
+
+// RollbackFirmware restores the firmware assignment that was in place
+// immediately before the given rollout (for an A-to-B rollout, A) and
+// enforces it all at once. Returns the rollout's channel id and the started
+// rollouts.
+func (s *Service) RollbackFirmware(ctx context.Context, orgID, userID, rolloutID int64) (int64, []Rollout, error) {
+	var (
+		channelID int64
+		started   []Rollout
+	)
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		q := s.store.Queries(ctx)
+		row, err := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{RolloutID: rolloutID, OrgID: orgID})
+		if err != nil {
+			return fleeterror.NewNotFoundErrorf("rollout not found: %d", rolloutID)
+		}
+		channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: row.ChannelID, OrgID: orgID})
+		if err != nil {
+			return fleeterror.NewNotFoundErrorf("release channel not found: %d", row.ChannelID)
+		}
+		channelID = channel.ID
+		if row.PreviousFirmwareFileID == "" {
+			return fleeterror.NewFailedPreconditionErrorf("rollout %d has no previous firmware to restore", rolloutID)
+		}
+		started, err = s.applyAssignments(ctx, channel, userID, []Assignment{
+			{Model: row.Model, FirmwareFileID: row.PreviousFirmwareFileID},
+		}, allAtOnce, CancelReasonRolledBack)
+		return err
+	})
+	return channelID, started, err
+}
+
+// applyAssignments is the shared body of ApplyFirmware and RollbackFirmware.
+// cancelReason is recorded on any active rollout a changed assignment
+// replaces. Must run inside a transaction.
+func (s *Service) applyAssignments(ctx context.Context, channel sqlc.ReleaseChannel, userID int64, assignments []Assignment, behavior Behavior, cancelReason string) ([]Rollout, error) {
+	q := s.store.Queries(ctx)
+	existing, err := q.ListReleaseChannelFirmware(ctx, channel.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("list channel firmware: %v", err)
+	}
+	current := map[string]sqlc.ReleaseChannelFirmware{}
+	for _, f := range existing {
+		if f.ChannelID == channel.ID {
+			current[f.Model] = f
+		}
+	}
+
+	var started []Rollout
+	for _, a := range assignments {
+		if a.Model == "" {
+			return nil, fleeterror.NewInvalidArgumentError("assignment model is required")
+		}
+		prev, hadPrev := current[a.Model]
+
+		if a.FirmwareFileID == "" {
+			if !hadPrev {
+				continue
+			}
+			if err := q.DeleteReleaseChannelFirmware(ctx, sqlc.DeleteReleaseChannelFirmwareParams{ChannelID: channel.ID, Model: a.Model}); err != nil {
+				return nil, fleeterror.NewInternalErrorf("clear assignment: %v", err)
+			}
+			if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+				ChannelID: channel.ID, Model: a.Model, CancelReason: CancelReasonCleared,
+			}); err != nil {
+				return nil, fleeterror.NewInternalErrorf("cancel rollout: %v", err)
+			}
+			continue
+		}
+
+		if hadPrev && prev.FirmwareFileID == a.FirmwareFileID {
+			continue
+		}
+		meta, err := s.files.GetFirmwareMetadata(a.FirmwareFileID)
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("invalid firmware file %q: %v", a.FirmwareFileID, err)
+		}
+		if !strings.EqualFold(meta.TargetModel, a.Model) {
+			return nil, fleeterror.NewInvalidArgumentErrorf("firmware file %q targets model %q, not %q", a.FirmwareFileID, meta.TargetModel, a.Model)
+		}
+		assigned, err := q.UpsertReleaseChannelFirmware(ctx, sqlc.UpsertReleaseChannelFirmwareParams{
+			ChannelID:      channel.ID,
+			Model:          a.Model,
+			FirmwareFileID: a.FirmwareFileID,
+			// The metadata version is what miners report after installing.
+			FirmwareVersion: meta.FirmwareVersion,
+			AssignedBy:      userID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("assign firmware: %v", err)
+		}
+		if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
+			ChannelID: channel.ID, Model: a.Model, CancelReason: cancelReason,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("cancel replaced rollout: %v", err)
+		}
+
+		// Start the rollout here rather than leaving it to the enforcement
+		// loop, so the operator's behavior applies (the loop only ever
+		// starts all-at-once drift-correction rollouts).
+		spec := rolloutSpec{
+			OrgID: channel.OrgID, ChannelID: channel.ID, ChannelName: channel.Name, Model: a.Model,
+			FirmwareFileID: a.FirmwareFileID, FirmwareVersion: meta.FirmwareVersion,
+			CreatedBy: userID, Behavior: behavior, AssignedAt: assigned.UpdatedAt,
+		}
+		if hadPrev {
+			spec.PreviousFirmwareFileID = prev.FirmwareFileID
+			spec.PreviousFirmwareVersion = prev.FirmwareVersion
+		}
+		r, err := s.startRollout(ctx, spec)
+		if err != nil {
+			return nil, err
+		}
+		if r == nil {
+			continue // every member already reports the version
+		}
+		extra := map[string]any{}
+		if cancelReason == CancelReasonRolledBack {
+			extra["rollback"] = true
+		}
+		s.logRolloutEvent(ctx, *r, channel.Name, EventRolloutStarted, false, extra)
+		view, err := s.rolloutView(ctx, *r, channel.Name)
+		if err != nil {
+			return nil, err
+		}
+		started = append(started, *view)
+	}
+	return started, nil
 }
