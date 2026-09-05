@@ -457,6 +457,7 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 	var changedIDs []int64
 	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		attemptChangedIDs := make([]int64, 0, len(ids))
 		attemptSiteIDs := make([]*int64, 0, len(ids))
 		for _, id := range ids {
 			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
@@ -469,13 +470,16 @@ func (s *Service) BulkUpdateStatus(ctx context.Context, orgID int64, ticketIDs [
 			if ticket.Status == newStatus {
 				continue
 			}
-			changedIDs = append(changedIDs, id)
+			attemptChangedIDs = append(attemptChangedIDs, id)
 			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 		}
-		if len(changedIDs) == 0 {
+		affected = 0
+		changedIDs = attemptChangedIDs
+		scope = activitymodels.SiteScope{}
+		if len(attemptChangedIDs) == 0 {
 			return nil
 		}
-		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, changedIDs, int16(newStatus))
+		rows, err := s.store.BulkUpdateTicketStatus(txCtx, orgID, attemptChangedIDs, int16(newStatus))
 		if err != nil {
 			return err
 		}
@@ -519,6 +523,7 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 	}
 
 	var affected int64
+	var changedIDs []int64
 	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if assigneeUserID != nil {
@@ -526,23 +531,41 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 				return err
 			}
 		}
-		siteIDs, err := s.requireMutableTickets(txCtx, orgID, ids)
-		if err != nil {
-			return err
+		attemptChangedIDs := make([]int64, 0, len(ids))
+		attemptSiteIDs := make([]*int64, 0, len(ids))
+		for _, id := range ids {
+			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
+			if err != nil {
+				return err
+			}
+			if ticket.Status == models.TicketStatusCompleted {
+				return fleeterror.NewFailedPreconditionErrorf("completed ticket %d is terminal", id)
+			}
+			if optionalInt64Equal(ticket.AssigneeUserID, assigneeUserID) {
+				continue
+			}
+			attemptChangedIDs = append(attemptChangedIDs, id)
+			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 		}
-		rows, err := s.store.BulkAssignTickets(txCtx, orgID, ids, assigneeUserID)
+		affected = 0
+		changedIDs = attemptChangedIDs
+		scope = activitymodels.SiteScope{}
+		if len(attemptChangedIDs) == 0 {
+			return nil
+		}
+		rows, err := s.store.BulkAssignTickets(txCtx, orgID, attemptChangedIDs, assigneeUserID)
 		if err != nil {
 			return err
 		}
 		affected = rows
-		scope = activitymodels.ResolveSiteScope(siteIDs)
+		scope = activitymodels.ResolveSiteScope(attemptSiteIDs)
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	if s.activitySvc != nil {
+	if s.activitySvc != nil && affected > 0 {
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventTicketBulk,
@@ -552,7 +575,7 @@ func (s *Service) BulkAssign(ctx context.Context, orgID int64, ticketIDs []int64
 				affected, derefInt64(assigneeUserID),
 			),
 			Metadata: map[string]any{
-				"ticket_ids":       ticketIDs,
+				"ticket_ids":       changedIDs,
 				"assignee_user_id": assigneeUserID,
 				"affected":         affected,
 			},
@@ -574,32 +597,51 @@ func (s *Service) BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []i
 	}
 
 	var affected int64
+	var changedIDs []int64
 	var scope activitymodels.SiteScope
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		siteIDs, err := s.requireMutableTickets(txCtx, orgID, ids)
-		if err != nil {
-			return err
+		attemptChangedIDs := make([]int64, 0, len(ids))
+		attemptSiteIDs := make([]*int64, 0, len(ids))
+		for _, id := range ids {
+			ticket, err := s.store.GetRepairTicketForUpdate(txCtx, orgID, id)
+			if err != nil {
+				return err
+			}
+			if ticket.Status == models.TicketStatusCompleted {
+				return fleeterror.NewFailedPreconditionErrorf("completed ticket %d is terminal", id)
+			}
+			if ticket.Urgent {
+				continue
+			}
+			attemptChangedIDs = append(attemptChangedIDs, id)
+			attemptSiteIDs = append(attemptSiteIDs, ticket.SiteID)
 		}
-		rows, err := s.store.BulkMarkUrgent(txCtx, orgID, ids)
+		affected = 0
+		changedIDs = attemptChangedIDs
+		scope = activitymodels.SiteScope{}
+		if len(attemptChangedIDs) == 0 {
+			return nil
+		}
+		rows, err := s.store.BulkMarkUrgent(txCtx, orgID, attemptChangedIDs)
 		if err != nil {
 			return err
 		}
 		affected = rows
-		scope = activitymodels.ResolveSiteScope(siteIDs)
+		scope = activitymodels.ResolveSiteScope(attemptSiteIDs)
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	if s.activitySvc != nil {
+	if s.activitySvc != nil && affected > 0 {
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventTicketBulk,
 			OrganizationID: &orgID,
 			Description:    fmt.Sprintf("Bulk mark urgent: %d ticket(s)", affected),
 			Metadata: map[string]any{
-				"ticket_ids": ticketIDs,
+				"ticket_ids": changedIDs,
 				"affected":   affected,
 			},
 		}
@@ -1151,6 +1193,13 @@ func validateCompletion(category models.TicketCategory, resolution models.Ticket
 		return fleeterror.NewInvalidArgumentError("repair_location is only valid for repaired or replaced miner tickets")
 	}
 	return nil
+}
+
+func optionalInt64Equal(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func derefInt64(v *int64) any {

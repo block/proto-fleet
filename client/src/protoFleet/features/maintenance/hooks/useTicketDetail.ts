@@ -31,7 +31,12 @@ export const useTicketDetail = (ticketId: string | null) => {
       onSuccess: (value) => {
         if (request === sequence.current && value) setData(toTicketDetail(value));
       },
-      onError: setError,
+      onNotFound: () => {
+        if (request === sequence.current) setData(null);
+      },
+      onError: (message) => {
+        if (request === sequence.current) setError(message);
+      },
     });
     if (request === sequence.current) setLoading(false);
   }, [getTicket, ticketId]);

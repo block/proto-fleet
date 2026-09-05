@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { maintenanceClient } from "@/protoFleet/api/clients";
 import type {
@@ -152,12 +153,14 @@ export const useMaintenanceApi = () => {
       onSuccess,
       onError,
       onFinally,
-    }: Callbacks<RepairTicketDetail | undefined> & { id: bigint }) => {
+      onNotFound,
+    }: Callbacks<RepairTicketDetail | undefined> & { id: bigint; onNotFound?: () => void }) => {
       try {
         if (signal?.aborted) return;
         const response = await maintenanceClient.getRepairTicket({ id }, { signal });
         if (!signal?.aborted) onSuccess?.(response.detail);
       } catch (error) {
+        if (!signal?.aborted && error instanceof ConnectError && error.code === Code.NotFound) onNotFound?.();
         report(error, signal, onError);
       } finally {
         onFinally?.();

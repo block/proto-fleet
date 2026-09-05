@@ -43,6 +43,26 @@ it("polls ticket detail while retaining the current ticket", async () => {
   expect(getTicket).toHaveBeenCalledTimes(2);
 });
 
+it("clears retained detail when polling reports remote deletion", async () => {
+  vi.useFakeTimers();
+  let deleted = false;
+  getTicket.mockImplementation(async ({ onSuccess, onNotFound, onError }) => {
+    if (deleted) {
+      onNotFound();
+      onError("ticket not found");
+    } else onSuccess({ ticket: { id: 9n } });
+  });
+  const { result } = renderHook(() => useTicketDetail("9"));
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(result.current.data).toEqual({ id: "9" });
+
+  deleted = true;
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+  expect(result.current.data).toBeNull();
+  expect(result.current.error).toBe("ticket not found");
+});
+
 it("clears the prior ticket while a newly selected ticket loads", async () => {
   let resolveSecond: ((value: unknown) => void) | undefined;
   getTicket.mockImplementation(({ id, onSuccess }) => {

@@ -592,16 +592,19 @@ func TestBulkActivityUsesAffectedTicketSiteScope(t *testing.T) {
 	t.Run("assignment", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		tickets := mocks.NewMockMaintenanceStore(ctrl)
+		refs := mocks.NewMockMaintenanceReferenceStore(ctrl)
 		tx := mocks.NewMockTransactor(ctrl)
 		activityStore := mocks.NewMockActivityStore(ctrl)
-		service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		service := NewService(tickets, refs, mocks.NewMockInventoryStore(ctrl), tx, activity.NewService(activityStore))
+		assigneeID := int64(9)
 		tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+		refs.EXPECT().ResolveAssignee(gomock.Any(), int64(2), assigneeID).Return(&models.Assignee{UserID: assigneeID}, nil)
 		for _, ticket := range lockedTickets() {
 			tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), ticket.ID).Return(ticket, nil)
 		}
-		tickets.EXPECT().BulkAssignTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, nil).Return(int64(3), nil)
+		tickets.EXPECT().BulkAssignTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, &assigneeID).Return(int64(3), nil)
 		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
-		_, err := service.BulkAssign(t.Context(), 2, []int64{5, 3, 4}, nil)
+		_, err := service.BulkAssign(t.Context(), 2, []int64{5, 3, 4}, &assigneeID)
 		require.NoError(t, err)
 	})
 
@@ -682,6 +685,91 @@ func TestBulkUpdateStatusSkipsTicketsAlreadyAtTarget(t *testing.T) {
 	)
 
 	affected, err := service.BulkUpdateStatus(t.Context(), 2, []int64{3}, models.TicketStatusInProgress)
+
+	require.NoError(t, err)
+	assert.Zero(t, affected)
+}
+
+func TestBulkUpdateStatusRebuildsChangedIDsOnTransactionRetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+		txCtx := context.WithValue(ctx, txMarker{}, true)
+		require.NoError(t, fn(txCtx))
+		return fn(txCtx)
+	})
+	gomock.InOrder(
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+			&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusOpen}, nil,
+		),
+		tickets.EXPECT().BulkUpdateTicketStatus(gomock.Any(), int64(2), []int64{3}, int16(models.TicketStatusInProgress)).Return(int64(1), nil),
+		tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+			&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusInProgress}, nil,
+		),
+	)
+
+	affected, err := service.BulkUpdateStatus(t.Context(), 2, []int64{3}, models.TicketStatusInProgress)
+
+	require.NoError(t, err)
+	assert.Zero(t, affected)
+}
+
+func TestBulkAssignSkipsTicketsAlreadyAssigned(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	refs := mocks.NewMockMaintenanceReferenceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		refs,
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+	assigneeID := int64(7)
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+	refs.EXPECT().ResolveAssignee(gomock.Any(), int64(2), assigneeID).Return(&models.Assignee{UserID: assigneeID}, nil)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+		&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusOpen, AssigneeUserID: &assigneeID}, nil,
+	)
+
+	affected, err := service.BulkAssign(t.Context(), 2, []int64{3}, &assigneeID)
+
+	require.NoError(t, err)
+	assert.Zero(t, affected)
+}
+
+func TestBulkMarkUrgentSkipsTicketsAlreadyUrgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(
+		&models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusOpen, Urgent: true}, nil,
+	)
+
+	affected, err := service.BulkMarkUrgent(t.Context(), 2, []int64{3})
 
 	require.NoError(t, err)
 	assert.Zero(t, affected)

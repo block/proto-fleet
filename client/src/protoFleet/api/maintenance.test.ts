@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { TicketStatus } from "./generated/maintenance/v1/maintenance_pb";
 
 const clients = {
@@ -68,6 +69,16 @@ describe("useMaintenanceApi", () => {
       totalCount: 0,
       assigneeFacets: facets,
     });
+  });
+
+  it("reports a missing ticket separately", async () => {
+    clients.getRepairTicket.mockRejectedValue(new ConnectError("ticket not found", Code.NotFound));
+    const onNotFound = vi.fn();
+    const { result } = renderHook(() => useMaintenanceApi());
+
+    await act(() => result.current.getTicket({ id: 4n, onNotFound }));
+
+    expect(onNotFound).toHaveBeenCalledOnce();
   });
 
   it("preserves explicit empty and clear signals", async () => {
