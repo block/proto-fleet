@@ -713,14 +713,16 @@ message ListReleaseChannelModelGroupsRequest {
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Maximum model groups to return. 0 uses the server default of 100.
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
-    // Opaque cursor returned by a previous call; leave empty for the first page.
-    string cursor = 3 [(buf.validate.field).string.max_len = 1024];
+    // Opaque cursor sized for maximum 255-code-point Unicode sort keys and
+    // encoding overhead; leave empty for the first page.
+    string cursor = 3 [(buf.validate.field).string.max_len = 8192];
 }
 
 message ListReleaseChannelModelGroupsResponse {
     repeated ReleaseChannelModelGroup model_groups = 1 [(buf.validate.field).repeated.max_items = 100];
-    // Opaque cursor for the next page; empty when there are no more model groups.
-    string cursor = 2 [(buf.validate.field).string.max_len = 1024];
+    // Opaque cursor sized for maximum 255-code-point Unicode sort keys and
+    // encoding overhead; empty when there are no more model groups.
+    string cursor = 2 [(buf.validate.field).string.max_len = 8192];
 }
 
 message ListReleaseChannelMinersRequest {
