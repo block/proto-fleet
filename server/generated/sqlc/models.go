@@ -928,6 +928,62 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FirmwareRollout struct {
+	ID                           int64
+	OrgID                        int64
+	ChannelID                    int64
+	Model                        string
+	FirmwareFileID               string
+	FirmwareVersion              string
+	PreviousFirmwareFileID       string
+	PreviousFirmwareVersion      string
+	Status                       string
+	CancelReason                 string
+	Stage                        string
+	Method                       string
+	OrderBy                      string
+	BatchSize                    int32
+	PilotSize                    int32
+	WaitBetweenBatchesSeconds    int32
+	ReviewAfterEachBatch         bool
+	AutoContinue                 bool
+	StabilizationSeconds         int32
+	MaxHashrateDropPercent       sql.NullFloat64
+	MaxEfficiencyIncreasePercent sql.NullFloat64
+	MaxTempIncreaseC             sql.NullFloat64
+	MaxNewErrors                 sql.NullInt32
+	MaxConcurrentOffline         int32
+	BatchCount                   int32
+	CurrentBatch                 int32
+	StageChangedAt               time.Time
+	PausedAt                     sql.NullTime
+	CreatedBy                    int64
+	CreatedAt                    time.Time
+	FinishedAt                   sql.NullTime
+}
+
+type FirmwareRolloutDevice struct {
+	RolloutID            int64
+	DeviceID             int64
+	BatchIndex           sql.NullInt32
+	Position             sql.NullInt32
+	Attempts             int32
+	FirstSentAt          sql.NullTime
+	LastSentAt           sql.NullTime
+	HaltedAt             sql.NullTime
+	HaltReason           string
+	LastError            string
+	ExcludedAt           sql.NullTime
+	BaselineStatus       sql.NullString
+	BaselineHashRateHs   sql.NullFloat64
+	BaselinePowerW       sql.NullFloat64
+	BaselineEfficiencyJh sql.NullFloat64
+	BaselineTempC        sql.NullFloat64
+	BaselineOpenErrors   sql.NullInt32
+	BaselineAt           sql.NullTime
+	AddedAt              time.Time
+}
+
 type FleetActiveOrganization struct {
 	OrganizationID string
 }
@@ -1204,10 +1260,62 @@ type RackSlot struct {
 	CreatedAt   time.Time
 }
 
+type ReleaseChannel struct {
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	Description                  string
+	Method                       string
+	OrderBy                      string
+	BatchSize                    int32
+	PilotSize                    int32
+	WaitBetweenBatchesSeconds    int32
+	ReviewAfterEachBatch         bool
+	AutoContinue                 bool
+	StabilizationSeconds         int32
+	MaxHashrateDropPercent       sql.NullFloat64
+	MaxEfficiencyIncreasePercent sql.NullFloat64
+	MaxTempIncreaseC             sql.NullFloat64
+	MaxNewErrors                 sql.NullInt32
+	MaxConcurrentOffline         int32
+	CreatedBy                    int64
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+}
+
+type ReleaseChannelFirmware struct {
+	ChannelID       int64
+	Model           string
+	FirmwareFileID  string
+	FirmwareVersion string
+	AssignedBy      int64
+	UpdatedAt       time.Time
+}
+
+type ReleaseChannelMatch struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity int32
+}
+
+type ReleaseChannelMember struct {
+	ChannelID  int64
+	OrgID      int64
+	DeviceID   int64
+	Conflicted bool
+}
+
 type ReleaseChannelSetting struct {
 	OrganizationID int64
 	Channel        string
 	UpdatedAt      time.Time
+}
+
+type ReleaseChannelTarget struct {
+	ChannelID  int64
+	TargetType string
+	TargetID   int64
 }
 
 type Role struct {
