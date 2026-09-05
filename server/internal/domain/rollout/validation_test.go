@@ -270,6 +270,7 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 			set: func(rollout *rolloutv1.Rollout, version string) {
 				rollout.FirmwareFileId = "file-1"
 				rollout.FirmwareVersion = version
+				rollout.AssignmentGeneration = 1
 			},
 		},
 		{
@@ -312,8 +313,11 @@ func TestRolloutLineageValidation(t *testing.T) {
 			FirmwareVersion:         version,
 			PreviousFirmwareFileId:  previousFileID,
 			PreviousFirmwareVersion: previousVersion,
+			AssignmentGeneration:    1,
 		}
 	}
+	withoutGeneration := newRollout("file-1", "2.0", "", "")
+	withoutGeneration.AssignmentGeneration = 0
 	tests := []struct {
 		name    string
 		rollout *rolloutv1.Rollout
@@ -321,11 +325,13 @@ func TestRolloutLineageValidation(t *testing.T) {
 	}{
 		{name: "first assignment has an empty lineage", rollout: newRollout("file-1", "2.0", "", "")},
 		{name: "later assignment records the replaced one", rollout: newRollout("file-1", "2.0", "file-0", "1.0")},
+		{name: "untargeted rollout needs no generation", rollout: &rolloutv1.Rollout{Manufacturer: "Bitmain", Model: "S21"}},
 		{name: "target file without version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
 		{name: "target version without file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
 		{name: "lineage file without version is rejected", rollout: newRollout("file-1", "2.0", "file-0", ""), wantErr: true},
 		{name: "lineage version without file is rejected", rollout: newRollout("file-1", "2.0", "", "1.0"), wantErr: true},
 		{name: "lineage equal to the target is rejected", rollout: newRollout("file-1", "2.0", "file-1", "2.0"), wantErr: true},
+		{name: "target without assignment generation is rejected", rollout: withoutGeneration, wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -345,10 +351,29 @@ func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {
 		FirmwareTargetManufacturer: "Bitmain",
 		FirmwareTargetModel:        "S21",
 		FirmwareVersion:            "v1\x00custom",
+		AssignmentGeneration:       1,
 	}
 	requireProtoValidation(t, group, true)
 	group.FirmwareVersion = "v1-custom"
 	requireProtoValidation(t, group, false)
+}
+
+func TestReleaseChannelModelGroupAssignmentGenerationValidation(t *testing.T) {
+	t.Parallel()
+
+	assigned := func(generation int64) *rolloutv1.ReleaseChannelModelGroup {
+		return &rolloutv1.ReleaseChannelModelGroup{
+			FirmwareFileId:             "file-1",
+			FirmwareTargetManufacturer: "Bitmain",
+			FirmwareTargetModel:        "S21",
+			FirmwareVersion:            "2.0",
+			AssignmentGeneration:       generation,
+		}
+	}
+	requireProtoValidation(t, assigned(1), false)
+	requireProtoValidation(t, assigned(0), true)
+	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{AssignmentGeneration: 3}, false)
+	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{AssignmentGeneration: -1}, true)
 }
 
 func TestRolloutAutomationThresholdsCoverageValidation(t *testing.T) {
@@ -838,6 +863,7 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				FirmwareVersion:            "1.0.0",
 				FirmwareTargetManufacturer: "Bitmain",
 				FirmwareTargetModel:        "S21",
+				AssignmentGeneration:       1,
 			},
 		},
 		{
