@@ -249,6 +249,14 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		}
 		params.Component = &trimmed
 	}
+	if params.RMAVendor != nil {
+		trimmed := strings.TrimSpace(*params.RMAVendor)
+		params.RMAVendor = &trimmed
+	}
+	if params.RMATracking != nil {
+		trimmed := strings.TrimSpace(*params.RMATracking)
+		params.RMATracking = &trimmed
+	}
 	if params.ClearAssignee && params.AssigneeUserID != nil {
 		return nil, fleeterror.NewInvalidArgumentError("assignee_user_id and clear_assignee cannot both be set")
 	}
@@ -1185,10 +1193,10 @@ func ticketUpdateSatisfied(current *models.RepairTicket, params models.UpdatePar
 	if params.Notes != nil && !optionalStringEqual(current.Notes, params.Notes) {
 		return false
 	}
-	if params.RMAVendor != nil && !optionalStringEqual(current.RMAVendor, params.RMAVendor) {
+	if params.RMAVendor != nil && !optionalRMATextEqual(current.RMAVendor, params.RMAVendor) {
 		return false
 	}
-	if params.RMATracking != nil && !optionalStringEqual(current.RMATracking, params.RMATracking) {
+	if params.RMATracking != nil && !optionalRMATextEqual(current.RMATracking, params.RMATracking) {
 		return false
 	}
 	if params.ClearRMAEta {
@@ -1291,9 +1299,20 @@ func optionalTimeEqual(left, right *time.Time) bool {
 func rmaSnapshotMatches(ticket *models.RepairTicket, expected *models.RMASnapshot) bool {
 	return expected != nil &&
 		ticket.Status == expected.Status &&
-		optionalStringEqual(ticket.RMAVendor, expected.RMAVendor) &&
-		optionalStringEqual(ticket.RMATracking, expected.RMATracking) &&
+		optionalRMATextEqual(ticket.RMAVendor, expected.RMAVendor) &&
+		optionalRMATextEqual(ticket.RMATracking, expected.RMATracking) &&
 		optionalTimeEqual(ticket.RMAEta, expected.RMAEta)
+}
+
+func optionalRMATextEqual(left, right *string) bool {
+	leftValue, rightValue := "", ""
+	if left != nil {
+		leftValue = strings.TrimSpace(*left)
+	}
+	if right != nil {
+		rightValue = strings.TrimSpace(*right)
+	}
+	return leftValue == rightValue
 }
 
 func derefInt64(v *int64) any {

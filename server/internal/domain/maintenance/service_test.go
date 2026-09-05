@@ -340,6 +340,57 @@ func TestUpdateRepairTicketRejectsStaleRMASnapshot(t *testing.T) {
 	assert.ErrorContains(t, err, "RMA details changed")
 }
 
+func TestUpdateRepairTicketTreatsBlankTrackingAndNullSnapshotAsEquivalent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	currentVendor := "Repair Co"
+	updatedVendor := "New Repair Co"
+	blankTracking := ""
+	params := models.UpdateParams{
+		OrgID: 2, ID: 3, RMAVendor: &updatedVendor, RMATracking: &blankTracking,
+		ExpectedRMASnapshot: &models.RMASnapshot{Status: models.TicketStatusSentToVendor, RMAVendor: &currentVendor},
+	}
+	current := &models.RepairTicket{
+		ID: 3, OrgID: 2, Status: models.TicketStatusSentToVendor,
+		RMAVendor: &currentVendor, RMATracking: &blankTracking,
+	}
+	updated := *current
+	updated.RMAVendor = &updatedVendor
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+	tickets.EXPECT().UpdateRepairTicket(gomock.Any(), params).Return(&updated, nil)
+
+	got, err := service.UpdateRepairTicket(t.Context(), params)
+
+	require.NoError(t, err)
+	assert.Equal(t, updatedVendor, *got.RMAVendor)
+}
+
+func TestUpdateRepairTicketDoesNotPersistBlankTrackingOverNull(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	vendor := "Repair Co"
+	blankTracking := "  "
+	params := models.UpdateParams{
+		OrgID: 2, ID: 3, RMAVendor: &vendor, RMATracking: &blankTracking,
+		ExpectedRMASnapshot: &models.RMASnapshot{Status: models.TicketStatusSentToVendor, RMAVendor: &vendor},
+	}
+	current := &models.RepairTicket{ID: 3, OrgID: 2, Status: models.TicketStatusSentToVendor, RMAVendor: &vendor}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+
+	updated, err := service.UpdateRepairTicket(t.Context(), params)
+
+	require.NoError(t, err)
+	assert.Same(t, current, updated)
+}
+
 func TestUpdateRepairTicketAcceptsSatisfiedRMARetryWithStaleSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
