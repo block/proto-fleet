@@ -123,7 +123,9 @@ type RolloutServiceClient interface {
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
 	// Deletes a channel with its firmware assignments and rollout history,
-	// which may release their firmware artifacts from deletion protection.
+	// which may release those artifact references from deletion protection.
+	// Command references remain protected by the cross-service invariant above.
+	// Commands already sent may finish under existing cancellation semantics.
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
@@ -151,15 +153,21 @@ type RolloutServiceClient interface {
 	// same tuple also fails with FAILED_PRECONDITION before changing any
 	// assignment or starting any rollout. This prevents ambiguity in the
 	// firmware store; it does not attest the payload running on a device. An
-	// empty firmware_file_id remains valid and clears the assignment. Direct
-	// firmware uploads are outside this contract.
+	// empty firmware_file_id remains valid and clears the assignment. Clearing
+	// may release assignment or rollout-history references, but command
+	// references remain protected by the cross-service invariant above.
+	// Commands already sent may finish under existing cancellation semantics.
+	// Direct firmware uploads are outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Atomically cancels any active rollout for the referenced (channel,
 	// manufacturer, model) tuple and reverses its firmware assignment. If the
 	// referenced rollout introduced the pair's first assignment, rollback
 	// clears the current assignment and starts no rollout. Otherwise, rollback
 	// restores the previous assignment and starts at most one all-at-once
-	// rollout for mismatched members.
+	// rollout for mismatched members. Clearing the first assignment may release
+	// assignment or rollout-history references, but command references remain
+	// protected by the cross-service invariant above. Commands already sent may
+	// finish under existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -177,10 +185,13 @@ type RolloutServiceClient interface {
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
 	// Resumes a paused rollout where it left off.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
-	// Cancels the remaining work of an active rollout. Miners already
-	// updated keep the new firmware; miners not yet updated are left alone
-	// and are not picked up again until the assignment changes or their
-	// updates are retried.
+	// Cancels the remaining work of an active rollout. No new update commands
+	// are sent. Commands already sent may finish under existing cancellation
+	// semantics; their artifacts remain protected by the cross-service
+	// invariant above. Miners already updated, including by a command that
+	// finishes after cancellation, keep the new firmware; miners with no command
+	// sent are left alone and are not picked up again until the assignment
+	// changes or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
@@ -460,7 +471,9 @@ type RolloutServiceHandler interface {
 	// flight keeps the behavior it started with.
 	UpdateReleaseChannel(context.Context, *connect.Request[v1.UpdateReleaseChannelRequest]) (*connect.Response[v1.UpdateReleaseChannelResponse], error)
 	// Deletes a channel with its firmware assignments and rollout history,
-	// which may release their firmware artifacts from deletion protection.
+	// which may release those artifact references from deletion protection.
+	// Command references remain protected by the cross-service invariant above.
+	// Commands already sent may finish under existing cancellation semantics.
 	// Miners keep whatever firmware they are running.
 	DeleteReleaseChannel(context.Context, *connect.Request[v1.DeleteReleaseChannelRequest]) (*connect.Response[v1.DeleteReleaseChannelResponse], error)
 	// Resolves a scope without saving it: how many miners it covers per
@@ -488,15 +501,21 @@ type RolloutServiceHandler interface {
 	// same tuple also fails with FAILED_PRECONDITION before changing any
 	// assignment or starting any rollout. This prevents ambiguity in the
 	// firmware store; it does not attest the payload running on a device. An
-	// empty firmware_file_id remains valid and clears the assignment. Direct
-	// firmware uploads are outside this contract.
+	// empty firmware_file_id remains valid and clears the assignment. Clearing
+	// may release assignment or rollout-history references, but command
+	// references remain protected by the cross-service invariant above.
+	// Commands already sent may finish under existing cancellation semantics.
+	// Direct firmware uploads are outside this contract.
 	ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error)
 	// Atomically cancels any active rollout for the referenced (channel,
 	// manufacturer, model) tuple and reverses its firmware assignment. If the
 	// referenced rollout introduced the pair's first assignment, rollback
 	// clears the current assignment and starts no rollout. Otherwise, rollback
 	// restores the previous assignment and starts at most one all-at-once
-	// rollout for mismatched members.
+	// rollout for mismatched members. Clearing the first assignment may release
+	// assignment or rollout-history references, but command references remain
+	// protected by the cross-service invariant above. Commands already sent may
+	// finish under existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -514,10 +533,13 @@ type RolloutServiceHandler interface {
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
 	// Resumes a paused rollout where it left off.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
-	// Cancels the remaining work of an active rollout. Miners already
-	// updated keep the new firmware; miners not yet updated are left alone
-	// and are not picked up again until the assignment changes or their
-	// updates are retried.
+	// Cancels the remaining work of an active rollout. No new update commands
+	// are sent. Commands already sent may finish under existing cancellation
+	// semantics; their artifacts remain protected by the cross-service
+	// invariant above. Miners already updated, including by a command that
+	// finishes after cancellation, keep the new firmware; miners with no command
+	// sent are left alone and are not picked up again until the assignment
+	// changes or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new

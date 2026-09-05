@@ -594,8 +594,8 @@ export type FirmwareAssignment = Message<"rollout.v1.FirmwareAssignment"> & {
    * a current checksum or file identity, Fleet cannot detect a same-version
    * out-of-band, vendor, or manual replacement. Once referenced, the
    * artifact's deletion and target metadata are governed by the cross-service
-   * protection invariant above. Empty clears the assignment. Direct firmware
-   * uploads are outside this contract.
+   * protection invariant above. Empty clears the assignment but never a
+   * command reference. Direct firmware uploads are outside this contract.
    *
    * @generated from field: string firmware_file_id = 3;
    */
@@ -669,6 +669,8 @@ export type RolloutDeviceCounts = Message<"rollout.v1.RolloutDeviceCounts"> & {
   failed: number;
 
   /**
+   * Neutral terminal targets; kept distinct from done and failed.
+   *
    * @generated from field: int32 excluded = 6;
    */
   excluded: number;
@@ -929,6 +931,7 @@ export type Rollout = Message<"rollout.v1.Rollout"> & {
    * clears the current assignment and starts no rollout. A nonempty file id
    * remains covered by the cross-service protection invariant while this
    * rollout remains in history available to RollbackReleaseChannelFirmware.
+   * Command references remain independent of this history reference.
    *
    * @generated from field: string previous_firmware_file_id = 19;
    */
@@ -2317,29 +2320,38 @@ export enum RolloutStatus {
   ACTIVE = 1,
 
   /**
-   * Every targeted miner settled successfully under the operational criteria:
-   * it reports the target version, its historical managed-deployment provenance
-   * records the rollout's firmware_file_id as the last successful Fleet-managed
-   * deployment, it is back online, and it is hashing when baseline_hashing is
-   * true or has_baseline is false. A miner with a baseline that was not hashing
-   * does not need to be hashing. These criteria do not attest the current
-   * artifact. On devices without a current checksum or file identity, a
-   * same-version out-of-band, vendor, or manual replacement remains
-   * undetectable. Aggregate telemetry deltas do not affect this status.
+   * A rollout that is not canceled completes successfully when every target is
+   * DONE or EXCLUDED. EXCLUDED is a neutral settlement and may coexist with
+   * DONE without preventing successful completion. A DONE target reports the
+   * target version, its historical
+   * managed-deployment provenance records the rollout's firmware_file_id as
+   * the last successful Fleet-managed deployment, it is back online, and it
+   * is hashing when baseline_hashing is true or has_baseline is false. A miner
+   * with a baseline that was not hashing does not need to be hashing. These
+   * criteria do not attest the current artifact. On devices without a current
+   * checksum or file identity, a same-version out-of-band, vendor, or manual
+   * replacement remains undetectable. Aggregate telemetry deltas do not affect
+   * this status.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED = 2;
    */
   COMPLETED = 2,
 
   /**
-   * Every targeted miner settled, but some failed.
+   * A rollout that is not canceled completes with failures when every target
+   * is in a terminal phase (DONE, FAILED, or EXCLUDED) and at least one target
+   * is FAILED. EXCLUDED is a neutral settlement and may coexist with DONE or
+   * FAILED without deciding this status.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
    */
   COMPLETED_WITH_FAILURES = 3,
 
   /**
-   * Ended before completion; see cancel_reason.
+   * Ended by explicit cancellation, supersession, assignment clearing, or
+   * rollback; see cancel_reason. Cancellation takes precedence over device
+   * phases, so a canceled rollout remains CANCELED even when targets are
+   * terminal.
    *
    * @generated from enum value: ROLLOUT_STATUS_CANCELED = 4;
    */
@@ -2576,10 +2588,12 @@ export enum RolloutDevicePhase {
   FAILED = 5,
 
   /**
-   * Left the channel's scope while the rollout was running. No further
-   * rollout work is performed for this target. While it remains observed
-   * offline, it continues to consume a max_concurrent_offline slot until it
-   * is observed online.
+   * Neutral terminal settlement for a target that left the channel's scope
+   * while the rollout was running. It does not count as a failure or by itself
+   * decide between COMPLETED and COMPLETED_WITH_FAILURES. No further rollout
+   * work is performed for this target. While it remains observed offline, it
+   * continues to consume a max_concurrent_offline slot until it is observed
+   * online.
    *
    * @generated from enum value: ROLLOUT_DEVICE_PHASE_EXCLUDED = 6;
    */
@@ -2613,16 +2627,19 @@ export const RolloutDevicePhaseSchema: GenEnum<RolloutDevicePhase> = /*@__PURE__
  *
  * Firmware artifact target metadata is frozen and artifacts are
  * deletion-protected across service boundaries while operationally reachable
- * from rollout state. The firmware service must fail with FAILED_PRECONDITION
- * when an operation would delete a file or change its target manufacturer,
- * target model, or firmware version while its file id is a current channel
- * assignment, an active rollout target, a finished rollout target that remains
- * retryable because it still matches the current assignment, or a
- * previous_firmware_file_id retained in rollout history available to
- * RollbackReleaseChannelFirmware. Non-target descriptive metadata may remain
- * editable if it cannot affect dispatch or convergence. Deleting a release
- * channel removes its assignments and rollout history and may release those
- * references.
+ * from rollout state or an outstanding firmware command. The firmware service
+ * must fail with FAILED_PRECONDITION when an operation would delete a file or
+ * change its target manufacturer, target model, or firmware version while its
+ * file id is a current channel assignment, an active rollout target, a finished
+ * rollout target that remains retryable because it still matches the current
+ * assignment, a previous_firmware_file_id retained in rollout history available
+ * to RollbackReleaseChannelFirmware, or a firmware command from command enqueue
+ * until that command reaches a terminal state. Clearing an assignment, rolling back its
+ * first rollout, or deleting its channel may release assignment or history
+ * references but never the command reference. Commands already sent may finish
+ * under existing cancellation semantics; this protection does not introduce
+ * command cancellation behavior. Non-target descriptive metadata may remain
+ * editable if it cannot affect dispatch or convergence.
  *
  * "Rollout" is the engine's name; operator-facing copy calls it a firmware
  * update.
@@ -2715,7 +2732,9 @@ export const RolloutService: GenService<{
   };
   /**
    * Deletes a channel with its firmware assignments and rollout history,
-   * which may release their firmware artifacts from deletion protection.
+   * which may release those artifact references from deletion protection.
+   * Command references remain protected by the cross-service invariant above.
+   * Commands already sent may finish under existing cancellation semantics.
    * Miners keep whatever firmware they are running.
    *
    * @generated from rpc rollout.v1.RolloutService.DeleteReleaseChannel
@@ -2759,8 +2778,11 @@ export const RolloutService: GenService<{
    * same tuple also fails with FAILED_PRECONDITION before changing any
    * assignment or starting any rollout. This prevents ambiguity in the
    * firmware store; it does not attest the payload running on a device. An
-   * empty firmware_file_id remains valid and clears the assignment. Direct
-   * firmware uploads are outside this contract.
+   * empty firmware_file_id remains valid and clears the assignment. Clearing
+   * may release assignment or rollout-history references, but command
+   * references remain protected by the cross-service invariant above.
+   * Commands already sent may finish under existing cancellation semantics.
+   * Direct firmware uploads are outside this contract.
    *
    * @generated from rpc rollout.v1.RolloutService.ApplyReleaseChannelFirmware
    */
@@ -2775,7 +2797,10 @@ export const RolloutService: GenService<{
    * referenced rollout introduced the pair's first assignment, rollback
    * clears the current assignment and starts no rollout. Otherwise, rollback
    * restores the previous assignment and starts at most one all-at-once
-   * rollout for mismatched members.
+   * rollout for mismatched members. Clearing the first assignment may release
+   * assignment or rollout-history references, but command references remain
+   * protected by the cross-service invariant above. Commands already sent may
+   * finish under existing cancellation semantics.
    *
    * @generated from rpc rollout.v1.RolloutService.RollbackReleaseChannelFirmware
    */
@@ -2849,10 +2874,13 @@ export const RolloutService: GenService<{
     output: typeof ResumeRolloutResponseSchema;
   };
   /**
-   * Cancels the remaining work of an active rollout. Miners already
-   * updated keep the new firmware; miners not yet updated are left alone
-   * and are not picked up again until the assignment changes or their
-   * updates are retried.
+   * Cancels the remaining work of an active rollout. No new update commands
+   * are sent. Commands already sent may finish under existing cancellation
+   * semantics; their artifacts remain protected by the cross-service
+   * invariant above. Miners already updated, including by a command that
+   * finishes after cancellation, keep the new firmware; miners with no command
+   * sent are left alone and are not picked up again until the assignment
+   * changes or their updates are retried.
    *
    * @generated from rpc rollout.v1.RolloutService.CancelRollout
    */

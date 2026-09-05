@@ -258,19 +258,28 @@ const (
 	RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED RolloutStatus = 0
 	// The rollout is enforcing its firmware version.
 	RolloutStatus_ROLLOUT_STATUS_ACTIVE RolloutStatus = 1
-	// Every targeted miner settled successfully under the operational criteria:
-	// it reports the target version, its historical managed-deployment provenance
-	// records the rollout's firmware_file_id as the last successful Fleet-managed
-	// deployment, it is back online, and it is hashing when baseline_hashing is
-	// true or has_baseline is false. A miner with a baseline that was not hashing
-	// does not need to be hashing. These criteria do not attest the current
-	// artifact. On devices without a current checksum or file identity, a
-	// same-version out-of-band, vendor, or manual replacement remains
-	// undetectable. Aggregate telemetry deltas do not affect this status.
+	// A rollout that is not canceled completes successfully when every target is
+	// DONE or EXCLUDED. EXCLUDED is a neutral settlement and may coexist with
+	// DONE without preventing successful completion. A DONE target reports the
+	// target version, its historical
+	// managed-deployment provenance records the rollout's firmware_file_id as
+	// the last successful Fleet-managed deployment, it is back online, and it
+	// is hashing when baseline_hashing is true or has_baseline is false. A miner
+	// with a baseline that was not hashing does not need to be hashing. These
+	// criteria do not attest the current artifact. On devices without a current
+	// checksum or file identity, a same-version out-of-band, vendor, or manual
+	// replacement remains undetectable. Aggregate telemetry deltas do not affect
+	// this status.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED RolloutStatus = 2
-	// Every targeted miner settled, but some failed.
+	// A rollout that is not canceled completes with failures when every target
+	// is in a terminal phase (DONE, FAILED, or EXCLUDED) and at least one target
+	// is FAILED. EXCLUDED is a neutral settlement and may coexist with DONE or
+	// FAILED without deciding this status.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES RolloutStatus = 3
-	// Ended before completion; see cancel_reason.
+	// Ended by explicit cancellation, supersession, assignment clearing, or
+	// rollback; see cancel_reason. Cancellation takes precedence over device
+	// phases, so a canceled rollout remains CANCELED even when targets are
+	// terminal.
 	RolloutStatus_ROLLOUT_STATUS_CANCELED RolloutStatus = 4
 )
 
@@ -547,10 +556,12 @@ const (
 	// slots no longer affect that canceled rollout; it does not waive offline
 	// state.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_FAILED RolloutDevicePhase = 5
-	// Left the channel's scope while the rollout was running. No further
-	// rollout work is performed for this target. While it remains observed
-	// offline, it continues to consume a max_concurrent_offline slot until it
-	// is observed online.
+	// Neutral terminal settlement for a target that left the channel's scope
+	// while the rollout was running. It does not count as a failure or by itself
+	// decide between COMPLETED and COMPLETED_WITH_FAILURES. No further rollout
+	// work is performed for this target. While it remains observed offline, it
+	// continues to consume a max_concurrent_offline slot until it is observed
+	// online.
 	RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_EXCLUDED RolloutDevicePhase = 6
 )
 
@@ -1503,8 +1514,8 @@ type FirmwareAssignment struct {
 	// a current checksum or file identity, Fleet cannot detect a same-version
 	// out-of-band, vendor, or manual replacement. Once referenced, the
 	// artifact's deletion and target metadata are governed by the cross-service
-	// protection invariant above. Empty clears the assignment. Direct firmware
-	// uploads are outside this contract.
+	// protection invariant above. Empty clears the assignment but never a
+	// command reference. Direct firmware uploads are outside this contract.
 	FirmwareFileId string `protobuf:"bytes,3,opt,name=firmware_file_id,json=firmwareFileId,proto3" json:"firmware_file_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1618,13 +1629,14 @@ func (x *MetricComparison) GetCurrent() float64 {
 
 // Per-phase miner counts for a rollout or for one of its batches.
 type RolloutDeviceCounts struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Queued        int32                  `protobuf:"varint,1,opt,name=queued,proto3" json:"queued,omitempty"`
-	InProgress    int32                  `protobuf:"varint,2,opt,name=in_progress,json=inProgress,proto3" json:"in_progress,omitempty"`
-	Retrying      int32                  `protobuf:"varint,3,opt,name=retrying,proto3" json:"retrying,omitempty"`
-	Done          int32                  `protobuf:"varint,4,opt,name=done,proto3" json:"done,omitempty"`
-	Failed        int32                  `protobuf:"varint,5,opt,name=failed,proto3" json:"failed,omitempty"`
-	Excluded      int32                  `protobuf:"varint,6,opt,name=excluded,proto3" json:"excluded,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Queued     int32                  `protobuf:"varint,1,opt,name=queued,proto3" json:"queued,omitempty"`
+	InProgress int32                  `protobuf:"varint,2,opt,name=in_progress,json=inProgress,proto3" json:"in_progress,omitempty"`
+	Retrying   int32                  `protobuf:"varint,3,opt,name=retrying,proto3" json:"retrying,omitempty"`
+	Done       int32                  `protobuf:"varint,4,opt,name=done,proto3" json:"done,omitempty"`
+	Failed     int32                  `protobuf:"varint,5,opt,name=failed,proto3" json:"failed,omitempty"`
+	// Neutral terminal targets; kept distinct from done and failed.
+	Excluded      int32 `protobuf:"varint,6,opt,name=excluded,proto3" json:"excluded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1927,6 +1939,7 @@ type Rollout struct {
 	// clears the current assignment and starts no rollout. A nonempty file id
 	// remains covered by the cross-service protection invariant while this
 	// rollout remains in history available to RollbackReleaseChannelFirmware.
+	// Command references remain independent of this history reference.
 	PreviousFirmwareFileId string `protobuf:"bytes,19,opt,name=previous_firmware_file_id,json=previousFirmwareFileId,proto3" json:"previous_firmware_file_id,omitempty"`
 	// Version of the previous assignment; empty when there was no previous
 	// assignment.
