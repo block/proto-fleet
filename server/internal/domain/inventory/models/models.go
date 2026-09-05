@@ -45,8 +45,8 @@ type InventoryPart struct {
 // InventoryInsights is the aggregate stats shape for the inventory
 // insights row displayed above the parts table.
 type InventoryInsights struct {
-	TotalOnHand    int32
-	TotalAllocated int32
+	TotalOnHand    int64
+	TotalAllocated int64
 	LowStockCount  int32
 	SitesCount     int32
 	PartTypes      []string

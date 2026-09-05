@@ -2,11 +2,20 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TicketDetailModal from "./TicketDetailModal";
+import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketDetail } from "@/protoFleet/features/maintenance/types";
 const update = vi.fn();
 const addComment = vi.fn();
 const removeComment = vi.fn();
+const { lookupMinerByIdentifier, openMinerView } = vi.hoisted(() => ({
+  lookupMinerByIdentifier: vi.fn(),
+  openMinerView: vi.fn(),
+}));
+vi.mock("@/protoFleet/api/lookupMinerByIdentifier", () => ({ lookupMinerByIdentifier }));
+vi.mock("@/protoFleet/components/SingleMinerWrapper/useOpenMinerView", () => ({
+  useOpenMinerView: () => openMinerView,
+}));
 const ticket: TicketDetail = {
   id: "1",
   ticketNumber: "TK-1",
@@ -80,6 +89,7 @@ vi.mock("@/protoFleet/store", () => ({ useHasPermission: () => true }));
 describe("TicketDetailModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lookupMinerByIdentifier.mockResolvedValue({ status: "notFound" });
     detailState.data = ticket;
     detailState.loading = false;
     detailState.error = null;
@@ -117,6 +127,29 @@ describe("TicketDetailModal", () => {
     expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Complete repair" })).toBeInTheDocument();
   });
+  it("opens linked miners through the supported miner viewer", async () => {
+    const snapshot = { deviceIdentifier: "M1", embeddedWebViewAvailable: false, url: "http://miner.test" };
+    lookupMinerByIdentifier.mockResolvedValue({ status: "found", snapshot });
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(lookupMinerByIdentifier).toHaveBeenCalledWith(
+        "M1",
+        MinerIdentifierType.UNSPECIFIED,
+        expect.any(AbortSignal),
+      ),
+    );
+    const minerButton = screen.getByRole("button", { name: "Miner M1" });
+    await waitFor(() => expect(minerButton).toBeEnabled());
+    fireEvent.click(minerButton);
+
+    expect(openMinerView).toHaveBeenCalledWith(snapshot);
+  });
+
   it("uses compact accessible controls to navigate the visible ticket page", () => {
     render(
       <MemoryRouter>

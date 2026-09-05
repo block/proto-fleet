@@ -324,8 +324,9 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		}
 
 		var parts []models.PartUsage
+		partsChanged := false
 		if params.PartsSelection != nil || targetStatus == models.TicketStatusCompleted {
-			parts, err = s.reconcileParts(txCtx, current, params.PartsSelection, params.ExpectedPartsSelection)
+			parts, partsChanged, err = s.reconcileParts(txCtx, current, params.PartsSelection, params.ExpectedPartsSelection)
 			if err != nil {
 				return nil, err
 			}
@@ -339,6 +340,9 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			if err := s.store.MarkTicketPartsConsumed(txCtx, params.OrgID, params.ID); err != nil {
 				return nil, err
 			}
+		}
+		if ticketUpdateSatisfied(current, params) && !partsChanged {
+			return &ticketUpdateResult{ticket: current}, nil
 		}
 		updated, err := s.store.UpdateRepairTicket(txCtx, params)
 		if err != nil {
@@ -964,28 +968,31 @@ func (s *Service) ListAssignees(ctx context.Context, orgID int64) ([]models.Assi
 // Helpers
 // ---------------------------------------------------------------
 
-func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicket, requested, expected *[]models.PartUsage) ([]models.PartUsage, error) {
+func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicket, requested, expected *[]models.PartUsage) ([]models.PartUsage, bool, error) {
 	existing, err := s.store.ListTicketParts(ctx, ticket.OrgID, ticket.ID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	current := activeParts(existing)
 	if requested == nil {
-		return current, nil
+		return current, false, nil
 	}
 	if expected == nil {
-		return nil, fleeterror.NewInvalidArgumentError("expected_parts_selection is required when replacing ticket parts")
+		return nil, false, fleeterror.NewInvalidArgumentError("expected_parts_selection is required when replacing ticket parts")
 	}
 	expectedParts, err := normalizeParts(*expected)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !samePartQuantities(current, expectedParts) {
-		return nil, fleeterror.NewFailedPreconditionError("ticket parts changed; refresh the ticket before saving")
+		return nil, false, fleeterror.NewFailedPreconditionError("ticket parts changed; refresh the ticket before saving")
 	}
 	next, err := normalizeParts(*requested)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if samePartQuantities(current, next) {
+		return current, false, nil
 	}
 	currentByID := partsByID(current)
 	nextByID := partsByID(next)
@@ -1008,14 +1015,14 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 	for _, id := range ids {
 		part, err := s.inventory.GetForUpdate(ctx, ticket.OrgID, id)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		index, requested := nextIndexes[id]
 		if !requested {
 			continue
 		}
 		if ticket.SiteID == nil || part.SiteID == nil || *ticket.SiteID != *part.SiteID {
-			return nil, fleeterror.NewFailedPreconditionErrorf(
+			return nil, false, fleeterror.NewFailedPreconditionErrorf(
 				"inventory part %d is not stocked at the ticket site",
 				id,
 			)
@@ -1027,23 +1034,23 @@ func (s *Service) reconcileParts(ctx context.Context, ticket *models.RepairTicke
 		switch {
 		case delta > 0:
 			if err := s.inventory.Reserve(ctx, ticket.OrgID, id, delta); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		case delta < 0:
 			if err := s.inventory.Release(ctx, ticket.OrgID, id, -delta); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 	}
 	if err := s.store.SetTicketParts(ctx, ticket.OrgID, ticket.ID); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, part := range next {
 		if err := s.store.InsertTicketPart(ctx, ticket.OrgID, ticket.ID, part.InventoryPartID, part.PartName, part.Quantity); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return next, nil
+	return next, true, nil
 }
 
 func (s *Service) requireMutableTickets(ctx context.Context, orgID int64, ids []int64) ([]*int64, error) {
@@ -1128,6 +1135,53 @@ func partsByID(parts []models.PartUsage) map[int64]models.PartUsage {
 	return result
 }
 
+func ticketUpdateSatisfied(current *models.RepairTicket, params models.UpdateParams) bool {
+	if params.Status != nil && current.Status != *params.Status {
+		return false
+	}
+	if params.Urgent != nil && current.Urgent != *params.Urgent {
+		return false
+	}
+	if params.ClearAssignee {
+		if current.AssigneeUserID != nil {
+			return false
+		}
+	} else if params.AssigneeUserID != nil && !optionalInt64Equal(current.AssigneeUserID, params.AssigneeUserID) {
+		return false
+	}
+	if params.Component != nil && current.Component != *params.Component {
+		return false
+	}
+	if params.Diagnosis != nil && !optionalStringEqual(current.Diagnosis, params.Diagnosis) {
+		return false
+	}
+	if params.WarrantyStatus != nil && current.WarrantyStatus != *params.WarrantyStatus {
+		return false
+	}
+	if params.Resolution != nil && current.Resolution != *params.Resolution {
+		return false
+	}
+	if params.RepairLocation != nil && current.RepairLocation != *params.RepairLocation {
+		return false
+	}
+	if params.Notes != nil && !optionalStringEqual(current.Notes, params.Notes) {
+		return false
+	}
+	if params.RMAVendor != nil && !optionalStringEqual(current.RMAVendor, params.RMAVendor) {
+		return false
+	}
+	if params.RMATracking != nil && !optionalStringEqual(current.RMATracking, params.RMATracking) {
+		return false
+	}
+	if params.ClearRMAEta {
+		return current.RMAEta == nil
+	}
+	if params.RMAEta != nil && (current.RMAEta == nil || !current.RMAEta.Equal(*params.RMAEta)) {
+		return false
+	}
+	return true
+}
+
 func hasTicketMutation(params models.UpdateParams) bool {
 	return params.Status != nil || params.Urgent != nil || params.AssigneeUserID != nil || params.ClearAssignee ||
 		params.Component != nil || params.Diagnosis != nil || params.WarrantyStatus != nil || params.Resolution != nil ||
@@ -1193,6 +1247,13 @@ func validateCompletion(category models.TicketCategory, resolution models.Ticket
 		return fleeterror.NewInvalidArgumentError("repair_location is only valid for repaired or replaced miner tickets")
 	}
 	return nil
+}
+
+func optionalStringEqual(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func optionalInt64Equal(left, right *int64) bool {

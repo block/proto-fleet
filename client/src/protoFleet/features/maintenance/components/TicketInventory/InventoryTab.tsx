@@ -217,7 +217,7 @@ const InventoryTab = () => {
 
 interface InsightProps {
   label: string;
-  value: number;
+  value: number | bigint;
   actionLabel?: string;
   active?: boolean;
   onActivate?: () => void;
@@ -227,7 +227,7 @@ const Insight = ({ label, value, actionLabel, active = false, onActivate }: Insi
   const content = (
     <>
       <span className="text-300 text-text-primary-50">{label}</span>
-      <strong className="text-heading-400 font-medium">{value}</strong>
+      <strong className="text-heading-400 font-medium">{value.toLocaleString()}</strong>
     </>
   );
   return onActivate ? (

@@ -64,8 +64,8 @@ message InventoryPart {
 }
 
 message InventoryInsights {
-    int32 total_on_hand   = 1;
-    int32 total_allocated = 2;
+    int64 total_on_hand   = 1;
+    int64 total_allocated = 2;
     int32 low_stock_count = 3;
     int32 sites_count     = 4;
     repeated string part_types = 5;

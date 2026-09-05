@@ -121,8 +121,8 @@ WHERE id = sqlc.arg('id')
 
 -- name: GetInventoryInsights :one
 SELECT
-    COALESCE(SUM(on_hand), 0)::int AS total_on_hand,
-    COALESCE(SUM(allocated), 0)::int AS total_allocated,
+    COALESCE(SUM(on_hand), 0)::bigint AS total_on_hand,
+    COALESCE(SUM(allocated), 0)::bigint AS total_allocated,
     COUNT(*) FILTER (WHERE (on_hand - allocated) <= reorder_point)::int AS low_stock_count,
     COUNT(DISTINCT site_id)::int AS sites_count,
     COALESCE(array_agg(DISTINCT type ORDER BY type), '{}')::text[] AS part_types

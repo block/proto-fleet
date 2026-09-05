@@ -1,12 +1,17 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import CompletionForm from "./CompletionForm";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
 import TicketComments from "./TicketComments";
+import {
+  MinerIdentifierType,
+  type MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
 import type { UpdateTicketProps } from "@/protoFleet/api/maintenance";
+import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
 import type { PartUsageItem } from "@/protoFleet/features/maintenance/types";
@@ -58,8 +63,9 @@ const TicketDetailModal = ({
   onMutationSuccess,
   ticketIds = [ticketId],
 }: TicketDetailModalProps) => {
-  const navigate = useNavigate();
   const canManage = useHasPermission("maintenance:manage");
+  const canReadMiners = useHasPermission("miner:read");
+  const openMinerView = useOpenMinerView();
   const [currentId, setCurrentId] = useState(ticketId);
   const detail = useTicketDetail(currentId);
   const options = useMaintenanceOptions();
@@ -71,8 +77,37 @@ const TicketDetailModal = ({
   const [vendor, setVendor] = useState("");
   const [tracking, setTracking] = useState("");
   const [eta, setEta] = useState("");
+  const [minerLookup, setMinerLookup] = useState<{
+    identifier: string;
+    snapshot: MinerStateSnapshot | null;
+    error: string | null;
+  }>({ identifier: "", snapshot: null, error: null });
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
+  const minerIdentifier = ticket?.category === "miner" ? ticket.minerIdentifier : null;
+  const linkedMiner = minerLookup.identifier === minerIdentifier ? minerLookup.snapshot : null;
+  const minerLinkError = minerLookup.identifier === minerIdentifier ? minerLookup.error : null;
+  useEffect(() => {
+    if (!minerIdentifier || !canReadMiners) return;
+    let active = true;
+    const controller = new AbortController();
+    void lookupMinerByIdentifier(minerIdentifier, MinerIdentifierType.UNSPECIFIED, controller.signal).then((result) => {
+      if (!active) return;
+      if (result.status === "found") {
+        setMinerLookup({ identifier: minerIdentifier, snapshot: result.snapshot, error: null });
+      } else {
+        setMinerLookup({
+          identifier: minerIdentifier,
+          snapshot: null,
+          error: result.status === "notFound" ? "Miner is no longer available." : result.message,
+        });
+      }
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [canReadMiners, minerIdentifier]);
   const openCompletionEditor = () => {
     if (!ticket) return;
     setCompletionParts(ticket.partsUsed.map((part) => ({ ...part })));
@@ -285,18 +320,23 @@ const TicketDetailModal = ({
               <span>ETA: {ticket.rmaEta?.toLocaleDateString(undefined, { timeZone: "UTC" }) ?? "—"}</span>
             </div>
           ) : null}
-          {ticket.category === "miner" && ticket.minerIdentifier ? (
-            <button
-              type="button"
-              className="flex items-center gap-3 rounded-xl bg-surface-5 p-4"
-              onClick={() => {
-                onDismiss();
-                navigate(`/miners/${ticket.minerIdentifier}`);
-              }}
-            >
-              <Fleet width="w-5" />
-              Miner {ticket.minerIdentifier}
-            </button>
+          {ticket.category === "miner" && ticket.minerIdentifier && canReadMiners ? (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-3 rounded-xl bg-surface-5 p-4 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!linkedMiner}
+                onClick={() => {
+                  if (!linkedMiner) return;
+                  onDismiss();
+                  openMinerView(linkedMiner);
+                }}
+              >
+                <Fleet width="w-5" />
+                Miner {ticket.minerIdentifier}
+              </button>
+              {minerLinkError ? <div role="alert">{minerLinkError}</div> : null}
+            </div>
           ) : null}
           {ticket.status === "completed" ? (
             <ResolutionSectionContent

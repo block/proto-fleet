@@ -198,6 +198,7 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 	}
 
 	var before, after *models.InventoryPart
+	updated := false
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if params.SiteID != nil {
 			if err := s.store.LockSites(txCtx, params.OrgID, []int64{*params.SiteID}); err != nil {
@@ -209,6 +210,11 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 		if err != nil {
 			return err
 		}
+		updated = false
+		after = before
+		if inventoryUpdateSatisfied(before, params) {
+			return nil
+		}
 		if params.OnHand != nil && before.OnHand != *params.ExpectedOnHand {
 			return fleeterror.NewFailedPreconditionError("inventory stock changed; refresh the part before adjusting it")
 		}
@@ -219,13 +225,14 @@ func (s *Service) UpdatePart(ctx context.Context, params models.UpdateParams) (*
 			return fleeterror.NewFailedPreconditionError("site cannot be changed while stock is allocated")
 		}
 		after, err = s.store.Update(txCtx, params)
+		updated = err == nil
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	if s.activitySvc != nil {
+	if s.activitySvc != nil && updated {
 		orgID := params.OrgID
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,
@@ -523,6 +530,22 @@ func valueOrZero(value *int64) int64 {
 
 func sameOptionalID(left, right *int64) bool {
 	return valueOrZero(left) == valueOrZero(right)
+}
+
+func inventoryUpdateSatisfied(current *models.InventoryPart, params models.UpdateParams) bool {
+	if params.OnHand != nil && current.OnHand != *params.OnHand {
+		return false
+	}
+	if params.ReorderPoint != nil && current.ReorderPoint != *params.ReorderPoint {
+		return false
+	}
+	if params.BinLocation != nil && (current.BinLocation == nil || *current.BinLocation != *params.BinLocation) {
+		return false
+	}
+	if params.SiteID != nil && !sameOptionalID(current.SiteID, params.SiteID) {
+		return false
+	}
+	return true
 }
 
 // buildColumnIndex maps header names to their positional index.

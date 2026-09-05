@@ -193,6 +193,24 @@ func TestInventoryStoreListFiltersCursorInsightsAndSitePicker(t *testing.T) {
 	}, insights)
 }
 
+func TestInventoryInsightsSupportsOrganizationTotalsAboveInt32(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLInventoryStore(db)
+	orgID := insertInventoryTestOrg(t, db, "large-insights")
+	const maxInt32 = int32(2_147_483_647)
+
+	_, err := store.Create(ctx, inventorymodels.CreateParams{OrgID: orgID, Name: "Fan A", Type: "fan", OnHand: maxInt32})
+	require.NoError(t, err)
+	_, err = store.Create(ctx, inventorymodels.CreateParams{OrgID: orgID, Name: "Fan B", Type: "fan", OnHand: maxInt32})
+	require.NoError(t, err)
+
+	insights, err := store.GetInsights(ctx, orgID)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(4_294_967_294), insights.TotalOnHand)
+}
+
 func TestInventoryStoreConcurrentReserveConsumeAndRelease(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()

@@ -339,6 +339,31 @@ func TestUpdatePartAuditsBeforeAndAfter(t *testing.T) {
 	assert.Equal(t, newPart, part)
 }
 
+func TestUpdatePartRetryDoesNotWriteOrEmitActivity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockInventoryStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(store, transactor, activity.NewService(activityStore))
+	const orgID = int64(42)
+	const partID = int64(9)
+	reorderPoint := int32(3)
+	params := models.UpdateParams{
+		OrgID: orgID, ID: partID, ReorderPoint: &reorderPoint, Reason: models.AdjustmentReasonCycleCount,
+	}
+	current := &models.InventoryPart{ID: partID, OrgID: orgID, Name: "Fan", OnHand: 8, ReorderPoint: reorderPoint}
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action func(context.Context) error) error { return action(ctx) },
+	)
+	store.EXPECT().GetForUpdate(gomock.Any(), orgID, partID).Return(current, nil)
+
+	part, err := service.UpdatePart(t.Context(), params)
+
+	require.NoError(t, err)
+	assert.Equal(t, current, part)
+}
+
 func TestDeletePartScopesActivityToPersistedSite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockInventoryStore(ctrl)

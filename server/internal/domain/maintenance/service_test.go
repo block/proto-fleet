@@ -121,7 +121,9 @@ func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 							tickets.EXPECT().ListTicketParts(gomock.Any(), int64(20), int64(10)).Return(nil, nil)
 							tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(20), int64(10)).Return(nil)
 						}
-						tickets.EXPECT().UpdateRepairTicket(gomock.Any(), params).Return(&updated, nil)
+						if from != to || params.RMAVendor != nil {
+							tickets.EXPECT().UpdateRepairTicket(gomock.Any(), params).Return(&updated, nil)
+						}
 					}
 					got, err := service.UpdateRepairTicket(t.Context(), params)
 					require.NoError(t, err)
@@ -219,6 +221,30 @@ func TestCompletedTicketRetryDoesNotWriteActivity(t *testing.T) {
 	ticket, err := service.UpdateRepairTicket(t.Context(), params)
 	require.NoError(t, err)
 	assert.Equal(t, current, ticket)
+}
+
+func TestActiveTicketRetryDoesNotWriteOrEmitActivity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	tickets := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	service := NewService(
+		tickets,
+		mocks.NewMockMaintenanceReferenceStore(ctrl),
+		mocks.NewMockInventoryStore(ctrl),
+		tx,
+		activity.NewService(activityStore),
+	)
+	status := models.TicketStatusInProgress
+	current := &models.RepairTicket{ID: 3, OrgID: 2, Status: status}
+
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+	tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(2), int64(3)).Return(current, nil)
+
+	updated, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{OrgID: 2, ID: 3, Status: &status})
+
+	require.NoError(t, err)
+	assert.Equal(t, current, updated)
 }
 
 func TestUpdateRepairTicketRejectsEmptyMutation(t *testing.T) {

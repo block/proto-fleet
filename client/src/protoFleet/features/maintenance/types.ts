@@ -88,8 +88,8 @@ export type InventoryPartItem = {
 };
 
 export type InventoryInsightsItem = {
-  totalOnHand: number;
-  totalAllocated: number;
+  totalOnHand: bigint;
+  totalAllocated: bigint;
   lowStockCount: number;
   sitesCount: number;
   partTypes: string[];
