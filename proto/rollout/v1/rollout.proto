@@ -217,17 +217,31 @@ enum RolloutOrder {
 }
 
 // Aggregate telemetry limits a reviewed batch must satisfy for the rollout
-// to continue without an operator. An unset threshold is not checked.
+// to continue without an operator. An unset limit is not checked.
+//
+// Coverage rule: a set telemetry limit is judged against the RolloutEvidence
+// aggregate for its metric and fails closed. It passes only when that
+// aggregate samples at least one miner and at least
+// min_sample_coverage_percent of the verified miners under review; otherwise
+// the gate holds and hold_reason names the metric. An absent aggregate is
+// never treated as zero change.
 message RolloutAutomationThresholds {
     // Largest acceptable aggregate hashrate drop versus baseline, percent.
+    // Judged against RolloutEvidence.hash_rate_hs.
     optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100}];
-    // Largest acceptable mean efficiency (J/TH) increase versus baseline, percent.
+    // Largest acceptable mean efficiency (J/TH) increase versus baseline,
+    // percent. Judged against RolloutEvidence.efficiency_jh.
     optional double max_efficiency_increase_percent = 2 [(buf.validate.field).double = {gte: 0}];
     // Largest acceptable mean temperature increase versus baseline, °C.
+    // Judged against RolloutEvidence.temp_c.
     optional double max_temperature_increase_celsius = 3 [(buf.validate.field).double = {gte: 0}];
     // Largest acceptable number of errors opened since baseline, summed over
-    // the batch.
+    // the batch. Error counts cover every miner, so no coverage rule applies.
     optional int32 max_new_errors = 4 [(buf.validate.field).int32 = {gte: 0}];
+    // Minimum share of verified miners under review that an aggregate must
+    // sample before the limit for its metric can pass. Defaults to 100 when
+    // unset.
+    optional double min_sample_coverage_percent = 5 [(buf.validate.field).double = {gt: 0, lte: 100}];
 }
 
 // How updates started in a channel are staged and dispatched. Stored on the
@@ -259,8 +273,9 @@ message RolloutBehavior {
     // always gates after the pilot.
     bool review_after_each_batch = 6;
     // Release a gate automatically once the DONE count and failed-device
-    // checks pass, aggregate telemetry meets the configured thresholds, and
-    // stabilization_seconds has elapsed.
+    // checks pass, every set threshold passes under the
+    // RolloutAutomationThresholds coverage rule, and stabilization_seconds
+    // has elapsed.
     bool auto_continue_on_healthy_telemetry = 7;
     // How long a verified batch must hold at the gate before it can
     // auto-continue, so post-update telemetry has settled.
@@ -282,14 +297,14 @@ message RolloutBehavior {
 // A release channel with its scope and aggregate member counts.
 message ReleaseChannel {
     int64 id = 1;
-    string name = 2;
-    string description = 3;
+    string name = 2 [(buf.validate.field).string.max_len = 100];
+    string description = 3 [(buf.validate.field).string.max_len = 1000];
     ReleaseChannelScope scope = 4;
     RolloutBehavior behavior = 5;
     // Total manufacturer/model groups, including assigned pairs with no
     // current members. Retrieve details with ListReleaseChannelModelGroups.
-    int32 model_group_count = 6;
-    int32 miner_count = 7;
+    int32 model_group_count = 6 [(buf.validate.field).int32.gte = 0];
+    int32 miner_count = 7 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 8;
     google.protobuf.Timestamp updated_at = 9;
 }
@@ -297,15 +312,15 @@ message ReleaseChannel {
 // Scope-free release channel details with aggregate member counts.
 message ReleaseChannelSummary {
     int64 id = 1;
-    string name = 2;
-    string description = 3;
+    string name = 2 [(buf.validate.field).string.max_len = 100];
+    string description = 3 [(buf.validate.field).string.max_len = 1000];
     RolloutBehavior behavior = 4;
-    int32 miner_count = 6;
+    int32 miner_count = 6 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
     // Total manufacturer/model groups, including assigned pairs with no
     // current members. Retrieve details with ListReleaseChannelModelGroups.
-    int32 model_group_count = 9;
+    int32 model_group_count = 9 [(buf.validate.field).int32.gte = 0];
 }
 
 // Summary for one observed manufacturer/model pair in a channel, including
@@ -317,6 +332,11 @@ message ReleaseChannelModelGroup {
         id: "reported_version_count_covers_returned_versions"
         message: "reported_version_count must be at least the number of reported_versions"
         expression: "this.reported_version_count >= this.reported_versions.size()"
+    };
+    option (buf.validate.message).cel = {
+        id: "on_target_count_within_miner_count"
+        message: "on_target_count must not exceed miner_count"
+        expression: "this.on_target_count <= this.miner_count"
     };
     option (buf.validate.message).cel = {
         id: "firmware_assignment_is_absent_or_complete"
@@ -334,13 +354,13 @@ message ReleaseChannelModelGroup {
     // reference follows the RolloutService artifact-protection invariant.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
     // Target firmware version; empty when no firmware is assigned.
-    string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
-    int32 miner_count = 5;
+    string firmware_version = 4 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    int32 miner_count = 5 [(buf.validate.field).int32.gte = 0];
     // Id of the active rollout for this firmware target pair, 0 if none.
-    int64 active_rollout_id = 6;
+    int64 active_rollout_id = 6 [(buf.validate.field).int64.gte = 0];
     // Members reporting the assigned version whose RolloutService
     // managed-deployment provenance equals firmware_file_id; 0 when unassigned.
-    int32 on_target_count = 7;
+    int32 on_target_count = 7 [(buf.validate.field).int32.gte = 0];
     // The first 10 sorted distinct firmware versions members currently report.
     // Lets a client show "1.0.0 -> 2.0.0" or "Mixed -> 2.0.0" without listing
     // miners.
@@ -351,7 +371,7 @@ message ReleaseChannelModelGroup {
     }];
     // Total distinct reported versions before reported_versions is truncated.
     // A value greater than the length of reported_versions means truncation.
-    int32 reported_version_count = 9;
+    int32 reported_version_count = 9 [(buf.validate.field).int32.gte = 0];
     // Canonical printable-ASCII manufacturer assignment key with no
     // surrounding spaces. Empty when no firmware is assigned.
     string firmware_target_manufacturer = 10 [(buf.validate.field).string.max_len = 255];
@@ -366,11 +386,11 @@ message ReleaseChannelModelGroup {
 // identity is unknown.
 message ReleaseChannelMiner {
     int64 device_id = 1;
-    string device_identifier = 2;
+    string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
     string model = 4 [(buf.validate.field).string.max_len = 255];
     // Firmware version the miner currently reports.
-    string firmware_version = 5;
+    string firmware_version = 5 [(buf.validate.field).string.max_len = 255];
     // Set when the miner belongs to this channel but also matches another under
     // the RolloutService membership rule. Query all matching relations with
     // ListReleaseChannelMembershipConflicts.
@@ -430,7 +450,8 @@ message FirmwareAssignment {
     // Firmware file to enforce for this pair. A nonempty id must identify an
     // immutable payload with complete target metadata: nonempty target
     // manufacturer and target model, plus a firmware version of 1..255 Unicode
-    // code points. The normalized metadata target must match this normalized
+    // code points; none may contain U+0000, which stored text cannot hold.
+    // The normalized metadata target must match this normalized
     // assignment target. One normalized manufacturer/model/version tuple
     // identifies exactly one release-channel firmware file: reusing its id is
     // valid, but using another id for the tuple is not.
@@ -546,53 +567,90 @@ message MetricComparison {
     optional double current = 2;
 }
 
+// One telemetry metric aggregated over the verified miners under review that
+// have both halves. Both halves are present exactly when at least one miner
+// is sampled, so an absent aggregate is never mistaken for zero change.
+message AggregateMetricComparison {
+    option (buf.validate.message).cel = {
+        id: "aggregate_present_iff_sampled"
+        message: "baseline and current must both be set when sampled_devices is positive and unset otherwise"
+        expression: "(has(this.baseline) && has(this.current)) == (this.sampled_devices > 0)"
+    };
+
+    optional double baseline = 1;
+    optional double current = 2;
+    // Miners with both halves that contribute to this aggregate.
+    int32 sampled_devices = 3 [(buf.validate.field).int32.gte = 0];
+}
+
 // Per-phase miner counts for a rollout or for one of its batches.
 message RolloutDeviceCounts {
-    int32 queued = 1;
-    int32 in_progress = 2;
-    int32 retrying = 3;
-    int32 done = 4;
-    int32 failed = 5;
+    int32 queued = 1 [(buf.validate.field).int32.gte = 0];
+    int32 in_progress = 2 [(buf.validate.field).int32.gte = 0];
+    int32 retrying = 3 [(buf.validate.field).int32.gte = 0];
+    int32 done = 4 [(buf.validate.field).int32.gte = 0];
+    int32 failed = 5 [(buf.validate.field).int32.gte = 0];
     // Neutral terminal targets; kept distinct from done and failed.
-    int32 excluded = 6;
+    int32 excluded = 6 [(buf.validate.field).int32.gte = 0];
 }
 
 // Post-update evidence for the miners under review: the batch at the gate
 // (or in flight), or every target in the rest stage. Compared against each
 // miner's own baseline.
 message RolloutEvidence {
-    int32 devices_total = 1;
+    option (buf.validate.message).cel = {
+        id: "evidence_counts_within_devices_total"
+        message: "verified plus failed, online, hashing, and baseline_hashing must not exceed devices_total"
+        expression: "this.verified + this.failed <= this.devices_total && this.online <= this.devices_total && this.hashing <= this.devices_total && this.baseline_hashing <= this.devices_total"
+    };
+    option (buf.validate.message).cel = {
+        id: "aggregate_coverage_within_verified"
+        message: "an aggregate may sample at most the verified miners"
+        expression: "this.hash_rate_hs.sampled_devices <= this.verified && this.power_w.sampled_devices <= this.verified && this.efficiency_jh.sampled_devices <= this.verified && this.temp_c.sampled_devices <= this.verified"
+    };
+    option (buf.validate.message).cel = {
+        id: "derived_changes_require_samples"
+        message: "a derived change must be unset when its aggregate samples no miners"
+        expression: "(!has(this.hashrate_change_percent) || this.hash_rate_hs.sampled_devices > 0) && (!has(this.efficiency_change_percent) || this.efficiency_jh.sampled_devices > 0) && (!has(this.temperature_change_celsius) || this.temp_c.sampled_devices > 0)"
+    };
+
+    int32 devices_total = 1 [(buf.validate.field).int32.gte = 0];
     // Miners in the DONE phase. Per-device telemetry deltas do not affect
     // this count.
-    int32 verified = 2;
-    int32 online = 3;
-    int32 hashing = 4;
+    int32 verified = 2 [(buf.validate.field).int32.gte = 0];
+    int32 online = 3 [(buf.validate.field).int32.gte = 0];
+    int32 hashing = 4 [(buf.validate.field).int32.gte = 0];
     // How many of these miners were hashing before the update.
-    int32 baseline_hashing = 5;
-    int32 failed = 6;
+    int32 baseline_hashing = 5 [(buf.validate.field).int32.gte = 0];
+    int32 failed = 6 [(buf.validate.field).int32.gte = 0];
     // Aggregate hashrate change versus baseline, percent (negative is a
-    // drop). Only meaningful when hash_rate_hs has both halves.
-    double hashrate_change_percent = 7;
+    // drop). Unset when hash_rate_hs samples no miners.
+    optional double hashrate_change_percent = 7;
     // Mean efficiency change versus baseline, percent (positive is worse).
-    double efficiency_change_percent = 8;
-    // Mean temperature change versus baseline, °C.
-    double temperature_change_celsius = 9;
+    // Unset when efficiency_jh samples no miners.
+    optional double efficiency_change_percent = 8;
+    // Mean temperature change versus baseline, °C. Unset when temp_c samples
+    // no miners.
+    optional double temperature_change_celsius = 9;
     // Errors opened since baseline, summed over the batch (never below 0).
-    int32 new_errors = 10;
-    // Whether the DONE count and failed-device checks pass, configured
-    // aggregate telemetry thresholds are met, and stabilization rules permit
-    // auto-continue. Always false for rollouts without auto-continue.
+    int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
+    // Whether the DONE count and failed-device checks pass, every set
+    // threshold passes under the RolloutAutomationThresholds coverage rule,
+    // and stabilization rules permit auto-continue. Always false for rollouts
+    // without auto-continue.
     bool ready_to_advance = 11;
-    // Why the rollout is holding at the gate when it cannot auto-continue.
-    string hold_reason = 12;
+    // Why the rollout is holding at the gate when it cannot auto-continue,
+    // including which metric lacks the required sample coverage.
+    string hold_reason = 12 [(buf.validate.field).string.max_len = 1024];
     // Seconds of stabilization still required before auto-continue.
-    int32 stabilization_remaining_seconds = 13;
-    // Aggregates over miners in scope that have both halves: total
-    // hashrate, total power, mean efficiency, mean temperature.
-    MetricComparison hash_rate_hs = 14;
-    MetricComparison power_w = 15;
-    MetricComparison efficiency_jh = 16;
-    MetricComparison temp_c = 17;
+    int32 stabilization_remaining_seconds = 13 [(buf.validate.field).int32.gte = 0];
+    // Aggregates over the verified miners with both halves: total hashrate,
+    // total power, mean efficiency, mean temperature. Each reports how many
+    // miners it samples so clients and the coverage rule can judge it.
+    AggregateMetricComparison hash_rate_hs = 14;
+    AggregateMetricComparison power_w = 15;
+    AggregateMetricComparison efficiency_jh = 16;
+    AggregateMetricComparison temp_c = 17;
 }
 
 // A firmware change being enforced for one manufacturer/model pair within one
@@ -600,13 +658,13 @@ message RolloutEvidence {
 message Rollout {
     int64 id = 1;
     int64 channel_id = 2;
-    string channel_name = 3;
+    string channel_name = 3 [(buf.validate.field).string.max_len = 100];
     string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Target artifact governed by the RolloutService artifact-protection
     // invariant.
-    string firmware_file_id = 6;
-    string firmware_version = 7 [(buf.validate.field).string.max_len = 255];
+    string firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
+    string firmware_version = 7 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     RolloutStatus status = 8;
     RolloutState state = 9;
     // Stage of a staged rollout; REST for all-at-once rollouts.
@@ -615,9 +673,9 @@ message Rollout {
     // The behavior this rollout runs with (copied from the channel at start).
     RolloutBehavior behavior = 12;
     // Number of snapshotted batches; 0 for all-at-once rollouts.
-    int32 batch_count = 13;
+    int32 batch_count = 13 [(buf.validate.field).int32.gte = 0];
     // 0-based index of the batch in flight or under review.
-    int32 current_batch = 14;
+    int32 current_batch = 14 [(buf.validate.field).int32.gte = 0];
     // When the current stage began.
     google.protobuf.Timestamp stage_changed_at = 15;
     // Set while the rollout is paused.
@@ -630,13 +688,13 @@ message Rollout {
     // current. A nonempty id is restored under the same precondition. This
     // history reference follows the RolloutService artifact-protection
     // invariant.
-    string previous_firmware_file_id = 19;
+    string previous_firmware_file_id = 19 [(buf.validate.field).string.max_len = 255];
     // Version of the previous assignment; empty when there was no previous
     // assignment.
-    string previous_firmware_version = 20 [(buf.validate.field).string.max_len = 255];
+    string previous_firmware_version = 20 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
     // Number of miners snapshotted into the rollout. Retrieve their live
     // progress with ListRolloutDevices.
-    int32 device_count = 21;
+    int32 device_count = 21 [(buf.validate.field).int32.gte = 0];
     // Evidence for the miners currently under review; unset for rollouts
     // that are not active.
     RolloutEvidence evidence = 22;
@@ -650,16 +708,16 @@ message Rollout {
 // Progress of one miner within a rollout.
 message RolloutDevice {
     int64 device_id = 1;
-    string device_identifier = 2;
-    string ip_address = 3;
+    string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
+    string ip_address = 3 [(buf.validate.field).string.max_len = 45];
     // Firmware version the miner currently reports.
-    string firmware_version = 4;
+    string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
     RolloutDevicePhase phase = 5;
     // 1-based batch the miner was snapshotted into; 0 when it is not part of
     // any batch (rest stage / late joiner).
-    int32 batch = 6;
+    int32 batch = 6 [(buf.validate.field).int32.gte = 0];
     // Live device status (e.g. ACTIVE, OFFLINE, NEEDS_MINING_POOL).
-    string status = 7;
+    string status = 7 [(buf.validate.field).string.max_len = 50];
     bool online = 8;
     bool hashing = 9;
     // False for late joiners with no baseline snapshot; those miners must be
@@ -668,14 +726,14 @@ message RolloutDevice {
     // Whether the miner was hashing at baseline. When has_baseline is true,
     // this controls whether current hashing is required to reach DONE.
     bool baseline_hashing = 11;
-    int32 open_errors = 12;
-    int32 baseline_open_errors = 13;
+    int32 open_errors = 12 [(buf.validate.field).int32.gte = 0];
+    int32 baseline_open_errors = 13 [(buf.validate.field).int32.gte = 0];
     MetricComparison hash_rate_hs = 14;
     MetricComparison power_w = 15;
     MetricComparison efficiency_jh = 16;
     MetricComparison temp_c = 17;
     // Update commands sent to this miner so far.
-    int32 attempts = 18;
+    int32 attempts = 18 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp last_sent_at = 19;
     // Why the miner is FAILED, when known. Device-reported text is truncated
     // to this limit before it is persisted or returned.

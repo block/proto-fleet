@@ -45,6 +45,31 @@ func TestValidateFirmwareUploadMetadata_FirmwareVersionLength(t *testing.T) {
 	))
 }
 
+func TestValidateFirmwareUploadMetadata_RejectsNUL(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name string
+		set  func(*FirmwareMetadata, string)
+	}{
+		{"target_manufacturer", func(m *FirmwareMetadata, v string) { m.TargetManufacturer = v }},
+		{"target_model", func(m *FirmwareMetadata, v string) { m.TargetModel = v }},
+		{"firmware_version", func(m *FirmwareMetadata, v string) { m.FirmwareVersion = v }},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
+			metadata := testFirmwareMetadata()
+			field.set(&metadata, "v1\x00custom")
+			err := ValidateFirmwareUploadMetadata(metadata)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), field.name+" must not contain U+0000")
+		})
+	}
+}
+
 func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

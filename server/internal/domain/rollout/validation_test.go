@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 	rolloutv1 "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
 	"github.com/stretchr/testify/require"
@@ -293,8 +294,218 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 
 			requireProtoValidation(t, newRollout(strings.Repeat("界", 255)), false)
 			requireProtoValidation(t, newRollout(strings.Repeat("界", 256)), true)
+			requireProtoValidation(t, newRollout("v1\x00custom"), true)
 		})
 	}
+}
+
+func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {
+	t.Parallel()
+
+	group := &rolloutv1.ReleaseChannelModelGroup{
+		FirmwareFileId:             "file-1",
+		FirmwareTargetManufacturer: "Bitmain",
+		FirmwareTargetModel:        "S21",
+		FirmwareVersion:            "v1\x00custom",
+	}
+	requireProtoValidation(t, group, true)
+	group.FirmwareVersion = "v1-custom"
+	requireProtoValidation(t, group, false)
+}
+
+func TestRolloutAutomationThresholdsCoverageValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		coverage *float64
+		wantErr  bool
+	}{
+		{name: "unset coverage defaults to full"},
+		{name: "full coverage is valid", coverage: proto.Float64(100)},
+		{name: "fractional coverage is valid", coverage: proto.Float64(0.5)},
+		{name: "zero coverage is rejected", coverage: proto.Float64(0), wantErr: true},
+		{name: "coverage above 100 is rejected", coverage: proto.Float64(100.5), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{
+				MinSampleCoveragePercent: test.coverage,
+			}, test.wantErr)
+		})
+	}
+}
+
+func sampledAggregate(devices int32) *rolloutv1.AggregateMetricComparison {
+	return &rolloutv1.AggregateMetricComparison{
+		Baseline:       proto.Float64(100),
+		Current:        proto.Float64(90),
+		SampledDevices: devices,
+	}
+}
+
+func TestAggregateMetricComparisonValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		aggregate *rolloutv1.AggregateMetricComparison
+		wantErr   bool
+	}{
+		{
+			name:      "absent aggregate samples no miners",
+			aggregate: &rolloutv1.AggregateMetricComparison{},
+		},
+		{
+			name:      "sampled aggregate carries both halves",
+			aggregate: sampledAggregate(3),
+		},
+		{
+			name: "sampled aggregate missing a half is rejected",
+			aggregate: &rolloutv1.AggregateMetricComparison{
+				Baseline:       proto.Float64(100),
+				SampledDevices: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name:      "values without samples are rejected",
+			aggregate: sampledAggregate(0),
+			wantErr:   true,
+		},
+		{
+			name:      "negative sample count is rejected",
+			aggregate: &rolloutv1.AggregateMetricComparison{SampledDevices: -1},
+			wantErr:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.aggregate, test.wantErr)
+		})
+	}
+}
+
+func TestRolloutEvidenceValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		evidence *rolloutv1.RolloutEvidence
+		wantErr  bool
+	}{
+		{
+			name:     "empty evidence is valid",
+			evidence: &rolloutv1.RolloutEvidence{},
+		},
+		{
+			name: "consistent evidence is valid",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal:          4,
+				Verified:              3,
+				Failed:                1,
+				Online:                4,
+				Hashing:               3,
+				BaselineHashing:       4,
+				HashRateHs:            sampledAggregate(3),
+				TempC:                 sampledAggregate(2),
+				HashrateChangePercent: proto.Float64(-10),
+				HoldReason:            strings.Repeat("h", 1024),
+			},
+		},
+		{
+			name:     "verified plus failed above total is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 3, Failed: 1},
+			wantErr:  true,
+		},
+		{
+			name:     "online above total is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Online: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "hashing above total is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Hashing: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "baseline hashing above total is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, BaselineHashing: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "aggregate sampling more than verified is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 1, PowerW: sampledAggregate(2)},
+			wantErr:  true,
+		},
+		{
+			name:     "hashrate change without samples is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, HashrateChangePercent: proto.Float64(0)},
+			wantErr:  true,
+		},
+		{
+			name:     "efficiency change without samples is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, EfficiencyChangePercent: proto.Float64(0)},
+			wantErr:  true,
+		},
+		{
+			name:     "temperature change without samples is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, TemperatureChangeCelsius: proto.Float64(0)},
+			wantErr:  true,
+		},
+		{
+			name:     "negative count is rejected",
+			evidence: &rolloutv1.RolloutEvidence{NewErrors: -1},
+			wantErr:  true,
+		},
+		{
+			name:     "oversized hold reason is rejected",
+			evidence: &rolloutv1.RolloutEvidence{HoldReason: strings.Repeat("h", 1025)},
+			wantErr:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.evidence, test.wantErr)
+		})
+	}
+}
+
+// Every string carries a max_len and every list a max_items so no payload in
+// the contract can grow without an explicit limit.
+func TestEveryContractFieldIsBounded(t *testing.T) {
+	t.Parallel()
+
+	var visit func(messages protoreflect.MessageDescriptors)
+	visit = func(messages protoreflect.MessageDescriptors) {
+		for i := range messages.Len() {
+			message := messages.Get(i)
+			visit(message.Messages())
+			fields := message.Fields()
+			for j := range fields.Len() {
+				field := fields.Get(j)
+				rules, _ := proto.GetExtension(field.Options(), validate.E_Field).(*validate.FieldRules)
+				stringRules := rules.GetString_()
+				if field.IsList() {
+					require.Positivef(t, rules.GetRepeated().GetMaxItems(), "%s must set max_items", field.FullName())
+					stringRules = rules.GetRepeated().GetItems().GetString_()
+				}
+				if field.Kind() == protoreflect.StringKind {
+					require.Positivef(t, stringRules.GetMaxLen(), "%s must set max_len", field.FullName())
+				}
+			}
+		}
+	}
+	visit(rolloutv1.File_rollout_v1_rollout_proto.Messages())
 }
 
 func TestApplyReleaseChannelFirmwareRequestValidation(t *testing.T) {

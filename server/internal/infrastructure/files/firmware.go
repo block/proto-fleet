@@ -146,6 +146,17 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 			}
 		}
 	}
+	// Stored device text cannot hold U+0000, so such metadata could never be
+	// matched against a miner or persisted as its target.
+	for _, field := range []struct{ name, value string }{
+		{"target_manufacturer", metadata.TargetManufacturer},
+		{"target_model", metadata.TargetModel},
+		{"firmware_version", metadata.FirmwareVersion},
+	} {
+		if strings.ContainsRune(field.value, 0) {
+			return fleeterror.NewInvalidArgumentErrorf("%s must not contain U+0000", field.name)
+		}
+	}
 	return nil
 }
 
