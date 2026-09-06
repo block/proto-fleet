@@ -121,7 +121,7 @@ func equalFoldASCII(a, b string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := 0; i < len(a); i++ {
+	for i := range len(a) {
 		ca, cb := a[i], b[i]
 		if 'A' <= ca && ca <= 'Z' {
 			ca += 'a' - 'A'
