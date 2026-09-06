@@ -396,7 +396,8 @@ export type ReleaseChannelModelGroup = Message<"rollout.v1.ReleaseChannelModelGr
   minerCount: number;
 
   /**
-   * Id of the active rollout for this firmware target pair, 0 if none.
+   * Id of the pair's single active rollout under the RolloutService
+   * single-active-rollout rule, 0 if none.
    *
    * @generated from field: int64 active_rollout_id = 6;
    */
@@ -2677,6 +2678,13 @@ export const RolloutDevicePhaseSchema: GenEnum<RolloutDevicePhase> = /*@__PURE__
  * reassignment, even back to the same file, makes it stale. Rollback and retry
  * of a finished rollout require a current rollout.
  *
+ * Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
+ * one ACTIVE rollout, reported as ReleaseChannelModelGroup.active_rollout_id.
+ * Only an assignment change may replace it: ApplyReleaseChannelFirmware cancels
+ * the pair's active rollout as SUPERSEDED (or CLEARED) and rollback cancels it
+ * as ROLLED_BACK before starting a successor. RetryFailedRolloutDevices never
+ * starts a rollout while the pair already has an active one.
+ *
  * Artifact-protection invariant: firmware artifact target metadata is frozen
  * and artifacts are deletion-protected across service boundaries while a file
  * id is a current channel assignment, an active rollout target, a finished
@@ -2814,9 +2822,11 @@ export const RolloutService: GenService<{
   /**
    * Atomically replaces per-manufacturer/model firmware assignments. For each
    * changed assignment with mismatched members, it starts a rollout paced by
-   * the channel's behavior; rollouts started together run concurrently and
-   * share the channel-wide RolloutBehavior.max_concurrent_offline budget
-   * rather than each receiving their own. A member matches only when it
+   * the channel's behavior, first canceling that pair's active rollout as
+   * SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
+   * rule; rollouts started together run concurrently and share the
+   * channel-wide RolloutBehavior.max_concurrent_offline budget rather than
+   * each receiving their own. A member matches only when it
    * reports the target version and its RolloutService managed-deployment
    * provenance equals the assigned firmware_file_id; empty or different
    * provenance is mismatched.
@@ -2939,16 +2949,20 @@ export const RolloutService: GenService<{
    * Re-queues the miners that failed (or were canceled) in a rollout. An
    * active rollout retries them in place. A finished rollout starts a new
    * all-at-once rollout only while it is current under the RolloutService
-   * assignment-generation rule; the new rollout inherits the retried
+   * assignment-generation rule and its pair has no active rollout under the
+   * single-active-rollout rule; the new rollout inherits the retried
    * rollout's assignment_generation and assignment lineage
    * (previous_firmware_file_id and previous_firmware_version), so rolling
-   * back either rollout reverses the original assignment.
+   * back either rollout reverses the original assignment. While that
+   * successor is active, retrying the finished rollout again fails; retry the
+   * successor instead, which re-queues its own failed miners in place.
    *
    * Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
    * retryable. A rollout canceled as CANCELED_REMAINING is retryable only
    * while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
    * it never implicitly retargets to different firmware or a newer
-   * assignment of the same firmware.
+   * assignment of the same firmware, and never runs two rollouts for one
+   * pair at once.
    *
    * @generated from rpc rollout.v1.RolloutService.RetryFailedRolloutDevices
    */

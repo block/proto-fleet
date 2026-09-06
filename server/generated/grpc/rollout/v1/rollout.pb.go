@@ -1150,7 +1150,8 @@ type ReleaseChannelModelGroup struct {
 	// Target firmware version; empty when no firmware is assigned.
 	FirmwareVersion string `protobuf:"bytes,4,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
 	MinerCount      int32  `protobuf:"varint,5,opt,name=miner_count,json=minerCount,proto3" json:"miner_count,omitempty"`
-	// Id of the active rollout for this firmware target pair, 0 if none.
+	// Id of the pair's single active rollout under the RolloutService
+	// single-active-rollout rule, 0 if none.
 	ActiveRolloutId int64 `protobuf:"varint,6,opt,name=active_rollout_id,json=activeRolloutId,proto3" json:"active_rollout_id,omitempty"`
 	// Members reporting the assigned version whose RolloutService
 	// managed-deployment provenance equals firmware_file_id; 0 when unassigned.

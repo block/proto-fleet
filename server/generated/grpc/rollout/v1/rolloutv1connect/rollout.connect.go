@@ -131,9 +131,11 @@ type RolloutServiceClient interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior; rollouts started together run concurrently and
-	// share the channel-wide RolloutBehavior.max_concurrent_offline budget
-	// rather than each receiving their own. A member matches only when it
+	// the channel's behavior, first canceling that pair's active rollout as
+	// SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
+	// rule; rollouts started together run concurrently and share the
+	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
+	// each receiving their own. A member matches only when it
 	// reports the target version and its RolloutService managed-deployment
 	// provenance equals the assigned firmware_file_id; empty or different
 	// provenance is mismatched.
@@ -184,16 +186,20 @@ type RolloutServiceClient interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only while it is current under the RolloutService
-	// assignment-generation rule; the new rollout inherits the retried
+	// assignment-generation rule and its pair has no active rollout under the
+	// single-active-rollout rule; the new rollout inherits the retried
 	// rollout's assignment_generation and assignment lineage
 	// (previous_firmware_file_id and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment.
+	// back either rollout reverses the original assignment. While that
+	// successor is active, retrying the finished rollout again fails; retry the
+	// successor instead, which re-queues its own failed miners in place.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
 	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
 	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware.
+	// assignment of the same firmware, and never runs two rollouts for one
+	// pair at once.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
@@ -471,9 +477,11 @@ type RolloutServiceHandler interface {
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
-	// the channel's behavior; rollouts started together run concurrently and
-	// share the channel-wide RolloutBehavior.max_concurrent_offline budget
-	// rather than each receiving their own. A member matches only when it
+	// the channel's behavior, first canceling that pair's active rollout as
+	// SUPERSEDED (or CLEARED) under the RolloutService single-active-rollout
+	// rule; rollouts started together run concurrently and share the
+	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
+	// each receiving their own. A member matches only when it
 	// reports the target version and its RolloutService managed-deployment
 	// provenance equals the assigned firmware_file_id; empty or different
 	// provenance is mismatched.
@@ -524,16 +532,20 @@ type RolloutServiceHandler interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only while it is current under the RolloutService
-	// assignment-generation rule; the new rollout inherits the retried
+	// assignment-generation rule and its pair has no active rollout under the
+	// single-active-rollout rule; the new rollout inherits the retried
 	// rollout's assignment_generation and assignment lineage
 	// (previous_firmware_file_id and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment.
+	// back either rollout reverses the original assignment. While that
+	// successor is active, retrying the finished rollout again fails; retry the
+	// successor instead, which re-queues its own failed miners in place.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
 	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
 	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware.
+	// assignment of the same firmware, and never runs two rollouts for one
+	// pair at once.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
