@@ -41,10 +41,14 @@ describe("EnrollNodeModal", () => {
     mockListFleetNodes.mockResolvedValue([]);
     mockCreateEnrollmentCode.mockResolvedValue({ code: "pf_code_123", pendingEnrollmentId: "11", expiresAt: null });
 
-    const { getByText } = render(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
+    const { getByRole, getByText } = render(
+      <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
+    );
 
     await waitFor(() => {
-      expect(getByText(/fleetnode enroll --server-url=/)).toBeInTheDocument();
+      const command = getByRole("button", { name: "Copy command" }).parentElement;
+      expect(command).toHaveTextContent("sudo fleetnode-enroll");
+      expect(command).toHaveTextContent("--server-url=http://localhost:4000");
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });

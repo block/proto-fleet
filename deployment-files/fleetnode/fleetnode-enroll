@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
+FLEETNODE_BIN="/opt/fleetnode/fleetnode"
+STATE_DIR="/var/lib/fleetnode"
+STATE_PATH="$STATE_DIR/state.yaml"
+SERVICE_NAME="fleet-node.service"
+
+usage() {
+  cat <<'EOF'
+Usage: sudo fleetnode-enroll --server-url=URL [--allow-insecure-transport] [--force]
+
+Enroll or resume the packaged Fleet Node, then enable and start fleet-node.service.
+EOF
+}
+
+run_fleetnode() {
+  runuser -u fleetnode -- "$FLEETNODE_BIN" --state-dir "$STATE_DIR" "$@"
+}
+
+has_force_flag() {
+  local arg
+  for arg in "$@"; do
+    [[ "$arg" == "--force" ]] && return 0
+  done
+  return 1
+}
+
+requested_server_url() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --server-url=*)
+        printf '%s\n' "${1#*=}"
+        return 0
+        ;;
+      --server-url)
+        shift
+        if [[ $# -eq 0 ]]; then
+          echo "--server-url requires a URL" >&2
+          return 1
+        fi
+        printf '%s\n' "$1"
+        return 0
+        ;;
+    esac
+    shift
+  done
+  echo "fleetnode-enroll requires --server-url" >&2
+  return 1
+}
+
+enroll_or_resume() {
+  if has_force_flag "$@"; then
+    systemctl stop "$SERVICE_NAME" || return $?
+    run_fleetnode enroll "$@"
+    return
+  fi
+  if [[ ! -f "$STATE_PATH" ]]; then
+    run_fleetnode enroll "$@"
+    return
+  fi
+
+  local requested_url status state_url fleet_node_id api_key_present
+  requested_url=$(requested_server_url "$@") || return
+  status=$(run_fleetnode status) || return
+  state_url=$(awk '$1 == "server_url:" { print $2 }' <<<"$status")
+  fleet_node_id=$(awk '$1 == "fleet_node_id:" { print $2 }' <<<"$status")
+  api_key_present=$(awk '$1 == "api_key_present:" { print $2 }' <<<"$status")
+  if [[ "$state_url" != "$requested_url" ]]; then
+    echo "Fleet Node is enrolled with server_url=$state_url, not requested server_url=$requested_url; pass --force to re-enroll" >&2
+    return 1
+  fi
+  if [[ ! "$fleet_node_id" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Fleet Node state has no fleet_node_id; pass --force to re-enroll" >&2
+    return 1
+  fi
+
+  case "$api_key_present" in
+    false) run_fleetnode refresh ;;
+    true)
+      echo "Fleet Node is already enrolled (fleet_node_id=$fleet_node_id); enabling $SERVICE_NAME."
+      return 0
+      ;;
+    *)
+      echo "Fleet Node status did not report whether an api_key is present" >&2
+      return 1
+      ;;
+  esac
+}
+
+main() {
+  case "${1:-}" in
+    -h|--help)
+      usage
+      return 0
+      ;;
+    "")
+      usage >&2
+      return 2
+      ;;
+  esac
+
+  if [[ "$(id -u)" -ne 0 ]]; then
+    echo "fleetnode-enroll must run as root; use sudo fleetnode-enroll ..." >&2
+    return 1
+  fi
+
+  local command
+  for command in awk runuser systemctl; do
+    command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; return 1; }
+  done
+  [[ -x "$FLEETNODE_BIN" ]] || { echo "Fleet Node is not installed at $FLEETNODE_BIN" >&2; return 1; }
+
+  enroll_or_resume "$@" || return
+  systemctl enable --now "$SERVICE_NAME"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

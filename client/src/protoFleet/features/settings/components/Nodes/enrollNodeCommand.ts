@@ -2,6 +2,7 @@ import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 
 const INSECURE_TRANSPORT_FLAG = "--allow-insecure-transport";
 const HTTP_FLEET_API_PORT = "4000";
+const FLEET_NODE_ENROLL_COMMAND = "sudo fleetnode-enroll";
 
 const isLoopbackHostname = (hostname: string) => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -20,6 +21,10 @@ const getHttpFleetApiOrigin = (origin: string) => {
 export const buildFleetNodeEnrollCommand = (location: Pick<Location, "origin" | "protocol" | "hostname">) => {
   const serverUrl =
     location.protocol === "http:" ? getHttpFleetApiOrigin(location.origin) : `${location.origin}${API_PROXY_BASE}`;
-  const command = `fleetnode enroll --server-url=${serverUrl}`;
-  return shouldAppendInsecureTransportFlag(location) ? `${command} ${INSECURE_TRANSPORT_FLAG}` : command;
+  const enrollCommand = `${FLEET_NODE_ENROLL_COMMAND} --server-url=${serverUrl}`;
+  const command = shouldAppendInsecureTransportFlag(location)
+    ? `${enrollCommand} ${INSECURE_TRANSPORT_FLAG}`
+    : enrollCommand;
+
+  return command;
 };
