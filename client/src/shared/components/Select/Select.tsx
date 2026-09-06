@@ -27,6 +27,7 @@ interface SelectProps {
   placeholder?: string;
   testId?: string;
   className?: string;
+  variant?: "field" | "filter";
   showSelectedIndicator?: boolean;
   suffixAction?: ReactNode;
   // Default behavior flips the popover above the trigger when more space is
@@ -47,6 +48,7 @@ const SelectContent = ({
   placeholder,
   testId,
   className,
+  variant = "field",
   showSelectedIndicator = true,
   suffixAction,
   forceBelow,
@@ -141,7 +143,10 @@ const SelectContent = ({
           disabled={disabled}
           onClick={() => !disabled && setOpen((prev) => !prev)}
           className={clsx(
-            "peer flex h-14 w-full items-center justify-between rounded-lg pr-4 pl-4 text-left outline-hidden",
+            "peer flex items-center justify-between text-left outline-hidden",
+            variant === "filter"
+              ? "h-8 gap-2 rounded-full px-3 text-emphasis-300 text-text-primary-70"
+              : "h-14 w-full rounded-lg pr-4 pl-4",
             "transition duration-200 ease-in-out",
             { "bg-surface-base": !disabled },
             { "bg-core-primary-5": disabled },
@@ -153,22 +158,26 @@ const SelectContent = ({
             { "cursor-default": disabled },
           )}
         >
-          <div className="flex min-w-0 flex-col pt-[18px]">
-            <span
-              className={clsx(
-                "absolute text-text-primary-50",
-                "transition-[top] duration-150 ease-in-out",
-                hasDisplayValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
-              )}
-            >
-              {label}
-            </span>
-            {hasDisplayValue ? (
-              <span className={clsx("truncate text-300", hasValue ? "text-text-primary" : "text-text-primary-50")}>
-                {displayLabel}
+          {variant === "filter" ? (
+            <span className="truncate">{value ? displayLabel : label}</span>
+          ) : (
+            <div className="flex min-w-0 flex-col pt-[18px]">
+              <span
+                className={clsx(
+                  "absolute text-text-primary-50",
+                  "transition-[top] duration-150 ease-in-out",
+                  hasDisplayValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
+                )}
+              >
+                {label}
               </span>
-            ) : null}
-          </div>
+              {hasDisplayValue ? (
+                <span className={clsx("truncate text-300", hasValue ? "text-text-primary" : "text-text-primary-50")}>
+                  {displayLabel}
+                </span>
+              ) : null}
+            </div>
+          )}
           <ChevronDown
             width="w-3"
             className={clsx("shrink-0 text-text-primary-70 transition-transform", {

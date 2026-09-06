@@ -32,7 +32,22 @@ func NewHandler(service *sites.Service) *Handler {
 }
 
 func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	maintenanceOptionsScope := req.Msg.GetMaintenanceOptionsScope()
+	permission := authz.PermSiteRead
+	switch maintenanceOptionsScope {
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_UNSPECIFIED:
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_READ:
+		permission = authz.PermMaintenanceRead
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_MANAGE:
+		permission = authz.PermMaintenanceManage
+	default:
+		return nil, fleeterror.NewInvalidArgumentError("invalid maintenance site options scope")
+	}
+	maintenanceOptionsOnly := maintenanceOptionsScope != pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_UNSPECIFIED
+	if maintenanceOptionsOnly && (len(req.Msg.GetErrorComponentTypes()) > 0 || len(req.Msg.GetTelemetryRanges()) > 0) {
+		return nil, fleeterror.NewInvalidArgumentError("maintenance site options cannot include fleet filters")
+	}
+	info, err := middleware.RequirePermissionAtAnySite(ctx, permission)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +56,12 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 		return nil, err
 	}
 	includeStatsForSite := func(siteID int64) bool {
+		if maintenanceOptionsOnly {
+			return false
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &siteID}); err != nil {
+			return false
+		}
 		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
 		return err == nil
 	}
@@ -48,7 +69,21 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListSitesResponse(out)), nil
+	readable := out[:0]
+	for i := range out {
+		siteID := out[i].Site.ID
+		if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: &siteID}); err != nil {
+			if fleeterror.IsForbiddenError(err) {
+				continue
+			}
+			return nil, err
+		}
+		readable = append(readable, out[i])
+	}
+	if maintenanceOptionsOnly {
+		return connect.NewResponse(toMaintenanceSiteOptionsResponse(readable)), nil
+	}
+	return connect.NewResponse(toListSitesResponse(readable)), nil
 }
 
 func (h *Handler) ResolveSiteBySlug(ctx context.Context, req *connect.Request[pb.ResolveSiteBySlugRequest]) (*connect.Response[pb.ResolveSiteBySlugResponse], error) {

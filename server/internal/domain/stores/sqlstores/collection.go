@@ -635,7 +635,7 @@ func (s *SQLCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Co
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to add devices to collection: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to add devices to collection: %w", err)
 	}
 	return added, nil
 }
@@ -646,7 +646,7 @@ func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context,
 		OrgID:       orgID,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to remove all devices from collection: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to remove all devices from collection: %w", err)
 	}
 	return count, nil
 }
@@ -671,7 +671,7 @@ func (s *SQLCollectionStore) RemoveDevicesFromCollectionReturningRemoved(ctx con
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to remove devices from collection: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to remove devices from collection: %w", err)
 	}
 	return removed, nil
 }

@@ -21,14 +21,20 @@ WITH locked_device_set AS MATERIALIZED (
       AND device_set.org_id = $1
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.device_identifier = ANY($3::text[])
+      AND d.org_id = $1
+      AND d.deleted_at IS NULL
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
-FROM device d
+FROM locked_devices d
 CROSS JOIN locked_device_set ds
-WHERE d.device_identifier = ANY($3::text[])
-  AND d.org_id = $1
-  AND d.deleted_at IS NULL
 ORDER BY d.id
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier
@@ -1726,10 +1732,21 @@ WITH locked_device_set AS MATERIALIZED (
       AND device_set.org_id = $1
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    JOIN device_set_membership dsm
+      ON dsm.device_id = d.id AND dsm.org_id = d.org_id
+    CROSS JOIN locked_device_set ds
+    WHERE dsm.device_set_id = ds.id
+      AND d.org_id = $1
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 DELETE FROM device_set_membership dsm
-USING locked_device_set ds
+USING locked_device_set ds, locked_devices d
 WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
   AND dsm.org_id = $1
 `
 
@@ -1781,23 +1798,31 @@ const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :many
 WITH locked_device_set AS MATERIALIZED (
     SELECT device_set.id
     FROM device_set
-    WHERE device_set.id = $3
+    WHERE device_set.id = $2
       AND device_set.org_id = $1
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.org_id = $1
+      AND d.device_identifier = ANY($3::text[])
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 DELETE FROM device_set_membership dsm
-USING locked_device_set ds
+USING locked_device_set ds, locked_devices d
 WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
   AND dsm.org_id = $1
-  AND dsm.device_identifier = ANY($2::text[])
 RETURNING dsm.device_identifier
 `
 
 type RemoveDevicesFromDeviceSetParams struct {
 	OrgID             int64
-	DeviceIdentifiers []string
 	DeviceSetID       int64
+	DeviceIdentifiers []string
 }
 
 // RETURNING yields one row per membership actually deleted (identifiers that
@@ -1805,7 +1830,7 @@ type RemoveDevicesFromDeviceSetParams struct {
 // the changed set for activity site scope (#538). Equivalent affected-row
 // count to the prior :execrows shape.
 func (q *Queries) RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error) {
-	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.DeviceSetID)
+	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.OrgID, arg.DeviceSetID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}

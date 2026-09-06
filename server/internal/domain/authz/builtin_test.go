@@ -42,6 +42,18 @@ func TestBuiltinRoles_FieldTechDoesNotSeedFirmwareUpdateOrReboot(t *testing.T) {
 	}
 }
 
+func TestBuiltinRoles_AdminAndFieldTechSeedMaintenancePermissions(t *testing.T) {
+	for _, roleKey := range []BuiltinKey{BuiltinKeyAdmin, BuiltinKeyFieldTech} {
+		role := builtinRoleByKey(t, roleKey)
+		perms := permissionSet(role.SeedPermissions)
+		for _, permission := range []string{PermMaintenanceRead, PermMaintenanceManage} {
+			if !perms[permission] {
+				t.Errorf("%s seed permissions missing %q", roleKey, permission)
+			}
+		}
+	}
+}
+
 func builtinRoleByKey(t *testing.T, key BuiltinKey) BuiltinRoleSpec {
 	t.Helper()
 	for _, role := range BuiltinRoles() {

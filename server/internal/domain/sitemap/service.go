@@ -333,11 +333,18 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		plan.errors = append(plan.errors, validateMinerRenamePermission(plan.resolved.miners)...)
 	}
 	if req.GetOmissionMode() == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-		impactErrs, err := s.validateOmittedSiteDeleteImpacts(ctx, orgID, omittedSites(parsed.sections["SITE"], snapshot.sites))
+		buildingImpactErrs, err := s.validateOmittedBuildingDeleteImpacts(
+			ctx, orgID, omittedBuildings(parsed.sections["BUILDING"], snapshot.buildings),
+		)
 		if err != nil {
 			return nil, err
 		}
-		plan.errors = append(plan.errors, impactErrs...)
+		plan.errors = append(plan.errors, buildingImpactErrs...)
+		siteImpactErrs, err := s.validateOmittedSiteDeleteImpacts(ctx, orgID, omittedSites(parsed.sections["SITE"], snapshot.sites))
+		if err != nil {
+			return nil, err
+		}
+		plan.errors = append(plan.errors, siteImpactErrs...)
 	}
 	if len(plan.errors) > 0 {
 		return &pb.ImportSiteMapCsvResponse{
@@ -1262,6 +1269,20 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, resolved *re
 	})
 }
 
+func (s *Service) validateOmittedBuildingDeleteImpacts(ctx context.Context, orgID int64, buildings []buildingmodels.Building) ([]*pb.ImportValidationError, error) {
+	var errs []*pb.ImportValidationError
+	for _, building := range buildings {
+		ticketCount, err := s.buildingStore.CountRepairTicketsByBuilding(ctx, orgID, building.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ticketCount > 0 {
+			errs = append(errs, csvErr(0, "BUILDING", fmt.Sprintf("omitted building %q has open repair tickets; close them before importing", building.Name)))
+		}
+	}
+	return errs, nil
+}
+
 func (s *Service) validateOmittedSiteDeleteImpacts(ctx context.Context, orgID int64, sites []sitemodels.Site) ([]*pb.ImportValidationError, error) {
 	var errs []*pb.ImportValidationError
 	for _, site := range sites {
@@ -1278,6 +1299,20 @@ func (s *Service) validateOmittedSiteDeleteImpacts(ctx context.Context, orgID in
 		}
 		if infrastructureCount > 0 {
 			errs = append(errs, csvErr(0, "SITE", fmt.Sprintf("omitted site %q has infrastructure devices; site map CSV v1 cannot remove hidden infrastructure resources", site.Name)))
+		}
+		inventoryCount, err := s.siteStore.CountInventoryPartsBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return nil, err
+		}
+		if inventoryCount > 0 {
+			errs = append(errs, csvErr(0, "SITE", fmt.Sprintf("omitted site %q has inventory parts; remove or reassign them before importing", site.Name)))
+		}
+		ticketCount, err := s.siteStore.CountRepairTicketsBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ticketCount > 0 {
+			errs = append(errs, csvErr(0, "SITE", fmt.Sprintf("omitted site %q has open repair tickets; close them before importing", site.Name)))
 		}
 	}
 	return errs, nil
@@ -1345,6 +1380,23 @@ func (s *Service) deleteOmittedRacks(ctx context.Context, orgID int64, racks []r
 
 func (s *Service) deleteOmittedBuildings(ctx context.Context, orgID int64, buildings []buildingmodels.Building) error {
 	for _, building := range buildings {
+		// Match ticket creation's site-then-building lock order. Imports that
+		// later remove the parent site must not deadlock with a concurrent ticket.
+		if building.SiteID != nil {
+			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *building.SiteID); err != nil {
+				return err
+			}
+		}
+		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, building.ID); err != nil {
+			return err
+		}
+		ticketCount, err := s.buildingStore.CountRepairTicketsByBuilding(ctx, orgID, building.ID)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("building cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
+		}
 		_, found, err := s.buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
 		if err != nil {
 			return err
@@ -1367,8 +1419,36 @@ func (s *Service) deleteOmittedSites(ctx context.Context, orgID int64, sites []s
 		if err := s.siteStore.LockSiteForWrite(ctx, orgID, site.ID); err != nil {
 			return err
 		}
-		if err := s.siteStore.LockBuildingsBySiteForWrite(ctx, orgID, site.ID); err != nil {
+		inventoryCount, err := s.siteStore.CountInventoryPartsBySite(ctx, orgID, site.ID)
+		if err != nil {
 			return err
+		}
+		if inventoryCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d inventory part(s) remain assigned", inventoryCount)
+		}
+		ticketCount, err := s.siteStore.CountRepairTicketsBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
+		if ticketCount > 0 {
+			return fleeterror.NewFailedPreconditionErrorf("site cannot be deleted while %d repair ticket(s) remain assigned", ticketCount)
+		}
+		buildingIDs, err := s.siteStore.LockBuildingsBySiteForWrite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
+		for _, buildingID := range buildingIDs {
+			buildingTicketCount, err := s.buildingStore.CountRepairTicketsByBuilding(ctx, orgID, buildingID)
+			if err != nil {
+				return err
+			}
+			if buildingTicketCount > 0 {
+				return fleeterror.NewFailedPreconditionErrorf(
+					"site cannot be deleted while %d repair ticket(s) remain attached to building %d",
+					buildingTicketCount,
+					buildingID,
+				)
+			}
 		}
 		infrastructureDeviceIDs, err := s.siteStore.LockInfrastructureDevicesBySiteForWrite(ctx, orgID, site.ID)
 		if err != nil {

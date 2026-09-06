@@ -1402,6 +1402,8 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 		expectSoftDelete    bool
 		expectLockCount     bool
 		expectGetAssignment bool
+		expectTicketCount   bool
+		activeTicketCount   int64
 		expectSelfRejectMsg string
 		wantErrCode         connect.Code
 		wantErrSubstring    string
@@ -1411,6 +1413,7 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			userID:              targetExternalID,
 			currentBuiltinKey:   string(authz.BuiltinKeyFieldTech),
 			expectGetAssignment: true,
+			expectTicketCount:   true,
 			expectSoftDelete:    true,
 		},
 		{
@@ -1430,7 +1433,18 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			saCount:             2,
 			expectGetAssignment: true,
 			expectLockCount:     true,
+			expectTicketCount:   true,
 			expectSoftDelete:    true,
+		},
+		{
+			name:                "target with active maintenance tickets is refused",
+			userID:              targetExternalID,
+			currentBuiltinKey:   string(authz.BuiltinKeyFieldTech),
+			expectGetAssignment: true,
+			expectTicketCount:   true,
+			activeTicketCount:   1,
+			wantErrCode:         failedPreCode,
+			wantErrSubstring:    "active maintenance tickets",
 		},
 		{
 			// Self-deactivation: rejected before any store calls beyond the
@@ -1466,10 +1480,15 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 						RoleID:       999,
 						BuiltinKey:   tc.currentBuiltinKey,
 					}, nil)
+				mockUserStore.EXPECT().GetUserByIDForUpdate(gomock.Any(), targetInternalID).Return(target, nil)
 			}
 			if tc.expectLockCount {
 				mockMgmtStore.EXPECT().LockAndCountOrgScopeSuperAdmins(gomock.Any(), orgID).
 					Return(tc.saCount, nil)
+			}
+			if tc.expectTicketCount {
+				mockMgmtStore.EXPECT().CountActiveRepairTicketsAssignedToUser(gomock.Any(), orgID, targetInternalID).
+					Return(tc.activeTicketCount, nil)
 			}
 			if tc.expectSoftDelete {
 				mockMgmtStore.EXPECT().SoftDeleteUser(gomock.Any(), targetInternalID).Return(nil)

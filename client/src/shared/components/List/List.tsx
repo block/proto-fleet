@@ -609,7 +609,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
 
       {visibleActions.length === 1 && singleVisibleAction && singleVisibleActionTitle ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}
@@ -631,7 +631,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         </td>
       ) : visibleActions.length > 1 ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}
@@ -649,7 +649,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         </td>
       ) : actions.length > 0 ? (
         <td
-          className={clsx(tdClassList, {
+          className={clsx(tdClassList, onRowClick && rowHoverOverlayClassList, {
             "opacity-50": rowDisabled,
             relative: extendRowDividerToContainerEdge,
           })}

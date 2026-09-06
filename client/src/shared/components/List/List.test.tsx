@@ -2287,6 +2287,32 @@ describe("List", () => {
       );
     });
 
+    it.each([0, 1, 2])("matches action-cell hover backgrounds with %i visible actions", (visibleCount) => {
+      const actions: ListAction<TestItem>[] = ["Edit", "Delete"].map((title, index) => ({
+        title,
+        actionHandler: vi.fn(),
+        hidden: index >= visibleCount,
+      }));
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          actions={actions}
+          onRowClick={vi.fn()}
+        />,
+      );
+
+      for (const cell of screen.getAllByTestId("action")) {
+        expect(cell).toHaveClass(
+          "group-hover:bg-[linear-gradient(var(--color-surface-5),var(--color-surface-5))]",
+          "dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+        );
+      }
+    });
+
     it("does not add cursor-pointer class when onRowClick is not provided", () => {
       render(
         <List<TestItem, TestItemKey>
