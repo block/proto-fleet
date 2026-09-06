@@ -521,12 +521,13 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 		{name: "no targets and no counts is valid", rollout: withCounts(0, nil, nil, 0)},
 		{
 			name:    "phases summing to device_count are valid",
-			rollout: withCounts(6, &rolloutv1.RolloutDeviceCounts{Queued: 1, InProgress: 1, Retrying: 1, Done: 1, Failed: 1, Excluded: 1}, &rolloutv1.RolloutDeviceCounts{Done: 2}, 2),
+			rollout: withCounts(6, &rolloutv1.RolloutDeviceCounts{Queued: 1, InProgress: 1, Retrying: 1, Done: 1, Failed: 1, Excluded: 1}, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, 2),
 		},
 		{name: "targets without phase counts are rejected", rollout: withCounts(3, nil, nil, 0), wantErr: true},
 		{name: "phases exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, 0), wantErr: true},
 		{name: "phases below device_count are rejected", rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 0), wantErr: true},
-		{name: "batch counts exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, 0), wantErr: true},
+		{name: "batch phase exceeding the rollout phase is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, 0), wantErr: true},
+		{name: "batch phase absent from the rollout phases is rejected", rollout: withCounts(1, &rolloutv1.RolloutDeviceCounts{Done: 1}, &rolloutv1.RolloutDeviceCounts{Queued: 1}, 0), wantErr: true},
 		{name: "evidence exceeding device_count is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 3), wantErr: true},
 	}
 

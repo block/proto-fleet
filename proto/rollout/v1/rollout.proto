@@ -36,12 +36,26 @@ import "google/protobuf/timestamp.proto";
 // reassignment, even back to the same file, makes it stale. Rollback and retry
 // of a finished rollout require a current rollout.
 //
+// Enforcement rule: an assignment is enforced for as long as it stands, not
+// only when it changes. While an assigned pair has no active rollout, the
+// server reconciles its members continuously and starts a new rollout, paced
+// by the channel's current behavior, as soon as any member is mismatched as
+// ApplyReleaseChannelFirmware defines it: a member that joined or re-entered
+// the scope or drifted after the previous rollout finished, or the first
+// members of a pair that was assigned while empty. A reconciliation rollout
+// carries the pair's current assignment_generation and the lineage of the most
+// recent rollout for that generation (empty for a first assignment). It never
+// re-queues a member that is FAILED in that rollout; such members are retried
+// only through RetryFailedRolloutDevices. Reapplying an unchanged assignment
+// therefore starts nothing itself; reconciliation already covers it.
+//
 // Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
 // one ACTIVE rollout, reported as ReleaseChannelModelGroup.active_rollout_id.
 // Only an assignment change may replace it: ApplyReleaseChannelFirmware cancels
 // the pair's active rollout as SUPERSEDED (or CLEARED) and rollback cancels it
-// as ROLLED_BACK before starting a successor. RetryFailedRolloutDevices never
-// starts a rollout while the pair already has an active one.
+// as ROLLED_BACK before starting a successor. RetryFailedRolloutDevices and
+// enforcement-rule reconciliation never start a rollout while the pair already
+// has an active one.
 //
 // Artifact-protection invariant: firmware artifact target metadata is frozen
 // and artifacts are deletion-protected across service boundaries while a file
@@ -136,7 +150,9 @@ service RolloutService {
     // provenance, or such an outstanding command, is mismatched: the member's
     // update for the new target is queued behind the outstanding command, so
     // a superseded update that finishes later cannot leave the miner off the
-    // assignment with no rollout to correct it.
+    // assignment with no rollout to correct it. Unchanged assignments start
+    // nothing here; the RolloutService enforcement rule keeps them enforced as
+    // members join, re-enter, or drift.
     // FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
     // and identity constraints. Any violation fails with FAILED_PRECONDITION
     // before any assignment changes or rollouts start. An empty file id clears
@@ -776,9 +792,9 @@ message Rollout {
         expression: "this.device_counts.queued + this.device_counts.in_progress + this.device_counts.retrying + this.device_counts.done + this.device_counts.failed + this.device_counts.excluded == this.device_count"
     };
     option (buf.validate.message).cel = {
-        id: "current_batch_counts_within_device_count"
-        message: "current_batch_counts phases must not exceed device_count"
-        expression: "this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded <= this.device_count"
+        id: "current_batch_counts_within_device_counts"
+        message: "each current_batch_counts phase must not exceed the same device_counts phase"
+        expression: "this.current_batch_counts.queued <= this.device_counts.queued && this.current_batch_counts.in_progress <= this.device_counts.in_progress && this.current_batch_counts.retrying <= this.device_counts.retrying && this.current_batch_counts.done <= this.device_counts.done && this.current_batch_counts.failed <= this.device_counts.failed && this.current_batch_counts.excluded <= this.device_counts.excluded"
     };
     option (buf.validate.message).cel = {
         id: "evidence_within_device_count"
@@ -890,9 +906,9 @@ message Rollout {
     // Per-phase counts over every target; each target is counted in exactly
     // one phase, so the phases sum to device_count.
     RolloutDeviceCounts device_counts = 23;
-    // Per-phase counts over the batch in flight or under review. All zero
-    // in the rest stage and for all-at-once rollouts; never exceeds
-    // device_count in total.
+    // Per-phase counts over the batch in flight or under review, a subset of
+    // device_counts phase by phase. All zero in the rest stage and for
+    // all-at-once rollouts.
     RolloutDeviceCounts current_batch_counts = 24;
     // Generation of the assignment this rollout enforces under the
     // RolloutService assignment-generation rule. Compare with

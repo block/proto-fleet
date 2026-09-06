@@ -142,7 +142,9 @@ type RolloutServiceClient interface {
 	// provenance, or such an outstanding command, is mismatched: the member's
 	// update for the new target is queued behind the outstanding command, so
 	// a superseded update that finishes later cannot leave the miner off the
-	// assignment with no rollout to correct it.
+	// assignment with no rollout to correct it. Unchanged assignments start
+	// nothing here; the RolloutService enforcement rule keeps them enforced as
+	// members join, re-enter, or drift.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
@@ -496,7 +498,9 @@ type RolloutServiceHandler interface {
 	// provenance, or such an outstanding command, is mismatched: the member's
 	// update for the new target is queued behind the outstanding command, so
 	// a superseded update that finishes later cannot leave the miner off the
-	// assignment with no rollout to correct it.
+	// assignment with no rollout to correct it. Unchanged assignments start
+	// nothing here; the RolloutService enforcement rule keeps them enforced as
+	// members join, re-enter, or drift.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
