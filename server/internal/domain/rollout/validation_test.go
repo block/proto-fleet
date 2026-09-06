@@ -667,6 +667,151 @@ func TestRolloutBatchConsistencyValidation(t *testing.T) {
 	}
 }
 
+func TestRolloutGateStateValidation(t *testing.T) {
+	t.Parallel()
+
+	atGate := func(method rolloutv1.RolloutMethod, review, autoContinue bool, state rolloutv1.RolloutState) *rolloutv1.Rollout {
+		rollout := activeRollout()
+		rollout.Behavior = &rolloutv1.RolloutBehavior{
+			Method:                         method,
+			BatchSize:                      1,
+			PilotSize:                      1,
+			ReviewAfterEachBatch:           review,
+			AutoContinueOnHealthyTelemetry: autoContinue,
+		}
+		rollout.BatchCount = 1
+		rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
+		rollout.State = state
+		return rollout
+	}
+	batched := rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED
+	pilot := rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE
+	tests := []struct {
+		name    string
+		rollout func() *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "pilot gate is valid", rollout: func() *rolloutv1.Rollout {
+			return atGate(pilot, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE)
+		}},
+		{name: "batch review gate is valid", rollout: func() *rolloutv1.Rollout {
+			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
+		}},
+		{name: "stabilizing at a pilot gate is valid", rollout: func() *rolloutv1.Rollout {
+			return atGate(pilot, false, true, rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY)
+		}},
+		{name: "operator pause at a gate is valid", rollout: func() *rolloutv1.Rollout {
+			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED)
+			r.PausedAt = timestamppb.Now()
+			return r
+		}},
+		{name: "in progress at the review stage is rejected", rollout: func() *rolloutv1.Rollout {
+			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS)
+		}, wantErr: true},
+		{name: "pilot gate state in the rest stage is rejected", rollout: func() *rolloutv1.Rollout {
+			r := activeRollout()
+			r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE
+			return r
+		}, wantErr: true},
+		{name: "pilot gate state with the batched method is rejected", rollout: func() *rolloutv1.Rollout {
+			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE)
+		}, wantErr: true},
+		{name: "batch review without review gates is rejected", rollout: func() *rolloutv1.Rollout {
+			return atGate(batched, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
+		}, wantErr: true},
+		{name: "stabilizing without auto-continue is rejected", rollout: func() *rolloutv1.Rollout {
+			return atGate(pilot, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY)
+		}, wantErr: true},
+		{name: "waiting stage in a batched rollout is valid", rollout: func() *rolloutv1.Rollout {
+			r := batchedRollout(2)
+			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
+			return r
+		}},
+		{name: "waiting stage in a pilot rollout is rejected", rollout: func() *rolloutv1.Rollout {
+			r := batchedRollout(1)
+			r.Behavior.Method = pilot
+			r.Behavior.PilotSize = 1
+			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
+			return r
+		}, wantErr: true},
+		{name: "evidence on a finished rollout is rejected", rollout: func() *rolloutv1.Rollout {
+			r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+			r.Evidence = &rolloutv1.RolloutEvidence{}
+			return r
+		}, wantErr: true},
+		{name: "ready to advance without auto-continue is rejected", rollout: func() *rolloutv1.Rollout {
+			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
+			r.Evidence = &rolloutv1.RolloutEvidence{ReadyToAdvance: true}
+			return r
+		}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout(), test.wantErr)
+		})
+	}
+}
+
+func TestRolloutDeviceDoneValidation(t *testing.T) {
+	t.Parallel()
+
+	done := func(edit func(*rolloutv1.RolloutDevice)) *rolloutv1.RolloutDevice {
+		device := &rolloutv1.RolloutDevice{
+			Phase:                      rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_DONE,
+			Online:                     true,
+			Hashing:                    true,
+			HasBaseline:                true,
+			BaselineHashing:            true,
+			LastDeployedFirmwareFileId: "file-1",
+		}
+		edit(device)
+		return device
+	}
+	tests := []struct {
+		name    string
+		device  *rolloutv1.RolloutDevice
+		wantErr bool
+	}{
+		{name: "online hashing miner with provenance is done", device: done(func(*rolloutv1.RolloutDevice) {})},
+		{name: "non-hashing miner with a non-hashing baseline is done", device: done(func(d *rolloutv1.RolloutDevice) {
+			d.Hashing = false
+			d.BaselineHashing = false
+		})},
+		{name: "offline done miner is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.Online = false }), wantErr: true},
+		{name: "done miner without provenance is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.LastDeployedFirmwareFileId = "" }), wantErr: true},
+		{name: "non-hashing done miner with a hashing baseline is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.Hashing = false }), wantErr: true},
+		{name: "non-hashing done late joiner is rejected", device: done(func(d *rolloutv1.RolloutDevice) {
+			d.Hashing = false
+			d.HasBaseline = false
+			d.BaselineHashing = false
+		}), wantErr: true},
+		{name: "offline failed miner is valid", device: done(func(d *rolloutv1.RolloutDevice) {
+			d.Phase = rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_FAILED
+			d.Online = false
+			d.Hashing = false
+		})},
+		{name: "baseline hashing without a baseline is rejected", device: &rolloutv1.RolloutDevice{
+			Phase:           rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			BaselineHashing: true,
+		}, wantErr: true},
+		{name: "baseline errors without a baseline are rejected", device: &rolloutv1.RolloutDevice{
+			Phase:              rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			BaselineOpenErrors: 1,
+		}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.device, test.wantErr)
+		})
+	}
+}
+
 func TestReleaseChannelModelGroupUnassignedDerivedStateValidation(t *testing.T) {
 	t.Parallel()
 

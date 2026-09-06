@@ -28,24 +28,7 @@ func testFirmwareMetadata() FirmwareMetadata {
 	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
 }
 
-func TestValidateFirmwareUploadMetadata_FirmwareVersionLength(t *testing.T) {
-	t.Parallel()
-
-	metadata := testFirmwareMetadata()
-	metadata.FirmwareVersion = strings.Repeat("界", maxFirmwareVersionLength)
-	require.NoError(t, ValidateFirmwareUploadMetadata(metadata))
-
-	metadata.FirmwareVersion = strings.Repeat("界", maxFirmwareVersionLength+1)
-	err := ValidateFirmwareUploadMetadata(metadata)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), fmt.Sprintf(
-		"firmware_version must be at most %d Unicode code points",
-		maxFirmwareVersionLength,
-	))
-}
-
-func TestValidateFirmwareUploadMetadata_RejectsNUL(t *testing.T) {
+func TestValidateFirmwareUploadMetadata_TextBounds(t *testing.T) {
 	t.Parallel()
 
 	fields := []struct {
@@ -56,16 +39,28 @@ func TestValidateFirmwareUploadMetadata_RejectsNUL(t *testing.T) {
 		{"target_model", func(m *FirmwareMetadata, v string) { m.TargetModel = v }},
 		{"firmware_version", func(m *FirmwareMetadata, v string) { m.FirmwareVersion = v }},
 	}
+	requireInvalidArgument := func(t *testing.T, metadata FirmwareMetadata, message string) {
+		t.Helper()
+		err := ValidateFirmwareUploadMetadata(metadata)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), message)
+	}
 	for _, field := range fields {
 		t.Run(field.name, func(t *testing.T) {
 			t.Parallel()
 
 			metadata := testFirmwareMetadata()
+			field.set(&metadata, strings.Repeat("界", maxFirmwareMetadataLength))
+			require.NoError(t, ValidateFirmwareUploadMetadata(metadata))
+
+			field.set(&metadata, strings.Repeat("界", maxFirmwareMetadataLength+1))
+			requireInvalidArgument(t, metadata, fmt.Sprintf(
+				"%s must be at most %d Unicode code points", field.name, maxFirmwareMetadataLength,
+			))
+
 			field.set(&metadata, "v1\x00custom")
-			err := ValidateFirmwareUploadMetadata(metadata)
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			assert.Contains(t, err.Error(), field.name+" must not contain U+0000")
+			requireInvalidArgument(t, metadata, field.name+" must not contain U+0000")
 		})
 	}
 }

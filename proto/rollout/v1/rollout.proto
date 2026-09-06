@@ -610,6 +610,9 @@ enum RolloutDevicePhase {
     // firmware_file_id; is online; and is hashing when baseline_hashing is true
     // or has_baseline is false. A miner with a non-hashing baseline need not be
     // hashing. Per-device telemetry deltas do not affect this phase.
+    // RolloutDevice validation enforces the criteria checkable from its own
+    // fields; version and provenance equality against the rollout target are
+    // enforced by the server.
     ROLLOUT_DEVICE_PHASE_DONE = 4;
     // Attempts exhausted, or the rollout was canceled before this miner
     // updated. Retried only by RetryFailedRolloutDevices. Offline accounting
@@ -816,6 +819,26 @@ message Rollout {
         message: "current_batch_counts must be all zero in the REST stage"
         expression: "this.stage != 4 || (this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded == 0)"
     };
+    option (buf.validate.message).cel = {
+        id: "gate_states_match_review_stage"
+        message: "while ACTIVE, STABILIZING_TELEMETRY and the gate states occur exactly at the AWAITING_REVIEW stage, where only they or PAUSED are allowed"
+        expression: "this.status != 1 || ((this.state in [2, 3, 4]) == (this.stage == 2 && this.state != 5))"
+    };
+    option (buf.validate.message).cel = {
+        id: "gate_states_match_behavior"
+        message: "PAUSED_AT_PILOT_GATE requires the pilot method, PAUSED_AT_BATCH_REVIEW requires batched review, and STABILIZING_TELEMETRY requires auto-continue at such a gate"
+        expression: "(this.state != 3 || this.behavior.method == 3) && (this.state != 4 || (this.behavior.method == 2 && this.behavior.review_after_each_batch)) && (this.state != 2 || (this.behavior.auto_continue_on_healthy_telemetry && (this.behavior.method == 3 || (this.behavior.method == 2 && this.behavior.review_after_each_batch))))"
+    };
+    option (buf.validate.message).cel = {
+        id: "waiting_stage_requires_batched"
+        message: "the WAITING stage occurs only in BATCHED rollouts"
+        expression: "this.stage != 3 || this.behavior.method == 2"
+    };
+    option (buf.validate.message).cel = {
+        id: "evidence_only_while_active"
+        message: "evidence is set only for ACTIVE rollouts and ready_to_advance requires auto-continue"
+        expression: "(!has(this.evidence) || this.status == 1) && (!this.evidence.ready_to_advance || this.behavior.auto_continue_on_healthy_telemetry)"
+    };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
     int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
@@ -890,6 +913,17 @@ message Rollout {
 
 // Progress of one miner within a rollout.
 message RolloutDevice {
+    option (buf.validate.message).cel = {
+        id: "done_meets_local_convergence_criteria"
+        message: "a DONE miner must be online, carry managed-deployment provenance, and be hashing unless it has a non-hashing baseline"
+        expression: "this.phase != 4 || (this.online && this.last_deployed_firmware_file_id != '' && (this.hashing || (this.has_baseline && !this.baseline_hashing)))"
+    };
+    option (buf.validate.message).cel = {
+        id: "baseline_fields_require_baseline"
+        message: "baseline_hashing and baseline_open_errors must be unset without a baseline snapshot"
+        expression: "this.has_baseline || (!this.baseline_hashing && this.baseline_open_errors == 0)"
+    };
+
     int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
