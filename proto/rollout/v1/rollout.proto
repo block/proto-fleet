@@ -746,6 +746,41 @@ message Rollout {
         message: "a rollout cannot be its own predecessor or successor"
         expression: "this.id == 0 || (this.retry_of_rollout_id != this.id && this.successor_rollout_id != this.id)"
     };
+    option (buf.validate.message).cel = {
+        id: "state_derives_from_status"
+        message: "state must be an in-progress or paused state while ACTIVE and the matching terminal state otherwise"
+        expression: "(this.status == 1 && this.state in [1, 2, 3, 4, 5]) || (this.status == 2 && this.state == 6) || (this.status == 3 && this.state == 7) || (this.status == 4 && this.state == 8)"
+    };
+    option (buf.validate.message).cel = {
+        id: "cancel_reason_iff_canceled"
+        message: "cancel_reason must be set exactly when status is CANCELED"
+        expression: "(this.status == 4) == (this.cancel_reason != 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "finished_at_iff_terminal"
+        message: "finished_at must be set exactly when status is not ACTIVE"
+        expression: "has(this.finished_at) == (this.status != 1)"
+    };
+    option (buf.validate.message).cel = {
+        id: "paused_at_iff_paused"
+        message: "paused_at must be set exactly when state is PAUSED"
+        expression: "has(this.paused_at) == (this.state == 5)"
+    };
+    option (buf.validate.message).cel = {
+        id: "device_counts_sum_to_device_count"
+        message: "device_counts phases must sum to device_count"
+        expression: "this.device_counts.queued + this.device_counts.in_progress + this.device_counts.retrying + this.device_counts.done + this.device_counts.failed + this.device_counts.excluded == this.device_count"
+    };
+    option (buf.validate.message).cel = {
+        id: "current_batch_counts_within_device_count"
+        message: "current_batch_counts phases must not exceed device_count"
+        expression: "this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded <= this.device_count"
+    };
+    option (buf.validate.message).cel = {
+        id: "evidence_within_device_count"
+        message: "evidence.devices_total must not exceed device_count"
+        expression: "this.evidence.devices_total <= this.device_count"
+    };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
     int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
@@ -756,11 +791,13 @@ message Rollout {
     // invariant.
     string firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 7 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
-    RolloutStatus status = 8;
-    RolloutState state = 9;
+    RolloutStatus status = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    // Derived from status, stage, and pause; always agrees with status.
+    RolloutState state = 9 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // Stage of a staged rollout; REST for all-at-once rollouts.
-    RolloutStage stage = 10;
-    RolloutCancelReason cancel_reason = 11;
+    RolloutStage stage = 10 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    // Set exactly when status is CANCELED.
+    RolloutCancelReason cancel_reason = 11 [(buf.validate.field).enum.defined_only = true];
     // The behavior this rollout runs with (copied from the channel at start).
     RolloutBehavior behavior = 12;
     // Number of snapshotted batches; 0 for all-at-once rollouts.
@@ -785,16 +822,19 @@ message Rollout {
     // Version of the lineage assignment; set exactly when
     // previous_firmware_file_id is set.
     string previous_firmware_version = 20 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
-    // Number of miners snapshotted into the rollout. Retrieve their live
-    // progress with ListRolloutDevices.
+    // Number of miners this rollout targets, including late joiners; equals
+    // the sum of device_counts. Retrieve their live progress with
+    // ListRolloutDevices.
     int32 device_count = 21 [(buf.validate.field).int32.gte = 0];
     // Evidence for the miners currently under review; unset for rollouts
-    // that are not active.
+    // that are not active. Its devices_total never exceeds device_count.
     RolloutEvidence evidence = 22;
-    // Per-phase counts over every snapshotted miner; sums to device_count.
+    // Per-phase counts over every target; each target is counted in exactly
+    // one phase, so the phases sum to device_count.
     RolloutDeviceCounts device_counts = 23;
     // Per-phase counts over the batch in flight or under review. All zero
-    // in the rest stage and for all-at-once rollouts.
+    // in the rest stage and for all-at-once rollouts; never exceeds
+    // device_count in total.
     RolloutDeviceCounts current_batch_counts = 24;
     // Generation of the assignment this rollout enforces under the
     // RolloutService assignment-generation rule. Compare with
@@ -817,7 +857,7 @@ message RolloutDevice {
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
     // Firmware version the miner currently reports.
     string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
-    RolloutDevicePhase phase = 5;
+    RolloutDevicePhase phase = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // 1-based batch the miner was snapshotted into; 0 when it is not part of
     // any batch (rest stage / late joiner).
     int32 batch = 6 [(buf.validate.field).int32.gte = 0];

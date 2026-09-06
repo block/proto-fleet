@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type observedIdentityValidationCase struct {
@@ -171,15 +172,49 @@ var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
 	{
 		name: "rollout devices",
 		response: func(fileID string) proto.Message {
-			return &rolloutv1.ListRolloutDevicesResponse{
-				Devices: []*rolloutv1.RolloutDevice{{
-					LastDeployedFirmwareFileId: fileID,
-				}},
-			}
+			device := queuedDevice()
+			device.LastDeployedFirmwareFileId = fileID
+			return &rolloutv1.ListRolloutDevicesResponse{Devices: []*rolloutv1.RolloutDevice{device}}
 		},
 		collectionField: "devices",
 		fieldNumber:     21,
 	},
+}
+
+// activeRollout returns a minimal Rollout with a consistent ACTIVE lifecycle so
+// tests can exercise one rule at a time.
+func activeRollout() *rolloutv1.Rollout {
+	return &rolloutv1.Rollout{
+		Manufacturer: "Bitmain",
+		Model:        "S21",
+		Status:       rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE,
+		State:        rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS,
+		Stage:        rolloutv1.RolloutStage_ROLLOUT_STAGE_REST,
+	}
+}
+
+// finishedRollout returns a minimal Rollout in the given terminal status with
+// the state, cancel reason, and finished_at that status requires.
+func finishedRollout(status rolloutv1.RolloutStatus) *rolloutv1.Rollout {
+	rollout := activeRollout()
+	rollout.Status = status
+	rollout.FinishedAt = timestamppb.Now()
+	switch status {
+	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED:
+		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED
+	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES:
+		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED_WITH_FAILURES
+	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED:
+		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_CANCELED
+		rollout.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CANCELED_REMAINING
+	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, rolloutv1.RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED:
+		panic("finishedRollout requires a terminal status")
+	}
+	return rollout
+}
+
+func queuedDevice() *rolloutv1.RolloutDevice {
+	return &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED}
 }
 
 func requireProtoValidation(t *testing.T, message proto.Message, wantErr bool) {
@@ -287,10 +322,7 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 			t.Parallel()
 
 			newRollout := func(version string) *rolloutv1.Rollout {
-				rollout := &rolloutv1.Rollout{
-					Manufacturer: "Bitmain",
-					Model:        "S21",
-				}
+				rollout := activeRollout()
 				field.set(rollout, version)
 				return rollout
 			}
@@ -306,15 +338,13 @@ func TestRolloutLineageValidation(t *testing.T) {
 	t.Parallel()
 
 	newRollout := func(fileID, version, previousFileID, previousVersion string) *rolloutv1.Rollout {
-		return &rolloutv1.Rollout{
-			Manufacturer:            "Bitmain",
-			Model:                   "S21",
-			FirmwareFileId:          fileID,
-			FirmwareVersion:         version,
-			PreviousFirmwareFileId:  previousFileID,
-			PreviousFirmwareVersion: previousVersion,
-			AssignmentGeneration:    1,
-		}
+		rollout := activeRollout()
+		rollout.FirmwareFileId = fileID
+		rollout.FirmwareVersion = version
+		rollout.PreviousFirmwareFileId = previousFileID
+		rollout.PreviousFirmwareVersion = previousVersion
+		rollout.AssignmentGeneration = 1
+		return rollout
 	}
 	withoutGeneration := newRollout("file-1", "2.0", "", "")
 	withoutGeneration.AssignmentGeneration = 0
@@ -325,7 +355,7 @@ func TestRolloutLineageValidation(t *testing.T) {
 	}{
 		{name: "first assignment has an empty lineage", rollout: newRollout("file-1", "2.0", "", "")},
 		{name: "later assignment records the replaced one", rollout: newRollout("file-1", "2.0", "file-0", "1.0")},
-		{name: "untargeted rollout needs no generation", rollout: &rolloutv1.Rollout{Manufacturer: "Bitmain", Model: "S21"}},
+		{name: "untargeted rollout needs no generation", rollout: activeRollout()},
 		{name: "target file without version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
 		{name: "target version without file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
 		{name: "lineage file without version is rejected", rollout: newRollout("file-1", "2.0", "file-0", ""), wantErr: true},
@@ -347,14 +377,14 @@ func TestRolloutRetryChainValidation(t *testing.T) {
 	t.Parallel()
 
 	newRollout := func(status rolloutv1.RolloutStatus, retryOf, successor int64) *rolloutv1.Rollout {
-		return &rolloutv1.Rollout{
-			Id:                 7,
-			Manufacturer:       "Bitmain",
-			Model:              "S21",
-			Status:             status,
-			RetryOfRolloutId:   retryOf,
-			SuccessorRolloutId: successor,
+		rollout := activeRollout()
+		if status != rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE {
+			rollout = finishedRollout(status)
 		}
+		rollout.Id = 7
+		rollout.RetryOfRolloutId = retryOf
+		rollout.SuccessorRolloutId = successor
+		return rollout
 	}
 	tests := []struct {
 		name    string
@@ -367,6 +397,119 @@ func TestRolloutRetryChainValidation(t *testing.T) {
 		{name: "self successor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED, 0, 7), wantErr: true},
 		{name: "self predecessor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 7, 0), wantErr: true},
 		{name: "negative chain id is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, -1, 0), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout, test.wantErr)
+		})
+	}
+}
+
+func TestRolloutLifecycleValidation(t *testing.T) {
+	t.Parallel()
+
+	mutate := func(edit func(*rolloutv1.Rollout)) *rolloutv1.Rollout {
+		rollout := activeRollout()
+		edit(rollout)
+		return rollout
+	}
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "active in progress is valid", rollout: activeRollout()},
+		{name: "completed is valid", rollout: finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)},
+		{name: "completed with failures is valid", rollout: finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES)},
+		{name: "canceled with a reason is valid", rollout: finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED)},
+		{
+			name: "paused with paused_at is valid",
+			rollout: mutate(func(r *rolloutv1.Rollout) {
+				r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED
+				r.PausedAt = timestamppb.Now()
+			}),
+		},
+		{name: "unspecified status is rejected", rollout: &rolloutv1.Rollout{Manufacturer: "Bitmain", Model: "S21"}, wantErr: true},
+		{name: "unknown status is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.Status = rolloutv1.RolloutStatus(99) }), wantErr: true},
+		{name: "unspecified state is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.State = rolloutv1.RolloutState_ROLLOUT_STATE_UNSPECIFIED }), wantErr: true},
+		{name: "unspecified stage is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_UNSPECIFIED }), wantErr: true},
+		{name: "unknown cancel reason is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.CancelReason = rolloutv1.RolloutCancelReason(99) }), wantErr: true},
+		{name: "active rollout with a terminal state is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED }), wantErr: true},
+		{
+			name: "completed rollout with a mismatched terminal state is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+				r.State = rolloutv1.RolloutState_ROLLOUT_STATE_CANCELED
+				return r
+			}(),
+			wantErr: true,
+		},
+		{name: "active rollout with a cancel reason is rejected", rollout: mutate(func(r *rolloutv1.Rollout) {
+			r.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CLEARED
+		}), wantErr: true},
+		{
+			name: "canceled rollout without a reason is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED)
+				r.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_UNSPECIFIED
+				return r
+			}(),
+			wantErr: true,
+		},
+		{name: "active rollout with finished_at is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.FinishedAt = timestamppb.Now() }), wantErr: true},
+		{
+			name: "finished rollout without finished_at is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+				r.FinishedAt = nil
+				return r
+			}(),
+			wantErr: true,
+		},
+		{name: "paused state without paused_at is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED }), wantErr: true},
+		{name: "paused_at while in progress is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.PausedAt = timestamppb.Now() }), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout, test.wantErr)
+		})
+	}
+}
+
+func TestRolloutDeviceCountsValidation(t *testing.T) {
+	t.Parallel()
+
+	withCounts := func(total int32, counts, batch *rolloutv1.RolloutDeviceCounts, evidenceTotal int32) *rolloutv1.Rollout {
+		rollout := activeRollout()
+		rollout.DeviceCount = total
+		rollout.DeviceCounts = counts
+		rollout.CurrentBatchCounts = batch
+		if evidenceTotal > 0 {
+			rollout.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: evidenceTotal}
+		}
+		return rollout
+	}
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "no targets and no counts is valid", rollout: withCounts(0, nil, nil, 0)},
+		{
+			name:    "phases summing to device_count are valid",
+			rollout: withCounts(6, &rolloutv1.RolloutDeviceCounts{Queued: 1, InProgress: 1, Retrying: 1, Done: 1, Failed: 1, Excluded: 1}, &rolloutv1.RolloutDeviceCounts{Done: 2}, 2),
+		},
+		{name: "targets without phase counts are rejected", rollout: withCounts(3, nil, nil, 0), wantErr: true},
+		{name: "phases exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, 0), wantErr: true},
+		{name: "phases below device_count are rejected", rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 0), wantErr: true},
+		{name: "batch counts exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, 0), wantErr: true},
+		{name: "evidence exceeding device_count is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 3), wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -628,10 +771,11 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 	}
 }
 
-// Every string carries a max_len, every list a max_items, and every integer a
-// lower bound, so no payload in the contract can grow without an explicit
-// limit or expose an impossible negative id or count.
-func TestEveryContractFieldIsBounded(t *testing.T) {
+// Every string carries a max_len, every list a max_items, every integer a
+// lower bound, and every enum defined_only, so no payload in the contract can
+// grow without an explicit limit, expose an impossible negative id or count,
+// or carry an enum value clients cannot interpret.
+func TestEveryContractFieldIsConstrained(t *testing.T) {
 	t.Parallel()
 
 	hasLowerBound := func(rules *validate.FieldRules) bool {
@@ -660,6 +804,9 @@ func TestEveryContractFieldIsBounded(t *testing.T) {
 				}
 				if (kind == protoreflect.Int32Kind || kind == protoreflect.Int64Kind) && !hasLowerBound(elementRules) {
 					t.Errorf("%s must set gte or gt", field.FullName())
+				}
+				if kind == protoreflect.EnumKind && !elementRules.GetEnum().GetDefinedOnly() {
+					t.Errorf("%s must set defined_only", field.FullName())
 				}
 			}
 		}
@@ -1155,9 +1302,7 @@ func TestOptionalReleaseChannelIDValidation(t *testing.T) {
 func TestBoundedListResponseValidation(t *testing.T) {
 	t.Parallel()
 
-	newRollout := func() proto.Message {
-		return &rolloutv1.Rollout{Manufacturer: "Bitmain", Model: "S21"}
-	}
+	newRollout := func() proto.Message { return activeRollout() }
 	tests := []struct {
 		name            string
 		newResponse     func() proto.Message
@@ -1193,7 +1338,7 @@ func TestBoundedListResponseValidation(t *testing.T) {
 		{
 			name:            "rollout devices",
 			newResponse:     func() proto.Message { return &rolloutv1.ListRolloutDevicesResponse{} },
-			newElement:      func() proto.Message { return &rolloutv1.RolloutDevice{} },
+			newElement:      func() proto.Message { return queuedDevice() },
 			collectionField: "devices",
 			maxItems:        1000,
 			cursorMaxLen:    100,
@@ -1713,7 +1858,10 @@ func TestRequiredManufacturerModelTargetKeyValidation(t *testing.T) {
 		{
 			name: "rollout",
 			new: func(manufacturer, model string) proto.Message {
-				return &rolloutv1.Rollout{Manufacturer: manufacturer, Model: model}
+				rollout := activeRollout()
+				rollout.Manufacturer = manufacturer
+				rollout.Model = model
+				return rollout
 			},
 		},
 	}
@@ -1885,6 +2033,17 @@ func TestPersistedRequestStringsRejectNUL(t *testing.T) {
 func TestRolloutDeviceLastErrorValidation(t *testing.T) {
 	t.Parallel()
 
-	requireProtoValidation(t, &rolloutv1.RolloutDevice{LastError: strings.Repeat("e", 2048)}, false)
-	requireProtoValidation(t, &rolloutv1.RolloutDevice{LastError: strings.Repeat("e", 2049)}, true)
+	device := queuedDevice()
+	device.LastError = strings.Repeat("e", 2048)
+	requireProtoValidation(t, device, false)
+	device.LastError = strings.Repeat("e", 2049)
+	requireProtoValidation(t, device, true)
+}
+
+func TestRolloutDevicePhaseValidation(t *testing.T) {
+	t.Parallel()
+
+	requireProtoValidation(t, queuedDevice(), false)
+	requireProtoValidation(t, &rolloutv1.RolloutDevice{}, true)
+	requireProtoValidation(t, &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase(99)}, true)
 }
