@@ -101,15 +101,39 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 
 // MatchesTarget reports whether the firmware applies to a device with the
 // given manufacturer and model. Unlike matches (exact comparison, used for
-// upload dedup), deployment compatibility is case-insensitive, and a device
-// with unknown manufacturer or model never matches.
+// upload dedup), deployment compatibility folds ASCII letters
+// case-insensitively, and a device with unknown manufacturer or model never
+// matches.
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
 	manufacturer = strings.TrimSpace(manufacturer)
 	model = strings.TrimSpace(model)
 	return manufacturer != "" && model != "" &&
-		strings.EqualFold(manufacturer, m.TargetManufacturer) &&
-		strings.EqualFold(model, m.TargetModel)
+		equalFoldASCII(manufacturer, m.TargetManufacturer) &&
+		equalFoldASCII(model, m.TargetModel)
+}
+
+// equalFoldASCII compares two strings byte for byte, folding only ASCII
+// letters. strings.EqualFold would also apply Unicode simple folding, letting
+// look-alikes such as U+212A KELVIN SIGN match "k" and select a different
+// hardware identity than the one the assignment names.
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if 'A' <= ca && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if 'A' <= cb && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateFirmwareMetadata checks that target metadata is complete.

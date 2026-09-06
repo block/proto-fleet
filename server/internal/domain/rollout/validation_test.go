@@ -343,6 +343,41 @@ func TestRolloutLineageValidation(t *testing.T) {
 	}
 }
 
+func TestRolloutRetryChainValidation(t *testing.T) {
+	t.Parallel()
+
+	newRollout := func(status rolloutv1.RolloutStatus, retryOf, successor int64) *rolloutv1.Rollout {
+		return &rolloutv1.Rollout{
+			Id:                 7,
+			Manufacturer:       "Bitmain",
+			Model:              "S21",
+			Status:             status,
+			RetryOfRolloutId:   retryOf,
+			SuccessorRolloutId: successor,
+		}
+	}
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "finished rollout with a successor is valid", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES, 0, 8)},
+		{name: "active successor records its predecessor", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 6, 0)},
+		{name: "active rollout with a successor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 0, 8), wantErr: true},
+		{name: "self successor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED, 0, 7), wantErr: true},
+		{name: "self predecessor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 7, 0), wantErr: true},
+		{name: "negative chain id is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, -1, 0), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout, test.wantErr)
+		})
+	}
+}
+
 func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {
 	t.Parallel()
 

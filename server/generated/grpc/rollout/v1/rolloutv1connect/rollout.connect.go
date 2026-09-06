@@ -186,20 +186,22 @@ type RolloutServiceClient interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only while it is current under the RolloutService
-	// assignment-generation rule and its pair has no active rollout under the
-	// single-active-rollout rule; the new rollout inherits the retried
-	// rollout's assignment_generation and assignment lineage
-	// (previous_firmware_file_id and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment. While that
-	// successor is active, retrying the finished rollout again fails; retry the
-	// successor instead, which re-queues its own failed miners in place.
+	// assignment-generation rule, has no successor (Rollout.successor_rollout_id
+	// is 0), and its pair has no active rollout under the single-active-rollout
+	// rule. The new rollout records the retried rollout as retry_of_rollout_id,
+	// is recorded on it as successor_rollout_id, and inherits its
+	// assignment_generation and assignment lineage (previous_firmware_file_id
+	// and previous_firmware_version), so rolling back either rollout reverses
+	// the original assignment. A rollout is retried at most once: once it has a
+	// successor, retry the latest rollout in the chain, whose FAILED set
+	// excludes miners earlier successors already repaired.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
 	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
 	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware, and never runs two rollouts for one
-	// pair at once.
+	// assignment of the same firmware, never runs two rollouts for one pair at
+	// once, and never re-queues a miner a later rollout already repaired.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
@@ -532,20 +534,22 @@ type RolloutServiceHandler interface {
 	// Re-queues the miners that failed (or were canceled) in a rollout. An
 	// active rollout retries them in place. A finished rollout starts a new
 	// all-at-once rollout only while it is current under the RolloutService
-	// assignment-generation rule and its pair has no active rollout under the
-	// single-active-rollout rule; the new rollout inherits the retried
-	// rollout's assignment_generation and assignment lineage
-	// (previous_firmware_file_id and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment. While that
-	// successor is active, retrying the finished rollout again fails; retry the
-	// successor instead, which re-queues its own failed miners in place.
+	// assignment-generation rule, has no successor (Rollout.successor_rollout_id
+	// is 0), and its pair has no active rollout under the single-active-rollout
+	// rule. The new rollout records the retried rollout as retry_of_rollout_id,
+	// is recorded on it as successor_rollout_id, and inherits its
+	// assignment_generation and assignment lineage (previous_firmware_file_id
+	// and previous_firmware_version), so rolling back either rollout reverses
+	// the original assignment. A rollout is retried at most once: once it has a
+	// successor, retry the latest rollout in the chain, whose FAILED set
+	// excludes miners earlier successors already repaired.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
 	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
 	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
 	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware, and never runs two rollouts for one
-	// pair at once.
+	// assignment of the same firmware, never runs two rollouts for one pair at
+	// once, and never re-queues a miner a later rollout already repaired.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
