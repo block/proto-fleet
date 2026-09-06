@@ -203,6 +203,22 @@ func TestHasOrgWidePermissionHonorsSiteNarrowing(t *testing.T) {
 // RequireAnyPermission
 // ---------------------------------------------------------------
 
+func TestRequirePermissionAtAnySite_AllowsSiteOnlyGrant(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(10, authz.PermMaintenanceRead))
+
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceRead)
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequirePermissionAtAnySite_DeniesMissingGrant(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(10, authz.PermFleetRead))
+
+	_, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+}
+
 func TestSiteScopeForPermission_ProjectsAllowlistAndDenylist(t *testing.T) {
 	// Site-scoped-only caller: allowlist of granting sites.
 	ctx := ctxWithEffective(t, userInfo(),

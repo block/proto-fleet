@@ -349,14 +349,20 @@ WITH locked_device_set AS MATERIALIZED (
       AND device_set.org_id = $1
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.device_identifier = ANY(@device_identifiers::text[])
+      AND d.org_id = $1
+      AND d.deleted_at IS NULL
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
-FROM device d
+FROM locked_devices d
 CROSS JOIN locked_device_set ds
-WHERE d.device_identifier = ANY(@device_identifiers::text[])
-  AND d.org_id = $1
-  AND d.deleted_at IS NULL
 ORDER BY d.id
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier;
@@ -431,10 +437,21 @@ WITH locked_device_set AS MATERIALIZED (
       AND device_set.org_id = sqlc.arg('org_id')
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    JOIN device_set_membership dsm
+      ON dsm.device_id = d.id AND dsm.org_id = d.org_id
+    CROSS JOIN locked_device_set ds
+    WHERE dsm.device_set_id = ds.id
+      AND d.org_id = sqlc.arg('org_id')
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 DELETE FROM device_set_membership dsm
-USING locked_device_set ds
+USING locked_device_set ds, locked_devices d
 WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
   AND dsm.org_id = sqlc.arg('org_id');
 
 -- name: LockRacksForReparent :many
@@ -513,12 +530,20 @@ WITH locked_device_set AS MATERIALIZED (
       AND device_set.org_id = sqlc.arg('org_id')
       AND device_set.deleted_at IS NULL
     FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.device_identifier = ANY(@device_identifiers::text[])
+    ORDER BY d.id
+    FOR UPDATE OF d
 )
 DELETE FROM device_set_membership dsm
-USING locked_device_set ds
+USING locked_device_set ds, locked_devices d
 WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
   AND dsm.org_id = sqlc.arg('org_id')
-  AND dsm.device_identifier = ANY(@device_identifiers::text[])
 RETURNING dsm.device_identifier;
 
 -- name: ListDeviceSetMembersPaginated :many
