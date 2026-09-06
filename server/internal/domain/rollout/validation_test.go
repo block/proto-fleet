@@ -204,12 +204,26 @@ func finishedRollout(status rolloutv1.RolloutStatus) *rolloutv1.Rollout {
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED
 	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES:
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED_WITH_FAILURES
+		rollout.DeviceCount = 1
+		rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Failed: 1}
 	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED:
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_CANCELED
 		rollout.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CANCELED_REMAINING
 	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, rolloutv1.RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED:
 		panic("finishedRollout requires a terminal status")
 	}
+	return rollout
+}
+
+// batchedRollout returns an ACTIVE rollout in its first of batchCount batches.
+func batchedRollout(batchCount int32) *rolloutv1.Rollout {
+	rollout := activeRollout()
+	rollout.Behavior = &rolloutv1.RolloutBehavior{
+		Method:    rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED,
+		BatchSize: 1,
+	}
+	rollout.BatchCount = batchCount
+	rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_BATCH
 	return rollout
 }
 
@@ -487,6 +501,9 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 
 	withCounts := func(total int32, counts, batch *rolloutv1.RolloutDeviceCounts, evidenceTotal int32) *rolloutv1.Rollout {
 		rollout := activeRollout()
+		if batch != nil {
+			rollout = batchedRollout(1)
+		}
 		rollout.DeviceCount = total
 		rollout.DeviceCounts = counts
 		rollout.CurrentBatchCounts = batch
@@ -519,6 +536,143 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 			requireProtoValidation(t, test.rollout, test.wantErr)
 		})
 	}
+}
+
+func TestRolloutTerminalStatusPhaseValidation(t *testing.T) {
+	t.Parallel()
+
+	finishedWith := func(status rolloutv1.RolloutStatus, counts *rolloutv1.RolloutDeviceCounts) *rolloutv1.Rollout {
+		rollout := finishedRollout(status)
+		rollout.DeviceCounts = counts
+		rollout.DeviceCount = counts.GetQueued() + counts.GetInProgress() + counts.GetRetrying() + counts.GetDone() + counts.GetFailed() + counts.GetExcluded()
+		return rollout
+	}
+	completed := rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED
+	completedWithFailures := rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES
+	canceled := rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "completed with done and excluded is valid", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Excluded: 1})},
+		{name: "completed with a failure is rejected", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}), wantErr: true},
+		{name: "completed with a queued target is rejected", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Queued: 1}), wantErr: true},
+		{name: "completed with failures and settled targets is valid", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1, Excluded: 1})},
+		{name: "completed with failures but none failed is rejected", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Done: 2}), wantErr: true},
+		{name: "completed with failures and an in-progress target is rejected", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Failed: 1, InProgress: 1}), wantErr: true},
+		{name: "canceled with unsettled targets is valid", rollout: finishedWith(canceled, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1, Failed: 1})},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout, test.wantErr)
+		})
+	}
+}
+
+func TestRolloutBatchConsistencyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rollout func() *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "all-at-once without batches in the rest stage is valid", rollout: activeRollout},
+		{name: "batched rollout in its first batch is valid", rollout: func() *rolloutv1.Rollout { return batchedRollout(2) }},
+		{
+			name: "batched rollout on its last batch is valid",
+			rollout: func() *rolloutv1.Rollout {
+				r := batchedRollout(2)
+				r.CurrentBatch = 1
+				return r
+			},
+		},
+		{
+			name: "batched rollout resting after its batches is valid",
+			rollout: func() *rolloutv1.Rollout {
+				r := batchedRollout(2)
+				r.CurrentBatch = 1
+				r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_REST
+				return r
+			},
+		},
+		{
+			name: "current batch at batch count is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := batchedRollout(2)
+				r.CurrentBatch = 2
+				return r
+			},
+			wantErr: true,
+		},
+		{
+			name: "current batch without batches is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := activeRollout()
+				r.CurrentBatch = 1
+				return r
+			},
+			wantErr: true,
+		},
+		{
+			name: "all-at-once rollout with batches is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := activeRollout()
+				r.BatchCount = 1
+				return r
+			},
+			wantErr: true,
+		},
+		{
+			name: "batched rollout without batches is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := batchedRollout(0)
+				r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_REST
+				return r
+			},
+			wantErr: true,
+		},
+		{
+			name: "all-at-once rollout outside the rest stage is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := activeRollout()
+				r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_BATCH
+				return r
+			},
+			wantErr: true,
+		},
+		{
+			name: "rest stage with current batch counts is rejected",
+			rollout: func() *rolloutv1.Rollout {
+				r := activeRollout()
+				r.DeviceCount = 1
+				r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
+				r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
+				return r
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout(), test.wantErr)
+		})
+	}
+}
+
+func TestReleaseChannelModelGroupUnassignedDerivedStateValidation(t *testing.T) {
+	t.Parallel()
+
+	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{MinerCount: 3}, false)
+	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{MinerCount: 3, OnTargetCount: 1}, true)
+	requireProtoValidation(t, &rolloutv1.ReleaseChannelModelGroup{ActiveRolloutId: 5}, true)
 }
 
 func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {

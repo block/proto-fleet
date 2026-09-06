@@ -393,6 +393,11 @@ message ReleaseChannelModelGroup {
         expression: "this.firmware_file_id == '' || this.assignment_generation > 0"
     };
     option (buf.validate.message).cel = {
+        id: "unassigned_pair_has_no_derived_assignment_state"
+        message: "on_target_count and active_rollout_id must be 0 when no firmware is assigned"
+        expression: "this.firmware_file_id != '' || (this.on_target_count == 0 && this.active_rollout_id == 0)"
+    };
+    option (buf.validate.message).cel = {
         id: "firmware_assignment_is_absent_or_complete"
         message: "firmware assignment fields must be absent or include canonical target manufacturer/model keys and firmware_version"
         expression: "(this.firmware_file_id == '' && this.firmware_target_manufacturer == '' && this.firmware_target_model == '' && this.firmware_version == '') || (this.firmware_file_id != '' && this.firmware_target_manufacturer.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_target_model.matches('^[!-~](?:[ -~]*[!-~])?$') && this.firmware_version != '')"
@@ -781,6 +786,36 @@ message Rollout {
         message: "evidence.devices_total must not exceed device_count"
         expression: "this.evidence.devices_total <= this.device_count"
     };
+    option (buf.validate.message).cel = {
+        id: "completed_has_only_done_or_excluded_targets"
+        message: "a COMPLETED rollout may only contain DONE or EXCLUDED targets"
+        expression: "this.status != 2 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed == 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "completed_with_failures_is_settled_with_a_failure"
+        message: "a COMPLETED_WITH_FAILURES rollout may only contain DONE, FAILED, or EXCLUDED targets and needs at least one FAILED"
+        expression: "this.status != 3 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed > 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "batches_match_method"
+        message: "batch_count must be 0 for all-at-once rollouts and positive for paced ones"
+        expression: "(this.behavior.method == 0 || this.behavior.method == 1) == (this.batch_count == 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "current_batch_within_batch_count"
+        message: "current_batch must index an existing batch, or be 0 without batches"
+        expression: "this.batch_count == 0 ? this.current_batch == 0 : this.current_batch < this.batch_count"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_at_once_stays_in_rest_stage"
+        message: "a rollout without batches must be in the REST stage"
+        expression: "this.batch_count > 0 || this.stage == 4"
+    };
+    option (buf.validate.message).cel = {
+        id: "rest_stage_has_no_current_batch_counts"
+        message: "current_batch_counts must be all zero in the REST stage"
+        expression: "this.stage != 4 || (this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded == 0)"
+    };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
     int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
@@ -800,9 +835,12 @@ message Rollout {
     RolloutCancelReason cancel_reason = 11 [(buf.validate.field).enum.defined_only = true];
     // The behavior this rollout runs with (copied from the channel at start).
     RolloutBehavior behavior = 12;
-    // Number of snapshotted batches; 0 for all-at-once rollouts.
+    // Number of snapshotted batches; 0 for all-at-once rollouts and at least
+    // 1 for paced methods.
     int32 batch_count = 13 [(buf.validate.field).int32.gte = 0];
-    // 0-based index of the batch in flight or under review.
+    // 0-based index of the batch in flight or under review, always below
+    // batch_count; stays at the last batch through the rest stage and is 0
+    // for rollouts without batches.
     int32 current_batch = 14 [(buf.validate.field).int32.gte = 0];
     // When the current stage began.
     google.protobuf.Timestamp stage_changed_at = 15;
