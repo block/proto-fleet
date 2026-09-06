@@ -271,20 +271,20 @@ enum RolloutOrder {
 message RolloutAutomationThresholds {
     // Largest acceptable aggregate hashrate drop versus baseline, percent.
     // Judged against RolloutEvidence.hash_rate_hs.
-    optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100}];
+    optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100, finite: true}];
     // Largest acceptable mean efficiency (J/TH) increase versus baseline,
     // percent. Judged against RolloutEvidence.efficiency_jh.
-    optional double max_efficiency_increase_percent = 2 [(buf.validate.field).double = {gte: 0}];
+    optional double max_efficiency_increase_percent = 2 [(buf.validate.field).double = {gte: 0, finite: true}];
     // Largest acceptable mean temperature increase versus baseline, °C.
     // Judged against RolloutEvidence.temp_c.
-    optional double max_temperature_increase_celsius = 3 [(buf.validate.field).double = {gte: 0}];
+    optional double max_temperature_increase_celsius = 3 [(buf.validate.field).double = {gte: 0, finite: true}];
     // Largest acceptable number of errors opened since baseline, summed over
     // the batch. Error counts cover every miner, so no coverage rule applies.
     optional int32 max_new_errors = 4 [(buf.validate.field).int32 = {gte: 0}];
     // Minimum share of verified miners under review that an aggregate must
     // sample before the limit for its metric can pass. Defaults to 100 when
     // unset.
-    optional double min_sample_coverage_percent = 5 [(buf.validate.field).double = {gt: 0, lte: 100}];
+    optional double min_sample_coverage_percent = 5 [(buf.validate.field).double = {gt: 0, lte: 100, finite: true}];
 }
 
 // How updates started in a channel are staged and dispatched. Stored on the
@@ -331,8 +331,9 @@ message RolloutBehavior {
     // observed offline, regardless of phase or whether the update caused the
     // outage, or when a slot has been reserved immediately before dispatch. A
     // reservation or offline slot is released only after that target is next
-    // observed online; becoming EXCLUDED, FAILED, or otherwise terminal does
-    // not release an offline slot. Dispatch in every rollout of the channel
+    // observed online or is deleted from the fleet, since a deleted miner can
+    // never report again; becoming EXCLUDED, FAILED, or otherwise terminal
+    // does not by itself release a slot. Dispatch in every rollout of the channel
     // pauses while this nonzero budget is full. Cancellation ends further
     // dispatch for the canceled rollout only; slots held by its targets keep
     // counting against the channel until those targets are observed online.
@@ -381,6 +382,11 @@ message ReleaseChannelModelGroup {
         id: "reported_versions_match_bounded_count"
         message: "reported_versions must contain all distinct versions up to the 10-item limit"
         expression: "this.reported_versions.size() == (this.reported_version_count < 10 ? this.reported_version_count : 10)"
+    };
+    option (buf.validate.message).cel = {
+        id: "reported_version_count_within_miner_count"
+        message: "reported_version_count must not exceed miner_count"
+        expression: "this.reported_version_count <= this.miner_count"
     };
     option (buf.validate.message).cel = {
         id: "on_target_count_within_miner_count"
@@ -629,8 +635,8 @@ enum RolloutDevicePhase {
 // was snapshotted into the rollout) and now. A missing half means no sample
 // was available.
 message MetricComparison {
-    optional double baseline = 1;
-    optional double current = 2;
+    optional double baseline = 1 [(buf.validate.field).double.finite = true];
+    optional double current = 2 [(buf.validate.field).double.finite = true];
 }
 
 // One telemetry metric aggregated over the verified miners under review that
@@ -643,8 +649,8 @@ message AggregateMetricComparison {
         expression: "has(this.baseline) == (this.sampled_devices > 0) && has(this.current) == (this.sampled_devices > 0)"
     };
 
-    optional double baseline = 1;
-    optional double current = 2;
+    optional double baseline = 1 [(buf.validate.field).double.finite = true];
+    optional double current = 2 [(buf.validate.field).double.finite = true];
     // Miners with both halves that contribute to this aggregate.
     int32 sampled_devices = 3 [(buf.validate.field).int32.gte = 0];
 }
@@ -692,14 +698,14 @@ message RolloutEvidence {
     // Aggregate hashrate change versus baseline, percent (negative is a
     // drop). Set exactly when hash_rate_hs samples at least one miner with a
     // nonzero baseline; a zero baseline has no defined percent change.
-    optional double hashrate_change_percent = 7;
+    optional double hashrate_change_percent = 7 [(buf.validate.field).double.finite = true];
     // Mean efficiency change versus baseline, percent (positive is worse).
     // Set exactly when efficiency_jh samples at least one miner with a
     // nonzero baseline.
-    optional double efficiency_change_percent = 8;
+    optional double efficiency_change_percent = 8 [(buf.validate.field).double.finite = true];
     // Mean temperature change versus baseline, °C. Set exactly when temp_c
     // samples at least one miner.
-    optional double temperature_change_celsius = 9;
+    optional double temperature_change_celsius = 9 [(buf.validate.field).double.finite = true];
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
     // Whether the DONE count and failed-device checks pass, every set

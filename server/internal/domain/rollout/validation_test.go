@@ -2,6 +2,7 @@ package rollout_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -887,6 +888,42 @@ func TestRolloutAutomationThresholdsCoverageValidation(t *testing.T) {
 	}
 }
 
+func TestRolloutAutomationThresholdsRejectNonFiniteLimits(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name string
+		set  func(*rolloutv1.RolloutAutomationThresholds, float64)
+	}{
+		{"hashrate drop", func(th *rolloutv1.RolloutAutomationThresholds, v float64) {
+			th.MaxHashrateDropPercent = proto.Float64(v)
+		}},
+		{"efficiency increase", func(th *rolloutv1.RolloutAutomationThresholds, v float64) {
+			th.MaxEfficiencyIncreasePercent = proto.Float64(v)
+		}},
+		{"temperature increase", func(th *rolloutv1.RolloutAutomationThresholds, v float64) {
+			th.MaxTemperatureIncreaseCelsius = proto.Float64(v)
+		}},
+		{"sample coverage", func(th *rolloutv1.RolloutAutomationThresholds, v float64) {
+			th.MinSampleCoveragePercent = proto.Float64(v)
+		}},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, value := range []float64{math.Inf(1), math.Inf(-1), math.NaN()} {
+				thresholds := &rolloutv1.RolloutAutomationThresholds{}
+				field.set(thresholds, value)
+				requireProtoValidation(t, thresholds, true)
+			}
+			thresholds := &rolloutv1.RolloutAutomationThresholds{}
+			field.set(thresholds, 5)
+			requireProtoValidation(t, thresholds, false)
+		})
+	}
+}
+
 func sampledAggregate(devices int32) *rolloutv1.AggregateMetricComparison {
 	return &rolloutv1.AggregateMetricComparison{
 		Baseline:       proto.Float64(100),
@@ -1079,9 +1116,10 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 }
 
 // Every string carries a max_len, every list a max_items, every integer a
-// lower bound, and every enum defined_only, so no payload in the contract can
-// grow without an explicit limit, expose an impossible negative id or count,
-// or carry an enum value clients cannot interpret.
+// lower bound, every enum defined_only, and every double finite, so no payload
+// in the contract can grow without an explicit limit, expose an impossible
+// negative id or count, carry an enum value clients cannot interpret, or smuggle
+// an infinite or NaN threshold or measurement.
 func TestEveryContractFieldIsConstrained(t *testing.T) {
 	t.Parallel()
 
@@ -1114,6 +1152,9 @@ func TestEveryContractFieldIsConstrained(t *testing.T) {
 				}
 				if kind == protoreflect.EnumKind && !elementRules.GetEnum().GetDefinedOnly() {
 					t.Errorf("%s must set defined_only", field.FullName())
+				}
+				if kind == protoreflect.DoubleKind && !elementRules.GetDouble().GetFinite() {
+					t.Errorf("%s must set finite", field.FullName())
 				}
 			}
 		}
@@ -1280,6 +1321,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     boundedVersions,
 				ReportedVersionCount: 12,
 			},
@@ -1289,6 +1331,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     oversizedVersions,
 				ReportedVersionCount: 11,
 			},
@@ -1299,6 +1342,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     []string{"1.0.0", "2.0.0"},
 				ReportedVersionCount: 1,
 			},
@@ -1309,6 +1353,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     []string{"1.0.0", "2.0.0"},
 				ReportedVersionCount: 5,
 			},
@@ -1319,15 +1364,28 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     []string{"1.0.0", "2.0.0"},
 				ReportedVersionCount: 2,
 			},
+		},
+		{
+			name: "more versions than miners is rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:         "Bitmain",
+				Model:                "S21",
+				MinerCount:           1,
+				ReportedVersions:     []string{"1.0.0", "2.0.0"},
+				ReportedVersionCount: 2,
+			},
+			wantErr: true,
 		},
 		{
 			name: "duplicate versions are rejected",
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     []string{"1.0.0", "1.0.0"},
 				ReportedVersionCount: 2,
 			},
@@ -1338,6 +1396,7 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
 				Manufacturer:         "Bitmain",
 				Model:                "S21",
+				MinerCount:           20,
 				ReportedVersions:     []string{strings.Repeat("v", 256)},
 				ReportedVersionCount: 1,
 			},
