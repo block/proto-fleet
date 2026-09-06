@@ -130,9 +130,13 @@ service RolloutService {
     // rule; rollouts started together run concurrently and share the
     // channel-wide RolloutBehavior.max_concurrent_offline budget rather than
     // each receiving their own. A member matches only when it
-    // reports the target version and its RolloutService managed-deployment
-    // provenance equals the assigned firmware_file_id; empty or different
-    // provenance is mismatched.
+    // reports the target version, its RolloutService managed-deployment
+    // provenance equals the assigned firmware_file_id, and it has no enqueued
+    // or in-flight firmware command for a different file. Empty or different
+    // provenance, or such an outstanding command, is mismatched: the member's
+    // update for the new target is queued behind the outstanding command, so
+    // a superseded update that finishes later cannot leave the miner off the
+    // assignment with no rollout to correct it.
     // FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
     // and identity constraints. Any violation fails with FAILED_PRECONDITION
     // before any assignment changes or rollouts start. An empty file id clears
@@ -149,10 +153,12 @@ service RolloutService {
     // the tuple and reverses the rollout's assignment lineage
     // (Rollout.previous_firmware_file_id): an empty lineage clears the
     // assignment and starts no rollout; a nonempty lineage is restored and
-    // starts at most one all-at-once rollout for mismatched members. Released
-    // references, enqueued commands, and commands already sent remain governed
-    // by the RolloutService artifact-protection invariant and existing
-    // cancellation semantics.
+    // starts at most one all-at-once rollout for mismatched members as
+    // ApplyReleaseChannelFirmware defines them, so a member whose superseded
+    // update is still outstanding is included and receives the restored
+    // target behind that update. Released references, enqueued commands, and
+    // commands already sent remain governed by the RolloutService
+    // artifact-protection invariant and existing cancellation semantics.
     rpc RollbackReleaseChannelFirmware(RollbackReleaseChannelFirmwareRequest) returns (RollbackReleaseChannelFirmwareResponse);
 
     // Lists rollout summaries (newest first), optionally filtered by channel
@@ -339,7 +345,7 @@ message RolloutBehavior {
 
 // A release channel with its scope and aggregate member counts.
 message ReleaseChannel {
-    int64 id = 1;
+    int64 id = 1 [(buf.validate.field).int64.gte = 0];
     string name = 2 [(buf.validate.field).string.max_len = 100];
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     ReleaseChannelScope scope = 4;
@@ -354,7 +360,7 @@ message ReleaseChannel {
 
 // Scope-free release channel details with aggregate member counts.
 message ReleaseChannelSummary {
-    int64 id = 1;
+    int64 id = 1 [(buf.validate.field).int64.gte = 0];
     string name = 2 [(buf.validate.field).string.max_len = 100];
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     RolloutBehavior behavior = 4;
@@ -437,7 +443,7 @@ message ReleaseChannelModelGroup {
 // control characters; an empty manufacturer or model means the miner's
 // identity is unknown.
 message ReleaseChannelMiner {
-    int64 device_id = 1;
+    int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
     string model = 4 [(buf.validate.field).string.max_len = 255];
@@ -479,11 +485,11 @@ enum ReleaseChannelConflictResolution {
 // contain non-ASCII, whitespace, or control characters; an empty manufacturer
 // or model means the miner's identity is unknown.
 message ReleaseChannelMembershipConflict {
-    int64 device_id = 1;
+    int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
     string model = 4 [(buf.validate.field).string.max_len = 255];
-    int64 channel_id = 5;
+    int64 channel_id = 5 [(buf.validate.field).int64.gte = 0];
     string channel_name = 6 [(buf.validate.field).string.max_len = 100];
     ReleaseChannelSelectorSpecificity selector_specificity = 7 [(buf.validate.field).enum = {
         defined_only: true
@@ -741,8 +747,8 @@ message Rollout {
         expression: "this.id == 0 || (this.retry_of_rollout_id != this.id && this.successor_rollout_id != this.id)"
     };
 
-    int64 id = 1;
-    int64 channel_id = 2;
+    int64 id = 1 [(buf.validate.field).int64.gte = 0];
+    int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
     string channel_name = 3 [(buf.validate.field).string.max_len = 100];
     string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
@@ -806,7 +812,7 @@ message Rollout {
 
 // Progress of one miner within a rollout.
 message RolloutDevice {
-    int64 device_id = 1;
+    int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
     // Firmware version the miner currently reports.
@@ -957,9 +963,9 @@ message PreviewReleaseChannelScopeRequest {
 
 // Miners another channel already covers that the previewed scope would take.
 message ReleaseChannelScopeConflict {
-    int64 channel_id = 1;
+    int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
     string channel_name = 2 [(buf.validate.field).string.max_len = 100];
-    int32 miner_count = 3;
+    int32 miner_count = 3 [(buf.validate.field).int32.gte = 0];
 }
 
 // Aggregate count for one observed hardware identity. Observed identities up
@@ -969,7 +975,7 @@ message ReleaseChannelScopeConflict {
 message ReleaseChannelScopeModelCount {
     string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
     string model = 2 [(buf.validate.field).string.max_len = 255];
-    int32 miner_count = 3;
+    int32 miner_count = 3 [(buf.validate.field).int32.gte = 0];
 }
 
 message PreviewReleaseChannelScopeResponse {
@@ -984,7 +990,7 @@ message PreviewReleaseChannelScopeResponse {
         expression: "this.conflicts.size() == (this.conflict_count < 100 ? this.conflict_count : 100)"
     };
 
-    int32 miner_count = 1;
+    int32 miner_count = 1 [(buf.validate.field).int32.gte = 0];
     // The first 100 manufacturer/model pairs sorted by manufacturer then model.
     repeated ReleaseChannelScopeModelCount models = 2 [(buf.validate.field).repeated.max_items = 100];
     // The first 100 conflicts sorted by channel id. Non-empty means the scope
@@ -992,10 +998,10 @@ message PreviewReleaseChannelScopeResponse {
     repeated ReleaseChannelScopeConflict conflicts = 3 [(buf.validate.field).repeated.max_items = 100];
     // Total manufacturer/model pairs before models is truncated. A value
     // greater than the length of models means truncation.
-    int32 model_count = 4;
+    int32 model_count = 4 [(buf.validate.field).int32.gte = 0];
     // Total conflicting channels before conflicts is truncated. A value
     // greater than the length of conflicts means truncation.
-    int32 conflict_count = 5;
+    int32 conflict_count = 5 [(buf.validate.field).int32.gte = 0];
 }
 
 message ApplyReleaseChannelFirmwareRequest {
@@ -1032,8 +1038,9 @@ message RollbackReleaseChannelFirmwareRequest {
 message RollbackReleaseChannelFirmwareResponse {
     ReleaseChannel channel = 1;
     // Rollouts started by this call. Empty when an empty lineage cleared the
-    // assignment or no members mismatch the restored assignment; otherwise
-    // contains one all-at-once rollout for those mismatched members.
+    // assignment or no members mismatch the restored assignment (including
+    // members with an outstanding update for the rolled-back target);
+    // otherwise contains one all-at-once rollout for those mismatched members.
     repeated Rollout started_rollouts = 2 [(buf.validate.field).repeated.max_items = 1];
 }
 

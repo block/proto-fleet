@@ -136,9 +136,13 @@ type RolloutServiceClient interface {
 	// rule; rollouts started together run concurrently and share the
 	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
 	// each receiving their own. A member matches only when it
-	// reports the target version and its RolloutService managed-deployment
-	// provenance equals the assigned firmware_file_id; empty or different
-	// provenance is mismatched.
+	// reports the target version, its RolloutService managed-deployment
+	// provenance equals the assigned firmware_file_id, and it has no enqueued
+	// or in-flight firmware command for a different file. Empty or different
+	// provenance, or such an outstanding command, is mismatched: the member's
+	// update for the new target is queued behind the outstanding command, so
+	// a superseded update that finishes later cannot leave the miner off the
+	// assignment with no rollout to correct it.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
@@ -154,10 +158,12 @@ type RolloutServiceClient interface {
 	// the tuple and reverses the rollout's assignment lineage
 	// (Rollout.previous_firmware_file_id): an empty lineage clears the
 	// assignment and starts no rollout; a nonempty lineage is restored and
-	// starts at most one all-at-once rollout for mismatched members. Released
-	// references, enqueued commands, and commands already sent remain governed
-	// by the RolloutService artifact-protection invariant and existing
-	// cancellation semantics.
+	// starts at most one all-at-once rollout for mismatched members as
+	// ApplyReleaseChannelFirmware defines them, so a member whose superseded
+	// update is still outstanding is included and receives the restored
+	// target behind that update. Released references, enqueued commands, and
+	// commands already sent remain governed by the RolloutService
+	// artifact-protection invariant and existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.
@@ -484,9 +490,13 @@ type RolloutServiceHandler interface {
 	// rule; rollouts started together run concurrently and share the
 	// channel-wide RolloutBehavior.max_concurrent_offline budget rather than
 	// each receiving their own. A member matches only when it
-	// reports the target version and its RolloutService managed-deployment
-	// provenance equals the assigned firmware_file_id; empty or different
-	// provenance is mismatched.
+	// reports the target version, its RolloutService managed-deployment
+	// provenance equals the assigned firmware_file_id, and it has no enqueued
+	// or in-flight firmware command for a different file. Empty or different
+	// provenance, or such an outstanding command, is mismatched: the member's
+	// update for the new target is queued behind the outstanding command, so
+	// a superseded update that finishes later cannot leave the miner off the
+	// assignment with no rollout to correct it.
 	// FirmwareAssignment.firmware_file_id defines the detailed artifact metadata
 	// and identity constraints. Any violation fails with FAILED_PRECONDITION
 	// before any assignment changes or rollouts start. An empty file id clears
@@ -502,10 +512,12 @@ type RolloutServiceHandler interface {
 	// the tuple and reverses the rollout's assignment lineage
 	// (Rollout.previous_firmware_file_id): an empty lineage clears the
 	// assignment and starts no rollout; a nonempty lineage is restored and
-	// starts at most one all-at-once rollout for mismatched members. Released
-	// references, enqueued commands, and commands already sent remain governed
-	// by the RolloutService artifact-protection invariant and existing
-	// cancellation semantics.
+	// starts at most one all-at-once rollout for mismatched members as
+	// ApplyReleaseChannelFirmware defines them, so a member whose superseded
+	// update is still outstanding is included and receives the restored
+	// target behind that update. Released references, enqueued commands, and
+	// commands already sent remain governed by the RolloutService
+	// artifact-protection invariant and existing cancellation semantics.
 	RollbackReleaseChannelFirmware(context.Context, *connect.Request[v1.RollbackReleaseChannelFirmwareRequest]) (*connect.Response[v1.RollbackReleaseChannelFirmwareResponse], error)
 	// Lists rollout summaries (newest first), optionally filtered by channel
 	// and status, and paged with a cursor.

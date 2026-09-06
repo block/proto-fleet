@@ -628,10 +628,15 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 	}
 }
 
-// Every string carries a max_len and every list a max_items so no payload in
-// the contract can grow without an explicit limit.
+// Every string carries a max_len, every list a max_items, and every integer a
+// lower bound, so no payload in the contract can grow without an explicit
+// limit or expose an impossible negative id or count.
 func TestEveryContractFieldIsBounded(t *testing.T) {
 	t.Parallel()
+
+	hasLowerBound := func(rules *validate.FieldRules) bool {
+		return rules.GetInt32().GetGreaterThan() != nil || rules.GetInt64().GetGreaterThan() != nil
+	}
 
 	var visit func(messages protoreflect.MessageDescriptors)
 	visit = func(messages protoreflect.MessageDescriptors) {
@@ -642,13 +647,19 @@ func TestEveryContractFieldIsBounded(t *testing.T) {
 			for j := range fields.Len() {
 				field := fields.Get(j)
 				rules, _ := proto.GetExtension(field.Options(), validate.E_Field).(*validate.FieldRules)
-				stringRules := rules.GetString_()
+				elementRules := rules
 				if field.IsList() {
-					require.Positivef(t, rules.GetRepeated().GetMaxItems(), "%s must set max_items", field.FullName())
-					stringRules = rules.GetRepeated().GetItems().GetString_()
+					if rules.GetRepeated().GetMaxItems() == 0 {
+						t.Errorf("%s must set max_items", field.FullName())
+					}
+					elementRules = rules.GetRepeated().GetItems()
 				}
-				if field.Kind() == protoreflect.StringKind {
-					require.Positivef(t, stringRules.GetMaxLen(), "%s must set max_len", field.FullName())
+				kind := field.Kind()
+				if kind == protoreflect.StringKind && elementRules.GetString_().GetMaxLen() == 0 {
+					t.Errorf("%s must set max_len", field.FullName())
+				}
+				if (kind == protoreflect.Int32Kind || kind == protoreflect.Int64Kind) && !hasLowerBound(elementRules) {
+					t.Errorf("%s must set gte or gt", field.FullName())
 				}
 			}
 		}
