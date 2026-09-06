@@ -181,15 +181,18 @@ var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
 	},
 }
 
-// activeRollout returns a minimal Rollout with a consistent ACTIVE lifecycle so
-// tests can exercise one rule at a time.
+// activeRollout returns a minimal Rollout with a target and a consistent
+// ACTIVE lifecycle so tests can exercise one rule at a time.
 func activeRollout() *rolloutv1.Rollout {
 	return &rolloutv1.Rollout{
-		Manufacturer: "Bitmain",
-		Model:        "S21",
-		Status:       rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE,
-		State:        rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS,
-		Stage:        rolloutv1.RolloutStage_ROLLOUT_STAGE_REST,
+		Manufacturer:         "Bitmain",
+		Model:                "S21",
+		FirmwareFileId:       "file-1",
+		FirmwareVersion:      "2.0",
+		AssignmentGeneration: 1,
+		Status:               rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE,
+		State:                rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS,
+		Stage:                rolloutv1.RolloutStage_ROLLOUT_STAGE_REST,
 	}
 }
 
@@ -317,9 +320,7 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 		{
 			name: "target",
 			set: func(rollout *rolloutv1.Rollout, version string) {
-				rollout.FirmwareFileId = "file-1"
 				rollout.FirmwareVersion = version
-				rollout.AssignmentGeneration = 1
 			},
 		},
 		{
@@ -357,7 +358,6 @@ func TestRolloutLineageValidation(t *testing.T) {
 		rollout.FirmwareVersion = version
 		rollout.PreviousFirmwareFileId = previousFileID
 		rollout.PreviousFirmwareVersion = previousVersion
-		rollout.AssignmentGeneration = 1
 		return rollout
 	}
 	withoutGeneration := newRollout("file-1", "2.0", "", "")
@@ -369,13 +369,13 @@ func TestRolloutLineageValidation(t *testing.T) {
 	}{
 		{name: "first assignment has an empty lineage", rollout: newRollout("file-1", "2.0", "", "")},
 		{name: "later assignment records the replaced one", rollout: newRollout("file-1", "2.0", "file-0", "1.0")},
-		{name: "untargeted rollout needs no generation", rollout: activeRollout()},
-		{name: "target file without version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
-		{name: "target version without file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
+		{name: "rollout without a target file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
+		{name: "rollout without a target version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
+		{name: "targetless rollout is rejected", rollout: newRollout("", "", "", ""), wantErr: true},
 		{name: "lineage file without version is rejected", rollout: newRollout("file-1", "2.0", "file-0", ""), wantErr: true},
 		{name: "lineage version without file is rejected", rollout: newRollout("file-1", "2.0", "", "1.0"), wantErr: true},
 		{name: "lineage equal to the target is rejected", rollout: newRollout("file-1", "2.0", "file-1", "2.0"), wantErr: true},
-		{name: "target without assignment generation is rejected", rollout: withoutGeneration, wantErr: true},
+		{name: "rollout without assignment generation is rejected", rollout: withoutGeneration, wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -801,6 +801,14 @@ func TestRolloutDeviceDoneValidation(t *testing.T) {
 			Phase:              rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
 			BaselineOpenErrors: 1,
 		}, wantErr: true},
+		{name: "metric baseline without a baseline is rejected", device: &rolloutv1.RolloutDevice{
+			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			PowerW: &rolloutv1.MetricComparison{Baseline: proto.Float64(3000)},
+		}, wantErr: true},
+		{name: "current metric without a baseline is valid", device: &rolloutv1.RolloutDevice{
+			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			PowerW: &rolloutv1.MetricComparison{Current: proto.Float64(3000)},
+		}},
 	}
 
 	for _, test := range tests {
@@ -1295,6 +1303,25 @@ func TestReleaseChannelModelGroupReportedVersionsValidation(t *testing.T) {
 				ReportedVersionCount: 1,
 			},
 			wantErr: true,
+		},
+		{
+			name: "partial list below the cap is rejected",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:         "Bitmain",
+				Model:                "S21",
+				ReportedVersions:     []string{"1.0.0", "2.0.0"},
+				ReportedVersionCount: 5,
+			},
+			wantErr: true,
+		},
+		{
+			name: "complete list below the cap is valid",
+			modelGroup: &rolloutv1.ReleaseChannelModelGroup{
+				Manufacturer:         "Bitmain",
+				Model:                "S21",
+				ReportedVersions:     []string{"1.0.0", "2.0.0"},
+				ReportedVersionCount: 2,
+			},
 		},
 		{
 			name: "duplicate versions are rejected",

@@ -378,9 +378,9 @@ message ReleaseChannelSummary {
 // used for firmware assignment.
 message ReleaseChannelModelGroup {
     option (buf.validate.message).cel = {
-        id: "reported_version_count_covers_returned_versions"
-        message: "reported_version_count must be at least the number of reported_versions"
-        expression: "this.reported_version_count >= this.reported_versions.size()"
+        id: "reported_versions_match_bounded_count"
+        message: "reported_versions must contain all distinct versions up to the 10-item limit"
+        expression: "this.reported_versions.size() == (this.reported_version_count < 10 ? this.reported_version_count : 10)"
     };
     option (buf.validate.message).cel = {
         id: "on_target_count_within_miner_count"
@@ -725,11 +725,6 @@ message RolloutEvidence {
 // channel.
 message Rollout {
     option (buf.validate.message).cel = {
-        id: "target_file_and_version_paired"
-        message: "firmware_file_id and firmware_version must be set together"
-        expression: "(this.firmware_file_id == '') == (this.firmware_version == '')"
-    };
-    option (buf.validate.message).cel = {
         id: "lineage_file_and_version_paired"
         message: "previous_firmware_file_id and previous_firmware_version must be set together"
         expression: "(this.previous_firmware_file_id == '') == (this.previous_firmware_version == '')"
@@ -737,12 +732,7 @@ message Rollout {
     option (buf.validate.message).cel = {
         id: "lineage_differs_from_target"
         message: "previous_firmware_file_id must not equal firmware_file_id"
-        expression: "this.firmware_file_id == '' || this.previous_firmware_file_id != this.firmware_file_id"
-    };
-    option (buf.validate.message).cel = {
-        id: "target_requires_assignment_generation"
-        message: "a rollout with a firmware target must record a positive assignment_generation"
-        expression: "this.firmware_file_id == '' || this.assignment_generation > 0"
+        expression: "this.previous_firmware_file_id != this.firmware_file_id"
     };
     option (buf.validate.message).cel = {
         id: "successor_requires_finished_rollout"
@@ -846,9 +836,10 @@ message Rollout {
     string manufacturer = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 5 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Target artifact governed by the RolloutService artifact-protection
-    // invariant.
-    string firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
-    string firmware_version = 7 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    // invariant. Every rollout enforces exactly one artifact; clearing an
+    // assignment starts none.
+    string firmware_file_id = 6 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string firmware_version = 7 [(buf.validate.field).string = {min_len: 1, max_len: 255, not_contains: "\x00"}];
     RolloutStatus status = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // Derived from status, stage, and pause; always agrees with status.
     RolloutState state = 9 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
@@ -901,7 +892,7 @@ message Rollout {
     // RolloutService assignment-generation rule. Compare with
     // ReleaseChannelModelGroup.assignment_generation to tell whether the
     // rollout is still current.
-    int64 assignment_generation = 25 [(buf.validate.field).int64.gte = 0];
+    int64 assignment_generation = 25 [(buf.validate.field).int64.gt = 0];
     // Finished rollout this rollout was started to retry; 0 when it was
     // started by an assignment change.
     int64 retry_of_rollout_id = 26 [(buf.validate.field).int64.gte = 0];
@@ -920,8 +911,8 @@ message RolloutDevice {
     };
     option (buf.validate.message).cel = {
         id: "baseline_fields_require_baseline"
-        message: "baseline_hashing and baseline_open_errors must be unset without a baseline snapshot"
-        expression: "this.has_baseline || (!this.baseline_hashing && this.baseline_open_errors == 0)"
+        message: "baseline_hashing, baseline_open_errors, and metric baselines must be unset without a baseline snapshot"
+        expression: "this.has_baseline || (!this.baseline_hashing && this.baseline_open_errors == 0 && !has(this.hash_rate_hs.baseline) && !has(this.power_w.baseline) && !has(this.efficiency_jh.baseline) && !has(this.temp_c.baseline))"
     };
 
     int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
