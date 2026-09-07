@@ -805,7 +805,9 @@ func TestRolloutAutomationThresholdsCoverageValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Coverage is only meaningful next to a sampled-metric limit.
 			requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{
+				MaxHashrateDropPercent:   proto.Float64(10),
 				MinSampleCoveragePercent: test.coverage,
 			}, test.wantErr)
 		})
@@ -836,12 +838,14 @@ func TestRolloutAutomationThresholdsRejectNonFiniteLimits(t *testing.T) {
 		t.Run(field.name, func(t *testing.T) {
 			t.Parallel()
 
+			// A temperature limit keeps the coverage case meaningful without
+			// touching the field under test.
 			for _, value := range []float64{math.Inf(1), math.Inf(-1), math.NaN()} {
-				thresholds := &rolloutv1.RolloutAutomationThresholds{}
+				thresholds := &rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)}
 				field.set(thresholds, value)
 				requireProtoValidation(t, thresholds, true)
 			}
-			thresholds := &rolloutv1.RolloutAutomationThresholds{}
+			thresholds := &rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)}
 			field.set(thresholds, 5)
 			requireProtoValidation(t, thresholds, false)
 		})
@@ -2817,6 +2821,17 @@ func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: delegatedBehavior(),
 	}, false)
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{ChannelId: 1}, true)
+	// The offline budget is channel-wide; overrides cannot carry one.
+	capped := &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, MaxConcurrentOffline: 1}
+	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
+		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: capped,
+	}, true)
+	requireProtoValidation(t, &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: capped,
+	}, true)
+	requireProtoValidation(t, &rolloutv1.ApplyReleaseChannelFirmwareRequest{
+		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: delegatedBehavior(),
+	}, false)
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment, assignment},
 	}, true)
@@ -2926,4 +2941,16 @@ func TestArtifactIdentityValidation(t *testing.T) {
 	// The events feed cursor is never empty.
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: ""}, true)
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: "c1"}, false)
+}
+
+func TestCoverageRequiresSampledMetricLimit(t *testing.T) {
+	t.Parallel()
+
+	coverage := 80.0
+	drop := 10.0
+	errors := int32(0)
+	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage, MaxHashrateDropPercent: &drop}, false)
+	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: &errors}, false)
+	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage}, true)
+	requireProtoValidation(t, &rolloutv1.RolloutAutomationThresholds{MinSampleCoveragePercent: &coverage, MaxNewErrors: &errors}, true)
 }

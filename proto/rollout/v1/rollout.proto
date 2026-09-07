@@ -372,6 +372,12 @@ enum RolloutOrder {
 // hold_reason names the metric. An absent aggregate or undefined change is
 // never treated as zero change.
 message RolloutAutomationThresholds {
+    option (buf.validate.message).cel = {
+        id: "coverage_requires_sampled_metric_limit"
+        message: "min_sample_coverage_percent applies only when a hashrate, efficiency or temperature limit is set"
+        expression: "!has(this.min_sample_coverage_percent) || has(this.max_hashrate_drop_percent) || has(this.max_efficiency_increase_percent) || has(this.max_temperature_increase_celsius)"
+    };
+
     // Largest acceptable aggregate hashrate drop versus baseline, percent.
     // Judged against RolloutEvidence.hash_rate_hs.
     optional double max_hashrate_drop_percent = 1 [(buf.validate.field).double = {gte: 0, lte: 100, finite: true}];
@@ -386,7 +392,9 @@ message RolloutAutomationThresholds {
     optional int32 max_new_errors = 4 [(buf.validate.field).int32 = {gte: 0}];
     // Minimum share of verified miners under review that an aggregate must
     // sample before the limit for its metric can pass. Defaults to 100 when
-    // unset.
+    // unset. Accepted only alongside at least one sampled-metric limit
+    // (hashrate, efficiency or temperature); max_new_errors has no coverage
+    // rule, so coverage alone would never be evaluated.
     optional double min_sample_coverage_percent = 5 [(buf.validate.field).double = {gt: 0, lte: 100, finite: true}];
 }
 
@@ -1390,6 +1398,11 @@ message PreviewReleaseChannelScopeResponse {
 
 message ApplyReleaseChannelFirmwareRequest {
     option (buf.validate.message).cel = {
+        id: "override_cannot_set_offline_budget"
+        message: "behavior_override.max_concurrent_offline must be 0; the offline budget is channel-wide and changed with UpdateReleaseChannel"
+        expression: "!has(this.behavior_override) || this.behavior_override.max_concurrent_offline == 0"
+    };
+    option (buf.validate.message).cel = {
         id: "assignments_unique_by_manufacturer_model"
         message: "assignments must contain at most one entry per manufacturer/model pair"
         expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
@@ -1406,11 +1419,19 @@ message ApplyReleaseChannelFirmwareRequest {
     // When set, the rollouts this call starts run with this behavior instead
     // of the channel's saved behavior; the channel is not changed. Lets a
     // controller run one DELEGATED rollout on a channel operators otherwise
-    // drive by hand.
+    // drive by hand. Its max_concurrent_offline must be 0: the offline budget
+    // is channel-wide and live (RolloutBehavior.max_concurrent_offline), so a
+    // per-rollout value could not take effect; change it with
+    // UpdateReleaseChannel.
     RolloutBehavior behavior_override = 3;
 }
 
 message PreviewReleaseChannelFirmwareRequest {
+    option (buf.validate.message).cel = {
+        id: "preview_override_cannot_set_offline_budget"
+        message: "behavior_override.max_concurrent_offline must be 0; the offline budget is channel-wide and changed with UpdateReleaseChannel"
+        expression: "!has(this.behavior_override) || this.behavior_override.max_concurrent_offline == 0"
+    };
     option (buf.validate.message).cel = {
         id: "preview_assignments_unique_by_manufacturer_model"
         message: "assignments must contain at most one entry per manufacturer/model pair"
@@ -1423,7 +1444,8 @@ message PreviewReleaseChannelFirmwareRequest {
         min_items: 1
         max_items: 100
     }];
-    // Behavior to plan with instead of the channel's saved behavior.
+    // Behavior to plan with instead of the channel's saved behavior; same
+    // constraints as ApplyReleaseChannelFirmwareRequest.behavior_override.
     RolloutBehavior behavior_override = 3;
 }
 
