@@ -980,6 +980,14 @@ func TestRolloutDeviceDoneValidation(t *testing.T) {
 			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
 			PowerW: &rolloutv1.MetricComparison{Current: proto.Float64(3000)},
 		}},
+		{name: "negative power sample is rejected", device: &rolloutv1.RolloutDevice{
+			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			PowerW: &rolloutv1.MetricComparison{Current: proto.Float64(-1)},
+		}, wantErr: true},
+		{name: "sub-zero temperature sample is valid", device: &rolloutv1.RolloutDevice{
+			Phase: rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
+			TempC: &rolloutv1.MetricComparison{Current: proto.Float64(-5)},
+		}},
 	}
 
 	for _, test := range tests {
@@ -1240,6 +1248,41 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			name:     "verified above online is rejected",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 1},
 			wantErr:  true,
+		},
+		{
+			name:     "verified baseline hashers that stopped hashing are rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 2, Hashing: 0, BaselineHashing: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "unverified baseline hashers need not be hashing",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Online: 2, Hashing: 0, BaselineHashing: 1},
+		},
+		{
+			name: "negative efficiency aggregate is rejected",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1, Verified: 1, Online: 1,
+				EfficiencyJh:            aggregateOf(30, -30, 1),
+				EfficiencyChangePercent: proto.Float64(-200),
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative hashrate baseline is rejected",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1, Verified: 1, Online: 1,
+				HashRateHs:            aggregateOf(-100, 90, 1),
+				HashrateChangePercent: proto.Float64(-190),
+			},
+			wantErr: true,
+		},
+		{
+			name: "sub-zero temperature aggregate is valid",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1, Verified: 1, Online: 1,
+				TempC:                    aggregateOf(-5, 3, 1),
+				TemperatureChangeCelsius: proto.Float64(8),
+			},
 		},
 		{
 			name:     "hashing above online is rejected",
@@ -2195,10 +2238,12 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 		models[index] = &rolloutv1.ReleaseChannelScopeModelCount{
 			Manufacturer: "manufacturer",
 			Model:        fmt.Sprintf("model-%d", index),
+			MinerCount:   1,
 		}
 		conflicts[index] = &rolloutv1.ReleaseChannelScopeConflict{
 			ChannelId:   int64(index + 1),
 			ChannelName: fmt.Sprintf("channel-%d", index),
+			MinerCount:  1,
 		}
 	}
 
@@ -2210,6 +2255,7 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 		{
 			name: "bounded truncated results are valid",
 			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount:    101,
 				Models:        models[:100],
 				Conflicts:     conflicts[:100],
 				ModelCount:    101,
@@ -2219,11 +2265,48 @@ func TestPreviewReleaseChannelScopeResponseValidation(t *testing.T) {
 		{
 			name: "complete results below the limit are valid",
 			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount:    2,
 				Models:        models[:2],
 				Conflicts:     conflicts[:2],
 				ModelCount:    2,
 				ConflictCount: 2,
 			},
+		},
+		{
+			name: "empty model group is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount: 1,
+				Models:     []*rolloutv1.ReleaseChannelScopeModelCount{{Manufacturer: "Bitmain", Model: "S21"}},
+				ModelCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty conflict is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount:    1,
+				Conflicts:     []*rolloutv1.ReleaseChannelScopeConflict{{ChannelId: 1, ChannelName: "stable"}},
+				ConflictCount: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "more model groups than miners is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount: 1,
+				Models:     models[:2],
+				ModelCount: 2,
+			},
+			wantErr: true,
+		},
+		{
+			name: "model group larger than the preview is rejected",
+			response: &rolloutv1.PreviewReleaseChannelScopeResponse{
+				MinerCount: 1,
+				Models:     []*rolloutv1.ReleaseChannelScopeModelCount{{Manufacturer: "Bitmain", Model: "S21", MinerCount: 2}},
+				ModelCount: 1,
+			},
+			wantErr: true,
 		},
 		{
 			name: "101 models are rejected",
@@ -2531,7 +2614,7 @@ func TestObservedManufacturerModelIdentityValidation(t *testing.T) {
 		{
 			name: "scope model count",
 			new: func(manufacturer, model string) proto.Message {
-				return &rolloutv1.ReleaseChannelScopeModelCount{Manufacturer: manufacturer, Model: model}
+				return &rolloutv1.ReleaseChannelScopeModelCount{Manufacturer: manufacturer, Model: model, MinerCount: 1}
 			},
 		},
 	}

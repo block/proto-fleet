@@ -704,6 +704,16 @@ message RolloutEvidence {
         expression: "this.verified + this.failed + this.excluded <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
     };
     option (buf.validate.message).cel = {
+        id: "verified_baseline_hashers_are_hashing"
+        message: "every verified miner that hashed at baseline must be hashing, so hashing plus unverified miners must cover baseline_hashing"
+        expression: "this.hashing + this.devices_total - this.verified >= this.baseline_hashing"
+    };
+    option (buf.validate.message).cel = {
+        id: "physical_aggregates_are_nonnegative"
+        message: "hashrate, power, and efficiency aggregates must not be negative"
+        expression: "(!has(this.hash_rate_hs.baseline) || this.hash_rate_hs.baseline >= 0.0) && (!has(this.hash_rate_hs.current) || this.hash_rate_hs.current >= 0.0) && (!has(this.power_w.baseline) || this.power_w.baseline >= 0.0) && (!has(this.power_w.current) || this.power_w.current >= 0.0) && (!has(this.efficiency_jh.baseline) || this.efficiency_jh.baseline >= 0.0) && (!has(this.efficiency_jh.current) || this.efficiency_jh.current >= 0.0)"
+    };
+    option (buf.validate.message).cel = {
         id: "derived_changes_agree_with_aggregates"
         message: "each derived change must equal the change computed from its aggregate's baseline and current values"
         expression: "(!has(this.hashrate_change_percent) || (this.hashrate_change_percent - (this.hash_rate_hs.current - this.hash_rate_hs.baseline) / this.hash_rate_hs.baseline * 100.0 <= 0.000001 && (this.hash_rate_hs.current - this.hash_rate_hs.baseline) / this.hash_rate_hs.baseline * 100.0 - this.hashrate_change_percent <= 0.000001)) && (!has(this.efficiency_change_percent) || (this.efficiency_change_percent - (this.efficiency_jh.current - this.efficiency_jh.baseline) / this.efficiency_jh.baseline * 100.0 <= 0.000001 && (this.efficiency_jh.current - this.efficiency_jh.baseline) / this.efficiency_jh.baseline * 100.0 - this.efficiency_change_percent <= 0.000001)) && (!has(this.temperature_change_celsius) || (this.temperature_change_celsius - (this.temp_c.current - this.temp_c.baseline) <= 0.000001 && (this.temp_c.current - this.temp_c.baseline) - this.temperature_change_celsius <= 0.000001))"
@@ -990,6 +1000,11 @@ message RolloutDevice {
         message: "baseline_hashing, baseline_open_errors, and metric baselines must be unset without a baseline snapshot"
         expression: "this.has_baseline || (!this.baseline_hashing && this.baseline_open_errors == 0 && !has(this.hash_rate_hs.baseline) && !has(this.power_w.baseline) && !has(this.efficiency_jh.baseline) && !has(this.temp_c.baseline))"
     };
+    option (buf.validate.message).cel = {
+        id: "physical_metrics_are_nonnegative"
+        message: "hashrate, power, and efficiency samples must not be negative"
+        expression: "(!has(this.hash_rate_hs.baseline) || this.hash_rate_hs.baseline >= 0.0) && (!has(this.hash_rate_hs.current) || this.hash_rate_hs.current >= 0.0) && (!has(this.power_w.baseline) || this.power_w.baseline >= 0.0) && (!has(this.power_w.current) || this.power_w.current >= 0.0) && (!has(this.efficiency_jh.baseline) || this.efficiency_jh.baseline >= 0.0) && (!has(this.efficiency_jh.current) || this.efficiency_jh.current >= 0.0)"
+    };
 
     int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
@@ -1144,7 +1159,9 @@ message PreviewReleaseChannelScopeRequest {
 message ReleaseChannelScopeConflict {
     int64 channel_id = 1 [(buf.validate.field).int64.gte = 0];
     string channel_name = 2 [(buf.validate.field).string.max_len = 100];
-    int32 miner_count = 3 [(buf.validate.field).int32.gte = 0];
+    // Miners the previewed scope would take from this channel; a listed
+    // conflict always involves at least one.
+    int32 miner_count = 3 [(buf.validate.field).int32.gt = 0];
 }
 
 // Aggregate count for one observed hardware identity. Observed identities up
@@ -1154,7 +1171,9 @@ message ReleaseChannelScopeConflict {
 message ReleaseChannelScopeModelCount {
     string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
     string model = 2 [(buf.validate.field).string.max_len = 255];
-    int32 miner_count = 3 [(buf.validate.field).int32.gte = 0];
+    // Miners in the previewed scope with this identity; a listed group always
+    // has at least one.
+    int32 miner_count = 3 [(buf.validate.field).int32.gt = 0];
 }
 
 message PreviewReleaseChannelScopeResponse {
@@ -1162,6 +1181,11 @@ message PreviewReleaseChannelScopeResponse {
         id: "models_match_bounded_model_count"
         message: "models must contain all entries up to the 100-item limit"
         expression: "this.models.size() == (this.model_count < 100 ? this.model_count : 100)"
+    };
+    option (buf.validate.message).cel = {
+        id: "model_groups_fit_within_miner_count"
+        message: "model_count and each group's miner_count must not exceed the preview's miner_count"
+        expression: "this.model_count <= this.miner_count && this.models.all(m, m.miner_count <= this.miner_count)"
     };
     option (buf.validate.message).cel = {
         id: "conflicts_match_bounded_conflict_count"
