@@ -176,6 +176,21 @@ func (mr *MockBuildingStoreMockRecorder) CountRacksInBuilding(ctx, orgID, buildi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRacksInBuilding", reflect.TypeOf((*MockBuildingStore)(nil).CountRacksInBuilding), ctx, orgID, buildingID)
 }
 
+// CountRepairTicketsByBuilding mocks base method.
+func (m *MockBuildingStore) CountRepairTicketsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRepairTicketsByBuilding", ctx, orgID, buildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRepairTicketsByBuilding indicates an expected call of CountRepairTicketsByBuilding.
+func (mr *MockBuildingStoreMockRecorder) CountRepairTicketsByBuilding(ctx, orgID, buildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRepairTicketsByBuilding", reflect.TypeOf((*MockBuildingStore)(nil).CountRepairTicketsByBuilding), ctx, orgID, buildingID)
+}
+
 // CreateBuilding mocks base method.
 func (m *MockBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
 	m.ctrl.T.Helper()

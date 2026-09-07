@@ -51,6 +51,24 @@ var inTxCtx = gomock.Cond(func(x any) bool {
 func ptrInt64(v int64) *int64 { return &v }
 func ptrInt32(v int32) *int32 { return &v }
 
+func TestDeleteBuildingRejectsLiveRepairTickets(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, nil)
+	deletedSite := int64(9)
+
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, true, nil)
+	store.EXPECT().CountRepairTicketsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(2), nil)
+
+	_, err := svc.DeleteBuilding(t.Context(), testOrgID, 33)
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "repair ticket") {
+		t.Fatalf("expected repair ticket context, got %v", err)
+	}
+}
+
 func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
@@ -62,6 +80,7 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	// returns the deleted row's site so the audit row is stamped with it.
 	deletedSite := int64(7)
 	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, true, nil)
+	store.EXPECT().CountRepairTicketsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(5), nil)
 	store.EXPECT().ClearDeviceBuildingsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 

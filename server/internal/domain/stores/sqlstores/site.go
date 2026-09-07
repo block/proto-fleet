@@ -177,6 +177,28 @@ func (s *SQLSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID i
 	return count, nil
 }
 
+func (s *SQLSiteStore) CountInventoryPartsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountInventoryPartsBySite(ctx, sqlc.CountInventoryPartsBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count inventory parts by site: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountRepairTicketsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountRepairTicketsBySite(ctx, sqlc.CountRepairTicketsBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count repair tickets by site: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error) {
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{
@@ -416,16 +438,17 @@ func (s *SQLSiteStore) LockBuildingForWrite(ctx context.Context, orgID, building
 	return nil
 }
 
-func (s *SQLSiteStore) LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) error {
+func (s *SQLSiteStore) LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
 	// Empty result is not an error — no live building under the site means
 	// no row to lock and no conflict to serialize against.
-	if _, err := s.GetQueries(ctx).LockBuildingsBySiteForWrite(ctx, sqlc.LockBuildingsBySiteForWriteParams{
+	ids, err := s.GetQueries(ctx).LockBuildingsBySiteForWrite(ctx, sqlc.LockBuildingsBySiteForWriteParams{
 		OrgID:  orgID,
 		SiteID: zeroToNullInt64(siteID),
-	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to lock buildings by site for write: %v", err)
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock buildings by site for write: %v", err)
 	}
-	return nil
+	return ids, nil
 }
 
 func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {

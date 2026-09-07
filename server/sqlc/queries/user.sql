@@ -40,6 +40,14 @@ SELECT COUNT(*) > 0 FROM "user";
 -- name: PasswordUpdatedAt :one
 SELECT password_updated_at FROM "user" WHERE id = $1;
 
+-- name: CountActiveRepairTicketsAssignedToUser :one
+SELECT COUNT(*)
+FROM repair_ticket
+WHERE org_id = sqlc.arg('organization_id')
+  AND assignee_user_id = sqlc.arg('user_id')::bigint
+  AND status <> 5
+  AND deleted_at IS NULL;
+
 -- name: SoftDeleteUser :exec
 UPDATE "user"
 SET

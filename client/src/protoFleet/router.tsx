@@ -17,6 +17,7 @@ import {
   importFleetSitesPage,
   importGroupOverviewPage,
   importGroupsPage,
+  importMaintenancePage,
   importMiners,
   importMinersPage,
   importOnboardingSettingsPage,
@@ -99,6 +100,7 @@ const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
 const FleetInfraPage = lazy(importFleetInfraPage);
+const MaintenancePage = lazy(importMaintenancePage);
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -253,6 +255,8 @@ const router = createBrowserRouter([
   { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
+
+  createRoute("/maintenance", <MaintenancePage />),
 
   // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
   // wraps the parent Outlet so it stays mounted across tab navigations — the

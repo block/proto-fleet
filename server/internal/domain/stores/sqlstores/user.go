@@ -364,6 +364,13 @@ func (s *SQLUserStore) LockActiveSuperAdminUsers(ctx context.Context) ([]interfa
 	return users, nil
 }
 
+func (s *SQLUserStore) CountActiveRepairTicketsAssignedToUser(ctx context.Context, organizationID int64, userID int64) (int64, error) {
+	return s.getQueries(ctx).CountActiveRepairTicketsAssignedToUser(ctx, sqlc.CountActiveRepairTicketsAssignedToUserParams{
+		OrganizationID: organizationID,
+		UserID:         userID,
+	})
+}
+
 func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {
 	return s.getQueries(ctx).SoftDeleteUser(ctx, userID)
 }
