@@ -3154,9 +3154,15 @@ export enum RolloutStatus {
   ACTIVE = 1,
 
   /**
-   * A non-canceled rollout completes successfully when every target is DONE
-   * or EXCLUDED. EXCLUDED is neutral; aggregate telemetry does not affect this
-   * terminal status.
+   * A non-canceled rollout completes successfully when every target is DONE,
+   * EXCLUDED, or SKIPPED. EXCLUDED and SKIPPED are neutral, so COMPLETED means
+   * "every target the rollout was asked to update is DONE", not "every member
+   * runs the target firmware": a delegated controller that skips targets or
+   * calls CompleteRollout with queued targets finishes COMPLETED with those
+   * targets SKIPPED, still off the assignment and still suppressed from
+   * reconciliation until retried. Read device_counts.skipped (or
+   * ReleaseChannelModelGroup.on_target_count) for convergence. Aggregate
+   * telemetry does not affect this terminal status.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED = 2;
    */
@@ -3164,7 +3170,8 @@ export enum RolloutStatus {
 
   /**
    * A non-canceled rollout completes with failures when every target is DONE,
-   * FAILED, or EXCLUDED and at least one target is FAILED. EXCLUDED is neutral.
+   * FAILED, EXCLUDED, or SKIPPED and at least one target is FAILED. EXCLUDED
+   * and SKIPPED are neutral.
    *
    * @generated from enum value: ROLLOUT_STATUS_COMPLETED_WITH_FAILURES = 3;
    */

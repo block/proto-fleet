@@ -266,12 +266,19 @@ const (
 	RolloutStatus_ROLLOUT_STATUS_UNSPECIFIED RolloutStatus = 0
 	// The rollout is enforcing its firmware version.
 	RolloutStatus_ROLLOUT_STATUS_ACTIVE RolloutStatus = 1
-	// A non-canceled rollout completes successfully when every target is DONE
-	// or EXCLUDED. EXCLUDED is neutral; aggregate telemetry does not affect this
-	// terminal status.
+	// A non-canceled rollout completes successfully when every target is DONE,
+	// EXCLUDED, or SKIPPED. EXCLUDED and SKIPPED are neutral, so COMPLETED means
+	// "every target the rollout was asked to update is DONE", not "every member
+	// runs the target firmware": a delegated controller that skips targets or
+	// calls CompleteRollout with queued targets finishes COMPLETED with those
+	// targets SKIPPED, still off the assignment and still suppressed from
+	// reconciliation until retried. Read device_counts.skipped (or
+	// ReleaseChannelModelGroup.on_target_count) for convergence. Aggregate
+	// telemetry does not affect this terminal status.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED RolloutStatus = 2
 	// A non-canceled rollout completes with failures when every target is DONE,
-	// FAILED, or EXCLUDED and at least one target is FAILED. EXCLUDED is neutral.
+	// FAILED, EXCLUDED, or SKIPPED and at least one target is FAILED. EXCLUDED
+	// and SKIPPED are neutral.
 	RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES RolloutStatus = 3
 	// Ended by explicit cancellation, supersession, assignment clearing, or
 	// rollback; see cancel_reason. Cancellation takes precedence over device
