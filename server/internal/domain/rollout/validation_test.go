@@ -2710,6 +2710,19 @@ func TestRolloutEventsValidation(t *testing.T) {
 	}
 	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Events: []*rolloutv1.RolloutEvent{event}, Cursor: "c1"}, false)
 	requireProtoValidation(t, &rolloutv1.RolloutEvent{Id: 1, RolloutId: 1}, true)
+	// Audit metadata is mandatory: when, by whom, and against which revision.
+	for name, mutate := range map[string]func(*rolloutv1.RolloutEvent){
+		"missing occurred_at":    func(e *rolloutv1.RolloutEvent) { e.OccurredAt = nil },
+		"missing actor":          func(e *rolloutv1.RolloutEvent) { e.Actor = nil },
+		"unspecified actor type": func(e *rolloutv1.RolloutEvent) { e.Actor = &rolloutv1.RolloutActor{Id: 4, Name: "x"} },
+		"zero rollout revision":  func(e *rolloutv1.RolloutEvent) { e.RolloutRevision = 0 },
+		"unspecified event type": func(e *rolloutv1.RolloutEvent) { e.Type = rolloutv1.RolloutEventType_ROLLOUT_EVENT_TYPE_UNSPECIFIED },
+	} {
+		broken, ok := proto.Clone(event).(*rolloutv1.RolloutEvent)
+		require.True(t, ok)
+		mutate(broken)
+		require.Error(t, protovalidate.Validate(broken), name)
+	}
 
 	events := make([]*rolloutv1.RolloutEvent, 1001)
 	for i := range events {
@@ -2734,12 +2747,19 @@ func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
 		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment, assignment},
 	}, true)
-	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareResponse{
-		Plans: []*rolloutv1.ReleaseChannelFirmwarePlan{{
-			Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "file-1", FirmwareVersion: "2.0",
-			TargetCount: 40, OnTargetCount: 10, Behavior: delegatedBehavior(),
-		}},
-	}, false)
+	plan := func(fileID, version, checksum string) *rolloutv1.PreviewReleaseChannelFirmwareResponse {
+		return &rolloutv1.PreviewReleaseChannelFirmwareResponse{
+			Plans: []*rolloutv1.ReleaseChannelFirmwarePlan{{
+				Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: fileID, FirmwareVersion: version, FirmwareChecksum: checksum,
+				TargetCount: 40, OnTargetCount: 10, Behavior: delegatedBehavior(),
+			}},
+		}
+	}
+	requireProtoValidation(t, plan("file-1", "2.0", testChecksum), false)
+	requireProtoValidation(t, plan("", "", ""), false)
+	requireProtoValidation(t, plan("file-1", "2.0", ""), true)
+	requireProtoValidation(t, plan("", "2.0", testChecksum), true)
+	requireProtoValidation(t, plan("file-1", "", testChecksum), true)
 }
 
 func TestArtifactIdentityValidation(t *testing.T) {

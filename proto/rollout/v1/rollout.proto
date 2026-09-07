@@ -870,7 +870,7 @@ enum RolloutActorType {
 // The principal behind a rollout action, for audit and for showing operators
 // who is driving a rollout.
 message RolloutActor {
-    RolloutActorType type = 1 [(buf.validate.field).enum.defined_only = true];
+    RolloutActorType type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // User id or API key id; 0 for SYSTEM.
     int64 id = 2 [(buf.validate.field).int64.gte = 0];
     // Display name (username or API key name) at the time of the action.
@@ -910,10 +910,10 @@ message RolloutEvent {
     int64 rollout_id = 2 [(buf.validate.field).int64.gte = 0];
     int64 channel_id = 3 [(buf.validate.field).int64.gte = 0];
     RolloutEventType type = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-    google.protobuf.Timestamp occurred_at = 5;
-    RolloutActor actor = 6;
+    google.protobuf.Timestamp occurred_at = 5 [(buf.validate.field).required = true];
+    RolloutActor actor = 6 [(buf.validate.field).required = true];
     // The rollout's revision after this event was applied.
-    int64 rollout_revision = 7 [(buf.validate.field).int64.gte = 0];
+    int64 rollout_revision = 7 [(buf.validate.field).int64.gt = 0];
     // Caller-supplied rationale from the action that produced the event.
     string note = 8 [(buf.validate.field).string.max_len = 1024];
     // Targets the event concerns, when it concerns specific targets; empty for
@@ -1390,6 +1390,12 @@ message PreviewReleaseChannelFirmwareRequest {
 
 // The rollout ApplyReleaseChannelFirmware would start for one assignment.
 message ReleaseChannelFirmwarePlan {
+    option (buf.validate.message).cel = {
+        id: "plan_artifact_fields_are_atomic"
+        message: "a clearing plan has no artifact fields; an assigning plan has firmware_file_id, firmware_version and firmware_checksum together"
+        expression: "(this.firmware_file_id == '' && this.firmware_version == '' && this.firmware_checksum == '') || (this.firmware_file_id != '' && this.firmware_version != '' && this.firmware_checksum != '')"
+    };
+
     string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
     // Empty when the assignment would clear the pair.
