@@ -278,6 +278,26 @@ func TestRolloutBehaviorValidation(t *testing.T) {
 			},
 		},
 		{
+			name:     "a batch size with an unspecified method is rejected rather than ignored",
+			behavior: &rolloutv1.RolloutBehavior{BatchSize: 50},
+			wantErr:  true,
+		},
+		{
+			name:     "a batch size with all-at-once is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, BatchSize: 50},
+			wantErr:  true,
+		},
+		{
+			name:     "a pilot size with the batched method is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, PilotSize: 1},
+			wantErr:  true,
+		},
+		{
+			name:     "a batch size with the pilot method is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, BatchSize: 2},
+			wantErr:  true,
+		},
+		{
 			name: "pilot requires a positive pilot size",
 			behavior: &rolloutv1.RolloutBehavior{
 				Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE,
@@ -646,10 +666,14 @@ func TestRolloutGateStateValidation(t *testing.T) {
 		rollout := activeRollout()
 		rollout.Behavior = &rolloutv1.RolloutBehavior{
 			Method:                         method,
-			BatchSize:                      1,
-			PilotSize:                      1,
 			ReviewAfterEachBatch:           review,
 			AutoContinueOnHealthyTelemetry: autoContinue,
+		}
+		if method == rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED {
+			rollout.Behavior.BatchSize = 1
+		}
+		if method == rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE {
+			rollout.Behavior.PilotSize = 1
 		}
 		rollout.BatchCount = 1
 		rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW

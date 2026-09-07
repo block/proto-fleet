@@ -392,14 +392,14 @@ message RolloutAutomationThresholds {
 // channel and copied onto each rollout when it starts.
 message RolloutBehavior {
     option (buf.validate.message).cel = {
-        id: "batch_size_required_for_batched"
-        message: "batch_size must be at least 1 for BATCHED"
-        expression: "this.method != 2 || this.batch_size > 0"
+        id: "batch_size_iff_batched"
+        message: "batch_size must be at least 1 for BATCHED and 0 for every other method"
+        expression: "(this.method == 2) == (this.batch_size > 0)"
     };
     option (buf.validate.message).cel = {
-        id: "pilot_size_required_for_pilot"
-        message: "pilot_size must be at least 1 for PILOT_THEN_CONTINUE"
-        expression: "this.method != 3 || this.pilot_size > 0"
+        id: "pilot_size_iff_pilot"
+        message: "pilot_size must be at least 1 for PILOT_THEN_CONTINUE and 0 for every other method"
+        expression: "(this.method == 3) == (this.pilot_size > 0)"
     };
     option (buf.validate.message).cel = {
         id: "delegated_has_no_engine_pacing"
@@ -416,9 +416,11 @@ message RolloutBehavior {
     RolloutMethod method = 1 [(buf.validate.field).enum.defined_only = true];
     // Paced methods only; defaults to LEAST_EFFICIENT_FIRST.
     RolloutOrder order = 2 [(buf.validate.field).enum.defined_only = true];
-    // BATCHED: miners per batch (>= 1).
+    // BATCHED: miners per batch (>= 1). Rejected for every other method, so a
+    // batch size cannot be silently ignored by an all-at-once rollout.
     int32 batch_size = 3 [(buf.validate.field).int32 = {gte: 0}];
-    // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1).
+    // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1). Rejected for every
+    // other method.
     int32 pilot_size = 4 [(buf.validate.field).int32 = {gte: 0}];
     // BATCHED without review: pause between one batch finishing and the
     // next starting.
