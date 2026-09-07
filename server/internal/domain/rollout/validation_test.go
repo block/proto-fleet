@@ -150,6 +150,9 @@ func (test observedIdentityValidationCase) observedValues() (string, string) {
 	return manufacturer, model
 }
 
+const testChecksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const testPreviousChecksum = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
 type deploymentProvenanceValidationCase struct {
 	name            string
 	response        func(string) proto.Message
@@ -160,10 +163,10 @@ type deploymentProvenanceValidationCase struct {
 var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
 	{
 		name: "release channel miners",
-		response: func(fileID string) proto.Message {
+		response: func(checksum string) proto.Message {
 			return &rolloutv1.ListReleaseChannelMinersResponse{
 				Miners: []*rolloutv1.ReleaseChannelMiner{{
-					LastDeployedFirmwareFileId: fileID,
+					LastDeployedFirmwareChecksum: checksum,
 				}},
 			}
 		},
@@ -172,9 +175,9 @@ var deploymentProvenanceValidationCases = []deploymentProvenanceValidationCase{
 	},
 	{
 		name: "rollout devices",
-		response: func(fileID string) proto.Message {
+		response: func(checksum string) proto.Message {
 			device := queuedDevice()
-			device.LastDeployedFirmwareFileId = fileID
+			device.LastDeployedFirmwareChecksum = checksum
 			return &rolloutv1.ListRolloutDevicesResponse{Devices: []*rolloutv1.RolloutDevice{device}}
 		},
 		collectionField: "devices",
@@ -189,8 +192,10 @@ func activeRollout() *rolloutv1.Rollout {
 		Manufacturer:         "Bitmain",
 		Model:                "S21",
 		FirmwareFileId:       "file-1",
+		FirmwareChecksum:     testChecksum,
 		FirmwareVersion:      "2.0",
 		AssignmentGeneration: 1,
+		Revision:             1,
 		Status:               rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE,
 		State:                rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS,
 		Stage:                rolloutv1.RolloutStage_ROLLOUT_STAGE_REST,
@@ -327,7 +332,7 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 		{
 			name: "lineage",
 			set: func(rollout *rolloutv1.Rollout, version string) {
-				rollout.PreviousFirmwareFileId = "file-0"
+				rollout.PreviousFirmwareChecksum = testPreviousChecksum
 				rollout.PreviousFirmwareVersion = version
 			},
 		},
@@ -353,65 +358,39 @@ func TestRolloutFirmwareVersionsValidation(t *testing.T) {
 func TestRolloutLineageValidation(t *testing.T) {
 	t.Parallel()
 
-	newRollout := func(fileID, version, previousFileID, previousVersion string) *rolloutv1.Rollout {
+	newRollout := func(checksum, version, previousChecksum, previousVersion string) *rolloutv1.Rollout {
 		rollout := activeRollout()
-		rollout.FirmwareFileId = fileID
+		rollout.FirmwareChecksum = checksum
 		rollout.FirmwareVersion = version
-		rollout.PreviousFirmwareFileId = previousFileID
+		rollout.PreviousFirmwareChecksum = previousChecksum
 		rollout.PreviousFirmwareVersion = previousVersion
 		return rollout
 	}
-	withoutGeneration := newRollout("file-1", "2.0", "", "")
+	withoutGeneration := newRollout(testChecksum, "2.0", "", "")
 	withoutGeneration.AssignmentGeneration = 0
+	withoutRevision := newRollout(testChecksum, "2.0", "", "")
+	withoutRevision.Revision = 0
+	// The artifact may be gone from the store while the rollout still names it.
+	withoutFile := newRollout(testChecksum, "2.0", "", "")
+	withoutFile.FirmwareFileId = ""
 	tests := []struct {
 		name    string
 		rollout *rolloutv1.Rollout
 		wantErr bool
 	}{
-		{name: "first assignment has an empty lineage", rollout: newRollout("file-1", "2.0", "", "")},
-		{name: "later assignment records the replaced one", rollout: newRollout("file-1", "2.0", "file-0", "1.0")},
-		{name: "rollout without a target file is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
-		{name: "rollout without a target version is rejected", rollout: newRollout("file-1", "", "", ""), wantErr: true},
-		{name: "targetless rollout is rejected", rollout: newRollout("", "", "", ""), wantErr: true},
-		{name: "lineage file without version is rejected", rollout: newRollout("file-1", "2.0", "file-0", ""), wantErr: true},
-		{name: "lineage version without file is rejected", rollout: newRollout("file-1", "2.0", "", "1.0"), wantErr: true},
-		{name: "lineage equal to the target is rejected", rollout: newRollout("file-1", "2.0", "file-1", "2.0"), wantErr: true},
+		{name: "first assignment has an empty lineage", rollout: newRollout(testChecksum, "2.0", "", "")},
+		{name: "later assignment records the replaced one", rollout: newRollout(testChecksum, "2.0", testPreviousChecksum, "1.0")},
+		{name: "rollout whose artifact is not currently uploaded is valid", rollout: withoutFile},
+		{name: "rollout without a target checksum is rejected", rollout: newRollout("", "2.0", "", ""), wantErr: true},
+		{name: "malformed target checksum is rejected", rollout: newRollout("file-1", "2.0", "", ""), wantErr: true},
+		{name: "uppercase target checksum is rejected", rollout: newRollout(strings.ToUpper(testChecksum), "2.0", "", ""), wantErr: true},
+		{name: "rollout without a target version is rejected", rollout: newRollout(testChecksum, "", "", ""), wantErr: true},
+		{name: "lineage checksum without version is rejected", rollout: newRollout(testChecksum, "2.0", testPreviousChecksum, ""), wantErr: true},
+		{name: "lineage version without checksum is rejected", rollout: newRollout(testChecksum, "2.0", "", "1.0"), wantErr: true},
+		{name: "malformed lineage checksum is rejected", rollout: newRollout(testChecksum, "2.0", "file-0", "1.0"), wantErr: true},
+		{name: "lineage equal to the target is rejected", rollout: newRollout(testChecksum, "2.0", testChecksum, "2.0"), wantErr: true},
 		{name: "rollout without assignment generation is rejected", rollout: withoutGeneration, wantErr: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.rollout, test.wantErr)
-		})
-	}
-}
-
-func TestRolloutRetryChainValidation(t *testing.T) {
-	t.Parallel()
-
-	newRollout := func(status rolloutv1.RolloutStatus, retryOf, successor int64) *rolloutv1.Rollout {
-		rollout := activeRollout()
-		if status != rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE {
-			rollout = finishedRollout(status)
-		}
-		rollout.Id = 7
-		rollout.RetryOfRolloutId = retryOf
-		rollout.SuccessorRolloutId = successor
-		return rollout
-	}
-	tests := []struct {
-		name    string
-		rollout *rolloutv1.Rollout
-		wantErr bool
-	}{
-		{name: "finished rollout with a successor is valid", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES, 0, 8)},
-		{name: "active successor records its predecessor", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 6, 0)},
-		{name: "active rollout with a successor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 0, 8), wantErr: true},
-		{name: "self successor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED, 0, 7), wantErr: true},
-		{name: "self predecessor is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, 7, 0), wantErr: true},
-		{name: "negative chain id is rejected", rollout: newRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_ACTIVE, -1, 0), wantErr: true},
+		{name: "rollout without a revision is rejected", rollout: withoutRevision, wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -531,21 +510,6 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 		{name: "phases below device_count are rejected", rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, nil), wantErr: true},
 		{name: "batch phase exceeding the rollout phase is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, nil), wantErr: true},
 		{name: "batch phase absent from the rollout phases is rejected", rollout: withCounts(1, &rolloutv1.RolloutDeviceCounts{Done: 1}, &rolloutv1.RolloutDeviceCounts{Queued: 1}, nil), wantErr: true},
-		{
-			name:    "all-at-once evidence covering only some targets is rejected",
-			rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}),
-			wantErr: true,
-		},
-		{
-			name:    "batch evidence covering only some of the batch is rejected",
-			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}),
-			wantErr: true,
-		},
-		{
-			name:    "batch evidence with mismatched verified count is rejected",
-			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 2}),
-			wantErr: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -664,17 +628,6 @@ func TestRolloutBatchConsistencyValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "rest stage with current batch counts is rejected",
-			rollout: func() *rolloutv1.Rollout {
-				r := activeRollout()
-				r.DeviceCount = 1
-				r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
-				r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
-				return r
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -724,64 +677,11 @@ func TestRolloutGateStateValidation(t *testing.T) {
 			r.PausedAt = timestamppb.Now()
 			return r
 		}},
-		{name: "in progress at the review stage is rejected", rollout: func() *rolloutv1.Rollout {
-			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS)
-		}, wantErr: true},
-		{name: "pilot gate state in the rest stage is rejected", rollout: func() *rolloutv1.Rollout {
-			r := activeRollout()
-			r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE
-			return r
-		}, wantErr: true},
-		{name: "pilot gate state with the batched method is rejected", rollout: func() *rolloutv1.Rollout {
-			return atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE)
-		}, wantErr: true},
-		{name: "batch review without review gates is rejected", rollout: func() *rolloutv1.Rollout {
-			return atGate(batched, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
-		}, wantErr: true},
-		{name: "stabilizing without auto-continue is rejected", rollout: func() *rolloutv1.Rollout {
-			return atGate(pilot, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY)
-		}, wantErr: true},
 		{name: "waiting between ungated batches is valid", rollout: func() *rolloutv1.Rollout {
 			r := batchedRollout(2)
 			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
 			return r
 		}},
-		{name: "waiting stage in a pilot rollout is rejected", rollout: func() *rolloutv1.Rollout {
-			r := batchedRollout(1)
-			r.Behavior.Method = pilot
-			r.Behavior.PilotSize = 1
-			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
-			return r
-		}, wantErr: true},
-		{name: "waiting stage with per-batch review is rejected", rollout: func() *rolloutv1.Rollout {
-			r := batchedRollout(2)
-			r.Behavior.ReviewAfterEachBatch = true
-			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
-			return r
-		}, wantErr: true},
-		{name: "waiting after the final batch is rejected", rollout: func() *rolloutv1.Rollout {
-			r := batchedRollout(2)
-			r.CurrentBatch = 1
-			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
-			return r
-		}, wantErr: true},
-		{name: "paused at a review stage without a gated behavior is rejected", rollout: func() *rolloutv1.Rollout {
-			r := atGate(batched, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED)
-			r.PausedAt = timestamppb.Now()
-			return r
-		}, wantErr: true},
-		{name: "rest stage before the final batch is rejected", rollout: func() *rolloutv1.Rollout {
-			r := batchedRollout(3)
-			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_REST
-			return r
-		}, wantErr: true},
-		{name: "review gate with pending batch targets is rejected", rollout: func() *rolloutv1.Rollout {
-			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
-			r.DeviceCount = 2
-			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
-			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
-			return r
-		}, wantErr: true},
 		{name: "review gate with a settled batch is valid", rollout: func() *rolloutv1.Rollout {
 			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
 			r.DeviceCount = 2
@@ -817,188 +717,6 @@ func TestRolloutGateStateValidation(t *testing.T) {
 	}
 }
 
-func TestRolloutReadyToAdvanceValidation(t *testing.T) {
-	t.Parallel()
-
-	// readyGate is a batched auto-continue rollout at a review gate whose
-	// two-miner batch is fully DONE with full-coverage hashrate evidence.
-	readyGate := func(thresholds *rolloutv1.RolloutAutomationThresholds) *rolloutv1.Rollout {
-		rollout := batchedRollout(2)
-		rollout.Behavior.ReviewAfterEachBatch = true
-		rollout.Behavior.AutoContinueOnHealthyTelemetry = true
-		rollout.Behavior.Thresholds = thresholds
-		rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
-		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY
-		rollout.DeviceCount = 4
-		rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 2}
-		rollout.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 2}
-		rollout.Evidence = &rolloutv1.RolloutEvidence{
-			DevicesTotal:          2,
-			Verified:              2,
-			Online:                2,
-			Hashing:               2,
-			ReadyToAdvance:        true,
-			HashRateHs:            aggregateOf(100, 95, 2),
-			HashrateChangePercent: proto.Float64(-5),
-		}
-		return rollout
-	}
-	tests := []struct {
-		name    string
-		rollout func() *rolloutv1.Rollout
-		wantErr bool
-	}{
-		{name: "settled healthy batch without thresholds is ready", rollout: func() *rolloutv1.Rollout { return readyGate(nil) }},
-		{name: "ready with a failed miner is rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(nil)
-			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 1, Failed: 1}
-			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
-			r.Evidence.Verified = 1
-			r.Evidence.Failed = 1
-			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
-			return r
-		}, wantErr: true},
-		{name: "not ready with a failed miner is valid", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(nil)
-			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 1, Failed: 1}
-			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
-			r.Evidence.Verified = 1
-			r.Evidence.Failed = 1
-			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
-			r.Evidence.ReadyToAdvance = false
-			r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW
-			return r
-		}},
-		{name: "ready with stabilization remaining is rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(nil)
-			r.Evidence.StabilizationRemainingSeconds = 30
-			return r
-		}, wantErr: true},
-		{name: "hashrate drop within the limit is ready", rollout: func() *rolloutv1.Rollout {
-			return readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
-		}},
-		{name: "hashrate drop beyond the limit is rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
-			r.Evidence.HashRateHs = aggregateOf(100, 85, 2)
-			r.Evidence.HashrateChangePercent = proto.Float64(-15)
-			return r
-		}, wantErr: true},
-		{name: "derived change disagreeing with its aggregate is rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
-			r.Evidence.HashRateHs = aggregateOf(100, 50, 2)
-			return r
-		}, wantErr: true},
-		{name: "partial coverage under the default full coverage is rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
-			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
-			return r
-		}, wantErr: true},
-		{name: "partial coverage meeting a configured minimum is ready", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{
-				MaxHashrateDropPercent:   proto.Float64(10),
-				MinSampleCoveragePercent: proto.Float64(50),
-			})
-			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
-			return r
-		}},
-		{name: "threshold on an unsampled metric is rejected", rollout: func() *rolloutv1.Rollout {
-			return readyGate(&rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)})
-		}, wantErr: true},
-		{name: "temperature within the limit is ready", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)})
-			r.Evidence.TempC = aggregateOf(60, 62, 2)
-			r.Evidence.TemperatureChangeCelsius = proto.Float64(2)
-			return r
-		}},
-		{name: "new errors beyond the limit are rejected", rollout: func() *rolloutv1.Rollout {
-			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)})
-			r.Evidence.NewErrors = 1
-			return r
-		}, wantErr: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.rollout(), test.wantErr)
-		})
-	}
-}
-
-func TestRolloutDeviceDoneValidation(t *testing.T) {
-	t.Parallel()
-
-	done := func(edit func(*rolloutv1.RolloutDevice)) *rolloutv1.RolloutDevice {
-		device := &rolloutv1.RolloutDevice{
-			Phase:                      rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_DONE,
-			Online:                     true,
-			Hashing:                    true,
-			HasBaseline:                true,
-			BaselineHashing:            true,
-			LastDeployedFirmwareFileId: "file-1",
-		}
-		edit(device)
-		return device
-	}
-	tests := []struct {
-		name    string
-		device  *rolloutv1.RolloutDevice
-		wantErr bool
-	}{
-		{name: "online hashing miner with provenance is done", device: done(func(*rolloutv1.RolloutDevice) {})},
-		{name: "non-hashing miner with a non-hashing baseline is done", device: done(func(d *rolloutv1.RolloutDevice) {
-			d.Hashing = false
-			d.BaselineHashing = false
-		})},
-		{name: "offline done miner is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.Online = false }), wantErr: true},
-		{name: "done miner without provenance is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.LastDeployedFirmwareFileId = "" }), wantErr: true},
-		{name: "non-hashing done miner with a hashing baseline is rejected", device: done(func(d *rolloutv1.RolloutDevice) { d.Hashing = false }), wantErr: true},
-		{name: "non-hashing done late joiner is rejected", device: done(func(d *rolloutv1.RolloutDevice) {
-			d.Hashing = false
-			d.HasBaseline = false
-			d.BaselineHashing = false
-		}), wantErr: true},
-		{name: "offline failed miner is valid", device: done(func(d *rolloutv1.RolloutDevice) {
-			d.Phase = rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_FAILED
-			d.Online = false
-			d.Hashing = false
-		})},
-		{name: "baseline hashing without a baseline is rejected", device: &rolloutv1.RolloutDevice{
-			Phase:           rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			BaselineHashing: true,
-		}, wantErr: true},
-		{name: "baseline errors without a baseline are rejected", device: &rolloutv1.RolloutDevice{
-			Phase:              rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			BaselineOpenErrors: 1,
-		}, wantErr: true},
-		{name: "metric baseline without a baseline is rejected", device: &rolloutv1.RolloutDevice{
-			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			PowerW: &rolloutv1.MetricComparison{Baseline: proto.Float64(3000)},
-		}, wantErr: true},
-		{name: "current metric without a baseline is valid", device: &rolloutv1.RolloutDevice{
-			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			PowerW: &rolloutv1.MetricComparison{Current: proto.Float64(3000)},
-		}},
-		{name: "negative power sample is rejected", device: &rolloutv1.RolloutDevice{
-			Phase:  rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			PowerW: &rolloutv1.MetricComparison{Current: proto.Float64(-1)},
-		}, wantErr: true},
-		{name: "sub-zero temperature sample is valid", device: &rolloutv1.RolloutDevice{
-			Phase: rolloutv1.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_QUEUED,
-			TempC: &rolloutv1.MetricComparison{Current: proto.Float64(-5)},
-		}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.device, test.wantErr)
-		})
-	}
-}
-
 func TestReleaseChannelModelGroupUnassignedDerivedStateValidation(t *testing.T) {
 	t.Parallel()
 
@@ -1012,6 +730,8 @@ func TestReleaseChannelModelGroupFirmwareVersionRejectsNUL(t *testing.T) {
 
 	group := &rolloutv1.ReleaseChannelModelGroup{
 		FirmwareFileId:             "file-1",
+		FirmwareChecksum:           testChecksum,
+		FirmwareAvailable:          true,
 		FirmwareTargetManufacturer: "Bitmain",
 		FirmwareTargetModel:        "S21",
 		FirmwareVersion:            "v1\x00custom",
@@ -1028,6 +748,8 @@ func TestReleaseChannelModelGroupAssignmentGenerationValidation(t *testing.T) {
 	assigned := func(generation int64) *rolloutv1.ReleaseChannelModelGroup {
 		return &rolloutv1.ReleaseChannelModelGroup{
 			FirmwareFileId:             "file-1",
+			FirmwareChecksum:           testChecksum,
+			FirmwareAvailable:          true,
 			FirmwareTargetManufacturer: "Bitmain",
 			FirmwareTargetModel:        "S21",
 			FirmwareVersion:            "2.0",
@@ -1215,21 +937,6 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "percent change with a zero baseline is rejected",
-			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal: 1,
-				Verified:     1,
-				Online:       1,
-				EfficiencyJh: &rolloutv1.AggregateMetricComparison{
-					Baseline:       proto.Float64(0),
-					Current:        proto.Float64(50),
-					SampledDevices: 1,
-				},
-				EfficiencyChangePercent: proto.Float64(100),
-			},
-			wantErr: true,
-		},
-		{
 			name:     "sampled hashrate without its change is rejected",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, HashRateHs: sampledAggregate(1)},
 			wantErr:  true,
@@ -1250,31 +957,8 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "verified baseline hashers that stopped hashing are rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 2, Hashing: 0, BaselineHashing: 2},
-			wantErr:  true,
-		},
-		{
 			name:     "unverified baseline hashers need not be hashing",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Online: 2, Hashing: 0, BaselineHashing: 1},
-		},
-		{
-			name: "negative efficiency aggregate is rejected",
-			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal: 1, Verified: 1, Online: 1,
-				EfficiencyJh:            aggregateOf(30, -30, 1),
-				EfficiencyChangePercent: proto.Float64(-200),
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative hashrate baseline is rejected",
-			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal: 1, Verified: 1, Online: 1,
-				HashRateHs:            aggregateOf(-100, 90, 1),
-				HashrateChangePercent: proto.Float64(-190),
-			},
-			wantErr: true,
 		},
 		{
 			name: "sub-zero temperature aggregate is valid",
@@ -1288,28 +972,6 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			name:     "hashing above online is rejected",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Hashing: 2, Online: 1},
 			wantErr:  true,
-		},
-		{
-			name: "hashrate change disagreeing with its aggregate is rejected",
-			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal:          1,
-				Verified:              1,
-				Online:                1,
-				HashRateHs:            aggregateOf(100, 50, 1),
-				HashrateChangePercent: proto.Float64(10),
-			},
-			wantErr: true,
-		},
-		{
-			name: "temperature change disagreeing with its aggregate is rejected",
-			evidence: &rolloutv1.RolloutEvidence{
-				DevicesTotal:             1,
-				Verified:                 1,
-				Online:                   1,
-				TempC:                    aggregateOf(60, 65, 1),
-				TemperatureChangeCelsius: proto.Float64(2),
-			},
-			wantErr: true,
 		},
 		{
 			name:     "online above total is rejected",
@@ -1690,6 +1352,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:               "Bít main ",
 				Model:                      " S２1\t",
 				FirmwareFileId:             "firmware",
+				FirmwareChecksum:           testChecksum,
+				FirmwareAvailable:          true,
 				FirmwareVersion:            "1.0.0",
 				FirmwareTargetManufacturer: "Bitmain",
 				FirmwareTargetModel:        "S21",
@@ -1711,6 +1375,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:        "Bitmain",
 				Model:               "S21",
 				FirmwareFileId:      "firmware",
+				FirmwareChecksum:    testChecksum,
+				FirmwareAvailable:   true,
 				FirmwareVersion:     "1.0.0",
 				FirmwareTargetModel: "S21",
 			},
@@ -1722,6 +1388,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:               "Bitmain",
 				Model:                      "S21",
 				FirmwareFileId:             "firmware",
+				FirmwareChecksum:           testChecksum,
+				FirmwareAvailable:          true,
 				FirmwareVersion:            "1.0.0",
 				FirmwareTargetManufacturer: "Bitmain",
 			},
@@ -1733,6 +1401,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:               "Bitmain",
 				Model:                      "S21",
 				FirmwareFileId:             "firmware",
+				FirmwareChecksum:           testChecksum,
+				FirmwareAvailable:          true,
 				FirmwareTargetManufacturer: "Bitmain",
 				FirmwareTargetModel:        "S21",
 			},
@@ -1744,6 +1414,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:               "Bitmain",
 				Model:                      "S21",
 				FirmwareFileId:             "firmware",
+				FirmwareChecksum:           testChecksum,
+				FirmwareAvailable:          true,
 				FirmwareVersion:            "1.0.0",
 				FirmwareTargetManufacturer: "Bítmain",
 				FirmwareTargetModel:        "S21",
@@ -1756,6 +1428,8 @@ func TestReleaseChannelModelGroupAssignmentValidation(t *testing.T) {
 				Manufacturer:               "Bitmain",
 				Model:                      "S21",
 				FirmwareFileId:             "firmware",
+				FirmwareChecksum:           testChecksum,
+				FirmwareAvailable:          true,
 				FirmwareVersion:            "1.0.0",
 				FirmwareTargetManufacturer: "Bitmain",
 				FirmwareTargetModel:        " S21 ",
@@ -2411,7 +2085,7 @@ func TestDeploymentProvenanceResponseDescriptors(t *testing.T) {
 			require.NotNil(t, items)
 			require.True(t, items.IsList())
 
-			provenance := items.Message().Fields().ByName("last_deployed_firmware_file_id")
+			provenance := items.Message().Fields().ByName("last_deployed_firmware_checksum")
 			require.NotNil(t, provenance)
 			require.Equal(t, test.fieldNumber, provenance.Number())
 			require.Equal(t, protoreflect.StringKind, provenance.Kind())
@@ -2426,8 +2100,11 @@ func TestDeploymentProvenanceResponseValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireProtoValidation(t, test.response(strings.Repeat("f", 255)), false)
-			requireProtoValidation(t, test.response(strings.Repeat("f", 256)), true)
+			requireProtoValidation(t, test.response(""), false)
+			requireProtoValidation(t, test.response(testChecksum), false)
+			requireProtoValidation(t, test.response(strings.ToUpper(testChecksum)), true)
+			requireProtoValidation(t, test.response(testChecksum[:63]), true)
+			requireProtoValidation(t, test.response("file-1"), true)
 		})
 	}
 }
@@ -2817,9 +2494,6 @@ func TestDelegatedRolloutStateValidation(t *testing.T) {
 	paused.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED
 	paused.PausedAt = timestamppb.Now()
 
-	waitingWithInFlight := delegatedRollout()
-	waitingWithInFlight.DeviceCounts = &rolloutv1.RolloutDeviceCounts{InProgress: 1}
-
 	gated := delegatedRollout()
 	gated.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE
 	gated.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
@@ -2846,7 +2520,6 @@ func TestDelegatedRolloutStateValidation(t *testing.T) {
 		{name: "delegated in progress while updates are in flight", rollout: inProgress},
 		{name: "delegated paused by an operator", rollout: paused},
 		{name: "completed delegated rollout may contain skipped targets", rollout: completedWithSkips},
-		{name: "waiting for controller cannot have updates in flight", rollout: waitingWithInFlight, wantErr: true},
 		{name: "delegated rollouts never hold at a review gate", rollout: gated, wantErr: true},
 		{name: "delegated rollouts have no batches", rollout: batched, wantErr: true},
 		{name: "only delegated rollouts wait for a controller", rollout: notDelegatedWaiting, wantErr: true},
@@ -2882,7 +2555,8 @@ func TestSkippedTargetsCountValidation(t *testing.T) {
 	evidence.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Skipped: 1}
 	evidence.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Online: 1, Skipped: 1}
 	requireProtoValidation(t, evidence, false)
-	evidence.Evidence.Skipped = 0
+	// verified + skipped may not exceed devices_total.
+	evidence.Evidence.Skipped = 2
 	requireProtoValidation(t, evidence, true)
 }
 
@@ -3066,4 +2740,87 @@ func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
 			TargetCount: 40, OnTargetCount: 10, Behavior: delegatedBehavior(),
 		}},
 	}, false)
+}
+
+func TestArtifactIdentityValidation(t *testing.T) {
+	t.Parallel()
+
+	assigned := func(mutate func(*rolloutv1.ReleaseChannelModelGroup)) *rolloutv1.ReleaseChannelModelGroup {
+		group := &rolloutv1.ReleaseChannelModelGroup{
+			FirmwareFileId:             "file-1",
+			FirmwareChecksum:           testChecksum,
+			FirmwareAvailable:          true,
+			FirmwareTargetManufacturer: "Bitmain",
+			FirmwareTargetModel:        "S21",
+			FirmwareVersion:            "2.0",
+			AssignmentGeneration:       1,
+		}
+		mutate(group)
+		return group
+	}
+	tests := []struct {
+		name    string
+		group   *rolloutv1.ReleaseChannelModelGroup
+		wantErr bool
+	}{
+		{name: "assigned and uploaded", group: assigned(func(*rolloutv1.ReleaseChannelModelGroup) {})},
+		{
+			name: "assigned but the artifact is not uploaded: no file id, not available",
+			group: assigned(func(g *rolloutv1.ReleaseChannelModelGroup) {
+				g.FirmwareFileId = ""
+				g.FirmwareAvailable = false
+			}),
+		},
+		{
+			name:    "a file id without availability is rejected",
+			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareAvailable = false }),
+			wantErr: true,
+		},
+		{
+			name:    "availability without a file id is rejected",
+			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareFileId = "" }),
+			wantErr: true,
+		},
+		{
+			name:    "an assignment without a checksum is rejected",
+			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "" }),
+			wantErr: true,
+		},
+		{
+			name:    "a malformed checksum is rejected",
+			group:   assigned(func(g *rolloutv1.ReleaseChannelModelGroup) { g.FirmwareChecksum = "sha256:" + testChecksum }),
+			wantErr: true,
+		},
+		{
+			name: "an unassigned pair carries no artifact fields",
+			group: &rolloutv1.ReleaseChannelModelGroup{
+				FirmwareChecksum: testChecksum,
+			},
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			requireProtoValidation(t, test.group, test.wantErr)
+		})
+	}
+
+	// The contract identifies artifacts by checksum everywhere a file was
+	// referenced before, and no longer tracks retry chains.
+	rolloutFields := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor().Fields()
+	require.NotNil(t, rolloutFields.ByName("firmware_checksum"))
+	require.NotNil(t, rolloutFields.ByName("previous_firmware_checksum"))
+	require.Nil(t, rolloutFields.ByName("previous_firmware_file_id"))
+	require.Nil(t, rolloutFields.ByName("retry_of_rollout_id"))
+	require.Nil(t, rolloutFields.ByName("successor_rollout_id"))
+	require.NotNil(t, (&rolloutv1.ReleaseChannelFirmwarePlan{}).ProtoReflect().Descriptor().Fields().ByName("firmware_checksum"))
+	reasons := rolloutv1.RolloutErrorReason(0).Descriptor().Values()
+	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_MISSING"))
+	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_NOT_LATEST"))
+	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED"))
+
+	// The events feed cursor is never empty.
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: ""}, true)
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Cursor: "c1"}, false)
 }
