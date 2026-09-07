@@ -883,6 +883,12 @@ enum RolloutActorType {
 // The principal behind a rollout action, for audit and for showing operators
 // who is driving a rollout.
 message RolloutActor {
+    option (buf.validate.message).cel = {
+        id: "actor_id_matches_type"
+        message: "USER and API_KEY actors need a positive id; SYSTEM has id 0"
+        expression: "(this.type == 3) == (this.id == 0)"
+    };
+
     RolloutActorType type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // User id or API key id; 0 for SYSTEM.
     int64 id = 2 [(buf.validate.field).int64.gte = 0];
@@ -960,18 +966,12 @@ enum RolloutErrorReason {
     // No uploaded file carries the required checksum (RolloutService artifact
     // identity rule); re-upload the firmware to continue.
     ROLLOUT_ERROR_REASON_ARTIFACT_MISSING = 10;
-    // The rollout already has a successor.
-    ROLLOUT_ERROR_REASON_ALREADY_RETRIED = 11;
     // Another rollout is active for the manufacturer/model pair.
-    ROLLOUT_ERROR_REASON_ROLLOUT_ACTIVE = 12;
+    ROLLOUT_ERROR_REASON_ROLLOUT_ACTIVE = 11;
     // The rollout still has a target IN_PROGRESS or RETRYING.
-    ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT = 13;
+    ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT = 12;
     // The referenced file's target metadata does not match the assignment.
-    ROLLOUT_ERROR_REASON_ARTIFACT_MISMATCH = 14;
-    // Retries are generation-scoped (see RetryFailedRolloutDevices); a
-    // most-recent-rollout restriction briefly occupied this value.
-    reserved 15;
-    reserved "ROLLOUT_ERROR_REASON_NOT_LATEST";
+    ROLLOUT_ERROR_REASON_ARTIFACT_MISMATCH = 13;
 }
 
 // Error detail attached to RolloutService failures.
@@ -1132,28 +1132,23 @@ message Rollout {
     // ReleaseChannelModelGroup.assignment_generation to tell whether the
     // rollout is still current.
     int64 assignment_generation = 25 [(buf.validate.field).int64.gt = 0];
-    // Retry lineage was tracked here in an earlier revision of this contract;
-    // retries are now governed by the most-recent-rollout rule of
-    // RetryFailedRolloutDevices.
-    reserved 26, 27;
-    reserved "retry_of_rollout_id", "successor_rollout_id";
     // Change counter under the RolloutService revision rule: 1 when the
     // rollout is created, +1 on every server-side change. Pass it back as
     // expected_revision on mutating RPCs to make them conditional.
-    int64 revision = 28 [(buf.validate.field).int64.gt = 0];
+    int64 revision = 26 [(buf.validate.field).int64.gt = 0];
     // When revision last changed.
-    google.protobuf.Timestamp updated_at = 29;
+    google.protobuf.Timestamp updated_at = 27;
     // Who started the rollout: the operator or API key behind
     // ApplyReleaseChannelFirmware, RollbackReleaseChannelFirmware, or
     // RetryFailedRolloutDevices, or SYSTEM for reconciliation.
-    RolloutActor started_by = 30;
+    RolloutActor started_by = 28;
     // Who performed the most recent action on the rollout (advance, continue,
     // pause, resume, skip, cancel, complete, retry), or SYSTEM.
-    RolloutActor last_action_by = 31;
+    RolloutActor last_action_by = 29;
     // Lowercase hex SHA-256 of the target payload: the rollout's artifact
     // identity under the RolloutService artifact identity rule. Every rollout
     // enforces exactly one artifact; clearing an assignment starts none.
-    string firmware_checksum = 32 [(buf.validate.field).string = {max_len: 64, pattern: "^[0-9a-f]{64}$"}];
+    string firmware_checksum = 30 [(buf.validate.field).string = {max_len: 64, pattern: "^[0-9a-f]{64}$"}];
 }
 
 // Progress of one miner within a rollout.

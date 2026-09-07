@@ -2715,6 +2715,12 @@ func TestRolloutEventsValidation(t *testing.T) {
 		"missing occurred_at":    func(e *rolloutv1.RolloutEvent) { e.OccurredAt = nil },
 		"missing actor":          func(e *rolloutv1.RolloutEvent) { e.Actor = nil },
 		"unspecified actor type": func(e *rolloutv1.RolloutEvent) { e.Actor = &rolloutv1.RolloutActor{Id: 4, Name: "x"} },
+		"user actor without an id": func(e *rolloutv1.RolloutEvent) {
+			e.Actor = &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_USER, Name: "x"}
+		},
+		"system actor with an id": func(e *rolloutv1.RolloutEvent) {
+			e.Actor = &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_SYSTEM, Id: 4}
+		},
 		"zero rollout revision":  func(e *rolloutv1.RolloutEvent) { e.RolloutRevision = 0 },
 		"unspecified event type": func(e *rolloutv1.RolloutEvent) { e.Type = rolloutv1.RolloutEventType_ROLLOUT_EVENT_TYPE_UNSPECIFIED },
 	} {
@@ -2723,6 +2729,7 @@ func TestRolloutEventsValidation(t *testing.T) {
 		mutate(broken)
 		require.Error(t, protovalidate.Validate(broken), name)
 	}
+	requireProtoValidation(t, &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_SYSTEM, Name: "enforcement"}, false)
 
 	events := make([]*rolloutv1.RolloutEvent, 1001)
 	for i := range events {
@@ -2838,6 +2845,16 @@ func TestArtifactIdentityValidation(t *testing.T) {
 	reasons := rolloutv1.RolloutErrorReason(0).Descriptor().Values()
 	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_MISSING"))
 	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_NOT_LATEST"))
+	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ALREADY_RETRIED"))
+	// The unshipped contract carries no reservations: field numbers are
+	// contiguous and nothing is reserved.
+	rolloutDescriptor := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor()
+	require.Equal(t, 0, rolloutDescriptor.ReservedNames().Len())
+	require.Equal(t, 0, rolloutDescriptor.ReservedRanges().Len())
+	require.Equal(t, 0, rolloutv1.RolloutErrorReason(0).Descriptor().ReservedRanges().Len())
+	for i := range rolloutFields.Len() {
+		require.LessOrEqual(t, int(rolloutFields.Get(i).Number()), rolloutFields.Len())
+	}
 	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED"))
 
 	// The events feed cursor is never empty.
