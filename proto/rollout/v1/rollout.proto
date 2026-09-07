@@ -349,8 +349,10 @@ enum RolloutMethod {
     ROLLOUT_METHOD_DELEGATED = 4;
 }
 
-// Order miners are worked through in a paced rollout. Meaningless for
-// ALL_AT_ONCE.
+// Order miners are worked through. Consulted by BATCHED and
+// PILOT_THEN_CONTINUE when cutting batches and by DELEGATED for the
+// "next count" selection of AdvanceRollout; ALL_AT_ONCE updates every target
+// and does not consult it.
 enum RolloutOrder {
     ROLLOUT_ORDER_UNSPECIFIED = 0;
     // Miners with the worst efficiency (highest J/TH) go first; miners with
@@ -389,7 +391,11 @@ message RolloutAutomationThresholds {
 }
 
 // How updates started in a channel are staged and dispatched. Stored on the
-// channel and copied onto each rollout when it starts.
+// channel and copied onto each rollout when it starts. Every knob is accepted
+// only for the method that consumes it, so a setting can never be silently
+// ignored: sizes belong to their method, review to batches, waits to unreviewed
+// batches, auto-continue to a gate, and stabilization and thresholds to
+// auto-continue. DELEGATED therefore carries none of them.
 message RolloutBehavior {
     option (buf.validate.message).cel = {
         id: "batch_size_iff_batched"
@@ -402,9 +408,24 @@ message RolloutBehavior {
         expression: "(this.method == 3) == (this.pilot_size > 0)"
     };
     option (buf.validate.message).cel = {
-        id: "delegated_has_no_engine_pacing"
-        message: "DELEGATED rollouts have no batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue_on_healthy_telemetry, stabilization_seconds, or thresholds"
-        expression: "this.method != 4 || (this.batch_size == 0 && this.pilot_size == 0 && this.wait_between_batches_seconds == 0 && !this.review_after_each_batch && !this.auto_continue_on_healthy_telemetry && this.stabilization_seconds == 0 && !has(this.thresholds))"
+        id: "review_requires_batched_or_pilot"
+        message: "review_after_each_batch applies only to BATCHED; PILOT_THEN_CONTINUE always gates after the pilot"
+        expression: "!this.review_after_each_batch || this.method in [2, 3]"
+    };
+    option (buf.validate.message).cel = {
+        id: "wait_requires_ungated_batches"
+        message: "wait_between_batches_seconds applies only to BATCHED without per-batch review"
+        expression: "this.wait_between_batches_seconds == 0 || (this.method == 2 && !this.review_after_each_batch)"
+    };
+    option (buf.validate.message).cel = {
+        id: "auto_continue_requires_gate"
+        message: "auto_continue_on_healthy_telemetry applies only to PILOT_THEN_CONTINUE or BATCHED with per-batch review"
+        expression: "!this.auto_continue_on_healthy_telemetry || this.method == 3 || (this.method == 2 && this.review_after_each_batch)"
+    };
+    option (buf.validate.message).cel = {
+        id: "stabilization_and_thresholds_require_auto_continue"
+        message: "stabilization_seconds and thresholds apply only with auto_continue_on_healthy_telemetry"
+        expression: "this.auto_continue_on_healthy_telemetry || (this.stabilization_seconds == 0 && !has(this.thresholds))"
     };
     option (buf.validate.message).cel = {
         id: "controller_timeout_requires_delegated"
@@ -414,7 +435,8 @@ message RolloutBehavior {
 
     // Defaults to ALL_AT_ONCE when unspecified.
     RolloutMethod method = 1 [(buf.validate.field).enum.defined_only = true];
-    // Paced methods only; defaults to LEAST_EFFICIENT_FIRST.
+    // Stored for every method and defaulted to LEAST_EFFICIENT_FIRST; see
+    // RolloutOrder for which methods consult it.
     RolloutOrder order = 2 [(buf.validate.field).enum.defined_only = true];
     // BATCHED: miners per batch (>= 1). Rejected for every other method, so a
     // batch size cannot be silently ignored by an all-at-once rollout.
@@ -422,20 +444,23 @@ message RolloutBehavior {
     // PILOT_THEN_CONTINUE: miners in the pilot batch (>= 1). Rejected for every
     // other method.
     int32 pilot_size = 4 [(buf.validate.field).int32 = {gte: 0}];
-    // BATCHED without review: pause between one batch finishing and the
+    // BATCHED without review only: pause between one batch finishing and the
     // next starting.
     int32 wait_between_batches_seconds = 5 [(buf.validate.field).int32 = {gte: 0}];
-    // BATCHED: hold at a review gate after every batch. The pilot method
-    // always gates after the pilot.
+    // BATCHED: hold at a review gate after every batch. PILOT_THEN_CONTINUE
+    // always gates after the pilot and may state this explicitly; other
+    // methods reject it.
     bool review_after_each_batch = 6;
-    // Release a gate automatically once the DONE count and failed-device
+    // Gated methods only (PILOT_THEN_CONTINUE, or BATCHED with review):
+    // release a gate automatically once the DONE count and failed-device
     // checks pass, every set threshold passes under the
     // RolloutAutomationThresholds coverage rule, and stabilization_seconds
     // has elapsed.
     bool auto_continue_on_healthy_telemetry = 7;
-    // How long a verified batch must hold at the gate before it can
-    // auto-continue, so post-update telemetry has settled.
+    // Auto-continue only: how long a verified batch must hold at the gate
+    // before it can auto-continue, so post-update telemetry has settled.
     int32 stabilization_seconds = 8 [(buf.validate.field).int32 = {gte: 0}];
+    // Auto-continue only.
     RolloutAutomationThresholds thresholds = 9;
     // Channel-wide safety budget shared by every active rollout in the
     // channel, whatever their method (including ALL_AT_ONCE) and however many

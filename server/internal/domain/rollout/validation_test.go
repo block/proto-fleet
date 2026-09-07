@@ -2494,6 +2494,48 @@ func TestDelegatedBehaviorValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:     "review on all-at-once is rejected rather than ignored",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ReviewAfterEachBatch: true},
+			wantErr:  true,
+		},
+		{
+			name:     "pilot may state its implied review gate",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, ReviewAfterEachBatch: true},
+		},
+		{
+			name:     "wait between batches needs unreviewed batches",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true, WaitBetweenBatchesSeconds: 60},
+			wantErr:  true,
+		},
+		{
+			name:     "wait between batches on all-at-once is rejected",
+			behavior: &rolloutv1.RolloutBehavior{WaitBetweenBatchesSeconds: 60},
+			wantErr:  true,
+		},
+		{
+			name:     "auto-continue without a gate is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, AutoContinueOnHealthyTelemetry: true},
+			wantErr:  true,
+		},
+		{
+			name: "auto-continue with thresholds at a batch review gate is valid",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_BATCHED, BatchSize: 2, ReviewAfterEachBatch: true,
+				AutoContinueOnHealthyTelemetry: true, StabilizationSeconds: 600,
+				Thresholds: &rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)},
+			},
+		},
+		{
+			name:     "stabilization without auto-continue is rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, StabilizationSeconds: 600},
+			wantErr:  true,
+		},
+		{
+			name:     "thresholds without auto-continue are rejected",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_PILOT_THEN_CONTINUE, PilotSize: 1, Thresholds: &rolloutv1.RolloutAutomationThresholds{}},
+			wantErr:  true,
+		},
+		{
 			name:     "controller timeout requires the delegated method",
 			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ControllerTimeoutSeconds: 60},
 			wantErr:  true,
