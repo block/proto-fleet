@@ -500,7 +500,7 @@ func TestRolloutLifecycleValidation(t *testing.T) {
 func TestRolloutDeviceCountsValidation(t *testing.T) {
 	t.Parallel()
 
-	withCounts := func(total int32, counts, batch *rolloutv1.RolloutDeviceCounts, evidenceTotal int32) *rolloutv1.Rollout {
+	withCounts := func(total int32, counts, batch *rolloutv1.RolloutDeviceCounts, evidence *rolloutv1.RolloutEvidence) *rolloutv1.Rollout {
 		rollout := activeRollout()
 		if batch != nil {
 			rollout = batchedRollout(1)
@@ -508,27 +508,44 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 		rollout.DeviceCount = total
 		rollout.DeviceCounts = counts
 		rollout.CurrentBatchCounts = batch
-		if evidenceTotal > 0 {
-			rollout.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: evidenceTotal}
-		}
+		rollout.Evidence = evidence
 		return rollout
 	}
+	allPhases := &rolloutv1.RolloutDeviceCounts{Queued: 1, InProgress: 1, Retrying: 1, Done: 1, Failed: 1, Excluded: 1}
 	tests := []struct {
 		name    string
 		rollout *rolloutv1.Rollout
 		wantErr bool
 	}{
-		{name: "no targets and no counts is valid", rollout: withCounts(0, nil, nil, 0)},
+		{name: "no targets and no counts is valid", rollout: withCounts(0, nil, nil, nil)},
 		{
-			name:    "phases summing to device_count are valid",
-			rollout: withCounts(6, &rolloutv1.RolloutDeviceCounts{Queued: 1, InProgress: 1, Retrying: 1, Done: 1, Failed: 1, Excluded: 1}, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, 2),
+			name:    "phases summing to device_count with matching batch evidence are valid",
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Failed: 1}),
 		},
-		{name: "targets without phase counts are rejected", rollout: withCounts(3, nil, nil, 0), wantErr: true},
-		{name: "phases exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, 0), wantErr: true},
-		{name: "phases below device_count are rejected", rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 0), wantErr: true},
-		{name: "batch phase exceeding the rollout phase is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, 0), wantErr: true},
-		{name: "batch phase absent from the rollout phases is rejected", rollout: withCounts(1, &rolloutv1.RolloutDeviceCounts{Done: 1}, &rolloutv1.RolloutDeviceCounts{Queued: 1}, 0), wantErr: true},
-		{name: "evidence exceeding device_count is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, 3), wantErr: true},
+		{
+			name:    "all-at-once evidence covering every target is valid",
+			rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 2, Failed: 1}),
+		},
+		{name: "targets without phase counts are rejected", rollout: withCounts(3, nil, nil, nil), wantErr: true},
+		{name: "phases exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, nil), wantErr: true},
+		{name: "phases below device_count are rejected", rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2}, nil, nil), wantErr: true},
+		{name: "batch phase exceeding the rollout phase is rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2}, &rolloutv1.RolloutDeviceCounts{Done: 3}, nil), wantErr: true},
+		{name: "batch phase absent from the rollout phases is rejected", rollout: withCounts(1, &rolloutv1.RolloutDeviceCounts{Done: 1}, &rolloutv1.RolloutDeviceCounts{Queued: 1}, nil), wantErr: true},
+		{
+			name:    "all-at-once evidence covering only some targets is rejected",
+			rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}),
+			wantErr: true,
+		},
+		{
+			name:    "batch evidence covering only some of the batch is rejected",
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}),
+			wantErr: true,
+		},
+		{
+			name:    "batch evidence with mismatched verified count is rejected",
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2}),
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -724,7 +741,7 @@ func TestRolloutGateStateValidation(t *testing.T) {
 		{name: "stabilizing without auto-continue is rejected", rollout: func() *rolloutv1.Rollout {
 			return atGate(pilot, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY)
 		}, wantErr: true},
-		{name: "waiting stage in a batched rollout is valid", rollout: func() *rolloutv1.Rollout {
+		{name: "waiting between ungated batches is valid", rollout: func() *rolloutv1.Rollout {
 			r := batchedRollout(2)
 			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
 			return r
@@ -734,6 +751,39 @@ func TestRolloutGateStateValidation(t *testing.T) {
 			r.Behavior.Method = pilot
 			r.Behavior.PilotSize = 1
 			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
+			return r
+		}, wantErr: true},
+		{name: "waiting stage with per-batch review is rejected", rollout: func() *rolloutv1.Rollout {
+			r := batchedRollout(2)
+			r.Behavior.ReviewAfterEachBatch = true
+			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
+			return r
+		}, wantErr: true},
+		{name: "waiting after the final batch is rejected", rollout: func() *rolloutv1.Rollout {
+			r := batchedRollout(2)
+			r.CurrentBatch = 1
+			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
+			return r
+		}, wantErr: true},
+		{name: "review gate with pending batch targets is rejected", rollout: func() *rolloutv1.Rollout {
+			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
+			r.DeviceCount = 2
+			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
+			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
+			return r
+		}, wantErr: true},
+		{name: "review gate with a settled batch is valid", rollout: func() *rolloutv1.Rollout {
+			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
+			r.DeviceCount = 2
+			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
+			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
+			r.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}
+			return r
+		}},
+		{name: "ready to advance outside the review stage is rejected", rollout: func() *rolloutv1.Rollout {
+			r := activeRollout()
+			r.Behavior = &rolloutv1.RolloutBehavior{AutoContinueOnHealthyTelemetry: true}
+			r.Evidence = &rolloutv1.RolloutEvidence{ReadyToAdvance: true}
 			return r
 		}, wantErr: true},
 		{name: "evidence on a finished rollout is rejected", rollout: func() *rolloutv1.Rollout {

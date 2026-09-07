@@ -44,9 +44,11 @@ import "google/protobuf/timestamp.proto";
 // the scope or drifted after the previous rollout finished, or the first
 // members of a pair that was assigned while empty. A reconciliation rollout
 // carries the pair's current assignment_generation and the lineage of the most
-// recent rollout for that generation (empty for a first assignment). It never
-// re-queues a member that is FAILED in that rollout; such members are retried
-// only through RetryFailedRolloutDevices. Reapplying an unchanged assignment
+// recent rollout for that generation (empty for a first assignment). A member
+// whose most recent phase in any rollout of the current generation is FAILED is
+// suppressed from reconciliation for the rest of that generation, however many
+// rollouts follow; only RetryFailedRolloutDevices re-queues it, and only a new
+// generation clears the suppression. Reapplying an unchanged assignment
 // therefore starts nothing itself; reconciliation already covers it.
 //
 // Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
@@ -593,7 +595,8 @@ enum RolloutStage {
     // automatic once the configured aggregate telemetry thresholds are met).
     ROLLOUT_STAGE_AWAITING_REVIEW = 2;
     // The current batch is done; waiting wait_between_batches_seconds
-    // before the next one starts.
+    // before the next one starts. Only BATCHED rollouts without per-batch
+    // review enter this stage, and only while another batch remains.
     ROLLOUT_STAGE_WAITING = 3;
     // Updating all remaining targets with no further waits or review gates,
     // subject to RolloutBehavior.max_concurrent_offline.
@@ -842,14 +845,29 @@ message Rollout {
         expression: "(this.state != 3 || this.behavior.method == 3) && (this.state != 4 || (this.behavior.method == 2 && this.behavior.review_after_each_batch)) && (this.state != 2 || (this.behavior.auto_continue_on_healthy_telemetry && (this.behavior.method == 3 || (this.behavior.method == 2 && this.behavior.review_after_each_batch))))"
     };
     option (buf.validate.message).cel = {
-        id: "waiting_stage_requires_batched"
-        message: "the WAITING stage occurs only in BATCHED rollouts"
-        expression: "this.stage != 3 || this.behavior.method == 2"
+        id: "waiting_stage_between_ungated_batches"
+        message: "the WAITING stage occurs only in BATCHED rollouts without per-batch review and only when another batch remains"
+        expression: "this.stage != 3 || (this.behavior.method == 2 && !this.behavior.review_after_each_batch && this.current_batch + 1 < this.batch_count)"
     };
     option (buf.validate.message).cel = {
         id: "evidence_only_while_active"
-        message: "evidence is set only for ACTIVE rollouts and ready_to_advance requires auto-continue"
-        expression: "(!has(this.evidence) || this.status == 1) && (!this.evidence.ready_to_advance || this.behavior.auto_continue_on_healthy_telemetry)"
+        message: "evidence is set only for ACTIVE rollouts; ready_to_advance requires auto-continue and the AWAITING_REVIEW stage"
+        expression: "(!has(this.evidence) || this.status == 1) && (!this.evidence.ready_to_advance || (this.behavior.auto_continue_on_healthy_telemetry && this.stage == 2))"
+    };
+    option (buf.validate.message).cel = {
+        id: "review_gate_batch_is_settled"
+        message: "at the AWAITING_REVIEW stage the current batch must have no QUEUED, IN_PROGRESS, or RETRYING targets"
+        expression: "this.stage != 2 || (this.current_batch_counts.queued == 0 && this.current_batch_counts.in_progress == 0 && this.current_batch_counts.retrying == 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "batch_evidence_covers_current_batch"
+        message: "while a batch is in flight, under review, or waiting, evidence must cover exactly that batch: devices_total equals its population and verified and failed equal its DONE and FAILED counts"
+        expression: "!has(this.evidence) || !(this.stage in [1, 2, 3]) || (this.evidence.devices_total == this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded && this.evidence.verified == this.current_batch_counts.done && this.evidence.failed == this.current_batch_counts.failed)"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_at_once_evidence_covers_every_target"
+        message: "for a rollout without batches, evidence must cover every target: devices_total equals device_count and verified and failed equal the DONE and FAILED counts"
+        expression: "!has(this.evidence) || this.batch_count > 0 || (this.evidence.devices_total == this.device_count && this.evidence.verified == this.device_counts.done && this.evidence.failed == this.device_counts.failed)"
     };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
@@ -901,7 +919,10 @@ message Rollout {
     // ListRolloutDevices.
     int32 device_count = 21 [(buf.validate.field).int32.gte = 0];
     // Evidence for the miners currently under review; unset for rollouts
-    // that are not active. Its devices_total never exceeds device_count.
+    // that are not active. While a batch is in flight, under review, or
+    // waiting it covers exactly that batch; for a rollout without batches it
+    // covers every target; in the rest stage of a batched rollout it covers
+    // the rest targets and never exceeds device_count.
     RolloutEvidence evidence = 22;
     // Per-phase counts over every target; each target is counted in exactly
     // one phase, so the phases sum to device_count.
