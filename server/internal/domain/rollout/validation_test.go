@@ -807,6 +807,109 @@ func TestRolloutGateStateValidation(t *testing.T) {
 	}
 }
 
+func TestRolloutReadyToAdvanceValidation(t *testing.T) {
+	t.Parallel()
+
+	// readyGate is a batched auto-continue rollout at a review gate whose
+	// two-miner batch is fully DONE with full-coverage hashrate evidence.
+	readyGate := func(thresholds *rolloutv1.RolloutAutomationThresholds) *rolloutv1.Rollout {
+		rollout := batchedRollout(2)
+		rollout.Behavior.ReviewAfterEachBatch = true
+		rollout.Behavior.AutoContinueOnHealthyTelemetry = true
+		rollout.Behavior.Thresholds = thresholds
+		rollout.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
+		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_STABILIZING_TELEMETRY
+		rollout.DeviceCount = 4
+		rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 2}
+		rollout.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 2}
+		rollout.Evidence = &rolloutv1.RolloutEvidence{
+			DevicesTotal:          2,
+			Verified:              2,
+			Online:                2,
+			Hashing:               2,
+			ReadyToAdvance:        true,
+			HashRateHs:            sampledAggregate(2),
+			HashrateChangePercent: proto.Float64(-5),
+		}
+		return rollout
+	}
+	tests := []struct {
+		name    string
+		rollout func() *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "settled healthy batch without thresholds is ready", rollout: func() *rolloutv1.Rollout { return readyGate(nil) }},
+		{name: "ready with a failed miner is rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(nil)
+			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 1, Failed: 1}
+			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
+			r.Evidence.Verified = 1
+			r.Evidence.Failed = 1
+			r.Evidence.HashRateHs = sampledAggregate(1)
+			return r
+		}, wantErr: true},
+		{name: "not ready with a failed miner is valid", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(nil)
+			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 2, Done: 1, Failed: 1}
+			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
+			r.Evidence.Verified = 1
+			r.Evidence.Failed = 1
+			r.Evidence.HashRateHs = sampledAggregate(1)
+			r.Evidence.ReadyToAdvance = false
+			r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW
+			return r
+		}},
+		{name: "ready with stabilization remaining is rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(nil)
+			r.Evidence.StabilizationRemainingSeconds = 30
+			return r
+		}, wantErr: true},
+		{name: "hashrate drop within the limit is ready", rollout: func() *rolloutv1.Rollout {
+			return readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
+		}},
+		{name: "hashrate drop beyond the limit is rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
+			r.Evidence.HashrateChangePercent = proto.Float64(-15)
+			return r
+		}, wantErr: true},
+		{name: "partial coverage under the default full coverage is rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
+			r.Evidence.HashRateHs = sampledAggregate(1)
+			return r
+		}, wantErr: true},
+		{name: "partial coverage meeting a configured minimum is ready", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{
+				MaxHashrateDropPercent:   proto.Float64(10),
+				MinSampleCoveragePercent: proto.Float64(50),
+			})
+			r.Evidence.HashRateHs = sampledAggregate(1)
+			return r
+		}},
+		{name: "threshold on an unsampled metric is rejected", rollout: func() *rolloutv1.Rollout {
+			return readyGate(&rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)})
+		}, wantErr: true},
+		{name: "temperature within the limit is ready", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)})
+			r.Evidence.TempC = sampledAggregate(2)
+			r.Evidence.TemperatureChangeCelsius = proto.Float64(2)
+			return r
+		}},
+		{name: "new errors beyond the limit are rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxNewErrors: proto.Int32(0)})
+			r.Evidence.NewErrors = 1
+			return r
+		}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireProtoValidation(t, test.rollout(), test.wantErr)
+		})
+	}
+}
+
 func TestRolloutDeviceDoneValidation(t *testing.T) {
 	t.Parallel()
 

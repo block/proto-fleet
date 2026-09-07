@@ -691,8 +691,8 @@ message RolloutDeviceCounts {
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"
-        message: "verified plus failed, online, hashing, and baseline_hashing must not exceed devices_total"
-        expression: "this.verified + this.failed <= this.devices_total && this.online <= this.devices_total && this.hashing <= this.devices_total && this.baseline_hashing <= this.devices_total"
+        message: "verified plus failed plus excluded, online, hashing, and baseline_hashing must not exceed devices_total"
+        expression: "this.verified + this.failed + this.excluded <= this.devices_total && this.online <= this.devices_total && this.hashing <= this.devices_total && this.baseline_hashing <= this.devices_total"
     };
     option (buf.validate.message).cel = {
         id: "aggregate_coverage_within_verified"
@@ -727,10 +727,11 @@ message RolloutEvidence {
     optional double temperature_change_celsius = 9 [(buf.validate.field).double.finite = true];
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
-    // Whether the DONE count and failed-device checks pass, every set
-    // threshold passes under the RolloutAutomationThresholds coverage rule,
-    // and stabilization rules permit auto-continue. Always false for rollouts
-    // without auto-continue.
+    // Whether every reviewed miner is DONE or EXCLUDED with none FAILED, every
+    // set threshold passes under the RolloutAutomationThresholds coverage
+    // rule, and no stabilization time remains. Always false for rollouts
+    // without auto-continue or outside the AWAITING_REVIEW stage; Rollout
+    // validation enforces each condition.
     bool ready_to_advance = 11;
     // Why the rollout is holding at the gate when it cannot auto-continue,
     // including which metric lacks the required sample coverage.
@@ -744,6 +745,8 @@ message RolloutEvidence {
     AggregateMetricComparison power_w = 15;
     AggregateMetricComparison efficiency_jh = 16;
     AggregateMetricComparison temp_c = 17;
+    // Miners in the EXCLUDED phase; neutral for readiness.
+    int32 excluded = 18 [(buf.validate.field).int32.gte = 0];
 }
 
 // A firmware change being enforced for one manufacturer/model pair within one
@@ -861,13 +864,18 @@ message Rollout {
     };
     option (buf.validate.message).cel = {
         id: "batch_evidence_covers_current_batch"
-        message: "while a batch is in flight, under review, or waiting, evidence must cover exactly that batch: devices_total equals its population and verified and failed equal its DONE and FAILED counts"
-        expression: "!has(this.evidence) || !(this.stage in [1, 2, 3]) || (this.evidence.devices_total == this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded && this.evidence.verified == this.current_batch_counts.done && this.evidence.failed == this.current_batch_counts.failed)"
+        message: "while a batch is in flight, under review, or waiting, evidence must cover exactly that batch: devices_total equals its population and verified, failed, and excluded equal its DONE, FAILED, and EXCLUDED counts"
+        expression: "!has(this.evidence) || !(this.stage in [1, 2, 3]) || (this.evidence.devices_total == this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded && this.evidence.verified == this.current_batch_counts.done && this.evidence.failed == this.current_batch_counts.failed && this.evidence.excluded == this.current_batch_counts.excluded)"
     };
     option (buf.validate.message).cel = {
         id: "all_at_once_evidence_covers_every_target"
-        message: "for a rollout without batches, evidence must cover every target: devices_total equals device_count and verified and failed equal the DONE and FAILED counts"
-        expression: "!has(this.evidence) || this.batch_count > 0 || (this.evidence.devices_total == this.device_count && this.evidence.verified == this.device_counts.done && this.evidence.failed == this.device_counts.failed)"
+        message: "for a rollout without batches, evidence must cover every target: devices_total equals device_count and verified, failed, and excluded equal the DONE, FAILED, and EXCLUDED counts"
+        expression: "!has(this.evidence) || this.batch_count > 0 || (this.evidence.devices_total == this.device_count && this.evidence.verified == this.device_counts.done && this.evidence.failed == this.device_counts.failed && this.evidence.excluded == this.device_counts.excluded)"
+    };
+    option (buf.validate.message).cel = {
+        id: "ready_to_advance_requires_healthy_settled_evidence"
+        message: "ready_to_advance requires every reviewed miner DONE or EXCLUDED with none FAILED, no remaining stabilization time, and every set threshold passing with the required sample coverage"
+        expression: "!this.evidence.ready_to_advance || (this.evidence.failed == 0 && this.evidence.verified + this.evidence.excluded == this.evidence.devices_total && this.evidence.stabilization_remaining_seconds == 0 && (!has(this.behavior.thresholds.max_new_errors) || this.evidence.new_errors <= this.behavior.thresholds.max_new_errors) && (!has(this.behavior.thresholds.max_hashrate_drop_percent) || (has(this.evidence.hashrate_change_percent) && -this.evidence.hashrate_change_percent <= this.behavior.thresholds.max_hashrate_drop_percent && double(this.evidence.hash_rate_hs.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_efficiency_increase_percent) || (has(this.evidence.efficiency_change_percent) && this.evidence.efficiency_change_percent <= this.behavior.thresholds.max_efficiency_increase_percent && double(this.evidence.efficiency_jh.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_temperature_increase_celsius) || (has(this.evidence.temperature_change_celsius) && this.evidence.temperature_change_celsius <= this.behavior.thresholds.max_temperature_increase_celsius && double(this.evidence.temp_c.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))))"
     };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
