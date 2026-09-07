@@ -765,6 +765,16 @@ func TestRolloutGateStateValidation(t *testing.T) {
 			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_WAITING
 			return r
 		}, wantErr: true},
+		{name: "paused at a review stage without a gated behavior is rejected", rollout: func() *rolloutv1.Rollout {
+			r := atGate(batched, false, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED)
+			r.PausedAt = timestamppb.Now()
+			return r
+		}, wantErr: true},
+		{name: "rest stage before the final batch is rejected", rollout: func() *rolloutv1.Rollout {
+			r := batchedRollout(3)
+			r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_REST
+			return r
+		}, wantErr: true},
 		{name: "review gate with pending batch targets is rejected", rollout: func() *rolloutv1.Rollout {
 			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
 			r.DeviceCount = 2

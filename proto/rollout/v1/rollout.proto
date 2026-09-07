@@ -600,13 +600,15 @@ enum RolloutStage {
     ROLLOUT_STAGE_BATCH = 1;
     // The current batch is done; holding for a review (manual continue, or
     // automatic once the configured aggregate telemetry thresholds are met).
+    // Only PILOT_THEN_CONTINUE and BATCHED with per-batch review have gates.
     ROLLOUT_STAGE_AWAITING_REVIEW = 2;
     // The current batch is done; waiting wait_between_batches_seconds
     // before the next one starts. Only BATCHED rollouts without per-batch
     // review enter this stage, and only while another batch remains.
     ROLLOUT_STAGE_WAITING = 3;
     // Updating all remaining targets with no further waits or review gates,
-    // subject to RolloutBehavior.max_concurrent_offline.
+    // subject to RolloutBehavior.max_concurrent_offline. A rollout with
+    // batches enters it only after its final batch.
     ROLLOUT_STAGE_REST = 4;
 }
 
@@ -844,6 +846,16 @@ message Rollout {
         id: "all_at_once_stays_in_rest_stage"
         message: "a rollout without batches must be in the REST stage"
         expression: "this.batch_count > 0 || this.stage == 4"
+    };
+    option (buf.validate.message).cel = {
+        id: "rest_stage_follows_final_batch"
+        message: "a rollout with batches enters the REST stage only after its final batch"
+        expression: "this.stage != 4 || this.batch_count == 0 || this.current_batch + 1 == this.batch_count"
+    };
+    option (buf.validate.message).cel = {
+        id: "review_stage_requires_gated_behavior"
+        message: "the AWAITING_REVIEW stage occurs only with PILOT_THEN_CONTINUE or BATCHED with per-batch review"
+        expression: "this.stage != 2 || this.behavior.method == 3 || (this.behavior.method == 2 && this.behavior.review_after_each_batch)"
     };
     option (buf.validate.message).cel = {
         id: "rest_stage_has_no_current_batch_counts"
