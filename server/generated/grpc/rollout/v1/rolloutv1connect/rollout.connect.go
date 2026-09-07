@@ -242,23 +242,29 @@ type RolloutServiceClient interface {
 	// are left alone and are not picked up again until the assignment changes
 	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
-	// Re-queues the miners that failed, were canceled, or were skipped in a
-	// rollout. An active rollout retries them in place. A finished rollout
-	// starts a new all-at-once rollout only while it is current under the
-	// RolloutService assignment-generation rule, is the pair's most recent
-	// rollout (otherwise NOT_LATEST: retry the most recent one, whose FAILED and
-	// SKIPPED sets are the live ones), and its pair has no active rollout under
-	// the single-active-rollout rule. The new rollout inherits the retried
-	// rollout's assignment_generation and assignment lineage
-	// (previous_firmware_checksum and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment.
+	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
+	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+	// finished rollout, while it is current under the RolloutService
+	// assignment-generation rule and its pair has no active rollout under the
+	// single-active-rollout rule, starts one all-at-once rollout for every
+	// member of the pair that the enforcement rule currently suppresses (most
+	// recent phase in the generation FAILED or SKIPPED), whichever rollout of
+	// the generation produced that phase. The retry set therefore always equals
+	// the suppression set, so a miner that failed in an older rollout stays
+	// reachable after later reconciliation rollouts for other miners, and
+	// retrying any current finished rollout of the pair has the same effect.
+	// The new rollout inherits the pair's assignment_generation and assignment
+	// lineage (previous_firmware_checksum and previous_firmware_version), so
+	// rolling it back reverses the original assignment. When nothing is
+	// suppressed, no rollout starts and the response carries the referenced
+	// rollout unchanged.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
-	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
-	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
-	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware and never runs two rollouts for one pair
-	// at once.
+	// retryable; they are not current. A rollout canceled as CANCELED_REMAINING
+	// is retryable while current. Otherwise this RPC fails with
+	// FAILED_PRECONDITION (STALE_GENERATION or ROLLOUT_ACTIVE); it never
+	// implicitly retargets to different firmware or a newer assignment of the
+	// same firmware and never runs two rollouts for one pair at once.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 
@@ -689,23 +695,29 @@ type RolloutServiceHandler interface {
 	// are left alone and are not picked up again until the assignment changes
 	// or their updates are retried.
 	CancelRollout(context.Context, *connect.Request[v1.CancelRolloutRequest]) (*connect.Response[v1.CancelRolloutResponse], error)
-	// Re-queues the miners that failed, were canceled, or were skipped in a
-	// rollout. An active rollout retries them in place. A finished rollout
-	// starts a new all-at-once rollout only while it is current under the
-	// RolloutService assignment-generation rule, is the pair's most recent
-	// rollout (otherwise NOT_LATEST: retry the most recent one, whose FAILED and
-	// SKIPPED sets are the live ones), and its pair has no active rollout under
-	// the single-active-rollout rule. The new rollout inherits the retried
-	// rollout's assignment_generation and assignment lineage
-	// (previous_firmware_checksum and previous_firmware_version), so rolling
-	// back either rollout reverses the original assignment.
+	// Re-queues the suppressed members of a rollout's manufacturer/model pair.
+	// An ACTIVE rollout retries its own FAILED and SKIPPED targets in place. A
+	// finished rollout, while it is current under the RolloutService
+	// assignment-generation rule and its pair has no active rollout under the
+	// single-active-rollout rule, starts one all-at-once rollout for every
+	// member of the pair that the enforcement rule currently suppresses (most
+	// recent phase in the generation FAILED or SKIPPED), whichever rollout of
+	// the generation produced that phase. The retry set therefore always equals
+	// the suppression set, so a miner that failed in an older rollout stays
+	// reachable after later reconciliation rollouts for other miners, and
+	// retrying any current finished rollout of the pair has the same effect.
+	// The new rollout inherits the pair's assignment_generation and assignment
+	// lineage (previous_firmware_checksum and previous_firmware_version), so
+	// rolling it back reverses the original assignment. When nothing is
+	// suppressed, no rollout starts and the response carries the referenced
+	// rollout unchanged.
 	//
 	// Rollouts canceled as SUPERSEDED, ROLLED_BACK, or CLEARED are never
-	// retryable. A rollout canceled as CANCELED_REMAINING is retryable only
-	// while it is current. Otherwise this RPC fails with FAILED_PRECONDITION;
-	// it never implicitly retargets to different firmware or a newer
-	// assignment of the same firmware and never runs two rollouts for one pair
-	// at once.
+	// retryable; they are not current. A rollout canceled as CANCELED_REMAINING
+	// is retryable while current. Otherwise this RPC fails with
+	// FAILED_PRECONDITION (STALE_GENERATION or ROLLOUT_ACTIVE); it never
+	// implicitly retargets to different firmware or a newer assignment of the
+	// same firmware and never runs two rollouts for one pair at once.
 	RetryFailedRolloutDevices(context.Context, *connect.Request[v1.RetryFailedRolloutDevicesRequest]) (*connect.Response[v1.RetryFailedRolloutDevicesResponse], error)
 }
 

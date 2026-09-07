@@ -2837,7 +2837,7 @@ func TestArtifactIdentityValidation(t *testing.T) {
 	require.NotNil(t, (&rolloutv1.ReleaseChannelFirmwarePlan{}).ProtoReflect().Descriptor().Fields().ByName("firmware_checksum"))
 	reasons := rolloutv1.RolloutErrorReason(0).Descriptor().Values()
 	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_MISSING"))
-	require.NotNil(t, reasons.ByName("ROLLOUT_ERROR_REASON_NOT_LATEST"))
+	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_NOT_LATEST"))
 	require.Nil(t, reasons.ByName("ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED"))
 
 	// The events feed cursor is never empty.
