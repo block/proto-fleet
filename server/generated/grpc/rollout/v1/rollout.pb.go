@@ -2126,11 +2126,13 @@ type RolloutEvidence struct {
 	TemperatureChangeCelsius *float64 `protobuf:"fixed64,9,opt,name=temperature_change_celsius,json=temperatureChangeCelsius,proto3,oneof" json:"temperature_change_celsius,omitempty"`
 	// Errors opened since baseline, summed over the batch (never below 0).
 	NewErrors int32 `protobuf:"varint,10,opt,name=new_errors,json=newErrors,proto3" json:"new_errors,omitempty"`
-	// Whether every reviewed miner is DONE or EXCLUDED with none FAILED, every
-	// set threshold passes under the RolloutAutomationThresholds coverage
-	// rule, and no stabilization time remains. Always false for rollouts
-	// without auto-continue or outside the AWAITING_REVIEW stage; Rollout
-	// validation enforces each condition.
+	// Whether every reviewed miner is DONE, EXCLUDED, or SKIPPED with none
+	// FAILED, every set threshold passes under the RolloutAutomationThresholds
+	// coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
+	// miners are neutral: they neither block readiness nor contribute samples.
+	// Always false for rollouts without auto-continue or outside the
+	// AWAITING_REVIEW stage. The server derives this value; validation only
+	// checks that context, not the health conditions.
 	ReadyToAdvance bool `protobuf:"varint,11,opt,name=ready_to_advance,json=readyToAdvance,proto3" json:"ready_to_advance,omitempty"`
 	// Why the rollout is holding at the gate when it cannot auto-continue,
 	// including which metric lacks the required sample coverage.

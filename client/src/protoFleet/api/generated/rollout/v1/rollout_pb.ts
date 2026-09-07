@@ -851,11 +851,13 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
   newErrors: number;
 
   /**
-   * Whether every reviewed miner is DONE or EXCLUDED with none FAILED, every
-   * set threshold passes under the RolloutAutomationThresholds coverage
-   * rule, and no stabilization time remains. Always false for rollouts
-   * without auto-continue or outside the AWAITING_REVIEW stage; Rollout
-   * validation enforces each condition.
+   * Whether every reviewed miner is DONE, EXCLUDED, or SKIPPED with none
+   * FAILED, every set threshold passes under the RolloutAutomationThresholds
+   * coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
+   * miners are neutral: they neither block readiness nor contribute samples.
+   * Always false for rollouts without auto-continue or outside the
+   * AWAITING_REVIEW stage. The server derives this value; validation only
+   * checks that context, not the health conditions.
    *
    * @generated from field: bool ready_to_advance = 11;
    */
