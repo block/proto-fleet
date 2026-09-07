@@ -345,16 +345,23 @@ message RolloutBehavior {
     // Channel-wide safety budget shared by every active rollout in the
     // channel, whatever their method (including ALL_AT_ONCE) and however many
     // rollouts one ApplyReleaseChannelFirmware call started. Each distinct
-    // target across those rollouts consumes at most one slot when it is
-    // observed offline, regardless of phase or whether the update caused the
-    // outage, or when a slot has been reserved immediately before dispatch. A
-    // reservation or offline slot is released only after that target is next
-    // observed online or is deleted from the fleet, since a deleted miner can
-    // never report again; becoming EXCLUDED, FAILED, or otherwise terminal
-    // does not by itself release a slot. Dispatch in every rollout of the channel
-    // pauses while this nonzero budget is full. Cancellation ends further
-    // dispatch for the canceled rollout only; slots held by its targets keep
-    // counting against the channel until those targets are observed online.
+    // target across those rollouts holds at most one slot, either as an
+    // offline slot, taken when it is observed offline regardless of phase or
+    // whether the update caused the outage, or as a reservation, taken
+    // immediately before its update command is dispatched. A reservation
+    // covers the outage the update is expected to cause: it becomes an offline
+    // slot when the target is observed offline, and is released without one
+    // only when the command reaches a terminal state without the target ever
+    // having been observed offline. Online observations alone never release a
+    // reservation, since a miner stays reachable while it downloads. An
+    // offline slot is released when the target is next observed online. Either
+    // kind is released when the target is deleted from the fleet, since a
+    // deleted miner can never report again; becoming EXCLUDED, FAILED, or
+    // otherwise terminal does not by itself release a slot. Dispatch in every
+    // rollout of the channel pauses while this nonzero budget is full.
+    // Cancellation ends further dispatch for the canceled rollout only; slots
+    // held by its targets keep counting against the channel until released as
+    // above.
     // Unlike other behavior fields, this budget is not snapshotted: the
     // channel's current value governs its active rollouts immediately, and the
     // copy on Rollout.behavior records the value in force when the rollout
@@ -691,8 +698,13 @@ message RolloutDeviceCounts {
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"
-        message: "verified plus failed plus excluded, online, hashing, and baseline_hashing must not exceed devices_total"
-        expression: "this.verified + this.failed + this.excluded <= this.devices_total && this.online <= this.devices_total && this.hashing <= this.devices_total && this.baseline_hashing <= this.devices_total"
+        message: "verified plus failed plus excluded, online, and baseline_hashing must not exceed devices_total, and verified and hashing must not exceed online"
+        expression: "this.verified + this.failed + this.excluded <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
+    };
+    option (buf.validate.message).cel = {
+        id: "derived_changes_agree_with_aggregates"
+        message: "each derived change must equal the change computed from its aggregate's baseline and current values"
+        expression: "(!has(this.hashrate_change_percent) || (this.hashrate_change_percent - (this.hash_rate_hs.current - this.hash_rate_hs.baseline) / this.hash_rate_hs.baseline * 100.0 <= 0.000001 && (this.hash_rate_hs.current - this.hash_rate_hs.baseline) / this.hash_rate_hs.baseline * 100.0 - this.hashrate_change_percent <= 0.000001)) && (!has(this.efficiency_change_percent) || (this.efficiency_change_percent - (this.efficiency_jh.current - this.efficiency_jh.baseline) / this.efficiency_jh.baseline * 100.0 <= 0.000001 && (this.efficiency_jh.current - this.efficiency_jh.baseline) / this.efficiency_jh.baseline * 100.0 - this.efficiency_change_percent <= 0.000001)) && (!has(this.temperature_change_celsius) || (this.temperature_change_celsius - (this.temp_c.current - this.temp_c.baseline) <= 0.000001 && (this.temp_c.current - this.temp_c.baseline) - this.temperature_change_celsius <= 0.000001))"
     };
     option (buf.validate.message).cel = {
         id: "aggregate_coverage_within_verified"
@@ -715,15 +727,16 @@ message RolloutEvidence {
     int32 baseline_hashing = 5 [(buf.validate.field).int32.gte = 0];
     int32 failed = 6 [(buf.validate.field).int32.gte = 0];
     // Aggregate hashrate change versus baseline, percent (negative is a
-    // drop). Set exactly when hash_rate_hs samples at least one miner with a
-    // nonzero baseline; a zero baseline has no defined percent change.
+    // drop): (current - baseline) / baseline * 100 from hash_rate_hs. Set
+    // exactly when hash_rate_hs samples at least one miner with a nonzero
+    // baseline; a zero baseline has no defined percent change.
     optional double hashrate_change_percent = 7 [(buf.validate.field).double.finite = true];
-    // Mean efficiency change versus baseline, percent (positive is worse).
-    // Set exactly when efficiency_jh samples at least one miner with a
-    // nonzero baseline.
+    // Mean efficiency change versus baseline, percent (positive is worse):
+    // (current - baseline) / baseline * 100 from efficiency_jh. Set exactly
+    // when efficiency_jh samples at least one miner with a nonzero baseline.
     optional double efficiency_change_percent = 8 [(buf.validate.field).double.finite = true];
-    // Mean temperature change versus baseline, °C. Set exactly when temp_c
-    // samples at least one miner.
+    // Mean temperature change versus baseline, °C: current - baseline from
+    // temp_c. Set exactly when temp_c samples at least one miner.
     optional double temperature_change_celsius = 9 [(buf.validate.field).double.finite = true];
     // Errors opened since baseline, summed over the batch (never below 0).
     int32 new_errors = 10 [(buf.validate.field).int32.gte = 0];
@@ -819,8 +832,8 @@ message Rollout {
     };
     option (buf.validate.message).cel = {
         id: "batches_match_method"
-        message: "batch_count must be 0 for all-at-once rollouts and positive for paced ones"
-        expression: "(this.behavior.method == 0 || this.behavior.method == 1) == (this.batch_count == 0)"
+        message: "batch_count must be 0 for all-at-once rollouts, exactly 1 for PILOT_THEN_CONTINUE, and positive for BATCHED"
+        expression: "((this.behavior.method == 0 || this.behavior.method == 1) == (this.batch_count == 0)) && (this.behavior.method != 3 || this.batch_count == 1)"
     };
     option (buf.validate.message).cel = {
         id: "current_batch_within_batch_count"
@@ -897,8 +910,8 @@ message Rollout {
     RolloutCancelReason cancel_reason = 11 [(buf.validate.field).enum.defined_only = true];
     // The behavior this rollout runs with (copied from the channel at start).
     RolloutBehavior behavior = 12;
-    // Number of snapshotted batches; 0 for all-at-once rollouts and at least
-    // 1 for paced methods.
+    // Number of snapshotted batches; 0 for all-at-once rollouts, exactly 1
+    // (the pilot) for PILOT_THEN_CONTINUE, and at least 1 for BATCHED.
     int32 batch_count = 13 [(buf.validate.field).int32.gte = 0];
     // 0-based index of the batch in flight or under review, always below
     // batch_count; stays at the last batch through the rest stage and is 0

@@ -520,11 +520,11 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 		{name: "no targets and no counts is valid", rollout: withCounts(0, nil, nil, nil)},
 		{
 			name:    "phases summing to device_count with matching batch evidence are valid",
-			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Failed: 1}),
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Online: 1, Failed: 1}),
 		},
 		{
 			name:    "all-at-once evidence covering every target is valid",
-			rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 2, Failed: 1}),
+			rollout: withCounts(3, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 2, Online: 2, Failed: 1}),
 		},
 		{name: "targets without phase counts are rejected", rollout: withCounts(3, nil, nil, nil), wantErr: true},
 		{name: "phases exceeding device_count are rejected", rollout: withCounts(2, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}, nil, nil), wantErr: true},
@@ -538,12 +538,12 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 		},
 		{
 			name:    "batch evidence covering only some of the batch is rejected",
-			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}),
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}),
 			wantErr: true,
 		},
 		{
 			name:    "batch evidence with mismatched verified count is rejected",
-			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2}),
+			rollout: withCounts(6, allPhases, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}, &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 2}),
 			wantErr: true,
 		},
 	}
@@ -777,7 +777,7 @@ func TestRolloutGateStateValidation(t *testing.T) {
 			r.DeviceCount = 2
 			r.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1}
 			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1}
-			r.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1}
+			r.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}
 			return r
 		}},
 		{name: "ready to advance outside the review stage is rejected", rollout: func() *rolloutv1.Rollout {
@@ -828,7 +828,7 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 			Online:                2,
 			Hashing:               2,
 			ReadyToAdvance:        true,
-			HashRateHs:            sampledAggregate(2),
+			HashRateHs:            aggregateOf(100, 95, 2),
 			HashrateChangePercent: proto.Float64(-5),
 		}
 		return rollout
@@ -845,7 +845,7 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
 			r.Evidence.Verified = 1
 			r.Evidence.Failed = 1
-			r.Evidence.HashRateHs = sampledAggregate(1)
+			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
 			return r
 		}, wantErr: true},
 		{name: "not ready with a failed miner is valid", rollout: func() *rolloutv1.Rollout {
@@ -854,7 +854,7 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 			r.CurrentBatchCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1}
 			r.Evidence.Verified = 1
 			r.Evidence.Failed = 1
-			r.Evidence.HashRateHs = sampledAggregate(1)
+			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
 			r.Evidence.ReadyToAdvance = false
 			r.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW
 			return r
@@ -869,12 +869,18 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 		}},
 		{name: "hashrate drop beyond the limit is rejected", rollout: func() *rolloutv1.Rollout {
 			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
+			r.Evidence.HashRateHs = aggregateOf(100, 85, 2)
 			r.Evidence.HashrateChangePercent = proto.Float64(-15)
+			return r
+		}, wantErr: true},
+		{name: "derived change disagreeing with its aggregate is rejected", rollout: func() *rolloutv1.Rollout {
+			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
+			r.Evidence.HashRateHs = aggregateOf(100, 50, 2)
 			return r
 		}, wantErr: true},
 		{name: "partial coverage under the default full coverage is rejected", rollout: func() *rolloutv1.Rollout {
 			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxHashrateDropPercent: proto.Float64(10)})
-			r.Evidence.HashRateHs = sampledAggregate(1)
+			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
 			return r
 		}, wantErr: true},
 		{name: "partial coverage meeting a configured minimum is ready", rollout: func() *rolloutv1.Rollout {
@@ -882,7 +888,7 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 				MaxHashrateDropPercent:   proto.Float64(10),
 				MinSampleCoveragePercent: proto.Float64(50),
 			})
-			r.Evidence.HashRateHs = sampledAggregate(1)
+			r.Evidence.HashRateHs = aggregateOf(100, 95, 1)
 			return r
 		}},
 		{name: "threshold on an unsampled metric is rejected", rollout: func() *rolloutv1.Rollout {
@@ -890,7 +896,7 @@ func TestRolloutReadyToAdvanceValidation(t *testing.T) {
 		}, wantErr: true},
 		{name: "temperature within the limit is ready", rollout: func() *rolloutv1.Rollout {
 			r := readyGate(&rolloutv1.RolloutAutomationThresholds{MaxTemperatureIncreaseCelsius: proto.Float64(5)})
-			r.Evidence.TempC = sampledAggregate(2)
+			r.Evidence.TempC = aggregateOf(60, 62, 2)
 			r.Evidence.TemperatureChangeCelsius = proto.Float64(2)
 			return r
 		}},
@@ -1078,10 +1084,15 @@ func TestRolloutAutomationThresholdsRejectNonFiniteLimits(t *testing.T) {
 	}
 }
 
+// sampledAggregate is a 100 -> 90 aggregate, a -10 percent or -10 unit change.
 func sampledAggregate(devices int32) *rolloutv1.AggregateMetricComparison {
+	return aggregateOf(100, 90, devices)
+}
+
+func aggregateOf(baseline, current float64, devices int32) *rolloutv1.AggregateMetricComparison {
 	return &rolloutv1.AggregateMetricComparison{
-		Baseline:       proto.Float64(100),
-		Current:        proto.Float64(90),
+		Baseline:       proto.Float64(baseline),
+		Current:        proto.Float64(current),
 		SampledDevices: devices,
 	}
 }
@@ -1177,6 +1188,7 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			evidence: &rolloutv1.RolloutEvidence{
 				DevicesTotal: 1,
 				Verified:     1,
+				Online:       1,
 				HashRateHs: &rolloutv1.AggregateMetricComparison{
 					Baseline:       proto.Float64(0),
 					Current:        proto.Float64(50),
@@ -1189,6 +1201,7 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			evidence: &rolloutv1.RolloutEvidence{
 				DevicesTotal: 1,
 				Verified:     1,
+				Online:       1,
 				EfficiencyJh: &rolloutv1.AggregateMetricComparison{
 					Baseline:       proto.Float64(0),
 					Current:        proto.Float64(50),
@@ -1210,8 +1223,40 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 		},
 		{
 			name:     "verified plus failed above total is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 3, Failed: 1},
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 4, Verified: 3, Online: 4, Failed: 1, Excluded: 1},
 			wantErr:  true,
+		},
+		{
+			name:     "verified above online is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 1},
+			wantErr:  true,
+		},
+		{
+			name:     "hashing above online is rejected",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Hashing: 2, Online: 1},
+			wantErr:  true,
+		},
+		{
+			name: "hashrate change disagreeing with its aggregate is rejected",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal:          1,
+				Verified:              1,
+				Online:                1,
+				HashRateHs:            aggregateOf(100, 50, 1),
+				HashrateChangePercent: proto.Float64(10),
+			},
+			wantErr: true,
+		},
+		{
+			name: "temperature change disagreeing with its aggregate is rejected",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal:             1,
+				Verified:                 1,
+				Online:                   1,
+				TempC:                    aggregateOf(60, 65, 1),
+				TemperatureChangeCelsius: proto.Float64(2),
+			},
+			wantErr: true,
 		},
 		{
 			name:     "online above total is rejected",
