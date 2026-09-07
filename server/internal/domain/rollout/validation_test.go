@@ -2724,3 +2724,346 @@ func TestRolloutDevicePhaseValidation(t *testing.T) {
 	requireProtoValidation(t, &rolloutv1.RolloutDevice{}, true)
 	requireProtoValidation(t, &rolloutv1.RolloutDevice{Phase: rolloutv1.RolloutDevicePhase(99)}, true)
 }
+
+// --- Delegated control, revisions, skips, events ---
+
+func delegatedBehavior() *rolloutv1.RolloutBehavior {
+	return &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED}
+}
+
+// delegatedRollout returns an ACTIVE DELEGATED rollout with one QUEUED target,
+// waiting for its controller.
+func delegatedRollout() *rolloutv1.Rollout {
+	rollout := activeRollout()
+	rollout.Behavior = delegatedBehavior()
+	rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_WAITING_FOR_CONTROLLER
+	rollout.DeviceCount = 1
+	rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1}
+	rollout.Revision = 1
+	return rollout
+}
+
+func TestDelegatedBehaviorValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		behavior *rolloutv1.RolloutBehavior
+		wantErr  bool
+	}{
+		{name: "delegated with no engine pacing is valid", behavior: delegatedBehavior()},
+		{
+			name: "delegated may set a controller timeout and an offline budget",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:                   rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				Order:                    rolloutv1.RolloutOrder_ROLLOUT_ORDER_RANDOM,
+				ControllerTimeoutSeconds: 900,
+				MaxConcurrentOffline:     5,
+			},
+		},
+		{
+			name:     "delegated rejects a batch size",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, BatchSize: 2},
+			wantErr:  true,
+		},
+		{
+			name:     "delegated rejects a pilot size",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, PilotSize: 1},
+			wantErr:  true,
+		},
+		{
+			name:     "delegated rejects per-batch review",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED, ReviewAfterEachBatch: true},
+			wantErr:  true,
+		},
+		{
+			name: "delegated rejects auto-continue",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:                         rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				AutoContinueOnHealthyTelemetry: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "delegated rejects thresholds",
+			behavior: &rolloutv1.RolloutBehavior{
+				Method:     rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED,
+				Thresholds: &rolloutv1.RolloutAutomationThresholds{},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "controller timeout requires the delegated method",
+			behavior: &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_ALL_AT_ONCE, ControllerTimeoutSeconds: 60},
+			wantErr:  true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			requireProtoValidation(t, test.behavior, test.wantErr)
+		})
+	}
+}
+
+func TestDelegatedRolloutStateValidation(t *testing.T) {
+	t.Parallel()
+
+	inProgress := delegatedRollout()
+	inProgress.State = rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS
+	inProgress.DeviceCounts = &rolloutv1.RolloutDeviceCounts{InProgress: 1}
+
+	paused := delegatedRollout()
+	paused.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED
+	paused.PausedAt = timestamppb.Now()
+
+	waitingWithInFlight := delegatedRollout()
+	waitingWithInFlight.DeviceCounts = &rolloutv1.RolloutDeviceCounts{InProgress: 1}
+
+	gated := delegatedRollout()
+	gated.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE
+	gated.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
+
+	batched := delegatedRollout()
+	batched.BatchCount = 1
+	batched.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_BATCH
+	batched.State = rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS
+
+	notDelegatedWaiting := activeRollout()
+	notDelegatedWaiting.State = rolloutv1.RolloutState_ROLLOUT_STATE_WAITING_FOR_CONTROLLER
+
+	completedWithSkips := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+	completedWithSkips.Behavior = delegatedBehavior()
+	completedWithSkips.DeviceCount = 3
+	completedWithSkips.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 2, Skipped: 1}
+
+	tests := []struct {
+		name    string
+		rollout *rolloutv1.Rollout
+		wantErr bool
+	}{
+		{name: "delegated waiting for controller with queued targets", rollout: delegatedRollout()},
+		{name: "delegated in progress while updates are in flight", rollout: inProgress},
+		{name: "delegated paused by an operator", rollout: paused},
+		{name: "completed delegated rollout may contain skipped targets", rollout: completedWithSkips},
+		{name: "waiting for controller cannot have updates in flight", rollout: waitingWithInFlight, wantErr: true},
+		{name: "delegated rollouts never hold at a review gate", rollout: gated, wantErr: true},
+		{name: "delegated rollouts have no batches", rollout: batched, wantErr: true},
+		{name: "only delegated rollouts wait for a controller", rollout: notDelegatedWaiting, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			requireProtoValidation(t, test.rollout, test.wantErr)
+		})
+	}
+}
+
+func TestSkippedTargetsCountValidation(t *testing.T) {
+	t.Parallel()
+
+	sums := activeRollout()
+	sums.DeviceCount = 4
+	sums.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 2, Skipped: 1}
+	requireProtoValidation(t, sums, false)
+
+	sums.DeviceCounts.Skipped = 2
+	requireProtoValidation(t, sums, true)
+
+	// A skipped target is neutral: it does not turn a completed rollout into a
+	// failed one, and evidence must account for it.
+	completed := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
+	completed.DeviceCount = 2
+	completed.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Skipped: 1}
+	requireProtoValidation(t, completed, false)
+
+	evidence := activeRollout()
+	evidence.DeviceCount = 2
+	evidence.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 1, Skipped: 1}
+	evidence.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 1, Online: 1, Skipped: 1}
+	requireProtoValidation(t, evidence, false)
+	evidence.Evidence.Skipped = 0
+	requireProtoValidation(t, evidence, true)
+}
+
+func TestAdvanceRolloutRequestValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		request *rolloutv1.AdvanceRolloutRequest
+		wantErr bool
+	}{
+		{
+			name: "advance by count",
+			request: &rolloutv1.AdvanceRolloutRequest{
+				RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Count{Count: 5}, ExpectedRevision: 3, Note: "batch 2 passed",
+			},
+		},
+		{
+			name: "advance named devices",
+			request: &rolloutv1.AdvanceRolloutRequest{
+				RolloutId: 1,
+				Selection: &rolloutv1.AdvanceRolloutRequest_Devices{
+					Devices: &rolloutv1.RolloutDeviceSelection{DeviceIdentifiers: []string{"miner-1", "miner-2"}},
+				},
+			},
+		},
+		{name: "a selection is required", request: &rolloutv1.AdvanceRolloutRequest{RolloutId: 1}, wantErr: true},
+		{
+			name:    "count must be positive",
+			request: &rolloutv1.AdvanceRolloutRequest{RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Count{Count: 0}},
+			wantErr: true,
+		},
+		{
+			name:    "count is bounded",
+			request: &rolloutv1.AdvanceRolloutRequest{RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Count{Count: 1001}},
+			wantErr: true,
+		},
+		{
+			name: "named devices must not be empty",
+			request: &rolloutv1.AdvanceRolloutRequest{
+				RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Devices{Devices: &rolloutv1.RolloutDeviceSelection{}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "named devices must be unique",
+			request: &rolloutv1.AdvanceRolloutRequest{
+				RolloutId: 1,
+				Selection: &rolloutv1.AdvanceRolloutRequest_Devices{
+					Devices: &rolloutv1.RolloutDeviceSelection{DeviceIdentifiers: []string{"miner-1", "miner-1"}},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "notes cannot contain NUL",
+			request: &rolloutv1.AdvanceRolloutRequest{
+				RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Count{Count: 1}, Note: "bad\x00note",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "expected revision cannot be negative",
+			request: &rolloutv1.AdvanceRolloutRequest{RolloutId: 1, Selection: &rolloutv1.AdvanceRolloutRequest_Count{Count: 1}, ExpectedRevision: -1},
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			requireProtoValidation(t, test.request, test.wantErr)
+		})
+	}
+}
+
+func TestSkipAndCompleteRequestValidation(t *testing.T) {
+	t.Parallel()
+
+	requireProtoValidation(t, &rolloutv1.SkipRolloutDevicesRequest{
+		RolloutId: 1, Devices: &rolloutv1.RolloutDeviceSelection{DeviceIdentifiers: []string{"miner-1"}}, Note: "flaky PSU",
+	}, false)
+	requireProtoValidation(t, &rolloutv1.SkipRolloutDevicesRequest{RolloutId: 1}, true)
+	requireProtoValidation(t, &rolloutv1.SkipRolloutDevicesRequest{
+		RolloutId: 1, Devices: &rolloutv1.RolloutDeviceSelection{DeviceIdentifiers: []string{""}},
+	}, true)
+
+	requireProtoValidation(t, &rolloutv1.CompleteRolloutRequest{RolloutId: 1, ExpectedRevision: 7}, false)
+	requireProtoValidation(t, &rolloutv1.CompleteRolloutRequest{RolloutId: 0}, true)
+	requireProtoValidation(t, &rolloutv1.CompleteRolloutRequest{RolloutId: 1, Note: strings.Repeat("x", 1025)}, true)
+}
+
+func TestConditionalLifecycleRequestsCarryExpectedRevision(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []proto.Message{
+		&rolloutv1.ContinueRolloutRequest{},
+		&rolloutv1.PauseRolloutRequest{},
+		&rolloutv1.ResumeRolloutRequest{},
+		&rolloutv1.CancelRolloutRequest{},
+		&rolloutv1.RetryFailedRolloutDevicesRequest{},
+		&rolloutv1.RollbackReleaseChannelFirmwareRequest{},
+		&rolloutv1.AdvanceRolloutRequest{},
+		&rolloutv1.SkipRolloutDevicesRequest{},
+		&rolloutv1.CompleteRolloutRequest{},
+	} {
+		fields := message.ProtoReflect().Descriptor().Fields()
+		require.NotNil(t, fields.ByName("expected_revision"), "%s", message.ProtoReflect().Descriptor().FullName())
+	}
+	for _, message := range []proto.Message{
+		&rolloutv1.ContinueRolloutRequest{},
+		&rolloutv1.CancelRolloutRequest{},
+		&rolloutv1.RollbackReleaseChannelFirmwareRequest{},
+		&rolloutv1.AdvanceRolloutRequest{},
+		&rolloutv1.SkipRolloutDevicesRequest{},
+		&rolloutv1.CompleteRolloutRequest{},
+	} {
+		fields := message.ProtoReflect().Descriptor().Fields()
+		require.NotNil(t, fields.ByName("note"), "%s", message.ProtoReflect().Descriptor().FullName())
+	}
+
+	rolloutFields := (&rolloutv1.Rollout{}).ProtoReflect().Descriptor().Fields()
+	for _, name := range []string{"revision", "updated_at", "started_by", "last_action_by"} {
+		require.NotNil(t, rolloutFields.ByName(protoreflect.Name(name)), name)
+	}
+	require.NotNil(t, (&rolloutv1.ListRolloutsRequest{}).ProtoReflect().Descriptor().Fields().ByName("updated_after"))
+	require.NotNil(t, (&rolloutv1.ApplyReleaseChannelFirmwareRequest{}).ProtoReflect().Descriptor().Fields().ByName("behavior_override"))
+
+	methods := rolloutv1.File_rollout_v1_rollout_proto.
+		Services().
+		ByName(protoreflect.Name("RolloutService")).
+		Methods()
+	for _, name := range []string{"AdvanceRollout", "SkipRolloutDevices", "CompleteRollout", "ListRolloutEvents", "PreviewReleaseChannelFirmware"} {
+		require.NotNil(t, methods.ByName(protoreflect.Name(name)), name)
+	}
+}
+
+func TestRolloutEventsValidation(t *testing.T) {
+	t.Parallel()
+
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsRequest{RolloutId: 1, PageSize: 1000}, false)
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsRequest{PageSize: 1001}, true)
+
+	event := &rolloutv1.RolloutEvent{
+		Id: 1, RolloutId: 1, ChannelId: 1,
+		Type:              rolloutv1.RolloutEventType_ROLLOUT_EVENT_TYPE_ADVANCED,
+		OccurredAt:        timestamppb.Now(),
+		Actor:             &rolloutv1.RolloutActor{Type: rolloutv1.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY, Id: 4, Name: "regression-bot"},
+		RolloutRevision:   3,
+		Note:              "batch 2 passed",
+		DeviceIdentifiers: []string{"miner-1"},
+	}
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Events: []*rolloutv1.RolloutEvent{event}, Cursor: "c1"}, false)
+	requireProtoValidation(t, &rolloutv1.RolloutEvent{Id: 1, RolloutId: 1}, true)
+
+	events := make([]*rolloutv1.RolloutEvent, 1001)
+	for i := range events {
+		events[i] = event
+	}
+	requireProtoValidation(t, &rolloutv1.ListRolloutEventsResponse{Events: events}, true)
+
+	requireProtoValidation(t, &rolloutv1.RolloutErrorInfo{
+		Reason: rolloutv1.RolloutErrorReason_ROLLOUT_ERROR_REASON_STALE_REVISION, CurrentRevision: 8,
+	}, false)
+	requireProtoValidation(t, &rolloutv1.RolloutErrorInfo{}, true)
+}
+
+func TestPreviewReleaseChannelFirmwareRequestValidation(t *testing.T) {
+	t.Parallel()
+
+	assignment := &rolloutv1.FirmwareAssignment{Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "file-1"}
+	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
+		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment}, BehaviorOverride: delegatedBehavior(),
+	}, false)
+	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{ChannelId: 1}, true)
+	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareRequest{
+		ChannelId: 1, Assignments: []*rolloutv1.FirmwareAssignment{assignment, assignment},
+	}, true)
+	requireProtoValidation(t, &rolloutv1.PreviewReleaseChannelFirmwareResponse{
+		Plans: []*rolloutv1.ReleaseChannelFirmwarePlan{{
+			Manufacturer: "Bitmain", Model: "S21", FirmwareFileId: "file-1", FirmwareVersion: "2.0",
+			TargetCount: 40, OnTargetCount: 10, Behavior: delegatedBehavior(),
+		}},
+	}, false)
+}

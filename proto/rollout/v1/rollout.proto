@@ -59,6 +59,35 @@ import "google/protobuf/timestamp.proto";
 // enforcement-rule reconciliation never start a rollout while the pair already
 // has an active one.
 //
+// Delegated-control rule: a rollout whose behavior method is DELEGATED is
+// driven by an external controller. The server snapshots its mismatched
+// members and then dispatches nothing on its own: miners move out of QUEUED
+// only through AdvanceRollout (dispatch) or SkipRolloutDevices (settle without
+// updating), the rollout never enters a review gate, never auto-continues, and
+// reconciliation never adds work to it. While it is ACTIVE, not paused, and has
+// no target IN_PROGRESS or RETRYING, its state is WAITING_FOR_CONTROLLER. It
+// finishes when the controller calls CompleteRollout or CancelRollout, or when
+// every target is DONE, FAILED, SKIPPED, or EXCLUDED. Operator actions outrank
+// the controller: PauseRollout and CancelRollout apply to delegated rollouts
+// exactly as to any other. If RolloutBehavior.controller_timeout_seconds is
+// set and that long passes without a controller action while the rollout is
+// WAITING_FOR_CONTROLLER, the server pauses it and records a
+// CONTROLLER_TIMED_OUT event so operators are alerted.
+//
+// Revision rule: Rollout.revision starts at 1 and increases by exactly 1 on
+// every change the server makes to the rollout (stage, state, pause, phase
+// counts, cancellation, completion, skips, retries), and updated_at records
+// when. A mutating RPC that carries a nonzero expected_revision is applied only
+// when it equals the rollout's current revision; otherwise the RPC fails with
+// FAILED_PRECONDITION, reason STALE_REVISION, and changes nothing. Callers that
+// retry a request after a network failure therefore never apply an action
+// twice, and two controllers acting on one rollout cannot both succeed.
+//
+// Error reasons: FAILED_PRECONDITION and INVALID_ARGUMENT failures from this
+// service carry a RolloutErrorInfo in the Connect error details naming a
+// RolloutErrorReason, so clients can branch on the cause instead of parsing
+// the message.
+//
 // Artifact-protection invariant: firmware artifact target metadata is frozen
 // and artifacts are deletion-protected across service boundaries while a file
 // id is a current channel assignment, an active rollout target, a finished
@@ -139,6 +168,15 @@ service RolloutService {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
+    // Plans firmware assignments without saving them: for each assignment,
+    // how many members are mismatched as ApplyReleaseChannelFirmware defines
+    // it, how many already match, and how the rollout would be batched under
+    // the channel's behavior or the supplied behavior_override. Fails with the
+    // same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
+    rpc PreviewReleaseChannelFirmware(PreviewReleaseChannelFirmwareRequest) returns (PreviewReleaseChannelFirmwareResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
     // Atomically replaces per-manufacturer/model firmware assignments. For each
     // changed assignment with mismatched members, it starts a rollout paced by
     // the channel's behavior, first canceling that pair's active rollout as
@@ -196,15 +234,52 @@ service RolloutService {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
 
+    // Lists rollout lifecycle events oldest first, optionally for one rollout
+    // or one channel, with bounded cursor pagination. Events are durable and
+    // append-only, so a client that stores the last cursor sees every later
+    // event exactly once.
+    rpc ListRolloutEvents(ListRolloutEventsRequest) returns (ListRolloutEventsResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
     // Releases the review gate of a staged rollout: the next batch starts,
-    // or the remaining miners when the last batch was under review.
+    // or the remaining miners when the last batch was under review. Honors
+    // the RolloutService revision rule.
     rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
+
+    // Dispatches the next update commands of a DELEGATED rollout: either the
+    // named QUEUED targets or the next count QUEUED targets in the rollout's
+    // order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
+    // DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
+    // rollout is not delegated, not ACTIVE, paused, a named target is not
+    // QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
+    // every requested target. Honors the RolloutService revision rule.
+    rpc AdvanceRollout(AdvanceRolloutRequest) returns (AdvanceRolloutResponse);
+
+    // Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
+    // them: no command is sent, they stay on their current firmware, and they
+    // are not picked up again until the assignment changes or their updates
+    // are retried. Fails with FAILED_PRECONDITION (NOT_ACTIVE or
+    // DEVICE_NOT_QUEUED) and changes nothing when the rollout is not ACTIVE or
+    // a named target is not QUEUED. Honors the RolloutService revision rule.
+    rpc SkipRolloutDevices(SkipRolloutDevicesRequest) returns (SkipRolloutDevicesResponse);
+
+    // Finishes a DELEGATED rollout that still has QUEUED targets: they are
+    // settled as SKIPPED and the rollout ends COMPLETED, or
+    // COMPLETED_WITH_FAILURES when any target is FAILED, without the CANCELED
+    // status that reads as an abort in history. Fails with FAILED_PRECONDITION
+    // (NOT_DELEGATED, NOT_ACTIVE, or UPDATES_IN_FLIGHT) when the rollout is not
+    // delegated, not ACTIVE, or still has a target IN_PROGRESS or RETRYING.
+    // Honors the RolloutService revision rule.
+    rpc CompleteRollout(CompleteRolloutRequest) returns (CompleteRolloutResponse);
 
     // Pauses an active rollout: no new update commands are sent and no stage
     // transitions happen until it is resumed. Commands already sent finish.
+    // Honors the RolloutService revision rule.
     rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
 
-    // Resumes a paused rollout where it left off.
+    // Resumes a paused rollout where it left off. Honors the RolloutService
+    // revision rule.
     rpc ResumeRollout(ResumeRolloutRequest) returns (ResumeRolloutResponse);
 
     // Cancels the remaining work of an active rollout. No new update commands
@@ -264,6 +339,11 @@ enum RolloutMethod {
     ROLLOUT_METHOD_BATCHED = 2;
     // A pilot batch of pilot_size, a review gate, then the remaining miners.
     ROLLOUT_METHOD_PILOT_THEN_CONTINUE = 3;
+    // An external controller decides which miners update and when, through
+    // AdvanceRollout and SkipRolloutDevices, under the RolloutService
+    // delegated-control rule. No batches, waits, review gates, or automatic
+    // continuation; order still determines the "next count" selection.
+    ROLLOUT_METHOD_DELEGATED = 4;
 }
 
 // Order miners are worked through in a paced rollout. Meaningless for
@@ -318,6 +398,16 @@ message RolloutBehavior {
         message: "pilot_size must be at least 1 for PILOT_THEN_CONTINUE"
         expression: "this.method != 3 || this.pilot_size > 0"
     };
+    option (buf.validate.message).cel = {
+        id: "delegated_has_no_engine_pacing"
+        message: "DELEGATED rollouts have no batch_size, pilot_size, wait_between_batches_seconds, review_after_each_batch, auto_continue_on_healthy_telemetry, stabilization_seconds, or thresholds"
+        expression: "this.method != 4 || (this.batch_size == 0 && this.pilot_size == 0 && this.wait_between_batches_seconds == 0 && !this.review_after_each_batch && !this.auto_continue_on_healthy_telemetry && this.stabilization_seconds == 0 && !has(this.thresholds))"
+    };
+    option (buf.validate.message).cel = {
+        id: "controller_timeout_requires_delegated"
+        message: "controller_timeout_seconds applies only to DELEGATED rollouts"
+        expression: "this.controller_timeout_seconds == 0 || this.method == 4"
+    };
 
     // Defaults to ALL_AT_ONCE when unspecified.
     RolloutMethod method = 1 [(buf.validate.field).enum.defined_only = true];
@@ -367,6 +457,11 @@ message RolloutBehavior {
     // copy on Rollout.behavior records the value in force when the rollout
     // started. 0 is unlimited.
     int32 max_concurrent_offline = 10 [(buf.validate.field).int32 = {gte: 0}];
+    // DELEGATED only: how long a rollout may sit WAITING_FOR_CONTROLLER with
+    // no controller action before the server pauses it and records a
+    // CONTROLLER_TIMED_OUT event, under the RolloutService delegated-control
+    // rule. 0 never times out.
+    int32 controller_timeout_seconds = 11 [(buf.validate.field).int32 = {gte: 0}];
 }
 
 // A release channel with its scope and aggregate member counts.
@@ -628,6 +723,9 @@ enum RolloutState {
     ROLLOUT_STATE_COMPLETED = 6;
     ROLLOUT_STATE_COMPLETED_WITH_FAILURES = 7;
     ROLLOUT_STATE_CANCELED = 8;
+    // DELEGATED only: ACTIVE, not paused, with no target IN_PROGRESS or
+    // RETRYING; nothing happens until the controller acts.
+    ROLLOUT_STATE_WAITING_FOR_CONTROLLER = 9;
 }
 
 // Per-miner phase within a rollout.
@@ -657,6 +755,11 @@ enum RolloutDevicePhase {
     // failure or decide aggregate status. Offline accounting follows
     // RolloutBehavior.max_concurrent_offline.
     ROLLOUT_DEVICE_PHASE_EXCLUDED = 6;
+    // Neutral terminal settlement chosen by a caller (SkipRolloutDevices or
+    // CompleteRollout): no command was sent and the miner keeps its current
+    // firmware. It does not count as a failure or decide aggregate status, and
+    // is re-queued only by RetryFailedRolloutDevices or a new assignment.
+    ROLLOUT_DEVICE_PHASE_SKIPPED = 7;
 }
 
 // A telemetry metric before the update (baseline, captured when the miner
@@ -692,6 +795,8 @@ message RolloutDeviceCounts {
     int32 failed = 5 [(buf.validate.field).int32.gte = 0];
     // Neutral terminal targets; kept distinct from done and failed.
     int32 excluded = 6 [(buf.validate.field).int32.gte = 0];
+    // Neutral terminal targets a caller chose not to update.
+    int32 skipped = 7 [(buf.validate.field).int32.gte = 0];
 }
 
 // Post-update evidence for the miners under review: the batch at the gate
@@ -700,8 +805,8 @@ message RolloutDeviceCounts {
 message RolloutEvidence {
     option (buf.validate.message).cel = {
         id: "evidence_counts_within_devices_total"
-        message: "verified plus failed plus excluded, online, and baseline_hashing must not exceed devices_total, and verified and hashing must not exceed online"
-        expression: "this.verified + this.failed + this.excluded <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
+        message: "verified plus failed plus excluded plus skipped, online, and baseline_hashing must not exceed devices_total, and verified and hashing must not exceed online"
+        expression: "this.verified + this.failed + this.excluded + this.skipped <= this.devices_total && this.online <= this.devices_total && this.baseline_hashing <= this.devices_total && this.verified <= this.online && this.hashing <= this.online"
     };
     option (buf.validate.message).cel = {
         id: "verified_baseline_hashers_are_hashing"
@@ -772,6 +877,117 @@ message RolloutEvidence {
     AggregateMetricComparison temp_c = 17;
     // Miners in the EXCLUDED phase; neutral for readiness.
     int32 excluded = 18 [(buf.validate.field).int32.gte = 0];
+    // Miners in the SKIPPED phase; neutral for readiness.
+    int32 skipped = 19 [(buf.validate.field).int32.gte = 0];
+}
+
+// Who performed a rollout action.
+enum RolloutActorType {
+    ROLLOUT_ACTOR_TYPE_UNSPECIFIED = 0;
+    // A signed-in operator.
+    ROLLOUT_ACTOR_TYPE_USER = 1;
+    // An API key, typically an external controller.
+    ROLLOUT_ACTOR_TYPE_API_KEY = 2;
+    // The server itself: enforcement, reconciliation, auto-continue,
+    // controller timeout.
+    ROLLOUT_ACTOR_TYPE_SYSTEM = 3;
+}
+
+// The principal behind a rollout action, for audit and for showing operators
+// who is driving a rollout.
+message RolloutActor {
+    RolloutActorType type = 1 [(buf.validate.field).enum.defined_only = true];
+    // User id or API key id; 0 for SYSTEM.
+    int64 id = 2 [(buf.validate.field).int64.gte = 0];
+    // Display name (username or API key name) at the time of the action.
+    string name = 3 [(buf.validate.field).string.max_len = 255];
+}
+
+// Kinds of rollout lifecycle events.
+enum RolloutEventType {
+    ROLLOUT_EVENT_TYPE_UNSPECIFIED = 0;
+    ROLLOUT_EVENT_TYPE_STARTED = 1;
+    // A batch settled and the rollout is holding at a review gate.
+    ROLLOUT_EVENT_TYPE_REVIEW_READY = 2;
+    // A review gate was released (manually or by auto-continue).
+    ROLLOUT_EVENT_TYPE_CONTINUED = 3;
+    // AdvanceRollout dispatched updates to the listed targets.
+    ROLLOUT_EVENT_TYPE_ADVANCED = 4;
+    ROLLOUT_EVENT_TYPE_PAUSED = 5;
+    ROLLOUT_EVENT_TYPE_RESUMED = 6;
+    ROLLOUT_EVENT_TYPE_CANCELED = 7;
+    ROLLOUT_EVENT_TYPE_COMPLETED = 8;
+    ROLLOUT_EVENT_TYPE_COMPLETED_WITH_FAILURES = 9;
+    // RetryFailedRolloutDevices re-queued the listed targets.
+    ROLLOUT_EVENT_TYPE_RETRIED = 10;
+    // The listed targets were settled as SKIPPED.
+    ROLLOUT_EVENT_TYPE_DEVICES_SKIPPED = 11;
+    // A target exhausted its attempts and is FAILED.
+    ROLLOUT_EVENT_TYPE_DEVICE_FAILED = 12;
+    // A DELEGATED rollout waited longer than controller_timeout_seconds and
+    // was paused by the server.
+    ROLLOUT_EVENT_TYPE_CONTROLLER_TIMED_OUT = 13;
+}
+
+// One durable rollout lifecycle event. Events are append-only and ordered by
+// id; ListRolloutEvents returns them oldest first.
+message RolloutEvent {
+    int64 id = 1 [(buf.validate.field).int64.gte = 0];
+    int64 rollout_id = 2 [(buf.validate.field).int64.gte = 0];
+    int64 channel_id = 3 [(buf.validate.field).int64.gte = 0];
+    RolloutEventType type = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    google.protobuf.Timestamp occurred_at = 5;
+    RolloutActor actor = 6;
+    // The rollout's revision after this event was applied.
+    int64 rollout_revision = 7 [(buf.validate.field).int64.gte = 0];
+    // Caller-supplied rationale from the action that produced the event.
+    string note = 8 [(buf.validate.field).string.max_len = 1024];
+    // Targets the event concerns, when it concerns specific targets; empty for
+    // rollout-wide events. Bounded; the rollout's devices remain the source of
+    // truth for per-miner state.
+    repeated string device_identifiers = 9 [(buf.validate.field).repeated = {max_items: 1000, items: {string: {max_len: 255}}}];
+}
+
+// Machine-readable causes for FAILED_PRECONDITION and INVALID_ARGUMENT
+// failures of RolloutService RPCs.
+enum RolloutErrorReason {
+    ROLLOUT_ERROR_REASON_UNSPECIFIED = 0;
+    // expected_revision did not match the rollout's current revision.
+    ROLLOUT_ERROR_REASON_STALE_REVISION = 1;
+    // The rollout is not current under the assignment-generation rule.
+    ROLLOUT_ERROR_REASON_STALE_GENERATION = 2;
+    // The rollout is not ACTIVE.
+    ROLLOUT_ERROR_REASON_NOT_ACTIVE = 3;
+    // The rollout is not at the AWAITING_REVIEW stage.
+    ROLLOUT_ERROR_REASON_NOT_AT_GATE = 4;
+    // The action applies only to DELEGATED rollouts.
+    ROLLOUT_ERROR_REASON_NOT_DELEGATED = 5;
+    // The rollout is paused.
+    ROLLOUT_ERROR_REASON_PAUSED = 6;
+    // RolloutBehavior.max_concurrent_offline cannot admit the request.
+    ROLLOUT_ERROR_REASON_OFFLINE_BUDGET_FULL = 7;
+    // A named target is not QUEUED in the rollout.
+    ROLLOUT_ERROR_REASON_DEVICE_NOT_QUEUED = 8;
+    // The scope overlaps another channel.
+    ROLLOUT_ERROR_REASON_SCOPE_OVERLAP = 9;
+    // The firmware artifact is protected or its metadata does not match.
+    ROLLOUT_ERROR_REASON_ARTIFACT_PROTECTED = 10;
+    // The rollout already has a successor.
+    ROLLOUT_ERROR_REASON_ALREADY_RETRIED = 11;
+    // Another rollout is active for the manufacturer/model pair.
+    ROLLOUT_ERROR_REASON_ROLLOUT_ACTIVE = 12;
+    // The rollout still has a target IN_PROGRESS or RETRYING.
+    ROLLOUT_ERROR_REASON_UPDATES_IN_FLIGHT = 13;
+}
+
+// Error detail attached to RolloutService failures.
+message RolloutErrorInfo {
+    RolloutErrorReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    // The rollout's current revision when reason is STALE_REVISION; 0
+    // otherwise.
+    int64 current_revision = 2 [(buf.validate.field).int64.gte = 0];
+    // Targets the failure concerns (e.g. those not QUEUED); bounded.
+    repeated string device_identifiers = 3 [(buf.validate.field).repeated = {max_items: 1000, items: {string: {max_len: 255}}}];
 }
 
 // A firmware change being enforced for one manufacturer/model pair within one
@@ -800,7 +1016,17 @@ message Rollout {
     option (buf.validate.message).cel = {
         id: "state_derives_from_status"
         message: "state must be an in-progress or paused state while ACTIVE and the matching terminal state otherwise"
-        expression: "(this.status == 1 && this.state in [1, 2, 3, 4, 5]) || (this.status == 2 && this.state == 6) || (this.status == 3 && this.state == 7) || (this.status == 4 && this.state == 8)"
+        expression: "(this.status == 1 && this.state in [1, 2, 3, 4, 5, 9]) || (this.status == 2 && this.state == 6) || (this.status == 3 && this.state == 7) || (this.status == 4 && this.state == 8)"
+    };
+    option (buf.validate.message).cel = {
+        id: "delegated_states"
+        message: "WAITING_FOR_CONTROLLER occurs only in DELEGATED rollouts, which while ACTIVE are IN_PROGRESS, PAUSED, or WAITING_FOR_CONTROLLER"
+        expression: "(this.state != 9 || this.behavior.method == 4) && (this.behavior.method != 4 || this.status != 1 || this.state in [1, 5, 9])"
+    };
+    option (buf.validate.message).cel = {
+        id: "waiting_for_controller_has_nothing_in_flight"
+        message: "a WAITING_FOR_CONTROLLER rollout has no target IN_PROGRESS or RETRYING"
+        expression: "this.state != 9 || (this.device_counts.in_progress == 0 && this.device_counts.retrying == 0)"
     };
     option (buf.validate.message).cel = {
         id: "cancel_reason_iff_canceled"
@@ -820,12 +1046,12 @@ message Rollout {
     option (buf.validate.message).cel = {
         id: "device_counts_sum_to_device_count"
         message: "device_counts phases must sum to device_count"
-        expression: "this.device_counts.queued + this.device_counts.in_progress + this.device_counts.retrying + this.device_counts.done + this.device_counts.failed + this.device_counts.excluded == this.device_count"
+        expression: "this.device_counts.queued + this.device_counts.in_progress + this.device_counts.retrying + this.device_counts.done + this.device_counts.failed + this.device_counts.excluded + this.device_counts.skipped == this.device_count"
     };
     option (buf.validate.message).cel = {
         id: "current_batch_counts_within_device_counts"
         message: "each current_batch_counts phase must not exceed the same device_counts phase"
-        expression: "this.current_batch_counts.queued <= this.device_counts.queued && this.current_batch_counts.in_progress <= this.device_counts.in_progress && this.current_batch_counts.retrying <= this.device_counts.retrying && this.current_batch_counts.done <= this.device_counts.done && this.current_batch_counts.failed <= this.device_counts.failed && this.current_batch_counts.excluded <= this.device_counts.excluded"
+        expression: "this.current_batch_counts.queued <= this.device_counts.queued && this.current_batch_counts.in_progress <= this.device_counts.in_progress && this.current_batch_counts.retrying <= this.device_counts.retrying && this.current_batch_counts.done <= this.device_counts.done && this.current_batch_counts.failed <= this.device_counts.failed && this.current_batch_counts.excluded <= this.device_counts.excluded && this.current_batch_counts.skipped <= this.device_counts.skipped"
     };
     option (buf.validate.message).cel = {
         id: "evidence_within_device_count"
@@ -834,18 +1060,18 @@ message Rollout {
     };
     option (buf.validate.message).cel = {
         id: "completed_has_only_done_or_excluded_targets"
-        message: "a COMPLETED rollout may only contain DONE or EXCLUDED targets"
+        message: "a COMPLETED rollout may only contain DONE, EXCLUDED, or SKIPPED targets"
         expression: "this.status != 2 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed == 0)"
     };
     option (buf.validate.message).cel = {
         id: "completed_with_failures_is_settled_with_a_failure"
-        message: "a COMPLETED_WITH_FAILURES rollout may only contain DONE, FAILED, or EXCLUDED targets and needs at least one FAILED"
+        message: "a COMPLETED_WITH_FAILURES rollout may only contain DONE, FAILED, EXCLUDED, or SKIPPED targets and needs at least one FAILED"
         expression: "this.status != 3 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed > 0)"
     };
     option (buf.validate.message).cel = {
         id: "batches_match_method"
-        message: "batch_count must be 0 for all-at-once rollouts, exactly 1 for PILOT_THEN_CONTINUE, and positive for BATCHED"
-        expression: "((this.behavior.method == 0 || this.behavior.method == 1) == (this.batch_count == 0)) && (this.behavior.method != 3 || this.batch_count == 1)"
+        message: "batch_count must be 0 for all-at-once and DELEGATED rollouts, exactly 1 for PILOT_THEN_CONTINUE, and positive for BATCHED"
+        expression: "((this.behavior.method in [0, 1, 4]) == (this.batch_count == 0)) && (this.behavior.method != 3 || this.batch_count == 1)"
     };
     option (buf.validate.message).cel = {
         id: "current_batch_within_batch_count"
@@ -870,7 +1096,7 @@ message Rollout {
     option (buf.validate.message).cel = {
         id: "rest_stage_has_no_current_batch_counts"
         message: "current_batch_counts must be all zero in the REST stage"
-        expression: "this.stage != 4 || (this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded == 0)"
+        expression: "this.stage != 4 || (this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded + this.current_batch_counts.skipped == 0)"
     };
     option (buf.validate.message).cel = {
         id: "gate_states_match_review_stage"
@@ -899,18 +1125,18 @@ message Rollout {
     };
     option (buf.validate.message).cel = {
         id: "batch_evidence_covers_current_batch"
-        message: "while a batch is in flight, under review, or waiting, evidence must cover exactly that batch: devices_total equals its population and verified, failed, and excluded equal its DONE, FAILED, and EXCLUDED counts"
-        expression: "!has(this.evidence) || !(this.stage in [1, 2, 3]) || (this.evidence.devices_total == this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded && this.evidence.verified == this.current_batch_counts.done && this.evidence.failed == this.current_batch_counts.failed && this.evidence.excluded == this.current_batch_counts.excluded)"
+        message: "while a batch is in flight, under review, or waiting, evidence must cover exactly that batch: devices_total equals its population and verified, failed, excluded, and skipped equal its DONE, FAILED, EXCLUDED, and SKIPPED counts"
+        expression: "!has(this.evidence) || !(this.stage in [1, 2, 3]) || (this.evidence.devices_total == this.current_batch_counts.queued + this.current_batch_counts.in_progress + this.current_batch_counts.retrying + this.current_batch_counts.done + this.current_batch_counts.failed + this.current_batch_counts.excluded + this.current_batch_counts.skipped && this.evidence.verified == this.current_batch_counts.done && this.evidence.failed == this.current_batch_counts.failed && this.evidence.excluded == this.current_batch_counts.excluded && this.evidence.skipped == this.current_batch_counts.skipped)"
     };
     option (buf.validate.message).cel = {
         id: "all_at_once_evidence_covers_every_target"
-        message: "for a rollout without batches, evidence must cover every target: devices_total equals device_count and verified, failed, and excluded equal the DONE, FAILED, and EXCLUDED counts"
-        expression: "!has(this.evidence) || this.batch_count > 0 || (this.evidence.devices_total == this.device_count && this.evidence.verified == this.device_counts.done && this.evidence.failed == this.device_counts.failed && this.evidence.excluded == this.device_counts.excluded)"
+        message: "for a rollout without batches, evidence must cover every target: devices_total equals device_count and verified, failed, excluded, and skipped equal the DONE, FAILED, EXCLUDED, and SKIPPED counts"
+        expression: "!has(this.evidence) || this.batch_count > 0 || (this.evidence.devices_total == this.device_count && this.evidence.verified == this.device_counts.done && this.evidence.failed == this.device_counts.failed && this.evidence.excluded == this.device_counts.excluded && this.evidence.skipped == this.device_counts.skipped)"
     };
     option (buf.validate.message).cel = {
         id: "ready_to_advance_requires_healthy_settled_evidence"
-        message: "ready_to_advance requires every reviewed miner DONE or EXCLUDED with none FAILED, no remaining stabilization time, and every set threshold passing with the required sample coverage"
-        expression: "!this.evidence.ready_to_advance || (this.evidence.failed == 0 && this.evidence.verified + this.evidence.excluded == this.evidence.devices_total && this.evidence.stabilization_remaining_seconds == 0 && (!has(this.behavior.thresholds.max_new_errors) || this.evidence.new_errors <= this.behavior.thresholds.max_new_errors) && (!has(this.behavior.thresholds.max_hashrate_drop_percent) || (has(this.evidence.hashrate_change_percent) && -this.evidence.hashrate_change_percent <= this.behavior.thresholds.max_hashrate_drop_percent && double(this.evidence.hash_rate_hs.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_efficiency_increase_percent) || (has(this.evidence.efficiency_change_percent) && this.evidence.efficiency_change_percent <= this.behavior.thresholds.max_efficiency_increase_percent && double(this.evidence.efficiency_jh.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_temperature_increase_celsius) || (has(this.evidence.temperature_change_celsius) && this.evidence.temperature_change_celsius <= this.behavior.thresholds.max_temperature_increase_celsius && double(this.evidence.temp_c.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))))"
+        message: "ready_to_advance requires every reviewed miner DONE, EXCLUDED, or SKIPPED with none FAILED, no remaining stabilization time, and every set threshold passing with the required sample coverage"
+        expression: "!this.evidence.ready_to_advance || (this.evidence.failed == 0 && this.evidence.verified + this.evidence.excluded + this.evidence.skipped == this.evidence.devices_total && this.evidence.stabilization_remaining_seconds == 0 && (!has(this.behavior.thresholds.max_new_errors) || this.evidence.new_errors <= this.behavior.thresholds.max_new_errors) && (!has(this.behavior.thresholds.max_hashrate_drop_percent) || (has(this.evidence.hashrate_change_percent) && -this.evidence.hashrate_change_percent <= this.behavior.thresholds.max_hashrate_drop_percent && double(this.evidence.hash_rate_hs.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_efficiency_increase_percent) || (has(this.evidence.efficiency_change_percent) && this.evidence.efficiency_change_percent <= this.behavior.thresholds.max_efficiency_increase_percent && double(this.evidence.efficiency_jh.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))) && (!has(this.behavior.thresholds.max_temperature_increase_celsius) || (has(this.evidence.temperature_change_celsius) && this.evidence.temperature_change_celsius <= this.behavior.thresholds.max_temperature_increase_celsius && double(this.evidence.temp_c.sampled_devices) * 100.0 >= (has(this.behavior.thresholds.min_sample_coverage_percent) ? this.behavior.thresholds.min_sample_coverage_percent : 100.0) * double(this.evidence.verified))))"
     };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
@@ -986,6 +1212,19 @@ message Rollout {
     // most once, after which RetryFailedRolloutDevices rejects this rollout
     // and callers retry the latest rollout in the chain.
     int64 successor_rollout_id = 27 [(buf.validate.field).int64.gte = 0];
+    // Change counter under the RolloutService revision rule: 1 when the
+    // rollout is created, +1 on every server-side change. Pass it back as
+    // expected_revision on mutating RPCs to make them conditional.
+    int64 revision = 28 [(buf.validate.field).int64.gte = 0];
+    // When revision last changed.
+    google.protobuf.Timestamp updated_at = 29;
+    // Who started the rollout: the operator or API key behind
+    // ApplyReleaseChannelFirmware, RollbackReleaseChannelFirmware, or
+    // RetryFailedRolloutDevices, or SYSTEM for reconciliation.
+    RolloutActor started_by = 30;
+    // Who performed the most recent action on the rollout (advance, continue,
+    // pause, resume, skip, cancel, complete, retry), or SYSTEM.
+    RolloutActor last_action_by = 31;
 }
 
 // Progress of one miner within a rollout.
@@ -1040,6 +1279,9 @@ message RolloutDevice {
     // Managed-deployment provenance as defined by RolloutService; empty when no
     // qualifying Fleet-managed deployment is recorded.
     string last_deployed_firmware_file_id = 21 [(buf.validate.field).string.max_len = 255];
+    // Note from the SkipRolloutDevices or CompleteRollout call that settled a
+    // SKIPPED miner; empty otherwise.
+    string skip_note = 22 [(buf.validate.field).string.max_len = 1024];
 }
 
 // --- Requests / responses ---
@@ -1222,6 +1464,52 @@ message ApplyReleaseChannelFirmwareRequest {
         min_items: 1
         max_items: 100
     }];
+    // When set, the rollouts this call starts run with this behavior instead
+    // of the channel's saved behavior; the channel is not changed. Lets a
+    // controller run one DELEGATED rollout on a channel operators otherwise
+    // drive by hand.
+    RolloutBehavior behavior_override = 3;
+}
+
+message PreviewReleaseChannelFirmwareRequest {
+    option (buf.validate.message).cel = {
+        id: "preview_assignments_unique_by_manufacturer_model"
+        message: "assignments must contain at most one entry per manufacturer/model pair"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
+    };
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Assignments to plan, with the same constraints as
+    // ApplyReleaseChannelFirmwareRequest.assignments.
+    repeated FirmwareAssignment assignments = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+    }];
+    // Behavior to plan with instead of the channel's saved behavior.
+    RolloutBehavior behavior_override = 3;
+}
+
+// The rollout ApplyReleaseChannelFirmware would start for one assignment.
+message ReleaseChannelFirmwarePlan {
+    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    // Empty when the assignment would clear the pair.
+    string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+    string firmware_version = 4 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    // Members that would be targeted (mismatched as ApplyReleaseChannelFirmware
+    // defines it).
+    int32 target_count = 5 [(buf.validate.field).int32.gte = 0];
+    // Members already matching the assignment.
+    int32 on_target_count = 6 [(buf.validate.field).int32.gte = 0];
+    // Batches the rollout would snapshot; 0 for all-at-once and DELEGATED.
+    int32 batch_count = 7 [(buf.validate.field).int32.gte = 0];
+    // The behavior the rollout would run with.
+    RolloutBehavior behavior = 8;
+    // Whether the assignment is unchanged, in which case no rollout starts.
+    bool unchanged = 9;
+}
+
+message PreviewReleaseChannelFirmwareResponse {
+    repeated ReleaseChannelFirmwarePlan plans = 1 [(buf.validate.field).repeated.max_items = 100];
 }
 
 message ApplyReleaseChannelFirmwareResponse {
@@ -1236,6 +1524,11 @@ message RollbackReleaseChannelFirmwareRequest {
     // RollbackReleaseChannelFirmware for its assignment-generation
     // precondition and atomic effects.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the referenced rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the resulting events.
+    string note = 3 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
 }
 
 message RollbackReleaseChannelFirmwareResponse {
@@ -1256,6 +1549,9 @@ message ListRolloutsRequest {
     int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     // Cursor returned by a previous call; leave empty for the first page.
     string cursor = 4 [(buf.validate.field).string.max_len = 100];
+    // When set, only rollouts whose updated_at is at or after this time are
+    // returned, so a poller can fetch what changed since its last call.
+    google.protobuf.Timestamp updated_after = 5;
 }
 
 message ListRolloutsResponse {
@@ -1289,6 +1585,89 @@ message ListRolloutDevicesResponse {
 message ContinueRolloutRequest {
     // Active staged rollout in the AWAITING_REVIEW stage.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the CONTINUED event.
+    string note = 3 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
+}
+
+// Targets named by device identifier within one rollout.
+message RolloutDeviceSelection {
+    repeated string device_identifiers = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 1000, unique: true, items: {string: {min_len: 1, max_len: 255, not_contains: "\x00"}}}];
+}
+
+message AdvanceRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    oneof selection {
+        option (buf.validate.oneof).required = true;
+        // Dispatch exactly these QUEUED targets.
+        RolloutDeviceSelection devices = 2;
+        // Dispatch the next count QUEUED targets in the rollout's order; fewer
+        // when fewer remain.
+        int32 count = 3 [(buf.validate.field).int32 = {gt: 0, lte: 1000}];
+    }
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 4 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the ADVANCED event.
+    string note = 5 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
+}
+
+message AdvanceRolloutResponse {
+    Rollout rollout = 1;
+    // Targets that were dispatched to, in dispatch order.
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 1000, items: {string: {max_len: 255}}}];
+}
+
+message SkipRolloutDevicesRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    RolloutDeviceSelection devices = 2 [(buf.validate.field).required = true];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the DEVICES_SKIPPED event and each target's
+    // skip_note.
+    string note = 4 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
+}
+
+message SkipRolloutDevicesResponse {
+    Rollout rollout = 1;
+}
+
+message CompleteRolloutRequest {
+    int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the COMPLETED event and any skipped target's
+    // skip_note.
+    string note = 3 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
+}
+
+message CompleteRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ListRolloutEventsRequest {
+    // When set, only events of this rollout.
+    int64 rollout_id = 1 [(buf.validate.field).int64.gte = 0];
+    // When set, only events of rollouts in this channel.
+    int64 channel_id = 2 [(buf.validate.field).int64.gte = 0];
+    // Maximum events to return. 0 uses the server default of 100.
+    int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    // Cursor returned by a previous call; leave empty to start from the
+    // oldest event. A cursor stays valid indefinitely, so a client may resume
+    // from where it stopped.
+    string cursor = 4 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListRolloutEventsResponse {
+    repeated RolloutEvent events = 1 [(buf.validate.field).repeated.max_items = 1000];
+    // Cursor for the next page. Unlike other lists it is never empty: when no
+    // newer events exist it points just past the last one returned, so a
+    // poller passes it back to receive only new events.
+    string cursor = 2 [(buf.validate.field).string.max_len = 100];
 }
 
 message ContinueRolloutResponse {
@@ -1297,6 +1676,9 @@ message ContinueRolloutResponse {
 
 message PauseRolloutRequest {
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
 }
 
 message PauseRolloutResponse {
@@ -1305,6 +1687,9 @@ message PauseRolloutResponse {
 
 message ResumeRolloutRequest {
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
 }
 
 message ResumeRolloutResponse {
@@ -1313,6 +1698,11 @@ message ResumeRolloutResponse {
 
 message CancelRolloutRequest {
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+    // Rationale recorded on the CANCELED event.
+    string note = 3 [(buf.validate.field).string = {max_len: 1024, not_contains: "\x00"}];
 }
 
 message CancelRolloutResponse {
@@ -1326,6 +1716,9 @@ message RetryFailedRolloutDevicesRequest {
     // target must satisfy the RetryFailedRolloutDevices preconditions; a stale
     // target fails with FAILED_PRECONDITION rather than being retargeted.
     int64 rollout_id = 1 [(buf.validate.field).int64.gt = 0];
+    // When nonzero, the rollout's revision must equal this value
+    // (RolloutService revision rule).
+    int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
 }
 
 message RetryFailedRolloutDevicesResponse {

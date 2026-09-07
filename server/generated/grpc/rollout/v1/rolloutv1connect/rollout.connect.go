@@ -61,6 +61,9 @@ const (
 	// RolloutServicePreviewReleaseChannelScopeProcedure is the fully-qualified name of the
 	// RolloutService's PreviewReleaseChannelScope RPC.
 	RolloutServicePreviewReleaseChannelScopeProcedure = "/rollout.v1.RolloutService/PreviewReleaseChannelScope"
+	// RolloutServicePreviewReleaseChannelFirmwareProcedure is the fully-qualified name of the
+	// RolloutService's PreviewReleaseChannelFirmware RPC.
+	RolloutServicePreviewReleaseChannelFirmwareProcedure = "/rollout.v1.RolloutService/PreviewReleaseChannelFirmware"
 	// RolloutServiceApplyReleaseChannelFirmwareProcedure is the fully-qualified name of the
 	// RolloutService's ApplyReleaseChannelFirmware RPC.
 	RolloutServiceApplyReleaseChannelFirmwareProcedure = "/rollout.v1.RolloutService/ApplyReleaseChannelFirmware"
@@ -76,9 +79,21 @@ const (
 	// RolloutServiceListRolloutDevicesProcedure is the fully-qualified name of the RolloutService's
 	// ListRolloutDevices RPC.
 	RolloutServiceListRolloutDevicesProcedure = "/rollout.v1.RolloutService/ListRolloutDevices"
+	// RolloutServiceListRolloutEventsProcedure is the fully-qualified name of the RolloutService's
+	// ListRolloutEvents RPC.
+	RolloutServiceListRolloutEventsProcedure = "/rollout.v1.RolloutService/ListRolloutEvents"
 	// RolloutServiceContinueRolloutProcedure is the fully-qualified name of the RolloutService's
 	// ContinueRollout RPC.
 	RolloutServiceContinueRolloutProcedure = "/rollout.v1.RolloutService/ContinueRollout"
+	// RolloutServiceAdvanceRolloutProcedure is the fully-qualified name of the RolloutService's
+	// AdvanceRollout RPC.
+	RolloutServiceAdvanceRolloutProcedure = "/rollout.v1.RolloutService/AdvanceRollout"
+	// RolloutServiceSkipRolloutDevicesProcedure is the fully-qualified name of the RolloutService's
+	// SkipRolloutDevices RPC.
+	RolloutServiceSkipRolloutDevicesProcedure = "/rollout.v1.RolloutService/SkipRolloutDevices"
+	// RolloutServiceCompleteRolloutProcedure is the fully-qualified name of the RolloutService's
+	// CompleteRollout RPC.
+	RolloutServiceCompleteRolloutProcedure = "/rollout.v1.RolloutService/CompleteRollout"
 	// RolloutServicePauseRolloutProcedure is the fully-qualified name of the RolloutService's
 	// PauseRollout RPC.
 	RolloutServicePauseRolloutProcedure = "/rollout.v1.RolloutService/PauseRollout"
@@ -129,6 +144,12 @@ type RolloutServiceClient interface {
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
+	// Plans firmware assignments without saving them: for each assignment,
+	// how many members are mismatched as ApplyReleaseChannelFirmware defines
+	// it, how many already match, and how the rollout would be batched under
+	// the channel's behavior or the supplied behavior_override. Fails with the
+	// same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
+	PreviewReleaseChannelFirmware(context.Context, *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
 	// the channel's behavior, first canceling that pair's active rollout as
@@ -175,13 +196,44 @@ type RolloutServiceClient interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
+	// Lists rollout lifecycle events oldest first, optionally for one rollout
+	// or one channel, with bounded cursor pagination. Events are durable and
+	// append-only, so a client that stores the last cursor sees every later
+	// event exactly once.
+	ListRolloutEvents(context.Context, *connect.Request[v1.ListRolloutEventsRequest]) (*connect.Response[v1.ListRolloutEventsResponse], error)
 	// Releases the review gate of a staged rollout: the next batch starts,
-	// or the remaining miners when the last batch was under review.
+	// or the remaining miners when the last batch was under review. Honors
+	// the RolloutService revision rule.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
+	// Dispatches the next update commands of a DELEGATED rollout: either the
+	// named QUEUED targets or the next count QUEUED targets in the rollout's
+	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
+	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, a named target is not
+	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
+	// every requested target. Honors the RolloutService revision rule.
+	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
+	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
+	// them: no command is sent, they stay on their current firmware, and they
+	// are not picked up again until the assignment changes or their updates
+	// are retried. Fails with FAILED_PRECONDITION (NOT_ACTIVE or
+	// DEVICE_NOT_QUEUED) and changes nothing when the rollout is not ACTIVE or
+	// a named target is not QUEUED. Honors the RolloutService revision rule.
+	SkipRolloutDevices(context.Context, *connect.Request[v1.SkipRolloutDevicesRequest]) (*connect.Response[v1.SkipRolloutDevicesResponse], error)
+	// Finishes a DELEGATED rollout that still has QUEUED targets: they are
+	// settled as SKIPPED and the rollout ends COMPLETED, or
+	// COMPLETED_WITH_FAILURES when any target is FAILED, without the CANCELED
+	// status that reads as an abort in history. Fails with FAILED_PRECONDITION
+	// (NOT_DELEGATED, NOT_ACTIVE, or UPDATES_IN_FLIGHT) when the rollout is not
+	// delegated, not ACTIVE, or still has a target IN_PROGRESS or RETRYING.
+	// Honors the RolloutService revision rule.
+	CompleteRollout(context.Context, *connect.Request[v1.CompleteRolloutRequest]) (*connect.Response[v1.CompleteRolloutResponse], error)
 	// Pauses an active rollout: no new update commands are sent and no stage
 	// transitions happen until it is resumed. Commands already sent finish.
+	// Honors the RolloutService revision rule.
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
-	// Resumes a paused rollout where it left off.
+	// Resumes a paused rollout where it left off. Honors the RolloutService
+	// revision rule.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation
@@ -274,6 +326,12 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		previewReleaseChannelFirmware: connect.NewClient[v1.PreviewReleaseChannelFirmwareRequest, v1.PreviewReleaseChannelFirmwareResponse](
+			httpClient,
+			baseURL+RolloutServicePreviewReleaseChannelFirmwareProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		applyReleaseChannelFirmware: connect.NewClient[v1.ApplyReleaseChannelFirmwareRequest, v1.ApplyReleaseChannelFirmwareResponse](
 			httpClient,
 			baseURL+RolloutServiceApplyReleaseChannelFirmwareProcedure,
@@ -302,9 +360,30 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listRolloutEvents: connect.NewClient[v1.ListRolloutEventsRequest, v1.ListRolloutEventsResponse](
+			httpClient,
+			baseURL+RolloutServiceListRolloutEventsProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		continueRollout: connect.NewClient[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse](
 			httpClient,
 			baseURL+RolloutServiceContinueRolloutProcedure,
+			opts...,
+		),
+		advanceRollout: connect.NewClient[v1.AdvanceRolloutRequest, v1.AdvanceRolloutResponse](
+			httpClient,
+			baseURL+RolloutServiceAdvanceRolloutProcedure,
+			opts...,
+		),
+		skipRolloutDevices: connect.NewClient[v1.SkipRolloutDevicesRequest, v1.SkipRolloutDevicesResponse](
+			httpClient,
+			baseURL+RolloutServiceSkipRolloutDevicesProcedure,
+			opts...,
+		),
+		completeRollout: connect.NewClient[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse](
+			httpClient,
+			baseURL+RolloutServiceCompleteRolloutProcedure,
 			opts...,
 		),
 		pauseRollout: connect.NewClient[v1.PauseRolloutRequest, v1.PauseRolloutResponse](
@@ -341,12 +420,17 @@ type rolloutServiceClient struct {
 	updateReleaseChannel                  *connect.Client[v1.UpdateReleaseChannelRequest, v1.UpdateReleaseChannelResponse]
 	deleteReleaseChannel                  *connect.Client[v1.DeleteReleaseChannelRequest, v1.DeleteReleaseChannelResponse]
 	previewReleaseChannelScope            *connect.Client[v1.PreviewReleaseChannelScopeRequest, v1.PreviewReleaseChannelScopeResponse]
+	previewReleaseChannelFirmware         *connect.Client[v1.PreviewReleaseChannelFirmwareRequest, v1.PreviewReleaseChannelFirmwareResponse]
 	applyReleaseChannelFirmware           *connect.Client[v1.ApplyReleaseChannelFirmwareRequest, v1.ApplyReleaseChannelFirmwareResponse]
 	rollbackReleaseChannelFirmware        *connect.Client[v1.RollbackReleaseChannelFirmwareRequest, v1.RollbackReleaseChannelFirmwareResponse]
 	listRollouts                          *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
 	getRollout                            *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
 	listRolloutDevices                    *connect.Client[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse]
+	listRolloutEvents                     *connect.Client[v1.ListRolloutEventsRequest, v1.ListRolloutEventsResponse]
 	continueRollout                       *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
+	advanceRollout                        *connect.Client[v1.AdvanceRolloutRequest, v1.AdvanceRolloutResponse]
+	skipRolloutDevices                    *connect.Client[v1.SkipRolloutDevicesRequest, v1.SkipRolloutDevicesResponse]
+	completeRollout                       *connect.Client[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse]
 	pauseRollout                          *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
 	resumeRollout                         *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
 	cancelRollout                         *connect.Client[v1.CancelRolloutRequest, v1.CancelRolloutResponse]
@@ -399,6 +483,11 @@ func (c *rolloutServiceClient) PreviewReleaseChannelScope(ctx context.Context, r
 	return c.previewReleaseChannelScope.CallUnary(ctx, req)
 }
 
+// PreviewReleaseChannelFirmware calls rollout.v1.RolloutService.PreviewReleaseChannelFirmware.
+func (c *rolloutServiceClient) PreviewReleaseChannelFirmware(ctx context.Context, req *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error) {
+	return c.previewReleaseChannelFirmware.CallUnary(ctx, req)
+}
+
 // ApplyReleaseChannelFirmware calls rollout.v1.RolloutService.ApplyReleaseChannelFirmware.
 func (c *rolloutServiceClient) ApplyReleaseChannelFirmware(ctx context.Context, req *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error) {
 	return c.applyReleaseChannelFirmware.CallUnary(ctx, req)
@@ -424,9 +513,29 @@ func (c *rolloutServiceClient) ListRolloutDevices(ctx context.Context, req *conn
 	return c.listRolloutDevices.CallUnary(ctx, req)
 }
 
+// ListRolloutEvents calls rollout.v1.RolloutService.ListRolloutEvents.
+func (c *rolloutServiceClient) ListRolloutEvents(ctx context.Context, req *connect.Request[v1.ListRolloutEventsRequest]) (*connect.Response[v1.ListRolloutEventsResponse], error) {
+	return c.listRolloutEvents.CallUnary(ctx, req)
+}
+
 // ContinueRollout calls rollout.v1.RolloutService.ContinueRollout.
 func (c *rolloutServiceClient) ContinueRollout(ctx context.Context, req *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
 	return c.continueRollout.CallUnary(ctx, req)
+}
+
+// AdvanceRollout calls rollout.v1.RolloutService.AdvanceRollout.
+func (c *rolloutServiceClient) AdvanceRollout(ctx context.Context, req *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error) {
+	return c.advanceRollout.CallUnary(ctx, req)
+}
+
+// SkipRolloutDevices calls rollout.v1.RolloutService.SkipRolloutDevices.
+func (c *rolloutServiceClient) SkipRolloutDevices(ctx context.Context, req *connect.Request[v1.SkipRolloutDevicesRequest]) (*connect.Response[v1.SkipRolloutDevicesResponse], error) {
+	return c.skipRolloutDevices.CallUnary(ctx, req)
+}
+
+// CompleteRollout calls rollout.v1.RolloutService.CompleteRollout.
+func (c *rolloutServiceClient) CompleteRollout(ctx context.Context, req *connect.Request[v1.CompleteRolloutRequest]) (*connect.Response[v1.CompleteRolloutResponse], error) {
+	return c.completeRollout.CallUnary(ctx, req)
 }
 
 // PauseRollout calls rollout.v1.RolloutService.PauseRollout.
@@ -485,6 +594,12 @@ type RolloutServiceHandler interface {
 	// Resolves a scope without saving it: how many miners it covers per
 	// manufacturer/model pair, and which existing channels it would overlap.
 	PreviewReleaseChannelScope(context.Context, *connect.Request[v1.PreviewReleaseChannelScopeRequest]) (*connect.Response[v1.PreviewReleaseChannelScopeResponse], error)
+	// Plans firmware assignments without saving them: for each assignment,
+	// how many members are mismatched as ApplyReleaseChannelFirmware defines
+	// it, how many already match, and how the rollout would be batched under
+	// the channel's behavior or the supplied behavior_override. Fails with the
+	// same FAILED_PRECONDITION causes ApplyReleaseChannelFirmware would.
+	PreviewReleaseChannelFirmware(context.Context, *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error)
 	// Atomically replaces per-manufacturer/model firmware assignments. For each
 	// changed assignment with mismatched members, it starts a rollout paced by
 	// the channel's behavior, first canceling that pair's active rollout as
@@ -531,13 +646,44 @@ type RolloutServiceHandler interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
+	// Lists rollout lifecycle events oldest first, optionally for one rollout
+	// or one channel, with bounded cursor pagination. Events are durable and
+	// append-only, so a client that stores the last cursor sees every later
+	// event exactly once.
+	ListRolloutEvents(context.Context, *connect.Request[v1.ListRolloutEventsRequest]) (*connect.Response[v1.ListRolloutEventsResponse], error)
 	// Releases the review gate of a staged rollout: the next batch starts,
-	// or the remaining miners when the last batch was under review.
+	// or the remaining miners when the last batch was under review. Honors
+	// the RolloutService revision rule.
 	ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error)
+	// Dispatches the next update commands of a DELEGATED rollout: either the
+	// named QUEUED targets or the next count QUEUED targets in the rollout's
+	// order. Fails with FAILED_PRECONDITION (NOT_DELEGATED, NOT_ACTIVE, PAUSED,
+	// DEVICE_NOT_QUEUED, or OFFLINE_BUDGET_FULL) and changes nothing when the
+	// rollout is not delegated, not ACTIVE, paused, a named target is not
+	// QUEUED in it, or RolloutBehavior.max_concurrent_offline cannot admit
+	// every requested target. Honors the RolloutService revision rule.
+	AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error)
+	// Settles QUEUED targets of an ACTIVE rollout as SKIPPED without updating
+	// them: no command is sent, they stay on their current firmware, and they
+	// are not picked up again until the assignment changes or their updates
+	// are retried. Fails with FAILED_PRECONDITION (NOT_ACTIVE or
+	// DEVICE_NOT_QUEUED) and changes nothing when the rollout is not ACTIVE or
+	// a named target is not QUEUED. Honors the RolloutService revision rule.
+	SkipRolloutDevices(context.Context, *connect.Request[v1.SkipRolloutDevicesRequest]) (*connect.Response[v1.SkipRolloutDevicesResponse], error)
+	// Finishes a DELEGATED rollout that still has QUEUED targets: they are
+	// settled as SKIPPED and the rollout ends COMPLETED, or
+	// COMPLETED_WITH_FAILURES when any target is FAILED, without the CANCELED
+	// status that reads as an abort in history. Fails with FAILED_PRECONDITION
+	// (NOT_DELEGATED, NOT_ACTIVE, or UPDATES_IN_FLIGHT) when the rollout is not
+	// delegated, not ACTIVE, or still has a target IN_PROGRESS or RETRYING.
+	// Honors the RolloutService revision rule.
+	CompleteRollout(context.Context, *connect.Request[v1.CompleteRolloutRequest]) (*connect.Response[v1.CompleteRolloutResponse], error)
 	// Pauses an active rollout: no new update commands are sent and no stage
 	// transitions happen until it is resumed. Commands already sent finish.
+	// Honors the RolloutService revision rule.
 	PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error)
-	// Resumes a paused rollout where it left off.
+	// Resumes a paused rollout where it left off. Honors the RolloutService
+	// revision rule.
 	ResumeRollout(context.Context, *connect.Request[v1.ResumeRolloutRequest]) (*connect.Response[v1.ResumeRolloutResponse], error)
 	// Cancels the remaining work of an active rollout. No new update commands
 	// are sent. Commands already sent may finish under existing cancellation
@@ -626,6 +772,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	rolloutServicePreviewReleaseChannelFirmwareHandler := connect.NewUnaryHandler(
+		RolloutServicePreviewReleaseChannelFirmwareProcedure,
+		svc.PreviewReleaseChannelFirmware,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	rolloutServiceApplyReleaseChannelFirmwareHandler := connect.NewUnaryHandler(
 		RolloutServiceApplyReleaseChannelFirmwareProcedure,
 		svc.ApplyReleaseChannelFirmware,
@@ -654,9 +806,30 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	rolloutServiceListRolloutEventsHandler := connect.NewUnaryHandler(
+		RolloutServiceListRolloutEventsProcedure,
+		svc.ListRolloutEvents,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	rolloutServiceContinueRolloutHandler := connect.NewUnaryHandler(
 		RolloutServiceContinueRolloutProcedure,
 		svc.ContinueRollout,
+		opts...,
+	)
+	rolloutServiceAdvanceRolloutHandler := connect.NewUnaryHandler(
+		RolloutServiceAdvanceRolloutProcedure,
+		svc.AdvanceRollout,
+		opts...,
+	)
+	rolloutServiceSkipRolloutDevicesHandler := connect.NewUnaryHandler(
+		RolloutServiceSkipRolloutDevicesProcedure,
+		svc.SkipRolloutDevices,
+		opts...,
+	)
+	rolloutServiceCompleteRolloutHandler := connect.NewUnaryHandler(
+		RolloutServiceCompleteRolloutProcedure,
+		svc.CompleteRollout,
 		opts...,
 	)
 	rolloutServicePauseRolloutHandler := connect.NewUnaryHandler(
@@ -699,6 +872,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceDeleteReleaseChannelHandler.ServeHTTP(w, r)
 		case RolloutServicePreviewReleaseChannelScopeProcedure:
 			rolloutServicePreviewReleaseChannelScopeHandler.ServeHTTP(w, r)
+		case RolloutServicePreviewReleaseChannelFirmwareProcedure:
+			rolloutServicePreviewReleaseChannelFirmwareHandler.ServeHTTP(w, r)
 		case RolloutServiceApplyReleaseChannelFirmwareProcedure:
 			rolloutServiceApplyReleaseChannelFirmwareHandler.ServeHTTP(w, r)
 		case RolloutServiceRollbackReleaseChannelFirmwareProcedure:
@@ -709,8 +884,16 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceGetRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutDevicesProcedure:
 			rolloutServiceListRolloutDevicesHandler.ServeHTTP(w, r)
+		case RolloutServiceListRolloutEventsProcedure:
+			rolloutServiceListRolloutEventsHandler.ServeHTTP(w, r)
 		case RolloutServiceContinueRolloutProcedure:
 			rolloutServiceContinueRolloutHandler.ServeHTTP(w, r)
+		case RolloutServiceAdvanceRolloutProcedure:
+			rolloutServiceAdvanceRolloutHandler.ServeHTTP(w, r)
+		case RolloutServiceSkipRolloutDevicesProcedure:
+			rolloutServiceSkipRolloutDevicesHandler.ServeHTTP(w, r)
+		case RolloutServiceCompleteRolloutProcedure:
+			rolloutServiceCompleteRolloutHandler.ServeHTTP(w, r)
 		case RolloutServicePauseRolloutProcedure:
 			rolloutServicePauseRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceResumeRolloutProcedure:
@@ -764,6 +947,10 @@ func (UnimplementedRolloutServiceHandler) PreviewReleaseChannelScope(context.Con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PreviewReleaseChannelScope is not implemented"))
 }
 
+func (UnimplementedRolloutServiceHandler) PreviewReleaseChannelFirmware(context.Context, *connect.Request[v1.PreviewReleaseChannelFirmwareRequest]) (*connect.Response[v1.PreviewReleaseChannelFirmwareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.PreviewReleaseChannelFirmware is not implemented"))
+}
+
 func (UnimplementedRolloutServiceHandler) ApplyReleaseChannelFirmware(context.Context, *connect.Request[v1.ApplyReleaseChannelFirmwareRequest]) (*connect.Response[v1.ApplyReleaseChannelFirmwareResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ApplyReleaseChannelFirmware is not implemented"))
 }
@@ -784,8 +971,24 @@ func (UnimplementedRolloutServiceHandler) ListRolloutDevices(context.Context, *c
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutDevices is not implemented"))
 }
 
+func (UnimplementedRolloutServiceHandler) ListRolloutEvents(context.Context, *connect.Request[v1.ListRolloutEventsRequest]) (*connect.Response[v1.ListRolloutEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutEvents is not implemented"))
+}
+
 func (UnimplementedRolloutServiceHandler) ContinueRollout(context.Context, *connect.Request[v1.ContinueRolloutRequest]) (*connect.Response[v1.ContinueRolloutResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ContinueRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) AdvanceRollout(context.Context, *connect.Request[v1.AdvanceRolloutRequest]) (*connect.Response[v1.AdvanceRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.AdvanceRollout is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) SkipRolloutDevices(context.Context, *connect.Request[v1.SkipRolloutDevicesRequest]) (*connect.Response[v1.SkipRolloutDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.SkipRolloutDevices is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) CompleteRollout(context.Context, *connect.Request[v1.CompleteRolloutRequest]) (*connect.Response[v1.CompleteRolloutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.CompleteRollout is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) PauseRollout(context.Context, *connect.Request[v1.PauseRolloutRequest]) (*connect.Response[v1.PauseRolloutResponse], error) {
