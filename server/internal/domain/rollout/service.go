@@ -840,7 +840,7 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 			}
 		}
 		mismatched, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
-			ChannelID: channel.ID, Pair: a.pair,
+			OrgID: orgID, ChannelID: channel.ID, Pair: a.pair,
 			FirmwareVersion: a.artifact.Metadata.FirmwareVersion, FirmwareChecksum: a.artifact.Checksum,
 			AssignmentGeneration: generation,
 		}, 0))

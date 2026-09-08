@@ -247,7 +247,7 @@ CREATE TABLE firmware_rollout_device (
     -- Set when the miner left the channel scope while the rollout ran.
     excluded_at TIMESTAMPTZ NULL,
     -- Health when the miner was snapshotted into the rollout; NULL for late
-    -- joiners, which are judged on version and being online only. baseline_at
+    -- joiners, whose convergence criteria are defined by the contract. baseline_at
     -- is the snapshot statement's own time, the same instant its reads see.
     baseline_status TEXT NULL,
     baseline_hash_rate_hs DOUBLE PRECISION NULL,

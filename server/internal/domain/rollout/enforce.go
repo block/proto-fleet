@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
 const (
@@ -63,14 +64,23 @@ func (s *Service) EnforceTick(ctx context.Context) {
 	}
 }
 
-// prepareRollout syncs a rollout's target set with channel membership and
-// records provenance for targets that verified since the last tick.
+// prepareRollout reconciles membership, provenance and convergence together,
+// so this logical change advances the rollout's revision once.
 func (s *Service) prepareRollout(ctx context.Context, r sqlc.FirmwareRollout) ([]target, error) {
-	targets, err := s.syncMembership(ctx, r)
-	if err != nil {
-		return nil, err
-	}
-	targets, err = s.recordProvenance(ctx, r, targets)
+	var targets []target
+	err := s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		var err error
+		targets, err = s.syncMembership(ctx, r)
+		if err != nil {
+			return err
+		}
+		targets, err = s.recordProvenance(ctx, r, targets)
+		if err != nil {
+			return err
+		}
+		targets, err = s.recordConvergence(ctx, r, targets)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +192,15 @@ func (s *Service) enforceRollout(ctx context.Context, r sqlc.FirmwareRollout, ch
 	}
 	scope := reviewScope(r, targets)
 	behavior := behaviorFromRollout(r)
+
+	// A current-batch target that drifted or returned to scope must converge
+	// again before its review or between-batch wait can proceed. Re-entering
+	// the batch also restarts stabilization after it verifies again.
+	if (r.Stage == StageAwaitingReview || r.Stage == StageWaiting) && !allSettled(scope, r) {
+		if err := s.transition(ctx, &r, r.Stage, StageBatch, nil); err != nil {
+			return err
+		}
+	}
 
 	// Stages that update miners: dispatch first, and if that failed the last
 	// outstanding miner, fall through to settle the stage in the same tick.
@@ -304,13 +323,13 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		changed = true
 	}
 	if len(returners) > 0 {
-		if err := s.snapshot(ctx, r.ID, returners, sql.NullInt32{}, -1); err != nil {
-			return nil, err
+		if err := q.ReincludeFirmwareRolloutDevices(ctx, sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: returners}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("reinclude rollout devices: %v", err)
 		}
 		changed = true
 	}
 	joiners, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
-		ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model},
+		OrgID: r.OrgID, ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model},
 		FirmwareVersion: r.FirmwareVersion, FirmwareChecksum: r.FirmwareChecksum,
 		AssignmentGeneration: r.AssignmentGeneration,
 	}, r.ID))
@@ -322,8 +341,8 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		for i, j := range joiners {
 			ids[i] = j.DeviceID
 		}
-		if err := s.snapshot(ctx, r.ID, ids, sql.NullInt32{}, -1); err != nil {
-			return nil, err
+		if err := q.AppendFirmwareRolloutDevices(ctx, sqlc.AppendFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: ids}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("append rollout devices: %v", err)
 		}
 		changed = true
 	}
@@ -341,7 +360,8 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
 	var deployed []int64
 	for _, t := range targets {
-		if !t.excluded() && t.Attempts > 0 && t.reportsTarget(r) && !t.foreignCommand &&
+		if !t.excluded() && !t.halted() && t.LastSentAt.Valid && t.reportsTarget(r) && !t.foreignCommand &&
+			(!t.LastDeployedAt.Valid || !t.LastDeployedAt.Time.After(t.LastSentAt.Time)) &&
 			t.LastDeployedFirmwareChecksum != r.FirmwareChecksum {
 			deployed = append(deployed, t.DeviceID)
 		}
@@ -354,6 +374,39 @@ func (s *Service) recordProvenance(ctx context.Context, r sqlc.FirmwareRollout, 
 		RolloutID: sql.NullInt64{Int64: r.ID, Valid: true},
 	}); err != nil {
 		return nil, fleeterror.NewInternalErrorf("record firmware deployment: %v", err)
+	}
+	return s.listTargets(ctx, r)
+}
+
+// recordConvergence latches DONE only when all live criteria are met. Firmware
+// drift reopens active work; later health changes alone do not rewrite a phase.
+func (s *Service) recordConvergence(ctx context.Context, r sqlc.FirmwareRollout, targets []target) ([]target, error) {
+	var verified, drifted []int64
+	for _, t := range targets {
+		if t.excluded() || t.halted() {
+			continue
+		}
+		if t.VerifiedAt.Valid {
+			if !t.reportsTarget(r) || t.LastDeployedFirmwareChecksum != r.FirmwareChecksum || t.foreignCommand {
+				drifted = append(drifted, t.DeviceID)
+			}
+		} else if t.meetsConvergence(r) {
+			verified = append(verified, t.DeviceID)
+		}
+	}
+	q := s.store.Queries(ctx)
+	if len(drifted) > 0 {
+		if err := q.UnverifyFirmwareRolloutDevices(ctx, sqlc.UnverifyFirmwareRolloutDevicesParams{RolloutID: r.ID, DeviceIds: drifted}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("reopen rollout convergence: %v", err)
+		}
+	}
+	if len(verified) > 0 {
+		if err := q.MarkFirmwareRolloutDevicesVerified(ctx, sqlc.MarkFirmwareRolloutDevicesVerifiedParams{RolloutID: r.ID, DeviceIds: verified}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("verify rollout devices: %v", err)
+		}
+	}
+	if len(drifted)+len(verified) == 0 {
+		return targets, nil
 	}
 	return s.listTargets(ctx, r)
 }
@@ -422,10 +475,19 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 	if len(due) == 0 {
 		return len(toHalt), nil
 	}
-	fileID, ok := s.files.FindFirmwareFileIDByChecksum(r.FirmwareChecksum)
+	_, ok := s.files.FindFirmwareFileIDByChecksum(r.FirmwareChecksum)
 	if !ok {
 		slog.Warn("rollout enforcement: firmware artifact not uploaded", "rollout_id", r.ID, "checksum", r.FirmwareChecksum)
 		return len(toHalt), nil
+	}
+	assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
+		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
+	})
+	if err != nil {
+		return len(toHalt), fleeterror.NewInternalErrorf("load firmware assignment: %v", err)
+	}
+	if assignment.AssignmentGeneration != r.AssignmentGeneration || assignment.FirmwareChecksum != r.FirmwareChecksum || assignment.FirmwareVersion != r.FirmwareVersion {
+		return len(toHalt), nil // a concurrent assignment change superseded this rollout
 	}
 
 	identifiers := make([]string, 0, len(due))
@@ -441,7 +503,11 @@ func (s *Service) dispatchUpdates(ctx context.Context, r sqlc.FirmwareRollout, s
 			IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
 		},
 	}
-	result, err := s.commands.FirmwareUpdate(s.enforcementContext(ctx, r), selector, fileID)
+	result, err := s.commands.FirmwareUpdateArtifact(s.enforcementContext(ctx, r), selector, r.FirmwareChecksum, files.FirmwareMetadata{
+		TargetManufacturer: assignment.FirmwareTargetManufacturer,
+		TargetModel:        assignment.FirmwareTargetModel,
+		FirmwareVersion:    assignment.FirmwareVersion,
+	})
 	if err != nil {
 		return len(toHalt), fleeterror.NewInternalErrorf("dispatch firmware update: %v", err)
 	}
@@ -505,9 +571,7 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 		if t.baselineHashing() {
 			ev.BaselineHashing++
 		}
-		if t.BaselineOpenErrors.Valid && t.OpenErrors > t.BaselineOpenErrors.Int32 {
-			ev.NewErrors += t.OpenErrors - t.BaselineOpenErrors.Int32
-		}
+		ev.NewErrors += t.ErrorsSinceBaseline
 	}
 	ev.HashRateHs = hash.sum()
 	ev.PowerW = power.sum()

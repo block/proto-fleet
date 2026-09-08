@@ -23,12 +23,14 @@ import (
 // fakeDispatcher records every firmware-update dispatch instead of talking
 // to miners. Sends succeed and report all devices as dispatched.
 type fakeDispatcher struct {
-	sent [][]string
+	sent      [][]string
+	artifacts []files.FirmwareArtifact
 }
 
-func (f *fakeDispatcher) FirmwareUpdateArtifact(_ context.Context, selector *commandpb.DeviceSelector, _ string, _ files.FirmwareMetadata) (*command.CommandResult, error) {
+func (f *fakeDispatcher) FirmwareUpdateArtifact(_ context.Context, selector *commandpb.DeviceSelector, checksum string, metadata files.FirmwareMetadata) (*command.CommandResult, error) {
 	ids := selector.GetIncludeDevices().GetDeviceIdentifiers()
 	f.sent = append(f.sent, ids)
+	f.artifacts = append(f.artifacts, files.FirmwareArtifact{Checksum: checksum, Metadata: metadata})
 	return &command.CommandResult{DispatchedCount: len(ids), DispatchedDeviceIdentifiers: ids}, nil
 }
 
@@ -51,7 +53,8 @@ func (f *fakeDispatcher) sentIdentifiers() []string {
 // "deleted" to exercise the artifact identity rule. fw-legacy exists but its
 // sidecar predates firmware_version, so it cannot back an assignment.
 type fakeFirmwareFiles struct {
-	deleted map[string]bool
+	deleted  map[string]bool
+	metadata map[string]files.FirmwareMetadata
 }
 
 const legacyFileID = "fw-legacy"
@@ -66,6 +69,9 @@ func (f *fakeFirmwareFiles) ResolveFirmwareArtifact(fileID string) (files.Firmwa
 		return files.FirmwareArtifact{}, fleeterror.NewInvalidArgumentErrorf("firmware file %s metadata is incomplete: firmware_version is required", fileID)
 	}
 	if a, ok := fakeArtifacts[fileID]; ok && !f.deleted[fileID] {
+		if metadata, changed := f.metadata[fileID]; changed {
+			a.Metadata = metadata
+		}
 		return a, nil
 	}
 	return files.FirmwareArtifact{}, fleeterror.NewNotFoundErrorf("firmware file not found: %s", fileID)

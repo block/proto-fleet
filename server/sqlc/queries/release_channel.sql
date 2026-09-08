@@ -778,7 +778,7 @@ ON CONFLICT (rollout_id, device_id) DO NOTHING;
 
 -- name: AppendFirmwareRolloutDevices :exec
 -- Adds late joiners: unbatched, unordered (they sort last) and without a
--- baseline, so they are judged on version and being online only. Miners
+-- baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 -- already in the rollout are left as they are.
 INSERT INTO firmware_rollout_device (rollout_id, device_id)
 SELECT sqlc.arg('rollout_id'), d.id

@@ -337,7 +337,7 @@ type rolloutSpec struct {
 // the assignment from one for another artifact.
 func (s *Service) mismatchedParams(spec rolloutSpec, rolloutID int64) sqlc.ListReleaseChannelMismatchedMembersParams {
 	return sqlc.ListReleaseChannelMismatchedMembersParams{
-		ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model,
+		OrgID: spec.OrgID, ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model,
 		FirmwareVersion: spec.FirmwareVersion, FirmwareChecksum: spec.FirmwareChecksum,
 		AssignedFileIds:      s.files.FirmwareFileIDsByChecksum(spec.FirmwareChecksum),
 		AssignmentGeneration: spec.AssignmentGeneration, RolloutID: rolloutID,
@@ -435,12 +435,11 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 	return &r, nil
 }
 
-// snapshot records miners into a rollout. A negative offset marks late
-// joiners, which carry no position and sort last.
+// snapshot records initial miners with their baseline and position.
 func (s *Service) snapshot(ctx context.Context, rolloutID int64, deviceIDs []int64, batch sql.NullInt32, offset int) error {
-	params := sqlc.SnapshotFirmwareRolloutDevicesParams{RolloutID: rolloutID, DeviceIds: deviceIDs, BatchIndex: batch}
-	if offset >= 0 {
-		params.PositionOffset = sql.NullInt32{Int32: int32(offset), Valid: true} // #nosec G115 -- bounded by the member count
+	params := sqlc.SnapshotFirmwareRolloutDevicesParams{
+		RolloutID: rolloutID, DeviceIds: deviceIDs, BatchIndex: batch,
+		PositionOffset: int32(offset), // #nosec G115 -- bounded by the member count
 	}
 	if err := s.store.Queries(ctx).SnapshotFirmwareRolloutDevices(ctx, params); err != nil {
 		return fleeterror.NewInternalErrorf("snapshot rollout devices: %v", err)
@@ -681,7 +680,8 @@ func (s *Service) CancelRollout(ctx context.Context, orgID, rolloutID int64, m M
 }
 
 // RetryFailedDevices re-queues the suppressed members of a rollout's pair. An
-// active rollout retries its own FAILED and SKIPPED targets in place. A
+// active rollout retries its own FAILED and SKIPPED targets in place and
+// appends targets suppressed by an earlier rollout of the generation. A
 // finished rollout must be current under the assignment-generation rule and
 // its pair must have no active rollout; then one all-at-once rollout starts
 // for every member the enforcement rule suppresses in the generation,
@@ -699,7 +699,17 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
 
 		if row.Status == StatusActive {
-			requeued, err := q.RequeueFirmwareRolloutDevices(ctx, rolloutID)
+			suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
+				OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
+			})
+			if err != nil {
+				return fleeterror.NewInternalErrorf("list suppressed members: %v", err)
+			}
+			ids := make([]int64, len(suppressed))
+			for i, d := range suppressed {
+				ids[i] = d.DeviceID
+			}
+			requeued, err := q.RequeueFirmwareRolloutDevices(ctx, sqlc.RequeueFirmwareRolloutDevicesParams{RolloutID: rolloutID, DeviceIds: ids})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("requeue devices: %v", err)
 			}
@@ -729,7 +739,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 				"%s %s in %s already has an active rollout", pair.Manufacturer, pair.Model, channelName)
 		}
 		suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
-			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
+			OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("list suppressed members: %v", err)
@@ -930,15 +940,19 @@ func (t target) reportsTarget(r sqlc.FirmwareRollout) bool {
 	return t.FirmwareVersion == r.FirmwareVersion
 }
 
-// verified: DONE under the contract: reports the target version with
+// meetsConvergence checks the live evidence needed to enter DONE: target version with
 // provenance equal to the rollout's artifact and no foreign firmware command
 // outstanding, back online, and hashing if it was hashing before the update.
 // A miner that was not hashing before (e.g. no pool configured) is not held
-// to a standard the update cannot meet.
-func (t target) verified(r sqlc.FirmwareRollout) bool {
+// to a standard the update cannot meet. Without a baseline, the contract
+// requires current hashing.
+func (t target) meetsConvergence(r sqlc.FirmwareRollout) bool {
 	return t.reportsTarget(r) && t.LastDeployedFirmwareChecksum == r.FirmwareChecksum && !t.foreignCommand &&
-		t.online() && (t.hashing() || !t.baselineHashing())
+		t.online() && (t.hashing() || (t.BaselineAt.Valid && !t.baselineHashing()))
 }
+
+// verified is the persisted phase; later health samples do not rewrite it.
+func (t target) verified(_ sqlc.FirmwareRollout) bool { return t.VerifiedAt.Valid }
 
 // settled: nothing more will happen to this miner in the rollout.
 func (t target) settled(r sqlc.FirmwareRollout) bool {
@@ -958,10 +972,6 @@ func (t target) phase(r sqlc.FirmwareRollout) string {
 		return PhaseDone
 	case t.HaltReason == HaltReasonFailed && (t.halted() || r.Status != StatusActive):
 		return PhaseFailed
-	case r.Status == StatusCompleted:
-		// Completed rollouts verified every miner; comparing against live
-		// versions would misreport history after a later change.
-		return PhaseDone
 	case t.HaltReason == HaltReasonCanceled && r.Status != StatusActive:
 		if t.Attempts == 0 {
 			return PhaseQueued
@@ -985,7 +995,7 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 		Status:             t.Status,
 		Online:             t.online(),
 		Hashing:            t.hashing(),
-		HasBaseline:        t.BaselineStatus.Valid,
+		HasBaseline:        t.BaselineAt.Valid,
 		BaselineHashing:    t.baselineHashing(),
 		HashRateHs:         metricFrom(t.BaselineHashRateHs, t.HashRateHs),
 		PowerW:             metricFrom(t.BaselinePowerW, t.PowerW),
