@@ -290,8 +290,11 @@ CREATE TRIGGER device_firmware_deployment_updated
     FOR EACH STATEMENT
     EXECUTE FUNCTION firmware_rollout_touch_from_rows();
 
--- Live placement of every non-deleted device: its site, its building (the
--- rack's building, falling back to device.building_id) and its rack. Same
+-- Live placement of every current device: its site, its building (the rack's
+-- building, falling back to device.building_id) and its rack. A device is
+-- current when neither its device row nor its discovered_device row is
+-- soft-deleted, the fleet's own definition; every membership read goes
+-- through this view so that rule lives here once. Placement follows the same
 -- rules as fleet_device_placement (000134), restated so that view and this
 -- domain can change independently. Groups are read from
 -- device_set_membership directly because a device can be in several.
@@ -303,6 +306,7 @@ SELECT d.org_id,
        COALESCE(dsr.building_id, d.building_id) AS building_id,
        rs.id AS rack_id
 FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
 LEFT JOIN device_set_membership rm ON rm.org_id = d.org_id AND rm.device_id = d.id AND rm.device_set_type = 'rack'
 LEFT JOIN device_set rs ON rs.id = rm.device_set_id AND rs.deleted_at IS NULL
 LEFT JOIN device_set_rack dsr ON dsr.device_set_id = rs.id
@@ -319,12 +323,12 @@ JOIN release_channel c ON c.id = t.channel_id
 JOIN release_channel_placement p ON p.org_id = c.org_id AND p.device_identifier = t.device_identifier
 WHERE t.target_type = 'miner'
 UNION ALL
-SELECT t.channel_id, c.org_id, gm.device_id, 2
+SELECT t.channel_id, c.org_id, p.device_id, 2
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
 JOIN device_set gs ON gs.id = t.target_id AND gs.org_id = c.org_id AND gs.type = 'group' AND gs.deleted_at IS NULL
 JOIN device_set_membership gm ON gm.device_set_id = gs.id AND gm.device_set_type = 'group'
-JOIN device d ON d.id = gm.device_id AND d.deleted_at IS NULL
+JOIN release_channel_placement p ON p.device_id = gm.device_id
 WHERE t.target_type = 'group'
 UNION ALL
 SELECT t.channel_id, c.org_id, p.device_id, 3

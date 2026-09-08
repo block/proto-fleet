@@ -93,12 +93,12 @@ WHERE c.org_id = sqlc.arg('org_id')
 ORDER BY t.channel_id, t.target_type, t.target_id, t.device_identifier;
 
 -- name: ListDeviceIDsByIdentifiers :many
--- Resolves an org's device identifiers to ids; unknown identifiers are dropped.
-SELECT d.id, d.device_identifier
-FROM device d
-WHERE d.org_id = sqlc.arg('org_id')
-  AND d.deleted_at IS NULL
-  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
+-- Resolves an org's device identifiers to the ids of current devices;
+-- unknown identifiers are dropped.
+SELECT p.device_id AS id, p.device_identifier
+FROM release_channel_placement p
+WHERE p.org_id = sqlc.arg('org_id')
+  AND p.device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
 
 -- --- Membership ---
 
@@ -255,10 +255,10 @@ WITH scoped AS (
         OR p.site_id = ANY(sqlc.arg('site_ids')::bigint[])
       )
     UNION
-    SELECT gm.device_id
+    SELECT p.device_id
     FROM device_set gs
     JOIN device_set_membership gm ON gm.device_set_id = gs.id AND gm.device_set_type = 'group'
-    JOIN device d ON d.id = gm.device_id AND d.deleted_at IS NULL
+    JOIN release_channel_placement p ON p.device_id = gm.device_id
     WHERE gs.org_id = sqlc.arg('org_id')
       AND gs.type = 'group'
       AND gs.deleted_at IS NULL
@@ -624,11 +624,13 @@ WHERE id = sqlc.arg('rollout_id');
 
 -- name: ListFirmwareRolloutDevices :many
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
--- status, latest telemetry within 15 minutes, open errors), provenance, the
--- files named by its pending or processing FirmwareUpdate commands, and
--- whether it is still a member of the channel for the rollout's pair. Live
--- health is evidence for the engine's next decision; the persisted columns
--- (verified_at, halted_at, excluded_at) carry the miner's phase.
+-- status, latest telemetry within 15 minutes, open errors and errors opened
+-- since its baseline), provenance, the files named by its pending or
+-- processing FirmwareUpdate commands, and whether it is still a member of the
+-- channel for the rollout's pair. Live health is evidence for the engine's
+-- next decision; the persisted columns (verified_at, halted_at, excluded_at)
+-- carry the miner's phase. A miner whose discovery row was soft-deleted reads
+-- with empty identity and is out of scope.
 SELECT rd.device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
@@ -650,6 +652,7 @@ SELECT rd.device_id,
        rd.baseline_efficiency_jh,
        rd.baseline_temp_c,
        rd.baseline_open_errors,
+       rd.baseline_at,
        COALESCE(ds.status::text, '')::text AS status,
        hm.hash_rate_hs,
        hm.power_w,
@@ -657,6 +660,8 @@ SELECT rd.device_id,
        hm.temp_c,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int AS open_errors,
+       (SELECT count(*) FROM errors e
+         WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
        COALESCE((
            SELECT array_agg(COALESCE(qm.payload->>'firmware_file_id', ''))
@@ -674,7 +679,7 @@ SELECT rd.device_id,
 FROM firmware_rollout_device rd
 JOIN firmware_rollout r ON r.id = rd.rollout_id
 JOIN device d ON d.id = rd.device_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 LEFT JOIN LATERAL (
