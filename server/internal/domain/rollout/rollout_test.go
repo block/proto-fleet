@@ -275,10 +275,16 @@ func TestAutoContinueChecksEveryThreshold(t *testing.T) {
 	assert.Equal(t, int32(1), held.Evidence.NewErrors)
 	assert.Contains(t, held.Evidence.HoldReason, "1 new errors")
 
-	// Error closed: nothing holds, auto-continue releases the gate.
+	// Closing the error does not erase post-update evidence. The operator can
+	// still release the gate after reviewing it.
 	_, err = f.conn.ExecContext(ctx, `UPDATE errors SET closed_at = now() WHERE device_id = $1`, f.deviceIDs["miner-0"])
 	require.NoError(t, err)
 	f.svc.EnforceTick(ctx)
+	held = f.rollout(t, started.ID)
+	assert.Equal(t, StageAwaitingReview, held.Stage)
+	assert.Equal(t, int32(1), held.Evidence.NewErrors)
+	_, err = f.svc.ContinueRollout(ctx, f.orgID, started.ID, byOperator)
+	require.NoError(t, err)
 	assert.Equal(t, StageRest, f.rollout(t, started.ID).Stage)
 }
 

@@ -897,9 +897,8 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "verified above online is rejected",
+			name:     "persisted verification can exceed current online count",
 			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 2, Verified: 2, Online: 1},
-			wantErr:  true,
 		},
 		{
 			name:     "unverified baseline hashers need not be hashing",
