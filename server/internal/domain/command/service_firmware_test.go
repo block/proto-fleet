@@ -149,6 +149,50 @@ func TestLeaseFirmwareMetadata_PreservesMetadataLookupErrors(t *testing.T) {
 	}
 }
 
+// The queued payload carries the canonical file id whatever form the caller
+// used, so release channels can compare it with the ids the files service
+// reports.
+func TestFirmwareUpdate_QueuesCanonicalFileID(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader("firmware"), files.FirmwareMetadata{
+		TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "2.0.0",
+	})
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	deviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(7), []string{"device-1"}, false).
+		Return([]stores.DeviceRenameProperties{{DeviceIdentifier: "device-1", Manufacturer: "Proto", Model: "Rig"}}, nil)
+	messageQueue := queueMocks.NewMockMessageQueue(ctrl)
+	messageQueue.EXPECT().Enqueue(
+		gomock.Any(), "batch-1", commandtype.FirmwareUpdate, []int64{101}, dto.FirmwareUpdatePayload{FirmwareFileID: fileID},
+	).Return(nil)
+	svc := &Service{
+		config:           &Config{},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
+		messageQueue:     messageQueue,
+		filesService:     filesService,
+		deviceStore:      deviceStore,
+		resolveDevicesOverride: func(_ context.Context, identifiers []string) ([]resolvedDevice, error) {
+			return []resolvedDevice{{id: 101, identifier: identifiers[0]}}, nil
+		},
+		saveCommandBatchLogOverride: func(context.Context, int64, int64, *Command, []byte, int) (string, error) {
+			return "batch-1", nil
+		},
+		startStatusUpdateRoutineOverride: func(string, onFinishedCallbackFunc) {},
+	}
+
+	result, err := svc.FirmwareUpdate(manualSessionCtx(7), includeSelector("device-1"), "urn:uuid:"+strings.ToUpper(fileID))
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.DispatchedCount)
+
+	_, err = svc.FirmwareUpdate(manualSessionCtx(7), includeSelector("device-1"), "not-a-uuid")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
 func TestProcessCommand_FirmwareUpdateValidatesBeforeDispatch(t *testing.T) {
 	tests := []struct {
 		name       string

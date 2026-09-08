@@ -1664,11 +1664,17 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 }
 
 func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) (*CommandResult, error) {
-	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
+	// Persist the canonical id so queued commands compare equal to the ids the
+	// files service reports (release channels match pending updates by file).
+	canonicalFileID, err := files.CanonicalFirmwareFileID(firmwareFileID)
+	if err == nil {
+		_, err = s.filesService.GetFirmwareFilePath(canonicalFileID)
+	}
+	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
 
-	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
+	payload := dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID}
 	result, err := s.processCommand(ctx, &Command{
 		commandType:    commandtype.FirmwareUpdate,
 		deviceSelector: deviceSelector,

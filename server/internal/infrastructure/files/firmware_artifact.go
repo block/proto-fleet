@@ -7,6 +7,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+// CanonicalFirmwareFileID returns the lowercase hyphenated form of a firmware
+// file id, the form files are stored and reported under, or InvalidArgument
+// when the id is not a UUID. Callers that persist a file id (queued
+// FirmwareUpdate commands, assignments) store this form so ids compare equal.
+func CanonicalFirmwareFileID(fileID string) (string, error) {
+	return canonicalizeFirmwareFileID(fileID)
+}
+
 // FirmwareArtifact is a firmware file resolved for a release channel
 // assignment: its payload checksum, the identity under which rollouts track
 // it, and the metadata snapshotted onto the assignment.
