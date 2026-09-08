@@ -970,6 +970,7 @@ type FirmwareRollout struct {
 	StageChangedAt               time.Time
 	PausedAt                     sql.NullTime
 	Revision                     int64
+	RevisionTxid                 int64
 	UpdatedAt                    time.Time
 	StartedByType                string
 	StartedByID                  int64
@@ -1002,6 +1003,14 @@ type FirmwareRolloutDevice struct {
 	BaselineOpenErrors   sql.NullInt32
 	BaselineAt           sql.NullTime
 	AddedAt              time.Time
+}
+
+type FirmwareRolloutSuppressedDevice struct {
+	ChannelID            int64
+	ManufacturerKey      string
+	ModelKey             string
+	AssignmentGeneration int64
+	DeviceID             int64
 }
 
 type FleetActiveOrganization struct {
@@ -1357,6 +1366,25 @@ type ReleaseChannelMember struct {
 	Conflicted bool
 }
 
+type ReleaseChannelPlacement struct {
+	OrgID            int64
+	DeviceID         int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	BuildingID       sql.NullInt64
+	RackID           sql.NullInt64
+}
+
+type ReleaseChannelResolution struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity interface{}
+	Best        interface{}
+	AtLevel     int64
+	Channels    int64
+}
+
 type ReleaseChannelSetting struct {
 	OrganizationID int64
 	Channel        string
@@ -1364,9 +1392,10 @@ type ReleaseChannelSetting struct {
 }
 
 type ReleaseChannelTarget struct {
-	ChannelID  int64
-	TargetType string
-	TargetID   int64
+	ChannelID        int64
+	TargetType       string
+	TargetID         sql.NullInt64
+	DeviceIdentifier sql.NullString
 }
 
 type RepairTicket struct {

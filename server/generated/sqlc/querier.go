@@ -40,6 +40,10 @@ type Querier interface {
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
+	// Adds late joiners: unbatched, unordered (they sort last) and without a
+	// baseline, so they are judged on version and being online only. Miners
+	// already in the rollout are left as they are.
+	AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -361,11 +365,9 @@ type Querier interface {
 	// composite-keyed; inherit it from device_set so the caller's org_id
 	// must match. site_id / building_id are NULL for unassigned racks.
 	CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error
-	// Firmware release channels and the rollouts that enforce them.
-	//
-	// Pair keys (manufacturer, model) are compared ASCII-case-insensitively with
-	// lower(x COLLATE "C"), which folds A-Z only; observed device identities are
-	// trimmed before folding. Firmware is identified by payload checksum.
+	// Firmware release channels and the rollouts that enforce them. Pair keys and
+	// observed device identities are compared through release_channel_pair_key()
+	// (migration 000148); firmware is identified by payload checksum.
 	// --- Channels ---
 	CreateReleaseChannel(ctx context.Context, arg CreateReleaseChannelParams) (ReleaseChannel, error)
 	CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (int64, error)
@@ -894,7 +896,9 @@ type Querier interface {
 	// Batch insert for the notification_metric_sample hypertable populated by
 	// the in-process metrics provider on every flush.
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
-	// target_types and target_ids are parallel arrays.
+	InsertReleaseChannelMinerTargets(ctx context.Context, arg InsertReleaseChannelMinerTargetsParams) error
+	// Site, building, rack and group selectors; target_types and target_ids are
+	// parallel arrays.
 	InsertReleaseChannelTargets(ctx context.Context, arg InsertReleaseChannelTargetsParams) error
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
@@ -1209,8 +1213,9 @@ type Querier interface {
 	ListReleaseChannelFirmware(ctx context.Context, orgID int64) ([]ReleaseChannelFirmware, error)
 	// Assigned pairs with no active rollout and at least one mismatched,
 	// unsuppressed member: late joiners, re-entries and miners that drifted. Any
-	// outstanding FirmwareUpdate counts as a mismatch here; the file set is only
-	// known per pair, so ListReleaseChannelMismatchedMembers makes the final call.
+	// outstanding FirmwareUpdate counts as a mismatch here because the assigned
+	// file set is only known per pair; ListReleaseChannelMismatchedMembers makes
+	// the final call.
 	ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error)
 	// --- Membership ---
 	// Every miner resolved into one of the org's channels, with its observed
@@ -1223,25 +1228,24 @@ type Querier interface {
 	// manufacturer and model (verbatim), ordered by identifier. The cursor is the
 	// (device_identifier, device_id) of the last row of the previous page.
 	ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error)
-	// Members of one pair that are mismatched under the mismatch rule (reported
+	// Members of one pair the enforcement loop should update: the reported
 	// version or provenance differs from the assignment, or a FirmwareUpdate for a
-	// file outside assigned_file_ids — the files carrying the assigned checksum —
-	// is still pending or processing), are not already part of rollout_id (0 for
-	// a new rollout), and are not suppressed: a member halted (failed, skipped, or
-	// left behind by a cancellation) in the most recent rollout of the current
-	// generation that holds it stays out until retried.
+	// file outside assigned_file_ids (the files carrying the assigned checksum) is
+	// still pending or processing. Excludes miners already in rollout_id (0 for a
+	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 	// Carries the latest efficiency sample for ordering.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
 	// One page of a channel's manufacturer/model groups: every observed pair among
 	// its members plus every assigned pair with no current members, each joined to
 	// its assignment (by folded key) and active rollout. Ordered by observed
 	// manufacturer then model; the cursor is the pair of the last row.
+	// on_target_count follows the contract's definition: reported version and
+	// provenance equal the assignment.
 	ListReleaseChannelModelGroupsPage(ctx context.Context, arg ListReleaseChannelModelGroupsPageParams) ([]ListReleaseChannelModelGroupsPageRow, error)
-	// Members of one pair the enforcement rule currently suppresses: halted in
-	// the most recent rollout of the given generation that holds them.
+	// Members of one pair the enforcement loop currently suppresses;
 	// RetryFailedRolloutDevices re-queues exactly this set.
 	ListReleaseChannelSuppressedMembers(ctx context.Context, arg ListReleaseChannelSuppressedMembersParams) ([]ListReleaseChannelSuppressedMembersRow, error)
-	// Targets of every channel in the org; miner targets carry their identifier.
+	// Selectors of every channel in the org.
 	ListReleaseChannelTargets(ctx context.Context, orgID int64) ([]ListReleaseChannelTargetsRow, error)
 	ListReleaseChannels(ctx context.Context, orgID int64) ([]ReleaseChannel, error)
 	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
@@ -1433,8 +1437,9 @@ type Querier interface {
 	// on the nullable side of an outer join, and every live rack has a
 	// device_set_rack row by lifecycle invariant.
 	LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error)
-	// Serializes scope writes per org so the overlap check and the target
-	// insert happen in one critical section.
+	// Serializes scope writes per org. Call inside the transaction that checks
+	// overlap and writes targets: the lock is transaction-scoped and a no-op
+	// outside one.
 	LockReleaseChannelScopes(ctx context.Context, orgID int64) error
 	LockRepairTicketCommentCreateKey(ctx context.Context, arg LockRepairTicketCommentCreateKeyParams) error
 	LockRepairTicketCreateKey(ctx context.Context, arg LockRepairTicketCreateKeyParams) error
@@ -1515,10 +1520,11 @@ type Querier interface {
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	// Managed-deployment provenance: the miners listed reported the artifact a
-	// rollout dispatched to them.
+	// rollout dispatched to them. The triggers on device_firmware_deployment
+	// advance the rollout's revision.
 	RecordFirmwareDeployment(ctx context.Context, arg RecordFirmwareDeploymentParams) error
 	// Attributes an action that changes only the rollout's devices (retry) to
-	// its actor; the update itself bumps the revision.
+	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
 	// ============================================================================
 	// Error Lifecycle Management
@@ -1526,6 +1532,9 @@ type Querier interface {
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
+	// Re-includes miners that left the channel scope and came back; they keep
+	// their batch, order and baseline.
+	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
 	ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error)
 	// Targets that never received a Curtail command do not need Uncurtail. Release
 	// them before the restore reset so graceful Stop does not enqueue commands
@@ -1591,9 +1600,9 @@ type Querier interface {
 	ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error)
 	ResolveMaintenanceLocationContext(ctx context.Context, arg ResolveMaintenanceLocationContextParams) (ResolveMaintenanceLocationContextRow, error)
 	ResolveMaintenanceMinerContext(ctx context.Context, arg ResolveMaintenanceMinerContextParams) (ResolveMaintenanceMinerContextRow, error)
-	// Miners a candidate scope covers, each with the other channel (if any)
-	// whose selectors already match it. Used to preview a scope and to reject
-	// overlapping saves; exclude_channel_id is the channel being edited.
+	// Miners a candidate scope covers, each with the most specific other channel
+	// (if any) whose selectors already match it. Used to preview a scope and to
+	// reject overlapping saves; exclude_channel_id is the channel being edited.
 	ResolveReleaseChannelScope(ctx context.Context, arg ResolveReleaseChannelScopeParams) ([]ResolveReleaseChannelScopeRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
@@ -1655,12 +1664,10 @@ type Querier interface {
 	// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
 	// bulk-validate rack-list site_ids filter references in one round trip.
 	SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error)
-	// Adds miners to a rollout with their batch (NULL for the unbatched rest /
-	// late joiners), their order (position_offset + index in device_ids; NULL
-	// offset for late joiners) and a baseline of their health, so post-update
-	// evidence can be compared against each miner's own past. A miner that
-	// re-enters the scope after being excluded is re-included and keeps its
-	// original batch and order.
+	// Adds a rollout's initial targets with their batch (NULL for the unbatched
+	// rest), their order (position_offset + index in device_ids) and a baseline
+	// of their health, so post-update evidence is compared with each miner's own
+	// past. Miners already in the rollout are left as they are.
 	SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error
 	// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
 	// no reason to retain its webhook URL / bearer.

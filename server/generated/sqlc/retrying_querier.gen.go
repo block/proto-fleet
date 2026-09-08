@@ -108,6 +108,12 @@ func (q *retryingQuerier) AllDevicesBelongToOrg(ctx context.Context, arg AllDevi
 	return result, err
 }
 
+func (q *retryingQuerier) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error {
+	return q.retrier.RetryQuery(ctx, "AppendFirmwareRolloutDevices", func() error {
+		return q.next.AppendFirmwareRolloutDevices(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) AssignBuildingToSite(ctx context.Context, arg AssignBuildingToSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignBuildingToSite", func() error {
@@ -3900,6 +3906,12 @@ func (q *retryingQuerier) InsertNotificationMetricSamples(ctx context.Context, a
 	})
 }
 
+func (q *retryingQuerier) InsertReleaseChannelMinerTargets(ctx context.Context, arg InsertReleaseChannelMinerTargetsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertReleaseChannelMinerTargets", func() error {
+		return q.next.InsertReleaseChannelMinerTargets(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertReleaseChannelTargets(ctx context.Context, arg InsertReleaseChannelTargetsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertReleaseChannelTargets", func() error {
 		return q.next.InsertReleaseChannelTargets(ctx, arg)
@@ -5830,6 +5842,12 @@ func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context,
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error {
+	return q.retrier.RetryQuery(ctx, "ReincludeFirmwareRolloutDevices", func() error {
+		return q.next.ReincludeFirmwareRolloutDevices(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error) {

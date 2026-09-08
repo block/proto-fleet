@@ -48,6 +48,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
@@ -1044,6 +1047,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertNotificationMetricSamplesStmt, err = db.PrepareContext(ctx, insertNotificationMetricSamples); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertNotificationMetricSamples: %w", err)
 	}
+	if q.insertReleaseChannelMinerTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelMinerTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertReleaseChannelMinerTargets: %w", err)
+	}
 	if q.insertReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertReleaseChannelTargets: %w", err)
 	}
@@ -1554,6 +1560,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
 	}
+	if q.reincludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, reincludeFirmwareRolloutDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ReincludeFirmwareRolloutDevices: %w", err)
+	}
 	if q.releaseInventoryPartStmt, err = db.PrepareContext(ctx, releaseInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseInventoryPart: %w", err)
 	}
@@ -2053,6 +2062,11 @@ func (q *Queries) Close() error {
 	if q.allDevicesBelongToOrgStmt != nil {
 		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
+		}
+	}
+	if q.appendFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.appendFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing appendFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
 	if q.assignBuildingToSiteStmt != nil {
@@ -3715,6 +3729,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertNotificationMetricSamplesStmt: %w", cerr)
 		}
 	}
+	if q.insertReleaseChannelMinerTargetsStmt != nil {
+		if cerr := q.insertReleaseChannelMinerTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertReleaseChannelMinerTargetsStmt: %w", cerr)
+		}
+	}
 	if q.insertReleaseChannelTargetsStmt != nil {
 		if cerr := q.insertReleaseChannelTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertReleaseChannelTargetsStmt: %w", cerr)
@@ -4565,6 +4584,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
 		}
 	}
+	if q.reincludeFirmwareRolloutDevicesStmt != nil {
+		if cerr := q.reincludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reincludeFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
 	if q.releaseInventoryPartStmt != nil {
 		if cerr := q.releaseInventoryPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseInventoryPartStmt: %w", cerr)
@@ -5372,6 +5396,7 @@ type Queries struct {
 	advanceFirmwareRolloutStageStmt                              *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
+	appendFirmwareRolloutDevicesStmt                             *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
@@ -5704,6 +5729,7 @@ type Queries struct {
 	insertMinerStateSnapshotStmt                                 *sql.Stmt
 	insertNotificationHistoryStmt                                *sql.Stmt
 	insertNotificationMetricSamplesStmt                          *sql.Stmt
+	insertReleaseChannelMinerTargetsStmt                         *sql.Stmt
 	insertReleaseChannelTargetsStmt                              *sql.Stmt
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
@@ -5874,6 +5900,7 @@ type Queries struct {
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
 	recordFirmwareRolloutActionStmt                              *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
+	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
 	releaseInventoryPartStmt                                     *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
@@ -6040,6 +6067,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		advanceFirmwareRolloutStageStmt:           q.advanceFirmwareRolloutStageStmt,
 		advanceFleetMetricRollupProgressStmt:      q.advanceFleetMetricRollupProgressStmt,
 		allDevicesBelongToOrgStmt:                 q.allDevicesBelongToOrgStmt,
+		appendFirmwareRolloutDevicesStmt:          q.appendFirmwareRolloutDevicesStmt,
 		assignBuildingToSiteStmt:                  q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:             q.assignBuildingsToSiteBulkStmt,
 		assignDevicesToBuildingStmt:               q.assignDevicesToBuildingStmt,
@@ -6372,6 +6400,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
 		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
 		insertNotificationMetricSamplesStmt:                          q.insertNotificationMetricSamplesStmt,
+		insertReleaseChannelMinerTargetsStmt:                         q.insertReleaseChannelMinerTargetsStmt,
 		insertReleaseChannelTargetsStmt:                              q.insertReleaseChannelTargetsStmt,
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
@@ -6542,6 +6571,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
+		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
 		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,

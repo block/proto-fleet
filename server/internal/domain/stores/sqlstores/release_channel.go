@@ -7,9 +7,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-// SQLReleaseChannelStore gives the rollout domain access to the release
-// channel and firmware rollout queries. The domain service works with sqlc
-// types directly, so this store only manages the connection.
+// SQLReleaseChannelStore hands the rollout domain the release channel and
+// firmware rollout queries. The domain works with sqlc types directly, so the
+// store only manages the connection.
 type SQLReleaseChannelStore struct {
 	SQLConnectionManager
 }
@@ -20,7 +20,8 @@ func NewSQLReleaseChannelStore(conn *sql.DB) *SQLReleaseChannelStore {
 	}
 }
 
-// Queries returns the querier bound to the current context (transaction-aware).
+// Queries returns the querier bound to ctx: the transaction's when ctx
+// carries one, otherwise the pool's.
 func (s *SQLReleaseChannelStore) Queries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }

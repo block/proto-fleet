@@ -1,8 +1,6 @@
--- Firmware release channels and the rollouts that enforce them.
---
--- Pair keys (manufacturer, model) are compared ASCII-case-insensitively with
--- lower(x COLLATE "C"), which folds A-Z only; observed device identities are
--- trimmed before folding. Firmware is identified by payload checksum.
+-- Firmware release channels and the rollouts that enforce them. Pair keys and
+-- observed device identities are compared through release_channel_pair_key()
+-- (migration 000148); firmware is identified by payload checksum.
 
 -- --- Channels ---
 
@@ -61,32 +59,38 @@ DELETE FROM release_channel
 WHERE id = sqlc.arg('channel_id') AND org_id = sqlc.arg('org_id');
 
 -- name: LockReleaseChannelScopes :exec
--- Serializes scope writes per org so the overlap check and the target
--- insert happen in one critical section.
+-- Serializes scope writes per org. Call inside the transaction that checks
+-- overlap and writes targets: the lock is transaction-scoped and a no-op
+-- outside one.
 SELECT pg_advisory_xact_lock(hashtextextended('release_channel_scope:' || (sqlc.arg('org_id')::bigint)::text, 0));
 
 -- name: DeleteReleaseChannelTargets :exec
 DELETE FROM release_channel_target WHERE channel_id = sqlc.arg('channel_id');
 
 -- name: InsertReleaseChannelTargets :exec
--- target_types and target_ids are parallel arrays.
+-- Site, building, rack and group selectors; target_types and target_ids are
+-- parallel arrays.
 INSERT INTO release_channel_target (channel_id, target_type, target_id)
 SELECT sqlc.arg('channel_id'),
        unnest(sqlc.arg('target_types')::text[]),
        unnest(sqlc.arg('target_ids')::bigint[])
 ON CONFLICT DO NOTHING;
 
+-- name: InsertReleaseChannelMinerTargets :exec
+INSERT INTO release_channel_target (channel_id, target_type, device_identifier)
+SELECT sqlc.arg('channel_id'), 'miner', unnest(sqlc.arg('device_identifiers')::text[])
+ON CONFLICT DO NOTHING;
+
 -- name: ListReleaseChannelTargets :many
--- Targets of every channel in the org; miner targets carry their identifier.
+-- Selectors of every channel in the org.
 SELECT t.channel_id,
        t.target_type,
-       t.target_id,
-       COALESCE(d.device_identifier, '')::text AS device_identifier
+       COALESCE(t.target_id, 0)::bigint AS target_id,
+       COALESCE(t.device_identifier, '')::text AS device_identifier
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
-LEFT JOIN device d ON t.target_type = 'miner' AND d.id = t.target_id
 WHERE c.org_id = sqlc.arg('org_id')
-ORDER BY t.channel_id, t.target_type, t.target_id;
+ORDER BY t.channel_id, t.target_type, t.target_id, t.device_identifier;
 
 -- name: ListDeviceIDsByIdentifiers :many
 -- Resolves an org's device identifiers to ids; unknown identifiers are dropped.
@@ -128,12 +132,11 @@ SELECT m.device_id,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
-JOIN release_channel c ON c.id = m.channel_id
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
-WHERE m.channel_id = sqlc.arg('channel_id')
-  AND c.org_id = sqlc.arg('org_id')
+WHERE m.org_id = sqlc.arg('org_id')
+  AND m.channel_id = sqlc.arg('channel_id')
   AND (sqlc.narg('manufacturer')::text IS NULL OR COALESCE(dd.manufacturer, '') = sqlc.narg('manufacturer'))
   AND (sqlc.narg('model')::text IS NULL OR COALESCE(dd.model, '') = sqlc.narg('model'))
   AND (
@@ -148,6 +151,8 @@ LIMIT sqlc.arg('page_limit');
 -- its members plus every assigned pair with no current members, each joined to
 -- its assignment (by folded key) and active rollout. Ordered by observed
 -- manufacturer then model; the cursor is the pair of the last row.
+-- on_target_count follows the contract's definition: reported version and
+-- provenance equal the assignment.
 WITH members AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
@@ -158,7 +163,7 @@ WITH members AS (
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
-    WHERE m.channel_id = sqlc.arg('channel_id')
+    WHERE m.org_id = sqlc.arg('org_id') AND m.channel_id = sqlc.arg('channel_id')
 ), groups AS (
     SELECT manufacturer,
            model,
@@ -174,8 +179,8 @@ WITH members AS (
       AND f.firmware_checksum <> ''
       AND NOT EXISTS (
           SELECT 1 FROM members mm
-          WHERE lower(btrim(mm.manufacturer) COLLATE "C") = lower(f.manufacturer COLLATE "C")
-            AND lower(btrim(mm.model) COLLATE "C") = lower(f.model COLLATE "C")
+          WHERE release_channel_pair_key(mm.manufacturer) = release_channel_pair_key(f.manufacturer)
+            AND release_channel_pair_key(mm.model) = release_channel_pair_key(f.model)
       )
 )
 SELECT g.manufacturer,
@@ -198,12 +203,12 @@ FROM groups g
 JOIN release_channel c ON c.id = sqlc.arg('channel_id') AND c.org_id = sqlc.arg('org_id')
 LEFT JOIN release_channel_firmware f
        ON f.channel_id = c.id
-      AND lower(f.manufacturer COLLATE "C") = lower(btrim(g.manufacturer) COLLATE "C")
-      AND lower(f.model COLLATE "C") = lower(btrim(g.model) COLLATE "C")
+      AND release_channel_pair_key(f.manufacturer) = release_channel_pair_key(g.manufacturer)
+      AND release_channel_pair_key(f.model) = release_channel_pair_key(g.model)
 LEFT JOIN firmware_rollout r
        ON r.channel_id = c.id AND r.status = 'active'
-      AND lower(r.manufacturer COLLATE "C") = lower(btrim(g.manufacturer) COLLATE "C")
-      AND lower(r.model COLLATE "C") = lower(btrim(g.model) COLLATE "C")
+      AND release_channel_pair_key(r.manufacturer) = release_channel_pair_key(g.manufacturer)
+      AND release_channel_pair_key(r.model) = release_channel_pair_key(g.model)
 WHERE (
     sqlc.narg('after_manufacturer')::text IS NULL
     OR (g.manufacturer, g.model) > (sqlc.narg('after_manufacturer')::text, sqlc.narg('after_model')::text)
@@ -236,26 +241,28 @@ ORDER BY d.device_identifier, d.id, k.channel_id
 LIMIT sqlc.arg('page_limit');
 
 -- name: ResolveReleaseChannelScope :many
--- Miners a candidate scope covers, each with the other channel (if any)
--- whose selectors already match it. Used to preview a scope and to reject
--- overlapping saves; exclude_channel_id is the channel being edited.
+-- Miners a candidate scope covers, each with the most specific other channel
+-- (if any) whose selectors already match it. Used to preview a scope and to
+-- reject overlapping saves; exclude_channel_id is the channel being edited.
 WITH scoped AS (
-    SELECT d.id AS device_id
-    FROM device d
-    WHERE d.org_id = sqlc.arg('org_id')
-      AND d.deleted_at IS NULL
-      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
-    UNION
-    SELECT d.id
-    FROM fleet_device_placement p
-    JOIN device d ON d.device_identifier = p.device_id AND d.org_id = p.org_id
+    SELECT p.device_id
+    FROM release_channel_placement p
     WHERE p.org_id = sqlc.arg('org_id')
       AND (
-           p.group_id = ANY(sqlc.arg('group_ids')::bigint[])
+           p.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
         OR p.rack_id = ANY(sqlc.arg('rack_ids')::bigint[])
         OR p.building_id = ANY(sqlc.arg('building_ids')::bigint[])
         OR p.site_id = ANY(sqlc.arg('site_ids')::bigint[])
       )
+    UNION
+    SELECT gm.device_id
+    FROM device_set gs
+    JOIN device_set_membership gm ON gm.device_set_id = gs.id AND gm.device_set_type = 'group'
+    JOIN device d ON d.id = gm.device_id AND d.deleted_at IS NULL
+    WHERE gs.org_id = sqlc.arg('org_id')
+      AND gs.type = 'group'
+      AND gs.deleted_at IS NULL
+      AND gs.id = ANY(sqlc.arg('group_ids')::bigint[])
 )
 SELECT s.device_id,
        d.device_identifier,
@@ -271,9 +278,10 @@ LEFT JOIN LATERAL (
     SELECT c.id AS channel_id, c.name
     FROM release_channel_match rm
     JOIN release_channel c ON c.id = rm.channel_id
-    WHERE rm.device_id = s.device_id
+    WHERE rm.org_id = sqlc.arg('org_id')
+      AND rm.device_id = s.device_id
       AND rm.channel_id <> sqlc.arg('exclude_channel_id')
-    ORDER BY c.id
+    ORDER BY rm.specificity, c.id
     LIMIT 1
 ) owner ON true
 ORDER BY d.device_identifier;
@@ -291,7 +299,7 @@ VALUES (
     sqlc.arg('channel_id'), sqlc.arg('manufacturer'), sqlc.arg('model'), sqlc.arg('firmware_checksum'), sqlc.arg('firmware_version'),
     sqlc.arg('firmware_target_manufacturer'), sqlc.arg('firmware_target_model'), 1, sqlc.arg('assigned_by')
 )
-ON CONFLICT (channel_id, lower(manufacturer COLLATE "C"), lower(model COLLATE "C")) DO UPDATE
+ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
 SET firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
     firmware_target_manufacturer = EXCLUDED.firmware_target_manufacturer,
@@ -313,16 +321,16 @@ SET firmware_checksum = '',
     assigned_by = sqlc.arg('assigned_by'),
     updated_at = now()
 WHERE channel_id = sqlc.arg('channel_id')
-  AND lower(manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
+  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND firmware_checksum <> ''
 RETURNING *;
 
 -- name: GetReleaseChannelFirmware :one
 SELECT * FROM release_channel_firmware
 WHERE channel_id = sqlc.arg('channel_id')
-  AND lower(manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C");
+  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text);
 
 -- name: ListReleaseChannelFirmware :many
 -- Every pair row of an org's channels, assigned or cleared.
@@ -333,13 +341,11 @@ WHERE c.org_id = sqlc.arg('org_id')
 ORDER BY f.channel_id, f.manufacturer, f.model;
 
 -- name: ListReleaseChannelMismatchedMembers :many
--- Members of one pair that are mismatched under the mismatch rule (reported
+-- Members of one pair the enforcement loop should update: the reported
 -- version or provenance differs from the assignment, or a FirmwareUpdate for a
--- file outside assigned_file_ids — the files carrying the assigned checksum —
--- is still pending or processing), are not already part of rollout_id (0 for
--- a new rollout), and are not suppressed: a member halted (failed, skipped, or
--- left behind by a cancellation) in the most recent rollout of the current
--- generation that holds it stays out until retried.
+-- file outside assigned_file_ids (the files carrying the assigned checksum) is
+-- still pending or processing. Excludes miners already in rollout_id (0 for a
+-- new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 -- Carries the latest efficiency sample for ordering.
 SELECT d.id AS device_id,
        d.device_identifier,
@@ -356,9 +362,10 @@ LEFT JOIN LATERAL (
     ORDER BY dm.time DESC
     LIMIT 1
 ) hm ON true
-WHERE m.channel_id = sqlc.arg('channel_id')
-  AND lower(btrim(COALESCE(dd.manufacturer, '')) COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(btrim(COALESCE(dd.model, '')) COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
+WHERE m.org_id = sqlc.arg('org_id')
+  AND m.channel_id = sqlc.arg('channel_id')
+  AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND NOT (
       COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
       AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
@@ -367,7 +374,7 @@ WHERE m.channel_id = sqlc.arg('channel_id')
           WHERE qm.device_id = d.id
             AND qm.command_type = 'FirmwareUpdate'
             AND qm.status IN ('PENDING', 'PROCESSING')
-            AND NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(sqlc.arg('assigned_file_ids')::text[]))
+            AND NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE(sqlc.arg('assigned_file_ids')::text[], '{}')))
       )
   )
   AND NOT EXISTS (
@@ -375,70 +382,41 @@ WHERE m.channel_id = sqlc.arg('channel_id')
       WHERE rd.rollout_id = sqlc.arg('rollout_id') AND rd.device_id = d.id
   )
   AND NOT EXISTS (
-      SELECT 1
-      FROM firmware_rollout_device rd
-      JOIN firmware_rollout r ON r.id = rd.rollout_id
-      WHERE rd.device_id = d.id
-        AND r.channel_id = sqlc.arg('channel_id')
-        AND lower(r.manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-        AND lower(r.model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
-        AND r.assignment_generation = sqlc.arg('assignment_generation')::bigint
-        AND rd.halted_at IS NOT NULL
-        AND NOT EXISTS (
-            SELECT 1
-            FROM firmware_rollout_device rd2
-            JOIN firmware_rollout r2 ON r2.id = rd2.rollout_id
-            WHERE rd2.device_id = d.id
-              AND r2.channel_id = r.channel_id
-              AND r2.assignment_generation = r.assignment_generation
-              AND lower(r2.manufacturer COLLATE "C") = lower(r.manufacturer COLLATE "C")
-              AND lower(r2.model COLLATE "C") = lower(r.model COLLATE "C")
-              AND r2.created_at > r.created_at
-        )
+      SELECT 1 FROM firmware_rollout_suppressed_device s
+      WHERE s.channel_id = m.channel_id
+        AND s.device_id = d.id
+        AND s.manufacturer_key = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+        AND s.model_key = release_channel_pair_key(sqlc.arg('model')::text)
+        AND s.assignment_generation = sqlc.arg('assignment_generation')::bigint
   )
 ORDER BY d.device_identifier;
 
 -- name: ListReleaseChannelSuppressedMembers :many
--- Members of one pair the enforcement rule currently suppresses: halted in
--- the most recent rollout of the given generation that holds them.
+-- Members of one pair the enforcement loop currently suppresses;
 -- RetryFailedRolloutDevices re-queues exactly this set.
 SELECT d.id AS device_id,
        d.device_identifier
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-WHERE m.channel_id = sqlc.arg('channel_id')
-  AND lower(btrim(COALESCE(dd.manufacturer, '')) COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(btrim(COALESCE(dd.model, '')) COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
-  AND EXISTS (
-      SELECT 1
-      FROM firmware_rollout_device rd
-      JOIN firmware_rollout r ON r.id = rd.rollout_id
-      WHERE rd.device_id = d.id
-        AND r.channel_id = sqlc.arg('channel_id')
-        AND lower(r.manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-        AND lower(r.model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
-        AND r.assignment_generation = sqlc.arg('assignment_generation')::bigint
-        AND rd.halted_at IS NOT NULL
-        AND NOT EXISTS (
-            SELECT 1
-            FROM firmware_rollout_device rd2
-            JOIN firmware_rollout r2 ON r2.id = rd2.rollout_id
-            WHERE rd2.device_id = d.id
-              AND r2.channel_id = r.channel_id
-              AND r2.assignment_generation = r.assignment_generation
-              AND lower(r2.manufacturer COLLATE "C") = lower(r.manufacturer COLLATE "C")
-              AND lower(r2.model COLLATE "C") = lower(r.model COLLATE "C")
-              AND r2.created_at > r.created_at
-        )
-  )
+JOIN firmware_rollout_suppressed_device s
+  ON s.channel_id = m.channel_id
+ AND s.device_id = m.device_id
+ AND s.manufacturer_key = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+ AND s.model_key = release_channel_pair_key(sqlc.arg('model')::text)
+ AND s.assignment_generation = sqlc.arg('assignment_generation')::bigint
+WHERE m.org_id = sqlc.arg('org_id')
+  AND m.channel_id = sqlc.arg('channel_id')
+  AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
 ORDER BY d.device_identifier;
 
 -- name: ListReleaseChannelFirmwareNeedingRollout :many
 -- Assigned pairs with no active rollout and at least one mismatched,
 -- unsuppressed member: late joiners, re-entries and miners that drifted. Any
--- outstanding FirmwareUpdate counts as a mismatch here; the file set is only
--- known per pair, so ListReleaseChannelMismatchedMembers makes the final call.
+-- outstanding FirmwareUpdate counts as a mismatch here because the assigned
+-- file set is only known per pair; ListReleaseChannelMismatchedMembers makes
+-- the final call.
 SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version,
        f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation,
        f.assigned_by, f.updated_at, c.org_id
@@ -448,8 +426,8 @@ WHERE f.firmware_checksum <> ''
 AND NOT EXISTS (
     SELECT 1 FROM firmware_rollout r
     WHERE r.channel_id = f.channel_id
-      AND lower(r.manufacturer COLLATE "C") = lower(f.manufacturer COLLATE "C")
-      AND lower(r.model COLLATE "C") = lower(f.model COLLATE "C")
+      AND release_channel_pair_key(r.manufacturer) = release_channel_pair_key(f.manufacturer)
+      AND release_channel_pair_key(r.model) = release_channel_pair_key(f.model)
       AND r.status = 'active'
 )
 AND EXISTS (
@@ -458,9 +436,10 @@ AND EXISTS (
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
-    WHERE m.channel_id = f.channel_id
-      AND lower(btrim(COALESCE(dd.manufacturer, '')) COLLATE "C") = lower(f.manufacturer COLLATE "C")
-      AND lower(btrim(COALESCE(dd.model, '')) COLLATE "C") = lower(f.model COLLATE "C")
+    WHERE m.org_id = c.org_id
+      AND m.channel_id = f.channel_id
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
       AND NOT (
           COALESCE(dd.firmware_version, '') = f.firmware_version
           AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
@@ -472,26 +451,12 @@ AND EXISTS (
           )
       )
       AND NOT EXISTS (
-          SELECT 1
-          FROM firmware_rollout_device rd
-          JOIN firmware_rollout r ON r.id = rd.rollout_id
-          WHERE rd.device_id = d.id
-            AND r.channel_id = f.channel_id
-            AND lower(r.manufacturer COLLATE "C") = lower(f.manufacturer COLLATE "C")
-            AND lower(r.model COLLATE "C") = lower(f.model COLLATE "C")
-            AND r.assignment_generation = f.assignment_generation
-            AND rd.halted_at IS NOT NULL
-            AND NOT EXISTS (
-                SELECT 1
-                FROM firmware_rollout_device rd2
-                JOIN firmware_rollout r2 ON r2.id = rd2.rollout_id
-                WHERE rd2.device_id = d.id
-                  AND r2.channel_id = r.channel_id
-                  AND r2.assignment_generation = r.assignment_generation
-                  AND lower(r2.manufacturer COLLATE "C") = lower(r.manufacturer COLLATE "C")
-                  AND lower(r2.model COLLATE "C") = lower(r.model COLLATE "C")
-                  AND r2.created_at > r.created_at
-            )
+          SELECT 1 FROM firmware_rollout_suppressed_device s
+          WHERE s.channel_id = f.channel_id
+            AND s.device_id = d.id
+            AND s.manufacturer_key = release_channel_pair_key(f.manufacturer)
+            AND s.model_key = release_channel_pair_key(f.model)
+            AND s.assignment_generation = f.assignment_generation
       )
 )
 ORDER BY f.channel_id, f.manufacturer, f.model;
@@ -572,8 +537,8 @@ ORDER BY r.id;
 -- reconciliation rollout inherits its lineage.
 SELECT * FROM firmware_rollout
 WHERE channel_id = sqlc.arg('channel_id')
-  AND lower(manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
+  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND assignment_generation = sqlc.arg('assignment_generation')
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
@@ -581,8 +546,8 @@ LIMIT 1;
 -- name: GetActiveFirmwareRolloutForPair :one
 SELECT * FROM firmware_rollout
 WHERE channel_id = sqlc.arg('channel_id')
-  AND lower(manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
+  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND status = 'active';
 
 -- name: CancelActiveFirmwareRollout :exec
@@ -596,8 +561,8 @@ SET status = 'canceled',
     last_action_by_id = sqlc.arg('actor_id'),
     last_action_by_name = sqlc.arg('actor_name')
 WHERE channel_id = sqlc.arg('channel_id')
-  AND lower(manufacturer COLLATE "C") = lower(sqlc.arg('manufacturer')::text COLLATE "C")
-  AND lower(model COLLATE "C") = lower(sqlc.arg('model')::text COLLATE "C")
+  AND release_channel_pair_key(manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
+  AND release_channel_pair_key(model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND status = 'active';
 
 -- name: CancelFirmwareRollout :execrows
@@ -648,7 +613,7 @@ WHERE id = sqlc.arg('rollout_id') AND status = 'active' AND paused_at IS NOT NUL
 
 -- name: RecordFirmwareRolloutAction :exec
 -- Attributes an action that changes only the rollout's devices (retry) to
--- its actor; the update itself bumps the revision.
+-- its actor.
 UPDATE firmware_rollout
 SET last_action_by_type = sqlc.arg('actor_type'),
     last_action_by_id = sqlc.arg('actor_id'),
@@ -699,10 +664,10 @@ SELECT rd.device_id,
        ), '{}'::text[])::text[] AS pending_firmware_file_ids,
        EXISTS (
            SELECT 1 FROM release_channel_member m
-           WHERE m.device_id = d.id AND m.channel_id = r.channel_id
+           WHERE m.org_id = r.org_id AND m.device_id = d.id AND m.channel_id = r.channel_id
        )
-       AND lower(btrim(COALESCE(dd.manufacturer, '')) COLLATE "C") = lower(r.manufacturer COLLATE "C")
-       AND lower(btrim(COALESCE(dd.model, '')) COLLATE "C") = lower(r.model COLLATE "C") AS in_scope
+       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(r.manufacturer)
+       AND release_channel_pair_key(dd.model) = release_channel_pair_key(r.model) AS in_scope
 FROM firmware_rollout_device rd
 JOIN firmware_rollout r ON r.id = rd.rollout_id
 JOIN device d ON d.id = rd.device_id
@@ -721,12 +686,10 @@ WHERE rd.rollout_id = sqlc.arg('rollout_id')
 ORDER BY rd.position NULLS LAST, d.device_identifier;
 
 -- name: SnapshotFirmwareRolloutDevices :exec
--- Adds miners to a rollout with their batch (NULL for the unbatched rest /
--- late joiners), their order (position_offset + index in device_ids; NULL
--- offset for late joiners) and a baseline of their health, so post-update
--- evidence can be compared against each miner's own past. A miner that
--- re-enters the scope after being excluded is re-included and keeps its
--- original batch and order.
+-- Adds a rollout's initial targets with their batch (NULL for the unbatched
+-- rest), their order (position_offset + index in device_ids) and a baseline
+-- of their health, so post-update evidence is compared with each miner's own
+-- past. Miners already in the rollout are left as they are.
 INSERT INTO firmware_rollout_device (
     rollout_id, device_id, batch_index, position,
     baseline_status, baseline_hash_rate_hs, baseline_power_w, baseline_efficiency_jh, baseline_temp_c,
@@ -735,7 +698,7 @@ INSERT INTO firmware_rollout_device (
 SELECT sqlc.arg('rollout_id'),
        d.id,
        sqlc.narg('batch_index')::int,
-       sqlc.narg('position_offset')::int + array_position(sqlc.arg('device_ids')::bigint[], d.id),
+       sqlc.arg('position_offset')::int + array_position(sqlc.arg('device_ids')::bigint[], d.id),
        ds.status::text,
        hm.hash_rate_hs,
        hm.power_w,
@@ -755,10 +718,26 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) hm ON true
 WHERE d.id = ANY(sqlc.arg('device_ids')::bigint[])
-ON CONFLICT (rollout_id, device_id) DO UPDATE
-SET batch_index = COALESCE(firmware_rollout_device.batch_index, EXCLUDED.batch_index),
-    position = COALESCE(firmware_rollout_device.position, EXCLUDED.position),
-    excluded_at = NULL;
+ON CONFLICT (rollout_id, device_id) DO NOTHING;
+
+-- name: AppendFirmwareRolloutDevices :exec
+-- Adds late joiners: unbatched, unordered (they sort last) and without a
+-- baseline, so they are judged on version and being online only. Miners
+-- already in the rollout are left as they are.
+INSERT INTO firmware_rollout_device (rollout_id, device_id)
+SELECT sqlc.arg('rollout_id'), d.id
+FROM device d
+WHERE d.id = ANY(sqlc.arg('device_ids')::bigint[])
+ON CONFLICT (rollout_id, device_id) DO NOTHING;
+
+-- name: ReincludeFirmwareRolloutDevices :exec
+-- Re-includes miners that left the channel scope and came back; they keep
+-- their batch, order and baseline.
+UPDATE firmware_rollout_device
+SET excluded_at = NULL
+WHERE rollout_id = sqlc.arg('rollout_id')
+  AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND excluded_at IS NOT NULL;
 
 -- name: MarkFirmwareRolloutDevicesSent :exec
 UPDATE firmware_rollout_device
@@ -805,9 +784,11 @@ WHERE rollout_id = sqlc.arg('rollout_id')
 
 -- name: RecordFirmwareDeployment :exec
 -- Managed-deployment provenance: the miners listed reported the artifact a
--- rollout dispatched to them.
+-- rollout dispatched to them. The triggers on device_firmware_deployment
+-- advance the rollout's revision.
 INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version, rollout_id, deployed_at)
-SELECT unnest(sqlc.arg('device_ids')::bigint[]), sqlc.arg('firmware_checksum'), sqlc.arg('firmware_version'), sqlc.arg('rollout_id'), now()
+SELECT ids.device_id, sqlc.arg('firmware_checksum'), sqlc.arg('firmware_version'), sqlc.arg('rollout_id'), now()
+FROM (SELECT DISTINCT unnest(sqlc.arg('device_ids')::bigint[]) AS device_id) ids
 ON CONFLICT (device_id) DO UPDATE
 SET firmware_checksum = EXCLUDED.firmware_checksum,
     firmware_version = EXCLUDED.firmware_version,
