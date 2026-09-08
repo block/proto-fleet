@@ -141,12 +141,20 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 	f := newReleaseChannelFixture(t, db)
 	channel := f.channel("pairs")
 
-	// The fold trims exactly what strings.TrimSpace trims, ASCII and Unicode.
-	for _, padded := range []string{" \tBitmain\n", "\u00a0Bitmain\u3000", "\u2003\u0085Bitmain\u202f"} {
-		require.Equal(t, "bitmain", strings.ToLower(strings.TrimSpace(padded)))
+	// The fold trims exactly what strings.TrimSpace trims, ASCII and Unicode,
+	// and nothing else: letters that share an escape's spelling stay.
+	for _, tc := range []struct{ padded, want string }{
+		{" \tBitmain\n", "bitmain"},
+		{"\u00a0Bitmain\u3000", "bitmain"},
+		{"\u2003\u0085Bitmain\u202f", "bitmain"},
+		{"\vVendor\v", "vendor"},
+		{"vendor", "vendor"},
+		{"fan\f", "fan"},
+	} {
+		require.Equal(t, tc.want, strings.ToLower(strings.TrimSpace(tc.padded)))
 		var folded string
-		require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key($1)`, padded).Scan(&folded))
-		require.Equal(t, "bitmain", folded, "%q", padded)
+		require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key($1)`, tc.padded).Scan(&folded))
+		require.Equal(t, tc.want, folded, "%q", tc.padded)
 	}
 	var folded string
 	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT release_channel_pair_key(NULL)`).Scan(&folded))

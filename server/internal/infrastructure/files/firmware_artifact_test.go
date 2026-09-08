@@ -78,35 +78,33 @@ func TestFirmwareFileIDsByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T
 	require.NoError(t, err)
 
 	// Every payload with the checksum carries the assignment, whatever its
-	// metadata says; the metadata-aware lookup still distinguishes them.
+	// metadata says; the metadata-aware lookups still distinguish them.
 	assert.ElementsMatch(t, []string{first, second}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
 	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), other)
 	assert.True(t, ok)
 	assert.Equal(t, second, foundID)
+	foundID, ok = svc.FindDispatchableFirmwareFileID(checksumOf(content), "other", "MODEL")
+	assert.True(t, ok)
+	assert.Equal(t, second, foundID, "dispatch needs the file whose target matches the pair")
 
 	require.NoError(t, svc.DeleteFirmwareFile(first))
 	assert.Equal(t, []string{second}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
-	foundID, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
-	assert.True(t, ok)
-	assert.Equal(t, second, foundID)
+	_, ok = svc.FindDispatchableFirmwareFileID(checksumOf(content), "Proto", "Rig")
+	assert.False(t, ok, "no remaining file targets the pair")
 
 	require.NoError(t, svc.DeleteFirmwareFile(second))
-	_, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
-	assert.False(t, ok)
 	assert.Empty(t, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
 }
 
-// A payload whose sidecar is gone still carries the assignment after a
-// restart; it just cannot be reused for uploads or back a new assignment.
+// After a restart every payload on disk carries the assignment for identity
+// purposes, but only a file command preflight accepts (readable sidecar with a
+// known target matching the pair) is offered for dispatch.
 func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) {
 	svc := setupService(t)
 	content := "legacy payload"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	legacy, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
-	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename)))
-
-	// A copy whose sidecar cannot be read is one dispatch would reject, so it
-	// must not be offered.
+	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(legacy), firmwareMetadataFilename)))
 	corrupt, err := svc.SaveFirmwareFile("firmware-copy.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(corrupt), firmwareMetadataFilename), []byte(`not json`), 0600))
@@ -114,9 +112,17 @@ func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) 
 	restarted, err := NewService(Config{})
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{fileID}, restarted.FirmwareFileIDsByChecksum(checksumOf(content)))
+	assert.ElementsMatch(t, []string{legacy, corrupt}, restarted.FirmwareFileIDsByChecksum(checksumOf(content)))
+	_, ok := restarted.FindDispatchableFirmwareFileID(checksumOf(content), "Proto", "Rig")
+	assert.False(t, ok, "neither a missing nor an unreadable sidecar passes preflight")
 	_, reusable := restarted.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
 	assert.False(t, reusable, "a payload without metadata is not eligible for upload reuse")
-	_, err = restarted.ResolveFirmwareArtifact(fileID)
+	_, err = restarted.ResolveFirmwareArtifact(legacy)
 	requireFleetCode(t, err, connect.CodeInvalidArgument)
+
+	healthy, err := restarted.SaveFirmwareFile("firmware-again.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	foundID, ok := restarted.FindDispatchableFirmwareFileID(checksumOf(content), " proto ", "RIG")
+	assert.True(t, ok)
+	assert.Equal(t, healthy, foundID)
 }
