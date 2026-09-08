@@ -1134,12 +1134,21 @@ SELECT rd.device_id,
          WHERE e.device_id = d.id AND e.first_seen_at > rd.baseline_at AND e.severity IN (1, 2, 3, 4))::int AS errors_since_baseline,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum,
        COALESCE((
+           SELECT array_agg(qm.payload->>'firmware_checksum')
+           FROM queue_message qm
+           WHERE qm.device_id = d.id
+             AND qm.command_type = 'FirmwareUpdate'
+             AND qm.status IN ('PENDING', 'PROCESSING')
+             AND COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+       ), '{}'::text[])::text[] AS pending_firmware_checksums,
+       COALESCE((
            SELECT array_agg(COALESCE(qm.payload->>'firmware_file_id', ''))
            FROM queue_message qm
            WHERE qm.device_id = d.id
              AND qm.command_type = 'FirmwareUpdate'
              AND qm.status IN ('PENDING', 'PROCESSING')
-       ), '{}'::text[])::text[] AS pending_firmware_file_ids,
+             AND COALESCE(qm.payload->>'firmware_checksum', '') = ''
+       ), '{}'::text[])::text[] AS pending_legacy_firmware_file_ids,
        EXISTS (
            SELECT 1 FROM release_channel_member m
            WHERE m.org_id = r.org_id AND m.device_id = d.id AND m.channel_id = r.channel_id
@@ -1195,15 +1204,17 @@ type ListFirmwareRolloutDevicesRow struct {
 	OpenErrors                   int32
 	ErrorsSinceBaseline          int32
 	LastDeployedFirmwareChecksum string
-	PendingFirmwareFileIds       []string
+	PendingFirmwareChecksums     []string
+	PendingLegacyFirmwareFileIds []string
 	InScope                      sql.NullBool
 }
 
 // --- Rollout devices ---
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
 // status, latest telemetry within 15 minutes, open errors and errors opened
-// since its baseline), provenance, the files named by its pending or
-// processing FirmwareUpdate commands, and whether it is still a member of the
+// since its baseline), provenance, the checksums of pending or processing
+// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
+// and whether it is still a member of the
 // channel for the rollout's pair. Live health is evidence for the engine's
 // next decision; the persisted columns (verified_at, halted_at, excluded_at)
 // carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1248,7 +1259,8 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.OpenErrors,
 			&i.ErrorsSinceBaseline,
 			&i.LastDeployedFirmwareChecksum,
-			pq.Array(&i.PendingFirmwareFileIds),
+			pq.Array(&i.PendingFirmwareChecksums),
+			pq.Array(&i.PendingLegacyFirmwareFileIds),
 			&i.InScope,
 		); err != nil {
 			return nil, err
@@ -1778,7 +1790,10 @@ WHERE m.org_id = $1
           WHERE qm.device_id = d.id
             AND qm.command_type = 'FirmwareUpdate'
             AND qm.status IN ('PENDING', 'PROCESSING')
-            AND NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($7::text[], '{}')))
+            AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
+                THEN qm.payload->>'firmware_checksum' <> $6::text
+                ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($7::text[], '{}')))
+            END
       )
   )
   AND NOT EXISTS (
@@ -1815,9 +1830,10 @@ type ListReleaseChannelMismatchedMembersRow struct {
 }
 
 // Members of one pair the enforcement loop should update: the reported
-// version or provenance differs from the assignment, or a FirmwareUpdate for a
-// file outside assigned_file_ids (the files carrying the assigned checksum) is
-// still pending or processing. Excludes miners already in rollout_id (0 for a
+// version or provenance differs from the assignment, or a FirmwareUpdate for
+// another checksum is still pending or processing. Commands without a checksum
+// fall back to assigned_file_ids (the files carrying the assigned checksum).
+// Excludes miners already in rollout_id (0 for a
 // new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 // Carries the latest efficiency sample for ordering.
 func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error) {

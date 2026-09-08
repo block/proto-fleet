@@ -245,6 +245,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 		name             string
 		metadataState    string
 		checksumMismatch bool
+		corruptPayload   bool
 		sizeMismatch     bool
 		wantError        string
 	}{
@@ -253,6 +254,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 		{name: "corrupt metadata", metadataState: "corrupt"},
 		{name: "missing metadata", metadataState: "missing"},
 		{name: "checksum mismatch", checksumMismatch: true, wantError: "checksum"},
+		{name: "same-size payload corruption", corruptPayload: true, wantError: "checksum"},
 		{name: "size mismatch", sizeMismatch: true, wantError: "no longer matches"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -297,6 +299,9 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(info.FilePath), "metadata.json"), []byte("not JSON"), 0600))
 			case "missing":
 				require.NoError(t, os.Remove(filepath.Join(filepath.Dir(info.FilePath), "metadata.json")))
+			}
+			if tc.corruptPayload {
+				require.NoError(t, os.WriteFile(info.FilePath, bytes.Repeat([]byte("x"), len(payload)), 0600))
 			}
 			download, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
 				CommandId:        commandID,

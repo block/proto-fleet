@@ -737,7 +737,12 @@ func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (io.
 		}
 	}
 
-	checksum, err := s.firmwareChecksum(canonical, filePath, hasMetadata)
+	var checksum string
+	if expectedChecksum != "" {
+		checksum, err = firmwareArtifactChecksum(file)
+	} else {
+		checksum, err = s.firmwareChecksum(canonical, filePath, hasMetadata)
+	}
 	if err != nil {
 		file.Close()
 		return nil, FirmwareFileInfo{}, err

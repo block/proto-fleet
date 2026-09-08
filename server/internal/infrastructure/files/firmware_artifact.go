@@ -61,9 +61,9 @@ func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, erro
 }
 
 // FirmwareFileIDsByChecksum returns every uploaded firmware file whose payload
-// has the given SHA-256, whatever its name or metadata: under the release
-// channel artifact identity rule a queued update for any of them is an update
-// to the assigned artifact. It reads the by-id checksum map, which covers
+// has the given SHA-256, whatever its name or metadata. Legacy queued updates
+// without a checksum use these IDs to match the assigned artifact; newer
+// commands carry their own authoritative checksum. It reads the by-id map, which covers
 // every payload on disk, not the reuse index, which covers only files with
 // valid metadata.
 func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
@@ -105,8 +105,9 @@ func (s *Service) LeaseFirmwareArtifact(sha256Hex string) (fileID string, releas
 }
 
 // OpenFirmwareArtifact opens an already admitted command's payload without
-// consulting its mutable sidecar and checks the expected assignment checksum.
-// The caller is responsible for closing the reader.
+// consulting its mutable sidecar and verifies the expected assignment checksum
+// against the opened payload bytes. The caller closes the reader, positioned
+// at the start of the verified payload.
 func (s *Service) OpenFirmwareArtifact(fileID, sha256Hex string) (io.ReadCloser, FirmwareFileInfo, error) {
 	if err := validateFirmwareChecksum(sha256Hex); err != nil {
 		return nil, FirmwareFileInfo{}, err
@@ -114,6 +115,19 @@ func (s *Service) OpenFirmwareArtifact(fileID, sha256Hex string) (io.ReadCloser,
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
 	return s.openFirmwareFileWithInfo(fileID, sha256Hex)
+}
+
+// firmwareArtifactChecksum hashes the same descriptor that will be delivered,
+// then rewinds it. Cached upload checksums cannot verify the current bytes.
+func firmwareArtifactChecksum(file io.ReadSeeker) (string, error) {
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to compute firmware artifact checksum: %v", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to rewind firmware artifact: %v", err)
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func validateFirmwareChecksum(checksum string) error {
