@@ -1,6 +1,7 @@
 package files
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,4 +146,51 @@ func TestFirmwareArtifact_RejectsInvalidChecksums(t *testing.T) {
 		requireFleetCode(t, err, connect.CodeInvalidArgument)
 		assert.Nil(t, reader)
 	}
+}
+
+func TestOpenFirmwareArtifact_RejectsSameSizeCorruptionWithWarmChecksumCache(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware payload assigned to the fleet"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	artifact, err := svc.ResolveFirmwareArtifact(fileID)
+	require.NoError(t, err)
+	cachedChecksum, cached := svc.lookupFirmwareChecksum(fileID)
+	require.True(t, cached)
+	require.Equal(t, artifact.Checksum, cachedChecksum)
+	filePath, err := getFirmwareFilePathForCanonicalID(fileID)
+	require.NoError(t, err)
+
+	// The admitted assignment keeps working without its mutable sidecar,
+	// but its warmed checksum cache must not hide in-place payload corruption.
+	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename)))
+	corrupted := strings.Repeat("x", len(content))
+	file, err := os.OpenFile(filePath, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	written, writeErr := file.WriteAt([]byte(corrupted), 0)
+	closeErr := file.Close()
+	require.NoError(t, writeErr)
+	require.NoError(t, closeErr)
+	require.Equal(t, len(content), written)
+
+	reader, _, err := svc.OpenFirmwareArtifact(fileID, artifact.Checksum)
+	if reader != nil {
+		require.NoError(t, reader.Close())
+	}
+	requireFleetCode(t, err, connect.CodeFailedPrecondition)
+	assert.Contains(t, err.Error(), "assigned checksum")
+	assert.Nil(t, reader)
+
+	// Restoring the exact assigned bytes permits another open. Hashing must
+	// rewind the returned descriptor so delivery starts with the first byte.
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0600))
+	reader, info, err := svc.OpenFirmwareArtifact(fileID, artifact.Checksum)
+	require.NoError(t, err)
+	defer reader.Close()
+	delivered, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(delivered))
+	assert.Equal(t, int64(len(content)), info.Size)
+	assert.Equal(t, artifact.Checksum, info.SHA256)
+	assert.Empty(t, info.TargetManufacturer, "artifact opens do not consult upload metadata")
 }

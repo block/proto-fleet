@@ -1130,8 +1130,9 @@ type Querier interface {
 	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
 	// status, latest telemetry within 15 minutes, open errors and errors opened
-	// since its baseline), provenance, the files named by its pending or
-	// processing FirmwareUpdate commands, and whether it is still a member of the
+	// since its baseline), provenance, the checksums of pending or processing
+	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
+	// and whether it is still a member of the
 	// channel for the rollout's pair. Live health is evidence for the engine's
 	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
 	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
@@ -1234,9 +1235,10 @@ type Querier interface {
 	// (device_identifier, device_id) of the last row of the previous page.
 	ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error)
 	// Members of one pair the enforcement loop should update: the reported
-	// version or provenance differs from the assignment, or a FirmwareUpdate for a
-	// file outside assigned_file_ids (the files carrying the assigned checksum) is
-	// still pending or processing. Excludes miners already in rollout_id (0 for a
+	// version or provenance differs from the assignment, or a FirmwareUpdate for
+	// another checksum is still pending or processing. Commands without a checksum
+	// fall back to assigned_file_ids (the files carrying the assigned checksum).
+	// Excludes miners already in rollout_id (0 for a
 	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).
 	// Carries the latest efficiency sample for ordering.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
