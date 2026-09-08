@@ -6696,6 +6696,12 @@ func (q *retryingQuerier) UnpairDevice(ctx context.Context, arg UnpairDevicePara
 	return result, err
 }
 
+func (q *retryingQuerier) UnverifyFirmwareRolloutDevices(ctx context.Context, arg UnverifyFirmwareRolloutDevicesParams) error {
+	return q.retrier.RetryQuery(ctx, "UnverifyFirmwareRolloutDevices", func() error {
+		return q.next.UnverifyFirmwareRolloutDevices(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) UpdateAlertChannel(ctx context.Context, arg UpdateAlertChannelParams) (AlertChannel, error) {
 	var result AlertChannel
 	err := q.retrier.RetryQuery(ctx, "UpdateAlertChannel", func() error {

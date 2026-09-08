@@ -126,14 +126,30 @@ func TestReleaseChannelQueries_RolloutDevices(t *testing.T) {
 	require.Equal(t, sql.NullBool{Bool: false, Valid: true}, byIdentifier["other-model"].InScope)
 
 	// Convergence is latched, and latching it is a change to the rollout.
-	revision := f.revision(rollout)
-	require.NoError(t, q.MarkFirmwareRolloutDevicesVerified(f.t.Context(), sqlc.MarkFirmwareRolloutDevicesVerifiedParams{RolloutID: rollout, DeviceIds: []int64{first.id}}))
-	devices, err = q.ListFirmwareRolloutDevices(f.t.Context(), rollout)
-	require.NoError(t, err)
-	for _, d := range devices {
-		require.Equal(t, d.DeviceIdentifier == "first", d.VerifiedAt.Valid, d.DeviceIdentifier)
+	verified := func(identifier string) bool {
+		t.Helper()
+		devices, err := q.ListFirmwareRolloutDevices(f.t.Context(), rollout)
+		require.NoError(t, err)
+		for _, d := range devices {
+			if d.DeviceIdentifier == identifier {
+				return d.VerifiedAt.Valid
+			}
+		}
+		t.Fatalf("%s not in rollout", identifier)
+		return false
 	}
+	revision := f.revision(rollout)
+	require.NoError(t, q.MarkFirmwareRolloutDevicesVerified(f.t.Context(), sqlc.MarkFirmwareRolloutDevicesVerifiedParams{RolloutID: rollout, DeviceIds: []int64{first.id, second.id}}))
+	require.True(t, verified("first"))
+	require.False(t, verified("late"))
 	require.Equal(t, revision+1, f.revision(rollout))
+
+	// Leaving and returning, or drifting while in scope, reopens convergence.
+	require.NoError(t, q.ExcludeFirmwareRolloutDevices(f.t.Context(), sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{first.id}}))
+	require.NoError(t, q.ReincludeFirmwareRolloutDevices(f.t.Context(), sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{first.id}}))
+	require.False(t, verified("first"), "a returning miner must verify again")
+	require.NoError(t, q.UnverifyFirmwareRolloutDevices(f.t.Context(), sqlc.UnverifyFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{second.id}}))
+	require.False(t, verified("second"))
 }
 
 // The enforcement predicates: mismatch by version, provenance or an
