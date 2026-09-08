@@ -165,7 +165,7 @@ const RowActionsMenuInner = ({
           // under pinch-zoom / browser-chrome collapse where a CSS `100vh` cap would exceed
           // the tappable area. Pairs with the portal-fixed flip/clamp, which pins a capped
           // menu 8px off both edges (#727).
-          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          className="!space-y-0 !rounded-2xl !bg-surface-5 px-0 pt-2 pb-1"
           constrainHeightToViewport
           closeIgnoreSelectors={[`[data-testid="${resolvedTriggerTestId}"]`]}
           closePopover={() => setMenuOpen(false)}
