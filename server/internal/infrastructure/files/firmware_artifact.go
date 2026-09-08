@@ -57,15 +57,41 @@ func (s *Service) ResolveFirmwareArtifact(fileID string) (FirmwareArtifact, erro
 }
 
 // FirmwareFileIDsByChecksum returns every uploaded firmware file whose payload
-// has the given SHA-256 and that dispatch can serve, whatever its name or
-// metadata: under the release channel artifact identity rule any such file
-// carries the assignment. It reads the by-id checksum map, which covers every
-// payload on disk, not the reuse index, which covers only files with valid
-// metadata.
+// has the given SHA-256, whatever its name or metadata: under the release
+// channel artifact identity rule a queued update for any of them is an update
+// to the assigned artifact. It reads the by-id checksum map, which covers
+// every payload on disk, not the reuse index, which covers only files with
+// valid metadata.
 func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	s.firmwareMetadataReuseMu.RLock()
 	defer s.firmwareMetadataReuseMu.RUnlock()
+	return s.firmwareFileIDsByChecksumLocked(sha256Hex)
+}
 
+// FindDispatchableFirmwareFileID returns a file carrying the checksum that a
+// FirmwareUpdate for miners of the (manufacturer, model) pair will accept.
+// Command preflight leases the file's current sidecar and requires a known
+// target that matches every device, so a payload without a sidecar, with an
+// unreadable one, or whose target was edited to another pair is not offered;
+// the assignment is then unavailable until a suitable file is uploaded or
+// the sidecar repaired.
+func (s *Service) FindDispatchableFirmwareFileID(sha256Hex, manufacturer, model string) (string, bool) {
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
+	for _, id := range s.firmwareFileIDsByChecksumLocked(sha256Hex) {
+		metadata, err := readFirmwareMetadata(getFirmwareDirPath(id))
+		if err != nil || ValidateFirmwareMetadata(metadata) != nil || !metadata.MatchesTarget(manufacturer, model) {
+			continue
+		}
+		return id, true
+	}
+	return "", false
+}
+
+// firmwareFileIDsByChecksumLocked lists the present payloads with the checksum
+// in id order. The caller holds firmwareMetadataReuseMu.
+func (s *Service) firmwareFileIDsByChecksumLocked(sha256Hex string) []string {
 	s.mu.Lock()
 	var ids []string
 	for id, checksum := range s.firmwareChecksumByID {
@@ -76,32 +102,11 @@ func (s *Service) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	s.mu.Unlock()
 	sort.Strings(ids)
 
-	dispatchable := make([]string, 0, len(ids))
+	present := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if firmwareDispatchable(id) {
-			dispatchable = append(dispatchable, id)
+		if _, err := getFirmwareFilePathForCanonicalID(id); err == nil {
+			present = append(present, id)
 		}
 	}
-	return dispatchable
-}
-
-// firmwareDispatchable mirrors what OpenFirmwareFileWithInfo accepts: the
-// payload is present and its sidecar, if there is one, is readable.
-func firmwareDispatchable(canonical string) bool {
-	if _, err := getFirmwareFilePathForCanonicalID(canonical); err != nil {
-		return false
-	}
-	_, err := readFirmwareMetadata(getFirmwareDirPath(canonical))
-	return err == nil || errors.Is(err, errFirmwareMetadataNotFound)
-}
-
-// FindFirmwareFileIDByChecksum returns one uploaded firmware file carrying the
-// checksum, or false while none is uploaded; the assignment is then
-// unavailable until a payload with that checksum is uploaded again.
-func (s *Service) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
-	ids := s.FirmwareFileIDsByChecksum(sha256Hex)
-	if len(ids) == 0 {
-		return "", false
-	}
-	return ids[0], true
+	return present
 }
