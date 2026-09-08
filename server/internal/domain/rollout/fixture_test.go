@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -53,8 +54,9 @@ func (f *fakeDispatcher) sentIdentifiers() []string {
 // "deleted" to exercise the artifact identity rule. fw-legacy exists but its
 // sidecar predates firmware_version, so it cannot back an assignment.
 type fakeFirmwareFiles struct {
-	deleted  map[string]bool
-	metadata map[string]files.FirmwareMetadata
+	artifacts map[string]files.FirmwareArtifact
+	deleted   map[string]bool
+	metadata  map[string]files.FirmwareMetadata
 }
 
 const legacyFileID = "fw-legacy"
@@ -68,7 +70,7 @@ func (f *fakeFirmwareFiles) ResolveFirmwareArtifact(fileID string) (files.Firmwa
 	if fileID == legacyFileID {
 		return files.FirmwareArtifact{}, fleeterror.NewInvalidArgumentErrorf("firmware file %s metadata is incomplete: firmware_version is required", fileID)
 	}
-	if a, ok := fakeArtifacts[fileID]; ok && !f.deleted[fileID] {
+	if a, ok := f.artifacts[fileID]; ok && !f.deleted[fileID] {
 		if metadata, changed := f.metadata[fileID]; changed {
 			a.Metadata = metadata
 		}
@@ -79,7 +81,7 @@ func (f *fakeFirmwareFiles) ResolveFirmwareArtifact(fileID string) (files.Firmwa
 
 func (f *fakeFirmwareFiles) FirmwareFileIDsByChecksum(sha256Hex string) []string {
 	var ids []string
-	for id, a := range fakeArtifacts {
+	for id, a := range f.artifacts {
 		if a.Checksum == sha256Hex && !f.deleted[id] {
 			ids = append(ids, id)
 		}
@@ -145,7 +147,7 @@ func newFixture(t *testing.T, minerCount int) *fixture {
 	f := &fixture{
 		conn:       conn,
 		dispatcher: &fakeDispatcher{},
-		files:      &fakeFirmwareFiles{deleted: map[string]bool{}},
+		files:      &fakeFirmwareFiles{artifacts: maps.Clone(fakeArtifacts), deleted: map[string]bool{}},
 		activity:   &fakeActivity{},
 		clock:      time.Now(),
 		orgID:      orgID,
