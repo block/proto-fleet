@@ -121,6 +121,27 @@ func TestReleaseChannelQueries_RolloutDevices(t *testing.T) {
 	require.False(t, byIdentifier["late"].Position.Valid)
 	require.False(t, byIdentifier["late"].BatchIndex.Valid)
 	require.False(t, byIdentifier["late"].BaselineStatus.Valid, "late joiners carry no baseline")
+	require.False(t, byIdentifier["late"].BaselineAt.Valid)
+
+	// Errors are judged against the baseline: one that was open at the
+	// snapshot and closed since is not new, one opened after it is, even
+	// though the open count is unchanged.
+	f.openError(first, "-1 hour")
+	require.True(t, byIdentifier["first"].BaselineAt.Valid)
+	require.Equal(t, int32(0), byIdentifier["first"].BaselineOpenErrors.Int32, "the baseline was taken before this error")
+	f.exec(`UPDATE errors SET closed_at = now() WHERE device_id = $1`, first.id)
+	f.openError(first, "+1 minute")
+	devices, err = q.ListFirmwareRolloutDevices(f.t.Context(), rollout)
+	require.NoError(t, err)
+	for _, d := range devices {
+		if d.DeviceIdentifier == "first" {
+			require.Equal(t, int32(1), d.OpenErrors)
+			require.Equal(t, int32(1), d.ErrorsSinceBaseline)
+		}
+		if d.DeviceIdentifier == "late" {
+			require.Equal(t, int32(0), d.ErrorsSinceBaseline, "no baseline, nothing to count against")
+		}
+	}
 
 	require.Equal(t, sql.NullBool{Bool: true, Valid: true}, byIdentifier["second"].InScope, "whitespace and case fold to the rollout's pair")
 	require.Equal(t, sql.NullBool{Bool: false, Valid: true}, byIdentifier["other-model"].InScope)
@@ -335,6 +356,14 @@ func (f *releaseChannelQueryFixture) rolloutAfterCancel(rolloutID, channelID int
 
 func (f *releaseChannelQueryFixture) revision(rolloutID int64) int64 {
 	return f.scanID(`SELECT revision FROM firmware_rollout WHERE id = $1`, rolloutID)
+}
+
+// openError opens an error on the device first seen at now() + offset.
+func (f *releaseChannelQueryFixture) openError(d queryFixtureDevice, offset string) {
+	f.seq++
+	f.exec(`INSERT INTO errors (error_id, org_id, miner_error, severity, summary, first_seen_at, last_seen_at, device_id)
+		VALUES ($1, $2, 1, 2, 'test error', now() + $3::interval, now() + $3::interval, $4)`,
+		fmt.Sprintf("err-%d", f.seq), f.org, offset, d.id)
 }
 
 func (f *releaseChannelQueryFixture) queueFirmwareUpdate(d queryFixtureDevice, fileID string) {

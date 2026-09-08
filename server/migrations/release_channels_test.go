@@ -90,6 +90,8 @@ func TestReleaseChannelsSchemaResolvesMembership(t *testing.T) {
 	deletedTwin := f.device("twin", 0)
 	deletedTwin.softDelete()
 	twin := f.device("twin", 0)
+	undiscovered := f.device("undiscovered", 0)
+	undiscovered.retireDiscovery()
 
 	site := f.channel("site")
 	f.target(site, "site", f.site)
@@ -117,9 +119,11 @@ func TestReleaseChannelsSchemaResolvesMembership(t *testing.T) {
 	// tied: site (5), two groups (2) and miner (1); only the miner selector
 	// makes it a member.
 	f.requireMember(tied, byMiner, true)
-	// The miner selector follows the identifier to the live row only.
+	// The miner selector follows the identifier to the live row only, and a
+	// device whose discovery row was soft-deleted is not a current miner.
 	f.requireMember(twin, byTwin, true)
 	f.requireNoMember(deletedTwin)
+	f.requireNoMember(undiscovered)
 
 	// Remove the miner selector: the two group channels tie and exclude it.
 	f.exec(`DELETE FROM release_channel_target WHERE channel_id = $1 AND device_identifier = 'tied'`, byMiner)
@@ -284,6 +288,12 @@ func (f *releaseChannelFixture) device(identifier string, buildingID int64) fixt
 
 func (d fixtureDevice) softDelete() {
 	d.f.exec(`UPDATE device SET deleted_at = now() WHERE id = $1`, d.id)
+	d.retireDiscovery()
+}
+
+// retireDiscovery soft-deletes only the discovery row, the shape reconciliation
+// leaves behind for a device that is no longer seen on the network.
+func (d fixtureDevice) retireDiscovery() {
 	d.f.exec(`UPDATE discovered_device SET deleted_at = now() WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)`, d.id)
 }
 

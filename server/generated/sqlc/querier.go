@@ -1046,7 +1046,8 @@ type Querier interface {
 	// orgs, so an admin in org A cannot see or assign org B's custom
 	// roles even if they happen to know an internal id.
 	ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
-	// Resolves an org's device identifiers to ids; unknown identifiers are dropped.
+	// Resolves an org's device identifiers to the ids of current devices;
+	// unknown identifiers are dropped.
 	ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDeviceIDsByIdentifiersParams) ([]ListDeviceIDsByIdentifiersRow, error)
 	ListDeviceSetMembersPaginated(ctx context.Context, arg ListDeviceSetMembersPaginatedParams) ([]ListDeviceSetMembersPaginatedRow, error)
 	ListDeviceSetMembersPaginatedAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedAfterParams) ([]ListDeviceSetMembersPaginatedAfterRow, error)
@@ -1128,11 +1129,13 @@ type Querier interface {
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	// --- Rollout devices ---
 	// Every miner in a rollout with its bookkeeping, baseline, live health (device
-	// status, latest telemetry within 15 minutes, open errors), provenance, the
-	// files named by its pending or processing FirmwareUpdate commands, and
-	// whether it is still a member of the channel for the rollout's pair. Live
-	// health is evidence for the engine's next decision; the persisted columns
-	// (verified_at, halted_at, excluded_at) carry the miner's phase.
+	// status, latest telemetry within 15 minutes, open errors and errors opened
+	// since its baseline), provenance, the files named by its pending or
+	// processing FirmwareUpdate commands, and whether it is still a member of the
+	// channel for the rollout's pair. Live health is evidence for the engine's
+	// next decision; the persisted columns (verified_at, halted_at, excluded_at)
+	// carry the miner's phase. A miner whose discovery row was soft-deleted reads
+	// with empty identity and is out of scope.
 	ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error)
 	// Newest first. The cursor is the (created_at, id) of the last row of the
 	// previous page; rows strictly older than it are returned.
