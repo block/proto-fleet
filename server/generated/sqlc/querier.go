@@ -1682,7 +1682,9 @@ type Querier interface {
 	// Adds a rollout's initial targets with their batch (NULL for the unbatched
 	// rest), their order (position_offset + index in device_ids) and a baseline
 	// of their health, so post-update evidence is compared with each miner's own
-	// past. Miners already in the rollout are left as they are.
+	// past. baseline_at is the statement's time, the instant the baseline reads
+	// see, so an error is in the baseline or opened after it, never both. Miners
+	// already in the rollout are left as they are.
 	SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error
 	// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
 	// no reason to retain its webhook URL / bearer.

@@ -162,7 +162,10 @@ CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, create
 CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, updated_at);
 
 -- The creating transaction owns revision 1, so the initial snapshot and any
--- other statement in it do not bump.
+-- other statement in it do not bump. updated_at is the wall clock when the
+-- change was written and never moves backwards: now() is the transaction's
+-- start, which can predate a change another transaction wrote in between,
+-- and ListFirmwareRollouts pages by updated_at.
 CREATE OR REPLACE FUNCTION firmware_rollout_bump_revision()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -170,10 +173,11 @@ DECLARE
 BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.revision_txid = txid;
+        NEW.updated_at = clock_timestamp();
     ELSIF OLD.revision_txid <> txid THEN
         NEW.revision = OLD.revision + 1;
         NEW.revision_txid = txid;
-        NEW.updated_at = now();
+        NEW.updated_at = GREATEST(OLD.updated_at, clock_timestamp());
     END IF;
     RETURN NEW;
 END;
@@ -220,7 +224,8 @@ CREATE TABLE firmware_rollout_device (
     -- Set when the miner left the channel scope while the rollout ran.
     excluded_at TIMESTAMPTZ NULL,
     -- Health when the miner was snapshotted into the rollout; NULL for late
-    -- joiners, which are judged on version and being online only.
+    -- joiners, which are judged on version and being online only. baseline_at
+    -- is the snapshot statement's own time, the same instant its reads see.
     baseline_status TEXT NULL,
     baseline_hash_rate_hs DOUBLE PRECISION NULL,
     baseline_power_w DOUBLE PRECISION NULL,

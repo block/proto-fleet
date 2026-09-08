@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -89,10 +90,19 @@ func TestReleaseChannelQueries_RolloutDevices(t *testing.T) {
 	f.status(second, "OFFLINE")
 	rollout := f.rollout(channel, "Bitmain", "S19")
 
-	require.NoError(t, q.SnapshotFirmwareRolloutDevices(f.t.Context(), sqlc.SnapshotFirmwareRolloutDevicesParams{
+	// The snapshot runs inside the creation transaction, some time after it
+	// began; the baseline is stamped when the snapshot reads, not when the
+	// transaction started.
+	tx, err := f.db.BeginTx(f.t.Context(), nil)
+	require.NoError(t, err)
+	var txStart time.Time
+	require.NoError(t, tx.QueryRowContext(f.t.Context(), `SELECT now()`).Scan(&txStart))
+	time.Sleep(20 * time.Millisecond)
+	require.NoError(t, sqlc.New(tx).SnapshotFirmwareRolloutDevices(f.t.Context(), sqlc.SnapshotFirmwareRolloutDevicesParams{
 		RolloutID: rollout, BatchIndex: sql.NullInt32{Int32: 0, Valid: true}, PositionOffset: 10,
 		DeviceIds: []int64{second.id, first.id, otherModel.id},
 	}))
+	require.NoError(t, tx.Commit())
 	require.NoError(t, q.AppendFirmwareRolloutDevices(f.t.Context(), sqlc.AppendFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{late.id}}))
 	// Snapshotting again must not rewrite what is already there.
 	require.NoError(t, q.SnapshotFirmwareRolloutDevices(f.t.Context(), sqlc.SnapshotFirmwareRolloutDevicesParams{
@@ -128,6 +138,7 @@ func TestReleaseChannelQueries_RolloutDevices(t *testing.T) {
 	// though the open count is unchanged.
 	f.openError(first, "-1 hour")
 	require.True(t, byIdentifier["first"].BaselineAt.Valid)
+	require.True(t, byIdentifier["first"].BaselineAt.Time.After(txStart), "baseline_at is the snapshot's time, not the transaction's start")
 	require.Equal(t, int32(0), byIdentifier["first"].BaselineOpenErrors.Int32, "the baseline was taken before this error")
 	f.exec(`UPDATE errors SET closed_at = now() WHERE device_id = $1`, first.id)
 	f.openError(first, "+1 minute")

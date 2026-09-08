@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -224,6 +225,26 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	f.exec(`UPDATE device_firmware_deployment SET rollout_id = $1 WHERE device_id = $2`, later, a.id)
 	require.Equal(t, int64(5), f.revision(rollout), "provenance moving away changes the earlier rollout")
 	require.Equal(t, int64(2), f.revision(later), "and the later one")
+
+	// A transaction that started before another writer's change but wrote
+	// after it must not move updated_at back before that change: pollers
+	// page by updated_at.
+	early, err := db.BeginTx(f.t.Context(), nil)
+	require.NoError(t, err)
+	var earlyStart time.Time
+	require.NoError(t, early.QueryRowContext(f.t.Context(), `SELECT now()`).Scan(&earlyStart))
+	time.Sleep(20 * time.Millisecond)
+	f.exec(`UPDATE firmware_rollout SET stage = 'waiting' WHERE id = $1`, rollout)
+	var between time.Time
+	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT updated_at FROM firmware_rollout WHERE id = $1`, rollout).Scan(&between))
+	require.True(t, between.After(earlyStart))
+	_, err = early.ExecContext(f.t.Context(), `UPDATE firmware_rollout SET stage = 'rest' WHERE id = $1`, rollout)
+	require.NoError(t, err)
+	require.NoError(t, early.Commit())
+	var after time.Time
+	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT updated_at FROM firmware_rollout WHERE id = $1`, rollout).Scan(&after))
+	require.Equal(t, int64(7), f.revision(rollout))
+	require.False(t, after.Before(between), "updated_at moved backwards: %s < %s", after, between)
 }
 
 type releaseChannelFixture struct {
