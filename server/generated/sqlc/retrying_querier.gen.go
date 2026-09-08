@@ -5934,10 +5934,10 @@ func (q *retryingQuerier) RequestRigConfigReconciliation(ctx context.Context, ar
 	})
 }
 
-func (q *retryingQuerier) RequeueFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]int64, error) {
+func (q *retryingQuerier) RequeueFirmwareRolloutDevices(ctx context.Context, arg RequeueFirmwareRolloutDevicesParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "RequeueFirmwareRolloutDevices", func() error {
-		callResult, callErr := q.next.RequeueFirmwareRolloutDevices(ctx, rolloutID)
+		callResult, callErr := q.next.RequeueFirmwareRolloutDevices(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

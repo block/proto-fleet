@@ -790,23 +790,42 @@ WHERE rollout_id = sqlc.arg('rollout_id')
   AND halted_at IS NULL;
 
 -- name: RequeueFirmwareRolloutDevices :many
--- Re-queues every halted miner still in scope of an active rollout from
--- scratch and returns them. A halted miner that has since left the scope
--- stays as it is; re-inclusion brings it back still halted, for the next
--- retry.
-UPDATE firmware_rollout_device
-SET halted_at = NULL,
-    halt_reason = '',
-    last_error = '',
-    skip_note = '',
-    attempts = 0,
-    first_sent_at = NULL,
-    last_sent_at = NULL,
-    verified_at = NULL
-WHERE rollout_id = sqlc.arg('rollout_id')
-  AND halted_at IS NOT NULL
-  AND excluded_at IS NULL
-RETURNING device_id;
+-- Re-queues the pair's suppressed miners (device_ids: what
+-- ListReleaseChannelSuppressedMembers returns for the rollout's pair and
+-- generation) into an active rollout and returns them. Miners the rollout
+-- already holds are reset in place; miners whose halt lives in an earlier
+-- rollout of the generation are added as unbatched late joiners, so the
+-- earlier rollout's history stands and this one becomes the most recent to
+-- hold them. Excluded rows are left alone: re-inclusion brings such a miner
+-- back still halted, for the next retry.
+WITH reset AS (
+    UPDATE firmware_rollout_device held
+    SET halted_at = NULL,
+        halt_reason = '',
+        last_error = '',
+        skip_note = '',
+        attempts = 0,
+        first_sent_at = NULL,
+        last_sent_at = NULL,
+        verified_at = NULL
+    WHERE held.rollout_id = sqlc.arg('rollout_id')::bigint
+      AND held.device_id = ANY(sqlc.arg('device_ids')::bigint[])
+      AND held.halted_at IS NOT NULL
+      AND held.excluded_at IS NULL
+    RETURNING held.device_id
+), added AS (
+    INSERT INTO firmware_rollout_device (rollout_id, device_id)
+    SELECT sqlc.arg('rollout_id')::bigint, ids.device_id
+    FROM unnest(sqlc.arg('device_ids')::bigint[]) AS ids(device_id)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM firmware_rollout_device existing
+        WHERE existing.rollout_id = sqlc.arg('rollout_id')::bigint AND existing.device_id = ids.device_id
+    )
+    RETURNING firmware_rollout_device.device_id
+)
+SELECT reset.device_id FROM reset
+UNION ALL
+SELECT added.device_id FROM added;
 
 -- name: ExcludeFirmwareRolloutDevices :exec
 UPDATE firmware_rollout_device

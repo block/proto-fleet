@@ -1581,11 +1581,15 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
-	// Re-queues every halted miner still in scope of an active rollout from
-	// scratch and returns them. A halted miner that has since left the scope
-	// stays as it is; re-inclusion brings it back still halted, for the next
-	// retry.
-	RequeueFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]int64, error)
+	// Re-queues the pair's suppressed miners (device_ids: what
+	// ListReleaseChannelSuppressedMembers returns for the rollout's pair and
+	// generation) into an active rollout and returns them. Miners the rollout
+	// already holds are reset in place; miners whose halt lives in an earlier
+	// rollout of the generation are added as unbatched late joiners, so the
+	// earlier rollout's history stands and this one becomes the most recent to
+	// hold them. Excluded rows are left alone: re-inclusion brings such a miner
+	// back still halted, for the next retry.
+	RequeueFirmwareRolloutDevices(ctx context.Context, arg RequeueFirmwareRolloutDevicesParams) ([]int64, error)
 	// The command queue has bounded per-message retries. Reopen the organization
 	// generation when one config command becomes terminal so reconciliation keeps
 	// retrying instead of treating durable enqueue as durable device application.
