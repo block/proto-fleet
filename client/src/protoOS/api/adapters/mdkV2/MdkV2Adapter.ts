@@ -112,7 +112,7 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
   throw new Error(`Unknown CT1 PLL algorithm: ${value}`);
 };
 
-export class MdkV2Ct1Adapter implements MinerAdapter {
+export class MdkV2Adapter implements MinerAdapter {
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
