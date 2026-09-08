@@ -56,13 +56,22 @@ func (f *fakeFirmwareFiles) ResolveFirmwareArtifact(fileID string) (files.Firmwa
 	return files.FirmwareArtifact{}, fmt.Errorf("unknown firmware file %q", fileID)
 }
 
-func (f *fakeFirmwareFiles) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
+func (f *fakeFirmwareFiles) FirmwareFileIDsByChecksum(sha256Hex string) []string {
+	var ids []string
 	for id, a := range fakeArtifacts {
 		if a.Checksum == sha256Hex && !f.deleted[id] {
-			return id, true
+			ids = append(ids, id)
 		}
 	}
-	return "", false
+	return ids
+}
+
+func (f *fakeFirmwareFiles) FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool) {
+	ids := f.FirmwareFileIDsByChecksum(sha256Hex)
+	if len(ids) == 0 {
+		return "", false
+	}
+	return ids[0], true
 }
 
 // fakeActivity captures rollout lifecycle events.
