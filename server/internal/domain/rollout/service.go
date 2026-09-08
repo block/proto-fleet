@@ -46,10 +46,11 @@ type CommandDispatcher interface {
 
 // FirmwareFiles is the slice of the firmware files service the rollout domain
 // uses: resolving an uploaded file to the artifact an assignment snapshots,
-// and finding whether any uploaded file still carries an assigned checksum.
+// and finding which uploaded files still carry an assigned checksum.
 type FirmwareFiles interface {
 	ResolveFirmwareArtifact(fileID string) (files.FirmwareArtifact, error)
 	FindFirmwareFileIDByChecksum(sha256Hex string) (string, bool)
+	FirmwareFileIDsByChecksum(sha256Hex string) []string
 }
 
 // ActivityLogger records rollout lifecycle events in the activity log.
