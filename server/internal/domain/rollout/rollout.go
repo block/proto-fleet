@@ -332,9 +332,8 @@ type rolloutSpec struct {
 }
 
 // mismatchedParams builds the query parameters selecting a pair's mismatched,
-// unsuppressed members under the current generation. The uploaded files
-// carrying the assigned checksum let the query tell a queued FirmwareUpdate for
-// the assignment from one for another artifact.
+// unsuppressed members under the current generation. Queued checksums identify
+// artifacts directly; uploaded file IDs resolve legacy commands without one.
 func (s *Service) mismatchedParams(spec rolloutSpec, rolloutID int64) sqlc.ListReleaseChannelMismatchedMembersParams {
 	return sqlc.ListReleaseChannelMismatchedMembersParams{
 		OrgID: spec.OrgID, ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model,
@@ -896,8 +895,8 @@ func (s *Service) ListRollouts(ctx context.Context, orgID int64, filter RolloutF
 // target is one miner of a rollout with derived health.
 type target struct {
 	sqlc.ListFirmwareRolloutDevicesRow
-	// foreignCommand: a FirmwareUpdate for a file outside the rollout's
-	// artifact is pending or processing on the miner's queue. Under the
+	// foreignCommand: a FirmwareUpdate for another checksum, or a legacy
+	// file outside the artifact, is pending or processing on the miner's queue. Under the
 	// mismatch rule the miner is not on target until it drains: the rollout's
 	// own update is queued behind it, and what the miner reports meanwhile
 	// says nothing about where it will end up.
@@ -1031,7 +1030,12 @@ func (s *Service) listTargets(ctx context.Context, r sqlc.FirmwareRollout) ([]ta
 	targets := make([]target, 0, len(rows))
 	for _, row := range rows {
 		t := target{ListFirmwareRolloutDevicesRow: row}
-		for _, id := range row.PendingFirmwareFileIds {
+		for _, checksum := range row.PendingFirmwareChecksums {
+			if checksum != r.FirmwareChecksum {
+				t.foreignCommand = true
+			}
+		}
+		for _, id := range row.PendingLegacyFirmwareFileIds {
 			if !own[id] {
 				t.foreignCommand = true
 			}
