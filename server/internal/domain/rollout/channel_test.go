@@ -62,7 +62,7 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 	assert.ErrorContains(t, err, `unknown miner "ghost-9"`)
 	edited, err := f.svc.GetChannel(ctx, f.orgID, rackChannel.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"miner-4"}, edited.Scope.DeviceIdentifiers, "identifiers round-trip through storage by id")
+	assert.Equal(t, []string{"miner-4"}, edited.Scope.DeviceIdentifiers, "identifiers round-trip through storage")
 
 	// The site channel covers the miners placed at the site directly
 	// (miner-3 and other-0); no overlap with the rack channel yet.
@@ -188,6 +188,52 @@ func TestBehaviorValidation(t *testing.T) {
 		Method: MethodPilotThenContinue, Order: OrderLeastEfficientFirst, PilotSize: 10, ReviewAfterEachBatch: true,
 		AutoContinue: true, StabilizationSeconds: 15, Thresholds: Thresholds{MaxNewErrors: ptr(int32(2))},
 	}, ch.Behavior)
+}
+
+func TestMinerScopeSurvivesDeletionAndRepairing(t *testing.T) {
+	f := newFixture(t, 1)
+	ctx := t.Context()
+	ch, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{
+		Name: "Selected miner", Scope: Scope{DeviceIdentifiers: []string{"miner-0"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"miner-0"}, ch.Scope.DeviceIdentifiers)
+	assert.Equal(t, int32(1), ch.MinerCount)
+
+	// Removing the current device row leaves the saved selector visible,
+	// while its miner is absent from the channel's live membership.
+	previousID := f.deviceIDs["miner-0"]
+	_, err = f.conn.ExecContext(ctx, `UPDATE device SET deleted_at = now() WHERE id = $1`, previousID)
+	require.NoError(t, err)
+	_, err = f.conn.ExecContext(ctx, `
+		UPDATE discovered_device SET deleted_at = now()
+		WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)
+	`, previousID)
+	require.NoError(t, err)
+	ch, err = f.svc.GetChannel(ctx, f.orgID, ch.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"miner-0"}, ch.Scope.DeviceIdentifiers)
+	assert.Zero(t, ch.MinerCount)
+
+	// Re-pairing creates a new device ID for the same identifier. The
+	// channel adopts that row without a scope update.
+	currentID := f.addMiner(t, "miner-0", "Rig")
+	require.NotEqual(t, previousID, currentID)
+	members, _, err := f.svc.ListChannelMiners(ctx, f.orgID, ch.ID, "", "", 0, "")
+	require.NoError(t, err)
+	require.Len(t, members, 1)
+	assert.Equal(t, currentID, members[0].DeviceID)
+	assert.Equal(t, "miner-0", members[0].DeviceIdentifier)
+	preview, err := f.svc.PreviewScope(ctx, f.orgID, Scope{DeviceIdentifiers: []string{"miner-0"}}, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), preview.MinerCount)
+	assert.Equal(t, []ScopeConflict{{ChannelID: ch.ID, ChannelName: ch.Name, MinerCount: 1}}, preview.Conflicts)
+
+	// Replacing the scope also clears its identifier selectors.
+	ch, err = f.svc.UpdateChannel(ctx, f.orgID, ch.ID, ChannelSpec{Name: ch.Name})
+	require.NoError(t, err)
+	assert.Empty(t, ch.Scope.DeviceIdentifiers)
+	assert.Zero(t, ch.MinerCount)
 }
 
 func TestSpecificityTiesExcludeTheMiner(t *testing.T) {
