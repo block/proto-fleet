@@ -626,7 +626,9 @@ WHERE id = sqlc.arg('rollout_id');
 -- Every miner in a rollout with its bookkeeping, baseline, live health (device
 -- status, latest telemetry within 15 minutes, open errors), provenance, the
 -- files named by its pending or processing FirmwareUpdate commands, and
--- whether it is still a member of the channel for the rollout's pair.
+-- whether it is still a member of the channel for the rollout's pair. Live
+-- health is evidence for the engine's next decision; the persisted columns
+-- (verified_at, halted_at, excluded_at) carry the miner's phase.
 SELECT rd.device_id,
        d.device_identifier,
        COALESCE(dd.firmware_version, '')::text AS firmware_version,
@@ -636,6 +638,7 @@ SELECT rd.device_id,
        rd.attempts,
        rd.first_sent_at,
        rd.last_sent_at,
+       rd.verified_at,
        rd.halted_at,
        rd.halt_reason,
        rd.last_error,
@@ -747,6 +750,15 @@ SET attempts = attempts + 1,
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND device_id = ANY(sqlc.arg('device_ids')::bigint[]);
 
+-- name: MarkFirmwareRolloutDevicesVerified :exec
+-- Latches convergence for miners that meet every criterion this tick, so the
+-- phase change is a rollout change under the revision rule.
+UPDATE firmware_rollout_device
+SET verified_at = now()
+WHERE rollout_id = sqlc.arg('rollout_id')
+  AND device_id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND verified_at IS NULL;
+
 -- name: HaltFirmwareRolloutDevices :exec
 -- Stops retrying miners for this version: 'failed' (attempts exhausted),
 -- 'canceled' (operator canceled the remaining updates) or 'skipped' (a caller
@@ -770,7 +782,8 @@ SET halted_at = NULL,
     skip_note = '',
     attempts = 0,
     first_sent_at = NULL,
-    last_sent_at = NULL
+    last_sent_at = NULL,
+    verified_at = NULL
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND halted_at IS NOT NULL
 RETURNING device_id;

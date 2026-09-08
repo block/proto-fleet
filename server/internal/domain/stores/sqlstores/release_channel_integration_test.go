@@ -124,6 +124,16 @@ func TestReleaseChannelQueries_RolloutDevices(t *testing.T) {
 
 	require.Equal(t, sql.NullBool{Bool: true, Valid: true}, byIdentifier["second"].InScope, "whitespace and case fold to the rollout's pair")
 	require.Equal(t, sql.NullBool{Bool: false, Valid: true}, byIdentifier["other-model"].InScope)
+
+	// Convergence is latched, and latching it is a change to the rollout.
+	revision := f.revision(rollout)
+	require.NoError(t, q.MarkFirmwareRolloutDevicesVerified(f.t.Context(), sqlc.MarkFirmwareRolloutDevicesVerifiedParams{RolloutID: rollout, DeviceIds: []int64{first.id}}))
+	devices, err = q.ListFirmwareRolloutDevices(f.t.Context(), rollout)
+	require.NoError(t, err)
+	for _, d := range devices {
+		require.Equal(t, d.DeviceIdentifier == "first", d.VerifiedAt.Valid, d.DeviceIdentifier)
+	}
+	require.Equal(t, revision+1, f.revision(rollout))
 }
 
 // The enforcement predicates: mismatch by version, provenance or an

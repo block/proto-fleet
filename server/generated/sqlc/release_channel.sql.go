@@ -1110,6 +1110,7 @@ SELECT rd.device_id,
        rd.attempts,
        rd.first_sent_at,
        rd.last_sent_at,
+       rd.verified_at,
        rd.halted_at,
        rd.halt_reason,
        rd.last_error,
@@ -1170,6 +1171,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	Attempts                     int32
 	FirstSentAt                  sql.NullTime
 	LastSentAt                   sql.NullTime
+	VerifiedAt                   sql.NullTime
 	HaltedAt                     sql.NullTime
 	HaltReason                   string
 	LastError                    string
@@ -1196,7 +1198,9 @@ type ListFirmwareRolloutDevicesRow struct {
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
 // status, latest telemetry within 15 minutes, open errors), provenance, the
 // files named by its pending or processing FirmwareUpdate commands, and
-// whether it is still a member of the channel for the rollout's pair.
+// whether it is still a member of the channel for the rollout's pair. Live
+// health is evidence for the engine's next decision; the persisted columns
+// (verified_at, halted_at, excluded_at) carry the miner's phase.
 func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int64) ([]ListFirmwareRolloutDevicesRow, error) {
 	rows, err := q.query(ctx, q.listFirmwareRolloutDevicesStmt, listFirmwareRolloutDevices, rolloutID)
 	if err != nil {
@@ -1216,6 +1220,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.Attempts,
 			&i.FirstSentAt,
 			&i.LastSentAt,
+			&i.VerifiedAt,
 			&i.HaltedAt,
 			&i.HaltReason,
 			&i.LastError,
@@ -2168,6 +2173,26 @@ func (q *Queries) MarkFirmwareRolloutDevicesSent(ctx context.Context, arg MarkFi
 	return err
 }
 
+const markFirmwareRolloutDevicesVerified = `-- name: MarkFirmwareRolloutDevicesVerified :exec
+UPDATE firmware_rollout_device
+SET verified_at = now()
+WHERE rollout_id = $1
+  AND device_id = ANY($2::bigint[])
+  AND verified_at IS NULL
+`
+
+type MarkFirmwareRolloutDevicesVerifiedParams struct {
+	RolloutID int64
+	DeviceIds []int64
+}
+
+// Latches convergence for miners that meet every criterion this tick, so the
+// phase change is a rollout change under the revision rule.
+func (q *Queries) MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error {
+	_, err := q.exec(ctx, q.markFirmwareRolloutDevicesVerifiedStmt, markFirmwareRolloutDevicesVerified, arg.RolloutID, pq.Array(arg.DeviceIds))
+	return err
+}
+
 const pauseFirmwareRollout = `-- name: PauseFirmwareRollout :execrows
 UPDATE firmware_rollout
 SET paused_at = now(),
@@ -2283,7 +2308,8 @@ SET halted_at = NULL,
     skip_note = '',
     attempts = 0,
     first_sent_at = NULL,
-    last_sent_at = NULL
+    last_sent_at = NULL,
+    verified_at = NULL
 WHERE rollout_id = $1
   AND halted_at IS NOT NULL
 RETURNING device_id

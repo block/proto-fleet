@@ -8,7 +8,8 @@
 --
 -- Conventions (see proto/rollout/v1/rollout.proto):
 --   * Pair keys and observed device identities are compared through
---     release_channel_pair_key(), which trims ASCII whitespace and folds A-Z.
+--     release_channel_pair_key(), which trims the whitespace Go's
+--     strings.TrimSpace trims and folds A-Z.
 --   * Firmware is identified by the SHA-256 of its payload
 --     (firmware_checksum), never by file id; file ids are resolved at read and
 --     dispatch time from the files service.
@@ -17,12 +18,15 @@
 --     deployment provenance that references it, so a logical change is one
 --     bump however many statements make it.
 
--- Trims the whitespace Go's strings.TrimSpace trims and folds A-Z only
--- (lower() under the "C" collation). NULL folds to ''.
+-- Trims Unicode White_Space (the set Go's strings.TrimSpace trims) and folds
+-- A-Z only (lower() under the "C" collation). NULL folds to ''.
 CREATE OR REPLACE FUNCTION release_channel_pair_key(text)
 RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE
-AS $$ SELECT lower(btrim(COALESCE($1, ''), E' \t\n\r\f\v') COLLATE "C") $$;
+AS $$
+    SELECT lower(btrim(COALESCE($1, ''),
+        E' \t\n\v\f\r\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000') COLLATE "C")
+$$;
 
 CREATE TABLE release_channel (
     id BIGSERIAL PRIMARY KEY,
@@ -197,6 +201,12 @@ CREATE TABLE firmware_rollout_device (
     attempts INT NOT NULL DEFAULT 0,
     first_sent_at TIMESTAMPTZ NULL,
     last_sent_at TIMESTAMPTZ NULL,
+    -- Set when the miner first meets every convergence criterion (target
+    -- version, provenance, online, hashing when required). DONE is this
+    -- column, not a live derivation from health, so reaching it is a change to
+    -- the rollout under the revision rule and a finished rollout's counts do
+    -- not drift with later telemetry.
+    verified_at TIMESTAMPTZ NULL,
     -- Set when the miner will not be retried for this version: attempts
     -- exhausted ('failed'), the rollout was canceled ('canceled') or a caller
     -- settled it without updating ('skipped'). A halted miner stays out of

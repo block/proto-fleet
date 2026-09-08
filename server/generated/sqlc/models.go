@@ -990,6 +990,7 @@ type FirmwareRolloutDevice struct {
 	Attempts             int32
 	FirstSentAt          sql.NullTime
 	LastSentAt           sql.NullTime
+	VerifiedAt           sql.NullTime
 	HaltedAt             sql.NullTime
 	HaltReason           string
 	LastError            string
