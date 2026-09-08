@@ -1,0 +1,49 @@
+name: ProtoFleet E2E Runner Image
+
+on:
+  schedule:
+    # Weekly refresh picks up operating-system and upstream image patches.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protofleet-e2e-runner-image
+  cancel-in-progress: false
+
+jobs:
+  build-image:
+    name: Build runner image
+    if: >-
+      vars.PROTOFLEET_E2E_IMAGE_BUILDER_RUNNER != '' &&
+      github.ref_name == github.event.repository.default_branch
+    runs-on: ${{ vars.PROTOFLEET_E2E_IMAGE_BUILDER_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 180
+    snapshot:
+      image-name: protofleet-e2e
+      version: "1.*"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Prepare E2E runner image
+        env:
+          PROTOFLEET_SERVER_HASH: ${{ hashFiles('server/**') }}
+          PROTOFLEET_CLIENT_LOCK_HASH: ${{ hashFiles('client/package-lock.json') }}
+          PROTOFLEET_IMAGE_SOURCE_SHA: ${{ github.sha }}
+        run: .github/scripts/prepare_protofleet_e2e_runner.sh
+
+      - name: Summarize image
+        run: |
+          echo "## ProtoFleet E2E runner image" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          bin/jq . /opt/protofleet-e2e/manifest.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

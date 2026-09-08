@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-31T17:30:00+00:00",
+  "repository": "block/proto-fleet",
+  "workflow": "pr-gate.yml",
+  "selection": {
+    "history_runs": 100,
+    "event": "pull_request",
+    "status": "completed",
+    "conclusions": [
+      "success"
+    ],
+    "max_runs_per_pr": 3,
+    "detail_limit": 0
+  },
+  "snapshot": {
+    "workflow_runs": "6222-6321",
+    "history_from": "2026-08-26T07:00:13Z",
+    "history_to": "2026-08-31T16:56:31Z",
+    "detailed_runs": 32,
+    "pull_requests": 17,
+    "jobs": 1508,
+    "positive_duration_steps": 16966
+  },
+  "metrics": {
+    "full_mean_runner_minutes": 167.18,
+    "full_mean_overhead_minutes": 79.6,
+    "full_median_wall_minutes": 9.6,
+    "overall_overhead_percent": 47.58,
+    "protofleet_e2e_mean_job_minutes": 4.09,
+    "protofleet_e2e_mean_overhead_minutes": 1.94
+  }
+}
