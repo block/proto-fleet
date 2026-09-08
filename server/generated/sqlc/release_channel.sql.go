@@ -2530,7 +2530,7 @@ SELECT $1,
        hm.temp_c,
        (SELECT count(*) FROM errors e
          WHERE e.device_id = d.id AND e.closed_at IS NULL AND e.severity IN (1, 2, 3, 4))::int,
-       now()
+       statement_timestamp()
 FROM device d
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN LATERAL (
@@ -2555,7 +2555,9 @@ type SnapshotFirmwareRolloutDevicesParams struct {
 // Adds a rollout's initial targets with their batch (NULL for the unbatched
 // rest), their order (position_offset + index in device_ids) and a baseline
 // of their health, so post-update evidence is compared with each miner's own
-// past. Miners already in the rollout are left as they are.
+// past. baseline_at is the statement's time, the instant the baseline reads
+// see, so an error is in the baseline or opened after it, never both. Miners
+// already in the rollout are left as they are.
 func (q *Queries) SnapshotFirmwareRolloutDevices(ctx context.Context, arg SnapshotFirmwareRolloutDevicesParams) error {
 	_, err := q.exec(ctx, q.snapshotFirmwareRolloutDevicesStmt, snapshotFirmwareRolloutDevices,
 		arg.RolloutID,
