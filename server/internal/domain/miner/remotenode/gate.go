@@ -8,10 +8,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
-// DefaultPerNodeCommandLimit caps in-flight commands to one fleet node, held below the
-// node's worker-pool ceiling so a large batch is paced here (the DB queue holds the
-// backlog) rather than oversubscribing the node and being rejected BUSY.
-const DefaultPerNodeCommandLimit = 8
+// DefaultPerNodeCommandLimit matches the Fleet Node's ordinary worker-pool ceiling.
+// Fleet Node rejects overflow low-priority work separately, while general commands
+// can use the remaining capacity.
+const DefaultPerNodeCommandLimit = 16
 
 // DefaultPerNodeLogDownloadLimit matches the gateway's per-node command artifact
 // upload capacity so same-node log batches wait server-side instead of overrunning

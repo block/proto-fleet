@@ -64,3 +64,42 @@ func TestPerNodeLimiter_AcquireRespectsCtx(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 }
+
+func TestPerNodeLimiter_DefaultLimitMatchesFleetNodeCapacity(t *testing.T) {
+	// Arrange: occupy every slot in the default per-node limit.
+	require.Equal(t, 16, DefaultPerNodeCommandLimit)
+	lim := NewPerNodeLimiter(0)
+	releases := make([]func(), 0, DefaultPerNodeCommandLimit)
+	for range DefaultPerNodeCommandLimit {
+		release, err := lim.Acquire(context.Background(), 1)
+		require.NoError(t, err)
+		releases = append(releases, release)
+	}
+
+	// Act: the seventeenth acquire blocks until a slot is released.
+	proceeded := make(chan struct{})
+	go func() {
+		release, err := lim.Acquire(context.Background(), 1)
+		if err == nil {
+			release()
+		}
+		close(proceeded)
+	}()
+
+	select {
+	case <-proceeded:
+		t.Fatal("seventeenth acquire should block while the default limit is at capacity")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	releases[0]()
+	select {
+	case <-proceeded:
+	case <-time.After(time.Second):
+		t.Fatal("seventeenth acquire should proceed once a slot is released")
+	}
+
+	for _, release := range releases[1:] {
+		release()
+	}
+}
