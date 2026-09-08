@@ -95,3 +95,22 @@ func TestFirmwareFileIDsByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T
 	assert.False(t, ok)
 	assert.Empty(t, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
 }
+
+// A payload whose sidecar is gone still carries the assignment after a
+// restart; it just cannot be reused for uploads or back a new assignment.
+func TestFirmwareFileIDsByChecksum_IndexesLegacyPayloadsOnStartup(t *testing.T) {
+	svc := setupService(t)
+	content := "legacy payload"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename)))
+
+	restarted, err := NewService(Config{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{fileID}, restarted.FirmwareFileIDsByChecksum(checksumOf(content)))
+	_, reusable := restarted.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.False(t, reusable, "a payload without metadata is not eligible for upload reuse")
+	_, err = restarted.ResolveFirmwareArtifact(fileID)
+	requireFleetCode(t, err, connect.CodeInvalidArgument)
+}

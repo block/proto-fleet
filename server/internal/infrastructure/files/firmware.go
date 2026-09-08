@@ -1028,7 +1028,9 @@ func (s *Service) DeleteAllFirmwareFiles() (int, error) {
 }
 
 // initChecksumIndex scans the firmware directory on startup and rebuilds the
-// in-memory checksum index from any firmware files on disk.
+// in-memory checksum indexes from the files on disk. Every payload's checksum
+// is remembered by id so artifact lookups find it; only files with a readable
+// metadata sidecar become eligible for checksum reuse.
 func (s *Service) initChecksumIndex() error {
 	entries, err := os.ReadDir(firmwareDir)
 	if err != nil {
@@ -1044,12 +1046,6 @@ func (s *Service) initChecksumIndex() error {
 			continue
 		}
 		dir := getFirmwareDirPath(fileID)
-		if _, err := readFirmwareMetadata(dir); err != nil {
-			if !errors.Is(err, errFirmwareMetadataNotFound) {
-				slog.Warn("skipping firmware with invalid metadata during checksum rebuild", "file_id", fileID, "error", err)
-			}
-			continue
-		}
 		filePath, err := findSingleFileInDir(dir, firmwareMetadataFilename)
 		if err != nil {
 			continue
@@ -1059,15 +1055,17 @@ func (s *Service) initChecksumIndex() error {
 			slog.Warn("failed to compute checksum for existing firmware file", "file_id", fileID, "error", err)
 			continue
 		}
-
+		if _, err := readFirmwareMetadata(dir); err != nil {
+			if !errors.Is(err, errFirmwareMetadataNotFound) {
+				slog.Warn("firmware with invalid metadata is not eligible for checksum reuse", "file_id", fileID, "error", err)
+			}
+			s.rememberFirmwareChecksumByID(checksum, fileID)
+			continue
+		}
 		s.rememberFirmwareChecksum(checksum, fileID)
 	}
 
-	count := 0
-	for _, ids := range s.checksumIndex {
-		count += len(ids)
-	}
-	if count > 0 {
+	if count := len(s.firmwareChecksumByID); count > 0 {
 		slog.Info("rebuilt firmware checksum index from disk", "files", count)
 	}
 	return nil
