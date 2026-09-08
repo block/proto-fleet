@@ -14,6 +14,7 @@ import (
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
@@ -47,10 +48,13 @@ func (f *fakeDispatcher) sentIdentifiers() []string {
 }
 
 // fakeFirmwareFiles serves fw-1 and fw-2 for the Proto Rig; files can be
-// "deleted" to exercise the artifact identity rule.
+// "deleted" to exercise the artifact identity rule. fw-legacy exists but its
+// sidecar predates firmware_version, so it cannot back an assignment.
 type fakeFirmwareFiles struct {
 	deleted map[string]bool
 }
+
+const legacyFileID = "fw-legacy"
 
 var fakeArtifacts = map[string]files.FirmwareArtifact{
 	"fw-1": {FileID: "fw-1", Checksum: checksum1, Metadata: files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "1.5.0"}},
@@ -58,10 +62,13 @@ var fakeArtifacts = map[string]files.FirmwareArtifact{
 }
 
 func (f *fakeFirmwareFiles) ResolveFirmwareArtifact(fileID string) (files.FirmwareArtifact, error) {
+	if fileID == legacyFileID {
+		return files.FirmwareArtifact{}, fleeterror.NewInvalidArgumentErrorf("firmware file %s metadata is incomplete: firmware_version is required", fileID)
+	}
 	if a, ok := fakeArtifacts[fileID]; ok && !f.deleted[fileID] {
 		return a, nil
 	}
-	return files.FirmwareArtifact{}, fmt.Errorf("unknown firmware file %q", fileID)
+	return files.FirmwareArtifact{}, fleeterror.NewNotFoundErrorf("firmware file not found: %s", fileID)
 }
 
 func (f *fakeFirmwareFiles) FirmwareFileIDsByChecksum(sha256Hex string) []string {
@@ -238,6 +245,18 @@ func (f *fixture) finishUpdate(t *testing.T, identifier, version string) {
 	t.Helper()
 	f.setReportedVersion(t, identifier, version)
 	f.setStatus(t, identifier, "ACTIVE")
+}
+
+// queueFirmwareCommand leaves a FirmwareUpdate for fileID outstanding on the
+// miner's command queue, as the miner actions menu would.
+func (f *fixture) queueFirmwareCommand(t *testing.T, identifier, fileID, status string) {
+	t.Helper()
+	_, err := f.conn.ExecContext(t.Context(), `
+		INSERT INTO queue_message (command_batch_log_uuid, device_id, command_type, status, retry_count, payload)
+		VALUES ('00000000-0000-0000-0000-000000000000', $1, 'FirmwareUpdate', $2::queue_status_enum, 0,
+		        jsonb_build_object('firmware_file_id', $3::text))
+	`, f.deviceIDs[identifier], status, fileID)
+	require.NoError(t, err)
 }
 
 // backdateSends makes every command sent so far look older than the resend

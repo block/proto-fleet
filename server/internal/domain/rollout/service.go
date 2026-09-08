@@ -839,11 +839,11 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 				generation++
 			}
 		}
-		mismatched, err := q.ListReleaseChannelMismatchedMembers(ctx, sqlc.ListReleaseChannelMismatchedMembersParams{
-			ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
+		mismatched, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
+			ChannelID: channel.ID, Pair: a.pair,
 			FirmwareVersion: a.artifact.Metadata.FirmwareVersion, FirmwareChecksum: a.artifact.Checksum,
-			AssignmentGeneration: generation, RolloutID: 0,
-		})
+			AssignmentGeneration: generation,
+		}, 0))
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("list mismatched members: %v", err)
 		}
@@ -976,8 +976,15 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 		if a.FirmwareFileID != "" {
 			artifact, err := s.files.ResolveFirmwareArtifact(a.FirmwareFileID)
 			if err != nil {
-				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMissing},
-					"firmware file %q is not available: %v", a.FirmwareFileID, err)
+				// A file that exists but whose metadata cannot back an
+				// assignment (a legacy sidecar without a version) is a
+				// mismatch the uploader must repair, not a missing artifact.
+				if isNotFound(err) {
+					return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMissing},
+						"firmware file %q is not available: %v", a.FirmwareFileID, err)
+				}
+				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch},
+					"firmware file %q cannot back an assignment: %v", a.FirmwareFileID, err)
 			}
 			if !pair.matchesObserved(artifact.Metadata.TargetManufacturer, artifact.Metadata.TargetModel) {
 				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch},

@@ -850,13 +850,23 @@ func TestArtifactIdentityAndProvenance(t *testing.T) {
 	assert.Equal(t, int64(2), f.rigGroup(t).AssignmentGeneration)
 	assert.Equal(t, CancelReasonSuperseded, f.rollout(t, started.ID).CancelReason)
 
-	// A file targeting another pair is refused before anything changes.
-	_, err = f.svc.ApplyFirmware(ctx, f.orgID, testActor, f.channelID,
-		[]Assignment{{Manufacturer: "Proto", Model: "Other", FirmwareFileID: "fw-1"}}, nil)
-	require.Error(t, err)
-	info, ok := ReasonOf(err)
-	require.True(t, ok)
-	assert.Equal(t, ReasonArtifactMismatch, info.Reason)
+	// A file targeting another pair, or one whose metadata cannot back an
+	// assignment, is refused before anything changes; so is a missing file.
+	for _, tc := range []struct {
+		assignment Assignment
+		reason     string
+	}{
+		{Assignment{Manufacturer: "Proto", Model: "Other", FirmwareFileID: "fw-1"}, ReasonArtifactMismatch},
+		{rigAssignment(legacyFileID), ReasonArtifactMismatch},
+		{rigAssignment("fw-9"), ReasonArtifactMissing},
+	} {
+		_, err = f.svc.ApplyFirmware(ctx, f.orgID, testActor, f.channelID, []Assignment{tc.assignment}, nil)
+		require.Error(t, err, tc.assignment.FirmwareFileID)
+		info, ok := ReasonOf(err)
+		require.True(t, ok, tc.assignment.FirmwareFileID)
+		assert.Equal(t, tc.reason, info.Reason, tc.assignment.FirmwareFileID)
+	}
+	assert.Equal(t, int64(2), f.rigGroup(t).AssignmentGeneration, "refused assignments changed nothing")
 
 	// Preview plans without changing anything.
 	plans, err := f.svc.PreviewFirmware(ctx, f.orgID, f.channelID, []Assignment{rigAssignment("fw-2")}, &Behavior{Method: MethodBatched, BatchSize: 1})
@@ -870,4 +880,50 @@ func TestArtifactIdentityAndProvenance(t *testing.T) {
 	assert.Equal(t, int64(2), f.rigGroup(t).AssignmentGeneration, "preview did not assign")
 	_, err = f.svc.PreviewFirmware(ctx, f.orgID, f.channelID, []Assignment{rigAssignment("fw-2")}, &Behavior{Method: MethodAllAtOnce, MaxConcurrentOffline: 3})
 	assert.ErrorContains(t, err, "channel-wide")
+}
+
+func TestQueuedFirmwareCommandForAnotherArtifactIsAMismatch(t *testing.T) {
+	f := newFixture(t, 2)
+	ctx := t.Context()
+	f.channel(t, allAtOnce, f.allMiners()...)
+	started := f.apply(t, "fw-2")
+	f.svc.EnforceTick(ctx)
+	for _, id := range f.allMiners() {
+		f.finishUpdate(t, id, "2.0.0")
+	}
+	f.svc.EnforceTick(ctx)
+	require.Equal(t, StatusCompleted, f.rollout(t, started.ID).Status)
+	f.dispatcher.sent = nil
+
+	// A FirmwareUpdate for another file left on a miner's queue will take it
+	// off the assignment, so the mismatch rule counts the miner as mismatched
+	// now and a corrective rollout queues behind the older command. One for a
+	// file carrying the assigned checksum is not a mismatch.
+	f.queueFirmwareCommand(t, "miner-0", "fw-1", "PENDING")
+	f.queueFirmwareCommand(t, "miner-1", "fw-2", "PROCESSING")
+	plans, err := f.svc.PreviewFirmware(ctx, f.orgID, f.channelID, []Assignment{rigAssignment("fw-2")}, nil)
+	require.NoError(t, err)
+	require.Len(t, plans, 1)
+	assert.Equal(t, int32(1), plans[0].TargetCount, "only miner-0 is mismatched")
+
+	f.svc.EnforceTick(ctx)
+	rollouts, _, err := f.svc.ListRollouts(ctx, f.orgID, RolloutFilter{ChannelID: f.channelID, Status: StatusActive})
+	require.NoError(t, err)
+	require.Len(t, rollouts, 1, "a corrective rollout started")
+	assert.Equal(t, []string{"miner-0"}, f.dispatcher.sentIdentifiers())
+	assert.Equal(t, PhaseInProgress, phaseOf(rollouts[0], "miner-0"))
+	assert.Empty(t, phaseOf(rollouts[0], "miner-1"), "miner-1 is not a target")
+
+	// What the miner reports while the older command is outstanding does not
+	// verify it: the rollout waits for the command to drain.
+	f.svc.EnforceTick(ctx)
+	assert.Equal(t, PhaseInProgress, phaseOf(f.rollout(t, rollouts[0].ID), "miner-0"))
+	assert.Equal(t, StatusActive, f.rollout(t, rollouts[0].ID).Status)
+
+	// Once the stale command has been consumed, nothing else is mismatched.
+	_, err = f.conn.ExecContext(ctx, `UPDATE queue_message SET status = 'SUCCESS'`)
+	require.NoError(t, err)
+	f.finishUpdate(t, "miner-0", "2.0.0")
+	f.svc.EnforceTick(ctx)
+	assert.Equal(t, StatusCompleted, f.rollout(t, rollouts[0].ID).Status)
 }
