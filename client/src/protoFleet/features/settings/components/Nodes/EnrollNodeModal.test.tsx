@@ -21,6 +21,7 @@ const awaitingNode: FleetNodeItem = {
   name: "test-node-01",
   enrollmentStatus: FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION,
   identityFingerprint: "abcd1234abcd1234",
+  commandProtocolUpgradeRequired: false,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };

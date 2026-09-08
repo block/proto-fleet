@@ -17,33 +17,35 @@ import (
 // Returns ErrNoActiveStream if the node has no live ControlStream (callers map to
 // FailedPrecondition). The returned *ControlAck is the agent's structured outcome:
 // a non-OK code is NOT a Go error here; the caller inspects ack.Code/Succeeded.
-func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
-	return r.SendCommandWithArtifacts(ctx, fleetNodeID, cmd, nil)
+// minimumCommandProtocolVersion is checked before the command is registered or
+// enqueued.
+func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	return r.SendCommandWithArtifacts(ctx, fleetNodeID, minimumCommandProtocolVersion, cmd, nil)
 }
 
 // SendCommandWithArtifacts dispatches an ack-only command with optional
 // artifact-transfer expectations attached to its command_id.
-func (r *Registry) SendCommandWithArtifacts(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, error) {
-	ack, _, err := r.SendCommandWithArtifactResults(ctx, fleetNodeID, cmd, artifacts)
+func (r *Registry) SendCommandWithArtifacts(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, error) {
+	ack, _, err := r.SendCommandWithArtifactResults(ctx, fleetNodeID, minimumCommandProtocolVersion, cmd, artifacts)
 	return ack, err
 }
 
 // SendCommandWithArtifactResults dispatches an ack-only command with optional
 // artifact-transfer expectations and returns any completed upload refs alongside
 // the terminal ack. Refs are snapshotted before the in-flight command is removed.
-func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	c := &inflightCommand{
 		id:        cmd.GetCommandId(),
 		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
 		artifacts: cloneArtifactExpectations(artifacts),
 		done:      make(chan struct{}),
 	}
-	outgoing, connDone, err := r.addCmd(fleetNodeID, c)
+	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
 		if errors.Is(err, errDuplicateCommandID) {
 			return nil, nil, fleeterror.NewInternalError(err.Error())
 		}
-		return nil, nil, err // ErrNoActiveStream
+		return nil, nil, err
 	}
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)

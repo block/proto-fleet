@@ -227,7 +227,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
 	}
-	ack, err := m.sender.SendCommand(commandCtx, m.route.fleetNodeID, &gatewaypb.ControlCommand{
+	ack, err := m.sender.SendCommand(commandCtx, m.route.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
 		CommandId: id.GenerateID(),
 		Payload:   payload,
 	})
@@ -325,7 +325,8 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		msg = fmt.Sprintf("fleet node telemetry command failed with ack code %s", ack.GetCode().String())
 	}
 	switch ack.GetCode() {
-	case gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE:
+	case gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE,
+		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED:
 		return fleeterror.NewUnimplementedError(msg)
 	case gatewaypb.AckCode_ACK_CODE_BAD_REQUEST:
 		return fleeterror.NewInvalidArgumentError(msg)
@@ -341,7 +342,6 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New(msg))
 	case gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,
-		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
 		gatewaypb.AckCode_ACK_CODE_INTERNAL,
 		gatewaypb.AckCode_ACK_CODE_UNSPECIFIED:
 		return fleeterror.NewInternalError(msg)

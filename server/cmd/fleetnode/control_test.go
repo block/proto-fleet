@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -150,14 +151,14 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			rawPayload:    []byte{0xFF, 0xFE},
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "decode AgentCommand",
+			wantErrSubstr: "decode server-to-node command envelope",
 		},
 		{
-			name:          "envelope with no command kind",
+			name:          "envelope with no command type",
 			rawPayload:    []byte{}, // valid empty AgentCommand: no oneof arm set
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "no recognized command kind",
+			wantErrSubstr: "no recognized command type",
 		},
 		{
 			name:          "report upload failure",
@@ -209,6 +210,73 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
+	// Arrange: field 5 is a future top-level AgentCommand oneof arm unknown to
+	// this node. Follow it with a command the node does understand.
+	unknownPayload := protowire.AppendTag(nil, 5, protowire.BytesType)
+	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
+	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
+	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}
+	cmd := &RunCmd{discoverer: disc}
+	fake := &controlFakeGateway{}
+	fake.queueWithID("future-command", unknownPayload)
+	fake.queueWithID("known-command", discoveryPayload)
+
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() >= 2 }, 4*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
+
+	// Assert: the future command fails specifically as unsupported, while the
+	// following known command proves the same stream remained usable.
+	acks := fake.acksCopy()
+	require.Len(t, acks, 2)
+	acksByID := make(map[string]*pb.ControlAck, len(acks))
+	for _, ack := range acks {
+		acksByID[ack.GetCommandId()] = ack
+	}
+	unknownAck := acksByID["future-command"]
+	require.NotNil(t, unknownAck)
+	assert.False(t, unknownAck.GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, unknownAck.GetCode())
+
+	knownAck := acksByID["known-command"]
+	require.NotNil(t, knownAck)
+	assert.True(t, knownAck.GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, knownAck.GetCode())
+	require.Len(t, fake.reportsCopy(), 1)
+}
+
+func TestControlLoop_KnownCommandIgnoresUnrelatedUnknownFields(t *testing.T) {
+	// Arrange: append a field outside the AgentCommand oneof while keeping the
+	// known discovery arm intact.
+	payload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
+	payload = protowire.AppendTag(payload, 100, protowire.VarintType)
+	payload = protowire.AppendVarint(payload, 1)
+	cmd := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}}
+	fake := &controlFakeGateway{}
+	fake.queue(payload)
+
+	// Act
+	runControlLoopOnce(t, cmd, fake)
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.True(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, acks[0].GetCode())
+	require.Len(t, fake.reportsCopy(), 1)
 }
 
 func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {
@@ -458,6 +526,9 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
+	for _, got := range fake.helloCommandProtocolVersionsCopy() {
+		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, got)
+	}
 }
 
 func TestIsNotActiveControlErrorRequiresStructuredDetail(t *testing.T) {
@@ -554,13 +625,14 @@ type pendingCommand struct {
 type controlFakeGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	mu          sync.Mutex
-	pending     []pendingCommand
-	hellos      int32
-	acks        []*pb.ControlAck
-	reports     []*pb.ReportDiscoveredDevicesRequest
-	pairReports []*pb.ReportPairedDevicesRequest
-	behavior    controlFakeBehavior
+	mu                           sync.Mutex
+	pending                      []pendingCommand
+	hellos                       int32
+	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	acks                         []*pb.ControlAck
+	reports                      []*pb.ReportDiscoveredDevicesRequest
+	pairReports                  []*pb.ReportPairedDevicesRequest
+	behavior                     controlFakeBehavior
 }
 
 func (f *controlFakeGateway) queue(payload []byte) {
@@ -597,6 +669,11 @@ func (f *controlFakeGateway) reportsCopy() []*pb.ReportDiscoveredDevicesRequest 
 	return out
 }
 func (f *controlFakeGateway) helloCount() int { return int(atomic.LoadInt32(&f.hellos)) }
+func (f *controlFakeGateway) helloCommandProtocolVersionsCopy() []pb.CommandProtocolVersion {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]pb.CommandProtocolVersion(nil), f.helloCommandProtocolVersions...)
+}
 
 func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
 	f.mu.Lock()
@@ -644,9 +721,13 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	if err != nil {
 		return fmt.Errorf("recv hello: %w", err)
 	}
-	if first.GetHello() == nil {
+	hello := first.GetHello()
+	if hello == nil {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("expected hello"))
 	}
+	f.mu.Lock()
+	f.helloCommandProtocolVersions = append(f.helloCommandProtocolVersions, hello.GetMaxCommandProtocolVersion())
+	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
 	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {

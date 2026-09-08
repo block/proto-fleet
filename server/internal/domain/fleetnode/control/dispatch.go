@@ -15,18 +15,19 @@ import (
 
 // Sender dispatches one command to a node's ControlStream. *Registry implements it.
 type Sender interface {
-	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error)
+	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error)
 }
 
 // RunCommand dispatches cmd, drains result events through onData until the terminal
 // ack, and maps the outcome to an error. Shared by discovery and pairing. kind/pair
-// are as in Send; noun names the command in errors. onData returns terminal=true to
+// are as in Send; minimumCommandProtocolVersion is the oldest protocol that may
+// receive cmd; noun names the command in errors. onData returns terminal=true to
 // stop early. Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
-func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
+func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	session, err := sender.Send(ctx, fleetNodeID, cmd, scope, kind, pair)
+	session, err := sender.Send(ctx, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveStream) {
 			return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
@@ -104,6 +105,9 @@ func AckFailure(ack *gatewaypb.ControlAck, noun string) error {
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE {
 		return fleeterror.NewFailedPreconditionErrorf("fleet node cannot service this %s command; try another node: %s", noun, reason)
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED {
+		return fleeterror.NewUnimplementedErrorf("fleet node does not support this %s command: %s", noun, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_REPORT_FAILED {
 		return fleeterror.NewInternalErrorf("fleet node could not upload all %s results; some may have been applied, re-list to confirm: %s", noun, reason)

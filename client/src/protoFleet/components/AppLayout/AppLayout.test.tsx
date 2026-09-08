@@ -15,6 +15,7 @@ const mockUseCurtailmentPillData = vi.fn();
 const mockUseActiveAlertsPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 const mockUseUpdateIndicator = vi.fn();
+const mockUseFleetNodeUpgradeIndicator = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
   ScheduleApiProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -50,6 +51,10 @@ vi.mock("@/protoFleet/components/PageHeader/useActiveAlertsPillData", () => ({
 
 vi.mock("@/protoFleet/features/updates/useUpdateIndicator", () => ({
   useUpdateIndicator: (options: { enabled?: boolean }) => mockUseUpdateIndicator(options),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator", () => ({
+  useFleetNodeUpgradeIndicator: (options: { enabled?: boolean }) => mockUseFleetNodeUpgradeIndicator(options),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -113,6 +118,7 @@ describe("AppLayout", () => {
     mockUseActiveAlertsPillData.mockReturnValue({ groups: [], error: null, hasMore: false, hasVisiblePill: false });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
     mockUseUpdateIndicator.mockReturnValue(null);
+    mockUseFleetNodeUpgradeIndicator.mockReturnValue(null);
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
@@ -282,6 +288,30 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+160px)]");
   });
 
+  it("uses the five-widget phone content offset when all six widgets are visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+    mockUseFleetNodeUpgradeIndicator.mockReturnValue({ nodeCount: 1, onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+200px)]");
+  });
+
   it("disables update polling when the route hides the shell header", () => {
     render(
       <MemoryRouter>
@@ -292,6 +322,18 @@ describe("AppLayout", () => {
     );
 
     expect(mockUseUpdateIndicator).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables Fleet Node compatibility polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseFleetNodeUpgradeIndicator).toHaveBeenCalledWith({ enabled: false });
   });
 
   it("disables active-alert polling when the route hides the shell header", () => {

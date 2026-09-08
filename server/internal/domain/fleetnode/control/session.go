@@ -33,8 +33,9 @@ func (s *Session) Close() {
 // terminal ack. scope bounds which reported devices are admitted (nil =
 // unconstrained); kind tags the admitting report RPC; pair is non-nil only for
 // pairing (gateway persistence context; its target set caps the report quota).
-// Many commands may be in flight per node concurrently.
-func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
+// minimumCommandProtocolVersion is checked before the command is registered or
+// enqueued. Many commands may be in flight per node concurrently.
+func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
@@ -48,12 +49,12 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 		pair:       pair,
 		done:       make(chan struct{}),
 	}
-	outgoing, connDone, err := r.addCmd(fleetNodeID, c)
+	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
 		if errors.Is(err, errDuplicateCommandID) {
 			return nil, fleeterror.NewInternalError(err.Error())
 		}
-		return nil, err // ErrNoActiveStream
+		return nil, err
 	}
 
 	session := &Session{r: r, fleetNodeID: fleetNodeID, cmd: c}

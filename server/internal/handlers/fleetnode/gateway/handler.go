@@ -712,11 +712,16 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}
 		first = r.msg
 	}
-	if first.GetHello() == nil {
+	hello := first.GetHello()
+	if hello == nil {
 		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
 
-	regHandle, err := h.registry.RegisterAuthenticated(subject.FleetNodeID, subject.SessionFingerprint)
+	regHandle, err := h.registry.RegisterAuthenticated(
+		subject.FleetNodeID,
+		subject.SessionFingerprint,
+		hello.GetMaxCommandProtocolVersion(),
+	)
 	if err != nil {
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}

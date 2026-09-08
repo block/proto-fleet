@@ -438,7 +438,7 @@ type commandTestFleetNodeSender struct {
 	ack    *gatewaypb.ControlAck
 }
 
-func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	s.called = true
 	s.cmd = cmd
 	if s.ack != nil {

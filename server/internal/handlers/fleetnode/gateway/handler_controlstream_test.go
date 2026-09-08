@@ -26,6 +26,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -101,7 +102,9 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	stream := client.ControlStream(ctx)
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 
-	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}))
 	first, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, first.GetAccepted(), "expected Accepted")
@@ -129,6 +132,34 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	}
 }
 
+func TestControlStream_LegacyNodeRejectsV1Command(t *testing.T) {
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+
+	session, err := h.registry.Send(
+		context.Background(),
+		h.fleetNodeID,
+		pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		&pb.ControlCommand{CommandId: "unsupported"},
+		nil,
+		control.ReportKindDiscovery,
+		nil,
+	)
+
+	assert.Nil(t, session)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, []int64{h.fleetNodeID}, h.registry.ConnectedFleetNodeIDs())
+}
+
 func TestControlStream_DropsInvalidAck(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)
@@ -139,7 +170,9 @@ func TestControlStream_DropsInvalidAck(t *testing.T) {
 	stream := client.ControlStream(ctx)
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 
-	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}))
 	first, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, first.GetAccepted())
@@ -336,7 +369,7 @@ func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		session, err := r.Send(context.Background(), fleetNodeID, &pb.ControlCommand{CommandId: commandID, Payload: payload}, nil, control.ReportKindDiscovery, nil)
+		session, err := r.Send(context.Background(), fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: commandID, Payload: payload}, nil, control.ReportKindDiscovery, nil)
 		if err == nil {
 			return session
 		}

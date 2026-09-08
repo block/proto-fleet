@@ -12,8 +12,8 @@ import (
 )
 
 // AckFailure must translate each structured AckCode into a distinct,
-// operator-meaningful gRPC code so a retryable BUSY and a capability gap
-// (AGENT_INCAPABLE) don't both surface as an opaque Internal error.
+// operator-meaningful gRPC code so a retryable BUSY and unsupported commands
+// don't surface as opaque Internal errors.
 func TestAckFailure_MapsCodes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -34,6 +34,11 @@ func TestAckFailure_MapsCodes(t *testing.T) {
 			name:     "agent incapable maps to failed precondition",
 			ack:      &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE},
 			wantCode: connect.CodeFailedPrecondition,
+		},
+		{
+			name:     "unimplemented maps to unimplemented",
+			ack:      &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED},
+			wantCode: connect.CodeUnimplemented,
 		},
 		{
 			name:     "unknown code falls back to internal",

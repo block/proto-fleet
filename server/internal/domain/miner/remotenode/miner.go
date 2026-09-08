@@ -40,11 +40,11 @@ import (
 // CommandSender dispatches a ControlCommand to a fleet node and blocks for its
 // terminal ack. *control.Registry satisfies it.
 type CommandSender interface {
-	SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error)
+	SendCommand(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error)
 }
 
 type ArtifactCommandSender interface {
-	SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error)
+	SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error)
 }
 
 type LogArtifactSaver interface {
@@ -288,7 +288,7 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 	if err != nil {
 		return nil, err
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, cmd)
+	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd)
 	if err != nil {
 		return nil, mapSendCommandError(err)
 	}
@@ -304,7 +304,7 @@ func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gate
 	if err != nil {
 		return nil, nil, err
 	}
-	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, cmd, artifacts)
+	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
 	if err != nil {
 		return nil, nil, mapSendCommandError(err)
 	}

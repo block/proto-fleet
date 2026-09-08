@@ -271,7 +271,20 @@ message ControlStreamResponse {
     }
 }
 
-message ControlHello {}
+// CommandProtocolVersion identifies the server-to-node command protocol a
+// fleet node understands. Versions are monotonic: a node that advertises a
+// higher version also supports commands from lower versions.
+enum CommandProtocolVersion {
+    // UNSPECIFIED is reported by legacy fleet nodes that omit the field.
+    COMMAND_PROTOCOL_VERSION_UNSPECIFIED = 0;
+    // V1 supports the current server-to-node command envelope.
+    COMMAND_PROTOCOL_VERSION_V1 = 1;
+}
+
+message ControlHello {
+    // Highest server-to-node command protocol version this fleet node supports.
+    CommandProtocolVersion max_command_protocol_version = 1;
+}
 
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;

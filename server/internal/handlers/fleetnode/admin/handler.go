@@ -11,6 +11,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
@@ -23,12 +24,13 @@ type Handler struct {
 	enrollment *enrollment.Service
 	pairing    *pairing.Service
 	discovery  *discovery.Service
+	registry   *control.Registry
 }
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
-func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service) *Handler {
-	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc}
+func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service, registry *control.Registry) *Handler {
+	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry}
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
@@ -59,11 +61,12 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
 		summary := &pb.FleetNodeSummary{
-			FleetNodeId:         n.ID,
-			Name:                n.Name,
-			EnrollmentStatus:    deriveDisplayStatus(n),
-			IdentityFingerprint: enrollment.IdentityFingerprint(n.IdentityPubkey),
-			CreatedAt:           timestamppb.New(n.CreatedAt),
+			FleetNodeId:                    n.ID,
+			Name:                           n.Name,
+			EnrollmentStatus:               deriveDisplayStatus(n),
+			IdentityFingerprint:            enrollment.IdentityFingerprint(n.IdentityPubkey),
+			CreatedAt:                      timestamppb.New(n.CreatedAt),
+			CommandProtocolUpgradeRequired: h.registry.CommandProtocolUpgradeRequired(n.ID),
 		}
 		if n.PendingEnrollmentID != nil {
 			summary.PendingEnrollmentId = n.PendingEnrollmentID
