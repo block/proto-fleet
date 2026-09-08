@@ -12,10 +12,10 @@
 --   * Firmware is identified by the SHA-256 of its payload
 --     (firmware_checksum), never by file id; file ids are resolved at read and
 --     dispatch time from the files service.
---   * firmware_rollout.revision advances exactly once per transaction that
---     changes the rollout row, its target rows or their deployment
---     provenance, so a logical change is one bump however many statements
---     make it.
+--   * firmware_rollout.revision starts at 1 and advances exactly once per
+--     later transaction that changes the rollout row, its target rows or the
+--     deployment provenance that references it, so a logical change is one
+--     bump however many statements make it.
 
 -- Trims the whitespace Go's strings.TrimSpace trims and folds A-Z only
 -- (lower() under the "C" collation). NULL folds to ''.
@@ -133,7 +133,7 @@ CREATE TABLE firmware_rollout (
     stage_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     paused_at TIMESTAMPTZ NULL,
     -- Revision rule (header): maintained by the triggers below; revision_txid
-    -- is the transaction that last advanced it.
+    -- is the transaction that created the row or last advanced revision.
     revision BIGINT NOT NULL DEFAULT 1,
     revision_txid BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -157,12 +157,16 @@ CREATE UNIQUE INDEX idx_one_active_rollout_per_pair
 CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, created_at DESC, id DESC);
 CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, updated_at);
 
+-- The creating transaction owns revision 1, so the initial snapshot and any
+-- other statement in it do not bump.
 CREATE OR REPLACE FUNCTION firmware_rollout_bump_revision()
 RETURNS TRIGGER AS $$
 DECLARE
     txid BIGINT := pg_current_xact_id()::text::bigint;
 BEGIN
-    IF OLD.revision_txid <> txid THEN
+    IF TG_OP = 'INSERT' THEN
+        NEW.revision_txid = txid;
+    ELSIF OLD.revision_txid <> txid THEN
         NEW.revision = OLD.revision + 1;
         NEW.revision_txid = txid;
         NEW.updated_at = now();
@@ -172,7 +176,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER firmware_rollout_revision
-    BEFORE UPDATE ON firmware_rollout
+    BEFORE INSERT OR UPDATE ON firmware_rollout
     FOR EACH ROW
     EXECUTE FUNCTION firmware_rollout_bump_revision();
 
@@ -232,15 +236,22 @@ CREATE TABLE device_firmware_deployment (
     deployed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Touches every rollout referenced by the rows one statement inserted or
--- updated; firmware_rollout_revision turns the touches into one bump per
--- transaction.
+-- Touches every rollout the rows of one statement reference after it and,
+-- for updates, before it (provenance moving to a later rollout changes the
+-- earlier one too); firmware_rollout_revision turns the touches into one bump
+-- per transaction.
 CREATE OR REPLACE FUNCTION firmware_rollout_touch_from_rows()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE firmware_rollout
-    SET updated_at = now()
-    WHERE id IN (SELECT DISTINCT rollout_id FROM changed_rows WHERE rollout_id IS NOT NULL);
+    IF TG_OP = 'UPDATE' THEN
+        UPDATE firmware_rollout
+        SET updated_at = now()
+        WHERE id IN (SELECT rollout_id FROM changed_rows UNION SELECT rollout_id FROM previous_rows);
+    ELSE
+        UPDATE firmware_rollout
+        SET updated_at = now()
+        WHERE id IN (SELECT rollout_id FROM changed_rows);
+    END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -253,7 +264,7 @@ CREATE TRIGGER firmware_rollout_device_inserted
 
 CREATE TRIGGER firmware_rollout_device_updated
     AFTER UPDATE ON firmware_rollout_device
-    REFERENCING NEW TABLE AS changed_rows
+    REFERENCING OLD TABLE AS previous_rows NEW TABLE AS changed_rows
     FOR EACH STATEMENT
     EXECUTE FUNCTION firmware_rollout_touch_from_rows();
 
@@ -265,7 +276,7 @@ CREATE TRIGGER device_firmware_deployment_inserted
 
 CREATE TRIGGER device_firmware_deployment_updated
     AFTER UPDATE ON device_firmware_deployment
-    REFERENCING NEW TABLE AS changed_rows
+    REFERENCING OLD TABLE AS previous_rows NEW TABLE AS changed_rows
     FOR EACH STATEMENT
     EXECUTE FUNCTION firmware_rollout_touch_from_rows();
 

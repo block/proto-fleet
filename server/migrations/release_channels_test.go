@@ -162,8 +162,9 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 	f.rollout(channel, "bitmain", "s19")
 }
 
-// The revision rule: exactly one bump per transaction that changes the
-// rollout row, its device rows or their deployment provenance.
+// The revision rule: a rollout starts at 1 whatever else its creating
+// transaction does, then advances exactly once per transaction that changes
+// the rollout row, its device rows or the provenance referencing it.
 func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -171,20 +172,27 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	f := newReleaseChannelFixture(t, db)
 	channel := f.channel("revision")
-	rollout := f.rollout(channel, "Bitmain", "S19")
 	a := f.device("a", 0)
 	b := f.device("b", 0)
-	require.Equal(t, int64(1), f.revision(rollout))
 
+	var rollout int64
 	f.inTransaction(func(tx *sql.Tx) {
+		require.NoError(t, tx.QueryRowContext(f.t.Context(), `INSERT INTO firmware_rollout (org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, assignment_generation)
+			VALUES ($1, $2, 'Bitmain', 'S19', 'sum', 'v1', 1) RETURNING id`, f.org, channel).Scan(&rollout))
 		_, err := tx.ExecContext(f.t.Context(), `INSERT INTO firmware_rollout_device (rollout_id, device_id) VALUES ($1, $2), ($1, $3)`, rollout, a.id, b.id)
-		require.NoError(t, err)
-		_, err = tx.ExecContext(f.t.Context(), `UPDATE firmware_rollout_device SET attempts = 1 WHERE rollout_id = $1`, rollout)
 		require.NoError(t, err)
 		_, err = tx.ExecContext(f.t.Context(), `UPDATE firmware_rollout SET stage = 'batch' WHERE id = $1`, rollout)
 		require.NoError(t, err)
 	})
-	require.Equal(t, int64(2), f.revision(rollout), "three statements in one transaction are one change")
+	require.Equal(t, int64(1), f.revision(rollout), "the creating transaction owns revision 1")
+
+	f.inTransaction(func(tx *sql.Tx) {
+		_, err := tx.ExecContext(f.t.Context(), `UPDATE firmware_rollout_device SET attempts = 1 WHERE rollout_id = $1`, rollout)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(f.t.Context(), `UPDATE firmware_rollout SET current_batch = 1 WHERE id = $1`, rollout)
+		require.NoError(t, err)
+	})
+	require.Equal(t, int64(2), f.revision(rollout), "two statements in one transaction are one change")
 
 	f.exec(`INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version, rollout_id) VALUES ($1, 'sum', 'v1', $2)`, a.id, rollout)
 	require.Equal(t, int64(3), f.revision(rollout), "recording provenance is a change")
@@ -193,6 +201,11 @@ func TestReleaseChannelsSchemaBumpsRevisionOncePerTransaction(t *testing.T) {
 
 	f.exec(`UPDATE firmware_rollout_device SET attempts = 2 WHERE rollout_id = $1 AND device_id = -1`, rollout)
 	require.Equal(t, int64(4), f.revision(rollout), "a statement that changes no rows is not a change")
+
+	later := f.rollout(channel, "Bitmain", "S21")
+	f.exec(`UPDATE device_firmware_deployment SET rollout_id = $1 WHERE device_id = $2`, later, a.id)
+	require.Equal(t, int64(5), f.revision(rollout), "provenance moving away changes the earlier rollout")
+	require.Equal(t, int64(2), f.revision(later), "and the later one")
 }
 
 type releaseChannelFixture struct {
