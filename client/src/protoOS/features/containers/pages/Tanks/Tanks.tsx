@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ContainerInventoryPage from "@/protoOS/features/containers/components/ContainerInventoryPage";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { tankRouteValue } from "@/protoOS/topologyRouteParams";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const Tanks = () => {
@@ -14,7 +15,7 @@ const Tanks = () => {
     return [...topology.tanks.values()]
       .sort((a, b) => (a.slot ?? Number.MAX_SAFE_INTEGER) - (b.slot ?? Number.MAX_SAFE_INTEGER))
       .map((tank, index) => ({
-        id: String(tank.slot ?? index + 1),
+        id: tankRouteValue(tank),
         label: tank.label?.trim() || `Tank ${tank.slot ?? index + 1}`,
         details: [
           `${tank.moduleIds.length} ${tank.moduleIds.length === 1 ? "module" : "modules"}`,

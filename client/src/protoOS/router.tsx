@@ -31,7 +31,7 @@ import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
-import { useSystemInfo } from "@/protoOS/store";
+import { useSystemInfo, useSystemInfoError } from "@/protoOS/store";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 // Custom route type with requiresAuth property
@@ -66,7 +66,10 @@ const SettingsCooling = lazy(importSettingsCooling);
 
 const ContainerRoute = ({ children }: { children: ReactNode }) => {
   const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
   const { minerRoot } = useMinerHosting();
+
+  if (systemInfoError) return <Navigate to={`${minerRoot}/hashrate`} replace />;
 
   if (!systemInfo) {
     return (
@@ -81,6 +84,9 @@ const ContainerRoute = ({ children }: { children: ReactNode }) => {
 
 const HomeIndexRoute = () => {
   const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+
+  if (systemInfoError) return <Navigate to="hashrate" replace />;
 
   if (!systemInfo) {
     return (

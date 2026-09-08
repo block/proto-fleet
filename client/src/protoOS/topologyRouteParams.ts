@@ -22,3 +22,8 @@ export const findModuleInTankByRouteParam = (topology: Topology, tank: TankNode,
 
   return modules.find((module, index) => moduleMatchesRoute(module, routeValue, index + 1));
 };
+
+export const tankRouteValue = (tank: TankNode) => encodeURIComponent(String(tank.slot ?? tank.id));
+
+export const moduleRouteValue = (module: ModuleNode, fallbackSlot: number) =>
+  encodeURIComponent(String(module.location?.moduleSlot ?? fallbackSlot));

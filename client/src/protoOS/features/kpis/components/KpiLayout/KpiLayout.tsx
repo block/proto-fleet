@@ -8,8 +8,39 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import { useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
 import { useDuration, useMinerStore, usePoolsInfo, useSetDuration } from "@/protoOS/store";
+import type { ContainerTopology, TankId, ViewSelection } from "@/protoOS/store/contract";
+import { moduleHashboardIds } from "@/protoOS/store/hooks/kpiChartData";
+import { tankRouteValue } from "@/protoOS/topologyRouteParams";
 import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
+
+type KpiTimeSeriesField = Extract<TimeSeriesLevel, { type: "miner" }>["fields"][number];
+
+const kpiFields = (): KpiTimeSeriesField[] => ["hashrate", "power", "efficiency", "temperature"];
+
+const tankHashboardIds = (topology: ContainerTopology, tankId: TankId) =>
+  topology.tanks.get(tankId)?.moduleIds.flatMap((moduleId) => topology.modules.get(moduleId)?.hashboardIds ?? []) ?? [];
+
+const selectedContainerHashboardIndexes = (
+  hardware: ReturnType<typeof useMinerStore.getState>["hardware"],
+  selection: ViewSelection | undefined,
+) => {
+  const topology = hardware.topology;
+  if (topology?.kind !== "container") return [];
+
+  const selectedIds =
+    selection?.level === "module"
+      ? moduleHashboardIds(topology, selection.moduleId)
+      : selection?.level === "tank"
+        ? tankHashboardIds(topology, selection.tankId)
+        : [...hardware.hashboards.keys()];
+
+  const indexById = new Map([...hardware.hashboards.keys()].map((id, index) => [id, index]));
+  return selectedIds.flatMap((hashboardId) => {
+    const index = indexById.get(hashboardId);
+    return index === undefined ? [] : [index];
+  });
+};
 
 const KpiLayout = () => {
   const poolsInfo = usePoolsInfo();
@@ -35,10 +66,9 @@ const KpiLayout = () => {
     if (!tank) return [{ label: "Home", to: `${minerRoot}/` }, { label: heading }];
 
     const tankLabel = tank.label?.trim() || `Tank ${tank.slot ?? ""}`.trim();
-    const tankRouteValue = encodeURIComponent(String(tank.slot ?? tank.id));
     return [
       { label: "Home", to: `${minerRoot}/` },
-      { label: tankLabel, to: `${minerRoot}/tanks/${tankRouteValue}` },
+      { label: tankLabel, to: `${minerRoot}/tanks/${tankRouteValue(tank)}` },
       { label: heading },
     ];
   }, [hardware.topology, heading, minerRoot, selection]);
@@ -55,25 +85,17 @@ const KpiLayout = () => {
   const levels = useMemo<TimeSeriesLevel[]>(() => {
     const miner: TimeSeriesLevel = {
       type: "miner",
-      fields: ["hashrate", "power", "efficiency", "temperature"],
+      fields: kpiFields(),
     };
-    if (isContainer && selection?.level === "module") {
-      const module = hardware.topology?.modules.get(selection.moduleId);
-      const hashboardIndexById = new Map([...hardware.hashboards.keys()].map((id, index) => [id, index]));
-      const indexes =
-        module?.hashboardIds.flatMap((hashboardId) => {
-          const index = hashboardIndexById.get(hashboardId);
-          return index === undefined ? [] : [index];
-        }) ?? [];
-      return indexes.length
-        ? [{ type: "hashboard", fields: ["hashrate", "power", "efficiency", "temperature"], indexes }]
-        : [];
+    if (isContainer) {
+      const indexes = selectedContainerHashboardIndexes(hardware, selection);
+      const hashboard: TimeSeriesLevel = { type: "hashboard", fields: kpiFields(), indexes };
+      return selection?.level === "module" || selection?.level === "tank" ? [hashboard] : [miner, hashboard];
     }
 
     const hashboards: TimeSeriesLevel = {
       type: "hashboard",
-      fields: ["hashrate", "power", "efficiency", "temperature"],
-      indexes: isContainer ? Array.from({ length: hardware.hashboards.size }, (_, index) => index) : undefined,
+      fields: kpiFields(),
     };
     return [miner, hashboards];
   }, [hardware, isContainer, selection]);

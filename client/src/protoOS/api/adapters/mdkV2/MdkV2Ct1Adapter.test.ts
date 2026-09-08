@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { V2MiningOperatingState, V2PerformanceMode, V2PLLAlgorithm, V2PoolConnState } from "./generated/generatedApi";
 import { type MdkV2Client, MdkV2Ct1Adapter } from "./MdkV2Ct1Adapter";
@@ -18,6 +18,10 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
   }) as unknown as MdkV2Client;
 
 describe("MdkV2Ct1Adapter", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("attributes requests while allowing an explicit caller actor to win", () => {
     const adapter = new MdkV2Ct1Adapter(client());
     expect(adapter.decorate()).toEqual({ headers: { "X-Frigate-Actor": "proto-os" } });
@@ -314,6 +318,8 @@ describe("MdkV2Ct1Adapter", () => {
   });
 
   test("caches selected hashboard histories between polling intervals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T12:00:00Z"));
     const getContainerMap = vi.fn().mockResolvedValue({
       data: {
         containerMap: {
@@ -330,18 +336,25 @@ describe("MdkV2Ct1Adapter", () => {
       client({ hashboardServiceGetContainerMap: getContainerMap, telemetryServiceQueryTimeSeries: queryTimeSeries }),
       { deviceId: "ct1-a" },
     );
-    const request = {
-      startTime: "2026-09-02T11:00:00Z",
+    const request = (startTime: string) => ({
+      startTime,
       duration: "PT1H",
       interval: "PT5M",
       levels: [{ type: "hashboard" as const, indexes: [0], fields: ["hashrate" as const, "power" as const] }],
-    };
+    });
 
-    await adapter.getTimeSeries(request);
-    await adapter.getTimeSeries(request);
+    await adapter.getTimeSeries(request("2026-09-02T11:00:00Z"));
+    await adapter.getTimeSeries(request("2026-09-02T11:00:30Z"));
 
     expect(getContainerMap).toHaveBeenCalledTimes(2);
     expect(queryTimeSeries).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date("2026-09-02T12:05:01Z"));
+
+    await adapter.getTimeSeries(request("2026-09-02T11:05:01Z"));
+
+    expect(getContainerMap).toHaveBeenCalledTimes(3);
+    expect(queryTimeSeries).toHaveBeenCalledTimes(4);
   });
 
   test("returns CT1 plant fans from the cooling-status adapter method", async () => {

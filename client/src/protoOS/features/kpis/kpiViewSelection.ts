@@ -14,12 +14,13 @@ export const resolveKpiViewSelection = (
   if (topology.kind === "rig") return { level: "rig", moduleId: topology.rootModuleId };
   if (topology.kind === "directModule") return { level: "rig", moduleId: topology.moduleId };
 
-  if (!tankRouteValue || !moduleRouteValue) {
+  if (!tankRouteValue) {
     return { level: "container", containerId: topology.containerId };
   }
 
   const tank = findTankByRouteParam(topology, tankRouteValue);
   if (!tank) return { level: "container", containerId: topology.containerId };
+  if (!moduleRouteValue) return { level: "tank", tankId: tank.id };
 
   const module = findModuleInTankByRouteParam(topology, tank, moduleRouteValue);
 

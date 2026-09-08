@@ -364,7 +364,14 @@ const tankChartResult = (
       metric: tankMetrics.get(String(tank.id)),
     };
   });
-  const aggregateMetric = rollups.get(asEntityKey(String(topology.containerId)))?.[metricName]?.timeSeries;
+  const hashboardMetrics = [...hashboardsTelemetry.values()];
+  const aggregateMetric =
+    rollups.get(asEntityKey(String(topology.containerId)))?.[metricName]?.timeSeries ??
+    aggregateMetricTimeSeries(
+      metricName,
+      hashboardMetrics.map((metrics) => metrics?.[metricName]),
+      hashboardMetrics,
+    );
 
   return chartResultFromSegments(aggregateMetric, tankSegments, duration, "tanks");
 };

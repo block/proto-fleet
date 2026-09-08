@@ -489,23 +489,7 @@ describe("useMiner", () => {
     });
     useMinerStore.getState().telemetry.mergeTelemetry({
       resourceByScope: new Map(),
-      rollupsByEntity: new Map([
-        [
-          asEntityKey(String(containerId)),
-          {
-            hashrate: {
-              timeSeries: {
-                points: [
-                  { timestampMs: 1_000, value: 30 },
-                  { timestampMs: 2_000, value: 42 },
-                ],
-                bucketSizeMs: 1_000,
-                units: "TH/s",
-              },
-            },
-          },
-        ],
-      ]),
+      rollupsByEntity: new Map(),
       hashboards: new Map([
         [
           hashboardOneId,

@@ -127,6 +127,12 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     return this.deviceId ?? (context ? toWireDeviceId(context.deviceId) : DEFAULT_DEVICE_ID);
   }
 
+  private removeExpiredHashboardTimeSeriesCacheEntries(nowMs: number) {
+    for (const [key, entry] of this.hashboardTimeSeriesCache.entries()) {
+      if (entry.expiresAtMs <= nowMs) this.hashboardTimeSeriesCache.delete(key);
+    }
+  }
+
   decorate(params: AdapterRequestOptions = {}): AdapterRequestOptions {
     return { ...params, headers: { "X-Frigate-Actor": ACTOR, ...params.headers } };
   }
@@ -336,8 +342,26 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
     const end = request.endTime ?? (windowMs === undefined ? undefined : new Date(startMs + windowMs).toISOString());
     const bucket = bucketConfig(request.interval);
     const decorated = this.decorate(params);
-    const queryTimeSeries = async (query: TelemetryServiceQueryTimeSeriesParams, cacheKey?: string) => {
+    const hashboardCacheKey = (query: TelemetryServiceQueryTimeSeriesParams) => {
+      if (!query.identifier) return undefined;
+
+      const slidingWindow = request.duration !== undefined && request.endTime === undefined;
+      return JSON.stringify({
+        deviceId: this.containerDeviceId(),
+        identifier: query.identifier,
+        metric: query.metric,
+        bucketSize: query.bucketSize,
+        aggregation,
+        duration: slidingWindow ? request.duration : undefined,
+        startTime: slidingWindow ? undefined : query["range.start"],
+        endTime: slidingWindow ? undefined : query["range.end"],
+      });
+    };
+    const queryTimeSeries = async (query: TelemetryServiceQueryTimeSeriesParams) => {
       const now = Date.now();
+      this.removeExpiredHashboardTimeSeriesCacheEntries(now);
+
+      const cacheKey = hashboardCacheKey(query);
       const cached = cacheKey ? this.hashboardTimeSeriesCache.get(cacheKey) : undefined;
       if (cached && cached.expiresAtMs > now) return cached.data;
 
@@ -361,8 +385,7 @@ export class MdkV2Ct1Adapter implements MinerAdapter {
               bucketSize: bucket.size,
               identifier,
             };
-            const cacheKey = identifier ? JSON.stringify(query) : undefined;
-            return [field, await queryTimeSeries(query, cacheKey)] as const;
+            return [field, await queryTimeSeries(query)] as const;
           }),
         ),
       );
