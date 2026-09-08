@@ -335,7 +335,8 @@ enum RolloutMethod {
     ROLLOUT_METHOD_UNSPECIFIED = 0;
     // One ungated REST stage for every mismatched miner, with no batching,
     // waits, or review gates. This does not guarantee simultaneous command
-    // dispatch or bypass RolloutBehavior.max_concurrent_offline.
+    // dispatch or bypass RolloutBehavior.max_concurrent_offline; when that
+    // budget throttles dispatch, targets go in RolloutBehavior.order.
     ROLLOUT_METHOD_ALL_AT_ONCE = 1;
     // Multiple batches of batch_size, optionally reviewed after each one;
     // late joiners follow once the batches are done.
@@ -349,10 +350,12 @@ enum RolloutMethod {
     ROLLOUT_METHOD_DELEGATED = 4;
 }
 
-// Order miners are worked through. Consulted by BATCHED and
-// PILOT_THEN_CONTINUE when cutting batches and by DELEGATED for the
-// "next count" selection of AdvanceRollout; ALL_AT_ONCE updates every target
-// and does not consult it.
+// Order miners are worked through. The server sorts a rollout's targets by
+// it once at start; BATCHED and PILOT_THEN_CONTINUE cut batches along that
+// sequence, DELEGATED takes the "next count" of AdvanceRollout from it, and
+// every method, ALL_AT_ONCE included, dispatches QUEUED targets in that
+// sequence, which decides who goes first whenever
+// RolloutBehavior.max_concurrent_offline throttles dispatch.
 enum RolloutOrder {
     ROLLOUT_ORDER_UNSPECIFIED = 0;
     // Miners with the worst efficiency (highest J/TH) go first; miners with
@@ -443,8 +446,8 @@ message RolloutBehavior {
 
     // Defaults to ALL_AT_ONCE when unspecified.
     RolloutMethod method = 1 [(buf.validate.field).enum.defined_only = true];
-    // Stored for every method and defaulted to LEAST_EFFICIENT_FIRST; see
-    // RolloutOrder for which methods consult it.
+    // Sequence the server works targets through; consumed by every method
+    // (see RolloutOrder). Unspecified means LEAST_EFFICIENT_FIRST.
     RolloutOrder order = 2 [(buf.validate.field).enum.defined_only = true];
     // BATCHED: miners per batch (>= 1). Rejected for every other method, so a
     // batch size cannot be silently ignored by an all-at-once rollout.
@@ -883,9 +886,8 @@ message RolloutEvidence {
     // FAILED, every set threshold passes under the RolloutAutomationThresholds
     // coverage rule, and no stabilization time remains. EXCLUDED and SKIPPED
     // miners are neutral: they neither block readiness nor contribute samples.
-    // Always false for rollouts without auto-continue or outside the
-    // AWAITING_REVIEW stage. The server derives this value; validation only
-    // checks that context, not the health conditions.
+    // The server derives this value and reports it false for rollouts without
+    // auto-continue or outside the AWAITING_REVIEW stage.
     bool ready_to_advance = 11;
     // Why the rollout is holding at the gate when it cannot auto-continue,
     // including which metric lacks the required sample coverage.
@@ -1035,16 +1037,6 @@ message Rollout {
         expression: "this.previous_firmware_checksum != this.firmware_checksum"
     };
     option (buf.validate.message).cel = {
-        id: "state_derives_from_status"
-        message: "state must be an in-progress or paused state while ACTIVE and the matching terminal state otherwise"
-        expression: "(this.status == 1 && this.state in [1, 2, 3, 4, 5, 9]) || (this.status == 2 && this.state == 6) || (this.status == 3 && this.state == 7) || (this.status == 4 && this.state == 8)"
-    };
-    option (buf.validate.message).cel = {
-        id: "delegated_states"
-        message: "WAITING_FOR_CONTROLLER occurs only in DELEGATED rollouts, which while ACTIVE are IN_PROGRESS, PAUSED, or WAITING_FOR_CONTROLLER"
-        expression: "(this.state != 9 || this.behavior.method == 4) && (this.behavior.method != 4 || this.status != 1 || this.state in [1, 5, 9])"
-    };
-    option (buf.validate.message).cel = {
         id: "cancel_reason_iff_canceled"
         message: "cancel_reason must be set exactly when status is CANCELED"
         expression: "(this.status == 4) == (this.cancel_reason != 0)"
@@ -1075,34 +1067,14 @@ message Rollout {
         expression: "this.evidence.devices_total <= this.device_count"
     };
     option (buf.validate.message).cel = {
-        id: "completed_has_only_done_or_excluded_targets"
-        message: "a COMPLETED rollout may only contain DONE, EXCLUDED, or SKIPPED targets"
-        expression: "this.status != 2 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed == 0)"
-    };
-    option (buf.validate.message).cel = {
-        id: "completed_with_failures_is_settled_with_a_failure"
-        message: "a COMPLETED_WITH_FAILURES rollout may only contain DONE, FAILED, EXCLUDED, or SKIPPED targets and needs at least one FAILED"
-        expression: "this.status != 3 || (this.device_counts.queued == 0 && this.device_counts.in_progress == 0 && this.device_counts.retrying == 0 && this.device_counts.failed > 0)"
-    };
-    option (buf.validate.message).cel = {
-        id: "batches_match_method"
-        message: "batch_count must be 0 for all-at-once and DELEGATED rollouts, exactly 1 for PILOT_THEN_CONTINUE, and positive for BATCHED"
-        expression: "((this.behavior.method in [0, 1, 4]) == (this.batch_count == 0)) && (this.behavior.method != 3 || this.batch_count == 1)"
-    };
-    option (buf.validate.message).cel = {
         id: "current_batch_within_batch_count"
         message: "current_batch must index an existing batch, or be 0 without batches"
         expression: "this.batch_count == 0 ? this.current_batch == 0 : this.current_batch < this.batch_count"
     };
     option (buf.validate.message).cel = {
-        id: "all_at_once_stays_in_rest_stage"
-        message: "a rollout without batches must be in the REST stage"
-        expression: "this.batch_count > 0 || this.stage == 4"
-    };
-    option (buf.validate.message).cel = {
         id: "evidence_only_while_active"
-        message: "evidence is set only for ACTIVE rollouts; ready_to_advance requires auto-continue and the AWAITING_REVIEW stage"
-        expression: "(!has(this.evidence) || this.status == 1) && (!this.evidence.ready_to_advance || (this.behavior.auto_continue_on_healthy_telemetry && this.stage == 2))"
+        message: "evidence is set only for ACTIVE rollouts"
+        expression: "!has(this.evidence) || this.status == 1"
     };
 
     int64 id = 1 [(buf.validate.field).int64.gte = 0];
@@ -1115,16 +1087,22 @@ message Rollout {
     string firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 7 [(buf.validate.field).string = {min_len: 1, max_len: 255, not_contains: "\x00"}];
     RolloutStatus status = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-    // Derived from status, stage, and pause; always agrees with status.
+    // The server derives this from status, stage, and pause: an ACTIVE rollout
+    // is IN_PROGRESS, at a gate (STABILIZING_TELEMETRY, PAUSED_AT_PILOT_GATE,
+    // PAUSED_AT_BATCH_REVIEW), PAUSED, or (DELEGATED only)
+    // WAITING_FOR_CONTROLLER; a terminal status maps to the terminal state of
+    // the same name.
     RolloutState state = 9 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-    // Stage of a staged rollout; REST for all-at-once rollouts.
+    // Stage of a staged rollout; the server keeps ALL_AT_ONCE and DELEGATED
+    // rollouts in REST.
     RolloutStage stage = 10 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // Set exactly when status is CANCELED.
     RolloutCancelReason cancel_reason = 11 [(buf.validate.field).enum.defined_only = true];
     // The behavior this rollout runs with (copied from the channel at start).
     RolloutBehavior behavior = 12;
-    // Number of snapshotted batches; 0 for all-at-once rollouts, exactly 1
-    // (the pilot) for PILOT_THEN_CONTINUE, and at least 1 for BATCHED.
+    // Number of snapshotted batches the server cut at start: 0 for
+    // ALL_AT_ONCE and DELEGATED, exactly 1 (the pilot) for PILOT_THEN_CONTINUE,
+    // and at least 1 for BATCHED.
     int32 batch_count = 13 [(buf.validate.field).int32.gte = 0];
     // 0-based index of the batch in flight or under review, always below
     // batch_count; stays at the last batch through the rest stage and is 0

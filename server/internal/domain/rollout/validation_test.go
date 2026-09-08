@@ -203,7 +203,8 @@ func activeRollout() *rolloutv1.Rollout {
 }
 
 // finishedRollout returns a minimal Rollout in the given terminal status with
-// the state, cancel reason, and finished_at that status requires.
+// the state the server derives for it and the cancel reason and finished_at
+// the contract pairs with it.
 func finishedRollout(status rolloutv1.RolloutStatus) *rolloutv1.Rollout {
 	rollout := activeRollout()
 	rollout.Status = status
@@ -213,8 +214,6 @@ func finishedRollout(status rolloutv1.RolloutStatus) *rolloutv1.Rollout {
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED
 	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES:
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED_WITH_FAILURES
-		rollout.DeviceCount = 1
-		rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Failed: 1}
 	case rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED:
 		rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_CANCELED
 		rollout.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CANCELED_REMAINING
@@ -451,16 +450,6 @@ func TestRolloutLifecycleValidation(t *testing.T) {
 		{name: "unspecified state is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.State = rolloutv1.RolloutState_ROLLOUT_STATE_UNSPECIFIED }), wantErr: true},
 		{name: "unspecified stage is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_UNSPECIFIED }), wantErr: true},
 		{name: "unknown cancel reason is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.CancelReason = rolloutv1.RolloutCancelReason(99) }), wantErr: true},
-		{name: "active rollout with a terminal state is rejected", rollout: mutate(func(r *rolloutv1.Rollout) { r.State = rolloutv1.RolloutState_ROLLOUT_STATE_COMPLETED }), wantErr: true},
-		{
-			name: "completed rollout with a mismatched terminal state is rejected",
-			rollout: func() *rolloutv1.Rollout {
-				r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
-				r.State = rolloutv1.RolloutState_ROLLOUT_STATE_CANCELED
-				return r
-			}(),
-			wantErr: true,
-		},
 		{name: "active rollout with a cancel reason is rejected", rollout: mutate(func(r *rolloutv1.Rollout) {
 			r.CancelReason = rolloutv1.RolloutCancelReason_ROLLOUT_CANCEL_REASON_CLEARED
 		}), wantErr: true},
@@ -541,41 +530,6 @@ func TestRolloutDeviceCountsValidation(t *testing.T) {
 	}
 }
 
-func TestRolloutTerminalStatusPhaseValidation(t *testing.T) {
-	t.Parallel()
-
-	finishedWith := func(status rolloutv1.RolloutStatus, counts *rolloutv1.RolloutDeviceCounts) *rolloutv1.Rollout {
-		rollout := finishedRollout(status)
-		rollout.DeviceCounts = counts
-		rollout.DeviceCount = counts.GetQueued() + counts.GetInProgress() + counts.GetRetrying() + counts.GetDone() + counts.GetFailed() + counts.GetExcluded()
-		return rollout
-	}
-	completed := rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED
-	completedWithFailures := rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED_WITH_FAILURES
-	canceled := rolloutv1.RolloutStatus_ROLLOUT_STATUS_CANCELED
-	tests := []struct {
-		name    string
-		rollout *rolloutv1.Rollout
-		wantErr bool
-	}{
-		{name: "completed with done and excluded is valid", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Excluded: 1})},
-		{name: "completed with a failure is rejected", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Failed: 1}), wantErr: true},
-		{name: "completed with a queued target is rejected", rollout: finishedWith(completed, &rolloutv1.RolloutDeviceCounts{Done: 2, Queued: 1}), wantErr: true},
-		{name: "completed with failures and settled targets is valid", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Done: 1, Failed: 1, Excluded: 1})},
-		{name: "completed with failures but none failed is rejected", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Done: 2}), wantErr: true},
-		{name: "completed with failures and an in-progress target is rejected", rollout: finishedWith(completedWithFailures, &rolloutv1.RolloutDeviceCounts{Failed: 1, InProgress: 1}), wantErr: true},
-		{name: "canceled with unsettled targets is valid", rollout: finishedWith(canceled, &rolloutv1.RolloutDeviceCounts{Queued: 1, Done: 1, Failed: 1})},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			requireProtoValidation(t, test.rollout, test.wantErr)
-		})
-	}
-}
-
 func TestRolloutBatchConsistencyValidation(t *testing.T) {
 	t.Parallel()
 
@@ -621,33 +575,6 @@ func TestRolloutBatchConsistencyValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "all-at-once rollout with batches is rejected",
-			rollout: func() *rolloutv1.Rollout {
-				r := activeRollout()
-				r.BatchCount = 1
-				return r
-			},
-			wantErr: true,
-		},
-		{
-			name: "batched rollout without batches is rejected",
-			rollout: func() *rolloutv1.Rollout {
-				r := batchedRollout(0)
-				r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_REST
-				return r
-			},
-			wantErr: true,
-		},
-		{
-			name: "all-at-once rollout outside the rest stage is rejected",
-			rollout: func() *rolloutv1.Rollout {
-				r := activeRollout()
-				r.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_BATCH
-				return r
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -659,7 +586,7 @@ func TestRolloutBatchConsistencyValidation(t *testing.T) {
 	}
 }
 
-func TestRolloutGateStateValidation(t *testing.T) {
+func TestRolloutEvidencePresenceValidation(t *testing.T) {
 	t.Parallel()
 
 	atGate := func(method rolloutv1.RolloutMethod, review, autoContinue bool, state rolloutv1.RolloutState) *rolloutv1.Rollout {
@@ -714,20 +641,9 @@ func TestRolloutGateStateValidation(t *testing.T) {
 			r.Evidence = &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1}
 			return r
 		}},
-		{name: "ready to advance outside the review stage is rejected", rollout: func() *rolloutv1.Rollout {
-			r := activeRollout()
-			r.Behavior = &rolloutv1.RolloutBehavior{AutoContinueOnHealthyTelemetry: true}
-			r.Evidence = &rolloutv1.RolloutEvidence{ReadyToAdvance: true}
-			return r
-		}, wantErr: true},
 		{name: "evidence on a finished rollout is rejected", rollout: func() *rolloutv1.Rollout {
 			r := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
 			r.Evidence = &rolloutv1.RolloutEvidence{}
-			return r
-		}, wantErr: true},
-		{name: "ready to advance without auto-continue is rejected", rollout: func() *rolloutv1.Rollout {
-			r := atGate(batched, true, false, rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_BATCH_REVIEW)
-			r.Evidence = &rolloutv1.RolloutEvidence{ReadyToAdvance: true}
 			return r
 		}, wantErr: true},
 	}
@@ -965,14 +881,10 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			},
 		},
 		{
-			name:     "sampled hashrate without its change is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, HashRateHs: sampledAggregate(1)},
-			wantErr:  true,
-		},
-		{
-			name:     "sampled temperature without its change is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, TempC: sampledAggregate(1)},
-			wantErr:  true,
+			// The server derives the change fields from the aggregates; the
+			// contract does not re-check that arithmetic.
+			name:     "sampled aggregate without its change is structurally valid",
+			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, Online: 1, HashRateHs: sampledAggregate(1), TempC: sampledAggregate(1)},
 		},
 		{
 			name:     "verified plus failed above total is rejected",
@@ -1017,24 +929,13 @@ func TestRolloutEvidenceValidation(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "aggregate sampling more than verified is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 3, Verified: 1, PowerW: sampledAggregate(2)},
-			wantErr:  true,
-		},
-		{
-			name:     "hashrate change without samples is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, HashrateChangePercent: proto.Float64(0)},
-			wantErr:  true,
-		},
-		{
-			name:     "efficiency change without samples is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, EfficiencyChangePercent: proto.Float64(0)},
-			wantErr:  true,
-		},
-		{
-			name:     "temperature change without samples is rejected",
-			evidence: &rolloutv1.RolloutEvidence{DevicesTotal: 1, Verified: 1, TemperatureChangeCelsius: proto.Float64(0)},
-			wantErr:  true,
+			name: "changes without their aggregates are structurally valid",
+			evidence: &rolloutv1.RolloutEvidence{
+				DevicesTotal: 1, Verified: 1, Online: 1,
+				HashrateChangePercent:    proto.Float64(0),
+				EfficiencyChangePercent:  proto.Float64(0),
+				TemperatureChangeCelsius: proto.Float64(0),
+			},
 		},
 		{
 			name:     "negative count is rejected",
@@ -2436,18 +2337,6 @@ func delegatedBehavior() *rolloutv1.RolloutBehavior {
 	return &rolloutv1.RolloutBehavior{Method: rolloutv1.RolloutMethod_ROLLOUT_METHOD_DELEGATED}
 }
 
-// delegatedRollout returns an ACTIVE DELEGATED rollout with one QUEUED target,
-// waiting for its controller.
-func delegatedRollout() *rolloutv1.Rollout {
-	rollout := activeRollout()
-	rollout.Behavior = delegatedBehavior()
-	rollout.State = rolloutv1.RolloutState_ROLLOUT_STATE_WAITING_FOR_CONTROLLER
-	rollout.DeviceCount = 1
-	rollout.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Queued: 1}
-	rollout.Revision = 1
-	return rollout
-}
-
 func TestDelegatedBehaviorValidation(t *testing.T) {
 	t.Parallel()
 
@@ -2549,55 +2438,6 @@ func TestDelegatedBehaviorValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			requireProtoValidation(t, test.behavior, test.wantErr)
-		})
-	}
-}
-
-func TestDelegatedRolloutStateValidation(t *testing.T) {
-	t.Parallel()
-
-	inProgress := delegatedRollout()
-	inProgress.State = rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS
-	inProgress.DeviceCounts = &rolloutv1.RolloutDeviceCounts{InProgress: 1}
-
-	paused := delegatedRollout()
-	paused.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED
-	paused.PausedAt = timestamppb.Now()
-
-	gated := delegatedRollout()
-	gated.State = rolloutv1.RolloutState_ROLLOUT_STATE_PAUSED_AT_PILOT_GATE
-	gated.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_AWAITING_REVIEW
-
-	batched := delegatedRollout()
-	batched.BatchCount = 1
-	batched.Stage = rolloutv1.RolloutStage_ROLLOUT_STAGE_BATCH
-	batched.State = rolloutv1.RolloutState_ROLLOUT_STATE_IN_PROGRESS
-
-	notDelegatedWaiting := activeRollout()
-	notDelegatedWaiting.State = rolloutv1.RolloutState_ROLLOUT_STATE_WAITING_FOR_CONTROLLER
-
-	completedWithSkips := finishedRollout(rolloutv1.RolloutStatus_ROLLOUT_STATUS_COMPLETED)
-	completedWithSkips.Behavior = delegatedBehavior()
-	completedWithSkips.DeviceCount = 3
-	completedWithSkips.DeviceCounts = &rolloutv1.RolloutDeviceCounts{Done: 2, Skipped: 1}
-
-	tests := []struct {
-		name    string
-		rollout *rolloutv1.Rollout
-		wantErr bool
-	}{
-		{name: "delegated waiting for controller with queued targets", rollout: delegatedRollout()},
-		{name: "delegated in progress while updates are in flight", rollout: inProgress},
-		{name: "delegated paused by an operator", rollout: paused},
-		{name: "completed delegated rollout may contain skipped targets", rollout: completedWithSkips},
-		{name: "delegated rollouts never hold at a review gate", rollout: gated, wantErr: true},
-		{name: "delegated rollouts have no batches", rollout: batched, wantErr: true},
-		{name: "only delegated rollouts wait for a controller", rollout: notDelegatedWaiting, wantErr: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			requireProtoValidation(t, test.rollout, test.wantErr)
 		})
 	}
 }
