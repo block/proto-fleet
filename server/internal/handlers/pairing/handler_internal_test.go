@@ -3,11 +3,16 @@ package pairing
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -15,9 +20,41 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
+
+type stubFleetNodeDiscoveryRunner struct {
+	mu       sync.Mutex
+	nodeIDs  []int64
+	requests []*pb.DiscoverRequest
+	runErr   error
+}
+
+func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
+	return s.nodeIDs, nil
+}
+
+func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
+	_ context.Context,
+	nodeID int64,
+	req *pb.DiscoverRequest,
+	onBatch func(*pb.DiscoverResponse) error,
+) error {
+	cloned := &pb.DiscoverRequest{}
+	proto.Merge(cloned, req)
+	s.mu.Lock()
+	s.requests = append(s.requests, cloned)
+	s.mu.Unlock()
+	if err := onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{
+		{DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028"},
+		{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID), IpAddress: "192.168.1.11", Port: "4028"},
+	}}); err != nil {
+		return err
+	}
+	return s.runErr
+}
 
 // ctxWithPerms builds the request context the auth interceptor would produce:
 // session info plus the caller's effective org-scoped permissions.
@@ -78,6 +115,135 @@ func TestCallerCanManageFleetNodes(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestFleetNodeDiscoveryRequest(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	ipList := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"},
+	}}}
+	ipRange := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
+		StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"},
+	}}}
+	explicitNmap := func(flag *bool) *pb.DiscoverRequest {
+		return &pb.DiscoverRequest{
+			Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
+				Target: "192.168.1.0/24", Ports: []string{"4028"},
+			}},
+			UseFleetNodeLocalSubnet: flag,
+		}
+	}
+
+	assert.Same(t, ipList, fleetNodeDiscoveryRequest(ipList, false))
+	assert.Same(t, ipRange, fleetNodeDiscoveryRequest(ipRange, false))
+	assert.Nil(t, fleetNodeDiscoveryRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
+	}, false))
+
+	manual := explicitNmap(&falseValue)
+	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual, true), "explicit false must override legacy inference")
+
+	for _, tc := range []struct {
+		req         *pb.DiscoverRequest
+		legacyLocal bool
+	}{
+		{req: explicitNmap(&trueValue), legacyLocal: false},
+		{req: explicitNmap(nil), legacyLocal: true},
+	} {
+		got := fleetNodeDiscoveryRequest(tc.req, tc.legacyLocal)
+		assert.Equal(t, nmaptarget.LocalSubnetTarget, got.GetNmap().GetTarget())
+		assert.Equal(t, []string{"4028"}, got.GetNmap().GetPorts())
+	}
+
+	legacyManual := explicitNmap(nil)
+	assert.Same(t, legacyManual, fleetNodeDiscoveryRequest(legacyManual, false))
+}
+
+func TestDiscoverRequest_FleetNodeLocalSubnetRequiresNmap(t *testing.T) {
+	falseValue := false
+	for _, req := range []*pb.DiscoverRequest{
+		{
+			Mode:                    &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+			UseFleetNodeLocalSubnet: &falseValue,
+		},
+		{
+			Mode:                    &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "192.168.1.10", EndIp: "192.168.1.20"}},
+			UseFleetNodeLocalSubnet: &falseValue,
+		},
+		{
+			Mode:                    &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
+			UseFleetNodeLocalSubnet: &falseValue,
+		},
+	} {
+		assert.Error(t, protovalidate.Validate(req))
+	}
+
+	assert.NoError(t, protovalidate.Validate(&pb.DiscoverRequest{
+		Mode:                    &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24"}},
+		UseFleetNodeLocalSubnet: &falseValue,
+	}))
+}
+
+func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing.T) {
+	requests := []*pb.DiscoverRequest{
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{Target: "192.168.1.0/24", Ports: []string{"4028"}}}},
+	}
+
+	for _, req := range requests {
+		t.Run(fmt.Sprintf("%T", req.GetMode()), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{
+				nodeIDs: []int64{7, 8},
+				runErr:  errors.New("node busy"),
+			}
+			h := &Handler{discovery: runner}
+			serverResults := make(chan *pb.DiscoverResponse, 1)
+			serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{
+				DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028",
+			}}}
+			close(serverResults)
+			var sent []*pb.Device
+			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+				sent = append(sent, resp.GetDevices()...)
+				return nil
+			}, nil)
+
+			h.forwardDiscoverySources(ctxWithPerms(authz.PermFleetnodeManage), 1, serverResults, req, fwd)
+
+			require.Len(t, runner.requests, 2)
+			for _, got := range runner.requests {
+				assert.True(t, proto.Equal(req, got), "manual request must reach every node unchanged")
+			}
+			ids := make([]string, 0, len(sent))
+			for _, device := range sent {
+				ids = append(ids, device.GetDeviceIdentifier())
+			}
+			assert.ElementsMatch(t, []string{"shared", "node-7", "node-8"}, ids)
+		})
+	}
+}
+
+func TestForwardDiscoverySources_WithoutFleetNodePermissionIsServerOnly(t *testing.T) {
+	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+	h := &Handler{discovery: runner}
+	serverResults := make(chan *pb.DiscoverResponse, 1)
+	serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}
+	close(serverResults)
+	var sent []*pb.Device
+	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+		sent = append(sent, resp.GetDevices()...)
+		return nil
+	}, nil)
+
+	h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+	}, fwd)
+
+	assert.Empty(t, runner.requests)
+	require.Len(t, sent, 1)
+	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
 }
 
 func TestSelectedDeviceIdentifiers_IncludeDevices(t *testing.T) {

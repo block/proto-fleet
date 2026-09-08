@@ -16,6 +16,7 @@ export interface FleetNodeItem {
   enrollmentStatus: FleetNodeEnrollmentStatus;
   identityFingerprint: string;
   commandProtocolUpgradeRequired: boolean;
+  controlStreamConnected: boolean;
   createdAt: Date | null;
   lastSeenAt: Date | null;
 }
@@ -37,6 +38,7 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     enrollmentStatus: summary.enrollmentStatus,
     identityFingerprint: summary.identityFingerprint,
     commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,
+    controlStreamConnected: summary.controlStreamConnected,
     createdAt: toDate(summary.createdAt),
     lastSeenAt: toDate(summary.lastSeenAt),
   };

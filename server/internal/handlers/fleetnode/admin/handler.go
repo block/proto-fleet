@@ -50,7 +50,7 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.ListFleetNodesRequest]) (*connect.Response[pb.ListFleetNodesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeRead, authz.ResourceContext{})
+	info, err := middleware.RequireAnyPermission(ctx, []string{authz.PermFleetnodeRead, authz.PermFleetnodeManage}, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +58,13 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	if err != nil {
 		return nil, err
 	}
+	connected := make(map[int64]struct{})
+	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
+		connected[fleetNodeID] = struct{}{}
+	}
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
+		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
 			FleetNodeId:                    n.ID,
 			Name:                           n.Name,
@@ -67,6 +72,7 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			IdentityFingerprint:            enrollment.IdentityFingerprint(n.IdentityPubkey),
 			CreatedAt:                      timestamppb.New(n.CreatedAt),
 			CommandProtocolUpgradeRequired: h.registry.CommandProtocolUpgradeRequired(n.ID),
+			ControlStreamConnected:         controlStreamConnected,
 		}
 		if n.PendingEnrollmentID != nil {
 			summary.PendingEnrollmentId = n.PendingEnrollmentID

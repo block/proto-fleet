@@ -22,6 +22,12 @@ func nmapReq(target string, ports []string) *pairingpb.DiscoverRequest {
 	}}
 }
 
+func ipRangeReq(start, end string, ports []string) *pairingpb.DiscoverRequest {
+	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{
+		IpRange: &pairingpb.IPRangeModeRequest{StartIp: start, EndIp: end, Ports: ports},
+	}}
+}
+
 func autoNmapReq(ports []string) *pairingpb.DiscoverRequest {
 	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
 		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: ports},
@@ -46,6 +52,9 @@ func TestBuildReportScope(t *testing.T) {
 		{"iplist mixed hostname unconstrains all ips", ipListReq([]string{"192.168.1.10", "miner.lan"}, []string{"80"}), "10.0.0.5", "80", true},
 		{"iplist ipv4-mapped reported ip is unmapped", ipListReq([]string{"192.168.1.10"}, []string{"80"}), "::ffff:192.168.1.10", "80", true},
 		{"iplist ipv4-mapped requested entry is unmapped", ipListReq([]string{"::ffff:192.168.1.10"}, []string{"80"}), "192.168.1.10", "80", true},
+		{"ip range in scope", ipRangeReq("192.168.1.10", "192.168.1.20", []string{"80"}), "192.168.1.15", "80", true},
+		{"ip range address out of scope", ipRangeReq("192.168.1.10", "192.168.1.20", []string{"80"}), "192.168.1.21", "80", false},
+		{"ip range port out of scope", ipRangeReq("192.168.1.10", "192.168.1.20", []string{"80"}), "192.168.1.15", "22", false},
 		{"nmap cidr in scope", nmapReq("192.168.1.0/24", []string{"80"}), "192.168.1.55", "80", true},
 		{"nmap cidr ip out of scope", nmapReq("192.168.1.0/24", []string{"80"}), "192.168.2.55", "80", false},
 		{"nmap cidr port out of scope", nmapReq("192.168.1.0/24", []string{"80"}), "192.168.1.55", "22", false},
@@ -78,7 +87,7 @@ func TestNormalizeDiscoverRequest_RejectsMalformedIPListEntry(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "bad/entry"}, []string{"80"})
 
 	// Act
-	_, err := normalizeDiscoverRequest(req)
+	err := validateDiscoverRequest(req)
 
 	// Assert
 	require.Error(t, err)
@@ -90,7 +99,7 @@ func TestNormalizeDiscoverRequest_AcceptsIPListHostname(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "miner.lan"}, []string{"80"})
 
 	// Act
-	_, err := normalizeDiscoverRequest(req)
+	err := validateDiscoverRequest(req)
 
 	// Assert
 	require.NoError(t, err)
@@ -113,7 +122,7 @@ func TestNormalizeDiscoverRequest_RejectsInvalidPort(t *testing.T) {
 			req := ipListReq([]string{"192.168.1.10"}, []string{tc.port})
 
 			// Act
-			_, err := normalizeDiscoverRequest(req)
+			err := validateDiscoverRequest(req)
 
 			// Assert
 			require.Error(t, err)
@@ -127,7 +136,7 @@ func TestNormalizeDiscoverRequest_RejectsPublicIPListEntry(t *testing.T) {
 	req := ipListReq([]string{"192.168.1.10", "8.8.8.8"}, []string{"80"})
 
 	// Act
-	_, err := normalizeDiscoverRequest(req)
+	err := validateDiscoverRequest(req)
 
 	// Assert
 	require.Error(t, err)
@@ -149,7 +158,7 @@ func TestNormalizeDiscoverRequest_RejectsPublicNmapTarget(t *testing.T) {
 			req := nmapReq(tc.target, []string{"80"})
 
 			// Act
-			_, err := normalizeDiscoverRequest(req)
+			err := validateDiscoverRequest(req)
 
 			// Assert
 			require.Error(t, err)
@@ -163,7 +172,7 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_Accepts(t *testing.T) {
 	req := autoNmapReq([]string{"80", "4028"})
 
 	// Act
-	_, err := normalizeDiscoverRequest(req)
+	err := validateDiscoverRequest(req)
 
 	// Assert
 	require.NoError(t, err)
@@ -174,7 +183,7 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testin
 	req := autoNmapReq([]string{"80/tcp"})
 
 	// Act
-	_, err := normalizeDiscoverRequest(req)
+	err := validateDiscoverRequest(req)
 
 	// Assert
 	require.Error(t, err)

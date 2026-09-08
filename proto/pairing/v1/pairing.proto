@@ -106,6 +106,12 @@ message IPListModeRequest {
 
 // Request message for device discovery, supporting multiple discovery modes
 message DiscoverRequest {
+  option (buf.validate.message).cel = {
+    id: "discover_request.fleet_node_local_subnet_requires_nmap"
+    message: "use_fleet_node_local_subnet can only be set for nmap discovery"
+    expression: "!has(this.use_fleet_node_local_subnet) || has(this.nmap)"
+  };
+
   // Only one discovery mode can be active at a time
   oneof mode {
     IPListModeRequest ip_list = 1;    // Discover from list of IPs
@@ -113,6 +119,11 @@ message DiscoverRequest {
     MDNSModeRequest mdns = 3;         // Discover using mDNS
     NmapModeRequest nmap = 4;         // Discover using Nmap
   }
+
+  // Controls only how a Fleet Node interprets an Nmap request. True asks each
+  // node to scan its own local subnet; false preserves the supplied target.
+  // Omitted requests retain the server's legacy local-subnet inference.
+  optional bool use_fleet_node_local_subnet = 5;
 }
 
 // Response message containing discovered devices or errors

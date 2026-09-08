@@ -262,6 +262,9 @@ var ProcedurePermissions = map[string]string{
 
 	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
 	// manage for everything that mutates fleet-node state or triggers a scan.
+	// ListFleetNodes also permits fleetnode:manage because Add Miners uses its
+	// connection fields to report degraded remote coverage without exposing
+	// Fleet Node topology.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:           authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:                 authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:               authz.PermFleetnodeManage,

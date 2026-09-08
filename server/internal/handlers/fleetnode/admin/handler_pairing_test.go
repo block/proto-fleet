@@ -135,16 +135,18 @@ func TestListFleetNodes_ReportsActiveLegacyCommandProtocol(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermFleetnodeManage), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
 
 	stream.Unregister()
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
+	assert.False(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {

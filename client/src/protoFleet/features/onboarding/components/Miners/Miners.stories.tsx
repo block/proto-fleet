@@ -25,7 +25,7 @@ export const Miners = ({ minersCount }: MinersProps) => {
       <MinersComponent
         foundMiners={miners.slice(0, minersCount)}
         scanDiscoveryPending={false}
-        ipListDiscoveryPending={false}
+        manualDiscoveryPending={false}
         pairingPending={false}
         onCancelScan={action("cancel scan")}
         onManualDiscover={() => null}

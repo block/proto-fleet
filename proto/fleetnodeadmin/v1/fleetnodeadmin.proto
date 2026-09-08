@@ -61,6 +61,8 @@ message FleetNodeSummary {
     // True only while this node has an active control connection that cannot
     // process the server's current commands.
     bool command_protocol_upgrade_required = 8;
+    // True only while this node has an active ControlStream connection.
+    bool control_stream_connected = 9;
 }
 
 message ConfirmFleetNodeRequest {

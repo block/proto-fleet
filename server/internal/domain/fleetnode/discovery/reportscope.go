@@ -11,11 +11,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
-// buildReportScope derives, from the normalized request, a matcher that accepts
+// buildReportScope derives, from the validated request, a matcher that accepts
 // a reported (ipAddress, port) only when it falls within what the node was asked
 // to scan. The gateway checks every reported device against it so a compromised
-// node can't report (or claim) devices outside the requested scope. IpRange is
-// already expanded to IpList upstream, so only IpList and Nmap reach here.
+// node can't report (or claim) devices outside the requested scope.
 func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 	switch m := req.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
@@ -23,6 +22,23 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 		inPort := portMatcher(m.IpList.GetPorts())
 		return func(ip, port string) bool {
 			return inPort(port) && inIP(ip)
+		}
+	case *pairingpb.DiscoverRequest_IpRange:
+		start, end, err := validatedIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
+		if err != nil {
+			return func(string, string) bool { return false }
+		}
+		inPort := portMatcher(m.IpRange.GetPorts())
+		return func(ip, port string) bool {
+			if !inPort(port) {
+				return false
+			}
+			addr, ok := parseScopeAddr(ip)
+			if !ok || !addr.Is4() {
+				return false
+			}
+			value := netutil.IPv4ToUint32(addr)
+			return value >= start && value <= end
 		}
 	case *pairingpb.DiscoverRequest_Nmap:
 		inPort := portMatcher(m.Nmap.GetPorts())
@@ -44,7 +60,7 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			return inPort(port) && inTarget(ip)
 		}
 	default:
-		// normalizeDiscoverRequest rejects other modes; fail closed.
+		// validateDiscoverRequest rejects other modes; fail closed.
 		return func(string, string) bool { return false }
 	}
 }

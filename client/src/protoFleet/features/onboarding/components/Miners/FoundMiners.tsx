@@ -111,11 +111,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
           supportedAuthenticationMethods: supportedMethods,
           miners: [miner],
         };
-      } else if (
-        // if miner is already in our state dont add it again
-        // so that we dont have duplicates
-        !_minersByModel[minerKey.toString()].miners.find((m) => m.ipAddress === miner.ipAddress)
-      ) {
+      } else {
         _minersByModel[minerKey.toString()].miners.push(miner);
       }
     });
