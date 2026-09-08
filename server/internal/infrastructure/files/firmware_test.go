@@ -28,6 +28,55 @@ func testFirmwareMetadata() FirmwareMetadata {
 	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
 }
 
+func TestValidateFirmwareUploadMetadata_TextBounds(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name string
+		set  func(*FirmwareMetadata, string)
+	}{
+		{"target_manufacturer", func(m *FirmwareMetadata, v string) { m.TargetManufacturer = v }},
+		{"target_model", func(m *FirmwareMetadata, v string) { m.TargetModel = v }},
+		{"firmware_version", func(m *FirmwareMetadata, v string) { m.FirmwareVersion = v }},
+	}
+	requireInvalidArgument := func(t *testing.T, metadata FirmwareMetadata, message string) {
+		t.Helper()
+		err := ValidateFirmwareUploadMetadata(metadata)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), message)
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
+			metadata := testFirmwareMetadata()
+			field.set(&metadata, strings.Repeat("界", maxFirmwareMetadataLength))
+			require.NoError(t, ValidateFirmwareUploadMetadata(metadata))
+
+			field.set(&metadata, strings.Repeat("界", maxFirmwareMetadataLength+1))
+			requireInvalidArgument(t, metadata, fmt.Sprintf(
+				"%s must be at most %d Unicode code points", field.name, maxFirmwareMetadataLength,
+			))
+
+			field.set(&metadata, "v1\x00custom")
+			requireInvalidArgument(t, metadata, field.name+" must not contain U+0000")
+		})
+	}
+}
+
+func TestFirmwareMetadata_MatchesTargetFoldsASCIIOnly(t *testing.T) {
+	t.Parallel()
+
+	metadata := FirmwareMetadata{TargetManufacturer: "Kelvin", TargetModel: "K1"}
+	assert.True(t, metadata.MatchesTarget("KELVIN", "k1"))
+	assert.True(t, metadata.MatchesTarget("  kelvin ", "K1"))
+	assert.False(t, metadata.MatchesTarget("\u212Aelvin", "K1"), "Kelvin sign must not fold to k")
+	assert.False(t, metadata.MatchesTarget("Kelvin", "\u212A1"))
+	assert.False(t, metadata.MatchesTarget("", "K1"))
+	assert.False(t, metadata.MatchesTarget("Kelvin", ""))
+}
+
 func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

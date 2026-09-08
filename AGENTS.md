@@ -76,6 +76,17 @@ These are the rules that recur in code review and that contributors most often m
     confirms they understand the checked-in expected screenshots will be
     replaced. After refreshing snapshots, remind the developer to review every
     updated image before committing or pushing.
+12. **Proto contracts: validate requests, describe responses.** protovalidate
+    runs on requests only, so `buf.validate` rules on request messages must be
+    complete: every knob is accepted only in the context that consumes it, so
+    nothing a caller sets is silently ignored. Response messages carry
+    *structural* rules only (bounds, presence/pairing, counts summing, enum
+    defined-only); do not encode engine logic (state derivation, evidence
+    arithmetic, readiness, per-device criteria) as response CEL — that is a
+    second copy of the server's logic that never executes in production. Say
+    "the server derives X" in comments, never "validation enforces X". While a
+    contract is unmerged it carries no history: no `reserved` numbers or names,
+    no compatibility values; renumber instead.
 
 ## Git workflow
 

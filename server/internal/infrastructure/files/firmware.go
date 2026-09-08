@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -65,6 +66,7 @@ const firmwareMetadataFilename = "metadata.json"
 var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
 const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
+const maxFirmwareMetadataLength = 255
 
 // allowedFirmwareExtensions lists file suffixes accepted for firmware uploads.
 // .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer format.
@@ -100,15 +102,39 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 
 // MatchesTarget reports whether the firmware applies to a device with the
 // given manufacturer and model. Unlike matches (exact comparison, used for
-// upload dedup), deployment compatibility is case-insensitive, and a device
-// with unknown manufacturer or model never matches.
+// upload dedup), deployment compatibility folds ASCII letters
+// case-insensitively, and a device with unknown manufacturer or model never
+// matches.
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
 	manufacturer = strings.TrimSpace(manufacturer)
 	model = strings.TrimSpace(model)
 	return manufacturer != "" && model != "" &&
-		strings.EqualFold(manufacturer, m.TargetManufacturer) &&
-		strings.EqualFold(model, m.TargetModel)
+		equalFoldASCII(manufacturer, m.TargetManufacturer) &&
+		equalFoldASCII(model, m.TargetModel)
+}
+
+// equalFoldASCII compares two strings byte for byte, folding only ASCII
+// letters. strings.EqualFold would also apply Unicode simple folding, letting
+// look-alikes such as U+212A KELVIN SIGN match "k" and select a different
+// hardware identity than the one the assignment names.
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		ca, cb := a[i], b[i]
+		if 'A' <= ca && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if 'A' <= cb && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateFirmwareMetadata checks that target metadata is complete.
@@ -132,6 +158,31 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	}
 	if metadata.FirmwareVersion == "" {
 		return fleeterror.NewInvalidArgumentError("firmware_version is required")
+	}
+	for _, field := range []struct{ name, value string }{
+		{"target_manufacturer", metadata.TargetManufacturer},
+		{"target_model", metadata.TargetModel},
+		{"firmware_version", metadata.FirmwareVersion},
+	} {
+		if err := validateFirmwareMetadataText(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFirmwareMetadataText enforces the bounds of the stored device
+// identity and version columns (VARCHAR(255), no U+0000) and of the rollout
+// contract's target fields. Metadata outside them could never match a miner,
+// be named by an assignment, or persist as a miner's target.
+func validateFirmwareMetadataText(name, value string) error {
+	if strings.ContainsRune(value, 0) {
+		return fleeterror.NewInvalidArgumentErrorf("%s must not contain U+0000", name)
+	}
+	if utf8.RuneCountInString(value) > maxFirmwareMetadataLength {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"%s must be at most %d Unicode code points", name, maxFirmwareMetadataLength,
+		)
 	}
 	return nil
 }
