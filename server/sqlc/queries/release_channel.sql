@@ -790,8 +790,10 @@ WHERE rollout_id = sqlc.arg('rollout_id')
   AND halted_at IS NULL;
 
 -- name: RequeueFirmwareRolloutDevices :many
--- Re-queues every halted miner of an active rollout from scratch and
--- returns them.
+-- Re-queues every halted miner still in scope of an active rollout from
+-- scratch and returns them. A halted miner that has since left the scope
+-- stays as it is; re-inclusion brings it back still halted, for the next
+-- retry.
 UPDATE firmware_rollout_device
 SET halted_at = NULL,
     halt_reason = '',
@@ -803,6 +805,7 @@ SET halted_at = NULL,
     verified_at = NULL
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND halted_at IS NOT NULL
+  AND excluded_at IS NULL
 RETURNING device_id;
 
 -- name: ExcludeFirmwareRolloutDevices :exec

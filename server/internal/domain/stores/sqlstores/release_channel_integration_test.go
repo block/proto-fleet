@@ -253,7 +253,15 @@ func TestReleaseChannelQueries_MismatchAndSuppression(t *testing.T) {
 	require.Len(t, suppressed, 1)
 	require.Equal(t, "halted", suppressed[0].DeviceIdentifier)
 
+	// A halted miner that left the scope is not the retry's to reset.
+	require.NoError(t, q.ExcludeFirmwareRolloutDevices(f.t.Context(), sqlc.ExcludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{halted.id}}))
 	requeued, err := q.RequeueFirmwareRolloutDevices(f.t.Context(), rollout)
+	require.NoError(t, err)
+	require.Empty(t, requeued)
+	require.NoError(t, q.ReincludeFirmwareRolloutDevices(f.t.Context(), sqlc.ReincludeFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{halted.id}}))
+	require.Equal(t, []string{"stale"}, mismatchedForNext(), "back in scope, still halted, still suppressed")
+
+	requeued, err = q.RequeueFirmwareRolloutDevices(f.t.Context(), rollout)
 	require.NoError(t, err)
 	require.Equal(t, []int64{halted.id}, requeued)
 	require.Equal(t, []string{"halted", "stale"}, mismatchedForNext(), "retry lifts the suppression")
