@@ -25,7 +25,7 @@ type fakeDispatcher struct {
 	sent [][]string
 }
 
-func (f *fakeDispatcher) FirmwareUpdate(_ context.Context, selector *commandpb.DeviceSelector, _ string) (*command.CommandResult, error) {
+func (f *fakeDispatcher) FirmwareUpdateArtifact(_ context.Context, selector *commandpb.DeviceSelector, _ string, _ files.FirmwareMetadata) (*command.CommandResult, error) {
 	ids := selector.GetIncludeDevices().GetDeviceIdentifiers()
 	f.sent = append(f.sent, ids)
 	return &command.CommandResult{DispatchedCount: len(ids), DispatchedDeviceIdentifiers: ids}, nil

@@ -41,7 +41,7 @@ import (
 
 // CommandDispatcher is the slice of the command service the rollout domain uses.
 type CommandDispatcher interface {
-	FirmwareUpdate(ctx context.Context, deviceSelector *commandpb.DeviceSelector, firmwareFileID string) (*command.CommandResult, error)
+	FirmwareUpdateArtifact(ctx context.Context, deviceSelector *commandpb.DeviceSelector, checksum string, metadata files.FirmwareMetadata) (*command.CommandResult, error)
 }
 
 // FirmwareFiles is the slice of the firmware files service the rollout domain
@@ -338,7 +338,6 @@ func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, sc
 	if err := q.DeleteReleaseChannelTargets(ctx, channelID); err != nil {
 		return fleeterror.NewInternalErrorf("clear channel targets: %v", err)
 	}
-	var deviceIDs []int64
 	if len(scope.DeviceIdentifiers) > 0 {
 		devices, err := q.ListDeviceIDsByIdentifiers(ctx, sqlc.ListDeviceIDsByIdentifiersParams{
 			OrgID: orgID, DeviceIdentifiers: scope.DeviceIdentifiers,
@@ -357,18 +356,21 @@ func (s *Service) replaceTargets(ctx context.Context, orgID, channelID int64, sc
 				}
 			}
 		}
-		for _, d := range devices {
-			deviceIDs = append(deviceIDs, d.ID)
+	}
+	types, ids := scope.targets()
+	if len(ids) > 0 {
+		if err := q.InsertReleaseChannelTargets(ctx, sqlc.InsertReleaseChannelTargetsParams{
+			ChannelID: channelID, TargetTypes: types, TargetIds: ids,
+		}); err != nil {
+			return fleeterror.NewInternalErrorf("save channel targets: %v", err)
 		}
 	}
-	types, ids := scope.targets(deviceIDs)
-	if len(ids) == 0 {
-		return nil
-	}
-	if err := q.InsertReleaseChannelTargets(ctx, sqlc.InsertReleaseChannelTargetsParams{
-		ChannelID: channelID, TargetTypes: types, TargetIds: ids,
-	}); err != nil {
-		return fleeterror.NewInternalErrorf("save channel targets: %v", err)
+	if len(scope.DeviceIdentifiers) > 0 {
+		if err := q.InsertReleaseChannelMinerTargets(ctx, sqlc.InsertReleaseChannelMinerTargetsParams{
+			ChannelID: channelID, DeviceIdentifiers: scope.DeviceIdentifiers,
+		}); err != nil {
+			return fleeterror.NewInternalErrorf("save channel miner targets: %v", err)
+		}
 	}
 	return nil
 }

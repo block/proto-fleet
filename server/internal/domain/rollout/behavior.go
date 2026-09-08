@@ -42,8 +42,8 @@ type Scope struct {
 	BuildingIDs []int64
 	RackIDs     []int64
 	GroupIDs    []int64
-	// Individual miners by device identifier (the client's currency);
-	// stored by device id.
+	// Individual miners are stored by device identifier so their selectors
+	// survive deletion and re-pairing with a new device row.
 	DeviceIdentifiers []string
 }
 
@@ -60,9 +60,9 @@ func (s *Scope) normalize() {
 	s.DeviceIdentifiers = uniqueNonEmpty(s.DeviceIdentifiers)
 }
 
-// targets flattens the scope into parallel (type, id) arrays for storage,
-// given the device ids the identifiers resolved to.
-func (s *Scope) targets(deviceIDs []int64) (types []string, ids []int64) {
+// targets flattens placement selectors into parallel (type, id) arrays.
+// Individual miner identifiers are stored separately.
+func (s *Scope) targets() (types []string, ids []int64) {
 	add := func(kind string, list []int64) {
 		for _, id := range list {
 			types = append(types, kind)
@@ -73,7 +73,6 @@ func (s *Scope) targets(deviceIDs []int64) (types []string, ids []int64) {
 	add(TargetTypeBuilding, s.BuildingIDs)
 	add(TargetTypeRack, s.RackIDs)
 	add(TargetTypeGroup, s.GroupIDs)
-	add(TargetTypeMiner, deviceIDs)
 	return types, ids
 }
 
