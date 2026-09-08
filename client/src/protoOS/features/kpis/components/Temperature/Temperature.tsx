@@ -10,6 +10,11 @@ import Stats from "@/shared/components/Stats";
 
 type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
+const singularTitleCase = (segmentsLabel: string) => {
+  const singular = segmentsLabel.endsWith("s") ? segmentsLabel.slice(0, -1) : segmentsLabel;
+  return singular.charAt(0).toUpperCase() + singular.slice(1);
+};
+
 const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: string): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
 
@@ -36,7 +41,7 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F", segmentsLabel: s
 
   if (lowestPerformer) {
     baseStats.push({
-      label: `Hottest ${segmentsLabel.slice(0, -1)}`,
+      label: `Hottest ${singularTitleCase(segmentsLabel)}`,
       value: lowestPerformer,
       size: "small",
     });
