@@ -6,23 +6,32 @@
 -- member of an assigned pair not running its assigned artifact; each run for
 -- one (channel, manufacturer, model) tuple is a firmware_rollout.
 --
--- Identity conventions (see proto/rollout/v1/rollout.proto):
---   * Assignment keys are canonical printable-ASCII manufacturer/model strings
---     compared ASCII-case-insensitively: lower(x COLLATE "C") folds A-Z only.
---     Members are matched to a pair by folding their observed identity the
---     same way after trimming.
+-- Conventions (see proto/rollout/v1/rollout.proto):
+--   * Pair keys and observed device identities are compared through
+--     release_channel_pair_key(), which trims ASCII whitespace and folds A-Z.
 --   * Firmware is identified by the SHA-256 of its payload
 --     (firmware_checksum), never by file id; file ids are resolved at read and
 --     dispatch time from the files service.
+--   * firmware_rollout.revision advances exactly once per transaction that
+--     changes the rollout row, its target rows or their deployment
+--     provenance, so a logical change is one bump however many statements
+--     make it.
+
+-- Trims the whitespace Go's strings.TrimSpace trims and folds A-Z only
+-- (lower() under the "C" collation). NULL folds to ''.
+CREATE OR REPLACE FUNCTION release_channel_pair_key(text)
+RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+AS $$ SELECT lower(btrim(COALESCE($1, ''), E' \t\n\r\f\v') COLLATE "C") $$;
 
 CREATE TABLE release_channel (
     id BIGSERIAL PRIMARY KEY,
     org_id BIGINT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    -- Update behavior. Copied onto each rollout when it starts so editing
-    -- the channel never changes a run in flight, except max_concurrent_offline
-    -- which is channel-wide and live.
+    -- Update behavior, copied onto each rollout when it starts so editing the
+    -- channel never changes a run in flight. max_concurrent_offline is the
+    -- exception: it is channel-wide and read live.
     method TEXT NOT NULL DEFAULT 'all_at_once',              -- all_at_once | batched | pilot_then_continue | delegated
     order_by TEXT NOT NULL DEFAULT 'least_efficient_first',  -- least_efficient_first | random
     batch_size INT NOT NULL DEFAULT 0,                       -- batched
@@ -44,15 +53,23 @@ CREATE TABLE release_channel (
     UNIQUE (org_id, name)
 );
 
--- Which miners a channel applies to. A miner is in the channel when any
--- selector matches its current placement (fleet_device_placement).
+-- Scope selectors. Sites, buildings, racks and groups are referenced by id;
+-- miners by device identifier, which survives the miner being deleted and
+-- paired again under a new device row.
 CREATE TABLE release_channel_target (
     channel_id BIGINT NOT NULL REFERENCES release_channel(id) ON DELETE CASCADE,
     target_type TEXT NOT NULL CHECK (target_type IN ('site', 'building', 'rack', 'group', 'miner')),
-    target_id BIGINT NOT NULL,
-    PRIMARY KEY (channel_id, target_type, target_id)
+    target_id BIGINT NULL,
+    device_identifier TEXT NULL,
+    CHECK (CASE WHEN target_type = 'miner'
+                THEN target_id IS NULL AND device_identifier IS NOT NULL
+                ELSE target_id IS NOT NULL AND device_identifier IS NULL END)
 );
 
+CREATE UNIQUE INDEX idx_release_channel_target_id
+    ON release_channel_target(channel_id, target_type, target_id) WHERE target_type <> 'miner';
+CREATE UNIQUE INDEX idx_release_channel_target_miner
+    ON release_channel_target(channel_id, device_identifier) WHERE target_type = 'miner';
 CREATE INDEX idx_release_channel_target_lookup ON release_channel_target(target_type, target_id);
 
 -- Desired firmware per (channel, manufacturer, model) pair. The row outlives
@@ -74,8 +91,8 @@ CREATE TABLE release_channel_firmware (
     PRIMARY KEY (channel_id, manufacturer, model)
 );
 
-CREATE UNIQUE INDEX idx_release_channel_firmware_folded_key
-    ON release_channel_firmware(channel_id, lower(manufacturer COLLATE "C"), lower(model COLLATE "C"));
+CREATE UNIQUE INDEX idx_release_channel_firmware_pair
+    ON release_channel_firmware(channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model));
 
 -- One firmware change for one (manufacturer, model) pair within one channel.
 CREATE TABLE firmware_rollout (
@@ -115,9 +132,10 @@ CREATE TABLE firmware_rollout (
     current_batch INT NOT NULL DEFAULT 0,
     stage_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     paused_at TIMESTAMPTZ NULL,
-    -- Revision rule: +1 on every change to this row or to its devices
-    -- (trigger below); updated_at records when.
+    -- Revision rule (header): maintained by the triggers below; revision_txid
+    -- is the transaction that last advanced it.
     revision BIGINT NOT NULL DEFAULT 1,
+    revision_txid BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Actors: user | api_key | system, with id (0 for system) and display name.
     started_by_type TEXT NOT NULL DEFAULT 'system',
@@ -132,17 +150,23 @@ CREATE TABLE firmware_rollout (
 
 -- At most one active rollout per (channel, manufacturer, model).
 CREATE UNIQUE INDEX idx_one_active_rollout_per_pair
-    ON firmware_rollout(channel_id, lower(manufacturer COLLATE "C"), lower(model COLLATE "C"))
+    ON firmware_rollout(channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model))
     WHERE status = 'active';
 
-CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, created_at DESC);
+-- Keyset order of ListFirmwareRollouts.
+CREATE INDEX idx_firmware_rollout_org_created ON firmware_rollout(org_id, created_at DESC, id DESC);
 CREATE INDEX idx_firmware_rollout_org_updated ON firmware_rollout(org_id, updated_at);
 
 CREATE OR REPLACE FUNCTION firmware_rollout_bump_revision()
 RETURNS TRIGGER AS $$
+DECLARE
+    txid BIGINT := pg_current_xact_id()::text::bigint;
 BEGIN
-    NEW.revision = OLD.revision + 1;
-    NEW.updated_at = now();
+    IF OLD.revision_txid <> txid THEN
+        NEW.revision = OLD.revision + 1;
+        NEW.revision_txid = txid;
+        NEW.updated_at = now();
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -154,12 +178,12 @@ CREATE TRIGGER firmware_rollout_revision
 
 -- Every miner a rollout targets: snapshotted at start (with its baseline
 -- health), late joiners appended by the enforcement loop, leavers marked
--- excluded. This is the rollout's target set; membership is not re-derived
--- from the channel once a rollout has finished, so history stays stable.
+-- excluded. Membership is not re-derived from the channel once a rollout has
+-- finished, so history stays stable.
 CREATE TABLE firmware_rollout_device (
     rollout_id BIGINT NOT NULL REFERENCES firmware_rollout(id) ON DELETE CASCADE,
     device_id BIGINT NOT NULL REFERENCES device(id) ON DELETE CASCADE,
-    -- 0-based batch; NULL for the unbatched rest / late joiners.
+    -- 0-based batch; NULL for the unbatched rest and for late joiners.
     batch_index INT NULL,
     -- Order within the rollout (efficiency-ranked or shuffled at start);
     -- NULL for late joiners, which sort last.
@@ -170,9 +194,10 @@ CREATE TABLE firmware_rollout_device (
     first_sent_at TIMESTAMPTZ NULL,
     last_sent_at TIMESTAMPTZ NULL,
     -- Set when the miner will not be retried for this version: attempts
-    -- exhausted ('failed'), the rollout was canceled ('canceled'), or a caller
-    -- settled it without updating ('skipped'). Enforcement suppresses failed
-    -- and skipped miners for the rest of the assignment generation;
+    -- exhausted ('failed'), the rollout was canceled ('canceled') or a caller
+    -- settled it without updating ('skipped'). A halted miner stays out of
+    -- enforcement while this is the most recent rollout of the assignment
+    -- generation that holds it (firmware_rollout_suppressed_device);
     -- RetryFailedRolloutDevices clears it.
     halted_at TIMESTAMPTZ NULL,
     halt_reason TEXT NOT NULL DEFAULT '',  -- failed | canceled | skipped
@@ -181,7 +206,7 @@ CREATE TABLE firmware_rollout_device (
     -- Set when the miner left the channel scope while the rollout ran.
     excluded_at TIMESTAMPTZ NULL,
     -- Health when the miner was snapshotted into the rollout; NULL for late
-    -- joiners, which are judged on version + online only.
+    -- joiners, which are judged on version and being online only.
     baseline_status TEXT NULL,
     baseline_hash_rate_hs DOUBLE PRECISION NULL,
     baseline_power_w DOUBLE PRECISION NULL,
@@ -195,30 +220,6 @@ CREATE TABLE firmware_rollout_device (
 
 CREATE INDEX idx_firmware_rollout_device_device ON firmware_rollout_device(device_id);
 
--- Any change to a rollout's devices is a change to the rollout under the
--- revision rule: one bump per statement per rollout.
-CREATE OR REPLACE FUNCTION firmware_rollout_devices_changed()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE firmware_rollout
-    SET updated_at = now()
-    WHERE id IN (SELECT DISTINCT rollout_id FROM changed_rows);
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER firmware_rollout_device_inserted
-    AFTER INSERT ON firmware_rollout_device
-    REFERENCING NEW TABLE AS changed_rows
-    FOR EACH STATEMENT
-    EXECUTE FUNCTION firmware_rollout_devices_changed();
-
-CREATE TRIGGER firmware_rollout_device_updated
-    AFTER UPDATE ON firmware_rollout_device
-    REFERENCING NEW TABLE AS changed_rows
-    FOR EACH STATEMENT
-    EXECUTE FUNCTION firmware_rollout_devices_changed();
-
 -- Managed-deployment provenance: the artifact Fleet last deployed to a miner,
 -- recorded when a rollout target reports the target version. A member is on
 -- target only when its reported version and its provenance both match the
@@ -231,109 +232,160 @@ CREATE TABLE device_firmware_deployment (
     deployed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Every (channel, miner) selector hit, with how specific the selector was.
--- One row per hit, so a miner in a rack and a group of the same channel
--- appears twice; consume through release_channel_member or aggregate.
---
--- Placement follows the same rules as fleet_device_placement (000134): a
--- miner's rack is its live 'rack' set membership, its building the rack's
--- building falling back to device.building_id, its site device.site_id, and
--- its groups its live 'group' set memberships. The joins are inlined rather
--- than read through that view so neither view blocks changes to the other.
+-- Touches every rollout referenced by the rows one statement inserted or
+-- updated; firmware_rollout_revision turns the touches into one bump per
+-- transaction.
+CREATE OR REPLACE FUNCTION firmware_rollout_touch_from_rows()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE firmware_rollout
+    SET updated_at = now()
+    WHERE id IN (SELECT DISTINCT rollout_id FROM changed_rows WHERE rollout_id IS NOT NULL);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER firmware_rollout_device_inserted
+    AFTER INSERT ON firmware_rollout_device
+    REFERENCING NEW TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
+CREATE TRIGGER firmware_rollout_device_updated
+    AFTER UPDATE ON firmware_rollout_device
+    REFERENCING NEW TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
+CREATE TRIGGER device_firmware_deployment_inserted
+    AFTER INSERT ON device_firmware_deployment
+    REFERENCING NEW TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
+CREATE TRIGGER device_firmware_deployment_updated
+    AFTER UPDATE ON device_firmware_deployment
+    REFERENCING NEW TABLE AS changed_rows
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION firmware_rollout_touch_from_rows();
+
+-- Live placement of every non-deleted device: its site, its building (the
+-- rack's building, falling back to device.building_id) and its rack. Same
+-- rules as fleet_device_placement (000134), restated so that view and this
+-- domain can change independently. Groups are read from
+-- device_set_membership directly because a device can be in several.
+CREATE VIEW release_channel_placement AS
+SELECT d.org_id,
+       d.id AS device_id,
+       d.device_identifier,
+       d.site_id,
+       COALESCE(dsr.building_id, d.building_id) AS building_id,
+       rs.id AS rack_id
+FROM device d
+LEFT JOIN device_set_membership rm ON rm.org_id = d.org_id AND rm.device_id = d.id AND rm.device_set_type = 'rack'
+LEFT JOIN device_set rs ON rs.id = rm.device_set_id AND rs.deleted_at IS NULL
+LEFT JOIN device_set_rack dsr ON dsr.device_set_id = rs.id
+WHERE d.deleted_at IS NULL;
+
+-- Every (channel, miner) selector hit with the selector's specificity (miner
+-- 1, group 2, rack 3, building 4, site 5). One row per hit, so a miner in a
+-- rack and a group of the same channel appears twice; consume through
+-- release_channel_member.
 CREATE VIEW release_channel_match AS
-SELECT t.channel_id, c.org_id, d.id AS device_id, 1 AS specificity
+SELECT t.channel_id, c.org_id, p.device_id, 1 AS specificity
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
-JOIN device d ON d.id = t.target_id AND d.org_id = c.org_id AND d.deleted_at IS NULL
+JOIN release_channel_placement p ON p.org_id = c.org_id AND p.device_identifier = t.device_identifier
 WHERE t.target_type = 'miner'
 UNION ALL
-SELECT t.channel_id, c.org_id, d.id, 2
+SELECT t.channel_id, c.org_id, gm.device_id, 2
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
 JOIN device_set gs ON gs.id = t.target_id AND gs.org_id = c.org_id AND gs.type = 'group' AND gs.deleted_at IS NULL
 JOIN device_set_membership gm ON gm.device_set_id = gs.id AND gm.device_set_type = 'group'
-JOIN device d ON d.id = gm.device_id AND d.org_id = c.org_id AND d.deleted_at IS NULL
+JOIN device d ON d.id = gm.device_id AND d.deleted_at IS NULL
 WHERE t.target_type = 'group'
 UNION ALL
-SELECT t.channel_id, c.org_id, d.id, 3
+SELECT t.channel_id, c.org_id, p.device_id, 3
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
-JOIN device_set rs ON rs.id = t.target_id AND rs.org_id = c.org_id AND rs.type = 'rack' AND rs.deleted_at IS NULL
-JOIN device_set_membership rm ON rm.device_set_id = rs.id AND rm.device_set_type = 'rack'
-JOIN device d ON d.id = rm.device_id AND d.org_id = c.org_id AND d.deleted_at IS NULL
+JOIN release_channel_placement p ON p.org_id = c.org_id AND p.rack_id = t.target_id
 WHERE t.target_type = 'rack'
 UNION ALL
-SELECT t.channel_id, c.org_id, d.id, 4
+SELECT t.channel_id, c.org_id, p.device_id, 4
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
-JOIN device d ON d.org_id = c.org_id AND d.deleted_at IS NULL
-LEFT JOIN device_set_membership rm ON rm.org_id = d.org_id AND rm.device_id = d.id AND rm.device_set_type = 'rack'
-LEFT JOIN device_set rs ON rs.id = rm.device_set_id AND rs.deleted_at IS NULL
-LEFT JOIN device_set_rack dsr ON dsr.device_set_id = rs.id
+JOIN release_channel_placement p ON p.org_id = c.org_id AND p.building_id = t.target_id
 WHERE t.target_type = 'building'
-  AND COALESCE(dsr.building_id, d.building_id) = t.target_id
 UNION ALL
-SELECT t.channel_id, c.org_id, d.id, 5
+SELECT t.channel_id, c.org_id, p.device_id, 5
 FROM release_channel_target t
 JOIN release_channel c ON c.id = t.channel_id
-JOIN device d ON d.org_id = c.org_id AND d.deleted_at IS NULL AND d.site_id = t.target_id
+JOIN release_channel_placement p ON p.org_id = c.org_id AND p.site_id = t.target_id
 WHERE t.target_type = 'site';
 
--- How every channel that matches a miner is resolved. Rows exist only for
--- miners matched by more than one channel: the unique most specific match is
--- the 'winner', less specific matches are 'loser', and when several channels
--- tie at the most specific level every one of them is 'excluded_tie' and the
--- miner belongs to no channel until the conflict is removed.
-CREATE VIEW release_channel_conflict AS
-WITH per_channel AS (
+-- One row per (channel, miner) the channel matches, with the miner's most
+-- specific selector in that channel and how it ranks against the miner's other
+-- channels: best is the lowest specificity across them, at_level how many
+-- channels share this row's specificity, channels how many match at all.
+-- Every window is partitioned by (org_id, device_id) so org and device
+-- predicates reach release_channel_match.
+CREATE VIEW release_channel_resolution AS
+SELECT channel_id,
+       org_id,
+       device_id,
+       specificity,
+       min(specificity) OVER (PARTITION BY org_id, device_id) AS best,
+       count(*) OVER (PARTITION BY org_id, device_id, specificity) AS at_level,
+       count(*) OVER (PARTITION BY org_id, device_id) AS channels
+FROM (
     SELECT channel_id, org_id, device_id, min(specificity) AS specificity
     FROM release_channel_match
     GROUP BY channel_id, org_id, device_id
-), per_device AS (
-    SELECT device_id, min(specificity) AS best, count(*) AS channels
-    FROM per_channel
-    GROUP BY device_id
-), at_best AS (
-    SELECT pc.device_id, count(*) AS n
-    FROM per_channel pc
-    JOIN per_device pd ON pd.device_id = pc.device_id AND pc.specificity = pd.best
-    GROUP BY pc.device_id
-)
-SELECT pc.channel_id,
-       pc.org_id,
-       pc.device_id,
-       pc.specificity,
-       CASE
-           WHEN pc.specificity = pd.best AND ab.n = 1 THEN 'winner'
-           WHEN pc.specificity = pd.best THEN 'excluded_tie'
-           ELSE 'loser'
-       END AS resolution
-FROM per_channel pc
-JOIN per_device pd ON pd.device_id = pc.device_id
-JOIN at_best ab ON ab.device_id = pc.device_id
-WHERE pd.channels > 1;
+) per_channel;
 
 -- The channel each miner belongs to: at most one row per miner. A miner
--- matched by one channel belongs to it; a miner matched by several belongs to
--- the unique most specific one (flagged conflicted) or to none on a tie.
+-- belongs to the unique most specific channel that matches it, flagged
+-- conflicted when others match too, and to none when several tie.
 CREATE VIEW release_channel_member AS
-WITH per_channel AS (
-    SELECT channel_id, org_id, device_id, min(specificity) AS specificity
-    FROM release_channel_match
-    GROUP BY channel_id, org_id, device_id
-), per_device AS (
-    SELECT device_id, min(specificity) AS best, count(*) AS channels
-    FROM per_channel
-    GROUP BY device_id
-), winners AS (
-    SELECT pc.channel_id,
-           pc.org_id,
-           pc.device_id,
-           pd.channels,
-           count(*) OVER (PARTITION BY pc.device_id) AS at_best
-    FROM per_channel pc
-    JOIN per_device pd ON pd.device_id = pc.device_id AND pc.specificity = pd.best
-)
 SELECT channel_id, org_id, device_id, channels > 1 AS conflicted
-FROM winners
-WHERE at_best = 1;
+FROM release_channel_resolution
+WHERE specificity = best AND at_level = 1;
+
+-- How every channel matching a multiply-matched miner is resolved: the unique
+-- most specific match is the 'winner', less specific matches are 'loser', and
+-- channels tying at the most specific level are all 'excluded_tie'.
+CREATE VIEW release_channel_conflict AS
+SELECT channel_id,
+       org_id,
+       device_id,
+       specificity,
+       CASE
+           WHEN specificity = best AND at_level = 1 THEN 'winner'
+           WHEN specificity = best THEN 'excluded_tie'
+           ELSE 'loser'
+       END AS resolution
+FROM release_channel_resolution
+WHERE channels > 1;
+
+-- Miners the enforcement loop leaves alone for a pair: halted (failed,
+-- canceled or skipped) in the most recent rollout of the pair's assignment
+-- generation that holds them, until RetryFailedRolloutDevices re-queues them.
+CREATE VIEW firmware_rollout_suppressed_device AS
+SELECT channel_id, manufacturer_key, model_key, assignment_generation, device_id
+FROM (
+    SELECT r.channel_id,
+           release_channel_pair_key(r.manufacturer) AS manufacturer_key,
+           release_channel_pair_key(r.model) AS model_key,
+           r.assignment_generation,
+           rd.device_id,
+           rd.halted_at,
+           row_number() OVER (
+               PARTITION BY r.channel_id, release_channel_pair_key(r.manufacturer), release_channel_pair_key(r.model),
+                            r.assignment_generation, rd.device_id
+               ORDER BY r.created_at DESC, r.id DESC
+           ) AS recency
+    FROM firmware_rollout_device rd
+    JOIN firmware_rollout r ON r.id = rd.rollout_id
+) latest
+WHERE recency = 1 AND halted_at IS NOT NULL;

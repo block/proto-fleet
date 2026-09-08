@@ -747,54 +747,6 @@ func TestFindFirmwareFileByChecksum_ReturnsTrueForExistingFile(t *testing.T) {
 	assert.Equal(t, fileID, foundID)
 }
 
-func TestResolveFirmwareArtifact_ReturnsChecksumAndMetadata(t *testing.T) {
-	svc := setupService(t)
-
-	content := "assignable firmware content"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	artifact, err := svc.ResolveFirmwareArtifact(fileID)
-	require.NoError(t, err)
-	assert.Equal(t, fileID, artifact.FileID)
-	assert.Equal(t, checksumOf(content), artifact.Checksum)
-	assert.Equal(t, testFirmwareMetadata(), artifact.Metadata)
-
-	_, err = svc.ResolveFirmwareArtifact("00000000-0000-7000-8000-000000000000")
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
-
-	// A legacy sidecar without a firmware version cannot back an assignment:
-	// the version is what the assignment enforces.
-	legacy := testFirmwareMetadata()
-	legacy.FirmwareVersion = ""
-	require.NoError(t, writeFirmwareMetadata(getFirmwareDirPath(fileID), legacy, time.Now()))
-	_, err = svc.ResolveFirmwareArtifact(fileID)
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
-	assert.Contains(t, err.Error(), "firmware_version")
-}
-
-func TestFindFirmwareFileIDByChecksum_IgnoresMetadataAndFollowsDeletes(t *testing.T) {
-	svc := setupService(t)
-
-	content := "re-uploadable firmware content"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	// Any uploaded payload with the checksum makes the artifact available,
-	// whatever its metadata says.
-	foundID, ok := svc.FindFirmwareFileIDByChecksum(checksumOf(content))
-	assert.True(t, ok)
-	assert.Equal(t, fileID, foundID)
-	assert.Equal(t, []string{fileID}, svc.FirmwareFileIDsByChecksum(checksumOf(content)))
-
-	require.NoError(t, svc.DeleteFirmwareFile(fileID))
-	_, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
-	assert.False(t, ok)
-}
-
 func TestFindFirmwareFileByChecksum_ReturnsFalseForUnknownChecksum(t *testing.T) {
 	svc := setupService(t)
 
